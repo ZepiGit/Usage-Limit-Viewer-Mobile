@@ -162,7 +162,7 @@ struct UsageBar: View {
     }
 }
 
-/// Matches the five text glyphs used by Android's provider badges.
+/// Uses the same selectable provider marks as the account list and widgets.
 struct ProviderBadge: View {
     @Environment(\.providerIconChoices) private var choices
     let provider: ProviderID

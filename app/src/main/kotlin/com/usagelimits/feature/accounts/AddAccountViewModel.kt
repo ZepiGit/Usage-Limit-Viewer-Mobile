@@ -16,6 +16,7 @@ import com.usagelimits.providers.LoginChallenge
 import com.usagelimits.providers.KeyLoginCapable
 import com.usagelimits.providers.codex.CodexProvider
 import com.usagelimits.providers.kimi.KimiProvider
+import com.usagelimits.providers.meta.MetaProvider
 import com.usagelimits.providers.xai.XaiProvider
 import com.usagelimits.widget.WidgetUpdater
 import kotlinx.coroutines.Job
@@ -151,6 +152,7 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                             ProviderId.CODEX -> CodexProvider.displayCode(challenge.userCode)
                             ProviderId.XAI -> XaiProvider.displayCode(challenge.userCode)
                             ProviderId.KIMI -> KimiProvider.displayCode(challenge.userCode)
+                            ProviderId.META -> MetaProvider.displayCode(challenge.userCode)
                             else -> challenge.userCode.substringBefore('|')
                         }
                         _state.value = AddAccountState.AwaitingDeviceCode(

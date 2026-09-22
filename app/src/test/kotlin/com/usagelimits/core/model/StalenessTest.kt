@@ -165,7 +165,7 @@ class StalenessTest {
 
     @Test
     fun `an unstated applicable count leaves the held count spendable`() {
-        // Three of the four providers never report the distinction, so absent must mean
+        // Most providers never report the distinction, so absent must mean
         // "no distinction drawn", not "nothing can be spent".
         val snapshot = UsageSnapshot(
             accountId = "acct",

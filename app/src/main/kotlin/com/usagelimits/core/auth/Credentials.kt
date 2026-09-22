@@ -18,6 +18,16 @@ data class OAuthCredentials(
      * (xAI resolves it via OIDC discovery) rather than having it hardcoded.
      */
     val tokenEndpoint: String? = null,
+    /**
+     * Provider-specific credential material that does not fit the common OAuth tuple.
+     *
+     * Values remain inside the encrypted credential store and are never copied to Room or a
+     * widget. Meta/Muse uses this for the DCA bearer token and the separately minted API key:
+     * the API key is the normal [accessToken], while `dca_token` remains available for the
+     * subscription quota endpoint. The map is deliberately opaque to the common sync code so a
+     * provider can evolve its credential pair without making every other provider aware of it.
+     */
+    val providerData: Map<String, String> = emptyMap(),
 ) {
     /** True when the token is expired, or close enough that a refresh should happen first. */
     fun needsRefresh(nowMs: Long, leadMs: Long = DEFAULT_REFRESH_LEAD_MS): Boolean {
@@ -27,7 +37,8 @@ data class OAuthCredentials(
 
     /** Never render token material, however this object ends up being formatted. */
     override fun toString(): String =
-        "OAuthCredentials(accessToken=***, refreshToken=${if (refreshToken != null) "***" else "null"}, expiresAt=$expiresAt)"
+        "OAuthCredentials(accessToken=***, refreshToken=${if (refreshToken != null) "***" else "null"}, " +
+            "expiresAt=$expiresAt, providerDataPresent=${providerData.isNotEmpty()})"
 
     companion object {
         /** Refresh a little early so an in-flight sync does not race the expiry. */

@@ -10,6 +10,8 @@ public enum ProviderID: String, CaseIterable, Sendable, Codable {
     case antigravity
     case xai
     case kimi
+    case devin
+    case meta
 
     public var displayName: String {
         switch self {
@@ -18,6 +20,8 @@ public enum ProviderID: String, CaseIterable, Sendable, Codable {
         case .antigravity: return "Antigravity"
         case .xai: return "Grok"
         case .kimi: return "Kimi"
+        case .devin: return "Devin"
+        case .meta: return "Meta Muse"
         }
     }
 }

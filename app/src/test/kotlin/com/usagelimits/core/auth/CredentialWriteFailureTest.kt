@@ -90,6 +90,7 @@ class CredentialWriteFailureTest {
         refreshToken = "refresh-value",
         idToken = null,
         expiresAt = 1_700_000_000_000L,
+        providerData = mapOf("dca_token" to "dca:synthetic", "api_key" to "api-synthetic"),
     )
 
     @Test
@@ -128,6 +129,8 @@ class CredentialWriteFailureTest {
 
         assertEquals("access-value", loaded?.accessToken)
         assertEquals("refresh-value", loaded?.refreshToken)
+        assertEquals("dca:synthetic", loaded?.providerData?.get("dca_token"))
+        assertEquals("api-synthetic", loaded?.providerData?.get("api_key"))
         assertEquals(setOf("codex_a"), store.references())
     }
 

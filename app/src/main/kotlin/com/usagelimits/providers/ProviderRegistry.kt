@@ -5,7 +5,9 @@ import com.usagelimits.core.network.HttpClient
 import com.usagelimits.providers.antigravity.AntigravityProvider
 import com.usagelimits.providers.claude.ClaudeProvider
 import com.usagelimits.providers.codex.CodexProvider
+import com.usagelimits.providers.devin.DevinProvider
 import com.usagelimits.providers.kimi.KimiProvider
+import com.usagelimits.providers.meta.MetaProvider
 import com.usagelimits.providers.xai.XaiProvider
 
 /**
@@ -22,6 +24,8 @@ class ProviderRegistry(http: HttpClient) {
         put(ProviderId.ANTIGRAVITY, AntigravityProvider(http))
         put(ProviderId.XAI, XaiProvider(http))
         put(ProviderId.KIMI, KimiProvider(http))
+        put(ProviderId.DEVIN, DevinProvider(http))
+        put(ProviderId.META, MetaProvider(http))
     }
 
     fun forId(id: ProviderId): UsageProvider? = providers[id]

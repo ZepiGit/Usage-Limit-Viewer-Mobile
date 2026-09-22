@@ -2,7 +2,7 @@ import Foundation
 
 /// The authorisation-code half of sign-in, for the providers that redirect to loopback.
 ///
-/// Codex, Claude and Antigravity issue their code to `http://localhost:PORT/...` because their
+/// Codex, Claude, Antigravity and Devin issue their code to `http://localhost:PORT/...` because their
 /// official clients are desktop CLIs. That is not an obstacle to a phone once you notice what RFC 8252
 /// §7.3 actually says: loopback IS the redirect for a native app that cannot register a scheme,
 /// and an iOS app can bind 127.0.0.1. It works because `ASWebAuthenticationSession` presents in
@@ -113,16 +113,35 @@ public struct LoopbackLogin: Sendable {
         let pkce = PKCE.generate()
         let state = Self.randomState()
 
-        let request = AuthorizationRequest(
-            authorizationEndpoint: Self.authorizeEndpoint(for: provider),
-            clientID: Self.clientID(for: provider),
-            redirectURI: redirect.uri,
-            scope: Self.scope(for: provider),
-            state: state,
-            pkce: pkce,
-            extraParameters: Self.extraParameters(for: provider))
+        let url: URL?
+        if provider == .devin {
+            // Devin's CLI deliberately omits client_id and scope. Keep the exact five query
+            // parameters it signs so its callback accepts the request.
+            var components = URLComponents(string: ProviderEndpoints.Devin.authorizationURL)
+            let values = [
+                ("redirect_uri", redirect.uri),
+                ("state", state),
+                ("prompt", "select_account"),
+                ("code_challenge", pkce.challenge),
+                ("code_challenge_method", "S256"),
+            ]
+            components?.percentEncodedQuery = values.map {
+                QueryEncoding.encodeComponent($0.0) + "=" + QueryEncoding.encodeComponent($0.1)
+            }.joined(separator: "&")
+            url = components?.url
+        } else {
+            let request = AuthorizationRequest(
+                authorizationEndpoint: Self.authorizeEndpoint(for: provider),
+                clientID: Self.clientID(for: provider),
+                redirectURI: redirect.uri,
+                scope: Self.scope(for: provider),
+                state: state,
+                pkce: pkce,
+                extraParameters: Self.extraParameters(for: provider))
+            url = request.url
+        }
 
-        guard let url = request.url else {
+        guard let url else {
             throw DeviceLoginError.malformedResponse("the sign-in URL could not be built")
         }
 
@@ -209,7 +228,27 @@ public struct LoopbackLogin: Sendable {
                 endpoint: "codex token",
                 now: now())
 
-        case .xai, .kimi:
+        case .devin:
+            let body = try JSONSerialization.data(
+                withJSONObject: ["code": code, "code_verifier": challenge.verifier], options: [])
+            let response = try await ProviderHTTP.request(
+                httpClient,
+                url: ProviderEndpoints.Devin.tokenURL,
+                method: "POST",
+                headers: ["Accept": "application/json", "Content-Type": "application/json"],
+                body: body,
+                endpoint: "devin token")
+            let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "devin token")
+            guard let rawToken = JSONSupport.string(
+                payload, "token", "session_token", "sessionToken", "access_token", "accessToken"),
+                  !rawToken.isEmpty else {
+                throw ProviderError.malformedPayload("devin token returned no session token")
+            }
+            return OAuthCredentials(
+                accessToken: DevinClient.sessionToken(rawToken),
+                expiresAt: nil)
+
+        case .xai, .kimi, .meta:
             throw DeviceLoginError.unsupportedOnThisPlatform(
                 "This provider signs in with a device code, not a redirect.")
         }
@@ -281,7 +320,10 @@ public struct LoopbackLogin: Sendable {
             // The ID token names the account; the same reading the device flow uses.
             return try await CodexDeviceLogin(httpClient: httpClient, now: now).profile(credentials)
 
-        case .xai, .kimi:
+        case .devin:
+            return try await DevinClient(httpClient: httpClient, now: now).profile(credentials)
+
+        case .xai, .kimi, .meta:
             throw DeviceLoginError.unsupportedOnThisPlatform(
                 "This provider signs in with a device code, not a redirect.")
         }
@@ -360,7 +402,8 @@ public struct LoopbackLogin: Sendable {
         case .codex: return Redirect(ProviderEndpoints.Codex.redirectURI)
         case .claude: return Redirect(ProviderEndpoints.Claude.redirectURI)
         case .antigravity: return Redirect(ProviderEndpoints.Antigravity.redirectURI)
-        case .xai, .kimi: return nil
+        case .devin: return Redirect(ProviderEndpoints.Devin.redirectURI)
+        case .xai, .kimi, .meta: return nil
         }
     }
 
@@ -369,7 +412,8 @@ public struct LoopbackLogin: Sendable {
         case .codex: return ProviderEndpoints.Codex.authorizeURL
         case .claude: return ProviderEndpoints.Claude.authorizeURL
         case .antigravity: return ProviderEndpoints.Antigravity.authEndpoint
-        case .xai, .kimi: return ""
+        case .devin: return ProviderEndpoints.Devin.authorizationURL
+        case .xai, .kimi, .meta: return ""
         }
     }
 
@@ -378,7 +422,7 @@ public struct LoopbackLogin: Sendable {
         case .codex: return ProviderEndpoints.Codex.clientID
         case .claude: return ProviderEndpoints.Claude.clientID
         case .antigravity: return ProviderEndpoints.Antigravity.clientID
-        case .xai, .kimi: return ""
+        case .devin, .xai, .kimi, .meta: return ""
         }
     }
 
@@ -387,7 +431,7 @@ public struct LoopbackLogin: Sendable {
         case .codex: return ProviderEndpoints.Codex.authorizeScope
         case .claude: return ProviderEndpoints.Claude.scope
         case .antigravity: return ProviderEndpoints.Antigravity.scopes.joined(separator: " ")
-        case .xai, .kimi: return ""
+        case .devin, .xai, .kimi, .meta: return ""
         }
     }
 
@@ -401,7 +445,7 @@ public struct LoopbackLogin: Sendable {
         case .codex:
             // What the Codex CLI sends; the authorize page shapes its response by them.
             return ProviderEndpoints.Codex.authorizeExtraParameters
-        case .claude, .xai, .kimi:
+        case .claude, .devin, .meta, .xai, .kimi:
             return [:]
         }
     }

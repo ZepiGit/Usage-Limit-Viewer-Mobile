@@ -43,7 +43,7 @@ android {
         // version code from a different run cannot tell an update from a re-install — and a
         // published release can never go back to a lower code.
         versionCode = System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull() ?: commitCount
-        versionName = System.getenv("ANDROID_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.1.0"
+        versionName = System.getenv("ANDROID_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

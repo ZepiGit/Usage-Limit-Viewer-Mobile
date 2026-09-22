@@ -86,6 +86,7 @@ class KeystoreCredentialStore(
         val idToken: String? = null,
         val expiresAt: Long? = null,
         val tokenEndpoint: String? = null,
+        val providerData: Map<String, String> = emptyMap(),
     )
 
     override suspend fun load(reference: String): OAuthCredentials? = withContext(Dispatchers.IO) {
@@ -99,6 +100,7 @@ class KeystoreCredentialStore(
                 idToken = stored.idToken,
                 expiresAt = stored.expiresAt,
                 tokenEndpoint = stored.tokenEndpoint,
+                providerData = stored.providerData,
             )
         }.onFailure { error ->
             // A record that EXISTS but cannot be read still returns null, because the caller's
@@ -122,6 +124,7 @@ class KeystoreCredentialStore(
                 idToken = credentials.idToken,
                 expiresAt = credentials.expiresAt,
                 tokenEndpoint = credentials.tokenEndpoint,
+                providerData = credentials.providerData,
             )
             val plaintext = json.encodeToString(StoredCredentials.serializer(), stored)
             // `commit` reports whether the write reached disk, and dropping that answer is how

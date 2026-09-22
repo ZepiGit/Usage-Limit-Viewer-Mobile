@@ -8,7 +8,7 @@ This change addresses the release APK feedback from 12 September 2026. Android a
 | --- | --- |
 | Account connection | Connection status is independent of remaining quota and data freshness. An exhausted limit is not a disconnected account. Needs attention contains only accounts requiring sign-in again. |
 | Overview | Connected-account count, next future reset, current app artwork and stable manual account order. |
-| Provider artwork | 19 transparent choices in Settings, grouped into five providers. Claude Code and Gemini are the defaults for Claude and Antigravity respectively. |
+| Provider artwork | 23 transparent choices in Settings, grouped into seven providers. Claude Code and Gemini are the defaults for Claude and Antigravity respectively; Devin and Meta Muse each offer color and monochrome choices. |
 | Ordering | Drag changes persist, and All accounts widgets follow the overview. Custom widget order is independent. |
 | Widget content | Closest Resets sorts by the next future reset. All accounts, One provider, One account and Custom apply exact selections. Removed accounts do not make an account-scoped widget display unrelated accounts. |
 | Widget configuration | Existing values load when editing. Changes have a preview and explicit save. Background and content settings belong to each widget instance. |

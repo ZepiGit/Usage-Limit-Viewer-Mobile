@@ -51,18 +51,50 @@ public struct OAuthCredentials: Codable, Sendable, Equatable {
     /// later as a puzzling API error.
     public let scope: String?
 
+    /// Provider-specific non-display metadata protected with the tokens. Meta Muse stores its
+    /// DCA token separately from the minted API key; older records decode as an empty map.
+    public let providerData: [String: String]
+
+    private enum CodingKeys: String, CodingKey {
+        case accessToken, refreshToken, idToken, expiresAt, scope, providerData
+    }
+
     public init(
         accessToken: String,
         refreshToken: String? = nil,
         idToken: String? = nil,
         expiresAt: Date? = nil,
-        scope: String? = nil
+        scope: String? = nil,
+        providerData: [String: String] = [:]
     ) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.idToken = idToken
         self.expiresAt = expiresAt
         self.scope = scope
+        self.providerData = providerData
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            accessToken: try container.decode(String.self, forKey: .accessToken),
+            refreshToken: try container.decodeIfPresent(String.self, forKey: .refreshToken),
+            idToken: try container.decodeIfPresent(String.self, forKey: .idToken),
+            expiresAt: try container.decodeIfPresent(Date.self, forKey: .expiresAt),
+            scope: try container.decodeIfPresent(String.self, forKey: .scope),
+            // Records written before providerData must remain readable.
+            providerData: try container.decodeIfPresent([String: String].self, forKey: .providerData) ?? [:])
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(accessToken, forKey: .accessToken)
+        try container.encodeIfPresent(refreshToken, forKey: .refreshToken)
+        try container.encodeIfPresent(idToken, forKey: .idToken)
+        try container.encodeIfPresent(expiresAt, forKey: .expiresAt)
+        try container.encodeIfPresent(scope, forKey: .scope)
+        try container.encode(providerData, forKey: .providerData)
     }
 
     /// Whether the access token should be treated as stale at `now`.
@@ -109,7 +141,8 @@ public struct OAuthCredentials: Codable, Sendable, Equatable {
             // Nil is the honest value: it means "the provider did not say", which is exactly
             // what happened, and it is the state the reactive 401 path already exists to handle.
             expiresAt: refreshed.expiresAt,
-            scope: refreshed.scope ?? scope)
+            scope: refreshed.scope ?? scope,
+            providerData: refreshed.providerData.isEmpty ? providerData : refreshed.providerData)
     }
 }
 

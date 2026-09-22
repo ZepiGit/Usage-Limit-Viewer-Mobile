@@ -64,7 +64,7 @@ import com.usagelimits.ui.AppIcons
 
 /** Short symbol standing in for a provider mark. */
 fun providerSymbol(provider: ProviderId): String = when (provider) {
-    // Five silhouettes that cannot be mistaken for each other at badge size, which is the only
+    // Seven silhouettes that cannot be mistaken for each other at badge size, which is the only
     // size these are ever drawn at. The previous set had a hollow diamond, a six-pointed star
     // and a four-pointed star: three variations on "small pointy thing", and on a row of cards
     // the eye could not tell the second from the third without reading the name underneath.
@@ -76,6 +76,8 @@ fun providerSymbol(provider: ProviderId): String = when (provider) {
     ProviderId.ANTIGRAVITY -> "◆"
     ProviderId.XAI -> "✕"
     ProviderId.KIMI -> "☾"
+    ProviderId.DEVIN -> "D"
+    ProviderId.META -> "∞"
 }
 
 fun providerTint(provider: ProviderId): Color = when (provider) {
@@ -84,6 +86,8 @@ fun providerTint(provider: ProviderId): Color = when (provider) {
     ProviderId.ANTIGRAVITY -> UsageColors.Green
     ProviderId.XAI -> UsageColors.TextPrimary
     ProviderId.KIMI -> UsageColors.Indigo
+    ProviderId.DEVIN -> UsageColors.Teal
+    ProviderId.META -> UsageColors.Terracotta
 }
 
 /**

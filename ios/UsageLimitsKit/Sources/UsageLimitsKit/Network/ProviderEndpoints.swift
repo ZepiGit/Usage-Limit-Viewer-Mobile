@@ -225,4 +225,54 @@ public enum ProviderEndpoints {
             ]
         }
     }
+
+    /// Devin / Cognition.
+    ///
+    /// Devin's CLI uses a PKCE authorization-code flow with a loopback callback. The callback
+    /// port is part of the URL the browser signs, so the iOS adapter uses a dedicated local port
+    /// and includes it in every authorization request. The quota endpoint is a Connect-RPC
+    /// method on the Codeium server; the client accepts both its protobuf and JSON encodings.
+    public enum Devin {
+        public static let appBaseURL = "https://app.devin.ai"
+        public static let apiBaseURL = "https://api.devin.ai"
+        public static let serverBaseURL = "https://server.codeium.com"
+        public static let authorizationURL = "\(appBaseURL)/auth/cli/continue"
+        public static let tokenURL = "\(apiBaseURL)/auth/cli/token"
+        public static let profileURL = "\(apiBaseURL)/v3/self"
+        public static let userStatusURL =
+            "\(serverBaseURL)/exa.seat_management_pb.SeatManagementService/GetUserStatus"
+
+        /// Devin accepts a caller-selected loopback port. A fixed port keeps the existing iOS
+        /// listener API synchronous while remaining local-only; callers can override it when a
+        /// conflict is detected by passing a custom endpoint in tests or a future UI flow.
+        public static let callbackPort: UInt16 = 19876
+        public static let redirectURI = "http://127.0.0.1:\(callbackPort)/callback"
+
+        public static let userAgent = "UsageLimits/1.0 (iOS)"
+        public static let ideName = "chisel"
+        public static let ideVersion = "3000.10.21"
+        public static let locale = "en"
+        public static let sessionTokenPrefix = "devin-session-token$"
+        public static let fingerprintHexLength = 732
+    }
+
+    /// Meta Muse.
+    ///
+    /// Meta exposes the Muse CLI sign-in as an RFC 8628 device grant. The access token returned
+    /// by the device token endpoint is a DCA token; the `muse-code/key` call exchanges it for the
+    /// LLM key and returns the subscription/quota metadata used by the app.
+    public enum Meta {
+        public static let clientID = "1031625952748946"
+        public static let authHost = "https://auth.meta.com"
+        public static let deviceAuthorizationURL = "\(authHost)/oidc/device/authorization/"
+        public static let deviceTokenURL = "\(authHost)/oidc/device/token/"
+        public static let deviceVerificationURL = "\(authHost)/device"
+        public static let deviceCodeGrantType =
+            "urn:ietf:params:oauth:grant-type:device_code"
+
+        public static let keyURL = "https://api.meta.ai/muse-code/key"
+        public static let apiBaseURL = "https://api.meta.ai/v1"
+        public static let userAgent = "muse-code/1.0.2"
+        public static let apiVersion = "1.0.0"
+    }
 }

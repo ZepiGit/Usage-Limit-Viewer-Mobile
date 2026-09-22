@@ -36,6 +36,14 @@ object ProviderIconCatalog {
             ProviderIconChoice("kimi", "Kimi · Monochrome", R.drawable.icon_kimi),
             ProviderIconChoice("kimi-text", "Kimi · Wordmark", R.drawable.icon_kimi_text),
         )
+        ProviderId.DEVIN -> listOf(
+            ProviderIconChoice("devin-color", "Devin · Color", R.drawable.icon_devin_color),
+            ProviderIconChoice("devin", "Devin · Monochrome", R.drawable.icon_devin),
+        )
+        ProviderId.META -> listOf(
+            ProviderIconChoice("meta-color", "Meta Muse · Color", R.drawable.icon_meta_color),
+            ProviderIconChoice("meta", "Meta Muse · Monochrome", R.drawable.icon_meta),
+        )
     }
     fun selected(provider: ProviderId, id: String?): ProviderIconChoice =
         choices(provider).firstOrNull { it.id == id } ?: choices(provider).first()

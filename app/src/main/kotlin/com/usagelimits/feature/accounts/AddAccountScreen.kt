@@ -416,6 +416,8 @@ private fun loginHint(provider: ProviderId): String = when (provider) {
     ProviderId.CLAUDE -> "Sign in in your browser"
     ProviderId.ANTIGRAVITY -> "Sign in with Google"
     ProviderId.KIMI -> "Sign in with a device code"
+    ProviderId.DEVIN -> "Sign in in your browser"
+    ProviderId.META -> "Sign in with a device code"
 }
 
 @Composable

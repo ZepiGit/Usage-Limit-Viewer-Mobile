@@ -3,10 +3,10 @@ import Foundation
 // The token-exchange half of each provider adapter: turning a refresh token into a working
 // access token. Kept beside the fetching half rather than inside it because the two fail for
 // unrelated reasons — a quota endpoint changing shape is a bad afternoon, a token endpoint
-// changing shape signs every account out — and because the rules below are shared by all four
+// changing shape signs every account out — and because the rules below are shared by all
 // providers while the fetch paths have nothing in common.
 //
-// None of these clients carries a confidential secret. Three send a public client id and
+// None of these clients carries a confidential secret. The OAuth clients send public client ids and
 // nothing else; Google's installed-application secret is public by design (see
 // `ProviderEndpoints.Antigravity.clientSecret`).
 
@@ -160,7 +160,7 @@ extension CodexClient {
 extension ClaudeClient {
     public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials {
         // Anthropic's token endpoint takes JSON, not the form encoding RFC 6749 specifies and
-        // the other three providers here use. Serialised rather than interpolated, so a token
+        // the other providers here use. Serialised rather than interpolated, so a token
         // containing a quote cannot reshape the request.
         let body = try JSONSerialization.data(
             withJSONObject: [
@@ -289,5 +289,31 @@ extension XaiClient {
             throw ProviderError.malformedPayload("xai discovery named an unusable endpoint")
         }
         return normalised
+    }
+}
+
+// MARK: - Devin
+
+extension DevinClient {
+    /// Devin session tokens are long-lived; the CLI has no refresh endpoint. Returning the
+    /// stored credentials keeps the engine's refresh path idempotent and lets a rejected status
+    /// request mark the account for a fresh PKCE sign-in.
+    public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials {
+        credentials
+    }
+}
+
+// MARK: - Meta Muse
+
+extension MetaClient {
+    /// Muse API keys have no advertised refresh grant, but a retained DCA token can mint a fresh
+    /// key after a provider rejects the old one. Manually imported key-only credentials remain
+    /// unchanged because there is no second credential from which to mint.
+    public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials {
+        guard !credentials.accessToken.isEmpty else { throw ProviderError.unauthorised }
+        guard let dca = credentials.providerData["dca_token"], !dca.isEmpty else {
+            return credentials
+        }
+        return try await mintAPIKey(credentials: credentials)
     }
 }

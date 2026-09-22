@@ -58,6 +58,8 @@ public actor UsageLimitsContainer {
             ProviderID.antigravity.rawValue: AntigravityClient(httpClient: http),
             ProviderID.xai.rawValue: XaiClient(httpClient: http),
             ProviderID.kimi.rawValue: KimiClient(httpClient: http),
+            ProviderID.devin.rawValue: DevinClient(httpClient: http, now: now),
+            ProviderID.meta.rawValue: MetaClient(httpClient: http, now: now),
         ]
         self.providers = providers
 
@@ -65,6 +67,7 @@ public actor UsageLimitsContainer {
             .codex: CodexDeviceLogin(httpClient: http, now: now),
             .xai: XaiDeviceLogin(httpClient: http, now: now),
             .kimi: KimiDeviceLogin(httpClient: http, now: now),
+            .meta: MetaDeviceLogin(httpClient: http, now: now),
         ]
 
         self.engine = SyncEngine(
@@ -102,9 +105,8 @@ public actor UsageLimitsContainer {
 
     /// Asks a provider for a code to show the user.
     ///
-    /// Throws `unsupportedOnThisPlatform` for the two providers whose sign-in a phone cannot
-    /// complete, carrying the reason — so a caller renders an explanation rather than a control
-    /// that starts something which cannot finish.
+    /// Throws `unsupportedOnThisPlatform` only when a provider has no registered flow, carrying
+    /// the reason so a caller renders an explanation rather than a control that cannot finish.
     public func beginLogin(provider: ProviderID) async throws -> DeviceLoginChallenge {
         guard let login = logins[provider] else {
             throw DeviceLoginError.unsupportedOnThisPlatform(

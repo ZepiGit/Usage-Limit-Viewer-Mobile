@@ -20,7 +20,7 @@ import java.net.URI
 /**
  * xAI / Grok subscription.
  *
- * Login is the RFC 8628 device authorization grant, which is the best of the four flows here
+ * Login is the RFC 8628 device authorization grant, which is the best fit for this provider
  * on a phone: there is no redirect, so no loopback port to bind and nothing to survive the app
  * being backgrounded while the browser is open. The user types a short code on x.ai and the
  * app polls.

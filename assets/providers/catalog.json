@@ -84,5 +84,25 @@
       "kimi-text",
       "Kimi · Wordmark"
     ]
+  ],
+  "devin": [
+    [
+      "devin-color",
+      "Devin · Color"
+    ],
+    [
+      "devin",
+      "Devin · Monochrome"
+    ]
+  ],
+  "meta": [
+    [
+      "meta-color",
+      "Meta Muse · Color"
+    ],
+    [
+      "meta",
+      "Meta Muse · Monochrome"
+    ]
   ]
 }

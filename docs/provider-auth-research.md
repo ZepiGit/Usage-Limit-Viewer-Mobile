@@ -19,6 +19,8 @@ they led to. This is the document the rest of the provider work was built from.
 | **xAI / Grok** | RFC 8628 device flow via OIDC discovery | **Yes — best fit** | `refresh_token` grant | `GET /v1/billing` ×2 | Endpoints discovered at runtime (validated); billing semantics differ per plan |
 | **Claude** | Authorization code + PKCE, loopback redirect | Workable, with a caveat | `refresh_token` grant | `GET /api/oauth/usage` | **Bot detection.** Reference client mimics TLS fingerprints; this app does not — see below |
 | **Antigravity** | Authorization code + PKCE, loopback redirect | Workable | `refresh_token` grant | `POST v1internal:retrieveUserQuotaSummary` | Ships a Google installed-app client secret; fixed loopback port; three candidate hosts |
+| **Devin** | Authorization code + PKCE, ephemeral loopback redirect | Yes | Session token (no refresh grant) | Connect `GetUserStatus` JSON/protobuf | Internal seat-management endpoint; session token is a bearer credential |
+| **Meta Muse** | OAuth 2.0 device authorization | Yes | DCA token (no refresh grant) | `POST /muse-code/key` with DCA bearer | Internal Muse endpoint; API key and DCA token must be stored separately |
 
 None of these flows has been executed against a live account in the environment
 where this was built. They are implemented from the reference implementations and
@@ -162,7 +164,7 @@ than `fetchAvailableModels`) makes that a non-problem: the server already return
 upstream, so the app renders one row per bucket without doing any grouping of its
 own.
 
-### xAI — the cleanest of the four
+### xAI — the cleanest of the original four
 
 Textbook RFC 8628, discovered via OIDC rather than hardcoded. The one security-relevant
 detail is that a discovery document is attacker-controllable if the host is ever

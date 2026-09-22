@@ -327,5 +327,5 @@ The client id and the user-agent string are the public values those clients ship
 credential material, captured payload or account identifier from any real account appears in
 this repository, in its tests, or in this document.
 
-See also `docs/provider-auth-research.md` for the cross-provider comparison of the four login
+See also `docs/provider-auth-research.md` for the cross-provider comparison of the login
 flows, and `docs/security.md` for the credential-storage argument.

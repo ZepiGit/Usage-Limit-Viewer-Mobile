@@ -9,12 +9,14 @@ import org.junit.Test
 
 class ProviderIconsTest {
     @Test fun `two logo families share one provider and have the requested defaults`() {
-        assertEquals(5, ProviderId.entries.size)
+        assertEquals(7, ProviderId.entries.size)
         assertEquals("claudecode-color", ProviderIconCatalog.selected(ProviderId.CLAUDE, null).id)
         assertEquals("gemini-color", ProviderIconCatalog.selected(ProviderId.ANTIGRAVITY, null).id)
         assertEquals(6, ProviderIconCatalog.choices(ProviderId.CLAUDE).size)
         assertEquals(6, ProviderIconCatalog.choices(ProviderId.ANTIGRAVITY).size)
-        assertEquals(19, ProviderId.entries.sumOf { ProviderIconCatalog.choices(it).size })
+        assertEquals(listOf("devin-color", "devin"), ProviderIconCatalog.choices(ProviderId.DEVIN).map { it.id })
+        assertEquals(listOf("meta-color", "meta"), ProviderIconCatalog.choices(ProviderId.META).map { it.id })
+        assertEquals(23, ProviderId.entries.sumOf { ProviderIconCatalog.choices(it).size })
     }
 
     @Test fun `stored selections remain independent and unknown icons fall back safely`() {

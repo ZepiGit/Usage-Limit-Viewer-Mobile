@@ -109,7 +109,7 @@ app — what is given up is a second factor at decrypt time, not the key's prote
 If this trade ever needs revisiting, the honest design is two keys: an auth-gated key wrapping
 the credentials used for interactive actions, and an ungated key for a narrower background
 capability. That only works if a provider issues separately-scoped tokens, and none of these
-four do — so it is not available today.
+providers do — so it is not available today.
 
 ## What tokens never touch
 
@@ -208,14 +208,14 @@ app explicitly does not take on. Someone who can add a system CA can equally ask
 to decrypt on the app's behalf, so a pin is not what would be standing between them and the
 tokens.
 
-What is left is cost, and it is real. The four providers are fourteen distinct hosts between
-them in `ProviderEndpoints` — two for Codex, three for Claude, six for Antigravity once the
-`cloudcode-pa` fallbacks are counted, three for xAI — and most of those are undocumented
+What is left is cost, and it is real. The seven providers are distinct hosts between them in
+`ProviderEndpoints` — including the fallback hosts for Codex, Claude, Antigravity and xAI —
+and most of those are undocumented
 internal APIs whose chains rotate on schedules nobody publishes and whose operators owe this
 app no notice. There is no channel to ship a new pin faster than a store release, so a stale
 pin is a total, self-inflicted outage for that provider, indistinguishable to the user from
-the provider being down. Not pinning fourteen undocumented, independently-rotating endpoints
-with no rotation channel is the right call.
+the provider being down. Not pinning undocumented, independently-rotating endpoints with no
+rotation channel is the right call.
 
 ## Concurrency and credential lifecycle
 
@@ -393,7 +393,7 @@ Where exactly the line sits deserves stating, because it is a judgment call rath
 bright line. The app *does* send the client identifiers these endpoints expect, since several
 of them vary their response by client or refuse a request without one: `codex-tui/0.149.1
 (Android; arm64) UsageLimits` for Codex (the app's own name appended), the Antigravity and
-grok-pager CLI user agents, and — the least comfortable of the four — `axios/1.15.2` on
+grok-pager CLI user agents, and — the least comfortable of the provider clients — `axios/1.15.2` on
 Claude's two token calls, copied verbatim from the reference client because that endpoint
 refuses a request with no user agent at all. Claude's read endpoints send no user agent.
 Sending a header a server asks for is ordinary API client behaviour and is visible in one

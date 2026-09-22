@@ -1,7 +1,9 @@
 # Verification
 
-Usage Limits reads quota for five providers: OpenAI Codex, Anthropic Claude,
-Google Antigravity, xAI Grok and Kimi Code. The main correctness risk is a
+Usage Limits reads quota for seven providers: OpenAI Codex, Anthropic Claude,
+Google Antigravity, xAI Grok, Kimi Code, Devin and Meta Muse. Google Vertex is deliberately
+excluded because CliProxyAPI exposes it through API-key/service-account authentication rather
+than OAuth. The main correctness risk is a
 plausible but wrong percentage or reset time. Tests need to check what a number
 means, which account it belongs to, and how old it is.
 

@@ -36,6 +36,17 @@ class LoopbackServer(private val port: Int) : Closeable {
 
     private var serverSocket: ServerSocket? = null
 
+    /**
+     * Port actually bound by the listener, or zero before [start] (and after [close]).
+     *
+     * A port of zero asks the OS for an ephemeral loopback port. This is the right choice for
+     * providers such as Devin whose OAuth registration accepts a dynamic callback: binding first
+     * and reading this value lets the authorization URL carry the exact callback the browser can
+     * reach, without racing another local process for a well-known port.
+     */
+    val localPort: Int
+        get() = serverSocket?.localPort ?: 0
+
     /** Binds the port up front so a conflict surfaces before the browser is launched. */
     fun start() {
         if (serverSocket != null) return

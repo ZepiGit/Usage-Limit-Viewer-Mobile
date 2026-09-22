@@ -2,16 +2,9 @@ import Foundation
 
 /// Signing in on a phone, for the providers whose flow a phone can actually complete.
 ///
-/// Two of the four cannot be signed into from iOS at all today, and this file deliberately does
-/// not pretend otherwise. Claude and Antigravity issue their authorisation codes to a
-/// `http://localhost:PORT/...` redirect, which is a desktop CLI's loopback listener — an iOS app
-/// cannot bind a port and receive one. The custom scheme that `ASWebAuthenticationSession` would
-/// use has to be registered with each provider first, and it is not. Offering a button that
-/// starts a flow which cannot finish is worse than saying so.
-///
-/// Codex and xAI use the device authorisation grant, which is designed for exactly this: the
-/// device shows a short code, the user approves it in a browser anywhere, and the device polls.
-/// No redirect, no listener, no registration.
+/// All seven supported providers can complete a sign-in on iOS. Loopback providers use the
+/// app's local listener, while device-code providers show a short code that the user approves
+/// in a browser anywhere. The flow style is selected per provider below.
 
 // MARK: - The challenge
 
@@ -574,11 +567,146 @@ public struct KimiDeviceLogin: DeviceLoginProvider {
     }
 }
 
-// MARK: - The providers a phone cannot sign into
+// MARK: - Meta Muse
+
+/// Meta Muse's RFC 8628 device grant. The DCA token is retained in protected provider metadata
+/// and exchanged for the API key after approval; Meta's key endpoint also returns the identity
+/// used to file the account.
+public struct MetaDeviceLogin: DeviceLoginProvider {
+    public let providerID = ProviderID.meta
+
+    private let httpClient: UsageHTTPClient
+    private let now: @Sendable () -> Date
+    var waitForPoll: @Sendable (TimeInterval) async throws -> Void = {
+        try await DeviceLoginTiming.sleep(seconds: $0)
+    }
+
+    public init(httpClient: UsageHTTPClient, now: @Sendable @escaping () -> Date = { Date() }) {
+        self.httpClient = httpClient
+        self.now = now
+    }
+
+    private var headers: [String: String] {
+        [
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": ProviderEndpoints.Meta.userAgent,
+        ]
+    }
+
+    public func begin() async throws -> DeviceLoginChallenge {
+        let response = try await ProviderHTTP.request(
+            httpClient,
+            url: ProviderEndpoints.Meta.deviceAuthorizationURL,
+            method: "POST",
+            headers: headers,
+            body: TokenExchange.formBody(["client_id": ProviderEndpoints.Meta.clientID]),
+            endpoint: "meta device")
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "meta device")
+        guard let userCode = JSONSupport.string(payload, "user_code", "userCode"),
+              let deviceCode = JSONSupport.string(payload, "device_code", "deviceCode")
+        else {
+            throw DeviceLoginError.malformedResponse("the Meta device response is incomplete")
+        }
+        let verification = try validatedMetaVerificationURL(
+            JSONSupport.string(
+                payload, "verification_uri", "verificationUri", "verification_url", "verificationUrl")
+                ?? ProviderEndpoints.Meta.deviceVerificationURL)
+        let complete = try JSONSupport.string(
+            payload, "verification_uri_complete", "verificationUriComplete")
+            .map(validatedMetaVerificationURL)
+        let lifetime = JSONSupport.int64(payload, "expires_in", "expiresIn").map(TimeInterval.init)
+            ?? DeviceLoginTiming.defaultLifetime
+        let interval = JSONSupport.int64(payload, "interval").map(TimeInterval.init) ?? 0
+        return DeviceLoginChallenge(
+            userCode: userCode,
+            verificationURI: verification,
+            verificationURIComplete: complete,
+            expiresAt: now().addingTimeInterval(lifetime),
+            pollInterval: max(interval, DeviceLoginTiming.minimumPollInterval),
+            continuation: ["device_code": deviceCode])
+    }
+
+    public func complete(_ challenge: DeviceLoginChallenge) async throws -> OAuthCredentials {
+        guard let deviceCode = challenge.continuation["device_code"] else {
+            throw DeviceLoginError.malformedResponse("the Meta challenge carries no device code")
+        }
+        let body = TokenExchange.formBody([
+            "grant_type": ProviderEndpoints.Meta.deviceCodeGrantType,
+            "device_code": deviceCode,
+            "client_id": ProviderEndpoints.Meta.clientID,
+        ])
+        var interval = challenge.pollInterval
+        while now() < challenge.expiresAt {
+            try Task.checkCancellation()
+            let payload = try await DeviceTokenPoll.payload(
+                httpClient,
+                url: ProviderEndpoints.Meta.deviceTokenURL,
+                headers: headers,
+                body: body)
+            if let payload {
+                switch JSONSupport.string(payload, "error", "error_code", "errorCode") {
+                case nil:
+                    let dca = try TokenExchange.credentials(
+                        from: payload, endpoint: "meta device token", now: now())
+                    // The key call is part of the login, not a lazy first refresh. If the key
+                    // endpoint is briefly unavailable, retaining the DCA token still leaves a
+                    // valid credential that the next refresh can mint.
+                    do {
+                        return try await MetaClient(httpClient: httpClient, now: now)
+                            .mintAPIKey(credentials: dca)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        return OAuthCredentials(
+                            accessToken: dca.accessToken,
+                            refreshToken: nil,
+                            idToken: dca.idToken,
+                            expiresAt: dca.expiresAt,
+                            scope: dca.scope,
+                            providerData: ["dca_token": dca.accessToken])
+                    }
+                case "authorization_pending":
+                    break
+                case "slow_down":
+                    interval += 5
+                case "expired_token":
+                    throw DeviceLoginError.expired
+                case "access_denied":
+                    throw DeviceLoginError.declined("the sign-in was declined")
+                case _?:
+                    throw DeviceLoginError.declined("the device grant was refused")
+                }
+            }
+            try await waitForPoll(interval)
+        }
+        throw DeviceLoginError.expired
+    }
+
+    public func profile(_ credentials: OAuthCredentials) async throws -> ProviderProfile {
+        try await MetaClient(httpClient: httpClient, now: now).profile(credentials)
+    }
+
+    private func validatedMetaVerificationURL(_ raw: String) throws -> String {
+        guard let components = URLComponents(string: raw),
+              components.scheme?.lowercased() == "https",
+              components.user == nil,
+              components.password == nil,
+              let host = components.host?.lowercased(),
+              host == "auth.meta.com" || host.hasSuffix(".auth.meta.com"),
+              let normalized = components.url?.absoluteString
+        else {
+            throw DeviceLoginError.malformedResponse("the Meta verification URL is invalid")
+        }
+        return normalized
+    }
+}
+
+// MARK: - Provider login support
 
 /// How each provider signs in.
 ///
-/// All four can, which was not true when this file was written. Claude and Antigravity redirect
+/// All seven can, which was not true when this file was written. Claude and Antigravity redirect
 /// to `http://localhost:PORT/...`, and the first reading of that was that a phone cannot receive
 /// it — so the app said so and offered no button. That reading was wrong: RFC 8252 §7.3 names
 /// loopback as the redirect for exactly this case, an iOS app can bind 127.0.0.1, and
@@ -602,10 +730,10 @@ public enum DeviceLoginSupport {
 
     public static func style(for provider: ProviderID) -> LoginStyle {
         switch provider {
-        case .xai, .kimi: return .deviceCode
+        case .xai, .kimi, .meta: return .deviceCode
         // Codex runs the CLI's own browser flow on its registered redirect; the device flow
         // is kept as the fallback the app switches to when that port is taken.
-        case .codex, .claude, .antigravity: return .loopbackRedirect
+        case .codex, .claude, .antigravity, .devin: return .loopbackRedirect
         }
     }
 

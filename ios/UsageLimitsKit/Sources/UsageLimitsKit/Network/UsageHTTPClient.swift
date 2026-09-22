@@ -3,7 +3,7 @@
 //  UsageLimitsKit
 //
 //  The Swift twin of the Android app's OkHttp quota client. It fetches usage
-//  data from four providers' undocumented internal endpoints, so nothing on
+//  data from seven providers' undocumented internal endpoints, so nothing on
 //  the wire is trusted: target URLs, status codes, Retry-After headers and
 //  error bodies are all treated as hostile until they have been checked.
 //
@@ -20,17 +20,22 @@ import FoundationNetworking
 /// The body is decoded lossily: a diagnosis that shows U+FFFD replacement
 /// characters is worth more than a decode failure that hides the status which
 /// produced it. Header names are lower-cased because HTTP names are
-/// case-insensitive and the four providers capitalise them differently; when
+/// case-insensitive and the providers capitalise them differently; when
 /// a name repeats, the last value wins, which costs nothing for the
 /// single-valued fields this client reads.
 public struct HTTPResponse: Sendable {
     public let status: Int
     public let body: String
+    /// The original response bytes. Most providers return UTF-8 JSON, but Devin's Connect-RPC
+    /// quota method commonly returns protobuf bytes that cannot be recovered from `body` after
+    /// lossy UTF-8 decoding.
+    public let data: Data
     public let headers: [String: String]
 
-    public init(status: Int, body: String, headers: [String: String]) {
+    public init(status: Int, body: String, data: Data? = nil, headers: [String: String]) {
         self.status = status
         self.body = body
+        self.data = data ?? Data(body.utf8)
         self.headers = headers
     }
 }
@@ -67,7 +72,7 @@ public enum HTTPError: Error {
 
 /// One attempt to hand a request to the network and get bytes back.
 ///
-/// The seam exists so tests can script the four providers' undocumented
+/// The seam exists so tests can script the providers' undocumented
 /// endpoints — their 429 storms, malformed Retry-After headers and echoing
 /// error pages — without a network, and so the transport can be swapped
 /// without touching retry policy.
@@ -267,7 +272,8 @@ public actor UsageHTTPClient {
             // Device grants carry protocol errors as full JSON, including on HTTP 400/403.
             // Truncation belongs to diagnostics, never to a payload a provider must parse.
             if (200..<300).contains(status) || (devicePoll && (status == 400 || status == 403)) {
-                return .delivered(HTTPResponse(status: status, body: text, headers: headerFields))
+                return .delivered(HTTPResponse(
+                    status: status, body: text, data: data, headers: headerFields))
             }
 
             let retryCouldHelp = status == 429 || (500..<600).contains(status)
@@ -455,7 +461,7 @@ public actor UsageHTTPClient {
     ///
     /// The exponential term respects how slowly a flaky back-end recovers;
     /// the jitter decorrelates clients knocked over by the same event, so
-    /// four providers' worth of retries do not land in lockstep. Equal
+    /// providers' worth of retries do not land in lockstep. Equal
     /// jitter — half fixed, half random — keeps the average on the
     /// exponential curve while still allowing the short waits that let a
     /// lucky request through early. The curve is capped at `maximumWait`,

@@ -21,6 +21,8 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "1"
     # Strict concurrency across the app too, not only the package. The kit is already clean, and
     # letting the app lag behind is how a @MainActor violation reaches a user as a crash on a
     # slow network rather than as a compile error here.

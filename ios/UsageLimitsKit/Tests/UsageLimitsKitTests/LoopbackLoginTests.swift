@@ -108,6 +108,19 @@ final class LoopbackLoginTests: XCTestCase {
         XCTAssertEqual(challenge.port, 1455)
     }
 
+    func testDevinUsesItsPKCELoopbackRequestWithoutClientID() throws {
+        let (subject, _) = login(.devin)
+        let challenge = try subject.begin()
+        let url = challenge.url.absoluteString
+        XCTAssertTrue(url.hasPrefix(ProviderEndpoints.Devin.authorizationURL))
+        XCTAssertTrue(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A19876%2Fcallback"))
+        XCTAssertTrue(url.contains("prompt=select_account"))
+        XCTAssertTrue(url.contains("code_challenge_method=S256"))
+        XCTAssertFalse(url.contains("client_id="))
+        XCTAssertFalse(url.contains("scope="))
+        XCTAssertEqual(challenge.port, ProviderEndpoints.Devin.callbackPort)
+    }
+
     func testTwoAttemptsNeverShareAVerifierOrAState() throws {
         // A verifier reused across attempts turns PKCE into decoration, and a reused state
         // makes the anti-CSRF check meaningless.
@@ -181,6 +194,22 @@ final class LoopbackLoginTests: XCTestCase {
         XCTAssertTrue(body.contains("redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"))
         XCTAssertFalse(body.contains("deviceauth"))
         XCTAssertTrue(body.contains("code_verifier=\(challenge.verifier)"))
+    }
+
+    func testDevinExchangesJSONSessionToken() async throws {
+        let (subject, transport) = login(
+            .devin,
+            replies: [(200, #"{"token":"eyJ.synthetic.token"}"#)])
+        let challenge = try subject.begin()
+        let credentials = try await subject.exchange(code: "the-code", challenge: challenge)
+        XCTAssertEqual(credentials.accessToken, "devin-session-token$eyJ.synthetic.token")
+        let sent = await transport.requests
+        let request = try XCTUnwrap(sent.first)
+        XCTAssertEqual(request.url?.absoluteString, ProviderEndpoints.Devin.tokenURL)
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])
+        XCTAssertEqual(payload["code"] as? String, "the-code")
+        XCTAssertEqual(payload["code_verifier"] as? String, challenge.verifier)
     }
 
     func testADeviceCodeProviderRefusesTheRedirectFlow() async throws {

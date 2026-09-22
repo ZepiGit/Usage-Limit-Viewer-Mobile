@@ -6,7 +6,7 @@ import org.junit.Test
 import java.time.Instant
 
 /**
- * The four providers between them send ISO-8601 with an offset, ISO-8601 without one, epoch
+ * The providers between them send ISO-8601 with an offset, ISO-8601 without one, epoch
  * seconds, epoch millis and relative offsets — sometimes for the same field on different
  * endpoints. Each shape is pinned here against the same fixed instant so a regression in one
  * branch cannot hide behind another.
