@@ -33,8 +33,8 @@ public struct MetaClient: SyncProvider, Sendable {
         let payload = try await quotaPayload(credentials: credentials)
         let identity = MetaUsageParser.identity(in: payload)
         let fallbackID = try dcaToken(of: credentials)
-        let accountID = identity.externalAccountID?.trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 }
+        let trimmedAccountID = identity.externalAccountID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let accountID = (trimmedAccountID?.isEmpty == false ? trimmedAccountID : nil)
             ?? Self.stableAccountID(dcaToken: fallbackID)
         return ProviderProfile(
             externalAccountID: accountID,

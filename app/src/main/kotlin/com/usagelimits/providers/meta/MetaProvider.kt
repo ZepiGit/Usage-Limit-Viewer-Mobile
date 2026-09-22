@@ -281,6 +281,7 @@ class MetaProvider(
 
     private fun oauthHeaders(): Map<String, String> = mapOf(
         "Accept" to "application/json",
+        "Content-Type" to "application/x-www-form-urlencoded",
         "User-Agent" to Meta.USER_AGENT,
     )
 
