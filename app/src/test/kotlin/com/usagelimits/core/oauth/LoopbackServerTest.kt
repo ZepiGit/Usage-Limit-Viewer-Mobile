@@ -106,4 +106,34 @@ class LoopbackServerTest {
         assertNull(response.error)
         assertTrue("browser got: ${reply.take(40)}", reply.startsWith("HTTP/1.1 200 OK"))
     }
+
+    @Test(timeout = 30_000)
+    fun `port zero binds an ephemeral port that receives the redirect`() = runBlocking {
+        val server = LoopbackServer(0)
+        server.start()
+        val port = server.localPort
+        assertTrue("the OS must choose a usable loopback port", port > 0)
+
+        val redirect = async(Dispatchers.IO) { server.awaitRedirect(timeoutMs = 20_000) }
+        delay(200)
+
+        withContext(Dispatchers.IO) {
+            Socket(InetAddress.getByName("127.0.0.1"), port).use { client ->
+                client.getOutputStream().write(
+                    "GET /callback?code=ephemeral-code&state=ephemeral-state HTTP/1.1\r\nHost: localhost\r\n\r\n"
+                        .toByteArray(Charsets.UTF_8),
+                )
+                client.getOutputStream().flush()
+                client.getInputStream().readBytes()
+            }
+        }
+
+        val response = redirect.await()
+        server.close()
+
+        assertEquals("ephemeral-code", response.code)
+        assertEquals("ephemeral-state", response.state)
+        assertEquals("closed listeners no longer expose a bound port", 0, server.localPort)
+        assertTrue("the ephemeral port was released", portIsFree(port))
+    }
 }

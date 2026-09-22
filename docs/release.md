@@ -95,7 +95,7 @@ With the release owner's settings supplied:
 
 Outputs are `app/build/outputs/bundle/release/app-release.aab` and
 `app/build/outputs/apk/release/app-release.apk`. Supply `ANDROID_VERSION_CODE` and
-`ANDROID_VERSION_NAME` for a release; the local defaults are `1` and `0.1.0`.
+`ANDROID_VERSION_NAME` for a release; the local defaults are `1` and `0.2.0`.
 Check the version code against the last distributed build before uploading.
 
 ## CI and release artifacts
@@ -114,7 +114,7 @@ It decodes the key into the runner's temporary directory, builds with
 It does not use the Gradle caching action. The uploaded artifacts include the
 signed AAB, APK and matching R8 `mapping.txt`.
 
-The workflow uses its run number as the Android version code and the manual
+The workflow uses the full Git commit count as the Android version code and the manual
 version input or tag name as the version name. Confirm those values before
 starting a release. A configured workflow is not evidence that a signed build
 has completed; the current audit did not use release credentials.
@@ -145,8 +145,9 @@ runtime measurements; APK size is not a substitute.
 
 ## Before public distribution
 
-The five integrations are Codex, Claude, Antigravity, Grok and Kimi Code. Vendor
-permission and terms review remain open, including the use of first-party OAuth
+The seven integrations are Codex, Claude, Antigravity, Grok, Kimi Code, Devin and Meta Muse.
+Google Vertex is deliberately excluded because CliProxyAPI exposes it through API-key/service-account
+authentication rather than OAuth. Vendor permission and terms review remain open, including the use of first-party OAuth
 registrations and usage endpoints. A working response does not resolve that
 review. Kimi also needs confirmation that the `UsageLimits` identity is allowed
 on its coding API; the pasted-key route does not establish that approval.

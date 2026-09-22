@@ -4,14 +4,13 @@ import UsageLimitsKit
 
 /// Signing in, from a phone.
 ///
-/// The device grant, which is what this screen drives, exists precisely for a device that cannot
-/// receive a redirect: the provider shows a short code, the user approves it in a browser
-/// anywhere, and the app polls. That means the interesting states here are not "loading" and
-/// "done" but "here is your code, go and use it, I am still waiting" — so the code stays on
-/// screen the whole time rather than being replaced by a spinner.
+/// Device-code providers show a short code that the user approves in a browser anywhere, while
+/// loopback providers complete through the local listener. The interesting device state is not
+/// "loading" and "done" but "here is your code, go and use it, I am still waiting" — so the code
+/// stays on screen the whole time rather than being replaced by a spinner.
 ///
-/// Two of the four providers cannot be signed into here at all, and the screen says so in a
-/// sentence instead of offering a control that starts something which cannot finish.
+/// Every listed provider now has a phone-compatible sign-in flow, and the screen describes the
+/// selected flow before it starts so the browser step is predictable.
 struct AddAccountSheet: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

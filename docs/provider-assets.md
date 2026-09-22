@@ -4,7 +4,7 @@ Provider logos are bundled locally and have transparent backgrounds. Rendering t
 
 ## Source and choices
 
-The source is the user-supplied `lobehub-icons.zip` archive, received on 12 September 2026. Its 19 SVGs are preserved in `assets/providers/lobehub/`; `assets/providers/catalog.json` records the choices. They correspond to the [LobeHub icon library](https://lobehub.com/icons).
+The original artwork is the user-supplied `lobehub-icons.zip` archive, received on 12 September 2026. Its 19 SVGs are preserved in `assets/providers/lobehub/`; the Devin and Meta Muse marks added for the 0.2.0 release are stored beside them, and `assets/providers/catalog.json` records all choices. The Devin source is from the [LobeHub icon library](https://lobehub.com/icons); the Meta mark is the open Meta glyph from [Simple Icons](https://simpleicons.org/).
 
 | App provider | Default | Other available artwork |
 | --- | --- | --- |
@@ -13,6 +13,8 @@ The source is the user-supplied `lobehub-icons.zip` archive, received on 12 Sept
 | Grok | Grok | Grok wordmark |
 | Antigravity | Gemini, color | Gemini monochrome and wordmark; Antigravity color, monochrome and wordmark |
 | Kimi | Kimi, color | Kimi monochrome and wordmark |
+| Devin | Devin, color | Devin monochrome |
+| Meta Muse | Meta Muse, color | Meta Muse monochrome |
 
 Claude/Claude Code share one provider identity. Antigravity/Gemini also share one provider identity. Changing artwork never changes the account, authentication flow or quota parser.
 
@@ -24,4 +26,4 @@ Android uses `ProviderIconCatalog`, DataStore preferences and `drawable-nodpi/ic
 
 The packaged PNGs preserve transparency, proportions and source colors. Monochrome SVG `currentColor` paths are rendered white for the existing dark interface. Vector sources remain available for future theme-specific exports. No opaque badge is baked into the artwork.
 
-All 19 Android exports and all 19 iOS exports were checked for an alpha channel and transparent pixels. Visual checks covered the default marks, alternate Claude artwork, the settings picker, account lists and Android home-screen widgets.
+All 23 Android exports and all 23 iOS exports were checked for an alpha channel and transparent pixels. Visual checks covered the default marks, alternate Claude artwork, the settings picker, account lists and Android home-screen widgets.

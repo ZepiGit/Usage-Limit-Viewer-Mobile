@@ -44,7 +44,7 @@ What is unverified beyond "it has never run":
 
 ## 2. Auth flow
 
-The app uses the **RFC 8628 device authorization grant**, and of the four providers here this
+The app uses the **RFC 8628 device authorization grant**, and of the providers here this
 is the one whose native flow is *already* the right one for a phone. There is no redirect at
 all: no loopback port to bind, no fixed port pinned by a registration, nothing that has to
 survive the app being backgrounded while a browser is open, and no assumption that the browser
@@ -115,7 +115,7 @@ the token nor the billing payloads carry a plan, so nothing is guessed.
 | `GET https://cli-chat-proxy.grok.com/v1/billing` | Monthly spend view | same as above | Internal endpoint observed in the first-party CLI — NOT a stable public API |
 
 The two billing rows are the only non-standard endpoints in this provider — everything on the
-auth side is ordinary OAuth, which is unusual among the four and is most of why this provider
+auth side is ordinary OAuth, which is unusual among these integrations and is most of why this provider
 is the least fragile of them.
 
 Billing headers mirror the first-party CLI, which is what the proxy answers billing JSON for:
@@ -190,7 +190,7 @@ period ends absolutely.
 **Three windows, with fixed ids.** `xai-credits` ("Weekly credits"), `xai-monthly` ("Monthly
 included") and `xai-on-demand` ("On-demand"). The ids are constants
 (`XaiBillingParser.CREDITS_WINDOW_ID` and siblings) rather than derived from the payload,
-because unlike the other three providers there is nothing in these payloads to derive an id
+because unlike the other provider adapters there is nothing in these payloads to derive an id
 from.
 
 **Classification.** The credit window's category is derived from its measured period, so a
@@ -296,5 +296,5 @@ The client id is the public identifier the first-party CLI ships; there is no cl
 this provider. No credential material, captured payload or account identifier from any real
 account appears in this repository, in its tests, or in this document.
 
-See also `docs/provider-auth-research.md` for the cross-provider comparison of the four login
+See also `docs/provider-auth-research.md` for the cross-provider comparison of the login
 flows, and `docs/security.md` for the credential-storage argument.

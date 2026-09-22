@@ -138,7 +138,7 @@ public enum JSONSupport {
 
     /// Parses the assorted timestamp shapes providers emit into a `Date`.
     ///
-    /// Between the four providers this sees ISO-8601 with and without fractional seconds,
+    /// Across the providers this sees ISO-8601 with and without fractional seconds,
     /// epoch seconds, and epoch millis — sometimes for the same concept on different endpoints.
     public static func date(_ value: String?) -> Date? {
         guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {

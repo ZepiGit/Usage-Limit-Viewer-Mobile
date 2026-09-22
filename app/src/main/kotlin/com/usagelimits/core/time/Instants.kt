@@ -7,7 +7,7 @@ import java.time.format.DateTimeParseException
 /**
  * Turns the assorted timestamp shapes providers emit into epoch millis.
  *
- * Between the four providers this app sees ISO-8601 with and without offsets, epoch seconds,
+ * Across the providers this app sees ISO-8601 with and without offsets, epoch seconds,
  * epoch millis, and relative "seconds from now" offsets — sometimes for the same concept on
  * different endpoints. Everything funnels through here so the rest of the app deals only in
  * absolute epoch millis.

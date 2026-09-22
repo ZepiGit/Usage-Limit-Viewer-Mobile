@@ -55,17 +55,33 @@ final class DeviceLoginTests: XCTestCase {
     // MARK: - Which providers can sign in here at all
 
     func testEveryProviderHasAFlowAndTheRightOne() {
-        // All four can be signed into. Claude and Antigravity redirect to a loopback address,
-        // which the app receives itself — the first reading of that constraint, that a phone
-        // cannot, was wrong.
+        // All seven can be signed into. Claude and Antigravity redirect to a loopback address,
+        // which the app receives itself; the remaining providers use device codes or the Devin
+        // loopback flow.
         XCTAssertEqual(DeviceLoginSupport.style(for: .codex), .loopbackRedirect)
         XCTAssertEqual(DeviceLoginSupport.style(for: .xai), .deviceCode)
         XCTAssertEqual(DeviceLoginSupport.style(for: .claude), .loopbackRedirect)
         XCTAssertEqual(DeviceLoginSupport.style(for: .antigravity), .loopbackRedirect)
         XCTAssertEqual(DeviceLoginSupport.style(for: .kimi), .deviceCode)
+        XCTAssertEqual(DeviceLoginSupport.style(for: .devin), .loopbackRedirect)
+        XCTAssertEqual(DeviceLoginSupport.style(for: .meta), .deviceCode)
         XCTAssertTrue(DeviceLoginSupport.acceptsPastedKey(.kimi))
         XCTAssertFalse(DeviceLoginSupport.acceptsPastedKey(.codex))
         XCTAssertEqual(DeviceLoginSupport.supported, ProviderID.allCases)
+    }
+
+    func testMetaStartsItsDeviceGrantWithMuseClientID() async throws {
+        let (http, transport) = client([(200, #"{"device_code":"dca-device","user_code":"MUSE-1234","verification_uri":"https://auth.meta.com/device","expires_in":900,"interval":5}"#)])
+        let challenge = try await MetaDeviceLogin(httpClient: http, now: { [now] in now }).begin()
+        XCTAssertEqual(challenge.userCode, "MUSE-1234")
+        XCTAssertEqual(challenge.continuation["device_code"], "dca-device")
+        XCTAssertEqual(challenge.verificationURI, "https://auth.meta.com/device")
+        let sent = await transport.requests
+        let request = try XCTUnwrap(sent.first)
+        XCTAssertEqual(request.url?.absoluteString, ProviderEndpoints.Meta.deviceAuthorizationURL)
+        XCTAssertEqual(
+            String(data: request.httpBody ?? Data(), encoding: .utf8),
+            "client_id=\(ProviderEndpoints.Meta.clientID)")
     }
 
     // MARK: - Kimi

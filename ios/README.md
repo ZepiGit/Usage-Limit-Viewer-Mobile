@@ -23,10 +23,10 @@ and compatibility limits.
 | WorkManager | `BGAppRefreshTask`, subject to the system's scheduling decisions |
 | Glance and local cache | WidgetKit and snapshots in the shared App Group |
 
-Codex, Claude and Antigravity use their registered loopback callbacks. The browser
+Codex, Claude, Antigravity and Devin use their registered loopback callbacks. The browser
 may intercept the callback, while the listener provides another way to receive
 it. Codex also has a device-code fallback when the port cannot be used. Grok and
-Kimi use device codes; Kimi additionally accepts a key from the user's console.
+Kimi use device codes; Meta Muse uses the Meta device grant, and Kimi additionally accepts a key from the user's console.
 These code paths are implemented, but live account sign-in has not been verified
 in the current audit.
 

@@ -15,10 +15,11 @@ enum WidgetContentChoice: String, AppEnum {
 
 @available(iOS 17.0, *)
 enum WidgetProviderChoice: String, AppEnum {
-    case codex, claude, antigravity, xai, kimi
+    case codex, claude, antigravity, xai, kimi, devin, meta
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Provider"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .codex: "OpenAI Codex", .claude: "Claude", .antigravity: "Antigravity", .xai: "Grok", .kimi: "Kimi"]
+        .codex: "OpenAI Codex", .claude: "Claude", .antigravity: "Antigravity", .xai: "Grok", .kimi: "Kimi",
+        .devin: "Devin", .meta: "Meta Muse"]
 }
 
 @available(iOS 17.0, *)

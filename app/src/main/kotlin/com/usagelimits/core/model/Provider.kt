@@ -11,7 +11,9 @@ enum class ProviderId(val id: String, val displayName: String) {
     CLAUDE("claude", "Claude"),
     ANTIGRAVITY("antigravity", "Antigravity"),
     XAI("xai", "Grok"),
-    KIMI("kimi", "Kimi");
+    KIMI("kimi", "Kimi"),
+    DEVIN("devin", "Devin"),
+    META("meta", "Meta Muse");
 
     companion object {
         fun fromId(value: String?): ProviderId? = entries.firstOrNull { it.id == value }

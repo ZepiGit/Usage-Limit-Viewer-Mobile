@@ -253,4 +253,55 @@ object ProviderEndpoints {
             "X-Msh-Version" to version,
         )
     }
+
+    /**
+     * Devin / Cognition.
+     *
+     * Devin's CLI login is a PKCE authorization-code flow with an ephemeral loopback
+     * redirect.  The quota call is the same Connect-RPC method used by the official
+     * integration; the JSON encoding is supported by the endpoint and keeps the mobile
+     * client independent of a generated protobuf runtime.
+     *
+     * Source: CLIProxyAPI internal/auth/devin/{devin_auth,user_status}.go and the
+     * CLIProxyAPI Management Center quota provider.
+     */
+    object Devin {
+        const val APP_BASE_URL = "https://app.devin.ai"
+        const val API_BASE_URL = "https://api.devin.ai"
+        const val SERVER_BASE_URL = "https://server.codeium.com"
+        const val AUTHORIZE_PATH = "/auth/cli/continue"
+        const val TOKEN_PATH = "/auth/cli/token"
+        const val PROFILE_PATH = "/v3/self"
+        const val STATUS_PATH = "/exa.seat_management_pb.SeatManagementService/GetUserStatus"
+
+        const val USER_AGENT = "UsageLimits/1.0"
+        const val IDE_NAME = "chisel"
+        const val IDE_VERSION = "3000.10.21"
+        const val LOCALE = "en"
+
+        const val SESSION_TOKEN_PREFIX = "devin-session-token\$"
+    }
+
+    /**
+     * Meta Muse.
+     *
+     * Meta exposes OAuth as an RFC 8628 device flow.  The device token is retained separately
+     * from the short-lived/minted LLM key: the same `muse-code/key` endpoint returns both the
+     * subscription quota and a usable API key, but only the DCA token is valid for that query.
+     *
+     * Source: CLIProxyAPI internal/auth/meta/meta.go and the CLIProxyAPI Management Center
+     * quota provider (Meta Muse).
+     */
+    object Meta {
+        const val AUTH_HOST = "https://auth.meta.com"
+        const val DEVICE_AUTHORIZATION_ENDPOINT = "$AUTH_HOST/oidc/device/authorization/"
+        const val TOKEN_ENDPOINT = "$AUTH_HOST/oidc/device/token/"
+        const val CLIENT_ID = "1031625952748946"
+        const val DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
+
+        const val KEY_ENDPOINT = "https://api.meta.ai/muse-code/key"
+        const val API_BASE_URL = "https://api.meta.ai/v1"
+        const val USER_AGENT = "muse-code/1.0.2"
+        const val API_VERSION = "1.0.0"
+    }
 }

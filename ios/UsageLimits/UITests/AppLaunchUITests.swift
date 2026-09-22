@@ -151,8 +151,8 @@ final class AppLaunchUITests: XCTestCase {
     }
 
     func testTheAddAccountSheetOffersEveryProvider() {
-        // All five can be signed into: two by device code, two by a loopback redirect the app
-        // receives itself, and one with a key the user pastes. The sheet must open and offer
+        // All seven can be signed into: three by device code, four by a loopback redirect the app
+        // receives itself, and Kimi also has a key the user can paste. The sheet must open and offer
         // each of them rather than dead-end.
         let app = launch()
 
@@ -168,7 +168,7 @@ final class AppLaunchUITests: XCTestCase {
             app.navigationBars["Add account"].waitForExistence(timeout: 10),
             "the add-account sheet should open")
 
-        for provider in ["OpenAI Codex", "Claude", "Antigravity", "Grok", "Kimi"] {
+        for provider in ["OpenAI Codex", "Claude", "Antigravity", "Grok", "Kimi", "Devin", "Meta Muse"] {
             XCTAssertTrue(
                 scrollTo(app.staticTexts[provider], in: app),
                 "\(provider) should be offered")

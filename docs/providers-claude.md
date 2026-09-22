@@ -85,7 +85,7 @@ The steps as implemented:
 Two details differ from every other provider here. The token endpoint is on
 `platform.claude.com`, not `api.anthropic.com` — the two hosts are not interchangeable and
 using the API host fails. And the body is JSON, where RFC 6749 specifies form encoding and the
-other three providers use it; `HttpClient.jsonBody` is used instead of `formBody` for exactly
+other provider adapters use it; `HttpClient.jsonBody` is used instead of `formBody` for exactly
 this reason.
 
 Refresh is the same endpoint and the same JSON convention, with `grant_type=refresh_token`. A
@@ -269,6 +269,6 @@ fixture-based parser tests: they at least pin the app's behaviour to a stated sh
 No credential material, captured payload or account identifier from any real account appears
 in this repository, in its tests, or in this document.
 
-See also `docs/provider-auth-research.md` for the cross-provider comparison of the four login
+See also `docs/provider-auth-research.md` for the cross-provider comparison of the login
 flows, and `docs/security.md` for the credential-storage argument and the reasoning behind
 refusing the fingerprint-mimicry route.

@@ -281,5 +281,5 @@ ships; the secret's value is not repeated in this document, only in
 project id or account identifier from any real account appears in this repository, in its
 tests, or in this document.
 
-See also `docs/provider-auth-research.md` for the cross-provider comparison of the four login
+See also `docs/provider-auth-research.md` for the cross-provider comparison of the login
 flows, and `docs/security.md` for the full client-secret argument in context.

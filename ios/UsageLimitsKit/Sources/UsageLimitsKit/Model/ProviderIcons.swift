@@ -38,6 +38,14 @@ public enum ProviderIconCatalog {
             ProviderIconChoice(id: "kimi", label: "Kimi · Monochrome", assetName: "ProviderIconKimi"),
             ProviderIconChoice(id: "kimi-text", label: "Kimi · Wordmark", assetName: "ProviderIconKimiText"),
         ]
+        case .devin: return [
+            ProviderIconChoice(id: "devin-color", label: "Devin · Color", assetName: "ProviderIconDevinColor"),
+            ProviderIconChoice(id: "devin", label: "Devin · Monochrome", assetName: "ProviderIconDevin"),
+        ]
+        case .meta: return [
+            ProviderIconChoice(id: "meta-color", label: "Meta Muse · Color", assetName: "ProviderIconMetaColor"),
+            ProviderIconChoice(id: "meta", label: "Meta Muse · Monochrome", assetName: "ProviderIconMeta"),
+        ]
         }
     }
     public static func selected(for provider: ProviderID, id: String?) -> ProviderIconChoice {

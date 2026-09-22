@@ -60,6 +60,18 @@ final class CredentialStoreTests: XCTestCase {
         XCTAssertEqual(loaded, saved)
     }
 
+    func testProviderDataSurvivesKeychainEncodingAndOldRecordsDecode() throws {
+        let original = OAuthCredentials(
+            accessToken: "meta-key",
+            providerData: ["dca_token": "synthetic-dca", "api_key": "meta-key"])
+        let data = try JSONEncoder().encode(original)
+        XCTAssertEqual(try JSONDecoder().decode(OAuthCredentials.self, from: data), original)
+
+        let old = Data(#"{"accessToken":"old-access"}"#.utf8)
+        let restored = try JSONDecoder().decode(OAuthCredentials.self, from: old)
+        XCTAssertEqual(restored.providerData, [:])
+    }
+
     func testSavingTwiceReplacesRatherThanFailing() async throws {
         // Every token refresh is an overwrite. A store that rejected the second write would
         // strand the account on the credentials it had at sign-in.

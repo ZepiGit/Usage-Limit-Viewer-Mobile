@@ -2,7 +2,7 @@ import Foundation
 
 /// Receiving an OAuth redirect that was addressed to `http://localhost:PORT/...`.
 ///
-/// Two of the four providers issue their authorisation code to a loopback address, because their
+/// Four of the seven providers issue their authorisation code to a loopback address, because their
 /// official clients are desktop CLIs and RFC 8252 §7.3 names loopback as the redirect for a
 /// native app that cannot register a scheme. The app must therefore answer one HTTP request on
 /// 127.0.0.1 and read the code out of the request line.

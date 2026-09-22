@@ -2,7 +2,7 @@
 
 <h1 align="center">Usage Limits Mobile</h1>
 
-<p align="center"><strong>Know what’s left. See what resets next.</strong><br>Codex, Claude, Antigravity, Grok and Kimi — on your phone and home screen.</p>
+<p align="center"><strong>Know what’s left. See what resets next.</strong><br>Codex, Claude, Antigravity, Grok, Kimi, Devin and Meta Muse — on your phone and home screen.</p>
 
 <p align="center">
 <a href="#build"><img src="docs/01-terracotta/android-badge.png" height="25" alt="Android 8.0+"></a> <a href="#build"><img src="docs/01-terracotta/ios-badge.png" height="25" alt="iOS 16.0+"></a> <a href="#build"><img src="docs/01-terracotta/source-badge.png" height="25" alt="Build from source"></a> 
@@ -139,9 +139,12 @@ separately, rather than executed inside the README.
 | **Antigravity** | Per-model quota buckets | Google OAuth + PKCE |
 | **Grok** | Weekly credits and monthly billing window | Device-code flow |
 | **Kimi Code** | Coding quota and reset windows | Device code or console key |
+| **Devin** | Daily and weekly seat quota | OAuth + PKCE loopback |
+| **Meta Muse** | Rolling subscription window and weekly quota | OAuth device code |
 
-All five have implementations on Android and iOS. Live sign-in is not verified for every
-provider; Kimi OAuth usage access may require vendor approval.
+All seven have implementations on Android and iOS. Google Vertex is intentionally not included:
+CliProxyAPI exposes it as an API-key/service-account integration rather than an OAuth provider.
+Live sign-in is not verified for every provider; Kimi OAuth usage access may require vendor approval.
 
 
 ## Build
@@ -187,7 +190,6 @@ See the [security model](docs/security.md) and [release readiness](docs/release-
 | [Widgets](docs/widgets.md) | [Verification](docs/verification.md) |
 | [Security](docs/security.md) | [Release guide](docs/release.md) |
 
-For provider-specific behavior, see [Codex](docs/providers-codex.md) and the other
-`docs/providers-*` guides. Report reproducible problems in
+For provider-specific behavior, see [Codex](docs/providers-codex.md), [Devin](docs/providers-devin.md),
+[Meta Muse](docs/providers-meta.md) and the other `docs/providers-*` guides. Report reproducible problems in
 [Issues](https://github.com/ZepiGit/Usage-Limit-Viewer/issues).
-
