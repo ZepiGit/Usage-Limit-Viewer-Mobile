@@ -58,8 +58,8 @@ public struct DevinClient: SyncProvider, Sendable {
             ?? status?.email
             ?? JSONSupport.string(profilePayload, "user_name", "userName", "name")
             ?? status?.userName
-        let accountID = rawAccountID?.trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 }
+        let trimmedAccountID = rawAccountID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let accountID = (trimmedAccountID?.isEmpty == false ? trimmedAccountID : nil)
             ?? Self.stableAccountID(token: token)
         var attributes: [String: String] = [:]
         let orgID = JSONSupport.string(profilePayload, "org_id", "orgId") ?? status?.orgID
