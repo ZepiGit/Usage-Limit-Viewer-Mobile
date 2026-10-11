@@ -1,5 +1,96 @@
 # Verification
 
+## Quota and widget regression coverage — PR #15
+
+[PR #15](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/pull/15) adds synthetic
+regressions for scoped quota availability, malformed and absent percentages,
+Claude window identity, current xAI credits versus deprecated monthly totals,
+partial refresh diagnostics, credential races and measurement age. Its check
+runs and downloadable artifacts are the source of execution results. Historical
+results below apply only to their stated commits and environments.
+
+Android CI runs the unit suite and lint, then builds debug and minified release
+APKs. `android-verification-evidence` contains test XML, lint output, generated
+Room schemas and widget PNGs. Schema 10 adds a nullable attempt timestamp;
+upgrade tests preserve accounts, snapshots and widget configuration from every
+retained schema. The RemoteViews test uses an actual `AppWidgetHostView`, verifies
+saved colors across day/night and resize, and requires materialized account and
+quota text in collection widgets. A background-only PNG is not sufficient proof.
+These are synthetic Robolectric renders, not physical launcher lifecycle tests.
+
+The resolved release dependencies at `4ec7c53` included WorkManager 2.10.0 and
+DataStore 1.1.1. The patch updates to
+[WorkManager 2.10.5](https://developer.android.com/jetpack/androidx/releases/work#2.10.5)
+and [DataStore 1.1.7](https://developer.android.com/jetpack/androidx/releases/datastore#1.1.7)
+include upstream fixes for incorrect network-constraint evaluation, startup storage
+races, PreferencesDataStore corruption and missing R8/ProGuard rules. These changes
+do not establish the cause of the reported widget color change or a measured
+performance improvement. CI records the resulting dependency graph and runs the
+existing scheduling and persistence tests and the minified APK upgrade path.
+
+The APK reports record package/version metadata, SHA-256 and signer certificates.
+When the existing release key is configured, CI compares the previous published
+APK's identity, version code and signer with the new artifact and fails on missing
+or inconsistent values. Signature continuity alone does not prove an on-device upgrade.
+The API 36 runtime job starts a fresh AOSP emulator and waits for a focused
+launcher window and its observed workspace before sending test input. Boot logs
+are retained; a system error dialog fails the run. Both Android and release CI
+keep Xvfb alive around the runtime wrapper. The software renderer uses bundled
+Lavapipe/LLVMpipe with `EGL_PLATFORM=x11`; native EGL requires a display even
+with `-no-window`. The wrapper rejects missing `DISPLAY` and verifies the actual
+renderer modes before APK installation. This setup addresses the observed CI
+graphics initialization path; it does not establish physical-device performance.
+It installs v0.2.0, changes and reloads
+a setting, then installs the same run's signed minified APK with `adb install -r`.
+It verifies the installed APK hash, preserved setting and package identity, four
+tabs, relaunch and crash/ANR diagnostics. It also places all four empty widget
+types through the launcher and checks their IDs, visible content and saved
+appearance selections after upgrading, changing day/night mode, ending the
+observed background app process with `am kill`, restarting the launcher and
+rebooting the emulator, then going offline and back online. Network checks record
+the actual default network and connected Internet-capable links, rather than
+treating the airplane-mode switch alone as proof. Original radio settings are
+restored even on failure; no provider requests are made. Recorded process and boot IDs verify those transitions;
+crash diagnostics are checked and preserved before reboot. Reconfiguration checks cancel
+without saving, so they cannot repair lost settings. These checks are required;
+missing launcher controls fail with screenshots and UI XML for diagnosis.
+Before the lifecycle rounds, normal launcher keyboard actions move Mini Rings
+to a different observed position on the same Home page and resize it horizontally
+and vertically, growing and shrinking each dimension. The checks require changed
+host bounds, preserved dimensions on the other axis, all four original widget IDs
+and saved Mini Rings appearance read without saving. The geometry report records
+the actual bounds, selected launcher targets and elapsed verification time.
+Its artifact records the commit and device environment. A passing run establishes
+empty-account upgrade and the stated launcher checks; it does not establish
+populated-account behavior, a fresh provider repaint or physical-device
+lifecycle behavior. The earlier force-stop/relaunch checks remain distinct from
+the background-process-loss check.
+That check first observes every original app PID's Android 16 `setAdj` at or
+above `SERVICE_ADJ` (500), with a bounded wait and saved process/service/job
+diagnostics. Going Home alone is insufficient while Glance's widget jobs retain
+service bindings. It then issues one `am kill` and still requires disappearance
+of every original PID before checking retained widget content and settings.
+iOS CI runs the shared package on Linux and macOS and builds/runs the app with the
+real SDK on iPhone and iPad simulators.
+
+The runtime script also records one excluded warmup and three launches after
+force-stop per APK with four widgets placed, then saves process memory reports
+after five idle seconds on Overview. Timings are grouped by Android's reported
+COLD, WARM or HOT state. The script records PIDs before force-stop and before
+launch, requiring termination of the prior PIDs. A background job can create a
+new process before the post-stop PID check or activity launch; it must not be
+mistaken for a surviving old process or counted as a guaranteed cold start.
+These observations use the same emulator, but do not control
+shared host load, ART profiles or file caches. They do not establish general speed,
+scrolling, battery or background-work improvements.
+
+The spontaneous widget background change reported on Pixel 10a/GrapheneOS remains
+unreproduced. No live provider responses were collected for this change. The original 25-day
+Claude reset is retained; it has not been verified against live source data.
+Physical-device lifecycle, populated-account behavior and installation of the
+published artifact remain separate checks. Release publication and verification
+follow [release.md](release.md); a successful CI artifact build is not publication.
+
 Usage Limits reads quota for seven providers: OpenAI Codex, Anthropic Claude,
 Google Antigravity, xAI Grok, Kimi Code, Devin and Meta Muse. Google Vertex is deliberately
 excluded because CliProxyAPI exposes it through API-key/service-account authentication rather
@@ -98,10 +189,10 @@ The scripted HTTP tests do not establish what error an Apple URLSession emits on
 ## Local audit results — 12 September 2026
 
 The completed baseline checks used JDK 17, Android SDK 35 and Swift 6.0.3 in
-Docker. The current Android source targets API 36 with AGP 8.10.1 and Robolectric
-4.16.1; its tests use JDK 21, while app bytecode remains Java 17. The final local
-build, test and emulator results are below. The corrected iPhone/iPad CI run
-remains pending.
+Docker. The audit's Android source targeted API 36 with AGP 8.10.1 and Robolectric
+4.16.1; its tests used JDK 21, while app bytecode targeted Java 17. The final local
+build, test and emulator results for that audit are below. The corrected
+iPhone/iPad CI run was pending at that time.
 
 | Check | Result |
 |---|---|
@@ -154,7 +245,8 @@ The Linux shims catch missing declarations and some type and concurrency errors.
 They do not reproduce the Apple SDK's full behavior, render the SwiftUI screens,
 or prove an Xcode build. The separate real-SDK CI run compiled the source at
 `19fc063`, then failed three provider-picker UI checks involving scroll gestures.
-The corrected iPhone/iPad run, including landscape and large text, is still pending.
+The corrected iPhone/iPad run, including landscape and large text, was pending
+at the audit; current execution evidence is recorded in PR #15's check runs.
 
 ## What the tests establish
 
@@ -263,9 +355,11 @@ authentication attempts while the cause is unknown.
 
 This audit has not established end-to-end access to any live account. Historical
 fixtures remain useful regression evidence, but no current provider response was
-captured or re-confirmed here. Physical-device checks, the corrected iOS CI run,
-populated-account behavior and a controlled performance comparison remain open.
-The final API 36 emulator smoke and cold-launch measurements are complete.
+captured or re-confirmed here. Physical-device checks, populated-account behavior
+and a controlled performance comparison remain open. The completed API 36
+emulator smoke and cold-launch measurements above belong to the September local
+audit; current Android runtime and iOS simulator results belong to PR #15's
+check runs and their artifacts.
 Both platforms have the shared app-icon assets configured; their presence does
 not establish store acceptance.
 

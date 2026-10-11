@@ -221,7 +221,7 @@ class CodexUsageParserTest {
     // region exhaustion
 
     @Test
-    fun `limit_reached forces a fully used window even with no percentage reported`() {
+    fun `limit_reached preserves a block without inventing its percentage`() {
         val payload = JsonSupport.parseObject(
             """
             {
@@ -234,13 +234,13 @@ class CodexUsageParserTest {
         )
 
         val window = CodexUsageParser.parse(payload, now).single()
-        assertEquals(100.0, window.usedPercent!!, 0.0001)
-        assertEquals(0.0, window.remainingPercent!!, 0.0001)
+        assertNull(window.usedPercent)
+        assertNull(window.remainingPercent)
         assertTrue(window.exhausted)
     }
 
     @Test
-    fun `allowed false forces a fully used window even with no percentage reported`() {
+    fun `allowed false preserves one family block without inventing measurements`() {
         val payload = JsonSupport.parseObject(
             """
             {
@@ -255,11 +255,11 @@ class CodexUsageParserTest {
 
         val windows = CodexUsageParser.parse(payload, now)
         assertEquals(2, windows.size)
-        // The flag sits on the parent, so both windows of the family are spent.
+        // The family is blocked, but the provider has not identified a measured percentage.
         windows.forEach { window ->
-            assertEquals(window.id, 100.0, window.usedPercent!!, 0.0001)
-            assertTrue(window.id, window.exhausted)
+            assertNull(window.usedPercent)
         }
+        assertEquals(1, windows.count { it.exhausted })
     }
 
     @Test

@@ -11,6 +11,7 @@ import org.junit.Test
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketException
 
 /**
  * Every process on the device can reach 127.0.0.1, so the listener has to survive strangers.
@@ -140,8 +141,13 @@ class LoopbackServerNoiseTest {
             // stops reading at the cap, answers, ignores it and keeps waiting.
             Socket(InetAddress.getByName("127.0.0.1"), port).use { socket ->
                 val out = socket.getOutputStream()
-                repeat(40) { out.write(ByteArray(1024) { 'A'.code.toByte() }) }
-                out.flush()
+                try {
+                    repeat(40) { out.write(ByteArray(1024) { 'A'.code.toByte() }) }
+                    out.flush()
+                } catch (_: SocketException) {
+                    // The 8 KiB cap can close the peer before this 40 KiB flood finishes.
+                    // A rejected flood is expected; the genuine redirect below must still land.
+                }
                 runCatching { socket.getInputStream().readBytes() }
             }
             send(port, "GET /callback?code=survived&state=the-state HTTP/1.1")

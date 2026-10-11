@@ -82,7 +82,16 @@ class WidgetSelectionContractTest {
 
     @Test fun `ring layouts change columns and preserve the requested compact capacities`() {
         assertEquals(1, WidgetLayout.accountColumns(250f, 140f))
-        assertEquals(2, WidgetLayout.accountColumns(250f, 280f))
+        // Height cannot supply missing label width: at 250dp two columns leave just 67dp
+        // per label after 20dp outer padding and each ring (36), gap (8), and padding (4).
+        // The 96dp label budget therefore requires 20 + 2 * (36 + 8 + 4 + 96) = 308dp.
+        assertEquals(1, WidgetLayout.accountColumns(250f, 280f))
+        assertEquals(1, WidgetLayout.accountColumns(307.9f, 280f))
+        assertEquals(2, WidgetLayout.accountColumns(308f, 280f))
+        assertEquals(1, WidgetLayout.accountColumns(308f, 239f))
+        // At 1.5x font size only the text budget scales: 20 + 2 * (48 + 144) = 404dp.
+        assertEquals(1, WidgetLayout.accountColumns(403.9f, 280f, fontScale = 1.5f))
+        assertEquals(2, WidgetLayout.accountColumns(404f, 280f, fontScale = 1.5f))
         assertEquals(2, WidgetLayout.miniCapacity(64f, 64f))
         assertEquals(4, WidgetLayout.miniCapacity(64f, 128f))
         assertEquals(8, WidgetLayout.miniCapacity(128f, 128f))

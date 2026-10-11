@@ -30,6 +30,11 @@ public enum WindowCategory: String, Sendable, Codable {
     }
 }
 
+/// Global constraints, independent model/feature pools, or a scope the provider did not identify.
+public enum UsageScope: String, Sendable, Codable {
+    case global, model, unknown
+}
+
 /// One quota bar, normalised from whatever shape the provider used.
 ///
 /// `usedPercent` is 0…100 **consumed**; `remainingPercent` is derived. Every provider reports
@@ -45,6 +50,7 @@ public struct UsageWindow: Sendable, Codable, Equatable {
     public let exhausted: Bool
     /// Optional grouping key — an Antigravity quota group, or Codex "code review".
     public let group: String?
+    public let scope: UsageScope
 
     public init(
         id: String,
@@ -54,7 +60,8 @@ public struct UsageWindow: Sendable, Codable, Equatable {
         periodSeconds: Int64?,
         resetAt: Date?,
         exhausted: Bool,
-        group: String? = nil
+        group: String? = nil,
+        scope: UsageScope = .global
     ) {
         self.id = id
         self.label = label
@@ -64,6 +71,40 @@ public struct UsageWindow: Sendable, Codable, Equatable {
         self.resetAt = resetAt
         self.exhausted = exhausted
         self.group = group
+        self.scope = scope
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try c.decode(String.self, forKey: .id)
+        let group = try c.decodeIfPresent(String.self, forKey: .group)
+        // Older caches predate scope. Preserve known model identities until the next fetch.
+        let legacyScope: UsageScope
+        if id.hasPrefix("seven-day-") || group != nil || id == "xai-on-demand" {
+            legacyScope = .model
+        } else if id == "five-hour" || id == "seven-day"
+            || ["codex-", "kimi-", "xai-", "meta-", "devin-"].contains(where: { id.hasPrefix($0) }) {
+            legacyScope = .global
+        } else {
+            // A legacy codename has no documented global scope. Refresh will identify it.
+            legacyScope = .unknown
+        }
+        self.init(
+            id: id, label: try c.decode(String.self, forKey: .label),
+            category: try c.decode(WindowCategory.self, forKey: .category),
+            usedPercent: try c.decodeIfPresent(Double.self, forKey: .usedPercent),
+            periodSeconds: try c.decodeIfPresent(Int64.self, forKey: .periodSeconds),
+            resetAt: try c.decodeIfPresent(Date.self, forKey: .resetAt),
+            exhausted: try c.decode(Bool.self, forKey: .exhausted), group: group,
+            scope: try c.decodeIfPresent(UsageScope.self, forKey: .scope) ?? legacyScope)
+    }
+
+    /// Round only for display; boundary labels must not imply exhausted or full.
+    public static func percentLabel(_ percent: Double?) -> String {
+        guard let percent, percent.isFinite, (0...100).contains(percent) else { return "—" }
+        if percent > 0 && percent < 1 { return "<1%" }
+        if percent < 100 && percent.rounded() == 100 { return ">99%" }
+        return "\(Int(percent.rounded()))%"
     }
 
     public var remainingPercent: Double? {
@@ -72,8 +113,12 @@ public struct UsageWindow: Sendable, Codable, Equatable {
         // false against every bound, so `min`/`max` hand it straight back. Downstream it reaches
         // an `Int(_:)` conversion, which in Swift traps rather than saturating — inside a widget
         // extension that is a dead tile with nothing anywhere saying why.
-        guard let used = usedPercent, used.isFinite else { return nil }
-        return min(max(100.0 - used, 0.0), 100.0)
+        guard let used = usedPercent, used.isFinite, (0...100).contains(used) else { return nil }
+        return 100.0 - used
+    }
+
+    public var hasConflictingAvailability: Bool {
+        exhausted && (remainingPercent.map { $0 > 0 } ?? false)
     }
 
     public var severity: Severity {

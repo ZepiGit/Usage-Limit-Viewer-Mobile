@@ -44,7 +44,7 @@ final class ClaudeUsageParserTests: XCTestCase {
         XCTAssertEqual(windows[0].remainingPercent, 53.0)
     }
 
-    func testWindowWithNoUtilizationIsSkippedEntirely() {
+    func testWindowWithNoUtilizationRemainsUnknown() {
         // A nil usedPercent resolves to .error, and snapshot severity is a MAX over the
         // windows — so emitting this row would mark the whole account failed over one
         // renamed upstream field, while that same row sorts last in any "most critical" order.
@@ -55,9 +55,9 @@ final class ClaudeUsageParserTests: XCTestCase {
         }
         """), now: now)
 
-        XCTAssertEqual(windows.count, 1)
+        XCTAssertEqual(windows.count, 2)
         XCTAssertEqual(windows[0].category, .fiveHour)
-        XCTAssertTrue(windows.allSatisfy { $0.usedPercent != nil })
+        XCTAssertEqual(windows[1].severity, .unknown)
         XCTAssertFalse(windows.contains { $0.severity == .error })
     }
 
@@ -126,7 +126,7 @@ final class ClaudeUsageParserTests: XCTestCase {
         XCTAssertEqual(windows.map(\.label), ["Weekly (Fable)", "Weekly (Opus)"])
     }
 
-    func testAnEmptyLimitsArrayFallsBackToTheFlatKeys() {
+    func testAnUnreadableLimitDoesNotHideOtherReportedWindows() {
         // An array that yields nothing is no better than an absent one, and silently rendering
         // an empty screen would be the worst of the three outcomes.
         let windows = ClaudeUsageParser.parse(payload("""
@@ -137,9 +137,9 @@ final class ClaudeUsageParserTests: XCTestCase {
         }
         """), now: now)
 
-        XCTAssertEqual(windows.count, 1)
-        XCTAssertEqual(windows[0].id, "iguana-necktie")
-        XCTAssertEqual(windows[0].usedPercent, 5.0)
+        XCTAssertEqual(windows.count, 2)
+        XCTAssertNil(windows.first { $0.id == "seven-day-fable" }?.usedPercent)
+        XCTAssertEqual(windows.first { $0.id == "iguana-necktie" }?.usedPercent, 5.0)
     }
 
     func testAnUndocumentedKeyWithRealConsumptionIsSurfaced() {
@@ -160,7 +160,7 @@ final class ClaudeUsageParserTests: XCTestCase {
         XCTAssertEqual(found?.category, .other)
     }
 
-    func testAnUntouchedCodenameSlotIsNotSurfaced() {
+    func testAnUntouchedCodenameWindowRemainsVisible() {
         // `nimbus_quill` sits at 0 % on a live account. A screen meant to be read in three
         // seconds does not need a row for a placeholder nobody is consuming.
         let windows = ClaudeUsageParser.parse(payload("""
@@ -170,7 +170,7 @@ final class ClaudeUsageParserTests: XCTestCase {
         }
         """), now: now)
 
-        XCTAssertEqual(windows.map(\.id), ["five-hour"])
+        XCTAssertEqual(windows.map(\.id), ["five-hour", "nimbus-quill"])
     }
 
     func testACreditBalanceIsNotMistakenForAUsageWindow() {
@@ -217,7 +217,7 @@ final class ClaudeUsageParserTests: XCTestCase {
         XCTAssertEqual(windows.first { $0.id == "seven-day" }?.usedPercent, 90.5)
     }
 
-    func testACodenameSharingAResetInstantIsNotShownTwice() {
+    func testSharingAResetInstantDoesNotProveQuotaIdentity() {
         // The same quota under two names. Rendering both puts two constraints on screen where
         // there is one, and integer-versus-decimal rounding makes them look like they disagree.
         let windows = ClaudeUsageParser.parse(payload("""
@@ -229,7 +229,7 @@ final class ClaudeUsageParserTests: XCTestCase {
         }
         """), now: now)
 
-        XCTAssertEqual(windows.map(\.id), ["seven-day-fable"])
+        XCTAssertEqual(windows.map(\.id), ["seven-day-fable", "juniper-tide"])
     }
 
     func testTwoWindowsWithNoResetAreNotMerged() {
@@ -445,7 +445,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
         XCTAssertNotNil(windows[0].resetAt)
     }
 
-    func testBucketWithoutRemainingFractionIsSkipped() {
+    func testBucketWithoutRemainingFractionRemainsUnknown() {
         let windows = AntigravityQuotaParser.parse(payload("""
         {
           "groups": [
@@ -458,10 +458,10 @@ final class AntigravityQuotaParserTests: XCTestCase {
         }
         """), now: now)
 
-        XCTAssertEqual(windows.map(\.id), ["b"])
+        XCTAssertEqual(windows.map(\.id), ["a", "b"])
     }
 
-    func testGroupWithNoUsableBucketsIsDropped() {
+    func testGroupWithUnknownBucketsIsPreserved() {
         let windows = AntigravityQuotaParser.parse(payload("""
         {
           "groups": [
@@ -472,10 +472,10 @@ final class AntigravityQuotaParserTests: XCTestCase {
         }
         """), now: now)
 
-        XCTAssertEqual(windows.map(\.group), ["Real"])
+        XCTAssertEqual(windows.map(\.group), ["Empty", "Real"])
     }
 
-    func testOutOfRangeFractionsAreClamped() {
+    func testOutOfRangeFractionsRemainUnknown() {
         let windows = AntigravityQuotaParser.parse(payload("""
         {
           "groups": [
@@ -488,9 +488,9 @@ final class AntigravityQuotaParserTests: XCTestCase {
         }
         """), now: now)
 
-        XCTAssertEqual(windows.first { $0.id == "over" }?.usedPercent, 0.0)
-        XCTAssertEqual(windows.first { $0.id == "under" }?.usedPercent, 100.0)
-        XCTAssertTrue(windows.first { $0.id == "under" }?.exhausted ?? false)
+        XCTAssertNil(windows.first { $0.id == "over" }?.usedPercent)
+        XCTAssertNil(windows.first { $0.id == "under" }?.usedPercent)
+        XCTAssertFalse(windows.first { $0.id == "under" }?.exhausted ?? true)
     }
 
     func testFiveHourSortsBeforeWeeklyWithinAGroup() {

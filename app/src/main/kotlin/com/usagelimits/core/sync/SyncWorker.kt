@@ -102,28 +102,21 @@ class SyncWorker(
         }
 
         /**
-         * Whether the cache is old enough — or overtaken by a reset — to justify a fetch.
-         *
-         * Two conditions, either sufficient. The newest snapshot is older than the interval the
-         * user chose, so a scheduled pass has been missed. Or a window's reset instant has
-         * passed since its snapshot was taken, so the cached number is wrong rather than merely
-         * old: the provider has moved to a fresh window and the tile still shows the spent one.
-         * A snapshot fetched AFTER the reset is not affected — the provider had already
-         * reported the new window by then.
+         * Refresh each account when its last attempt is due, or once at a newly passed reset.
+         * A fresh account cannot hide an older or missing one. Attempts bound retry frequency
+         * after a failure while fetchedAt continues to describe the age of the cached values.
          */
         fun cacheNeedsSync(accounts: List<AccountUsage>, syncIntervalMinutes: Int, nowMs: Long): Boolean {
-            if (accounts.isEmpty()) return false
-            val snapshots = accounts.mapNotNull { it.snapshot }
-            if (snapshots.isEmpty()) return true
             val intervalMs = syncIntervalMinutes.coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES) * 60_000L
-            val aged = snapshots.maxOf { it.fetchedAt } + intervalMs <= nowMs
-            val overtaken = snapshots.any { snapshot ->
-                snapshot.windows.any { window ->
-                    val resetAt = window.resetAt ?: return@any false
-                    resetAt <= nowMs && snapshot.fetchedAt < resetAt
+            return accounts.any { usage ->
+                val snapshot = usage.snapshot ?: return@any true
+                val due = nowMs - snapshot.lastAttemptAt >= intervalMs
+                val resetSinceAttempt = snapshot.windows.any { window ->
+                    val resetAt = window.resetAt
+                    resetAt != null && resetAt <= nowMs && snapshot.lastAttemptAt < resetAt
                 }
+                due || resetSinceAttempt
             }
-            return aged || overtaken
         }
 
         /**

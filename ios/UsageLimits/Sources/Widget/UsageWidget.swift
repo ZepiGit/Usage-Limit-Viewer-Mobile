@@ -271,9 +271,7 @@ enum QuotaFormatting {
     /// empty bar; coercing it to "0 %" would cry wolf, and to "100 %" would invent
     /// an all-clear the cache never made.
     static func percentText(_ percent: Double?) -> String {
-        guard let percent else { return "—" }
-        let value = Int((fraction(percent) * 100).rounded())
-        return "\(value)%"
+        UsageWindow.percentLabel(percent)
     }
 
     /// Normalises a 0…100 percentage to 0…1 for bar widths and labels.
@@ -288,7 +286,8 @@ enum QuotaFormatting {
     /// inferred: the input is always a percentage. Clamping still stops a corrupt cache
     /// value from overflowing the bar.
     static func fraction(_ percent: Double) -> Double {
-        min(max(percent / 100, 0), 1)
+        guard percent.isFinite, (0...100).contains(percent) else { return 0 }
+        return percent / 100
     }
 }
 
@@ -572,6 +571,9 @@ private struct MediumAccountRow: View {
                     .foregroundColor(SeverityPalette.text(rowSeverity))
                     .lineLimit(1)
             }
+            if let message = account.statusMessage {
+                Text(verbatim: message).font(.caption2).foregroundColor(ink.secondary).lineLimit(2)
+            }
             QuotaBar(
                 remainingPercent: row?.remainingPercent,
                 severity: rowSeverity,
@@ -640,6 +642,10 @@ struct UsageWidgetSmallView: View {
                     .lineLimit(1)
             }
 
+            if let message = focus.account.statusMessage {
+                Text(verbatim: message).font(.caption2).foregroundColor(ink.secondary).lineLimit(2)
+            }
+
             Spacer(minLength: 4)
 
             WidgetPercentage(remainingPercent: focus.row?.remainingPercent)
@@ -665,7 +671,7 @@ struct UsageWidgetSmallView: View {
             // account. The snapshot-level maximum is the newest account's fetch and can
             // freshen a lead that was read an hour earlier — date the number being shown.
             if let asOf = GlanceText.asOfLine(
-                updatedAt: focus.account.fetchedAt ?? entry.snapshot.updatedAt, now: entry.date) {
+                updatedAt: focus.account.fetchedAt, now: entry.date) {
                 Text(verbatim: asOf)
                     .font(.caption2)
                     .foregroundColor(ink.tertiary)
@@ -799,7 +805,9 @@ struct UsageAccessoryRectangularView: View {
                     .lineLimit(1)
             }
 
-            if let reset = GlanceText.resetLine(resetAt: entry.snapshot.nextResetAt, now: entry.date) {
+            if let message = focus.account.statusMessage {
+                Text(verbatim: message).font(.caption2).lineLimit(1)
+            } else if let reset = GlanceText.resetLine(resetAt: entry.snapshot.nextResetAt, now: entry.date) {
                 Text(verbatim: reset)
                     .font(.caption2)
                     .foregroundColor(.secondary)
@@ -920,6 +928,9 @@ struct UsageRingWidgetView: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundColor(UsageColors.textPrimary)
                 .lineLimit(1)
+            if let message = focus.account.statusMessage {
+                Text(verbatim: message).font(.caption2).foregroundColor(UsageColors.textSecondary).lineLimit(2)
+            }
             if let reset = GlanceText.resetLine(resetAt: shownReset, now: entry.date) {
                 Text(verbatim: reset)
                     .font(.caption2)
@@ -962,10 +973,15 @@ struct UsageAccessoryCircularView: View {
                     .stroke(.primary, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                     .rotationEffect(Angle.degrees(-90))
             }
-            WidgetPercentage(remainingPercent: remaining)
-                .font(.caption.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+            VStack(spacing: 1) {
+                WidgetPercentage(remainingPercent: remaining)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                if focus?.account.statusMessage != nil {
+                    Image(systemName: "exclamationmark.circle").font(.caption2)
+                }
+            }
         }
         .accessibilityElement()
         .accessibilityLabel(
@@ -976,7 +992,8 @@ struct UsageAccessoryCircularView: View {
 private extension WidgetFocus {
     func title(for remaining: Double?) -> String {
         guard let remaining else { return "\(account.title): remaining unknown" }
-        return "\(account.title): \(QuotaFormatting.percentText(remaining)) remaining"
+        let warning = account.statusMessage.map { ", " + $0 } ?? ""
+        return "\(account.title): \(QuotaFormatting.percentText(remaining)) remaining\(warning)"
     }
 }
 

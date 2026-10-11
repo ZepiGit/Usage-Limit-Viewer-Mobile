@@ -21,18 +21,18 @@ class UsageRingTest {
 
     @Test
     fun `a percentage outside the range cannot draw outside the circle`() {
-        // Providers have reported over 100 % remaining after a credit was granted mid-window.
+        // Geometry is bounded; invalid provider percentages must not become a full quota.
         assertEquals(360f, UsageRing.sweepDegrees(1.4f), 0.01f)
         assertEquals(0f, UsageRing.sweepDegrees(-0.2f), 0.01f)
-        assertEquals(1f, UsageRing.fractionFor(140.0), 0.001f)
+        assertEquals(0f, UsageRing.fractionFor(140.0), 0.001f)
         assertEquals(0f, UsageRing.fractionFor(-5.0), 0.001f)
     }
 
     @Test
-    fun `no reported percentage draws a full ring, not an empty one`() {
-        // An empty ring is what "exhausted" looks like. Drawing one because the provider said
-        // nothing would claim a limit is spent on no evidence at all.
-        assertEquals(1f, UsageRing.fractionFor(null), 0.001f)
+    fun `unknown and invalid percentages claim no available quota`() {
+        for (percent in listOf(null, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY)) {
+            assertEquals(0f, UsageRing.fractionFor(percent), 0.001f)
+        }
     }
 
     @Test

@@ -67,6 +67,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     public let iconAssetName: String?
     public let resetDates: [Date]
     public let connectionStatus: ConnectionStatus
+    public let statusMessage: String?
 
     public init(
         id: String,
@@ -79,7 +80,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         providerID: String? = nil,
         connectionStatus: ConnectionStatus = .unknown,
         resetDates: [Date]? = nil,
-        iconAssetName: String? = nil
+        iconAssetName: String? = nil,
+        statusMessage: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -91,11 +93,12 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         self.providerID = providerID
         self.iconAssetName = iconAssetName
         self.connectionStatus = connectionStatus
+        self.statusMessage = statusMessage
         self.resetDates = resetDates ?? rows.compactMap(\.resetAt)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, subtitle, rows, severity, baseSeverity, fetchedAt, providerID, connectionStatus, resetDates, iconAssetName
+        case id, title, subtitle, rows, severity, baseSeverity, fetchedAt, providerID, connectionStatus, resetDates, iconAssetName, statusMessage
     }
 
     /// Lenient on the two new keys: a snapshot written before them must still decode, or every
@@ -112,6 +115,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         providerID = try c.decodeIfPresent(String.self, forKey: .providerID)
         iconAssetName = try c.decodeIfPresent(String.self, forKey: .iconAssetName)
         connectionStatus = try c.decodeIfPresent(ConnectionStatus.self, forKey: .connectionStatus) ?? .unknown
+        statusMessage = try c.decodeIfPresent(String.self, forKey: .statusMessage)
         resetDates = try c.decodeIfPresent([Date].self, forKey: .resetDates) ?? rows.compactMap(\.resetAt)
     }
 
@@ -289,7 +293,7 @@ public enum GlanceModel {
         return GlanceSnapshot(
             accounts: ordered,
             accountCount: selected.count,
-            updatedAt: selected.compactMap { $0.snapshot?.fetchedAt }.max(),
+            updatedAt: ordered.compactMap(\.fetchedAt).max(),
             // The soonest reset OF THE LEADING ACCOUNT. Taken across all accounts it paired the
             // headline state with an unrelated account's clock: "0 % left · resets in 12m",
             // where the twelve minutes belonged to a healthy account's five-hour window. And
@@ -364,27 +368,30 @@ public enum GlanceModel {
     static func urgency(_ severity: Severity) -> Int {
         switch severity {
         case .exhausted: return 0
-        case .low: return 1
-        case .medium: return 2
-        case .healthy: return 3
-        case .error: return 4
-        case .stale: return 5
+        case .limited: return 1
+        case .low: return 2
+        case .medium: return 3
+        case .healthy: return 4
+        case .unknown: return 5
+        case .error: return 6
+        case .stale: return 7
         }
     }
 
     /// The tightest window of a category — the number worth surfacing in one row.
     ///
-    /// An unknown percentage sorts as MOST urgent, not least. It resolves to `.error`, so
-    /// treating it as the largest possible number made the one window the app could not read
-    /// the last one it would ever show — and when every window of a category was unknown, the
-    /// comparison never fired and an arbitrary one was kept.
+    /// Known blocks lead, then measured quotas; unknown optional figures stay available in details.
     private static func headline(
         _ windows: [UsageWindow],
         _ category: WindowCategory
     ) -> GlanceRow? {
         windows
             .filter { $0.category == category }
-            .min { ($0.remainingPercent ?? -1) < ($1.remainingPercent ?? -1) }
+            .min { lhs, rhs in
+                if lhs.exhausted != rhs.exhausted { return lhs.exhausted }
+                return (lhs.remainingPercent ?? .greatestFiniteMagnitude)
+                    < (rhs.remainingPercent ?? .greatestFiniteMagnitude)
+            }
             .map(row)
     }
 
@@ -428,7 +435,9 @@ public enum GlanceModel {
     private static func glanceAccount(
         _ usage: AccountUsage, now: Date, staleAfter: TimeInterval, providerIcons: [String: String]
     ) -> GlanceAccount {
-        let windows = usage.snapshot?.windows ?? []
+        let allWindows = usage.snapshot?.windows ?? []
+        let global = allWindows.filter { $0.scope == .global }
+        let windows = global.isEmpty ? allWindows : global
 
         // Two horizons, not every window an account reports: a tile has room for about two
         // rows before it stops being readable at a glance, which is the entire point of it.
@@ -456,23 +465,16 @@ public enum GlanceModel {
             // The unaged judgement and the instant it was made, so a widget rendering this
             // hours later can age it itself instead of repeating a verdict from write time.
             baseSeverity: usage.snapshot?.severity ?? .stale,
-            fetchedAt: usage.snapshot?.fetchedAt, providerID: usage.account.provider.rawValue,
+            fetchedAt: usage.snapshot.flatMap { $0.failed && $0.windows.isEmpty ? nil : $0.fetchedAt }, providerID: usage.account.provider.rawValue,
             connectionStatus: usage.snapshot?.connectionStatus ?? .unknown,
             resetDates: usage.snapshot?.windows.compactMap(\.resetAt),
-            iconAssetName: ProviderIconCatalog.selected(for: usage.account.provider, id: providerIcons[usage.account.provider.rawValue]).assetName)
+            iconAssetName: ProviderIconCatalog.selected(for: usage.account.provider, id: providerIcons[usage.account.provider.rawValue]).assetName,
+            statusMessage: usage.snapshot?.statusMessage)
     }
 
     private static func row(_ window: UsageWindow) -> GlanceRow {
-        let label: String
-        switch window.category {
-        case .fiveHour: label = "5h limit"
-        case .weekly: label = "Weekly"
-        case .monthly: label = "Monthly"
-        case .other: label = window.label
-        }
-
         return GlanceRow(
-            label: label,
+            label: window.label,
             category: window.category,
             remainingPercent: window.remainingPercent,
             resetAt: window.resetAt,

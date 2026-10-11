@@ -54,14 +54,8 @@ public enum AntigravityQuotaParser: Sendable {
         groupSlug: String,
         bucketIndex: Int
     ) -> UsageWindow? {
-        // A missing fraction makes only this bucket unusable, not the entire group.
-        guard let remainingFraction = JSONSupport.double(
-            bucket, "remaining_fraction", "remainingFraction"
-        ) else {
-            return nil
-        }
-
-        let clamped = min(max(remainingFraction, 0.0), 1.0)
+        let fraction = JSONSupport.double(bucket, "remaining_fraction", "remainingFraction")
+        let remaining = fraction.flatMap { $0.isFinite && (0...1).contains($0) ? $0 : nil }
         let window = JSONSupport.string(bucket, "window")
         let (category, periodSeconds) = classify(window)
         let id = JSONSupport.string(bucket, "bucket_id", "bucketId")
@@ -72,13 +66,14 @@ public enum AntigravityQuotaParser: Sendable {
             label: JSONSupport.string(bucket, "display_name", "displayName") ?? id,
             category: category,
             // The provider reports the fraction remaining; the model stores percent consumed.
-            usedPercent: (1.0 - clamped) * 100.0,
+            usedPercent: remaining.map { (1.0 - $0) * 100.0 },
             periodSeconds: periodSeconds,
             resetAt: JSONSupport.date(
                 JSONSupport.string(bucket, "reset_time", "resetTime")
             ),
-            exhausted: clamped <= 0.0,
-            group: groupName
+            exhausted: remaining == 0,
+            group: groupName,
+            scope: .model
         )
     }
 

@@ -114,9 +114,11 @@ from. Provider-specific extras that are not secret (the Antigravity GCP project 
 ChatGPT account id header value) live in a small `attributes` map so a provider can stash
 what it needs without the model growing a per-provider field.
 
-**`UsageWindow`** is one bar. It stores `usedPercent` (0–100 *consumed*, because that is what
-every provider reports) and derives `remainingPercent`, because "82% remaining" is what the
-user reads. Storing both would risk them disagreeing; deriving means one rounding, once. The
+**`UsageWindow`** is one bar. It stores normalized `usedPercent` (0–100 consumed) and derives `remainingPercent`.
+Provider adapters convert remaining fractions and amount/capacity pairs at this boundary.
+Missing or invalid percentages remain unknown. Display rounding cannot turn a positive
+remainder into zero or a partially used quota into 100%. `scope` distinguishes global
+constraints from model/feature pools and limits whose scope is unknown. The
 `category` — `FIVE_HOUR`, `WEEKLY`, `MONTHLY`, `OTHER` — is computed from the declared window
 *duration*, never from the window's position in the payload, because upstream puts a monthly
 window in the "secondary" slot on team plans. `OTHER` is a real, renderable outcome: an
@@ -134,16 +136,18 @@ rate-limit reset. Only credits that are both of the Codex type and reported as a
 modelled, and `supportsResetCredits` is false everywhere else — the app does not invent a
 concept a provider does not have.
 
-**`Severity`** is the single scale everything colours by, with thresholds defined once:
-above 50% healthy, 20–50% medium, above zero but at or below 20% low, zero exhausted, plus
-`STALE` and `ERROR`. The enum is ordered best-to-worst so "the worst window in this account"
-is `maxOf`, and both the app and the widgets read the same enum — which is why a card and a
-widget tile can never disagree about whether something is low. `Severity.STALE_AFTER_MS`
-(one hour) is applied by `UsageSnapshot.severityAt(nowMs)`, which downgrades a snapshot to
-`STALE` once it is that old; `ERROR` still wins over age, because a failed fetch is the more
-specific thing to say. Every screen and both widgets call `severityAt` rather than the
-age-blind `severity`, and `Countdown.freshnessLabel` shows the true age beside it. `STALE` is
-also the fallback for an account that has never synced.
+**`Severity`** uses shared thresholds: above 50% healthy, above 20% medium,
+above zero low, and zero exhausted. Unknown measurements have `UNKNOWN` severity;
+failed fetches remain errors. Global blocking windows govern account availability.
+Exhausted model or feature pools produce `LIMITED` while other pools remain available,
+and keep their names on the detail rows. `PARTIAL` fetch warnings are displayed separately
+from measured percentages. Summary selection prefers global constraints; it does not
+average independent pools. Staleness is evaluated against the configured sync interval.
+
+A failed refresh preserves `fetchedAt`, the age of the last successful measurement, and
+advances `lastAttemptAt`. Room migration 9→10 adds that nullable timestamp without replacing
+accounts or widget settings. Window JSON carries scope; legacy cache rows infer only known
+provider identities and preserve unknown future scopes conservatively.
 
 ## Two stores, and why widgets can only reach one
 

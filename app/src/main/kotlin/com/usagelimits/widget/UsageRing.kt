@@ -2,6 +2,7 @@ package com.usagelimits.widget
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.RectF
 
@@ -21,12 +22,11 @@ object UsageRing {
     /**
      * Remaining quota as a fraction, from the percentage a provider reported.
      *
-     * Null — a provider that states no percentage — is drawn as a full ring in the track
-     * colour rather than an empty one: an empty ring is what "exhausted" looks like, and
-     * claiming a limit is spent because nobody said otherwise is the worst way to be wrong.
+     * Unknown values claim no available quota. [draw] distinguishes them from zero with a
+     * dashed neutral track, without painting any foreground arc.
      */
     fun fractionFor(remainingPercent: Double?): Float =
-        ((remainingPercent ?: 100.0) / 100.0).toFloat().coerceIn(0f, 1f)
+        (remainingPercent?.takeIf { it.isFinite() && it in 0.0..100.0 }?.div(100.0) ?: 0.0).toFloat()
 
     fun draw(
         sizePx: Int,
@@ -47,8 +47,11 @@ object UsageRing {
         }
 
         paint.color = trackArgb
+        val known = remainingPercent != null && remainingPercent.isFinite() && remainingPercent in 0.0..100.0
+        if (!known) paint.pathEffect = DashPathEffect(floatArrayOf(strokePx, strokePx), 0f)
         canvas.drawArc(box, 0f, 360f, false, paint)
 
+        if (!known) return bitmap
         paint.color = argb
         // From twelve o'clock, clockwise, so a ring that is emptying reads the way a clock
         // face does rather than unwinding backwards.

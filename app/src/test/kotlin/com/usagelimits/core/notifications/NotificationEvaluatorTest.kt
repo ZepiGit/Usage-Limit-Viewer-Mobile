@@ -115,6 +115,19 @@ class NotificationEvaluatorTest {
 
     private fun NotificationEvaluator.Outcome.keys() = events.map { it.key }.toSet()
 
+    @Test
+    fun `partial authentication failure remains visible while usable quota is evaluated`() {
+        val partial = usage(remaining = 8.0, status = SnapshotStatus.PARTIAL).let {
+            it.copy(snapshot = it.snapshot!!.copy(
+                errorMessage = "One usage endpoint requires sign-in",
+                connectionStatus = com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED,
+            ))
+        }
+        val result = run(listOf(partial), emptyMap())
+        assertEquals(listOf("Account acct needs to be reconnected"), result.standingFindings)
+        assertEquals(listOf("Account acct · 5h limit: less than 10% remaining"), result.lines())
+    }
+
     // region low-quota tiers
 
     /** An account with several windows, each with its own remaining percentage. */
@@ -303,24 +316,30 @@ class NotificationEvaluatorTest {
     }
 
     @Test
-    fun `an unknown percentage does not block recovery for ever`() {
-        // Treating unknown as "still low" looked cautious and was the opposite. One window
-        // whose figure the provider stopped reporting vetoed recovery permanently, so the
-        // episode never ended and the account never alerted again — silence, which is the
-        // worst failure a quota alert can have. The account already reads as ERROR on screen;
-        // there is nothing to gain by muting it as well.
-        val first = run(listOf(usage(remaining = 8.0)), emptyMap())
-        val unknown = run(listOf(usage(remaining = null, fetchedAt = now + 1)), first.stateMap())
-
-        assertFalse(unknown.stateMap().getValue("acct").lowQuotaActive)
-
-        // And the next readable dip is heard, rather than swallowed by the old episode.
+    fun `an unknown percentage does not prove recovery or repeat an alert`() {
         val publisher = publisher()
         publisher.sync(listOf(usage(remaining = 8.0)), settings, now)
-        publisher.sync(listOf(usage(remaining = null, fetchedAt = now + 1)), settings, now)
+
+        assertTrue(publisher.sync(listOf(usage(remaining = null, fetchedAt = now + 1)), settings, now).isEmpty())
+        assertTrue(publisher.stateOf("acct").lowQuotaActive)
+        assertTrue(publisher.sync(listOf(usage(remaining = 5.0, fetchedAt = now + 2)), settings, now).isEmpty())
+
+        // A measured recovery still re-arms this window independently.
+        publisher.sync(listOf(usage(remaining = 80.0, fetchedAt = now + 3)), settings, now)
         assertEquals(
             listOf("Account acct · 5h limit: less than 10% remaining"),
-            publisher.sync(listOf(usage(remaining = 5.0, fetchedAt = now + 2)), settings, now),
+            publisher.sync(listOf(usage(remaining = 5.0, fetchedAt = now + 4)), settings, now),
+        )
+    }
+
+    @Test
+    fun `an unknown window does not prevent another window recovering`() {
+        val publisher = publisher()
+        publisher.sync(listOf(multi("5h limit" to 8.0, "Weekly" to 8.0)), settings, now)
+        publisher.sync(listOf(multi("5h limit" to null, "Weekly" to 80.0, fetchedAt = now + 1)), settings, now)
+        assertEquals(
+            listOf("Account acct · Weekly: less than 10% remaining"),
+            publisher.sync(listOf(multi("5h limit" to 8.0, "Weekly" to 8.0, fetchedAt = now + 2)), settings, now),
         )
     }
 

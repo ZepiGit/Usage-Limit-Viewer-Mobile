@@ -86,11 +86,24 @@ class SyncWorkerPolicyTest {
     }
 
     @Test
-    fun `the newest snapshot decides the age, not the oldest`() {
-        // One account failing for a day must not drive a fetch every tick while the others are
-        // current; its own error is already recorded and shown.
+    fun `a fresh account cannot hide an older account that is due`() {
         val mixed = listOf(usage("old", fetchedAt = now - 86_400_000), usage("new", fetchedAt = now - 60_000))
-        assertFalse(SyncWorker.cacheNeedsSync(mixed, interval, now))
+        assertTrue(SyncWorker.cacheNeedsSync(mixed, interval, now))
+    }
+
+    @Test
+    fun `a fresh account cannot hide an account that has never been fetched`() {
+        val mixed = listOf(usage("new", fetchedAt = now - 60_000), AccountUsage(account("missing"), null))
+        assertTrue(SyncWorker.cacheNeedsSync(mixed, interval, now))
+    }
+
+    @Test
+    fun `a recent failed attempt bounds automatic retries without changing data age`() {
+        val old = usage("old", fetchedAt = now - 86_400_000, resetAt = now - 60_000).let {
+            it.copy(snapshot = it.snapshot!!.copy(status = SnapshotStatus.FAILED, lastAttemptAt = now))
+        }
+        assertFalse(SyncWorker.cacheNeedsSync(listOf(old), interval, now))
+        assertTrue(SyncWorker.cacheNeedsSync(listOf(old), interval, now + interval * 60_000))
     }
 
     @Test

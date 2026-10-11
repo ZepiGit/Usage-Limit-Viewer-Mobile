@@ -50,6 +50,9 @@ public enum JSONSupport {
     /// an `NSNumber` of 1 as no boolean; without this check Swift read `"percent": true` as
     /// 1 % used and `"has_claude_max": 1` as Max — same payload, different answer.
     private static func isBooleanLiteral(_ value: Any) -> Bool {
+        // Programmatically constructed payloads contain native Bool rather than __NSCFBoolean.
+        // Exact type identity avoids the NSNumber-to-Bool bridging that also accepts 0 and 1.
+        if type(of: value) == Bool.self { return true }
         #if canImport(Darwin)
         return CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID()
         #else

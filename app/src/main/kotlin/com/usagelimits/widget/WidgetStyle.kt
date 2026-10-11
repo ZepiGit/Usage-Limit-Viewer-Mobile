@@ -92,17 +92,17 @@ data class WidgetStyle(
 
     fun accent(severity: Severity): Color = when (severity) {
         Severity.HEALTHY -> Green
-        Severity.MEDIUM, Severity.LOW -> Amber
+        Severity.MEDIUM, Severity.LOW, Severity.LIMITED -> Amber
         Severity.EXHAUSTED, Severity.ERROR -> Red
-        Severity.STALE -> Slate
+        Severity.STALE, Severity.UNKNOWN -> Slate
     }
 
     /** [accent] for bars and dots; this for anything drawn as words. */
     fun textColor(severity: Severity): Color = when (severity) {
         Severity.HEALTHY -> if (lightInk) Green else Color(0xFF2F7A34)
-        Severity.MEDIUM, Severity.LOW -> if (lightInk) Amber else Color(0xFF8A5A0A)
+        Severity.MEDIUM, Severity.LOW, Severity.LIMITED -> if (lightInk) Amber else Color(0xFF8A5A0A)
         Severity.EXHAUSTED, Severity.ERROR -> if (lightInk) Color(0xFFE8756B) else Color(0xFFB03A31)
-        Severity.STALE -> if (lightInk) Color(0xFFA29F94) else Color(0xFF6B6960)
+        Severity.STALE, Severity.UNKNOWN -> if (lightInk) Color(0xFFA29F94) else Color(0xFF6B6960)
     }
 
     /**

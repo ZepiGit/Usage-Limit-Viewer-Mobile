@@ -6,10 +6,16 @@
 |---|---|
 | Minimum Android version | API 26 (Android 8.0) |
 | Compile and target SDK | API 36 (Android 16) |
-| Android Gradle Plugin / wrapper | 8.10.1 / 8.11.1 |
+| Android Gradle Plugin / wrapper | 8.10.1 / 8.14.6 |
 | Robolectric | 4.16.1 |
 | JVM for API 36 tests | JDK 21 |
-| App bytecode target | Java 17; packaging CI uses JDK 17 |
+| App bytecode target | Java 17 |
+| Packaging JVM | JDK 17 in Android CI; JDK 21 in the release workflow |
+
+Runtime observations below are from the local audit of 12 September 2026 and
+apply to its APKs and emulator environments. They do not verify the current
+release artifact. For PR #15's required checks and execution evidence, see
+[verification.md](verification.md#quota-and-widget-regression-coverage--pr-15).
 
 The API 26 floor provides native `java.time` and notification channels. Notification
 permission is requested on API 33 and later; declining it does not block quota
@@ -44,8 +50,9 @@ physical foldable transitions have not been exercised.
 iOS content fills narrow windows and is capped at 760 pt on wider ones. The app
 supports iPhone and iPad, including landscape and split view. The CI workflow now
 includes an iPad run and a landscape/large-text provider-picker check. Real SDK
-compilation completed at `19fc063`, but three scroll-gesture UI checks failed.
-The corrected iPhone/iPad run remains pending.
+compilation in the September audit completed at `19fc063`, but three
+scroll-gesture UI checks failed. The corrected run was pending at that audit;
+current iPhone/iPad results belong to PR #15's check runs.
 
 ## Widgets, icons and accessibility
 
@@ -73,7 +80,7 @@ Add-account navigation and Back passed with scale zero on the API 36 emulator.
 iOS reads `accessibilityReduceMotion`. Test large text, screen readers, RTL,
 keyboard navigation and reduced motion on populated screens before distribution.
 
-## Verified scope
+## Historical local verification — 12 September 2026
 
 The final API 36 build passed 400 Android tests without failures or skips;
 `aapt` confirmed minimum 26, target 36 and compile 36 in the APK. All 456 Swift

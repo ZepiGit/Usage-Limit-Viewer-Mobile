@@ -22,6 +22,74 @@ import org.junit.Test
  */
 class WidgetDataBuilderTest {
 
+    @Test
+    fun `partial refresh warning does not erase the valid weekly quota`() {
+        val partial = withWindows(
+            longWindow("week", "Weekly credits", WindowCategory.WEEKLY, 20.0),
+            longWindow("month", "Monthly included", WindowCategory.MONTHLY, null),
+        ).let { it.copy(snapshot = it.snapshot!!.copy(status = SnapshotStatus.PARTIAL,
+            errorMessage = "Optional billing endpoint failed")) }
+        val data = WidgetDataBuilder.build(listOf(partial), now, WidgetScope.ALL_ACCOUNTS, null, null)
+        assertTrue(data.hasPartialUpdate)
+        assertTrue(data.accounts.single().partialUpdate)
+        assertEquals(Severity.HEALTHY, data.accounts.single().severity)
+        assertEquals(80.0, data.headlineLong!!.remainingPercent!!, 0.001)
+        assertEquals(listOf("Weekly credits", "Monthly included"), data.accounts.single().rows.map { it.label })
+    }
+
+    @Test
+    fun `partial refresh preserves a known global blocker`() {
+        val partial = withWindows(longWindow("week", "Weekly", WindowCategory.WEEKLY, 100.0))
+            .let { it.copy(snapshot = it.snapshot!!.copy(status = SnapshotStatus.PARTIAL,
+                errorMessage = "Optional billing endpoint failed")) }
+        val data = WidgetDataBuilder.build(listOf(partial), now, WidgetScope.ALL_ACCOUNTS, null, null)
+        assertTrue(data.hasPartialUpdate)
+        assertEquals(Severity.EXHAUSTED, data.overallSeverity)
+        assertEquals(0.0, ringLimit(data.accounts.single())!!.remainingPercent!!, 0.001)
+        assertEquals(WidgetStyle.Red, ringAccent(data.accounts.single()))
+    }
+
+    @Test
+    fun `summary status identifies the whole selection and keeps the lead value`() {
+        val data = WidgetDataBuilder.build(listOf(
+            usage("lead", ProviderId.CODEX, usedPercent = 0.0),
+            usage("other", ProviderId.CLAUDE, usedPercent = 20.0, status = SnapshotStatus.FAILED),
+        ), now, WidgetScope.ALL_ACCOUNTS, null, null)
+        assertEquals("2 accounts", data.selectionStatusLabel)
+        assertEquals(100.0, data.headlineLong!!.remainingPercent!!, 0.001)
+        assertEquals(Severity.ERROR, data.overallSeverity)
+    }
+
+    @Test
+    fun `ring follows the global limit while bars expose the model restriction`() {
+        val data = WidgetDataBuilder.build(listOf(withWindows(
+            longWindow("global", "Weekly", WindowCategory.WEEKLY, 63.0),
+            longWindow("fable", "Weekly (Fable)", WindowCategory.WEEKLY, 100.0)
+                .copy(scope = com.usagelimits.core.model.UsageScope.MODEL),
+        )), now, WidgetScope.ALL_ACCOUNTS, null, null)
+        assertEquals(Severity.LIMITED, data.accounts.single().severity)
+        assertEquals(37.0, ringLimit(data.accounts.single())!!.remainingPercent!!, 0.001)
+        assertEquals(listOf("Weekly (Fable)"), data.accounts.single().restrictions)
+        assertEquals(listOf("Weekly", "Weekly (Fable)"), data.accounts.single().rows.map { it.label })
+    }
+
+    @Test
+    fun `a model-specific long window keeps its provider label`() {
+        val data = WidgetDataBuilder.build(
+            listOf(withWindows(longWindow("fable", "Weekly (Fable)", WindowCategory.WEEKLY, 100.0))),
+            now, WidgetScope.ALL_ACCOUNTS, null, null,
+        )
+        assertEquals("Weekly (Fable)", data.headlineLong?.label)
+    }
+
+    @Test
+    fun `the summary age belongs to the account whose numbers are shown`() {
+        val lead = usage("lead", ProviderId.CODEX, usedPercent = 20.0, fetchedAt = now - 60_000)
+        val other = usage("other", ProviderId.CLAUDE, usedPercent = 10.0, fetchedAt = now)
+        val data = WidgetDataBuilder.build(listOf(lead, other), now, WidgetScope.ALL_ACCOUNTS, null, null)
+        assertEquals(now - 60_000, data.updatedAt)
+    }
+
     private val now = 1_757_000_000_000L
 
     private fun account(id: String, provider: ProviderId) = ProviderAccount(
@@ -435,7 +503,8 @@ class WidgetDataBuilderTest {
             null,
         )
 
-        assertEquals(listOf("Weekly"), data.accounts.single().rows.map { it.label })
+        assertEquals("Weekly", data.headlineLong?.label)
+        assertEquals(listOf("Weekly", "Monthly"), data.accounts.single().rows.map { it.label })
     }
 
     @Test
@@ -456,7 +525,8 @@ class WidgetDataBuilderTest {
             null,
         )
 
-        assertEquals(listOf("Weekly"), data.accounts.single().rows.map { it.label })
+        assertEquals("Weekly", data.headlineLong?.label)
+        assertEquals(listOf("Weekly", "Monthly"), data.accounts.single().rows.map { it.label })
     }
 
     // endregion

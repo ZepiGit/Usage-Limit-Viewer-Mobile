@@ -112,4 +112,11 @@ class StatusContrastTest {
         assertTrue(contrast(UsageColors.Red, redChip) < AA_NORMAL_TEXT)
         assertTrue(contrast(UsageColors.Slate, slateChip) < AA_NORMAL_TEXT)
     }
+    @Test
+    fun `a full looking percentage cannot recolor an explicit blocker as healthy`() {
+        org.junit.Assert.assertEquals(UsageColors.Red, SeverityPalette.barColor(100.0, Severity.EXHAUSTED))
+        org.junit.Assert.assertEquals(UsageColors.Green, SeverityPalette.barColor(99.9, Severity.HEALTHY))
+        org.junit.Assert.assertEquals(UsageColors.Teal, SeverityPalette.barColor(100.0, Severity.HEALTHY))
+    }
+
 }

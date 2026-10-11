@@ -75,11 +75,11 @@ class MetaQuotaParserTest {
         val window = windows.first()
 
         assertEquals("90 min limit", window.label)
-        assertEquals(100.0, window.usedPercent!!, 1e-9)
-        assertEquals(0.0, window.remainingPercent!!, 1e-9)
+        assertNull(window.usedPercent)
+        assertNull(window.remainingPercent)
         assertEquals(5_400L, window.periodSeconds)
         assertEquals(WindowCategory.OTHER, window.category)
-        assertTrue(window.exhausted)
+        assertFalse(window.exhausted)
     }
 
     @Test

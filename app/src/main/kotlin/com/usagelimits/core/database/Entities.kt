@@ -73,6 +73,8 @@ data class UsageSnapshotEntity(
      */
     val applicableResetCreditCount: Int? = null,
     val connectionStatus: String? = null,
+    /** Latest completed attempt; nullable for rows written before version 10. */
+    val lastAttemptAt: Long? = null,
 )
 
 /**

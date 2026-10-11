@@ -58,11 +58,11 @@ final class KimiUsageParserTests: XCTestCase {
         XCTAssertEqual(windows.first?.usedPercent ?? -1, 90, accuracy: 0.001)
     }
 
-    func testAWindowWithNoLimitIsDroppedRatherThanShownAsFull() {
+    func testAWindowWithNoLimitRemainsUnknown() {
         // Dividing by a zero limit is infinity, and a bar drawn from it reads as an exhausted
         // account that is not exhausted.
-        XCTAssertTrue(KimiUsageParser.parse(payload(#"{ "usage": { "limit": 0, "used": 5 } }"#)).isEmpty)
-        XCTAssertTrue(KimiUsageParser.parse(payload(#"{ "usage": { "used": 5 } }"#)).isEmpty)
+        XCTAssertNil(KimiUsageParser.parse(payload(#"{ "usage": { "limit": 0, "used": 5 } }"#)).first?.remainingPercent)
+        XCTAssertNil(KimiUsageParser.parse(payload(#"{ "usage": { "used": 5 } }"#)).first?.remainingPercent)
     }
 
     func testTheWindowDurationIsReadNotAssumedFromPosition() {

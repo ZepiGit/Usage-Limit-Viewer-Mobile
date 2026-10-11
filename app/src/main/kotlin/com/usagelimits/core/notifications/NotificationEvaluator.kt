@@ -301,10 +301,10 @@ object NotificationEvaluator {
             val remaining = window.remainingPercent
             val exhausted = window.severity == Severity.EXHAUSTED
 
-            // An unknown percentage does not hold a window low. Unknown is an absence of
-            // evidence, and the account already reads as ERROR on screen; permanent silence on
-            // top of that helps nobody.
-            val recovered = !exhausted && (remaining ?: WARNING_PERCENT) >= WARNING_PERCENT
+            // Missing data proves neither recovery nor a new low-quota episode. Keep the
+            // existing per-window episode until a measured value crosses the threshold.
+            if (remaining == null && !exhausted) continue
+            val recovered = !exhausted && remaining != null && remaining >= WARNING_PERCENT
             if (recovered) {
                 if (state.active) windowStates[id] = state.copy(active = false)
                 continue
@@ -460,12 +460,13 @@ object NotificationEvaluator {
         settings: AppSettings,
         nowMs: Long,
     ): List<String> {
-        if (!settings.notifyOnResetCreditAvailable) return emptyList()
+        val authentication = authFinding(usage, snapshot, settings)
+        if (!settings.notifyOnResetCreditAvailable) return authentication
         val count = snapshot.spendableResetCreditsAt(nowMs)
-        if (count <= 0) return emptyList()
+        if (count <= 0) return authentication
 
         val noun = if (count == 1) "reset credit" else "reset credits"
-        return listOf("${usage.account.label} · $count $noun available")
+        return authentication + "${usage.account.label} · $count $noun available"
     }
 
     private fun authFinding(
@@ -474,7 +475,8 @@ object NotificationEvaluator {
         settings: AppSettings,
     ): List<String> {
         if (!settings.notifyOnAuthExpired) return emptyList()
-        val expired = meansSignInExpired(snapshot?.errorMessage)
+        val expired = snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED ||
+            meansSignInExpired(snapshot?.errorMessage)
         return if (expired) listOf("${usage.account.label} needs to be reconnected") else emptyList()
     }
 

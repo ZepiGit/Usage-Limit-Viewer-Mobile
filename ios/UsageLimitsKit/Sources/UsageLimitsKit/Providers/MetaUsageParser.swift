@@ -192,16 +192,18 @@ public enum MetaUsageParser {
             // above win when both are present.
             let remaining = value >= 0 && value <= 100 ? value : nil
             used = remaining.map { 100 - $0 }
-        } else if let limit = JSONSupport.double(object, "limit", "total", "max"), limit > 0,
+        } else if let limit = JSONSupport.double(object, "limit", "total", "max"), limit.isFinite, limit > 0,
                   let remaining = JSONSupport.double(object, "remaining", "available") {
             used = normalisePercent((limit - remaining) / limit * 100)
         } else if let usedValue = JSONSupport.double(object, "used", "consumed") ,
-                  let limit = JSONSupport.double(object, "limit", "total", "max"), limit > 0 {
+                  let limit = JSONSupport.double(object, "limit", "total", "max"), limit.isFinite, limit > 0 {
             used = normalisePercent(usedValue / limit * 100)
         } else {
             used = nil
         }
-        guard used != nil || allowUnknown else { return nil }
+        let quotaKeys = ["used_percent", "usedPercent", "utilization", "percent_used", "percentUsed",
+                         "remaining_percent", "remainingPercent", "percent", "limit", "total", "max", "used", "consumed"]
+        guard used != nil || allowUnknown || quotaKeys.contains(where: { object?[$0] != nil }) else { return nil }
 
         let rawID = JSONSupport.string(object, "id", "key", "name", "window", "type")
         let id = slug(rawID ?? fallbackID)
@@ -230,8 +232,8 @@ public enum MetaUsageParser {
     }
 
     private static func normalisePercent(_ value: Double) -> Double? {
-        guard value.isFinite else { return nil }
-        return min(max(value, 0), 100)
+        guard value.isFinite, (0...100).contains(value) else { return nil }
+        return value
     }
 
     private static func append(

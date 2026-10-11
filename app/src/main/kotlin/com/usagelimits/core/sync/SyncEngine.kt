@@ -83,7 +83,10 @@ class SyncEngine(
     suspend fun syncAccount(account: ProviderAccount): SyncOutcome = accountLock(account.localId).withLock {
         // Emulator fixtures never contact a provider. R8 removes this branch from release APKs.
         if (com.usagelimits.BuildConfig.DEBUG && account.attributes["screenshotFixture"] == "true") {
-            repository.snapshot(account.localId)?.let { repository.saveSnapshot(it.copy(fetchedAt = nowMs())) }
+            val attemptedAt = nowMs()
+            repository.snapshot(account.localId)?.let {
+                repository.saveSnapshot(it.copy(fetchedAt = attemptedAt, lastAttemptAt = attemptedAt))
+            }
             return@withLock SyncOutcome(account.localId, success = true)
         }
         try {
@@ -108,14 +111,16 @@ class SyncEngine(
                 UsageSnapshot(
                     accountId = account.localId,
                     fetchedAt = nowMs(),
-                    status = SnapshotStatus.OK,
+                    status = result.status,
+                    errorMessage = result.errorMessage,
+                    connectionStatus = result.connectionStatus,
                     windows = result.windows,
                     resetCredits = result.resetCredits,
                     resetCreditCount = result.resetCreditCount,
                     applicableResetCreditCount = result.applicableResetCreditCount,
                 ),
             )
-            SyncOutcome(account.localId, success = true)
+            SyncOutcome(account.localId, success = result.status != SnapshotStatus.FAILED, message = result.errorMessage)
         } catch (e: CancellationException) {
             // Cancellation is not a sync failure and must never be recorded as one.
             //
@@ -258,10 +263,16 @@ class SyncEngine(
                 // anything at all changed underneath — a newer login, another refresh that
                 // finished first — this result is stale by definition and is dropped rather
                 // than allowed to win on arrival order.
-                if (credentialStore.load(reference) == latest) {
+                val stored = credentialStore.load(reference)
+                    ?: throw ProviderException.Unauthorized("Account was removed during refresh")
+                if (stored == latest) {
                     credentialStore.save(reference, refreshed)
+                    refreshed
+                } else {
+                    // The discarded rotation must not authorize the next usage request after
+                    // a newer login has replaced it; that can falsely expire the new session.
+                    stored
                 }
-                refreshed
             }
         }
     }

@@ -10,7 +10,9 @@ enum class Severity {
     HEALTHY,
     MEDIUM,
     LOW,
+    LIMITED,
     EXHAUSTED,
+    UNKNOWN,
     STALE,
     ERROR;
 
@@ -26,11 +28,13 @@ enum class Severity {
     val urgency: Int
         get() = when (this) {
             EXHAUSTED -> 0
-            LOW -> 1
-            MEDIUM -> 2
-            HEALTHY -> 3
-            ERROR -> 4
-            STALE -> 5
+            LIMITED -> 1
+            LOW -> 2
+            MEDIUM -> 3
+            HEALTHY -> 4
+            ERROR -> 5
+            UNKNOWN -> 6
+            STALE -> 7
         }
 
     companion object {
@@ -71,7 +75,7 @@ enum class Severity {
 
         fun fromRemainingPercent(remaining: Double?, exhausted: Boolean = false): Severity = when {
             exhausted -> EXHAUSTED
-            remaining == null -> ERROR
+            remaining == null || !remaining.isFinite() || remaining !in 0.0..100.0 -> UNKNOWN
             remaining <= 0.0 -> EXHAUSTED
             remaining <= MEDIUM_ABOVE -> LOW
             remaining <= HEALTHY_ABOVE -> MEDIUM

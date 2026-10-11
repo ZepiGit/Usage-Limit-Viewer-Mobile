@@ -1,6 +1,7 @@
 package com.usagelimits.providers.antigravity
 
 import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.time.Instants
@@ -43,10 +44,7 @@ object AntigravityQuotaParser {
     }
 
     /**
-     * Buckets of one group, ordered and filtered.
-     *
-     * A group whose buckets all drop out contributes nothing, so an entirely unusable group
-     * disappears rather than rendering as an empty card.
+     * Buckets of one group, ordered with unknown measurements retained.
      */
     private fun windowsFor(group: JsonObject, groupIndex: Int): List<UsageWindow> {
         val groupName = JsonSupport.string(group, "display_name", "displayName")
@@ -67,11 +65,11 @@ object AntigravityQuotaParser {
         groupSlug: String,
         bucketIndex: Int,
     ): UsageWindow? {
-        // The only field the row cannot be drawn without. A bucket that reports no fraction is
-        // skipped so the rest of the group still renders.
+        // Keep the named bucket when its measurement is missing or invalid. A scale error
+        // must not turn into an apparently full or empty quota.
         val remainingFraction =
-            JsonSupport.double(bucket, "remaining_fraction", "remainingFraction") ?: return null
-        val clamped = remainingFraction.coerceIn(0.0, 1.0)
+            JsonSupport.double(bucket, "remaining_fraction", "remainingFraction")
+                ?.takeIf { it.isFinite() && it in 0.0..1.0 }
 
         val window = JsonSupport.string(bucket, "window")
         val (category, periodSeconds) = classify(window)
@@ -84,11 +82,12 @@ object AntigravityQuotaParser {
             label = JsonSupport.string(bucket, "display_name", "displayName") ?: id,
             category = category,
             // The provider reports what is left; the app's model stores what was consumed.
-            usedPercent = (1.0 - clamped) * 100.0,
+            usedPercent = remainingFraction?.let { (1.0 - it) * 100.0 },
             periodSeconds = periodSeconds,
             resetAt = Instants.parse(JsonSupport.string(bucket, "reset_time", "resetTime")),
-            exhausted = clamped <= 0.0,
+            exhausted = remainingFraction == 0.0,
             group = groupName,
+            scope = UsageScope.MODEL,
         )
     }
 

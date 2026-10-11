@@ -171,10 +171,12 @@ class CompactUsageWidget : GlanceAppWidget() {
     private fun FourTileRow(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
         Row(modifier = root, verticalAlignment = Alignment.CenterVertically) {
             Tile(
-                label = "5h limit",
+                label = snapshot.headlineShort?.label ?: "5h limit",
                 value = snapshot.headlineShort?.let(::percentText) ?: "—",
                 row = snapshot.headlineShort,
                 validity = snapshot.leadValidity,
+                showOwner = true,
+                owner = snapshot.accounts.firstOrNull()?.let { it.accountLabel ?: it.title },
                 modifier = GlanceModifier.defaultWeight(),
             )
             Spacer(GlanceModifier.width(8.dp))
@@ -207,11 +209,12 @@ class CompactUsageWidget : GlanceAppWidget() {
             )
             Spacer(GlanceModifier.width(8.dp))
             Tile(
-                label = "Quota",
+                label = snapshot.selectionStatusLabel,
                 value = statusWord(snapshot.overallSeverity),
                 row = null,
                 modifier = GlanceModifier.defaultWeight(),
                 accent = style.textColor(snapshot.overallSeverity),
+                warning = if (snapshot.hasPartialUpdate) "Sync issue" else null,
             )
             // No weight: the four tiles share the width and this takes what it
             // needs, rather than a fifth of the row for one glyph.
@@ -222,23 +225,25 @@ class CompactUsageWidget : GlanceAppWidget() {
     /** Two metrics when the width fits two tiles: the 5h headline and the overall status. */
     @Composable
     private fun TwoMetricRow(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
+        val row = snapshot.headlineShort ?: snapshot.headlineLong
         Row(modifier = root, verticalAlignment = Alignment.CenterVertically) {
             Tile(
-                label = snapshot.headlineShort?.label ?: "5h limit",
-                value = snapshot.headlineShort?.let(::percentText) ?: "—",
-                row = snapshot.headlineShort,
+                label = row?.label ?: "Remaining",
+                value = row?.let(::percentText) ?: "—",
+                row = row,
                 validity = snapshot.leadValidity,
                 showOwner = true,
-                owner = snapshot.accounts.firstOrNull()?.title,
+                owner = snapshot.accounts.firstOrNull()?.let { it.accountLabel ?: it.title },
                 modifier = GlanceModifier.defaultWeight(),
             )
             Spacer(GlanceModifier.width(8.dp))
             Tile(
-                label = "Quota",
+                label = snapshot.selectionStatusLabel,
                 value = statusWord(snapshot.overallSeverity),
                 row = null,
                 modifier = GlanceModifier.defaultWeight(),
                 accent = style.textColor(snapshot.overallSeverity),
+                warning = if (snapshot.hasPartialUpdate) "Sync issue" else null,
             )
             RefreshChip(touchSize = 40.dp, chipSize = 28.dp)
         }
@@ -248,11 +253,11 @@ class CompactUsageWidget : GlanceAppWidget() {
     @Composable
     private fun FocusReadout(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
         val lead = snapshot.accounts.firstOrNull()
-        val row = snapshot.headlineShort
+        val row = snapshot.headlineShort ?: snapshot.headlineLong
         Column(modifier = root) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = lead?.title ?: "Usage Limits",
+                    text = lead?.let { it.accountLabel ?: it.title } ?: "Usage Limits",
                     style = TextStyle(color = ColorProvider(style.textPrimary), fontSize = 12.sp, fontWeight = FontWeight.Bold),
                     maxLines = 1,
                     modifier = GlanceModifier.defaultWeight(),
@@ -261,7 +266,7 @@ class CompactUsageWidget : GlanceAppWidget() {
             }
             Spacer(GlanceModifier.height(3.dp))
             Text(
-                text = row?.label ?: "5h limit",
+                text = row?.label ?: "Remaining",
                 style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 11.sp),
                 maxLines = 1,
             )
@@ -282,11 +287,14 @@ class CompactUsageWidget : GlanceAppWidget() {
                 text = listOfNotNull(
                     snapshot.nextResetAt
                         ?.let { Countdown.absoluteResetLabel(it, System.currentTimeMillis())?.removePrefix("Resets ") },
-                    statusWord(snapshot.overallSeverity),
+                    "${snapshot.selectionStatusLabel}: ${statusWord(snapshot.overallSeverity)}",
                 ).joinToString(" · ").ifEmpty { "—" },
                 style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 10.sp),
                 maxLines = 1,
             )
+            if (snapshot.hasPartialUpdate) {
+                Text("Sync issue", style = TextStyle(color = ColorProvider(style.textColor(Severity.LIMITED)), fontSize = 10.sp))
+            }
         }
     }
 
@@ -300,6 +308,7 @@ class CompactUsageWidget : GlanceAppWidget() {
         validity: Severity? = null,
         showOwner: Boolean = false,
         owner: String? = null,
+        warning: String? = null,
     ) {
         val style = LocalWidgetStyle.current
         // The account's validity first, then the row's own: a passed reset makes the number
@@ -346,6 +355,9 @@ class CompactUsageWidget : GlanceAppWidget() {
                 Spacer(GlanceModifier.height(5.dp))
                 UsageBar(row, GlanceModifier.fillMaxWidth(), validity = effectiveValidity)
             }
+            if (warning != null) {
+                Text(warning, style = TextStyle(color = ColorProvider(style.textColor(Severity.LIMITED)), fontSize = 10.sp), maxLines = 1)
+            }
         }
     }
 
@@ -356,7 +368,10 @@ class CompactUsageWidget : GlanceAppWidget() {
         Severity.EXHAUSTED -> "Out"
         Severity.STALE -> "Stale"
         Severity.ERROR -> "Error"
+        Severity.UNKNOWN -> "Unknown"
+        Severity.LIMITED -> "Limited"
     }
+
 }
 
 /**
@@ -453,23 +468,45 @@ class DetailedUsageWidget : GlanceAppWidget() {
                     style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 10.sp),
                 )
             }
-            account.rows.forEach { row ->
-                Spacer(GlanceModifier.height(6.dp))
-                Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        row.label, GlanceModifier.defaultWeight(), maxLines = 1,
-                        style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 11.sp),
-                    )
-                    Text(percentText(row), style = TextStyle(color = ColorProvider(style.barText(row, validity)), fontSize = 12.sp, fontWeight = FontWeight.Bold))
-                }
-                Spacer(GlanceModifier.height(3.dp))
-                Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    UsageBar(row, GlanceModifier.defaultWeight(), validity = validity)
-                    Spacer(GlanceModifier.width(8.dp))
-                    Text(
-                        row.resetAt?.let { compactRingReset(context, it) } ?: "—", modifier = GlanceModifier.width(54.dp), maxLines = 1,
-                        style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 10.sp),
-                    )
+            if (account.partialUpdate) {
+                Text("Some limits could not be updated",
+                    style = TextStyle(color = ColorProvider(style.textColor(Severity.LIMITED)), fontSize = 10.sp))
+            }
+            AccountLimitRows(context, account.rows, validity)
+        }
+    }
+
+    @Composable
+    private fun AccountLimitRows(context: Context, rows: List<WidgetRow>, validity: Severity?) {
+        val style = LocalWidgetStyle.current
+        // Glance truncates a Column after ten direct children. Keep each limit together,
+        // and split larger provider lists so neither the card nor a row group hits that cap.
+        Column(GlanceModifier.fillMaxWidth()) {
+            if (rows.size > 10) {
+                val middle = rows.size / 2
+                AccountLimitRows(context, rows.subList(0, middle), validity)
+                AccountLimitRows(context, rows.subList(middle, rows.size), validity)
+            } else {
+                rows.forEach { row ->
+                    Column(GlanceModifier.fillMaxWidth()) {
+                        Spacer(GlanceModifier.height(6.dp))
+                        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                row.label, GlanceModifier.defaultWeight(), maxLines = 1,
+                                style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 11.sp),
+                            )
+                            Text(percentText(row), style = TextStyle(color = ColorProvider(style.barText(row, validity)), fontSize = 12.sp, fontWeight = FontWeight.Bold))
+                        }
+                        Spacer(GlanceModifier.height(3.dp))
+                        Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            UsageBar(row, GlanceModifier.defaultWeight(), validity = validity)
+                            Spacer(GlanceModifier.width(8.dp))
+                            Text(
+                                row.resetAt?.let { compactRingReset(context, it) } ?: "—", modifier = GlanceModifier.width(54.dp), maxLines = 1,
+                                style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 10.sp),
+                            )
+                        }
+                    }
                 }
             }
         }

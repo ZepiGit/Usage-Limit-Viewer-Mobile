@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -100,6 +101,9 @@ class DatabaseUpgradeTest {
                 val snapshot = upgraded.usageSnapshotDao().getForAccount("kept-$version")
                 assertTrue("version $version lost its snapshot", snapshot != null)
                 assertEquals(2L, snapshot!!.fetchedAt)
+                assertNull("legacy attempt time was not recorded", snapshot.lastAttemptAt)
+                val repository = UsageRepository(upgraded.accountDao(), upgraded.usageSnapshotDao())
+                assertEquals(2L, repository.snapshot("kept-$version")!!.lastAttemptAt)
 
                 val widget = upgraded.widgetConfigDao().get(7)
                 assertTrue("version $version lost its widget", widget != null)

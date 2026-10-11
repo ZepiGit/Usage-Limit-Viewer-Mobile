@@ -190,7 +190,7 @@ class CancelledRotationTest {
             store.save(account.credentialReference, freshLogin)
 
             released.complete(Unit)
-            runCatching { refresh.await() }
+            assertEquals("the next usage request must use the current login", freshLogin, refresh.await())
 
             assertEquals(
                 "the sign-in the user just completed must survive",

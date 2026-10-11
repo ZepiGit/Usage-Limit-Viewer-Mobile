@@ -48,15 +48,15 @@ class SeverityTest {
     }
 
     @Test
-    fun `zero or less remaining is exhausted`() {
+    fun `zero remaining is exhausted and negative input is unknown`() {
         assertEquals(Severity.EXHAUSTED, Severity.fromRemainingPercent(0.0))
         // A provider that overshoots its own quota still reads as spent, not as an error.
-        assertEquals(Severity.EXHAUSTED, Severity.fromRemainingPercent(-5.0))
+        assertEquals(Severity.UNKNOWN, Severity.fromRemainingPercent(-5.0))
     }
 
     @Test
-    fun `an unknown remaining percentage is an error`() {
-        assertEquals(Severity.ERROR, Severity.fromRemainingPercent(null))
+    fun `an unknown remaining percentage is unknown`() {
+        assertEquals(Severity.UNKNOWN, Severity.fromRemainingPercent(null))
     }
 
     @Test
@@ -74,7 +74,9 @@ class SeverityTest {
                 Severity.HEALTHY,
                 Severity.MEDIUM,
                 Severity.LOW,
+                Severity.LIMITED,
                 Severity.EXHAUSTED,
+                Severity.UNKNOWN,
                 Severity.STALE,
                 Severity.ERROR,
             ),

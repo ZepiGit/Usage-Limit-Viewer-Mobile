@@ -83,7 +83,7 @@ data class UsageUiState(
 
     /** Newest data wins for the "last updated" line — it describes the screen as a whole. */
     val lastUpdated: Long?
-        get() = accounts.mapNotNull { it.snapshot?.fetchedAt }.maxOrNull()
+        get() = accounts.mapNotNull { it.measurementAt }.maxOrNull()
 
     /**
      * The soonest rollover still ahead.
@@ -124,7 +124,7 @@ data class UsageUiState(
     val mostCritical: Pair<AccountUsage, UsageWindow>?
         get() = accounts.mapNotNull { usage ->
             usage.snapshot?.mostCritical?.let { usage to it }
-        }.minByOrNull { it.second.remainingPercent ?: Double.MAX_VALUE }
+        }.minByOrNull { if (it.second.exhausted) -1.0 else it.second.remainingPercent ?: Double.MAX_VALUE }
 
     /** Chronological reset timeline; past events are dropped by the screen. */
     fun upcomingResets(nowMs: Long): List<UpcomingReset> =

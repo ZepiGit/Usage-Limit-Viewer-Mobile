@@ -7,11 +7,8 @@ import Foundation
 /// appear in a `limits` array that is Anthropic's own presentation model, carrying `kind`,
 /// `group`, `percent`, `resets_at` and, for per-model quotas, `scope.model.display_name`.
 ///
-/// `limits` is preferred whenever it is present. It is labelled, already deduplicated, and it
-/// is the only place some quotas appear at all: on a live account the top-level `iguana_necktie`
-/// key was null while `limits` carried the Fable figure it is supposed to hold. Reading both
-/// would double-count, so the flat keys are the fallback for a payload with no `limits` array
-/// rather than a second source.
+/// The labelled `limits` representation wins for matching identities. Flat and discovered
+/// windows supplement it; an identical reset instant alone never proves an identical quota.
 ///
 /// A third pass then sweeps up window-shaped keys neither list knows about, because a quota the
 /// provider reports and the app hides is a wrong number with nothing visibly broken. That sweep
@@ -59,28 +56,37 @@ public enum ClaudeUsageParser {
         // `resets_at` timestamps, so nothing here needs the clock.
         let primary = parseLimits(payload)
 
-        // Everything `limits` did not already account for. `limits` is upstream's own view and
-        // has been complete on every payload seen, but "has been complete" is not a guarantee:
-        // a partial one would silently hide live windows, and treating it as all-or-nothing
-        // made that unrecoverable.
-        let supplemental = (parseFlatWindows(payload) + discoverUnknownWindows(payload))
-            .filter { candidate in
-                // Same id is the same quota by construction; so is the same reset instant, when
-                // one is stated. Two windows that both report no reset are not thereby the same
-                // window, so an absent instant never merges anything.
-                !primary.contains { $0.id == candidate.id }
-                    && !(candidate.resetAt != nil
-                         && primary.contains { $0.resetAt == candidate.resetAt })
+        // Reset instants are not quota identities: independent model pools can reset together.
+        let supplemental = parseFlatWindows(payload) + discoverUnknownWindows(payload)
+        var result: [UsageWindow] = []
+        for window in primary + supplemental {
+            if let index = result.firstIndex(where: { $0.id == window.id }) {
+                if result[index].remainingPercent == nil, window.remainingPercent != nil {
+                    result[index] = window
+                }
+            } else {
+                result.append(window)
             }
+        }
+        return result
+    }
 
-        let windows = primary + supplemental.filter { ($0.usedPercent ?? 0) > 0 }
-        if !windows.isEmpty { return windows }
-
-        // Untouched codename slots are noise on a screen meant to be read in three seconds —
-        // unless they are all an account has. Dropping them unconditionally turned a healthy,
-        // completely unused account into zero windows, which resolves to `.error`: the app
-        // reporting a fault where the real answer was "nothing used yet".
-        return supplemental
+    public static func hasInvalidUsage(_ payload: [String: Any]) -> Bool {
+        func invalid(_ object: [String: Any], field: String) -> Bool {
+            guard let raw = object[field], !(raw is NSNull) else { return false }
+            guard let percent = JSONSupport.double(object, field) else { return true }
+            return !(0...100).contains(percent)
+        }
+        if JSONSupport.array(payload, "limits").contains(where: { element in
+            guard let object = element as? [String: Any] else { return false }
+            return invalid(object, field: "percent")
+        }) { return true }
+        let known = Set(usageWindowKeys.map(\.key))
+        return payload.contains { key, value in
+            guard !nonWindowKeys.contains(key), let object = value as? [String: Any],
+                  known.contains(key) || object["resets_at"] != nil || object["resetsAt"] != nil else { return false }
+            return invalid(object, field: "utilization")
+        }
     }
 
     /// Reads the plan label the profile endpoint reports, for the account subtitle.
@@ -150,27 +156,26 @@ public enum ClaudeUsageParser {
     /// whether it is a session or a weekly quota, and a window with no known duration is more
     /// useful than a missing one. Entries are deduplicated by id, first occurrence winning.
     private static func parseLimits(_ payload: [String: Any]) -> [UsageWindow] {
+        struct Entry {
+            let payload: [String: Any]
+            let kind: String?
+            let model: String?
+            let identity: String
+            let baseID: String
+        }
         var seen = Set<String>()
-        var windows: [UsageWindow] = []
-
-        for (index, element) in JSONSupport.array(payload, "limits").enumerated() {
-            // Non-object entries describe other quota shapes; ignore them so a changed payload
-            // costs one row, never the whole parse.
-            guard let limit = element as? [String: Any] else { continue }
-            guard let percent = JSONSupport.double(limit, "percent") else { continue }
-
+        let entries = JSONSupport.array(payload, "limits").compactMap { element -> Entry? in
+            guard let limit = element as? [String: Any] else { return nil }
             let kind = JSONSupport.string(limit, "kind")
-            let group = JSONSupport.string(limit, "group")
-            let model = JSONSupport.string(
-                JSONSupport.object(JSONSupport.object(limit, "scope"), "model"),
-                "display_name", "displayName")
-
-            // Identity prefers the model's own id: two display names that differ only in
-            // punctuation ("Sonnet 4.5" and "sonnet-4.5") slug identically, and the loser was
-            // silently dropped — the user then read one model's figure as the other's.
-            let modelKey = JSONSupport.string(
-                JSONSupport.object(JSONSupport.object(limit, "scope"), "model"), "id") ?? model
-
+            guard kind != nil || limit["percent"] != nil else { return nil }
+            let model = JSONSupport.object(JSONSupport.object(limit, "scope"), "model")
+            let displayName = JSONSupport.string(model, "display_name", "displayName")
+            let modelKey = JSONSupport.string(model, "id") ?? displayName
+            let rawIdentity = (try? JSONSerialization.data(withJSONObject: limit, options: [.sortedKeys]))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let identity = JSONSupport.string(limit, "id")
+                ?? (kind != nil || modelKey != nil ? "\(kind ?? "")|\(modelKey ?? "")" : rawIdentity)
+            guard seen.insert(identity).inserted else { return nil }
             let baseID: String
             switch kind {
             case "session": baseID = fiveHourID
@@ -178,16 +183,16 @@ public enum ClaudeUsageParser {
             case "weekly_scoped": baseID = "\(sevenDayID)-\(slug(modelKey ?? "scoped"))"
             default: baseID = slug(kind ?? "limit")
             }
-            // A collision suffixes rather than drops. Array position is deliberately not part
-            // of identity: reordering `limits` would then rename every window, detaching
-            // anything keyed by it — a notification's deduplication record, for one.
-            var id = baseID
-            var suffix = 2
-            while !seen.insert(id).inserted {
-                id = "\(baseID)-\(suffix)"
-                suffix += 1
-            }
-
+            return Entry(payload: limit, kind: kind, model: displayName, identity: identity, baseID: baseID)
+        }
+        let identities = Dictionary(grouping: entries, by: \.baseID)
+            .mapValues { $0.map(\.identity).sorted() }
+        return entries.map { entry in
+            let kind = entry.kind
+            let limit = entry.payload
+            let group = JSONSupport.string(limit, "group")
+            let rank = identities[entry.baseID]?.firstIndex(of: entry.identity) ?? 0
+            let id = rank == 0 ? entry.baseID : "\(entry.baseID)-\(rank + 1)"
             let periodSeconds: Int64?
             if kind == "session" || group == "session" {
                 periodSeconds = fiveHourSeconds
@@ -196,44 +201,36 @@ public enum ClaudeUsageParser {
             } else {
                 periodSeconds = nil
             }
-
             let label: String
             switch kind {
             case "session": label = "5h limit"
             case "weekly_all": label = "Weekly"
-            case "weekly_scoped": label = model.map { "Weekly (\($0))" } ?? "Weekly (scoped)"
-            default: label = String(humanize(kind ?? "Limit \(index + 1)")
-                .prefix(maximumLabelLength))
+            case "weekly_scoped": label = entry.model.map { "Weekly (\($0))" } ?? "Weekly (scoped)"
+            default: label = String(humanize(kind ?? "Limit").prefix(maximumLabelLength))
             }
-
-            windows.append(window(
-                id: id,
-                label: label,
-                usedPercent: percent,
+            let model = JSONSupport.object(JSONSupport.object(limit, "scope"), "model")
+            return window(
+                id: id, label: label, usedPercent: JSONSupport.double(limit, "percent"),
                 periodSeconds: periodSeconds,
-                resetsAt: JSONSupport.string(limit, "resets_at", "resetsAt")))
+                resetsAt: JSONSupport.string(limit, "resets_at", "resetsAt"),
+                scope: kind == "weekly_scoped" || model != nil ? .model
+                    : (kind == "session" || kind == "weekly_all" ? .global : .unknown))
         }
-
-        return windows
     }
 
-    /// Reads the flat top-level window keys, for a payload that carries no `limits` array.
-    ///
-    /// A key whose value is JSON null, or whose `utilization` is missing, is skipped rather
-    /// than emitted with a nil usedPercent: nil resolves to Severity.error and snapshot
-    /// severity is a MAX over the windows, so one unused bucket would paint the whole account
-    /// red while that same row sorts last in any "most critical" ordering.
+    /// Null objects are absent; declared windows with missing measurements remain unknown.
     private static func parseFlatWindows(_ payload: [String: Any]) -> [UsageWindow] {
         usageWindowKeys.compactMap { (key, label) -> UsageWindow? in
             guard let entry = JSONSupport.object(payload, key) else { return nil }
-            guard let used = JSONSupport.double(entry, "utilization") else { return nil }
+            let used = JSONSupport.double(entry, "utilization")
 
             return window(
                 id: key.replacingOccurrences(of: "_", with: "-"),
                 label: label,
                 usedPercent: used,
                 periodSeconds: key == fiveHourKey ? fiveHourSeconds : sevenDaySeconds,
-                resetsAt: JSONSupport.string(entry, "resets_at", "resetsAt"))
+                resetsAt: JSONSupport.string(entry, "resets_at", "resetsAt"),
+                scope: key == fiveHourKey || key == "seven_day" ? .global : .model)
         }
     }
 
@@ -249,14 +246,7 @@ public enum ClaudeUsageParser {
     /// account. A window declares `resets_at` even when that value is null, and a balance never
     /// does, so that key is the discriminator.
     ///
-    /// Only windows with something actually consumed are promoted. The unused codename slots
-    /// are placeholders, and a screen meant to be read in three seconds does not need a row
-    /// reading "Nimbus Quill — 0 % used".
-    ///
-    /// Overlap is tested by id, which cannot catch a codename key that `limits` also reports
-    /// under a different `kind` — that would render one quota twice. The trade is deliberate:
-    /// a duplicated row is visible and obviously wrong, while a hidden quota is invisible and
-    /// makes the number on screen wrong with nothing to notice.
+    /// Explicit zero consumption is a valid full quota, including for newly discovered windows.
     private static func discoverUnknownWindows(_ payload: [String: Any]) -> [UsageWindow] {
         let knownKeys = Set(usageWindowKeys.map(\.key))
 
@@ -266,7 +256,7 @@ public enum ClaudeUsageParser {
             guard entry.keys.contains("resets_at") || entry.keys.contains("resetsAt") else {
                 return nil
             }
-            guard let used = JSONSupport.double(entry, "utilization") else { return nil }
+            let used = JSONSupport.double(entry, "utilization")
 
             let id = key
                 .replacingOccurrences(of: "_", with: "-")
@@ -286,7 +276,8 @@ public enum ClaudeUsageParser {
                 // weekly window observed two hours before it rolls over would infer two hours,
                 // which is a confidently wrong category rather than an honest unknown.
                 periodSeconds: nil,
-                resetsAt: JSONSupport.string(entry, "resets_at", "resetsAt"))
+                resetsAt: JSONSupport.string(entry, "resets_at", "resetsAt"),
+                scope: .unknown)
         }
         // A dictionary has no order, so sorting is what makes the output reproducible at all.
         .sorted { $0.id < $1.id }
@@ -295,18 +286,20 @@ public enum ClaudeUsageParser {
     private static func window(
         id: String,
         label: String,
-        usedPercent: Double,
+        usedPercent: Double?,
         periodSeconds: Int64?,
-        resetsAt: String?
+        resetsAt: String?,
+        scope: UsageScope
     ) -> UsageWindow {
         UsageWindow(
             id: id,
             label: label,
             category: WindowCategory.from(periodSeconds: periodSeconds),
-            usedPercent: usedPercent,
+            usedPercent: usedPercent.flatMap { $0.isFinite && (0...100).contains($0) ? $0 : nil },
             periodSeconds: periodSeconds,
             resetAt: JSONSupport.date(resetsAt),
-            exhausted: usedPercent >= 100.0)
+            exhausted: usedPercent == 100.0,
+            scope: scope)
     }
 
     /// `nimbus_quill` reads as "Nimbus Quill" — the only label an undocumented key can have.

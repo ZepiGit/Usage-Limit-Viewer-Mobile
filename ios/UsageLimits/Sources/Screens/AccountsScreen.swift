@@ -165,7 +165,7 @@ private struct AccountSummaryCard: View {
                 Text("This removes the account from Usage Limits and deletes the sign-in stored on this device. It does not revoke access at the provider — do that in your account settings there.")
             }
 
-            if let message = snapshot?.errorMessage {
+            if let message = snapshot?.statusMessage {
                 // The failure is shown on the account it belongs to, beside the numbers it
                 // could not update — the one place a user can act on it.
                 Text(verbatim: message)

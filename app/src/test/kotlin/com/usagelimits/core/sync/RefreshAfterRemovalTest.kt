@@ -131,9 +131,9 @@ class RefreshAfterRemovalTest {
         // existence check after the network round trip — the user has removed the account.
         val store = ScriptedStore(expiring, loadsBeforeRemoval = 2)
 
-        val refreshed = engine(store).validCredentials(account)
+        val failure = runCatching { engine(store).validCredentials(account) }.exceptionOrNull()
 
-        assertEquals("rotated-access", refreshed.accessToken)
+        assertTrue("a removed credential cannot authorize a subsequent usage request", failure is ProviderException.Unauthorized)
         assertTrue(
             "a removed account's credential must not be resurrected",
             store.saves.isEmpty(),

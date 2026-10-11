@@ -2,6 +2,7 @@ package com.usagelimits.providers.claude
 
 import com.usagelimits.core.auth.OAuthCredentials
 import com.usagelimits.core.model.ProviderAccount
+import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.JsonSupport
@@ -232,7 +233,12 @@ class ClaudeProvider(
         val response = http.request(url = Claude.USAGE_URL, headers = apiHeaders(credentials))
         val payload = JsonSupport.parseObject(response.body)
         // Claude exposes no reset credits, so the list stays empty rather than being faked.
-        return UsageResult(windows = ClaudeUsageParser.parse(payload, nowMs()))
+        val malformed = ClaudeUsageParser.hasInvalidUsage(payload)
+        return UsageResult(
+            windows = ClaudeUsageParser.parse(payload, nowMs()),
+            status = if (malformed) SnapshotStatus.PARTIAL else SnapshotStatus.OK,
+            errorMessage = if (malformed) "Some quota values could not be read; available usage is shown." else null,
+        )
     }
 
     /** Headers for the OAuth-authenticated read endpoints (profile and usage). */

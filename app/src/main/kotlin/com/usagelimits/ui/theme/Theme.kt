@@ -26,9 +26,9 @@ object SeverityPalette {
     fun accent(severity: Severity) = when (severity) {
         Severity.HEALTHY -> UsageColors.Green
         Severity.MEDIUM -> UsageColors.Amber
-        Severity.LOW -> UsageColors.Amber
+        Severity.LOW, Severity.LIMITED -> UsageColors.Amber
         Severity.EXHAUSTED -> UsageColors.Red
-        Severity.STALE -> UsageColors.Slate
+        Severity.STALE, Severity.UNKNOWN -> UsageColors.Slate
         Severity.ERROR -> UsageColors.Red
     }
 
@@ -41,15 +41,15 @@ object SeverityPalette {
      */
     fun textColor(severity: Severity) = when (severity) {
         Severity.EXHAUSTED, Severity.ERROR -> UsageColors.RedText
-        Severity.STALE -> UsageColors.SlateText
+        Severity.STALE, Severity.UNKNOWN -> UsageColors.SlateText
         else -> accent(severity)
     }
 
     fun container(severity: Severity) = when (severity) {
         Severity.HEALTHY -> UsageColors.GreenSurface
-        Severity.MEDIUM, Severity.LOW -> UsageColors.AmberSurface
+        Severity.MEDIUM, Severity.LOW, Severity.LIMITED -> UsageColors.AmberSurface
         Severity.EXHAUSTED, Severity.ERROR -> UsageColors.RedSurface
-        Severity.STALE -> UsageColors.SlateSurface
+        Severity.STALE, Severity.UNKNOWN -> UsageColors.SlateSurface
     }
 
     /**
@@ -59,7 +59,7 @@ object SeverityPalette {
      * distinction between "100 % available" and "healthy but partly used".
      */
     fun barColor(remainingPercent: Double?, severity: Severity) = when {
-        remainingPercent != null && remainingPercent >= 99.5 -> UsageColors.Teal
+        remainingPercent == 100.0 && severity == Severity.HEALTHY -> UsageColors.Teal
         else -> accent(severity)
     }
 
@@ -67,6 +67,8 @@ object SeverityPalette {
         Severity.HEALTHY -> "Healthy"
         Severity.MEDIUM -> "Moderate"
         Severity.LOW -> "Low"
+        Severity.LIMITED -> "Limited"
+        Severity.UNKNOWN -> "Unknown"
         Severity.EXHAUSTED -> "Exhausted"
         Severity.STALE -> "Stale"
         Severity.ERROR -> "Error"

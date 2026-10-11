@@ -418,6 +418,20 @@ fun AccountCard(
             }
         }
 
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = Countdown.freshnessLabel(usage.measurementAt, nowMs),
+            style = MaterialTheme.typography.bodySmall,
+            color = UsageColors.TextTertiary,
+        )
+        if (!snapshot?.restrictedWindows.isNullOrEmpty()) {
+            Text(
+                text = "Restricted: " + snapshot!!.restrictedWindows.joinToString { it.label },
+                style = MaterialTheme.typography.bodyMedium,
+                color = UsageColors.Amber,
+            )
+        }
+
         val windows = snapshot?.windows.orEmpty()
         if (windows.isEmpty()) {
             Spacer(Modifier.height(10.dp))
@@ -473,7 +487,11 @@ fun AccountCard(
         if (snapshot?.errorMessage != null && windows.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "${snapshot.errorMessage} · showing last known data",
+                text = if (snapshot.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL) {
+                    "${snapshot.errorMessage} · partial update"
+                } else {
+                    "${snapshot.errorMessage} · showing last known data"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = UsageColors.Amber,
             )

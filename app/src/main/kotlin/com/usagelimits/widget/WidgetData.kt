@@ -25,6 +25,7 @@ data class WidgetRow(
      * unaffected: the provider had already described the new window by then.
      */
     val resetElapsed: Boolean = false,
+    val windowId: String = "",
 ) {
     /** The validity a surface should colour this row with, when its account's own is null. */
     val validity: Severity? get() = if (resetElapsed) Severity.STALE else null
@@ -42,6 +43,11 @@ data class WidgetAccount(
     val iconChoiceId: String? = null,
     val accountLabel: String? = null,
     val resetTimes: List<Long> = rows.mapNotNull { it.resetAt },
+    /** The same global/scoped representative used by the app; not a new minimum of two rows. */
+    val representative: WidgetRow? = null,
+    val restrictions: List<String> = emptyList(),
+    /** A usable quota can coexist with an unsuccessful optional endpoint. */
+    val partialUpdate: Boolean = false,
 ) {
     /**
      * Whether the cached reading itself is to be trusted: STALE or ERROR while it is not, null
@@ -79,6 +85,9 @@ data class WidgetSnapshot(
      */
     val leadValidity: Severity? = null,
 ) {
+    val selectionStatusLabel: String get() = if (accountCount > 1) "$accountCount accounts" else "Account"
+    val hasPartialUpdate: Boolean get() = accounts.any { it.partialUpdate }
+
     companion object {
         val Empty = WidgetSnapshot(
             accounts = emptyList(),
@@ -154,7 +163,7 @@ object WidgetDataBuilder {
         return WidgetSnapshot(
             accounts = ordered,
             accountCount = selected.size,
-            updatedAt = selected.mapNotNull { it.snapshot?.fetchedAt }.maxOrNull(),
+            updatedAt = selected.firstOrNull { it.account.localId == lead?.accountId }?.measurementAt,
             // The soonest reset OF THE LEADING ACCOUNT. Taken across all accounts it paired the
             // headline state with an unrelated account's clock: "0 % left · resets in 12m",
             // where the twelve minutes belonged to a healthy account's five-hour window. And
@@ -200,7 +209,7 @@ object WidgetDataBuilder {
      * compare, and a known percentage is the more useful thing to put first.
      */
     private fun WidgetAccount.tightestRemaining(): Double =
-        rows.mapNotNull { it.remainingPercent }.minOrNull() ?: Double.MAX_VALUE
+        representative?.remainingPercent ?: Double.MAX_VALUE
 
     /**
      * Five-point buckets, so sub-point drift cannot reorder a home screen.
@@ -212,17 +221,10 @@ object WidgetDataBuilder {
     private fun band(remaining: Double): Int =
         if (remaining == Double.MAX_VALUE) Int.MAX_VALUE else (remaining / 5).toInt()
 
-    /** The tightest window of a category — the number worth surfacing in one tile. */
-    /**
-     * The tightest window of a category — the number worth surfacing in one row.
-     *
-     * An unknown percentage sorts as MOST urgent, not least. It resolves to [Severity.ERROR],
-     * so treating it as the largest possible number made the one window the app could not read
-     * the last one it would ever show.
-     */
+    /** Known constraints lead; an optional unknown must not displace a readable percentage. */
     private fun headline(windows: List<UsageWindow>, category: WindowCategory, fetchedAt: Long, nowMs: Long): WidgetRow? =
         windows.filter { it.category == category }
-            .minByOrNull { it.remainingPercent ?: -1.0 }
+            .minWithOrNull(compareBy({ it.severity.urgency }, { it.remainingPercent ?: Double.MAX_VALUE }))
             ?.toRow(fetchedAt, nowMs)
 
     /**
@@ -262,14 +264,16 @@ object WidgetDataBuilder {
 
     private fun AccountUsage.toWidgetAccount(nowMs: Long, staleAfterMs: Long, providerIcons: Map<String, String>): WidgetAccount {
         val windows = snapshot?.windows.orEmpty()
-        val fetchedAt = snapshot?.fetchedAt ?: Long.MAX_VALUE
+        val headlineWindows = windows.filter { it.scope == com.usagelimits.core.model.UsageScope.GLOBAL }
+            .ifEmpty { windows }
+        val fetchedAt = measurementAt ?: Long.MAX_VALUE
 
-        // Show the two horizons that matter, not every window an account reports — a widget
-        // has room for about two rows before it stops being glanceable.
-        val rows = listOfNotNull(
-            headline(windows, WindowCategory.FIVE_HOUR, fetchedAt, nowMs),
-            longHeadline(windows, fetchedAt, nowMs),
-        )
+        // Lead with the summary's two horizons, then retain independently scoped limits and
+        // unknown optional values in the scrollable detail. Category is not window identity.
+        val rows = (listOfNotNull(
+            headline(headlineWindows, WindowCategory.FIVE_HOUR, fetchedAt, nowMs),
+            longHeadline(headlineWindows, fetchedAt, nowMs),
+        ) + windows.map { it.toRow(fetchedAt, nowMs) }).distinct()
 
         return WidgetAccount(
             accountId = account.localId,
@@ -282,21 +286,20 @@ object WidgetDataBuilder {
             accountLabel = account.label,
             requiresReauthentication = snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED,
             resetTimes = windows.mapNotNull { it.resetAt },
+            representative = snapshot?.mostCritical?.toRow(fetchedAt, nowMs),
+            restrictions = snapshot?.restrictedWindows.orEmpty().map { it.label },
+            partialUpdate = snapshot?.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL,
         )
     }
 
     private fun UsageWindow.toRow(fetchedAt: Long, nowMs: Long) = WidgetRow(
         category = category,
-        label = when (category) {
-            WindowCategory.FIVE_HOUR -> "5h limit"
-            WindowCategory.WEEKLY -> "Weekly"
-            WindowCategory.MONTHLY -> "Monthly"
-            WindowCategory.OTHER -> label
-        },
+        label = label,
         remainingPercent = remainingPercent,
         resetAt = resetAt,
         severity = severity,
         resetElapsed = resetElapsedAt(resetAt, fetchedAt, nowMs),
+        windowId = id,
     )
 
     /**

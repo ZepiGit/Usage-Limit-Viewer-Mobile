@@ -75,18 +75,11 @@ token; `load()` catches that and returns `null`, which surfaces as "sign-in expi
 
 ### Why not `EncryptedSharedPreferences`
 
-Jetpack's `EncryptedSharedPreferences` wraps the same two primitives — a Keystore-held key and
-an AEAD cipher — behind a `SharedPreferences` façade. It was not used for two reasons. First,
-the version in the dependency set (`androidx.security:security-crypto:1.1.0-alpha06`) is both
-perpetually alpha and now deprecated by Google, with no supported successor for this use case;
-depending on it would mean building the app's most security-critical component on something
-upstream has stopped maintaining. Second, it would not have removed much work: the store still
-needs its own per-record serialisation, its own reference-keyed layout, and its own
-suspend-function surface, so what remains is the twenty lines of Cipher plumbing above —
-plumbing that is now explicit and reviewable rather than hidden behind a façade whose
-guarantees change between alphas. The trade is that this code must be right; the mitigations
-are that it is small, uses the platform's own randomised-IV enforcement rather than
-hand-rolling nonce management, and never touches key material itself.
+The app does not depend on `androidx.security:security-crypto`. Its credential store uses
+Android Keystore and platform AES-GCM directly, with per-record serialisation, a
+reference-keyed layout and a suspend-function surface. The Cipher handling is explicit
+and must be correct; it uses the platform's randomised-IV enforcement rather than
+hand-rolling nonce management, and never extracts key material.
 
 ### Why the key is not gated on user authentication
 

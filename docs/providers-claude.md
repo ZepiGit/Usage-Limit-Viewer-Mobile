@@ -151,10 +151,10 @@ under its own key, and every one of them reports `utilization` and `resets_at`. 
 |---|---|---|
 | `<window>.utilization` | `UsageWindow.usedPercent` | **Percent CONSUMED**, 0–100, copied through unchanged. `utilization: 42.5` renders as "57.5 % remaining", because the UI displays the derived `remainingPercent`. |
 | `<window>.resets_at` / `resetsAt` | `UsageWindow.resetAt` | Absolute instant → epoch millis via `Instants.parse`. An explicit `null` yields a null `resetAt` and the window still renders — it simply shows no countdown. |
-| the window's **key** | `UsageWindow.periodSeconds` and `category` | Derived, not read: the payload never states a duration. `five_hour` → 18 000 s → `FIVE_HOUR`; every other key Anthropic exposes is a seven-day window → 604 800 s → `WEEKLY`. |
+| the window's **key** | `UsageWindow.periodSeconds` and `category` | Derived, not read: the payload never states a duration. `five_hour` → 18 000 s → `FIVE_HOUR`; registered weekly keys → 604 800 s → `WEEKLY`; discovered keys remain `OTHER`. |
 | the window's **key** | `UsageWindow.id` | Underscores become hyphens, e.g. `seven_day_opus` → `seven-day-opus`. |
 | `limits[].percent` | `UsageWindow.usedPercent` for the Fable row | **Percent CONSUMED**, same direction as `utilization`. |
-| `limits[].kind`, `limits[].scope.model.display_name`, `limits[].is_active` | selection only | Used to find the Fable entry; see §5. |
+| `limits[].kind`, `limits[].scope.model.id` / `display_name` | identity, label and scope | Separates global constraints from model-specific limits; `is_active` does not turn consumption into remaining. |
 
 The recognised window keys and their labels live in
 `ProviderEndpoints.Claude.USAGE_WINDOW_KEYS`, in display order: `five_hour` ("5h limit"),
@@ -164,50 +164,42 @@ The recognised window keys and their labels live in
 **Correction to the original specification.** The brief named the Fable weekly window
 `seven_day_fable`. That key is **not** what upstream serves. The current key is
 **`iguana_necktie`** — an internal codename, not a typo and not a placeholder — and that is
-what `ProviderEndpoints.Claude.USAGE_WINDOW_KEYS` and `ClaudeUsageParser.FABLE_WINDOW_KEY`
-match on. The app labels it "Weekly (Fable)" in the UI, so the codename never reaches the
+what `ProviderEndpoints.Claude.USAGE_WINDOW_KEYS` recognizes. The app labels it "Weekly (Fable)" in the UI, so the codename never reaches the
 user, and the parser tolerates its absence, so if Anthropic renames it again the cost is one
 missing row rather than a failed parse. This is also the field most likely to change, since a
 codename is by nature temporary.
 
 ## 5. Normalisation rules
 
-**A fixed key list, and unknown keys are ignored.** The parser walks
-`USAGE_WINDOW_KEYS` in order and reads only those keys. Anything else at the top level —
-`organization`, a scalar, a window Anthropic adds next month — is skipped silently. That
-asymmetry is intentional: a new window upstream costs nothing (it is simply not shown until
-the key is added here), and a removed window costs exactly one row. Neither can break the
-screen. `ClaudeUsageParserTest` asserts both directions, including a fixture with an unknown
-`thirty_day_quokka` window and a non-object top-level value.
+`limits[]` is the primary presentation source, supplemented by recognized flat windows and
+window-shaped unknown keys (`utilization` plus a reset field). Credit balances are excluded.
+Explicit null window objects are absent; a declared window with missing/null usage stays
+unknown. Zero consumption remains visible and means 100% remaining, never an unused-slot
+assumption. Invalid explicit percentages produce a partial-data warning.
 
-**Period is derived from the key, not the payload.** Anthropic states no duration anywhere in
-the usage response. Rather than leave every window `OTHER`, the parser assigns 18 000 s to
-`five_hour` and 604 800 s to everything else, which is true of every key Anthropic currently
-exposes. This is the one place in the project where a duration is asserted rather than read,
-and it is asserted from the key name — so a future `thirty_day_*` key would be mislabelled
-weekly if it were added to the list without also adding its period. Noted here so the next
-person adding a key knows to check.
+Percentages are consumption in the range 0–100. Remaining is derived as `100 - used`; invalid
+or out-of-range inputs stay unknown. Model scope comes from `scope.model` or `weekly_scoped`;
+known session and all-model weekly windows are global. Discovered keys have unknown scope.
+A model-only exhaustion produces `LIMITED` while global quota remains available. A global
+zero still produces `EXHAUSTED`. The synthetic 100% / 37% / Fable 0% trace therefore retains
+37% as its global headline and names Fable as a restriction.
 
-**Fable de-duplication.** Fable's weekly quota can arrive twice: once under the opaque
-`iguana_necktie` key, and once as an entry in `limits[]` with
-`kind == "weekly_scoped"` and `scope.model.display_name` of "Fable" (or "Fable 5"). Showing
-both would render one quota as two bars with two different numbers. The rule is: **when a
-matching `limits[]` entry exists, it supersedes the key.** The `limits[]` entry is the better
-source — it is self-describing, it names the model, and it carries an `is_active` flag —
-so `iguana_necktie` is dropped from the output and a single window with id `seven-day-fable`
-and label "Weekly (Fable)" takes its place, carrying the entry's `percent` and its
-`resets_at`. When no matching entry exists, the `iguana_necktie` key is kept as-is under the
-same "Weekly (Fable)" label with id `iguana-necktie`. A candidate entry must carry a non-null
-`percent` to be considered at all; among several candidates the one marked `is_active` wins,
-otherwise the first. Both branches are directly tested.
+Deduplication uses window identity, never reset coincidence. A measured flat twin may fill
+an unknown primary row. Distinct model IDs remain distinct even with identical display names;
+slug collision suffixes use sorted identities rather than array order. Unknown payloads
+without stable provider identity remain an integration risk and are not treated as global.
 
-**Grouping** is not used for Claude. Every window is a top-level quota on one account, so
-`UsageWindow.group` is left null and the UI renders one flat list in the declared order.
+Known keys/kinds declare five-hour or weekly durations. Undocumented discovered windows keep
+an unknown duration; time until reset is never a duration. Provider reset timestamps are
+preserved, including an unusual reset 25 days away. That value requires live provider evidence
+to explain and is never silently rewritten to match the label.
 
-**Exhaustion** is `utilization >= 100`. There is no parent flag to consult, unlike Codex.
+Anthropic's [paid-plan usage-credit documentation](https://support.claude.com/en/articles/12429409-manage-usage-credits-for-paid-claude-plans)
+explicitly distinguishes the session, all-model weekly and separate Fable weekly allowances.
+This supports scope separation, but does not publicly document every internal JSON key. No
+live authenticated provider response was available for this revision; fixtures are synthetic.
 
-**No reset credits.** `supportsResetCredits` stays false and `UsageResult.resetCredits` stays
-empty. Anthropic exposes no such facility and the app does not invent one.
+No reset-credit mutation is supported by this adapter.
 
 ## 6. Known risks and upstream-change exposure
 
@@ -221,8 +213,8 @@ empty. Anthropic exposes no such facility and the app does not invent one.
 - **`iguana_necktie` renamed again.** Cost: one row disappears — unless a matching `limits[]`
   entry exists, in which case the Fable row survives via the array path and nothing is lost at
   all. This is the most likely single change and the app is already positioned for it.
-- **A window key is added.** Cost: nothing visible; the new window is ignored until the key is
-  added to `USAGE_WINDOW_KEYS`. One-line fix in `ProviderEndpoints`.
+- **A window key is added.** Window-shaped keys are discovered with unknown scope and duration;
+  recognition still requires provider evidence before they can become global constraints.
 - **`utilization` renamed, or its direction inverted.** A rename costs the percentage on every
   window (rows still render with unknown values). An *inverted direction* — a provider
   switching to reporting what is left — would not throw and would not look wrong: every bar
@@ -240,8 +232,8 @@ empty. Anthropic exposes no such facility and the app does not invent one.
 - **Whole-payload shape change.** `MalformedPayload`, caught per account by `SyncEngine`; the
   account keeps its previous numbers with "Unexpected response from provider" attached.
 - **Zero windows parsed.** If every recognised key disappears at once, the account renders
-  with no windows; `UsageSnapshot.severity` falls back to `ERROR` even though the sync itself
-  recorded `OK`. An empty window list is the signal to check for an upstream rename.
+  with no windows and `UNKNOWN` availability. An empty window list is a signal to check for
+  an upstream rename, not evidence of exhausted quota.
 
 ## 7. Provenance
 

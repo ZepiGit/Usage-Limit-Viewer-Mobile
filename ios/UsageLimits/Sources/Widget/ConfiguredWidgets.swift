@@ -244,10 +244,14 @@ private struct ConfiguredRingGrid: View {
                                     Image(account.iconAssetName ?? provider.assetName).resizable().scaledToFit().frame(width: 20, height: 20)
                                 }
                             }.frame(width: 38, height: 38)
+                            if mini && account.statusMessage != nil {
+                                Image(systemName: "exclamationmark.circle").font(.caption2).foregroundStyle(ink.primary)
+                            }
                             if !mini {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(account.title).font(.caption).lineLimit(1)
                                     if account.connectionStatus == .reconnectRequired { Text("Reconnect").font(.caption2) }
+                                    else if let message = account.statusMessage { Text(verbatim: message).font(.caption2).lineLimit(2) }
                                     // Overdue-aware and date-aware: a passed reset says so, a
                                     // reset days out carries its date, not a bare clock time
                                     // that could mean any day. (WGT-007)

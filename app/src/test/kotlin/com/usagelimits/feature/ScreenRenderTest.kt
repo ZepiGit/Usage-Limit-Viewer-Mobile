@@ -300,6 +300,52 @@ class ScreenRenderTest {
     }
 
     @Test
+    fun `a first failed refresh is never presented as a successful update`() {
+        val failed = usage(status = SnapshotStatus.FAILED).let {
+            it.copy(account = it.account.copy(lastSuccessfulSync = null),
+                snapshot = it.snapshot!!.copy(windows = emptyList(), errorMessage = "No network connection"))
+        }
+        renderDetail(failed)
+        assertTrue(compose.onAllNodesWithText("Never updated").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(compose.onAllNodesWithText("Updated just now").fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("Last attempt just now").fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test
+    fun `a partial update identifies current figures without claiming all data is cached`() {
+        val partial = usage(status = SnapshotStatus.PARTIAL).let {
+            it.copy(snapshot = it.snapshot!!.copy(errorMessage = "Monthly usage could not be refreshed"))
+        }
+        renderDetail(partial)
+        assertTrue(compose.onAllNodesWithText("Available figures are from this update; some limits could not be refreshed.")
+            .fetchSemanticsNodes().isNotEmpty())
+        assertTrue(compose.onAllNodesWithText("The figures below are the last values that loaded successfully.")
+            .fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun `a model restriction retains its identity in the account detail`() {
+        val scoped = usage().let {
+            it.copy(snapshot = it.snapshot!!.copy(windows = listOf(
+                window(0.0),
+                window(100.0, "Weekly (Fable)").copy(id = "fable", scope = com.usagelimits.core.model.UsageScope.MODEL),
+            )))
+        }
+        renderDetail(scoped)
+        assertTrue(compose.onAllNodesWithText("Restricted: Weekly (Fable)").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(compose.onAllNodesWithText("Exhausted").fetchSemanticsNodes().isEmpty())
+    }
+
+    private fun renderDetail(usage: AccountUsage) = render {
+        AccountDetailScreen(
+            usage = usage, nowMs = now, staleAfterMs = 3_600_000,
+            resetInFlight = false, supportsResetCredits = false,
+            onRefresh = {}, onConsumeResetCredit = {}, onRemove = {},
+            notificationsEnabled = true, onNotificationsChange = {},
+        )
+    }
+
+    @Test
     fun `account detail renders for an account that is gone`() {
         // Reachable by deleting an account while its detail screen is open.
         render {

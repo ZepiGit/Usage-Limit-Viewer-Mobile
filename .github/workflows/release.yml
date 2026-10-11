@@ -1,8 +1,7 @@
 name: Release
 
-# Tag-gated, and separate from the pull-request workflows for one reason: this is the only job
-# that ever sees the signing key, so it is the only job whose logs, cache and artifacts need to
-# be reasoned about at all.
+# CI builds and signs artifacts. The release owner publishes the checked artifacts
+# through their existing authenticated GitHub account; this workflow never publishes.
 on:
   push:
     tags:
@@ -10,61 +9,95 @@ on:
   workflow_dispatch:
     inputs:
       versionName:
-        description: 'Version name, e.g. 0.2.0'
+        description: 'Stable version name, e.g. 0.2.1'
         required: true
+
+permissions:
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  android:
-    name: Android release
+  metadata:
+    name: Validate release version
     runs-on: ubuntu-latest
-    # Bounded so a hung step cannot run to the six-hour default. A UI test that waits
-    # on a simulator alert nobody can dismiss looks exactly like a slow one, and on a
-    # macOS runner that mistake is billed at ten times the rate.
-    timeout-minutes: 40
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_code: ${{ steps.version.outputs.version_code }}
+      commit: ${{ steps.version.outputs.commit }}
     steps:
-      # Full history: the version code is the commit count, shared with the Android workflow
-      # so a release never carries a lower code than a verification build of the same or an
-      # earlier commit — an installer refuses a downgrade outright.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Validate the version and pin the source commit
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.versionName || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${REQUESTED_VERSION#v}"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'Release version must be a stable major.minor.patch version.' >&2
+            exit 1
+          fi
+          version_code="$(git rev-list --count HEAD)"
+          if (( version_code < 1 || version_code > 2100000000 )); then
+            echo 'Release version code is outside the Android supported range.' >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "version_code=$version_code" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+  android:
+    name: Android release
+    needs: metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ANDROID_VERSION_NAME: ${{ needs.metadata.outputs.version }}
+      ANDROID_VERSION_CODE: ${{ needs.metadata.outputs.version_code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
-      # Deliberately WITHOUT setup-gradle's caching. Gradle's configuration cache serialises the
-      # resolved signing config — passwords included — under ~/.gradle, and caching that would
-      # persist them into GitHub's cache store, which is readable by any workflow in the repo.
+      - name: Test and lint before signing
+        run: |
+          ./gradlew --no-daemon --no-configuration-cache :app:testDebugUnitTest :app:lintDebug
+          ./gradlew --no-daemon --no-configuration-cache :app:dependencies --configuration releaseRuntimeClasspath --console=plain > app/build/reports/release-runtime-dependencies.txt
+
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android-checks
+          path: |
+            app/build/reports/tests/testDebugUnitTest
+            app/build/reports/lint-results-debug.*
+            app/build/reports/release-runtime-dependencies.txt
+          if-no-files-found: ignore
+
+      # No Gradle caching action: signing settings must not enter a shared cache.
       - name: Decode the signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
           if [ -z "${KEYSTORE_BASE64:-}" ]; then
-            echo "ANDROID_KEYSTORE_BASE64 is not set; a release cannot be signed." >&2
+            echo 'ANDROID_KEYSTORE_BASE64 is not set; a release cannot be signed.' >&2
             exit 1
           fi
-          # $RUNNER_TEMP, never the workspace: workspace contents can be uploaded as artifacts
-          # or picked up by a cache action. The runner wipes this directory itself.
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
           chmod 600 "$RUNNER_TEMP/release.jks"
-
-      # The version code has to advance or the second upload is rejected, and there is no way
-      # back from a published one. The commit count rises with the history and is the same
-      # number the Android workflow stamps on a verification build of the same commit.
-      #
-      # A tag reads v0.2.0; the app's versionName reads 0.2.0, so the v-prefix is stripped.
-      - name: Derive the release version name
-        run: |
-          set -euo pipefail
-          tag="${{ inputs.versionName || github.ref_name }}"
-          echo "RELEASE_VERSION_NAME=${tag#v}" >> "$GITHUB_ENV"
 
       - name: Build the signed bundle and APK
         env:
@@ -72,28 +105,21 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_VERSION_NAME: ${{ env.RELEASE_VERSION_NAME }}
-        run: |
-          export ANDROID_VERSION_CODE="$(git rev-list --count HEAD)"
-          ./gradlew --no-daemon --no-configuration-cache bundleRelease assembleRelease
+        run: ./gradlew --no-daemon --no-configuration-cache :app:bundleRelease :app:assembleRelease
 
       - name: Forget the signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
 
-      # Flat, and deliberately flat: upload-artifact preserves directory structure, and the
-      # publish job below wants the three files at one level, named after what they are.
       - name: Stage the build outputs
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp app/build/outputs/bundle/release/*.aab dist/
-          cp app/build/outputs/apk/release/*.apk dist/
+          cp app/build/outputs/bundle/release/app-release.aab dist/
+          cp app/build/outputs/apk/release/app-release.apk dist/
           cp app/build/outputs/mapping/release/mapping.txt dist/
-          ls -l dist
+          sha256sum dist/app-release.apk > dist/app-release.apk.sha256
 
-      # Kept per release, because an obfuscated stack trace from a build nobody can reproduce
-      # locally is unreadable without the mapping that produced it.
       - name: Upload the build outputs
         uses: actions/upload-artifact@v4
         with:
@@ -101,43 +127,112 @@ jobs:
           path: dist
           if-no-files-found: error
 
-  ios:
-    name: iOS archive
-    runs-on: macos-latest
-    # Bounded so a hung step cannot run to the six-hour default. A UI test that waits
-    # on a simulator alert nobody can dismiss looks exactly like a slow one, and on a
-    # macOS runner that mistake is billed at ten times the rate.
-    timeout-minutes: 45
+  android-runtime:
+    name: Verify the release APK on API 36
+    needs: [metadata, android]
+    runs-on: ubuntu-latest
+    # Eight rounds revisit all four widget configurations, plus placement and geometry checks.
+    # Individual UI/control deadlines remain bounded in the smoke script.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RELEASE_COMMIT: ${{ needs.metadata.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-release
+          path: runtime/apk
+      - name: Download the published upgrade baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/previous runtime/evidence
+          gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'UsageLimits-0.2.0.apk' --dir runtime/previous
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Record release APK identity and signatures
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "$RELEASE_COMMIT" ] || [ "$GITHUB_SHA" != "$RELEASE_COMMIT" ]; then
+            echo '::error::Release metadata, runtime checkout and workflow commit must match.' >&2
+            exit 1
+          fi
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$build_tools/aapt" dump badging runtime/apk/app-release.apk > runtime/evidence/apk-metadata.txt
+          "$build_tools/aapt" dump badging runtime/previous/UsageLimits-0.2.0.apk > runtime/evidence/apk-previous-metadata.txt
+          "$build_tools/apksigner" verify --verbose --print-certs runtime/apk/app-release.apk > runtime/evidence/apk-signature.txt
+          "$build_tools/apksigner" verify --verbose --print-certs runtime/previous/UsageLimits-0.2.0.apk > runtime/evidence/apk-previous-signature.txt
+          cp runtime/apk/app-release.apk.sha256 runtime/evidence/apk-sha256.txt
+      - name: Check the AOSP API 36 image is available
+        run: |
+          set -euo pipefail
+          sdkmanager --list > runtime/evidence/sdk-packages.txt
+          if ! grep -Eq '^[[:space:]]*system-images;android-36;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 36 x86_64 image.' >&2
+            exit 1
+          fi
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Upgrade and navigate the release APK
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-0.2.0.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/apk/app-release.apk.sha256 --evidence runtime/evidence
+      - name: Upload release runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android-runtime-evidence-${{ needs.metadata.outputs.version }}
+          path: runtime/evidence
+          if-no-files-found: warn
+
+  ios:
+    name: iOS archive
+    needs: metadata
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_VERSION_CODE: ${{ needs.metadata.outputs.version_code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+      - name: Test the shared package
+        working-directory: ios/UsageLimitsKit
+        run: swift test --parallel
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate the project
         working-directory: ios/UsageLimits
         run: xcodegen generate
 
-      # An UNSIGNED archive. Signing an iOS build needs a distribution certificate and a
-      # provisioning profile from a paid developer account, which this repository does not have
-      # and should not carry. The archive is still the right artifact: it proves the release
-      # configuration builds — optimisation, whole-module, no debug-only code — which the
-      # simulator build does not, and it is what a signing step would consume.
+      # This archive has no distribution certificate or provisioning profile.
+      # It verifies the release configuration but is not installable as-is.
       - name: Archive
         working-directory: ios/UsageLimits
         run: |
-          set -o pipefail
+          set -euo pipefail
           xcodebuild archive \
             -scheme UsageLimits \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/UsageLimits.xcarchive" \
+            MARKETING_VERSION="$RELEASE_VERSION" \
+            CURRENT_PROJECT_VERSION="$RELEASE_VERSION_CODE" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
-      # Zipped here, on the runner that still has the archive: a release asset must be ONE
-      # file, and upload-artifact would flatten a bare directory into its contents. The
-      # README inside the zip says what an unsigned archive is good for, at the very place
-      # a downloader reads it.
       - name: Zip the archive for the release
         run: |
           set -euo pipefail
@@ -145,10 +240,9 @@ jobs:
           printf '%s\n' \
             'Unsigned iOS release archive of Usage Limits (Release configuration).' \
             '' \
-            'This archive is NOT installable on a device as-is: it carries no distribution' \
-            'certificate and no provisioning profile, because this repository has no paid' \
-            'Apple developer account. It is what a signing step would consume:' \
-            'open it in Xcode, assign a team, and distribute from there.' \
+            'This archive is not installable on a device as-is: it carries no distribution' \
+            'certificate or provisioning profile. Open it in Xcode and assign a team' \
+            'before distribution.' \
             > RELEASE-README.txt
           zip -q -r UsageLimits-ios-unsigned.xcarchive.zip UsageLimits.xcarchive RELEASE-README.txt
 
@@ -159,58 +253,41 @@ jobs:
           path: ${{ runner.temp }}/UsageLimits-ios-unsigned.xcarchive.zip
           if-no-files-found: error
 
-  publish:
-    name: Publish the GitHub release
-    needs: [android, ios]
+  package:
+    name: Package artifacts for the release owner
+    needs: [metadata, android, android-runtime, ios]
     runs-on: ubuntu-latest
-    # The release itself is the deliverable: without contents:write this job could upload
-    # artifacts that only a workflow-run page exposes, but never attach the finished apps
-    # to the tag the repository page lists.
-    permissions:
-      contents: write
     timeout-minutes: 15
-    # One tag shape for both triggers: a v* push arrives AS the tag; a manual dispatch names
-    # the bare version and gets the v-prefix here.
     env:
-      RELEASE_TAG: ${{ inputs.versionName && format('v{0}', inputs.versionName) || github.ref_name }}
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_VERSION_CODE: ${{ needs.metadata.outputs.version_code }}
+      RELEASE_COMMIT: ${{ needs.metadata.outputs.commit }}
     steps:
-      # Checked out so a manual dispatch can anchor its new tag to exactly the commit that
-      # was built, rather than to wherever the default branch has drifted in the meantime.
-      - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
+          name: android-release
           path: artifacts
-          merge-multiple: true
-
-      # The finished apps, named after their version rather than Gradle's defaults, so the
-      # assets read the same way every release without a lookup.
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-archive
+          path: artifacts
       - name: Package the release assets
         run: |
           set -euo pipefail
-          NAME="${RELEASE_TAG#v}"
           mkdir -p dist
-          mv artifacts/app-release.apk "dist/UsageLimits-$NAME.apk"
-          mv artifacts/app-release.aab "dist/UsageLimits-$NAME.aab"
-          mv artifacts/mapping.txt "dist/UsageLimits-$NAME-mapping.txt"
+          mv artifacts/app-release.apk "dist/UsageLimits-$RELEASE_VERSION.apk"
+          mv artifacts/app-release.aab "dist/UsageLimits-$RELEASE_VERSION.aab"
+          mv artifacts/mapping.txt "dist/UsageLimits-$RELEASE_VERSION-mapping.txt"
           mv artifacts/UsageLimits-ios-unsigned.xcarchive.zip \
-            "dist/UsageLimits-$NAME-ios-unsigned.xcarchive.zip"
-          ls -l dist
-
-      - name: Create the release with the finished apps
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists; replacing its assets." >&2
-            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber dist/*
-          else
-            gh release create "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "Usage Limits ${RELEASE_TAG#v}" \
-              --generate-notes \
-              --latest \
-              dist/*
-          fi
+            "dist/UsageLimits-$RELEASE_VERSION-ios-unsigned.xcarchive.zip"
+          printf 'version=%s\nversionCode=%s\ncommit=%s\n' \
+            "$RELEASE_VERSION" "$RELEASE_VERSION_CODE" "$RELEASE_COMMIT" > dist/RELEASE-METADATA.txt
+          (cd dist && sha256sum ./* > SHA256SUMS)
+          printf 'Artifacts for v%s at `%s` are ready. Follow docs/release.md to verify and publish using the release owner account.\n' \
+            "$RELEASE_VERSION" "$RELEASE_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the versioned release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ needs.metadata.outputs.version }}
+          path: dist
+          if-no-files-found: error

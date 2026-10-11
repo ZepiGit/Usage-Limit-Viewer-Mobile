@@ -22,7 +22,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         NotificationStateEntity::class,
         WidgetConfigEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class UsageLimitsDatabase : RoomDatabase() {
@@ -163,6 +163,12 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE usage_snapshots ADD COLUMN lastAttemptAt INTEGER")
+            }
+        }
+
         fun build(context: Context): UsageLimitsDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
@@ -173,6 +179,7 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             MIGRATION_6_7,
             MIGRATION_7_8,
             MIGRATION_8_9,
+            MIGRATION_9_10,
             ).build()
     }
 }

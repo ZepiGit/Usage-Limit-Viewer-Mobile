@@ -86,14 +86,14 @@ class KimiUsageParserTest {
     }
 
     @Test
-    fun `a window with no limit is dropped rather than shown as full`() {
+    fun `a window with no valid capacity retains an unknown measurement`() {
         // Dividing by a zero limit is infinity or NaN, and a bar drawn from it reads as an
         // exhausted account that is not exhausted.
-        assertTrue(
-            KimiUsageParser.parse(payload("""{ "usage": { "limit": 0, "used": 5 } }""")).isEmpty(),
+        assertNull(
+            KimiUsageParser.parse(payload("""{ "usage": { "limit": 0, "used": 5 } }""")).single().remainingPercent,
         )
-        assertTrue(
-            KimiUsageParser.parse(payload("""{ "usage": { "used": 5 } }""")).isEmpty(),
+        assertNull(
+            KimiUsageParser.parse(payload("""{ "usage": { "used": 5 } }""")).single().remainingPercent,
         )
     }
 
