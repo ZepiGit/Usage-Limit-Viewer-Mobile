@@ -102,6 +102,67 @@ class Smoke:
         self.assert_no_system_error(root)
         return root
 
+    def wait_for_launcher(self, name, component):
+        """Observe the booted Home before sending any input or installing an APK."""
+        assert component.startswith(self.launcher + "/"), "Unexpected HOME component"
+
+        def expanded(value):
+            package, activity = value.split("/", 1)
+            return package + "/" + (package + activity if activity.startswith(".") else activity)
+
+        started = time.monotonic()
+        deadline = started + 120
+        report = {"component": component, "result": "failed", "attempts": 0, "lastProbeError": None}
+
+        def probe(*args, binary=False):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(args, 120)
+            return self.adb(*args, binary=binary, timeout=min(10, remaining))
+
+        def check_anr(filename):
+            anr = probe("shell", "dumpsys", "activity", "lastanr")
+            self.text(filename, anr)
+            assert anr.splitlines() == ["ACTIVITY MANAGER LAST ANR (dumpsys activity lastanr)",
+                                       "  <no ANR has occurred since boot>"], (
+                "Boot readiness found an ANR or an unrecognized ANR report; no input was sent")
+
+        try:
+            while time.monotonic() < deadline:
+                attempt = f"{name}-{report['attempts']}"
+                report["attempts"] += 1
+                try:
+                    check_anr(attempt + "-last-anr.txt")
+                    remote = "/sdcard/usage-runtime-boot.xml"
+                    probe("shell", "rm", "-f", remote)
+                    probe("shell", "uiautomator", "dump", remote)
+                    xml = probe("exec-out", "cat", remote)
+                    self.text(attempt + ".xml", xml)
+                    root = ET.fromstring(xml)
+                    self.assert_no_system_error(root)
+                    # Android 16 emits mCurrentFocus in DisplayContent.dump, not the windows subdump.
+                    window = probe("shell", "dumpsys", "window")
+                    self.text(attempt + "-window.txt", window)
+                    focus = re.findall(r"^\s*mCurrentFocus=(.+)$", window, re.M)
+                    focused = re.fullmatch(r"Window\{[0-9a-f]+ u\d+ ([^\s{}]+/[^\s{}]+)\}", focus[0]) if len(focus) == 1 else None
+                    workspace = [node for node in root.iter("node")
+                                 if node.get("package") == self.launcher
+                                 and node.get("resource-id") == self.launcher + ":id/workspace"
+                                 and node.get("enabled") == "true" and bounds(node)]
+                    (self.directory / (attempt + ".png")).write_bytes(probe("exec-out", "screencap", "-p", binary=True))
+                    if focused and expanded(focused[1]) == expanded(component) and len(workspace) == 1:
+                        check_anr(attempt + "-ready-last-anr.txt")
+                        report["result"] = "passed"
+                        return
+                except (subprocess.SubprocessError, ET.ParseError) as error:
+                    report["lastProbeError"] = str(error)
+                    self.text(attempt + "-probe-error.txt", str(error))
+                time.sleep(min(1, max(0, deadline - time.monotonic())))
+            raise AssertionError("Launcher did not expose both its focused Home window and workspace within 120 seconds")
+        finally:
+            report["waitSeconds"] = time.monotonic() - started
+            self.text(name + ".json", json.dumps(report, indent=2))
+
     @staticmethod
     def control(root, package, label=None, resource_id=None):
         parents = {child: parent for parent in root.iter() for child in parent}
@@ -114,7 +175,11 @@ class Smoke:
             if resource_id is not None and node.get("resource-id") != resource_id:
                 continue
             while node is not None and node.get("package") == package:
-                if node.get("enabled") == "true" and node.get("clickable") == "true" and bounds(node):
+                # A selected Compose radio remains checked but is no longer clickable.
+                if node.get("enabled") == "true" and bounds(node) and (
+                    node.get("clickable") == "true"
+                    or (node.get("checkable") == "true" and node.get("checked") == "true")
+                ):
                     controls[bounds(node)] = node
                     break
                 node = parents.get(node)
@@ -226,7 +291,8 @@ class Smoke:
             target = self.widget_control(name + "-" + control_label.replace(" ", "-"), PACKAGE,
                                          label=control_label, scroll=True)
             if save:
-                self.tap(target)
+                if not self.selected(target):
+                    self.tap(target)
                 self.wait_for(name + "-selected", lambda root: (
                     (target := self.control(root, PACKAGE, label=control_label)) is not None and self.selected(target)))
             else:
@@ -391,6 +457,7 @@ class Smoke:
                    "restartSeconds": time.monotonic() - restart_started}
         self.text("widgets-launcher-restart.json", json.dumps(restart, indent=2))
         assert after and before.isdisjoint(after), "Launcher restart did not replace the observed process"
+        self.wait_for_launcher("widgets-launcher-restart-home", home)
         verification_started = time.monotonic()
         self.verify_widgets_after_upgrade(placed, phase="launcher-restart")
         restart["verificationSeconds"] = time.monotonic() - verification_started
@@ -425,10 +492,108 @@ class Smoke:
         reboot.update({"bootWaitSeconds": time.monotonic() - reboot_started, "lastProbeError": last_error})
         self.text("widgets-reboot.json", json.dumps(reboot, indent=2))
         assert ready, "Device did not report a completed new boot within 180 seconds"
+        self.wait_for_launcher("widgets-reboot-home", home)
         verification_started = time.monotonic()
         self.verify_widgets_after_upgrade(placed, phase="reboot")
         reboot["verificationSeconds"] = time.monotonic() - verification_started
         self.text("widgets-reboot.json", json.dumps(reboot, indent=2))
+        self.verify_widget_network_lifecycle(placed)
+
+    def verify_widget_network_lifecycle(self, placed):
+        # Android16 ConnectivityService.dump/NetworkAgentInfo.toString and
+        # WifiShellCommand.printStatus define these formats. Preserve every raw probe.
+        def state(name, timeout=5):
+            reports = {}
+            for kind, command in {
+                "airplane": ("shell", "cmd", "connectivity", "airplane-mode"),
+                "wifi": ("shell", "cmd", "wifi", "status"),
+                "connectivity": ("shell", "dumpsys", "connectivity"),
+            }.items():
+                reports[kind] = self.adb(*command, timeout=timeout)
+                self.text(name + "-" + kind + ".txt", reports[kind])
+            assert reports["airplane"] in ("enabled", "disabled"), "Unknown airplane-mode query output"
+            wifi = re.findall(r"^Wifi is (enabled|disabled)$", reports["wifi"], re.M)
+            assert len(wifi) == 1, "Unknown Wi-Fi status output"
+            defaults = re.findall(r"^Active default network: (none|\d+)$", reports["connectivity"], re.M)
+            sections = re.findall(r"(?ms)^Current Networks:\n(.*?)^Status for known UIDs:", reports["connectivity"])
+            assert len(defaults) == len(sections) == 1, "Unknown ConnectivityService dump sections"
+            lines = [line for line in sections[0].splitlines() if line.strip()]
+            networks = {}
+            if lines:
+                indent = len(lines[0]) - len(lines[0].lstrip())
+                assert indent > 0, "Unknown current-network indentation"
+                for line in lines:
+                    depth = len(line) - len(line.lstrip())
+                    assert depth >= indent, "Unknown current-network dump entry"
+                    if depth > indent:
+                        continue  # Per-network Requests can also contain INTERNET; they are not links.
+                    header = line.strip()
+                    net = re.match(r"NetworkAgentInfo\{network\{(\d+)\}", header)
+                    info = re.search(r"  ni\{(.*?)\} created=", header)
+                    caps = re.search(r"  nc\{(\[.*\])\}  factorySerialNumber=-?\d+\}$", header)
+                    assert net and info and caps, "Unknown NetworkAgentInfo header"
+                    detail = re.fullmatch(r"[^\[\] ]+(?:\[[^\]]*\])? ([A-Z_]+)(?: ROAMING)?(?: extra: .*)?", info[1])
+                    assert detail and detail[1] in {
+                        "IDLE", "SCANNING", "CONNECTING", "AUTHENTICATING", "OBTAINING_IPADDR",
+                        "CONNECTED", "SUSPENDED", "DISCONNECTING", "DISCONNECTED", "FAILED",
+                        "BLOCKED", "VERIFYING_POOR_LINK", "CAPTIVE_PORTAL_CHECK",
+                    }, "Unknown network detailed state"
+                    assert " UnderlyingNetworks: " in caps[1], "Unknown NetworkCapabilities format"
+                    capability_list = re.search(r" Capabilities: (\S+)", caps[1])
+                    assert capability_list or "Capabilities" not in caps[1], "Unknown network capability list"
+                    assert not capability_list or re.fullmatch(r"[A-Z0-9_]+(?:&[A-Z0-9_]+)*", capability_list[1]), "Unknown network capability tokens"
+                    assert net[1] not in networks, "Duplicate current-network ID"
+                    networks[net[1]] = {"state": detail[1], "capabilities": capability_list[1].split("&") if capability_list else []}
+            default = None if defaults[0] == "none" else defaults[0]
+            connected = {key for key, value in networks.items()
+                         if value["state"] == "CONNECTED" and "INTERNET" in value["capabilities"]}
+            return {"airplane": reports["airplane"], "wifi": wifi[0], "defaultNetwork": default,
+                    "networks": networks, "offline": default is None and not connected,
+                    "online": default in connected and "VALIDATED" in networks[default]["capabilities"]}
+
+        def wait_state(name, predicate):
+            started = time.monotonic()
+            deadline = started + 60
+            attempt = 0
+            while time.monotonic() < deadline:
+                observed = state(f"{name}-{attempt}", timeout=min(5, max(0.1, (deadline - time.monotonic()) / 3)))
+                if predicate(observed):
+                    return {"state": observed, "waitSeconds": time.monotonic() - started}
+                attempt += 1
+                time.sleep(min(1, max(0, deadline - time.monotonic())))
+            raise AssertionError(f"Network did not reach {name} within 60 seconds")
+
+        original = state("widgets-network-before")
+        assert original["online"], "Network lifecycle requires an initially connected, validated default network"
+        is_restored = lambda observed: observed["online"] and observed["airplane"] == original["airplane"] and observed["wifi"] == original["wifi"]
+        report = {"original": original, "scope": "System network transitions and empty-account widget persistence; no provider requests."}
+        self.text("widgets-network.json", json.dumps(report, indent=2))
+        try:
+            self.adb("shell", "cmd", "connectivity", "airplane-mode", "enable")
+            self.adb("shell", "cmd", "wifi", "set-wifi-enabled", "disabled")
+            is_offline = lambda observed: observed["offline"] and observed["airplane"] == "enabled" and observed["wifi"] == "disabled"
+            report["offline"] = wait_state("widgets-network-offline", is_offline)
+            self.text("widgets-network.json", json.dumps(report, indent=2))
+            started = time.monotonic()
+            self.verify_widgets_after_upgrade(placed, phase="offline")
+            report["offline"]["verificationSeconds"] = time.monotonic() - started
+            report["offline"]["afterVerification"] = state("widgets-network-offline-verified")
+            assert is_offline(report["offline"]["afterVerification"]), "Offline state changed during widget verification"
+        finally:
+            try:
+                self.adb("shell", "cmd", "connectivity", "airplane-mode",
+                         "enable" if original["airplane"] == "enabled" else "disable")
+            finally:
+                self.adb("shell", "cmd", "wifi", "set-wifi-enabled", original["wifi"])
+            report["restored"] = wait_state("widgets-network-restored", is_restored)
+            self.text("widgets-network.json", json.dumps(report, indent=2))
+        started = time.monotonic()
+        self.verify_widgets_after_upgrade(placed, phase="online")
+        report["restored"]["verificationSeconds"] = time.monotonic() - started
+        report["restored"]["afterVerification"] = state("widgets-network-online-verified")
+        assert is_restored(report["restored"]["afterVerification"]), "Restored network state changed during widget verification"
+        report["result"] = "passed"
+        self.text("widgets-network.json", json.dumps(report, indent=2))
 
     def performance_observations(self, phase, apk, placed):
         """Descriptive process-cold startup observations, separate from normal process loss."""
@@ -641,8 +806,8 @@ def main():
     }
     smoke.launcher = environment["launcher"].splitlines()[-1].split("/", 1)[0]
     smoke.text("environment.json", json.dumps(environment, indent=2))
-    smoke.adb("logcat", "-c")
     try:
+        smoke.wait_for_launcher("initial-home", environment["launcher"].splitlines()[-1])
         # The AVD is fresh. No uninstall, clear-data, downgrade or synthetic account injection.
         smoke.text("previous-install.txt", smoke.adb("install", str(args.previous_apk), timeout=180))
         previous = smoke.installed("previous")
@@ -698,7 +863,7 @@ def main():
         "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": ["Overview", "Accounts", "Resets", "Settings"],
         "widgets": placed_widgets,
         "scope": "Empty-account release smoke with four launcher widgets; provider-authenticated quotas were not tested."}, indent=2))
-    print("Release APK upgrade, persisted setting, four tabs, four widgets, night mode, process loss, launcher restart and reboot checks passed; startup observations recorded.")
+    print("Release APK upgrade, persisted setting, four tabs, four widgets, night mode, process loss, launcher restart, reboot and offline/online checks passed; startup observations recorded.")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ on:
       - '*.gradle.kts'
       - 'gradle.properties'
       - 'tools/android_runtime_smoke.py'
+      - 'tools/run_android_runtime.sh'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
@@ -24,6 +25,7 @@ on:
       - '*.gradle.kts'
       - 'gradle.properties'
       - 'tools/android_runtime_smoke.py'
+      - 'tools/run_android_runtime.sh'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -273,17 +275,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Upgrade and navigate the release APK
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 36
-          target: default
-          arch: x86_64
-          profile: pixel_7_pro
-          cores: 2
-          ram-size: 2048M
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
-          script: python3 tools/android_runtime_smoke.py --previous-apk runtime/previous/UsageLimits-0.2.0.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
+        run: bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-0.2.0.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
 
       - name: Upload runtime evidence
         if: always()

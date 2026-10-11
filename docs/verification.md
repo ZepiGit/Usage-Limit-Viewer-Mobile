@@ -32,14 +32,19 @@ The APK reports record package/version metadata, SHA-256 and signer certificates
 When the existing release key is configured, CI compares the previous published
 APK's identity, version code and signer with the new artifact and fails on missing
 or inconsistent values. Signature continuity alone does not prove an on-device upgrade.
-The API 36 runtime job installs v0.2.0 on a fresh AOSP emulator, changes and reloads
+The API 36 runtime job starts a fresh AOSP emulator and waits for a focused
+launcher window and its observed workspace before sending test input. Boot logs
+are retained; a system error dialog fails the run. It installs v0.2.0, changes and reloads
 a setting, then installs the same run's signed minified APK with `adb install -r`.
 It verifies the installed APK hash, preserved setting and package identity, four
 tabs, relaunch and crash/ANR diagnostics. It also places all four empty widget
 types through the launcher and checks their IDs, visible content and saved
 appearance selections after upgrading, changing day/night mode, ending the
 observed background app process with `am kill`, restarting the launcher and
-rebooting the emulator. Recorded process and boot IDs verify those transitions;
+rebooting the emulator, then going offline and back online. Network checks record
+the actual default network and connected Internet-capable links, rather than
+treating the airplane-mode switch alone as proof. Original radio settings are
+restored even on failure; no provider requests are made. Recorded process and boot IDs verify those transitions;
 crash diagnostics are checked and preserved before reboot. Reconfiguration checks cancel
 without saving, so they cannot repair lost settings. These checks are required;
 missing launcher controls fail with screenshots and UI XML for diagnosis.
