@@ -195,4 +195,48 @@ extension QuotaContractTests {
         let onDemandData = Data(#"{"id":"xai-on-demand","label":"On-demand","category":"monthly","usedPercent":100,"exhausted":true}"#.utf8)
         XCTAssertEqual(try JSONDecoder().decode(UsageWindow.self, from: onDemandData).scope, .model)
     }
+
+    func testLegacyXaiCacheKeepsAvailableOnDemandAsAnAlternativeToSpentMonthlyQuota() throws {
+        let migrated = try decodeXaiCache()
+        XCTAssertEqual(migrated.windows.map(\.scope), [.model, .model])
+        XCTAssertEqual(migrated.windows.map(\.remainingPercent), [0, 100])
+        XCTAssertEqual(migrated.severity, .limited)
+    }
+
+    func testLegacyXaiCacheWithoutOnDemandRetainsGlobalMonthlyBlock() throws {
+        let migrated = try decodeXaiCache(includeOnDemand: false)
+        XCTAssertEqual(migrated.windows.first?.scope, .global)
+        XCTAssertEqual(migrated.severity, .exhausted)
+    }
+
+    func testLegacyXaiCachePreservesExplicitMonthlyScopes() throws {
+        for scope in [UsageScope.global, .model, .unknown] {
+            let migrated = try decodeXaiCache(monthlyScope: scope)
+            XCTAssertEqual(migrated.windows.first?.scope, scope)
+            XCTAssertEqual(migrated.windows.last?.scope, .model)
+        }
+    }
+
+    func testScopedOnDemandDoesNotImplyLegacyMonthlyAlternative() throws {
+        for scope in [UsageScope.global, .model, .unknown] {
+            let migrated = try decodeXaiCache(onDemandScope: scope)
+            XCTAssertEqual(migrated.windows.first?.scope, .global)
+            XCTAssertEqual(migrated.windows.last?.scope, scope)
+            XCTAssertEqual(migrated.severity, .exhausted)
+        }
+    }
+
+    private func decodeXaiCache(monthlyScope: UsageScope? = nil,
+                                onDemandScope: UsageScope? = nil,
+                                includeOnDemand: Bool = true) throws -> UsageSnapshot {
+        var monthly: [String: Any] = ["id": "xai-monthly", "label": "Monthly included",
+            "category": "monthly", "usedPercent": 100, "exhausted": true]
+        var onDemand: [String: Any] = ["id": "xai-on-demand", "label": "On-demand",
+            "category": "monthly", "usedPercent": 0, "exhausted": false]
+        if let monthlyScope { monthly["scope"] = monthlyScope.rawValue }
+        if let onDemandScope { onDemand["scope"] = onDemandScope.rawValue }
+        let json: [String: Any] = ["accountID": "synthetic", "fetchedAt": now.timeIntervalSinceReferenceDate,
+            "status": "ok", "windows": includeOnDemand ? [monthly, onDemand] : [monthly]]
+        return try JSONDecoder().decode(UsageSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
+    }
 }

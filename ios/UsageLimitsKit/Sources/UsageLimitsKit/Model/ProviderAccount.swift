@@ -188,7 +188,19 @@ public struct UsageSnapshot: Sendable, Codable, Equatable {
     /// treated as empty — which would silently drop every account the user had connected.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let cachedWindows = try container.decodeIfPresent([UsageWindow].self, forKey: .windows) ?? []
+        let cachedEntries = try container.decodeIfPresent([CachedWindow].self, forKey: .windows) ?? []
+        // The pre-scope parser only emitted on-demand with a positive cap. In those caches,
+        // monthly and on-demand are alternative pools; explicit scopes remain authoritative.
+        let hasLegacyOnDemand = cachedEntries.contains {
+            $0.window.id == "xai-on-demand" && !$0.hasStoredScope
+        }
+        let cachedWindows = cachedEntries.map { entry in
+            let window = entry.window
+            guard hasLegacyOnDemand, !entry.hasStoredScope, window.id == "xai-monthly" else { return window }
+            return UsageWindow(id: window.id, label: window.label, category: window.category,
+                usedPercent: window.usedPercent, periodSeconds: window.periodSeconds,
+                resetAt: window.resetAt, exhausted: window.exhausted, group: window.group, scope: .model)
+        }
         // Earlier builds persisted deprecated monthly billing beside its replacement credit meter.
         let hasMeasuredCredits = cachedWindows.contains { $0.id == "xai-credits" && $0.remainingPercent != nil }
         self.init(
@@ -205,6 +217,19 @@ public struct UsageSnapshot: Sendable, Codable, Equatable {
             errorMessage: try container.decodeIfPresent(String.self, forKey: .errorMessage),
             connectionStatus: try container.decodeIfPresent(ConnectionStatus.self, forKey: .connectionStatus),
             lastAttemptAt: try container.decodeIfPresent(Date.self, forKey: .lastAttemptAt))
+    }
+
+    private struct CachedWindow: Decodable {
+        let window: UsageWindow
+        let hasStoredScope: Bool
+
+        private enum CodingKeys: String, CodingKey { case scope }
+
+        init(from decoder: any Decoder) throws {
+            window = try UsageWindow(from: decoder)
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            hasStoredScope = try container.decodeIfPresent(UsageScope.self, forKey: .scope) != nil
+        }
     }
 
     /// Whether the last fetch failed.

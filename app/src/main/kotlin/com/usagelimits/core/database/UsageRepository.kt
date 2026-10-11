@@ -302,10 +302,16 @@ class UsageRepository(
         lastAttemptAt = lastAttemptAt ?: fetchedAt,
         status = runCatching { SnapshotStatus.valueOf(status) }.getOrDefault(SnapshotStatus.FAILED),
         windows = runCatching {
-            json.decodeFromString(
+            val storedWindows = json.decodeFromString(
                 kotlinx.serialization.builtins.ListSerializer(StoredWindow.serializer()),
                 windowsJson,
-            ).map { it.toDomain(provider) }.let { windows ->
+            )
+            // Before scope was stored, xAI emitted on-demand only for a positive cap.
+            // Its presence proves monthly and on-demand were alternative billing pools.
+            val hasLegacyXaiOnDemand = provider == ProviderId.XAI && storedWindows.any {
+                it.id == "xai-on-demand" && it.scope == null
+            }
+            storedWindows.map { it.toDomain(provider, hasLegacyXaiOnDemand) }.let { windows ->
                 if (provider == ProviderId.XAI) {
                     com.usagelimits.providers.xai.XaiBillingParser.merge(windows, emptyList())
                 } else windows
@@ -336,7 +342,7 @@ class UsageRepository(
         scope = scope.name,
     )
 
-    private fun StoredWindow.toDomain(provider: ProviderId?) = UsageWindow(
+    private fun StoredWindow.toDomain(provider: ProviderId?, hasLegacyXaiOnDemand: Boolean) = UsageWindow(
         id = id,
         label = label,
         category = runCatching { WindowCategory.valueOf(category) }
@@ -350,6 +356,7 @@ class UsageRepository(
             runCatching { UsageScope.valueOf(stored) }.getOrDefault(UsageScope.UNKNOWN)
         } ?: when {
             provider == ProviderId.XAI && id == "xai-on-demand" -> UsageScope.MODEL
+            provider == ProviderId.XAI && id == "xai-monthly" && hasLegacyXaiOnDemand -> UsageScope.MODEL
             provider == ProviderId.ANTIGRAVITY -> UsageScope.MODEL
             provider == ProviderId.CODEX && (id.startsWith("code-review-") || id.startsWith("additional-")) -> UsageScope.MODEL
             provider != ProviderId.CLAUDE -> UsageScope.GLOBAL

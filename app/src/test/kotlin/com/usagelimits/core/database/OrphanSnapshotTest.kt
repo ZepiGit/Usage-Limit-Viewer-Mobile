@@ -210,6 +210,58 @@ class OrphanSnapshotTest {
         }
     }
 
+    private suspend fun cachedXai(windowsJson: String): UsageSnapshot {
+        val accounts = mutableMapOf("A" to account("A").copy(provider = "xai"))
+        val snapshots = FakeSnapshotDao(accounts)
+        snapshots.rows["A"] = UsageSnapshotEntity(
+            accountId = "A", fetchedAt = now, status = "OK", errorMessage = null,
+            windowsJson = windowsJson, resetCreditsJson = "[]",
+        )
+        return UsageRepository(FakeAccountDao(accounts), snapshots).snapshot("A")!!
+    }
+
+    @Test
+    fun `legacy xai cache retains available on demand beside exhausted monthly without a refresh`() = runBlocking {
+        val restored = cachedXai("""[
+            {"id":"xai-monthly","label":"Monthly included","category":"MONTHLY","usedPercent":100.0},
+            {"id":"xai-on-demand","label":"On-demand","category":"MONTHLY","usedPercent":0.0}
+        ]""")
+
+        assertEquals(listOf(0.0, 100.0), restored.windows.map { it.remainingPercent })
+        assertTrue(restored.windows.all { it.scope == com.usagelimits.core.model.UsageScope.MODEL })
+        assertEquals(com.usagelimits.core.model.Severity.LIMITED, restored.severity)
+        assertEquals(now, restored.fetchedAt)
+    }
+
+    @Test
+    fun `legacy xai monthly without on demand remains a global constraint`() = runBlocking {
+        val restored = cachedXai("""[
+            {"id":"xai-monthly","label":"Monthly included","category":"MONTHLY","usedPercent":100.0}
+        ]""")
+
+        assertEquals(com.usagelimits.core.model.UsageScope.GLOBAL, restored.windows.single().scope)
+        assertEquals(com.usagelimits.core.model.Severity.EXHAUSTED, restored.severity)
+    }
+
+    @Test
+    fun `xai cache preserves every explicit monthly and on demand scope`() = runBlocking {
+        for (scope in com.usagelimits.core.model.UsageScope.entries) {
+            val monthly = cachedXai("""[
+                {"id":"xai-monthly","label":"Monthly included","category":"MONTHLY","usedPercent":100.0,"scope":"${scope.name}"},
+                {"id":"xai-on-demand","label":"On-demand","category":"MONTHLY","usedPercent":0.0}
+            ]""")
+            assertEquals(scope, monthly.windows.first().scope)
+
+            val demand = cachedXai("""[
+                {"id":"xai-monthly","label":"Monthly included","category":"MONTHLY","usedPercent":100.0},
+                {"id":"xai-on-demand","label":"On-demand","category":"MONTHLY","usedPercent":0.0,"scope":"${scope.name}"}
+            ]""")
+            assertEquals(scope, demand.windows.last().scope)
+            // A new on-demand row can have an unknown cap; only the old shape proves cap > 0.
+            assertEquals(com.usagelimits.core.model.UsageScope.GLOBAL, demand.windows.first().scope)
+        }
+    }
+
     @Test
     fun `partial provider sync persists fresh values and its warning together`() = runBlocking {
         val accounts = mutableMapOf("A" to account("A").copy(provider = "xai"))
