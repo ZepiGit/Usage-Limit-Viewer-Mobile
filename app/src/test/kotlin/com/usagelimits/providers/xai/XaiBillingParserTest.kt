@@ -1,5 +1,9 @@
 package com.usagelimits.providers.xai
 
+import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageScope
+import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.JsonSupport
@@ -644,4 +648,64 @@ class XaiBillingParserTest {
         assertEquals(com.usagelimits.core.model.UsageScope.MODEL, unknownCap.scope)
     }
 
+    // ---- the credit and monthly views of one allowance agree on availability ----
+
+    private fun severityOf(windows: List<com.usagelimits.core.model.UsageWindow>) =
+        UsageSnapshot("a", now, SnapshotStatus.OK, windows).severity
+
+    private fun views(fields: String): Pair<Severity, Severity> {
+        val monthly = XaiBillingParser.parseBilling(
+            JsonSupport.parseObject("""{"monthlyLimit":10000,"used":10000,$fields}"""), now,
+        )
+        val credits = XaiBillingParser.merge(
+            XaiBillingParser.parseCredits(JsonSupport.parseObject("""{"creditUsagePercent":100}"""), now),
+            XaiBillingParser.parseBilling(JsonSupport.parseObject("{$fields}"), now),
+        )
+        val unified = XaiBillingParser.parseBilling(
+            JsonSupport.parseObject("""{"creditUsagePercent":100,"monthlyLimit":10000,"used":10000,$fields}"""), now,
+        )
+        assertEquals("unified and split credit responses", severityOf(unified), severityOf(credits))
+        return severityOf(monthly) to severityOf(credits)
+    }
+
+    @Test
+    fun `exhausted included credits with an unused positive on-demand cap are limited, not exhausted`() {
+        val payload = JsonSupport.parseObject(
+            """{"creditUsagePercent":100,"monthlyLimit":10000,"used":10000,"onDemandCap":5000,"onDemandUsed":0}""",
+        )
+        val windows = XaiBillingParser.parseBilling(payload, now)
+        assertEquals(Severity.LIMITED, severityOf(windows))
+        assertEquals(100.0, windows.single { it.id == XaiBillingParser.ON_DEMAND_WINDOW_ID }.remainingPercent!!, 0.0)
+        assertEquals(Severity.LIMITED to Severity.LIMITED, views(""""onDemandCap":5000,"onDemandUsed":0"""))
+    }
+
+    @Test
+    fun `both pools exhausted read exhausted in either representation`() {
+        assertEquals(Severity.EXHAUSTED to Severity.EXHAUSTED, views(""""onDemandCap":5000,"onDemandUsed":5000"""))
+    }
+
+    @Test
+    fun `only the on-demand pool exhausted leaves the included allowance in charge`() {
+        val windows = XaiBillingParser.parseBilling(
+            JsonSupport.parseObject("""{"creditUsagePercent":40,"onDemandCap":5000,"onDemandUsed":5000}"""), now,
+        )
+        assertEquals(Severity.LIMITED, severityOf(windows))
+    }
+
+    @Test
+    fun `without a proven positive cap exhausted credits stay a global block`() {
+        for (fields in listOf(""""onDemandCap":0,"onDemandUsed":0""", """"onDemandUsed":0""", """"onDemandCap":"x"""", """"onDemandCap":null""")) {
+            val credits = XaiBillingParser.merge(
+                XaiBillingParser.parseCredits(JsonSupport.parseObject("""{"creditUsagePercent":100}"""), now),
+                XaiBillingParser.parseBilling(JsonSupport.parseObject("{$fields}"), now),
+            )
+            assertEquals(fields, UsageScope.GLOBAL, credits.single { it.id == XaiBillingParser.CREDITS_WINDOW_ID }.scope)
+            assertEquals(fields, Severity.EXHAUSTED, severityOf(credits))
+        }
+        // No billing answer at all is no evidence either.
+        val alone = XaiBillingParser.merge(
+            XaiBillingParser.parseCredits(JsonSupport.parseObject("""{"creditUsagePercent":100}"""), now), emptyList(),
+        )
+        assertEquals(Severity.EXHAUSTED, severityOf(alone))
+    }
 }
