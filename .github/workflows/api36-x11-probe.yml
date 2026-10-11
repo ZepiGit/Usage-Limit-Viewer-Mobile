@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      BASE_COMMIT: dd657d7196caf9b46e7e4ec4e63c0e3aa34b1fe0
+      BASE_COMMIT: ec5d51bf68c0ff1959cc64bcc00a251560e1add1
       GPU_MODE: software
     steps:
       - uses: actions/checkout@v4
@@ -66,9 +66,25 @@ jobs:
           command -v xauth
           dpkg-query -W xvfb xauth > runtime/evidence/x11-package-versions.txt
           cp "$ANDROID_HOME/emulator/source.properties" runtime/evidence/native-emulator-source.properties
+          # The SDK launcher always adds lib64/vulkan, which supplies Mesa's libxcb-aemu and libLLVM.
+          # https://android.googlesource.com/platform/external/qemu/+/f0c183f1cc7456ecd6f3607f2f47893768ae4334/android/emulator/main-emulator.cpp#1427
+          export PROBE_LIBRARY_PATH="$ANDROID_HOME/emulator/lib64/gles_llvmpipe:$ANDROID_HOME/emulator/lib64/vulkan:$ANDROID_HOME/emulator/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          : > runtime/evidence/native-library-ldd.txt
+          for native_library in "$ANDROID_HOME/emulator/lib64/gles_llvmpipe/libEGL.so" \
+            "$ANDROID_HOME/emulator/lib64/gles_llvmpipe/libGLESv2.so"; do
+            printf '%s\n' "$native_library" >> runtime/evidence/native-library-ldd.txt
+            env LD_LIBRARY_PATH="$PROBE_LIBRARY_PATH" ldd "$native_library" >> runtime/evidence/native-library-ldd.txt 2>&1
+          done
+          cat runtime/evidence/native-library-ldd.txt
+          if grep -q 'not found' runtime/evidence/native-library-ldd.txt; then
+            echo '::error::Native EGL dependency closure is incomplete.' >&2
+            exit 1
+          fi
           sha256sum "$ANDROID_HOME/emulator/lib64/gles_llvmpipe/libEGL.so" \
             "$ANDROID_HOME/emulator/lib64/gles_llvmpipe/libGLESv2.so" \
-            "$ANDROID_HOME/emulator/lib64/gles_llvmpipe/"libgallium*.so > runtime/evidence/native-library-sha256.txt
+            "$ANDROID_HOME/emulator/lib64/gles_llvmpipe/"libgallium*.so \
+            "$ANDROID_HOME/emulator/lib64/vulkan/libxcb-aemu.so" \
+            "$ANDROID_HOME/emulator/lib64/vulkan/libLLVM.so" > runtime/evidence/native-library-sha256.txt
           cp tools/run_android_runtime.sh "$PROBE_DIRECTORY/run_android_runtime.sh"
           cmp tools/run_android_runtime.sh "$PROBE_DIRECTORY/run_android_runtime.sh"
           cat > "$PROBE_DIRECTORY/android_runtime_smoke.py" <<'PY'
@@ -140,7 +156,7 @@ jobs:
           backend = Path(os.environ["ANDROID_HOME"]) / "emulator/lib64/gles_llvmpipe"
           report = {"case": case, "result": "process_error", "phase": "load_libraries",
                     "environment": {key: os.environ.get(key) for key in
-                                    ("DISPLAY", "EGL_PLATFORM", "EGL_LOG_LEVEL", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR")},
+                                    ("DISPLAY", "EGL_PLATFORM", "EGL_LOG_LEVEL", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "LD_LIBRARY_PATH")},
                     "libraries": {name: str(backend / name) for name in ("libEGL.so", "libGLESv2.so")},
                     "calls": [], "configs": {}, "cleanup": []}
           display = context = surface = None
@@ -286,7 +302,7 @@ jobs:
           printf '%s\n' "$DISPLAY" > runtime/evidence/xvfb-display.txt
           native_status=0
           timeout 30s env EGL_PLATFORM=x11 EGL_LOG_LEVEL=debug \
-            LD_LIBRARY_PATH="$ANDROID_HOME/emulator/lib64/gles_llvmpipe:$ANDROID_HOME/emulator/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            LD_LIBRARY_PATH="$PROBE_LIBRARY_PATH" \
             python3 "$PROBE_DIRECTORY/native_egl.py" x11 > runtime/evidence/native-egl-x11.log 2>&1 || native_status=$?
           printf '%s\n' "$native_status" > runtime/evidence/native-egl-x11-exit-status.txt
           cat runtime/evidence/native-egl-x11.log
@@ -307,7 +323,7 @@ jobs:
           native_status=0
           # Preserve the runner's actual DISPLAY, but remove any preselected Mesa platform.
           timeout 30s env -u EGL_PLATFORM EGL_LOG_LEVEL=debug \
-            LD_LIBRARY_PATH="$ANDROID_HOME/emulator/lib64/gles_llvmpipe:$ANDROID_HOME/emulator/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            LD_LIBRARY_PATH="$PROBE_LIBRARY_PATH" \
             python3 "$PROBE_DIRECTORY/native_egl.py" default > runtime/evidence/native-egl-default.log 2>&1 || native_status=$?
           printf '%s\n' "$native_status" > runtime/evidence/native-egl-default-exit-status.txt
           cat runtime/evidence/native-egl-default.log
