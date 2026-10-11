@@ -108,7 +108,11 @@ jobs:
                           name.startswith("initial-home") or name == "failure.xml"
                       ):
                           assert item.file_size <= 2 * 1024 * 1024
-                          root = ET.fromstring(zipped.read(item))
+                          try:
+                              root = ET.fromstring(zipped.read(item))
+                          except ET.ParseError:
+                              emit(f"{name}: unparseable UI probe; continuing to captured dialog dumps")
+                              continue
                           for node in root.iter("node"):
                               resource = node.get("resource-id", "")
                               if resource.startswith("android:id/aerr_"):
