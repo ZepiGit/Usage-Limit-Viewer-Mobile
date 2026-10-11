@@ -40,6 +40,10 @@ Lavapipe/LLVMpipe with `EGL_PLATFORM=x11`; native EGL requires a display even
 with `-no-window`. The wrapper rejects missing `DISPLAY` and verifies the actual
 renderer modes before APK installation. This setup addresses the observed CI
 graphics initialization path; it does not establish physical-device performance.
+The fresh API 36 AVD renders at 720x1560 pixels and 280 dpi, preserving the
+previous 1440x3120 at 560 dpi logical viewport (about 411x891 dp) while reducing
+CPU-bound software-rendering work. The wrapper records and checks both physical
+display values and the preserved logical dimensions before installing an APK.
 It installs v0.2.0, changes and reloads
 a setting, then installs the same run's signed minified APK with `adb install -r`.
 It verifies the installed APK hash, preserved setting and package identity, four
