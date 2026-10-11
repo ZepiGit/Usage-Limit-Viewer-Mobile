@@ -40,7 +40,7 @@ class QuotaPolicyTest {
         val result = snapshot(windows)
         assertEquals(Severity.HEALTHY, result.severity)
         assertEquals(80.0, result.mostCritical!!.remainingPercent!!, 0.0)
-        assertNull(windows.single { it.id == "xai-monthly" }.remainingPercent)
+        assertTrue(windows.none { it.id == "xai-monthly" })
     }
 
     @Test fun `a successful response with only unknown usage is unknown rather than failed`() {

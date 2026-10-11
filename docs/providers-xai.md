@@ -204,16 +204,21 @@ so a present empty `{}` amount means zero cents; an absent field, explicit null,
 `{"val":null}`, or malformed value does not. Earlier documentation incorrectly generalized
 protobuf defaults from amounts to the optional credit percentage.
 
-**Quality is independent of quota.** Known weekly 80% remaining stays 80% when monthly spend
-is absent. Unknown monthly data is not an error or proof the tariff lacks that allowance.
+**Quality is independent of quota.** Known weekly 80% remaining stays 80% when legacy monthly spend
+is absent or exhausted. Unknown legacy data is not an error or proof the tariff lacks that allowance.
 Explicit invalid values produce a partial-data warning and never a fabricated 100% bar.
 First-present alias selection preserves null instead of falling through to a second field.
 
-**Both responses can carry credits.** The merger prefers the direct credit response, except
-that an unknown measurement cannot hide a measured copy from the other response.
+**New credit fields supersede the legacy included allowance.** The first-party `BillingConfig`
+explicitly describes `monthlyLimit`/`used` and `billingPeriod*` as deprecated fallbacks for
+`creditUsagePercent`/`currentPeriod`, not independent simultaneous blockers. Both responses
+can carry credits. The merger prefers the direct credit response, except that an unknown
+measurement cannot hide a measured copy from the other response. Once a measured credit
+percentage exists, the deprecated monthly row is omitted, including when it arrived from
+the other endpoint. Missing/unknown credits retain the legacy monthly fallback.
 
-**Included and on-demand are separate pools** when an explicitly positive on-demand cap
-exists. Exhausting one then signals a restriction, while exhausting both exhausts those
+**Included and on-demand are separate pools.** On-demand is always scoped separately;
+a positive cap establishes a usable facility, while a missing cap keeps its percentage unknown. Exhausting one then signals a restriction, while exhausting both exhausts those
 reported pools. Weekly global constraints still block the account. Spend ratios require finite,
 nonnegative compatible amounts and positive capacity; only validated over-cap spend is capped
 at 100%. Explicit unknown on-demand spend is never replaced by derived overage; derivation is

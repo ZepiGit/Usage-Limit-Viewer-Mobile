@@ -116,7 +116,7 @@ class XaiBillingParserTest {
     fun `merge keeps credits first and then billing`() {
         val merged = XaiBillingParser.merge(credits(creditsPayload), billing(billingPayload))
 
-        assertEquals(listOf("xai-credits", "xai-monthly", "xai-on-demand"), merged.map { it.id })
+        assertEquals(listOf("xai-credits", "xai-on-demand"), merged.map { it.id })
     }
 
     @Test
@@ -125,7 +125,7 @@ class XaiBillingParserTest {
 
         val merged = XaiBillingParser.merge(duplicated, duplicated + billing(billingPayload))
 
-        assertEquals(listOf("xai-credits", "xai-monthly", "xai-on-demand"), merged.map { it.id })
+        assertEquals(listOf("xai-credits", "xai-on-demand"), merged.map { it.id })
         // First occurrence wins, so the credit view stays authoritative.
         assertEquals(34.0, merged.first().usedPercent!!, 1e-9)
     }
@@ -529,7 +529,7 @@ class XaiBillingParserTest {
     }
 
     @Test
-    fun `the unified billing view yields the weekly row beside the monthly one`() {
+    fun `the unified billing view prefers measured credits over deprecated monthly fields`() {
         // The plain billing view of a unified-billing account carries the weekly figures
         // too. Reading them here keeps the weekly row when the credit view alone stops
         // answering, and merge keeps exactly one copy when both do.
@@ -545,11 +545,10 @@ class XaiBillingParserTest {
 
         val fromBilling = XaiBillingParser.parseBilling(JsonSupport.parseObject(unified), liveNow)
         assertEquals(
-            listOf(XaiBillingParser.CREDITS_WINDOW_ID, XaiBillingParser.MONTHLY_WINDOW_ID),
+            listOf(XaiBillingParser.CREDITS_WINDOW_ID),
             fromBilling.map { it.id },
         )
         assertEquals(41.0, fromBilling.first().usedPercent!!, 0.001)
-        assertEquals(42.0, fromBilling.last().usedPercent!!, 0.001)
 
         val fromCredits = XaiBillingParser.parseCredits(JsonSupport.parseObject(creditsPayload), liveNow)
         val merged = XaiBillingParser.merge(fromCredits, fromBilling)
@@ -604,6 +603,38 @@ class XaiBillingParserTest {
         val row = billing("""{"onDemandCap":500,"onDemandUsed":100}""").single()
         assertEquals("xai-on-demand", row.id)
         assertEquals(80.0, row.remainingPercent!!, 0.0)
+    }
+
+    @Test fun `current credits cannot be blocked by the deprecated monthly fallback`() {
+        val rows = billing("""{"creditUsagePercent":20,"usagePeriodType":"weekly","monthlyLimit":1000,"used":1000}""")
+        assertEquals(listOf("xai-credits"), rows.map { it.id })
+        assertEquals(80.0, rows.single().remainingPercent!!, 0.0)
+        assertEquals(com.usagelimits.core.model.Severity.HEALTHY,
+            com.usagelimits.core.model.UsageSnapshot("synthetic", now, com.usagelimits.core.model.SnapshotStatus.OK, rows).severity)
+    }
+
+    @Test fun `new credits supersede a spent legacy allowance from the other endpoint`() {
+        val measured = credits("""{"creditUsagePercent":20,"usagePeriodType":"weekly"}""")
+        val legacy = billing("""{"monthlyLimit":1000,"used":1000}""")
+        val rows = XaiBillingParser.merge(measured, legacy)
+        assertEquals(listOf("xai-credits"), rows.map { it.id })
+        assertEquals(80.0, rows.single().remainingPercent!!, 0.0)
+    }
+
+    @Test fun `unknown credits retain a measured legacy allowance as fallback`() {
+        val rows = billing("""{"creditUsagePercent":null,"usagePeriodType":"weekly","monthlyLimit":1000,"used":1000}""")
+        assertEquals(listOf("xai-credits", "xai-monthly"), rows.map { it.id })
+        assertNull(rows.first().remainingPercent)
+        assertEquals(0.0, rows.last().remainingPercent!!, 0.0)
+    }
+
+    @Test fun `on-demand is always scoped separately from the included allowance`() {
+        val rows = billing("""{"creditUsagePercent":20,"usagePeriodType":"weekly","onDemandCap":100,"onDemandUsed":100}""")
+        assertEquals(com.usagelimits.core.model.UsageScope.MODEL, rows.last().scope)
+        assertEquals(com.usagelimits.core.model.Severity.LIMITED,
+            com.usagelimits.core.model.UsageSnapshot("synthetic", now, com.usagelimits.core.model.SnapshotStatus.OK, rows).severity)
+        val unknownCap = billing("""{"onDemandCap":null,"onDemandUsed":100}""").single()
+        assertEquals(com.usagelimits.core.model.UsageScope.MODEL, unknownCap.scope)
     }
 
 }

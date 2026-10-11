@@ -129,10 +129,10 @@ object XaiBillingParser {
                 periodSeconds = BILLING_PERIOD_SECONDS,
                 resetAt = resetAt,
                 exhausted = percent == 100.0,
-                scope = billingScope,
+                scope = UsageScope.MODEL,
             )
         }
-        return windows
+        return merge(emptyList(), windows)
     }
 
     /** Prefer the direct credit view, except that unknown must not hide a measured fallback. */
@@ -144,7 +144,10 @@ object XaiBillingParser {
                 byId[window.id] = window
             }
         }
-        return byId.values.toList()
+        // These are newer and deprecated representations of the same included allowance.
+        // The first-party schema explicitly prefers measured credits over monthlyLimit/used.
+        val measuredCredits = byId[CREDITS_WINDOW_ID]?.remainingPercent != null
+        return byId.values.filterNot { measuredCredits && it.id == MONTHLY_WINDOW_ID }
     }
 
     /** Verified nonnegative spend beyond a valid cap exhausts that allowance, never exceeds 100%. */

@@ -45,7 +45,8 @@ class XaiProviderUsageTest {
     @Test fun `unknown optional monthly spend is successful and distinct from malformed spend`() = runBlocking {
         val unknown = provider(200, """{"monthlyLimit":1000}""").fetchUsage(account, credentials)
         assertEquals(SnapshotStatus.OK, unknown.status)
-        assertNull(unknown.windows.single { it.id == "xai-monthly" }.remainingPercent)
+        assertTrue(unknown.windows.none { it.id == "xai-monthly" })
+        assertEquals(80.0, unknown.windows.single().remainingPercent!!, 0.0)
         val malformed = provider(200, """{"monthlyLimit":1000,"used":"bad"}""").fetchUsage(account, credentials)
         assertEquals(SnapshotStatus.PARTIAL, malformed.status)
         assertEquals(80.0, malformed.windows.first().remainingPercent!!, 0.0)
