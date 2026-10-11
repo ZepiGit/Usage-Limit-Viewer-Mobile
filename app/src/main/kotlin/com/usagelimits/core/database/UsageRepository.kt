@@ -305,7 +305,11 @@ class UsageRepository(
             json.decodeFromString(
                 kotlinx.serialization.builtins.ListSerializer(StoredWindow.serializer()),
                 windowsJson,
-            ).map { it.toDomain(provider) }
+            ).map { it.toDomain(provider) }.let { windows ->
+                if (provider == ProviderId.XAI) {
+                    com.usagelimits.providers.xai.XaiBillingParser.merge(windows, emptyList())
+                } else windows
+            }
         }.getOrDefault(emptyList()),
         resetCredits = runCatching {
             json.decodeFromString(
@@ -345,6 +349,7 @@ class UsageRepository(
         scope = scope?.let { stored ->
             runCatching { UsageScope.valueOf(stored) }.getOrDefault(UsageScope.UNKNOWN)
         } ?: when {
+            provider == ProviderId.XAI && id == "xai-on-demand" -> UsageScope.MODEL
             provider == ProviderId.ANTIGRAVITY -> UsageScope.MODEL
             provider == ProviderId.CODEX && (id.startsWith("code-review-") || id.startsWith("additional-")) -> UsageScope.MODEL
             provider != ProviderId.CLAUDE -> UsageScope.GLOBAL

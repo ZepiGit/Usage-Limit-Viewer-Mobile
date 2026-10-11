@@ -185,6 +185,32 @@ class OrphanSnapshotTest {
     }
 
     @Test
+    fun `legacy xai cache uses measured credits before monthly fallback and scopes on demand`() = runBlocking {
+        for ((used, expectedIds) in listOf(
+            "20.0" to listOf("xai-credits", "xai-on-demand"),
+            "null" to listOf("xai-credits", "xai-monthly", "xai-on-demand"),
+        )) {
+            val accounts = mutableMapOf("A" to account("A").copy(provider = "xai"))
+            val snapshots = FakeSnapshotDao(accounts)
+            snapshots.rows["A"] = UsageSnapshotEntity(
+                accountId = "A", fetchedAt = now, status = "OK", errorMessage = null,
+                windowsJson = """[
+                    {"id":"xai-credits","label":"Weekly credits","category":"WEEKLY","usedPercent":$used},
+                    {"id":"xai-monthly","label":"Monthly included","category":"MONTHLY","usedPercent":100.0},
+                    {"id":"xai-on-demand","label":"On-demand","category":"MONTHLY","usedPercent":100.0}
+                ]""", resetCreditsJson = "[]",
+            )
+            val restored = UsageRepository(FakeAccountDao(accounts), snapshots).snapshot("A")!!
+            assertEquals(expectedIds, restored.windows.map { it.id })
+            assertEquals(com.usagelimits.core.model.UsageScope.MODEL, restored.windows.last().scope)
+            if (used != "null") {
+                assertEquals(80.0, restored.mostCritical!!.remainingPercent!!, 0.0)
+                assertEquals(com.usagelimits.core.model.Severity.LIMITED, restored.severity)
+            }
+        }
+    }
+
+    @Test
     fun `partial provider sync persists fresh values and its warning together`() = runBlocking {
         val accounts = mutableMapOf("A" to account("A").copy(provider = "xai"))
         val repository = UsageRepository(FakeAccountDao(accounts), FakeSnapshotDao(accounts))
