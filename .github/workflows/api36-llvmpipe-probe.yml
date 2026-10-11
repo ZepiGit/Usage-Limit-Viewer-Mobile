@@ -1,0 +1,208 @@
+name: API 36 LLVMpipe boot probe
+
+on:
+  push:
+    branches: ['verify/api36-llvmpipe-probe']
+    paths: ['.github/workflows/api36-llvmpipe-probe.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    name: One fresh boot with LLVMpipe GLES
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_COMMIT: dd657d7196caf9b46e7e4ec4e63c0e3aa34b1fe0
+      GPU_MODE: software
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify unchanged runtime sources
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/evidence
+          test "$(git rev-parse HEAD^)" = "$BASE_COMMIT"
+          test "$(git diff --name-only "$BASE_COMMIT" HEAD)" = ".github/workflows/api36-llvmpipe-probe.yml"
+          git diff --exit-code "$BASE_COMMIT" -- tools/run_android_runtime.sh tools/android_runtime_smoke.py
+          sha256sum tools/run_android_runtime.sh tools/android_runtime_smoke.py \
+            .github/workflows/api36-llvmpipe-probe.yml > runtime/evidence/source-sha256.txt
+
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Check the AOSP API 36 image is available
+        run: |
+          set -euo pipefail
+          sdkmanager --list > runtime/evidence/sdk-packages.txt
+          if ! grep -Eq '^[[:space:]]*system-images;android-36;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 36 x86_64 image.' >&2
+            exit 1
+          fi
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Software normalizes to lavapipe; this Linux flag selects its LLVMpipe GLES backend.
+      # https://android.googlesource.com/platform/external/qemu/+/f0c183f1cc7456ecd6f3607f2f47893768ae4334/android/android-ui/modules/aemu-gl-init/src/android/opengl/emugl_config.cpp
+      - name: Boot once with LLVMpipe GLES and unchanged readiness gates
+        run: |
+          set -euo pipefail
+          export PROBE_DIRECTORY
+          PROBE_DIRECTORY=$(mktemp -d "$RUNNER_TEMP/usage-llvmpipe-probe.XXXXXX")
+          trap 'rm -rf -- "$PROBE_DIRECTORY"' EXIT
+          cp tools/run_android_runtime.sh "$PROBE_DIRECTORY/run_android_runtime.sh"
+          cmp tools/run_android_runtime.sh "$PROBE_DIRECTORY/run_android_runtime.sh"
+          cat > "$PROBE_DIRECTORY/android_runtime_smoke.py" <<'PY'
+          import argparse
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"]) / "tools"))
+          from android_runtime_smoke import PACKAGE, Smoke, run
+
+          parser = argparse.ArgumentParser()
+          parser.add_argument("--evidence", type=Path, required=True)
+          args = parser.parse_args()
+          devices = [line.split()[0] for line in run("adb", "devices").splitlines()[1:]
+                     if len(line.split()) >= 2 and line.split()[1] == "device"]
+          assert devices == [os.environ["ANDROID_SERIAL"]], "Requires only the probe emulator"
+          smoke = Smoke(args.evidence, devices[0])
+          assert smoke.adb("shell", "getprop", "ro.kernel.qemu") == "1", "Requires an emulator"
+          assert smoke.adb("shell", "getprop", "ro.build.version.sdk") == "36", "Expected API 36"
+          assert not smoke.adb("shell", "pm", "list", "packages", PACKAGE), "App must not be installed"
+          home = smoke.adb("shell", "cmd", "package", "resolve-activity", "--brief",
+                           "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
+          component = home.splitlines()[-1]
+          smoke.launcher = component.split("/", 1)[0]
+          environment = {
+              "commit": os.environ["GITHUB_SHA"], "baseCommit": os.environ["BASE_COMMIT"],
+              "runId": os.environ["GITHUB_RUN_ID"], "serial": devices[0], "launcher": home,
+              "requestedGpuMode": os.environ["GPU_MODE"],
+              "llvmpipeEnvironmentFlag": os.environ["ANDROID_EMU_LAVAPIPE_GL_MODE_LLVMPIPE"],
+              "hostCpuCount": (args.evidence / "host-nproc.txt").read_text().strip(),
+              "fingerprint": smoke.adb("shell", "getprop", "ro.build.fingerprint"),
+              "guestCpuOnline": smoke.adb("shell", "cat", "/sys/devices/system/cpu/online"),
+              "guestUptimeBeforeReadiness": smoke.adb("shell", "cat", "/proc/uptime"),
+              "hwTimeoutMultiplier": smoke.adb("shell", "getprop", "ro.hw_timeout_multiplier"),
+              "gpuProperties": {key: smoke.adb("shell", "getprop", key) for key in (
+                  "ro.hardware.egl", "ro.hardware.vulkan", "debug.renderengine.backend", "debug.hwui.renderer")},
+          }
+          smoke.text("environment.json", json.dumps(environment, indent=2))
+          print("HOST_NPROC " + environment["hostCpuCount"], flush=True)
+          print("BOOT_ENVIRONMENT " + json.dumps(environment, sort_keys=True), flush=True)
+          assert environment["guestCpuOnline"] == "0-3", "Expected four online guest CPUs"
+          smoke.wait_for_launcher("initial-home", component)
+          assert not smoke.adb("shell", "pm", "list", "packages", PACKAGE), "App unexpectedly installed"
+          smoke.text("readiness-result.json", json.dumps({
+              "result": "passed", "commit": os.environ["GITHUB_SHA"], "apkInstalled": False,
+              "requestedGpuMode": os.environ["GPU_MODE"],
+              "guestUptimeAfterReadiness": smoke.adb("shell", "cat", "/proc/uptime"),
+              "scope": "One fresh API 36 boot; unchanged launcher readiness and ANR checks",
+          }, indent=2))
+          PY
+          sha256sum "$PROBE_DIRECTORY/run_android_runtime.sh" "$PROBE_DIRECTORY/android_runtime_smoke.py" > runtime/evidence/probe-sha256.txt
+          date -u +%FT%TZ > runtime/evidence/wrapper-started-at.txt
+          probe_started=$SECONDS
+          probe_status=0
+          ANDROID_EMU_LAVAPIPE_GL_MODE_LLVMPIPE=1 \
+            bash "$PROBE_DIRECTORY/run_android_runtime.sh" --evidence runtime/evidence || probe_status=$?
+          printf '%s\n' "$probe_status" > runtime/evidence/wrapper-exit-status.txt
+          printf '%s\n' "$((SECONDS - probe_started))" > runtime/evidence/wrapper-elapsed-seconds.txt
+          exit "$probe_status"
+
+      - name: Record installed backend capability
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import mmap
+          import os
+          from pathlib import Path
+
+          emulator = Path(os.environ["ANDROID_HOME"]) / "emulator"
+          evidence = Path("runtime/evidence")
+          needles = ("ANDROID_EMU_LAVAPIPE_GL_MODE_LLVMPIPE", "Forcing 'llvmpipe' mode for GLES")
+          report = {"binaries": {}, "bundledGlesBackends": {}}
+          for relative in ("emulator", "qemu/linux-x86_64/qemu-system-x86_64",
+                           "qemu/linux-x86_64/qemu-system-x86_64-headless"):
+              binary = emulator / relative
+              try:
+                  with binary.open("rb") as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
+                      report["binaries"][relative] = {needle: data.find(needle.encode()) for needle in needles}
+              except (OSError, ValueError) as error:
+                  report["binaries"][relative] = {"unavailable": str(error)}
+          for directory in sorted((emulator / "lib64").glob("gles_*")):
+              report["bundledGlesBackends"][directory.name] = sorted(
+                  str(path.relative_to(directory)) for path in directory.rglob("*") if path.is_file())
+          properties = emulator / "source.properties"
+          if properties.is_file():
+              report["sourceProperties"] = properties.read_text()
+          evidence.mkdir(parents=True, exist_ok=True)
+          (evidence / "installed-backend-capability.json").write_text(json.dumps(report, indent=2) + "\n")
+          print("INSTALLED_GLES_BACKENDS " + json.dumps(sorted(report["bundledGlesBackends"])), flush=True)
+          # This is diagnostic only: actual observed renderer selection is the required capability proof.
+          PY
+
+      - name: Check LLVMpipe selection and captured ANRs
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import re
+
+          evidence = Path("runtime/evidence")
+          for report in ("emulator-system-log", "emulator-system-app-anr"):
+              assert (evidence / (report + "-exit-status.txt")).read_text().strip() == "0", report + " capture failed"
+              assert (evidence / (report + ".txt")).read_text().strip(), report + " capture was empty"
+          assert (evidence / "emulator-last-anr.txt").read_text().strip().splitlines() == [
+              "ACTIVITY MANAGER LAST ANR (dumpsys activity lastanr)",
+              "  <no ANR has occurred since boot>",
+          ], "Cleanup found an ANR or an unrecognized ANR report"
+          events = [line for line in (evidence / "emulator-system-log.txt").read_text().splitlines()
+                    if re.search(r"\bam_anr\s*:|\bActivityManager\s*:\s+ANR in\b", line)]
+          print("BOOT_ANR_EVENTS " + str(len(events)), flush=True)
+          for line in events[:10]:
+              print(line, flush=True)
+          dropbox = (evidence / "emulator-system-app-anr.txt").read_text().strip()
+          print("BOOT_DROPBOX_ANR_EMPTY " + str(dropbox.splitlines()[-1] == "(No entries found.)"), flush=True)
+          boot_log = (evidence / "emulator-boot.txt").read_text()
+          modes = re.findall(r"vulkan_mode_selected:(\S+) gles_mode_selected:(\S+)", boot_log)
+          print("BOOT_RENDERER_MODES " + json.dumps(modes), flush=True)
+          observed = {}
+          for name in ("emulator-boot.txt", "emulator-system-log.txt"):
+              observed[name] = [line for line in (evidence / name).read_text().splitlines()
+                  if re.search(r"Boot completed|RenderEngine|[Ss]hader.*(?:compil|generat)|[Rr]enderer|Graphics|mode_selected|Forcing.*llvmpipe|[Gg][Pp][Uu] mode", line)]
+          (evidence / "renderer-observations.json").write_text(json.dumps(observed, indent=2) + "\n")
+          assert modes and all(mode == ("lavapipe", "llvmpipe") for mode in modes), "Expected observed Vulkan lavapipe and GLES llvmpipe"
+          assert dropbox.splitlines()[-1] == "(No entries found.)", "DropBox recorded a system app ANR or an unrecognized report"
+          assert not events, "Boot recorded an ANR even if its dialog is no longer visible"
+          assert (evidence / "wrapper-exit-status.txt").read_text().strip() == "0", "Wrapper/readiness failed"
+          readiness = json.loads((evidence / "readiness-result.json").read_text())
+          assert readiness["result"] == "passed" and readiness["apkInstalled"] is False
+          result = {**readiness, "recordedAnrEvents": len(events), "observedRendererModes": modes,
+                    "wrapperElapsedSeconds": int((evidence / "wrapper-elapsed-seconds.txt").read_text()),
+                    "scope": "One observed fresh boot for this GPU mode; no APK or statistical reliability claim"}
+          (evidence / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+          print("RENDERER_PROBE_RESULT " + json.dumps(result, sort_keys=True), flush=True)
+          PY
+
+      - name: Upload boot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api36-llvmpipe-${{ github.sha }}
+          path: runtime/evidence
+          if-no-files-found: error
