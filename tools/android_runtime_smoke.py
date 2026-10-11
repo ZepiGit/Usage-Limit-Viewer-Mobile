@@ -7,6 +7,7 @@ All touch coordinates come from the device's current UIAutomator hierarchy.
 """
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -136,12 +137,27 @@ class Smoke:
                                if node.get("resource-id") == self.launcher + ":id/primary_widgets_list_view"
                                and node.get("scrollable") == "true" and bounds(node)), None)
                 if picker is not None:
-                    _, top, _, bottom = bounds(picker)
-                    center_y = (bounds(target)[1] + bounds(target)[3]) // 2
-                    # Picker nodes extend behind fixed search/navigation overlays.
-                    # Bring their tap centers into the middle of the observed list.
-                    scroll_down = center_y < top + (bottom - top) // 4
-                    if scroll_down or center_y > top + (bottom - top) * 3 // 4:
+                    search = [node for node in root.iter("node")
+                              if node.get("resource-id") == self.launcher + ":id/search_bar_container" and bounds(node)]
+                    assert len(search) == 1, "Cannot identify the observed picker search overlay"
+                    home = self.launcher_content_viewport
+                    box = bounds(picker)
+                    visible = (max(home[0], box[0]), max(home[1], box[1], bounds(search[0])[3]),
+                               min(home[2], box[2]), min(home[3], box[3]))
+                    assert visible[2] > visible[0] and visible[3] > visible[1], "No observed picker content viewport"
+                    original = bounds(target)
+                    clipped = (max(original[0], visible[0]), max(original[1], visible[1]),
+                               min(original[2], visible[2]), min(original[3], visible[3]))
+                    # Accessibility bounds may include pixels behind search/navigation.
+                    # Tap the visible intersection, including controls at the list end.
+                    if clipped[2] > clipped[0] and clipped[3] > clipped[1]:
+                        target = copy.deepcopy(target)
+                        target.set("bounds", f"[{clipped[0]},{clipped[1]}][{clipped[2]},{clipped[3]}]")
+                        self.text(f"{name}-{attempt}-tap.json", json.dumps({
+                            "target": label or resource_id, "original": original,
+                            "visiblePicker": visible, "tapBounds": clipped}))
+                    else:
+                        scroll_down = original[3] <= visible[1]
                         target = None
             if target is not None:
                 return target
@@ -170,6 +186,11 @@ class Smoke:
 
     def open_widget_picker(self, name):
         root = self.widget_home(name + "-home")
+        home_content = [node for node in root.iter("node")
+                        if node.get("resource-id") == self.launcher + ":id/accessibility_action_view" and bounds(node)]
+        assert len(home_content) == 1, "Cannot identify the observed launcher content viewport"
+        self.launcher_content_viewport = bounds(home_content[0])
+        self.text(name + "-home-viewport.json", json.dumps({"bounds": self.launcher_content_viewport}))
         workspaces = [node for node in root.iter("node")
                       if node.get("resource-id") == self.launcher + ":id/workspace" and bounds(node)]
         assert len(workspaces) == 1, "Expected one observed Launcher workspace"
