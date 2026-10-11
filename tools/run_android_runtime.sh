@@ -56,6 +56,21 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# The API 36 guest exhausted its two assigned CPUs during captured SystemUI
+# startup ANRs. Record the host and require capacity for four guest CPUs.
+runtime_host_cpus=$(nproc)
+printf '%s\n' "$runtime_host_cpus" > "$evidence/host-nproc.txt"
+lscpu > "$evidence/host-lscpu.txt"
+stat /dev/kvm > "$evidence/host-kvm.txt"
+if [[ ! "$runtime_host_cpus" =~ ^[0-9]+$ ]] || ((runtime_host_cpus < 4)); then
+  echo 'API 36 runtime smoke requires at least four available host CPUs.' >&2
+  exit 1
+fi
+if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+  echo 'API 36 runtime smoke requires readable and writable KVM.' >&2
+  exit 1
+fi
+
 attached=$(timeout 10s adb devices)
 if printf '%s\n' "$attached" | tail -n +2 | grep -q '[^[:space:]]'; then
   echo 'Refusing to start runtime smoke with an existing adb device.' >&2
@@ -68,8 +83,8 @@ avdmanager create avd --name usage-runtime --package 'system-images;android-36;d
   --device pixel_7_pro <<< no > "$evidence/emulator-avd-create.txt" 2>&1
 cp "$ANDROID_AVD_HOME/usage-runtime.avd/config.ini" "$evidence/emulator-avd-config.ini"
 # The previous runner requested 2048M, but this image raised it to 4096MB.
-# Keep that actual allocation and the same two CPUs and rendering/boot options.
-emulator_args=(-avd usage-runtime -port 5554 -cores 2 -memory 4096
+# Keep that actual allocation and the same rendering/boot options; use four CPUs.
+emulator_args=(-avd usage-runtime -port 5554 -cores 4 -memory 4096
   -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
   -camera-back none -camera-front none)
 printf '%s\n' "${emulator_args[@]}" > "$evidence/emulator-arguments.txt"

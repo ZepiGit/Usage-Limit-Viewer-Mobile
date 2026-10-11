@@ -498,22 +498,26 @@ class Smoke:
         report["moveFocus"] = []
         report["moveTargets"] = []
         target = original_target
-        # Touch-mode focus acquisition can consume a key without moving the virtual target.
-        for index in range(4):
+        # Relative focus search rejects a sole candidate; acquire the popup with
+        # bounded directional navigation before traversing virtual targets with TAB.
+        for index, key in enumerate(("DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT", "DPAD_UP")):
             if target["focused"]:
                 break
-            self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_TAB")
-            target = move_target(self.widget_capture(f"move-focus-{index}"))
-            assert target is not None, "Keyboard move UI disappeared while acquiring input focus"
-            report["moveFocus"].append(target)
+            self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_" + key)
+            focus_step = {"key": key}
+            report["moveFocus"].append(focus_step)
             record()
-        assert target["focused"], "Keyboard move popup did not acquire input focus within four TAB keys"
+            target = move_target(self.widget_capture(f"move-focus-{index}"))
+            focus_step["target"] = target
+            record()
+            assert target is not None, "Keyboard move UI disappeared while acquiring input focus"
+        assert target["focused"], "Keyboard move popup did not acquire input focus within four directional keys"
 
         def is_destination(candidate):
             return candidate["page"] == original_target["page"] and (
                 candidate["row"], candidate["column"]) != (original_target["row"], original_target["column"])
 
-        # A focus-acquisition TAB may already have selected a valid destination.
+        # A focus-acquisition key may already have selected a valid destination.
         selected = target if is_destination(target) else None
         seen = {target["text"]}
         # TAB traverses valid cells in reading order; spatial DPAD navigation can change pages.
