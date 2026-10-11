@@ -1,0 +1,370 @@
+name: API 36 native X11 and LLVMpipe boot probe
+
+on:
+  push:
+    branches: ['verify/api36-x11-probe']
+    paths: ['.github/workflows/api36-x11-probe.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    name: Native EGL prerequisite and one fresh X11 boot
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_COMMIT: dd657d7196caf9b46e7e4ec4e63c0e3aa34b1fe0
+      GPU_MODE: software
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify unchanged runtime sources
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/evidence
+          test "$(git rev-parse HEAD^)" = "$BASE_COMMIT"
+          test "$(git diff --name-only "$BASE_COMMIT" HEAD)" = ".github/workflows/api36-x11-probe.yml"
+          git diff --exit-code "$BASE_COMMIT" -- tools/run_android_runtime.sh tools/android_runtime_smoke.py
+          sha256sum tools/run_android_runtime.sh tools/android_runtime_smoke.py \
+            .github/workflows/api36-x11-probe.yml > runtime/evidence/source-sha256.txt
+
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Check the AOSP API 36 image is available
+        run: |
+          set -euo pipefail
+          sdkmanager --list > runtime/evidence/sdk-packages.txt
+          if ! grep -Eq '^[[:space:]]*system-images;android-36;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 36 x86_64 image.' >&2
+            exit 1
+          fi
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Software normalizes to lavapipe; this Linux flag selects its LLVMpipe GLES backend.
+      # https://android.googlesource.com/platform/external/qemu/+/f0c183f1cc7456ecd6f3607f2f47893768ae4334/android/android-ui/modules/aemu-gl-init/src/android/opengl/emugl_config.cpp
+      - name: Compare native EGL, then conditionally boot once under Xvfb
+        run: |
+          set -euo pipefail
+          export PROBE_DIRECTORY
+          PROBE_DIRECTORY=$(mktemp -d "$RUNNER_TEMP/usage-x11-probe.XXXXXX")
+          trap 'rm -rf -- "$PROBE_DIRECTORY"' EXIT
+          sdkmanager --install 'emulator' 'system-images;android-36;default;x86_64' > runtime/evidence/native-sdk-install.txt 2>&1
+          command -v xvfb-run
+          command -v Xvfb
+          command -v xauth
+          dpkg-query -W xvfb xauth > runtime/evidence/x11-package-versions.txt
+          cp "$ANDROID_HOME/emulator/source.properties" runtime/evidence/native-emulator-source.properties
+          sha256sum "$ANDROID_HOME/emulator/lib64/gles_llvmpipe/libEGL.so" \
+            "$ANDROID_HOME/emulator/lib64/gles_llvmpipe/libGLESv2.so" \
+            "$ANDROID_HOME/emulator/lib64/gles_llvmpipe/"libgallium*.so > runtime/evidence/native-library-sha256.txt
+          cp tools/run_android_runtime.sh "$PROBE_DIRECTORY/run_android_runtime.sh"
+          cmp tools/run_android_runtime.sh "$PROBE_DIRECTORY/run_android_runtime.sh"
+          cat > "$PROBE_DIRECTORY/android_runtime_smoke.py" <<'PY'
+          import argparse
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"]) / "tools"))
+          from android_runtime_smoke import PACKAGE, Smoke, run
+
+          parser = argparse.ArgumentParser()
+          parser.add_argument("--evidence", type=Path, required=True)
+          args = parser.parse_args()
+          devices = [line.split()[0] for line in run("adb", "devices").splitlines()[1:]
+                     if len(line.split()) >= 2 and line.split()[1] == "device"]
+          assert devices == [os.environ["ANDROID_SERIAL"]], "Requires only the probe emulator"
+          smoke = Smoke(args.evidence, devices[0])
+          assert smoke.adb("shell", "getprop", "ro.kernel.qemu") == "1", "Requires an emulator"
+          assert smoke.adb("shell", "getprop", "ro.build.version.sdk") == "36", "Expected API 36"
+          assert not smoke.adb("shell", "pm", "list", "packages", PACKAGE), "App must not be installed"
+          home = smoke.adb("shell", "cmd", "package", "resolve-activity", "--brief",
+                           "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
+          component = home.splitlines()[-1]
+          smoke.launcher = component.split("/", 1)[0]
+          environment = {
+              "commit": os.environ["GITHUB_SHA"], "baseCommit": os.environ["BASE_COMMIT"],
+              "runId": os.environ["GITHUB_RUN_ID"], "serial": devices[0], "launcher": home,
+              "requestedGpuMode": os.environ["GPU_MODE"],
+              "llvmpipeEnvironmentFlag": os.environ["ANDROID_EMU_LAVAPIPE_GL_MODE_LLVMPIPE"],
+              "display": os.environ["DISPLAY"], "eglPlatform": os.environ["EGL_PLATFORM"],
+              "hostCpuCount": (args.evidence / "host-nproc.txt").read_text().strip(),
+              "fingerprint": smoke.adb("shell", "getprop", "ro.build.fingerprint"),
+              "guestCpuOnline": smoke.adb("shell", "cat", "/sys/devices/system/cpu/online"),
+              "guestUptimeBeforeReadiness": smoke.adb("shell", "cat", "/proc/uptime"),
+              "hwTimeoutMultiplier": smoke.adb("shell", "getprop", "ro.hw_timeout_multiplier"),
+              "gpuProperties": {key: smoke.adb("shell", "getprop", key) for key in (
+                  "ro.hardware.egl", "ro.hardware.vulkan", "debug.renderengine.backend", "debug.hwui.renderer")},
+          }
+          smoke.text("environment.json", json.dumps(environment, indent=2))
+          print("HOST_NPROC " + environment["hostCpuCount"], flush=True)
+          print("BOOT_ENVIRONMENT " + json.dumps(environment, sort_keys=True), flush=True)
+          assert environment["guestCpuOnline"] == "0-3", "Expected four online guest CPUs"
+          smoke.wait_for_launcher("initial-home", component)
+          assert not smoke.adb("shell", "pm", "list", "packages", PACKAGE), "App unexpectedly installed"
+          smoke.text("readiness-result.json", json.dumps({
+              "result": "passed", "commit": os.environ["GITHUB_SHA"], "apkInstalled": False,
+              "requestedGpuMode": os.environ["GPU_MODE"],
+              "guestUptimeAfterReadiness": smoke.adb("shell", "cat", "/proc/uptime"),
+              "scope": "One fresh API 36 boot; unchanged launcher readiness and ANR checks",
+          }, indent=2))
+          PY
+          cat > "$PROBE_DIRECTORY/native_egl.py" <<'PY'
+          import ctypes as C
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          # ABI types from EGL/eglplatform.h and EGL/egl.h; native libraries bypass the translator.
+          I, U, P = C.c_int32, C.c_uint32, C.c_void_p
+          PI, PP = C.POINTER(I), C.POINTER(P)
+          NONE, SUCCESS = 0x3038, 0x3000
+          RED, GREEN, BLUE, ALPHA = 0x3024, 0x3023, 0x3022, 0x3021
+          SURFACE, RENDERABLE, PBUFFER, WINDOW, ES2, ES3 = 0x3033, 0x3040, 1, 4, 4, 0x40
+          case = sys.argv[1]
+          evidence = Path("runtime/evidence")
+          backend = Path(os.environ["ANDROID_HOME"]) / "emulator/lib64/gles_llvmpipe"
+          report = {"case": case, "result": "process_error", "phase": "load_libraries",
+                    "environment": {key: os.environ.get(key) for key in
+                                    ("DISPLAY", "EGL_PLATFORM", "EGL_LOG_LEVEL", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR")},
+                    "libraries": {name: str(backend / name) for name in ("libEGL.so", "libGLESv2.so")},
+                    "calls": [], "configs": {}, "cleanup": []}
+          display = context = surface = None
+          initialized = False
+          exit_status = 0
+
+          class NativeFailure(Exception):
+              pass
+
+          def record(name, value, cleanup=False):
+              error = int(egl.eglGetError())
+              item = {"call": name, "return": int(value or 0), "error": hex(error)}
+              report["cleanup" if cleanup else "calls"].append(item)
+              if not value or error != SUCCESS:
+                  if cleanup:
+                      report["cleanupFailed"] = True
+                  else:
+                      raise NativeFailure(name)
+              return value
+
+          def choose(name, attributes):
+              report["phase"] = name
+              attrs = (I * (len(attributes) + 1))(*attributes, NONE)
+              count = I()
+              record(name + ":count", egl.eglChooseConfig(display, attrs, None, 0, C.byref(count)))
+              report["configs"][name] = {"attributes": attributes, "count": count.value}
+              if count.value == 0:
+                  raise NativeFailure(name + ":no_configs")
+              configs = (P * count.value)()
+              record(name + ":configs", egl.eglChooseConfig(display, attrs, configs, count.value, C.byref(count)))
+              report["configs"][name]["returnedCount"] = count.value
+              if count.value <= 0:
+                  raise NativeFailure(name + ":no_returned_configs")
+              return list(configs)[:count.value]
+
+          try:
+              egl = C.CDLL(str(backend / "libEGL.so"), mode=C.RTLD_GLOBAL)
+              gles = C.CDLL(str(backend / "libGLESv2.so"), mode=C.RTLD_GLOBAL)
+              for name, returns, args in (
+                  ("eglGetDisplay", P, [P]), ("eglInitialize", U, [P, PI, PI]),
+                  ("eglGetError", U, []), ("eglQueryString", C.c_char_p, [P, I]),
+                  ("eglChooseConfig", U, [P, PI, PP, I, PI]), ("eglGetConfigAttrib", U, [P, P, I, PI]),
+                  ("eglBindAPI", U, [U]), ("eglCreatePbufferSurface", P, [P, P, PI]),
+                  ("eglCreateContext", P, [P, P, P, PI]), ("eglMakeCurrent", U, [P, P, P, P]),
+                  ("eglDestroyContext", U, [P, P]), ("eglDestroySurface", U, [P, P]),
+                  ("eglTerminate", U, [P]), ("eglReleaseThread", U, []),
+              ):
+                  function = getattr(egl, name)
+                  function.restype, function.argtypes = returns, args
+              gles.glGetString.restype, gles.glGetString.argtypes = C.c_char_p, [U]
+              gles.glGetError.restype, gles.glGetError.argtypes = U, []
+              report["phase"] = "get_display"
+              display = record("eglGetDisplay", egl.eglGetDisplay(None))
+              major, minor = I(), I()
+              report["phase"] = "initialize"
+              record("eglInitialize", egl.eglInitialize(display, C.byref(major), C.byref(minor)))
+              initialized = True
+              report["eglVersion"] = [major.value, minor.value]
+              report["phase"] = "bind_gles_api"
+              report["eglVendor"] = (egl.eglQueryString(display, 0x3053) or b"").decode()
+              record("eglBindAPI", egl.eglBindAPI(0x30A0))  # EGL_OPENGL_ES_API
+              # Exact native import requirements in egl_os_api_egl.cpp::queryConfigs.
+              configs = choose("es3_pbuffer", [SURFACE, PBUFFER, RENDERABLE, ES3,
+                                              RED, 1, GREEN, 1, BLUE, 1, ALPHA, 0])
+              # Linux getEmulationEglConfig requires exact RGB888 and both surface types.
+              windows = choose("rgb888_pbuffer_window", [RED, 8, GREEN, 8, BLUE, 8,
+                                                        SURFACE, PBUFFER | WINDOW, RENDERABLE, ES2])
+              compatible = []
+              for config in windows:
+                  values = []
+                  for attribute in (RED, GREEN, BLUE, RENDERABLE, SURFACE):
+                      value = I()
+                      record("eglGetConfigAttrib", egl.eglGetConfigAttrib(display, config, attribute, C.byref(value)))
+                      values.append(value.value)
+                  report["configs"]["rgb888_pbuffer_window"].setdefault("returnedAttributes", []).append(values)
+                  if values[:3] == [8, 8, 8] and values[3] & ES3 and values[4] & (PBUFFER | WINDOW) == (PBUFFER | WINDOW):
+                      compatible.append(config)
+              report["configs"]["rgb888_pbuffer_window"]["exactRgb888Es3Count"] = len(compatible)
+              if not compatible:
+                  raise NativeFailure("no_exact_rgb888_es3_window_config")
+              report["phase"] = "create_gles3_context"
+              pbuffer_attrs = (I * 5)(0x3057, 1, 0x3056, 1, NONE)
+              surface = record("eglCreatePbufferSurface", egl.eglCreatePbufferSurface(display, compatible[0], pbuffer_attrs))
+              context_attrs = (I * 3)(0x3098, 3, NONE)
+              context = record("eglCreateContext", egl.eglCreateContext(display, compatible[0], None, context_attrs))
+              record("eglMakeCurrent", egl.eglMakeCurrent(display, surface, surface, context))
+              for name, enum in (("glVendor", 0x1F00), ("glRenderer", 0x1F01), ("glVersion", 0x1F02)):
+                  value = gles.glGetString(enum)
+                  error = gles.glGetError()
+                  if not value or error:
+                      raise NativeFailure(name + ":invalid_gl_string:" + hex(error))
+                  report[name] = value.decode()
+              report["phase"], report["result"] = "complete", "valid_context"
+          except NativeFailure as error:
+              report["result"], report["failure"] = "native_failure", str(error)
+          except Exception as error:
+              report["result"], report["failure"] = "process_error", repr(error)
+              exit_status = 1
+          finally:
+              try:
+                  if initialized:
+                      record("eglMakeCurrent:unbind", egl.eglMakeCurrent(display, None, None, None), cleanup=True)
+                      if context:
+                          record("eglDestroyContext", egl.eglDestroyContext(display, context), cleanup=True)
+                      if surface:
+                          record("eglDestroySurface", egl.eglDestroySurface(display, surface), cleanup=True)
+                      record("eglTerminate", egl.eglTerminate(display), cleanup=True)
+                  if "egl" in globals() and report["phase"] != "load_libraries":
+                      record("eglReleaseThread", egl.eglReleaseThread(), cleanup=True)
+              except Exception as error:
+                  report["cleanupException"] = repr(error)
+                  exit_status = 1
+              (evidence / ("native-egl-" + case + ".json")).write_text(json.dumps(report, indent=2) + "\n")
+              print("NATIVE_EGL " + json.dumps(report, sort_keys=True), flush=True)
+          sys.exit(exit_status)
+          PY
+          cat > "$PROBE_DIRECTORY/native_egl_gate.py" <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("runtime/evidence")
+          for case in ("default", "x11"):
+              assert (p / ("native-egl-" + case + "-exit-status.txt")).read_text().strip() == "0", case + " native process failed"
+          default = json.loads((p / "native-egl-default.json").read_text())
+          x11 = json.loads((p / "native-egl-x11.json").read_text())
+          assert default["result"] == "native_failure", "Default EGL did not reproduce a native failure"
+          assert default["phase"] in ("get_display", "initialize", "es3_pbuffer"), "Default failure does not explain missing imported configs"
+          assert x11["result"] == "valid_context", "X11 did not create a native GLES3 context"
+          assert not default.get("cleanupFailed") and not x11.get("cleanupFailed"), "Native cleanup failed"
+          assert x11["configs"]["es3_pbuffer"]["count"] > 0
+          assert x11["configs"]["rgb888_pbuffer_window"]["exactRgb888Es3Count"] > 0
+          assert x11["glVersion"].startswith("OpenGL ES 3."), "Expected GLES3"
+          assert "llvmpipe" in x11["glRenderer"].lower(), "Expected native LLVMpipe renderer"
+          assert default["environment"]["EGL_PLATFORM"] is None
+          assert x11["environment"]["EGL_PLATFORM"] == "x11" and x11["environment"]["DISPLAY"]
+          assert x11["libraries"] == default["libraries"], "Native cases used different libraries"
+          print("NATIVE_EGL_PREREQUISITE passed: default config path failed; X11 GLES3 and window-capable RGB888 succeeded", flush=True)
+          (p / "native-egl-gate.txt").write_text("passed\n")
+          PY
+          cat > "$PROBE_DIRECTORY/inside_xvfb.sh" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          printf '%s\n' "$DISPLAY" > runtime/evidence/xvfb-display.txt
+          native_status=0
+          timeout 30s env EGL_PLATFORM=x11 EGL_LOG_LEVEL=debug \
+            LD_LIBRARY_PATH="$ANDROID_HOME/emulator/lib64/gles_llvmpipe:$ANDROID_HOME/emulator/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            python3 "$PROBE_DIRECTORY/native_egl.py" x11 > runtime/evidence/native-egl-x11.log 2>&1 || native_status=$?
+          printf '%s\n' "$native_status" > runtime/evidence/native-egl-x11-exit-status.txt
+          cat runtime/evidence/native-egl-x11.log
+          python3 "$PROBE_DIRECTORY/native_egl_gate.py"
+          # The unchanged wrapper (including emulator cleanup) completes inside this Xvfb session.
+          date -u +%FT%TZ > runtime/evidence/wrapper-started-at.txt
+          probe_started=$SECONDS
+          probe_status=0
+          ANDROID_EMU_LAVAPIPE_GL_MODE_LLVMPIPE=1 EGL_PLATFORM=x11 EGL_LOG_LEVEL=debug \
+            bash "$PROBE_DIRECTORY/run_android_runtime.sh" --evidence runtime/evidence || probe_status=$?
+          printf '%s\n' "$probe_status" > runtime/evidence/wrapper-exit-status.txt
+          printf '%s\n' "$((SECONDS - probe_started))" > runtime/evidence/wrapper-elapsed-seconds.txt
+          sha256sum --check runtime/evidence/native-library-sha256.txt
+          cmp "$ANDROID_HOME/emulator/source.properties" runtime/evidence/native-emulator-source.properties
+          exit "$probe_status"
+          SH
+          sha256sum "$PROBE_DIRECTORY/"* > runtime/evidence/probe-sha256.txt
+          native_status=0
+          # Preserve the runner's actual DISPLAY, but remove any preselected Mesa platform.
+          timeout 30s env -u EGL_PLATFORM EGL_LOG_LEVEL=debug \
+            LD_LIBRARY_PATH="$ANDROID_HOME/emulator/lib64/gles_llvmpipe:$ANDROID_HOME/emulator/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            python3 "$PROBE_DIRECTORY/native_egl.py" default > runtime/evidence/native-egl-default.log 2>&1 || native_status=$?
+          printf '%s\n' "$native_status" > runtime/evidence/native-egl-default-exit-status.txt
+          cat runtime/evidence/native-egl-default.log
+          # xvfb-run starts one private X11 server and owns its cleanup after wrapper cleanup.
+          xvfb-run --auto-servernum --error-file=runtime/evidence/xvfb-server.log \
+            --server-args='-screen 0 1440x3120x24 -nolisten tcp' \
+            bash "$PROBE_DIRECTORY/inside_xvfb.sh"
+
+      - name: Check LLVMpipe selection and captured ANRs
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import re
+
+          evidence = Path("runtime/evidence")
+          assert (evidence / "native-egl-gate.txt").read_text().strip() == "passed"
+          for report in ("emulator-system-log", "emulator-system-app-anr"):
+              assert (evidence / (report + "-exit-status.txt")).read_text().strip() == "0", report + " capture failed"
+              assert (evidence / (report + ".txt")).read_text().strip(), report + " capture was empty"
+          assert (evidence / "emulator-last-anr.txt").read_text().strip().splitlines() == [
+              "ACTIVITY MANAGER LAST ANR (dumpsys activity lastanr)",
+              "  <no ANR has occurred since boot>",
+          ], "Cleanup found an ANR or an unrecognized ANR report"
+          events = [line for line in (evidence / "emulator-system-log.txt").read_text().splitlines()
+                    if re.search(r"\bam_anr\s*:|\bActivityManager\s*:\s+ANR in\b", line)]
+          print("BOOT_ANR_EVENTS " + str(len(events)), flush=True)
+          for line in events[:10]:
+              print(line, flush=True)
+          dropbox = (evidence / "emulator-system-app-anr.txt").read_text().strip()
+          print("BOOT_DROPBOX_ANR_EMPTY " + str(dropbox.splitlines()[-1] == "(No entries found.)"), flush=True)
+          boot_log = (evidence / "emulator-boot.txt").read_text()
+          modes = re.findall(r"vulkan_mode_selected:(\S+) gles_mode_selected:(\S+)", boot_log)
+          print("BOOT_RENDERER_MODES " + json.dumps(modes), flush=True)
+          observed = {}
+          for name in ("emulator-boot.txt", "emulator-system-log.txt"):
+              observed[name] = [line for line in (evidence / name).read_text().splitlines()
+                  if re.search(r"Boot completed|RenderEngine|[Ss]hader.*(?:compil|generat)|[Rr]enderer|Graphics|mode_selected|Forcing.*llvmpipe|[Gg][Pp][Uu] mode", line)]
+          (evidence / "renderer-observations.json").write_text(json.dumps(observed, indent=2) + "\n")
+          assert modes and all(mode == ("lavapipe", "llvmpipe") for mode in modes), "Expected observed Vulkan lavapipe and GLES llvmpipe"
+          assert dropbox.splitlines()[-1] == "(No entries found.)", "DropBox recorded a system app ANR or an unrecognized report"
+          assert not events, "Boot recorded an ANR even if its dialog is no longer visible"
+          assert (evidence / "wrapper-exit-status.txt").read_text().strip() == "0", "Wrapper/readiness failed"
+          readiness = json.loads((evidence / "readiness-result.json").read_text())
+          assert readiness["result"] == "passed" and readiness["apkInstalled"] is False
+          result = {**readiness, "recordedAnrEvents": len(events), "observedRendererModes": modes,
+                    "wrapperElapsedSeconds": int((evidence / "wrapper-elapsed-seconds.txt").read_text()),
+                    "scope": "One observed fresh boot for this GPU mode; no APK or statistical reliability claim"}
+          (evidence / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+          print("RENDERER_PROBE_RESULT " + json.dumps(result, sort_keys=True), flush=True)
+          PY
+
+      - name: Upload boot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api36-x11-${{ github.sha }}
+          path: runtime/evidence
+          if-no-files-found: error
