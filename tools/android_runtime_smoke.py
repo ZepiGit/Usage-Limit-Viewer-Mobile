@@ -88,6 +88,93 @@ class Smoke:
         (self.directory / (name + ".png")).write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
         return root
 
+    def inspect_launcher(self, component):
+        """Capture discovery evidence only; never guess a widget-placement gesture."""
+        launcher = component.splitlines()[-1].split("/", 1)[0]
+        report = {"launcher": launcher, "status": "home_only"}
+        root = None
+        opened_menu = False
+
+        def capture_launcher(name):
+            # Preserve pixels even if an unresponsive launcher prevents a hierarchy dump.
+            (self.directory / (name + ".png")).write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
+            return self.dump(name)
+
+        def error_dialog_visible():
+            return root is not None and any(node.get("resource-id", "").startswith("android:id/aerr_")
+                                            for node in root.iter("node"))
+
+        try:
+            self.adb("shell", "input", "keyevent", "KEYCODE_HOME")
+            root = capture_launcher("launcher-home")
+            if error_dialog_visible():
+                report["reason"] = "System error dialog present; no launcher interaction attempted."
+                return
+            candidates = []
+            for node in root.iter("node"):
+                if (node.get("package") != launcher or node.get("enabled") != "true"
+                        or node.get("long-clickable") != "true" or not bounds(node)):
+                    continue
+                is_workspace = node.get("resource-id") == launcher + ":id/workspace"
+                is_app_icon = "Usage Limits" in (node.get("text"), node.get("content-desc"))
+                if not (is_workspace or is_app_icon):
+                    continue
+                x1, y1, x2, y2 = bounds(node)
+                x, y = (x1 + x2) // 2, (y1 + y2) // 2
+                # A workspace's centre is usable only when the dump shows no content there.
+                occupied = is_workspace and any(
+                    child is not node and bounds(child)
+                    and (child.get("clickable") == "true" or child.get("long-clickable") == "true"
+                         or child.get("text") or child.get("content-desc"))
+                    and bounds(child)[0] <= x < bounds(child)[2]
+                    and bounds(child)[1] <= y < bounds(child)[3]
+                    for child in node.iter("node"))
+                if not occupied:
+                    candidates.append(node)
+            if len(candidates) != 1:
+                report["reason"] = f"Found {len(candidates)} unambiguous long-click targets; captured Home only."
+                return
+            target = candidates[0]
+            report["longClickTarget"] = dict(target.attrib)
+            x1, y1, x2, y2 = bounds(target)
+            x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
+            self.adb("shell", "input", "swipe", x, y, x, y, "1000")
+            opened_menu = True
+            root = capture_launcher("launcher-longpress")
+            if error_dialog_visible():
+                report["reason"] = "System error dialog present after long press; no further interaction."
+                return
+            parents = {child: parent for parent in root.iter() for child in parent}
+            controls = {}
+            for node in root.iter("node"):
+                if node.get("package") != launcher or "Widgets" not in (node.get("text"), node.get("content-desc")):
+                    continue
+                while node is not None and node.get("package") == launcher:
+                    if node.get("enabled") == "true" and node.get("clickable") == "true" and bounds(node):
+                        controls[bounds(node)] = node
+                        break
+                    node = parents.get(node)
+            if len(controls) != 1:
+                report["reason"] = f"Found {len(controls)} enabled Widgets controls; picker was not opened."
+                return
+            self.tap(next(iter(controls.values())))
+            root = capture_launcher("launcher-picker")
+            report["status"] = "post_widgets_capture"
+            if error_dialog_visible():
+                report.update(status="diagnostic_error", reason="System error dialog present after Widgets tap.")
+        except (subprocess.SubprocessError, ET.ParseError) as error:
+            root = None  # Do not navigate based on the hierarchy from before the failed capture.
+            report.update(status="diagnostic_error", reason=str(error))
+        finally:
+            # Never dismiss an observed system error dialog. Normal app launch still follows.
+            if opened_menu and root is not None and not error_dialog_visible():
+                try:
+                    self.adb("shell", "input", "keyevent", "KEYCODE_BACK")
+                    self.adb("shell", "input", "keyevent", "KEYCODE_HOME")
+                except subprocess.SubprocessError as error:
+                    report["cleanupError"] = str(error)
+            self.text("launcher-discovery.json", json.dumps(report, indent=2))
+
     def wait_for(self, name, predicate):
         last_error = None
         for _ in range(12):
@@ -231,6 +318,7 @@ def main():
         previous = smoke.installed("previous")
         assert int(previous["versionCode"]) == old["versionCode"] and previous["versionName"] == old["versionName"]
         smoke.adb("shell", "pm", "grant", PACKAGE, "android.permission.POST_NOTIFICATIONS")
+        smoke.inspect_launcher(environment["launcher"])
         smoke.launch("previous-start")
         smoke.navigate("Settings", "Provider icons", "previous-settings")
         setting = smoke.setting("previous-setting")
