@@ -110,7 +110,7 @@ final class CodexUsageParserTests: XCTestCase {
 
         XCTAssertEqual(windows.count, 1)
         XCTAssertTrue(windows[0].exhausted)
-        XCTAssertEqual(windows[0].usedPercent, 100.0)
+        XCTAssertNil(windows[0].usedPercent)
         XCTAssertEqual(windows[0].severity, .exhausted)
     }
 
@@ -132,7 +132,7 @@ final class CodexUsageParserTests: XCTestCase {
 
     // MARK: - Exhaustion, resets, spellings
 
-    func testLimitReachedForcesFullConsumption() {
+    func testLimitReachedDoesNotInventConsumption() {
         // A spent family reports no percentage; treating that as unknown would show an empty
         // bar for a limit the user has actually hit.
         let windows = CodexUsageParser.parse(payload("""
@@ -144,7 +144,7 @@ final class CodexUsageParserTests: XCTestCase {
         }
         """), now: now)
 
-        XCTAssertEqual(windows[0].usedPercent, 100.0)
+        XCTAssertNil(windows[0].usedPercent)
         XCTAssertTrue(windows[0].exhausted)
     }
 

@@ -204,7 +204,7 @@ final class ProviderClientTests: XCTestCase {
 
     // MARK: - xAI
 
-    func testXaiMergesBothBillingViews() async throws {
+    func testXaiUsesMeasuredCreditsInsteadOfDeprecatedMonthlyAllowance() async throws {
         // Captured shapes: the enum period type and `{"val": n}` cents.
         let (http, _) = client([
             (200, """
@@ -224,7 +224,8 @@ final class ProviderClientTests: XCTestCase {
 
         let ids = Set(result.windows.map(\.id))
         XCTAssertTrue(ids.contains("xai-credits"))
-        XCTAssertTrue(ids.contains("xai-monthly"))
+        XCTAssertFalse(ids.contains("xai-monthly"), "Monthly included is the deprecated fallback for measured credits")
+        XCTAssertEqual(result.windows.first?.remainingPercent, 36)
         // A zero on-demand cap is not a window.
         XCTAssertFalse(ids.contains("xai-on-demand"))
     }
@@ -316,4 +317,41 @@ final class ProviderClientTests: XCTestCase {
         XCTAssertEqual([result.resetCreditCount, result.applicableResetCreditCount], [4, 2])
     }
 
+}
+
+extension ProviderClientTests {
+    func testPartialXaiFailureKeepsQuotaAndWarning() async throws {
+        let (http, _) = client([(200, #"{"config":{"creditUsagePercent":20}}"#), (503, "unavailable")])
+        let result = try await XaiClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+        XCTAssertEqual(result.windows.first?.remainingPercent, 80)
+        XCTAssertEqual(result.status, .partial)
+        XCTAssertNotNil(result.errorMessage)
+        XCTAssertEqual(result.connectionStatus, .connected)
+    }
+
+    func testPartialXaiAuthenticationFailureDoesNotClaimFullConnection() async throws {
+        let (http, _) = client([(200, #"{"config":{"creditUsagePercent":20}}"#), (401, "rejected")])
+        let result = try await XaiClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+        XCTAssertEqual(result.windows.first?.remainingPercent, 80)
+        XCTAssertEqual(result.status, .partial)
+        XCTAssertEqual(result.connectionStatus, .unknown)
+        XCTAssertTrue(result.errorMessage?.contains("authentication") == true)
+    }
+
+    func testMalformedXaiPercentageDoesNotDiscardValidBillingRows() async throws {
+        let (http, _) = client([(200, #"{"config":{"creditUsagePercent":-1}}"#),
+            (200, #"{"config":{"monthlyLimit":{"val":100},"used":{"val":20}}}"#)])
+        let result = try await XaiClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+        XCTAssertEqual(result.status, .partial)
+        XCTAssertNil(result.windows.first { $0.id == "xai-credits" }?.remainingPercent)
+        XCTAssertEqual(result.windows.first { $0.id == "xai-monthly" }?.remainingPercent, 80)
+    }
+
+    func testMalformedClaudePercentageIsReportedWithoutLosingValidWindow() async throws {
+        let (http, _) = client([(200, #"{"five_hour":{"utilization":-1},"seven_day":{"utilization":63}}"#)])
+        let result = try await ClaudeClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+        XCTAssertEqual(result.status, .partial)
+        XCTAssertNil(result.windows.first { $0.id == "five-hour" }?.remainingPercent)
+        XCTAssertEqual(result.windows.first { $0.id == "seven-day" }?.remainingPercent, 37)
+    }
 }

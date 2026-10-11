@@ -161,7 +161,6 @@ public enum CodexUsageParser: Sendable {
                     window,
                     id: "\(idPrefix)-short",
                     labelPrefix: labelPrefix,
-                    limitReached: limitReached,
                     now: now,
                     group: group
                 )
@@ -174,13 +173,23 @@ public enum CodexUsageParser: Sendable {
                     window,
                     id: "\(idPrefix)-long",
                     labelPrefix: labelPrefix,
-                    limitReached: limitReached,
                     now: now,
                     group: group
                 )
             )
         }
 
+        if limitReached, !result.contains(where: \.exhausted),
+           let index = result.indices.min(by: {
+               (result[$0].remainingPercent ?? .greatestFiniteMagnitude)
+                   < (result[$1].remainingPercent ?? .greatestFiniteMagnitude)
+           }) {
+            let window = result[index]
+            result[index] = UsageWindow(
+                id: window.id, label: window.label, category: window.category,
+                usedPercent: window.usedPercent, periodSeconds: window.periodSeconds,
+                resetAt: window.resetAt, exhausted: true, group: window.group, scope: window.scope)
+        }
         return result
     }
 
@@ -242,16 +251,15 @@ public enum CodexUsageParser: Sendable {
         _ window: [String: Any],
         id: String,
         labelPrefix: String?,
-        limitReached: Bool,
         now: Date,
         group: String?
     ) -> UsageWindow {
         let period = periodSeconds(window)
         let category = WindowCategory.from(periodSeconds: period)
 
-        // Spent families sometimes omit the percentage; unknown would understate usage.
+        // The block flag and measured percentage are separate evidence.
         let usedPercent = JSONSupport.double(window, "used_percent", "usedPercent")
-            ?? (limitReached ? 100.0 : nil)
+            .flatMap { $0.isFinite && (0...100).contains($0) ? $0 : nil }
 
         let absoluteReset = JSONSupport.date(
             JSONSupport.string(window, "reset_at", "resetAt")
@@ -278,8 +286,9 @@ public enum CodexUsageParser: Sendable {
             usedPercent: usedPercent,
             periodSeconds: period,
             resetAt: resetAt,
-            exhausted: (usedPercent.map { $0 >= 100.0 } ?? false) || (usedPercent == nil && limitReached),
-            group: group
+            exhausted: usedPercent == 100.0,
+            group: group,
+            scope: group == nil ? .global : .model
         )
     }
 

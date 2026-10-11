@@ -244,10 +244,8 @@ final class NotificationEvaluatorTests: XCTestCase {
                 settings, now).isEmpty)
     }
 
-    func testAnUnknownPercentageDoesNotBlockRecoveryForEver() {
-        // Treating unknown as "still low" looked cautious and was the opposite: one window
-        // whose figure the provider stopped reporting vetoed recovery permanently, so the
-        // account never alerted again.
+    func testAnUnknownPercentageDoesNotProveRecovery() {
+        // Missing measurements cannot end an episode and rearm an already delivered warning.
         let publisher = Publisher()
         _ = publisher.sync([account(remaining: 8)], settings, now)
         _ = publisher.sync(
@@ -256,7 +254,7 @@ final class NotificationEvaluatorTests: XCTestCase {
         XCTAssertEqual(
             publisher.sync(
                 [account(remaining: 5, fetchedAt: now.addingTimeInterval(2))], settings, now),
-            ["Account acct · 5h limit: less than 10% remaining"])
+            [])
     }
 
     func testAFailedSnapshotChangesNothing() {

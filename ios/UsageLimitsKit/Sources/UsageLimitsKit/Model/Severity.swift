@@ -13,7 +13,24 @@ public enum Severity: Int, Comparable, Sendable, Codable {
     case stale = 4
     case error = 5
 
-    public static func < (lhs: Severity, rhs: Severity) -> Bool { lhs.rawValue < rhs.rawValue }
+    // Existing raw values are persisted in the app-group cache.
+    case limited = 6
+    case unknown = 7
+
+    private var order: Int {
+        switch self {
+        case .healthy: return 0
+        case .medium: return 1
+        case .low: return 2
+        case .limited: return 3
+        case .exhausted: return 4
+        case .unknown: return 5
+        case .stale: return 6
+        case .error: return 7
+        }
+    }
+
+    public static func < (lhs: Severity, rhs: Severity) -> Bool { lhs.order < rhs.order }
 
     /// Central thresholds — the one place these numbers are defined.
     public static let healthyAbove = 50.0
@@ -46,7 +63,7 @@ public enum Severity: Int, Comparable, Sendable, Codable {
 
     public static func from(remainingPercent: Double?, exhausted: Bool = false) -> Severity {
         if exhausted { return .exhausted }
-        guard let remaining = remainingPercent else { return .error }
+        guard let remaining = remainingPercent, remaining.isFinite, (0...100).contains(remaining) else { return .unknown }
         if remaining <= 0 { return .exhausted }
         if remaining <= mediumAbove { return .low }
         if remaining <= healthyAbove { return .medium }

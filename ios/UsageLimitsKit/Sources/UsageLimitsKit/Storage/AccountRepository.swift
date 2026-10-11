@@ -169,7 +169,7 @@ public actor AccountRepository {
             stored.snapshot = UsageSnapshot(
                 accountID: accountID,
                 fetchedAt: time,
-                status: .ok,
+                status: result.status,
                 windows: result.windows,
                 resetCredits: result.resetCredits,
                 resetCreditCount: result.resetCreditCount,
@@ -178,7 +178,8 @@ public actor AccountRepository {
                 // control gated on the held count, which is the exact bug that reading it was
                 // meant to fix.
                 applicableResetCreditCount: result.applicableResetCreditCount,
-                errorMessage: nil)
+                errorMessage: result.errorMessage,
+                connectionStatus: result.connectionStatus)
             if let plan = result.plan, plan != stored.account.plan {
                 stored.account = stored.account.withPlan(plan)
             }
@@ -200,7 +201,8 @@ public actor AccountRepository {
                 applicableResetCreditCount: previous?.applicableResetCreditCount,
                 errorMessage: message,
                 connectionStatus: ConnectionStatus.legacy(status: .failed, message: message) == .reconnectRequired
-                    ? .reconnectRequired : (previous?.connectionStatus ?? .unknown))
+                    ? .reconnectRequired : (previous?.connectionStatus ?? .unknown),
+                lastAttemptAt: time)
             updated[accountID] = stored
         }
 

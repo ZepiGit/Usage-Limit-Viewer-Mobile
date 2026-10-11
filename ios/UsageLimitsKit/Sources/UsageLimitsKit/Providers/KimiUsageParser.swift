@@ -31,11 +31,11 @@ public enum KimiUsageParser {
     /// The membership's weekly request allowance, which Kimi states as `used`.
     private static func weeklyWindow(_ payload: [String: Any]) -> UsageWindow? {
         guard let usage = JSONSupport.object(payload, "usage") else { return nil }
-        guard let percent = usedPercent(
+        let percent = usedPercent(
             limit: JSONSupport.double(usage, "limit", "total"),
             used: JSONSupport.double(usage, "used"),
             remaining: JSONSupport.double(usage, "remaining")
-        ) else { return nil }
+        )
 
         return UsageWindow(
             id: "kimi-weekly",
@@ -44,7 +44,7 @@ public enum KimiUsageParser {
             usedPercent: percent,
             periodSeconds: weekSeconds,
             resetAt: resetInstant(usage),
-            exhausted: percent >= 100
+            exhausted: percent == 100
         )
     }
 
@@ -57,11 +57,11 @@ public enum KimiUsageParser {
             guard let entry = element as? [String: Any] else { return nil }
             let detail = JSONSupport.object(entry, "detail") ?? entry
 
-            guard let percent = usedPercent(
+            let percent = usedPercent(
                 limit: JSONSupport.double(detail, "limit", "total"),
                 used: JSONSupport.double(detail, "used"),
                 remaining: JSONSupport.double(detail, "remaining")
-            ) else { return nil }
+            )
 
             let seconds = JSONSupport.int64(entry, "windowSeconds", "window_seconds")
                 ?? JSONSupport.int64(detail, "windowSeconds", "window_seconds")
@@ -77,7 +77,7 @@ public enum KimiUsageParser {
                 usedPercent: percent,
                 periodSeconds: seconds,
                 resetAt: resetInstant(detail) ?? resetInstant(entry),
-                exhausted: percent >= 100
+                exhausted: percent == 100
             )
         }
     }
@@ -89,7 +89,7 @@ public enum KimiUsageParser {
     private static func usedPercent(limit: Double?, used: Double?, remaining: Double?) -> Double? {
         // A zero limit is not a full bar — it is a provider that stated no limit, and dividing
         // by it gives infinity or NaN.
-        guard let limit, limit > 0 else { return nil }
+        guard let limit, limit.isFinite, limit > 0 else { return nil }
         let consumed: Double
         if let used {
             consumed = used
@@ -98,7 +98,8 @@ public enum KimiUsageParser {
         } else {
             return nil
         }
-        return min(max(consumed / limit * 100, 0), 100)
+        guard consumed.isFinite, consumed >= 0, consumed <= limit else { return nil }
+        return consumed / limit * 100
     }
 
     /// The reset instant, in whichever unit it arrived.

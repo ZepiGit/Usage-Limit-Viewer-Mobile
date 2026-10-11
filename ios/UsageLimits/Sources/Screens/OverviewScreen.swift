@@ -223,6 +223,12 @@ private struct AccountCard: View {
                 StatusPill(severity: account.severity, label: account.connectionStatus == .reconnectRequired ? "Reconnect" : nil)
             }
 
+            if let message = account.statusMessage {
+                Text(verbatim: message)
+                    .font(.footnote)
+                    .foregroundStyle(UsageColors.amber)
+            }
+
             ForEach(Array(account.rows.enumerated()), id: \.offset) { _, row in
                 WindowRow(row: row, now: now)
             }
@@ -266,8 +272,7 @@ struct WindowRow: View {
     /// A window whose percentage the provider did not report is unknown, and "0%" would state
     /// something it never said — in the one direction that would make a user stop working.
     private var remainingText: String {
-        guard let remaining = row.remainingPercent else { return "—" }
-        return "\(Int(remaining.rounded()))%"
+        UsageWindow.percentLabel(row.remainingPercent)
     }
 }
 

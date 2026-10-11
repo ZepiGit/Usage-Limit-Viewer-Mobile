@@ -141,6 +141,7 @@ public enum SnapshotStatus: String, Sendable, Codable {
 public struct UsageSnapshot: Sendable, Codable, Equatable {
     public let accountID: String
     public let fetchedAt: Date
+    public let lastAttemptAt: Date
     public let status: SnapshotStatus
     public let windows: [UsageWindow]
     public let resetCredits: [ResetCredit]
@@ -167,10 +168,12 @@ public struct UsageSnapshot: Sendable, Codable, Equatable {
         resetCreditCount: Int? = nil,
         applicableResetCreditCount: Int? = nil,
         errorMessage: String? = nil,
-        connectionStatus: ConnectionStatus? = nil
+        connectionStatus: ConnectionStatus? = nil,
+        lastAttemptAt: Date? = nil
     ) {
         self.accountID = accountID
         self.fetchedAt = fetchedAt
+        self.lastAttemptAt = lastAttemptAt ?? fetchedAt
         self.status = status
         self.windows = windows
         self.resetCredits = resetCredits
@@ -185,11 +188,14 @@ public struct UsageSnapshot: Sendable, Codable, Equatable {
     /// treated as empty — which would silently drop every account the user had connected.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let cachedWindows = try container.decodeIfPresent([UsageWindow].self, forKey: .windows) ?? []
+        // Earlier builds persisted deprecated monthly billing beside its replacement credit meter.
+        let hasMeasuredCredits = cachedWindows.contains { $0.id == "xai-credits" && $0.remainingPercent != nil }
         self.init(
             accountID: try container.decode(String.self, forKey: .accountID),
             fetchedAt: try container.decode(Date.self, forKey: .fetchedAt),
             status: try container.decode(SnapshotStatus.self, forKey: .status),
-            windows: try container.decodeIfPresent([UsageWindow].self, forKey: .windows) ?? [],
+            windows: hasMeasuredCredits ? cachedWindows.filter { $0.id != "xai-monthly" } : cachedWindows,
             resetCredits: try container.decodeIfPresent(
                 [ResetCredit].self, forKey: .resetCredits) ?? [],
             resetCreditCount: try container.decodeIfPresent(
@@ -197,7 +203,8 @@ public struct UsageSnapshot: Sendable, Codable, Equatable {
             applicableResetCreditCount: try container.decodeIfPresent(
                 Int.self, forKey: .applicableResetCreditCount),
             errorMessage: try container.decodeIfPresent(String.self, forKey: .errorMessage),
-            connectionStatus: try container.decodeIfPresent(ConnectionStatus.self, forKey: .connectionStatus))
+            connectionStatus: try container.decodeIfPresent(ConnectionStatus.self, forKey: .connectionStatus),
+            lastAttemptAt: try container.decodeIfPresent(Date.self, forKey: .lastAttemptAt))
     }
 
     /// Whether the last fetch failed.
@@ -248,11 +255,28 @@ public struct UsageSnapshot: Sendable, Codable, Equatable {
         // Ranked by percentage alone, a window the provider flagged exhausted but gave no
         // figure for sorted LAST — unknown reads as "infinitely much left" — and the summary
         // led with a 10 %-remaining neighbour while the real emergency sat below it.
-        windows.min { Self.rank($0) < Self.rank($1) }
+        let global = windows.filter { $0.scope == .global }
+        return (global.isEmpty ? windows : global).min { Self.rank($0) < Self.rank($1) }
     }
 
     private static func rank(_ window: UsageWindow) -> Double {
         window.exhausted ? -1 : (window.remainingPercent ?? .greatestFiniteMagnitude)
+    }
+
+    public var restrictedWindows: [UsageWindow] {
+        windows.filter { $0.scope != .global && $0.severity == .exhausted }
+    }
+
+    public var statusMessage: String? {
+        var messages: [String] = []
+        if let errorMessage { messages.append(errorMessage) }
+        if !restrictedWindows.isEmpty {
+            messages.append("Restricted: " + restrictedWindows.map(\.label).joined(separator: ", "))
+        }
+        if windows.contains(where: \.hasConflictingAvailability) {
+            messages.append("Provider reports a block despite remaining quota")
+        }
+        return messages.isEmpty ? nil : messages.joined(separator: " · ")
     }
 
     public var nextReset: Date? { windows.compactMap(\.resetAt).min() }
@@ -260,7 +284,15 @@ public struct UsageSnapshot: Sendable, Codable, Equatable {
     /// Severity ignoring age. Prefer `severity(at:)` wherever a clock is available.
     public var severity: Severity {
         if status == .failed { return .error }
-        return windows.map(\.severity).max() ?? .error
+        let global = windows.filter { $0.scope == .global }
+        if global.contains(where: { $0.severity == .exhausted }) { return .exhausted }
+        if !restrictedWindows.isEmpty {
+            let pools = Dictionary(grouping: windows, by: { $0.group ?? $0.id })
+            let allPoolsBlocked = windows.allSatisfy { $0.scope == .model }
+                && pools.values.allSatisfy { pool in pool.contains { $0.severity == .exhausted } }
+            return global.isEmpty && allPoolsBlocked ? .exhausted : .limited
+        }
+        return (global.isEmpty ? windows : global).map(\.severity).filter { $0 != .unknown }.max() ?? .unknown
     }
 
     /// Severity including staleness.

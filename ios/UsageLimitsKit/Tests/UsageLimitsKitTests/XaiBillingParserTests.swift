@@ -195,7 +195,7 @@ final class XaiBillingParserTests: XCTestCase {
         """), now: now)
 
         let merged = XaiBillingParser.merge(credits, billing)
-        XCTAssertEqual(merged.first?.id, "xai-credits")
+        XCTAssertEqual(merged.map(\.id), ["xai-credits"])
         XCTAssertEqual(Set(merged.map(\.id)).count, merged.count)
     }
 
@@ -205,12 +205,167 @@ final class XaiBillingParserTests: XCTestCase {
         XCTAssertTrue(XaiBillingParser.merge([], []).isEmpty)
     }
 
-    // MARK: - The implicit zero (proto3 omits a zero-valued scalar)
+    func testMergeReplacesUnknownCreditsWithMeasuredBillingFallback() throws {
+        let credits = XaiBillingParser.parseCredits(payload("""
+        { "creditUsagePercent": null, "currentPeriod": { "type": "weekly" } }
+        """), now: now)
+        let billing = XaiBillingParser.parseBilling(payload("""
+        { "creditUsagePercent": 20, "usagePeriodType": "weekly", "monthlyLimit": 1000, "used": 100 }
+        """), now: now)
+
+        let merged = XaiBillingParser.merge(credits, billing)
+        XCTAssertEqual(merged.map(\.id), ["xai-credits"])
+        XCTAssertEqual(try percent(merged, "xai-credits"), 20)
+        XCTAssertEqual(try percent(XaiBillingParser.merge(billing, credits), "xai-credits"), 20)
+    }
+
+    func testNullAndInvalidCreditPercentagesNeverBecomeFullCredit() throws {
+        let values = ["null", "-1", "101", "true", "\"bad\"", "\"NaN\"", "\"Infinity\"", "{}", "[]"]
+        for value in values {
+            for metadata in ["", ", \"currentPeriod\": { \"type\": \"weekly\", \"start\": \"2026-09-02T00:00:00Z\", \"end\": \"2026-09-09T00:00:00Z\" }"] {
+                let windows = XaiBillingParser.parseCredits(payload("{\"creditUsagePercent\": \(value)\(metadata)}"), now: liveNow)
+                let window = try XCTUnwrap(windows.first, value)
+                XCTAssertNil(window.usedPercent, value)
+                XCTAssertNil(window.remainingPercent, value)
+                XCTAssertFalse(window.exhausted, value)
+            }
+        }
+    }
+
+    func testExplicitCreditPercentagesPreserveProviderScale() throws {
+        for value in [0.0, 0.1, 20, 99.9, 100] {
+            let windows = XaiBillingParser.parseCredits(["creditUsagePercent": value], now: now)
+            XCTAssertEqual(try percent(windows, "xai-credits"), value)
+        }
+    }
+
+    func testInvalidMoneyValuesStayUnknown() throws {
+        for value in ["null", "-1", "true", "\"bad\"", "\"NaN\"", "\"Infinity\"", "{\"val\": -1}", "{\"val\": null}", "{\"unknown\": 1}", "[]"] {
+            let invalidSpend = XaiBillingParser.parseBilling(payload("{\"monthlyLimit\":10000,\"used\":\(value)}"), now: now)
+            XCTAssertNil(try XCTUnwrap(invalidSpend.first { $0.id == "xai-monthly" }).usedPercent, value)
+            let invalidLimit = XaiBillingParser.parseBilling(payload("{\"monthlyLimit\":\(value),\"used\":500}"), now: now)
+            XCTAssertNil(try XCTUnwrap(invalidLimit.first { $0.id == "xai-monthly" }).usedPercent, value)
+            let invalidOnly = XaiBillingParser.parseBilling(payload("{\"monthlyLimit\":\(value)}"), now: now)
+            XCTAssertNil(try XCTUnwrap(invalidOnly.first { $0.id == "xai-monthly" }).usedPercent, value)
+        }
+    }
+
+    func testPresentEmptyCentObjectIsTheOnlyImplicitMoneyZero() throws {
+        // xai-org/grok-build Cent.val has serde(default): a present {} is zero cents.
+        let zero = XaiBillingParser.parseBilling(payload("""
+        { "monthlyLimit": { "val": 10000 }, "used": {} }
+        """), now: now)
+        XCTAssertEqual(try percent(zero, "xai-monthly"), 0)
+        let absent = XaiBillingParser.parseBilling(payload("{\"monthlyLimit\":10000}"), now: now)
+        XCTAssertNil(try XCTUnwrap(absent.first).usedPercent)
+    }
+
+    func testExplicitUnknownOnDemandSpendDoesNotDeriveFromTotalSpend() throws {
+        for value in ["null", "-1", "\"NaN\"", "{\"val\":null}"] {
+            let windows = XaiBillingParser.parseBilling(payload("{\"monthlyLimit\":10000,\"used\":14000,\"onDemandCap\":5000,\"onDemandUsed\":\(value)}"), now: now)
+            XCTAssertNil(try XCTUnwrap(windows.first { $0.id == "xai-on-demand" }).usedPercent, value)
+        }
+        let absent = XaiBillingParser.parseBilling(payload("""
+        { "monthlyLimit": 10000, "used": 14000, "onDemandCap": 5000 }
+        """), now: now)
+        XCTAssertEqual(try percent(absent, "xai-on-demand"), 80)
+    }
+
+    func testOnDemandOverageIsExhaustedAfterValidatingAmounts() throws {
+        let windows = XaiBillingParser.parseBilling(payload("""
+        { "monthlyLimit": 10000, "used": 14000, "onDemandCap": 5000, "onDemandUsed": 6000 }
+        """), now: now)
+        XCTAssertEqual(try percent(windows, "xai-on-demand"), 100)
+        XCTAssertTrue(try XCTUnwrap(windows.first { $0.id == "xai-on-demand" }).exhausted)
+    }
+
+    func testOnDemandCanBeMeasuredWithoutMonthlyFields() throws {
+        let windows = XaiBillingParser.parseBilling(payload("""
+        { "onDemandCap": { "val": 5000 }, "onDemandUsed": { "val": 1000 } }
+        """), now: now)
+        XCTAssertEqual(windows.map(\.id), ["xai-on-demand"])
+        XCTAssertEqual(try percent(windows, "xai-on-demand"), 20)
+    }
+
+    func testUnknownOnDemandCapPreservesAnUnknownWindow() throws {
+        for json in ["{\"onDemandCap\":null}", "{\"onDemandCap\":-1}", "{\"onDemandCap\":\"Infinity\"}", "{\"onDemandUsed\":1000}"] {
+            let windows = XaiBillingParser.parseBilling(payload(json), now: now)
+            let onDemand = try XCTUnwrap(windows.first { $0.id == "xai-on-demand" }, json)
+            XCTAssertNil(onDemand.usedPercent, json)
+            XCTAssertFalse(onDemand.exhausted, json)
+            XCTAssertEqual(onDemand.scope, .model, json)
+        }
+    }
+
+    func testIncludedAndOnDemandAreIndependentPoolsWhenOnDemandIsAvailable() throws {
+        let windows = XaiBillingParser.parseBilling(payload("""
+        { "monthlyLimit": 10000, "used": 11000,
+          "onDemandCap": 5000, "onDemandUsed": 1000 }
+        """), now: now)
+        let monthly = try XCTUnwrap(windows.first { $0.id == "xai-monthly" })
+        let onDemand = try XCTUnwrap(windows.first { $0.id == "xai-on-demand" })
+        XCTAssertEqual(monthly.scope, .model)
+        XCTAssertEqual(onDemand.scope, .model)
+        XCTAssertTrue(monthly.exhausted)
+        XCTAssertEqual(onDemand.remainingPercent, 80)
+
+        let withoutOnDemand = XaiBillingParser.parseBilling(payload("""
+        { "monthlyLimit": 10000, "used": 10000, "onDemandCap": 0 }
+        """), now: now)
+        XCTAssertEqual(try XCTUnwrap(withoutOnDemand.first).scope, .global)
+    }
+
+    func testMeasuredCreditsSupersedeDeprecatedMonthlyAllowanceInEitherEndpoint() throws {
+        // The first-party BillingConfig contract says to prefer credit_usage_percent over
+        // deprecated monthly_limit/used; both describe included credit, not separate limits.
+        for usedPercent in [0.0, 20.0, 100.0] {
+            let source: [String: Any] = ["creditUsagePercent": usedPercent,
+                "monthlyLimit": 10000, "used": 10000, "onDemandCap": 5000, "onDemandUsed": 1000]
+            let fromBilling = XaiBillingParser.parseBilling(source, now: now)
+            XCTAssertEqual(fromBilling.map(\.id), ["xai-credits", "xai-on-demand"])
+            XCTAssertEqual(try percent(fromBilling, "xai-credits"), usedPercent)
+            XCTAssertEqual(fromBilling.first?.scope, .global)
+
+            let credits = XaiBillingParser.parseCredits(["creditUsagePercent": usedPercent], now: now)
+            let legacy = XaiBillingParser.parseBilling(["monthlyLimit": 10000, "used": 10000], now: now)
+            XCTAssertEqual(XaiBillingParser.merge(credits, legacy).map(\.id), ["xai-credits"])
+        }
+    }
+
+    func testUnknownCreditsKeepDeprecatedMonthlyFallback() throws {
+        let creditValues: [Any] = [NSNull(), -1, "bad"]
+        for credit in creditValues {
+            let source: [String: Any] = ["creditUsagePercent": credit, "monthlyLimit": 10000, "used": 2000]
+            let windows = XaiBillingParser.parseBilling(source, now: now)
+            XCTAssertEqual(windows.map(\.id), ["xai-credits", "xai-monthly"])
+            XCTAssertEqual(try percent(windows, "xai-monthly"), 20)
+        }
+    }
+
+    func testExplicitUnknownPrimaryAmountDoesNotReadAnAlternateAsAZeroDefault() throws {
+        let windows = XaiBillingParser.parseBilling(payload("""
+        { "monthlyLimit": 10000, "used": null, "includedUsed": 0,
+          "creditUsagePercent": null, "credit_usage_percent": 0 }
+        """), now: now)
+        XCTAssertNil(try XCTUnwrap(windows.first { $0.id == "xai-monthly" }).usedPercent)
+        XCTAssertNil(try XCTUnwrap(windows.first { $0.id == "xai-credits" }).usedPercent)
+    }
+
+    func testInvalidUsageDiagnosticSeparatesUnknownFromMalformedValues() {
+        for json in ["{}", "{\"creditUsagePercent\":null}", "{\"monthlyLimit\":null}", "{\"used\":{}}", "{\"used\":{\"val\":null}}", "{\"creditUsagePercent\":0}", "{\"used\":\"500\"}"] {
+            XCTAssertFalse(XaiBillingParser.hasInvalidUsage(payload(json)), json)
+        }
+        for json in ["{\"creditUsagePercent\":101}", "{\"creditUsagePercent\":true}", "{\"creditUsagePercent\":\"NaN\"}", "{\"creditUsagePercent\":{\"val\":null}}", "{\"monthlyLimit\":-1}", "{\"used\":{\"val\":\"Infinity\"}}", "{\"used\":{\"wrong\":0}}", "{\"onDemandCap\":false}", "{\"onDemandUsed\":-1}"] {
+            XCTAssertTrue(XaiBillingParser.hasInvalidUsage(payload(json)), json)
+        }
+    }
+
+    // MARK: - Missing percentages remain unknown
 
     private var liveNow: Date { ISO8601DateFormatter().date(from: "2026-09-05T12:00:00Z")! }
 
-    /// The credit view as the wire carries it when nothing has been spent: no percentage.
-    private let untouchedWeek = """
+    /// A period identifies the row, but does not prove that the absent percentage is zero.
+    private let weekWithoutPercentage = """
     { "config": {
         "currentPeriod": { "type": "USAGE_PERIOD_TYPE_WEEKLY",
                            "start": "2026-09-02T00:00:00Z",
@@ -219,28 +374,33 @@ final class XaiBillingParserTests: XCTestCase {
         "isUnifiedBillingUser": true } }
     """
 
-    func testAnAbsentPercentageInsideTheLivePeriodIsZeroNotAMissingRow() throws {
-        // `credit_usage_percent` has implicit presence: an exact zero is not written to the
-        // wire. The one week the user has spent nothing in used to be the week the row
-        // vanished — the account showed only its monthly limit.
-        let windows = XaiBillingParser.parseCredits(payload(untouchedWeek), now: liveNow)
+    func testAnAbsentPercentageInsideTheLivePeriodKeepsAnUnknownRow() throws {
+        // xai-org/grok-build BillingConfig declares credit_usage_percent as Option<f64>.
+        // Its presence cannot be inferred from the current period.
+        let windows = XaiBillingParser.parseCredits(payload(weekWithoutPercentage), now: liveNow)
 
         XCTAssertEqual(windows.count, 1)
         let window = try XCTUnwrap(windows.first)
         XCTAssertEqual(window.id, "xai-credits")
-        XCTAssertEqual(window.usedPercent, 0)
+        XCTAssertNil(window.usedPercent)
+        XCTAssertNil(window.remainingPercent)
         XCTAssertEqual(window.category, .weekly)
         XCTAssertEqual(window.resetAt, ISO8601DateFormatter().date(from: "2026-09-09T00:00:00Z"))
         XCTAssertFalse(window.exhausted)
     }
 
-    func testAnAbsentPercentageOutsideTheReportedPeriodStaysAMissingRow() {
-        // The zero is only readable for the period that contains now: a stale period would
-        // otherwise show "100 % remaining" for a week that has already ended.
+    func testAnAbsentPercentageStaysUnknownAcrossPeriodBoundaries() throws {
         let later = ISO8601DateFormatter().date(from: "2026-09-20T12:00:00Z")!
-        XCTAssertTrue(XaiBillingParser.parseCredits(payload(untouchedWeek), now: later).isEmpty)
+        let earlier = ISO8601DateFormatter().date(from: "2026-09-01T12:00:00Z")!
+        let boundary = ISO8601DateFormatter().date(from: "2026-09-09T00:00:00Z")!
+        for date in [earlier, liveNow, boundary, later] {
+            let window = try XCTUnwrap(XaiBillingParser.parseCredits(
+                payload(weekWithoutPercentage), now: date).first)
+            XCTAssertNil(window.usedPercent)
+            XCTAssertNil(window.remainingPercent)
+        }
 
-        // And with no period at all there is nothing to anchor the zero to.
+        // Without a credit field or period there is no evidence of a credit window.
         let noPeriod = """
         { "config": { "isUnifiedBillingUser": true, "onDemandCap": { "val": 0 } } }
         """
@@ -261,16 +421,17 @@ final class XaiBillingParserTests: XCTestCase {
         XCTAssertEqual(window.periodSeconds, 604_800)
         XCTAssertEqual(window.resetAt, ISO8601DateFormatter().date(from: "2026-09-09T00:00:00Z"))
 
-        // The flat spelling anchors the implicit zero just as the nested one does.
-        let flatUntouched = """
+        let flatUnknown = """
         { "usagePeriodType": "USAGE_PERIOD_TYPE_WEEKLY",
           "usagePeriodStart": "2026-09-02T00:00:00Z",
           "usagePeriodEnd":   "2026-09-09T00:00:00Z" }
         """
-        XCTAssertEqual(XaiBillingParser.parseCredits(payload(flatUntouched), now: liveNow).first?.usedPercent, 0)
+        let unknown = try XCTUnwrap(XaiBillingParser.parseCredits(payload(flatUnknown), now: liveNow).first)
+        XCTAssertEqual(unknown.category, .weekly)
+        XCTAssertNil(unknown.usedPercent)
     }
 
-    func testTheUnifiedBillingViewYieldsTheWeeklyRowBesideTheMonthlyOne() throws {
+    func testTheUnifiedBillingViewPrefersWeeklyCreditsOverDeprecatedMonthlyUsage() throws {
         // The plain billing view of a unified-billing account carries the weekly figures too.
         // Reading them here keeps the weekly row when the credit view alone stops answering,
         // and merge keeps exactly one copy when both do.
@@ -284,9 +445,9 @@ final class XaiBillingParserTests: XCTestCase {
           "billingPeriodEnd":   "2026-10-01T00:00:00Z" }
         """
         let fromBilling = XaiBillingParser.parseBilling(payload(unified), now: liveNow)
-        XCTAssertEqual(fromBilling.map(\.id), ["xai-credits", "xai-monthly"])
+        XCTAssertEqual(fromBilling.map(\.id), ["xai-credits"])
         XCTAssertEqual(try percent(fromBilling, "xai-credits"), 41, accuracy: 0.001)
-        XCTAssertEqual(try percent(fromBilling, "xai-monthly"), 42, accuracy: 0.001)
+        XCTAssertNil(fromBilling.first { $0.id == "xai-monthly" })
 
         let fromCredits = XaiBillingParser.parseCredits(payload("""
         { "config": { "creditUsagePercent": 34.0,

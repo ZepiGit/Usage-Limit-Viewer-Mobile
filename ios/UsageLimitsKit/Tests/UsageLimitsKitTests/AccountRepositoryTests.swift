@@ -409,3 +409,28 @@ final class AccountRepositoryTests: XCTestCase {
     }
 
 }
+
+extension AccountRepositoryTests {
+    func testPartialResultKeepsWarningAndDoesNotRejuvenateAbsentWindows() async throws {
+        let repository = AccountRepository(directory: directory)
+        try await repository.upsert(account())
+        try await repository.record(.success(accountID: "a", result: result(40)), at: now)
+        let partial = UsageResult(windows: [], status: .partial, errorMessage: "Partial billing update")
+        try await repository.record(.success(accountID: "a", result: partial), at: now.addingTimeInterval(60))
+        let value = await repository.usage().first?.snapshot
+        XCTAssertEqual(value?.status, .partial)
+        XCTAssertEqual(value?.errorMessage, "Partial billing update")
+        XCTAssertTrue(value?.windows.isEmpty == true)
+    }
+
+    func testFailurePreservesMeasurementTimeAndRecordsAttemptTime() async throws {
+        let repository = AccountRepository(directory: directory)
+        try await repository.upsert(account())
+        try await repository.record(.success(accountID: "a", result: result(20)), at: now)
+        let attempt = now.addingTimeInterval(300)
+        try await repository.record(.failure(accountID: "a", message: "Network unavailable"), at: attempt)
+        let value = await AccountRepository(directory: directory).usage().first?.snapshot
+        XCTAssertEqual(value?.fetchedAt, now)
+        XCTAssertEqual(value?.lastAttemptAt, attempt)
+    }
+}

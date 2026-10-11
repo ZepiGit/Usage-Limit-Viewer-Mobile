@@ -47,9 +47,9 @@ enum SeverityPalette {
     static func accent(_ severity: Severity) -> Color {
         switch severity {
         case .healthy: return UsageColors.green
-        case .medium, .low: return UsageColors.amber
+        case .medium, .low, .limited: return UsageColors.amber
         case .exhausted, .error: return UsageColors.red
-        case .stale: return UsageColors.slate
+        case .stale, .unknown: return UsageColors.slate
         }
     }
 
@@ -57,7 +57,7 @@ enum SeverityPalette {
     static func text(_ severity: Severity) -> Color {
         switch severity {
         case .exhausted, .error: return UsageColors.redText
-        case .stale: return UsageColors.slateText
+        case .stale, .unknown: return UsageColors.slateText
         default: return accent(severity)
         }
     }
@@ -78,11 +78,11 @@ enum SeverityPalette {
     /// reading whatever its number.
     static func bar(remainingPercent: Double?, severity: Severity) -> Color {
         switch severity {
-        case .stale: return UsageColors.slate
+        case .stale, .unknown: return UsageColors.slate
         case .error: return UsageColors.red
         default: break
         }
-        if let remaining = remainingPercent, remaining >= 99.5 { return UsageColors.teal }
+        if let remaining = remainingPercent, remaining == 100 { return UsageColors.teal }
         return accent(severity)
     }
 
@@ -91,6 +91,8 @@ enum SeverityPalette {
         case .healthy: return "Healthy"
         case .medium: return "Moderate"
         case .low: return "Low"
+        case .limited: return "Limited"
+        case .unknown: return "Unknown"
         case .exhausted: return "Exhausted"
         case .stale: return "Stale"
         case .error: return "Error"
