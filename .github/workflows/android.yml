@@ -5,9 +5,8 @@ name: Android
 # half that can actually be built on a free Linux runner. The iOS workflow existed first only
 # because the shared Swift package happens to compile on Linux too.
 #
-# Two jobs rather than one, because they answer different questions. `test` says the logic is
-# right and is the fast signal on every push; `assemble` says the app still packages, which
-# catches the manifest, resource and Proguard-shaped faults a unit test never sees.
+# `test` checks logic, `assemble` packages the APK, and `runtime` installs that same signed,
+# minified artifact over the previous release and navigates it on a real Android emulator.
 
 on:
   push:
@@ -16,6 +15,7 @@ on:
       - 'gradle/**'
       - '*.gradle.kts'
       - 'gradle.properties'
+      - 'tools/android_runtime_smoke.py'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
@@ -23,6 +23,7 @@ on:
       - 'gradle/**'
       - '*.gradle.kts'
       - 'gradle.properties'
+      - 'tools/android_runtime_smoke.py'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -211,3 +212,75 @@ jobs:
           name: app-release-verification
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
+  runtime:
+    name: API 36 release upgrade smoke
+    needs: assemble
+    # Fork PRs cannot access release signing. A debug-signed build cannot update v0.2.0.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Same-run artifacts bind this test to the exact SHA/version produced by `assemble`.
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-release-verification
+          path: runtime/apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-verification
+          path: runtime/verification
+
+      - name: Download the published upgrade baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/previous
+          gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'UsageLimits-0.2.0.apk' --dir runtime/previous
+
+      - name: Check the AOSP API 36 image is available
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/evidence
+          sdkmanager --list > runtime/evidence/sdk-packages.txt
+          if ! grep -Eq '^[[:space:]]*system-images;android-36;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 36 x86_64 image.' >&2
+            exit 1
+          fi
+
+      # KVM setup from https://github.com/ReactiveCircus/android-emulator-runner
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Upgrade and navigate the release APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: default
+          arch: x86_64
+          profile: pixel_7_pro
+          cores: 2
+          ram-size: 2048M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: python3 tools/android_runtime_smoke.py --previous-apk runtime/previous/UsageLimits-0.2.0.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-runtime-evidence-${{ github.sha }}
+          path: runtime/evidence
+          if-no-files-found: warn
