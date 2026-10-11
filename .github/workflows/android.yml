@@ -223,7 +223,9 @@ jobs:
     # Fork PRs cannot access release signing. A debug-signed build cannot update v0.2.0.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Eight rounds revisit all four widget configurations, plus placement and geometry checks.
+    # Individual UI/control deadlines remain bounded in the smoke script.
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read

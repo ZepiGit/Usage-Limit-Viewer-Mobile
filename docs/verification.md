@@ -48,6 +48,12 @@ restored even on failure; no provider requests are made. Recorded process and bo
 crash diagnostics are checked and preserved before reboot. Reconfiguration checks cancel
 without saving, so they cannot repair lost settings. These checks are required;
 missing launcher controls fail with screenshots and UI XML for diagnosis.
+Before the lifecycle rounds, normal launcher keyboard actions move Mini Rings
+to a different observed position on the same Home page and resize it horizontally
+and vertically, growing and shrinking each dimension. The checks require changed
+host bounds, preserved dimensions on the other axis, all four original widget IDs
+and saved Mini Rings appearance read without saving. The geometry report records
+the actual bounds, selected launcher targets and elapsed verification time.
 Its artifact records the commit and device environment. A passing run establishes
 empty-account upgrade and the stated launcher checks; it does not establish
 populated-account behavior, a fresh provider repaint or physical-device

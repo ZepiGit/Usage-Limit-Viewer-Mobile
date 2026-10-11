@@ -131,7 +131,9 @@ jobs:
     name: Verify the release APK on API 36
     needs: [metadata, android]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Eight rounds revisit all four widget configurations, plus placement and geometry checks.
+    # Individual UI/control deadlines remain bounded in the smoke script.
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read

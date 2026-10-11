@@ -367,10 +367,14 @@ class Smoke:
         assert len(placed) == 4, "All four widget types must be placed"
         return placed
 
-    def verify_widgets_after_upgrade(self, placed, phase="current"):
+    def verify_widgets_after_upgrade(self, placed, phase="current", only_label=None):
         expected = {item["component"]: item["id"] for item in placed}
         assert self.widget_bindings(phase + "-widgets") == expected, "Placed widget IDs changed"
+        verified = [item for item in placed if only_label is None or item["label"] == only_label]
+        assert only_label is None or len(verified) == 1, "Expected one selected widget for verification"
         for index, item in enumerate(placed):
+            if item not in verified:
+                continue
             name = f"{phase}-widget-{index}"
             self.find_placed_widget(name, item["label"])
             marker = "Stale" if item["label"] == "Usage Summary" else "No matching accounts"
@@ -395,8 +399,141 @@ class Smoke:
                                          resource_id=self.launcher + ":id/widget_reconfigure_button"))
             self.widget_configuration(name + "-config", item["label"], item["color"], save=False)
             assert self.widget_bindings(name + "-verified") == expected, "Reconfigure replaced a widget ID"
-        self.text(phase + "-widgets-verified.json", json.dumps({"result": "passed", "phase": phase, "widgets": placed,
+        self.text(phase + "-widgets-verified.json", json.dumps({"result": "passed", "phase": phase, "widgets": verified,
+                  "retainedWidgetIds": expected,
                   "scope": "Visible empty-account host content, retained IDs and saved appearance selections; no fresh quota measurement."}, indent=2))
+
+    def verify_widget_move_resize(self, placed):
+        """Exercise the existing Mini Rings binding using normal launcher keyboard actions."""
+        started = time.monotonic()
+        fixtures = [item for item in placed if item["label"] == "Mini Rings"]
+        assert len(fixtures) == 1, "Expected one Mini Rings fixture"
+        item = fixtures[0]
+        expected = {entry["component"]: entry["id"] for entry in placed}
+        assert len(expected) == 4, "Move/resize must retain all four placed widgets"
+        frame_description = "Widget Resize Frame for " + item["label"]
+        resize_labels = {"Increase width", "Decrease width", "Increase height", "Decrease height"}
+        report = {"result": "incomplete", "widget": item, "retainedWidgetIds": expected, "steps": []}
+
+        def record():
+            self.text("widgets-move-resize.json", json.dumps(report, indent=2))
+
+        def frame(root):
+            self.assert_no_system_error(root)
+            found = [node for node in root.iter("node") if node.get("package") == self.launcher
+                     and node.get("content-desc") == frame_description
+                     and node.get("class") == "android.widget.LinearLayout" and bounds(node)]
+            assert len(found) <= 1, "Ambiguous Mini Rings resize frame"
+            return next((node for node in found if node.get("focused") == "true"
+                         and node.get("enabled") == "true"), None)
+
+        def open_frame(name):
+            host = self.find_placed_widget(name + "-locate", item["label"])
+            x1, y1, x2, y2 = bounds(host)
+            x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
+            self.adb("shell", "input", "swipe", x, y, x, y, "1000")
+            self.wait_for(name, lambda root: frame(root) is not None)
+            assert frame(self.widget_capture(name)) is not None, "Mini Rings resize frame lost focus"
+
+        def host_box(root):
+            self.assert_no_system_error(root)
+            # Wait for the actual unobscured host after the launcher closes its action UI.
+            if any(node.get("content-desc") == frame_description
+                   or (node.get("resource-id") == self.launcher + ":id/bubble_text"
+                       and node.get("text") in resize_labels)
+                   or (node.get("resource-id") == self.launcher + ":id/label"
+                       and node.get("text", "").startswith("Move to row "))
+                   for node in root.iter("node")):
+                return None
+            hosts = [node for node in root.iter("node") if node.get("package") == self.launcher
+                     and node.get("class", "").endswith("AppWidgetHostView")
+                     and node.get("content-desc") == item["label"] and bounds(node)]
+            assert len(hosts) <= 1, "Ambiguous Mini Rings host"
+            if not hosts:
+                return None
+            content = [node.get("text", "") for node in hosts[0].iter("node")]
+            assert not any("Can't show content" in text or "Problem loading widget" in text for text in content), content
+            return bounds(hosts[0]) if any("No matching accounts" in text for text in content) else None
+
+        def observe(name, predicate):
+            self.wait_for(name, lambda root: (box := host_box(root)) is not None and predicate(box))
+            box = host_box(self.widget_capture(name))
+            assert box is not None and predicate(box), "Mini Rings geometry/content changed during capture"
+            assert self.widget_bindings(name) == expected, "Move/resize changed a placed widget ID"
+            return box
+
+        def size(box):
+            return box[2] - box[0], box[3] - box[1]
+
+        def move_target(root):
+            self.assert_no_system_error(root)
+            nodes = [node for node in root.iter("node") if node.get("package") == self.launcher
+                     and node.get("resource-id") == self.launcher + ":id/label" and bounds(node)]
+            assert len(nodes) <= 1, "Ambiguous launcher keyboard move target"
+            if not nodes:
+                return None
+            text = nodes[0].get("text", "")
+            target = re.fullmatch(r"Move to row (\d+) column (\d+) in (Home screen \d+ of \d+|New home screen page)", text)
+            assert target, f"Unrecognized launcher move target: {text}"
+            return {"row": int(target[1]), "column": int(target[2]), "page": target[3], "text": text}
+
+        self.find_placed_widget("move-resize-before-locate", item["label"])
+        initial = observe("move-resize-before", lambda box: True)
+        report["beforeBounds"] = initial
+        record()
+        open_frame("move-frame")
+        self.adb("shell", "input", "keyboard", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_M")
+        self.wait_for("move-target-loaded", lambda root: move_target(root) is not None)
+        original_target = move_target(self.widget_capture("move-target-original"))
+        assert original_target is not None and original_target["page"].startswith("Home screen "), "No existing-page move origin"
+        report["moveOrigin"] = original_target
+        report["moveTargets"] = []
+        selected = None
+        # Each key navigates launcher-provided valid destinations; never infer grid coordinates.
+        for index, direction in enumerate(["DOWN", "LEFT", "RIGHT", "UP"]):
+            self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_DPAD_" + direction)
+            target = move_target(self.widget_capture(f"move-target-{index}"))
+            assert target is not None, "Keyboard move UI disappeared before a target was chosen"
+            report["moveTargets"].append({"key": direction, "target": target})
+            record()
+            if target["page"] == original_target["page"] and (
+                target["row"], target["column"]) != (original_target["row"], original_target["column"]):
+                selected = target
+                break
+        assert selected is not None, "No different observed move target on the original Home page"
+        self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ENTER")
+        # Quickstep opens the resize frame after a resizable widget is dropped.
+        self.wait_for("move-drop-frame", lambda root: frame(root) is not None)
+        assert frame(self.widget_capture("move-drop-frame")) is not None, "Dropped Mini Rings frame lost focus"
+        self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ESCAPE")
+        moved = observe("move-after", lambda box: size(box) == size(initial) and box[:2] != initial[:2])
+        report["steps"].append({"action": "move", "target": selected, "before": initial, "after": moved})
+        record()
+        self.verify_widgets_after_upgrade(placed, phase="move", only_label=item["label"])
+
+        current = moved
+        for axis, dimension in enumerate(["width", "height"]):
+            original_size = size(current)
+            for action in ["Increase", "Decrease"]:
+                label = action + " " + dimension
+                name = "resize-" + action.lower() + "-" + dimension
+                before = current
+                open_frame(name + "-frame")
+                self.adb("shell", "input", "keyboard", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_R")
+                self.tap(self.widget_control(name + "-option", self.launcher, label=label))
+                def resized(box):
+                    after_size, before_size = size(box), size(before)
+                    return after_size[1 - axis] == before_size[1 - axis] and (
+                        after_size[axis] > before_size[axis] if action == "Increase"
+                        else after_size[axis] == original_size[axis] < before_size[axis])
+                current = observe(name + "-after", resized)
+                report["steps"].append({"action": label, "before": before, "after": current})
+                record()
+        assert size(current) == size(initial), "Resize round trip did not restore Mini Rings dimensions"
+        self.verify_widgets_after_upgrade(placed, phase="resize", only_label=item["label"])
+        report.update({"result": "passed", "afterBounds": current, "verificationSeconds": time.monotonic() - started,
+                       "scope": "Same-page Mini Rings move and horizontal/vertical grow-shrink; unchanged IDs for all four widgets; visible empty content and saved Mini Rings appearance read without saving."})
+        record()
 
     def verify_widget_lifecycle(self, placed):
         original = self.adb("shell", "cmd", "uimode", "night")
@@ -856,6 +993,7 @@ def main():
         smoke.navigate("Overview", "0 accounts monitored", "current-relaunch-overview")
         smoke.verify_widgets_after_upgrade(placed_widgets)
         smoke.performance_observations("current", new, placed_widgets)
+        smoke.verify_widget_move_resize(placed_widgets)
         smoke.verify_widget_lifecycle(placed_widgets)
     except Exception:
         try:
@@ -871,7 +1009,7 @@ def main():
         "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": ["Overview", "Accounts", "Resets", "Settings"],
         "widgets": placed_widgets,
         "scope": "Empty-account release smoke with four launcher widgets; provider-authenticated quotas were not tested."}, indent=2))
-    print("Release APK upgrade, persisted setting, four tabs, four widgets, night mode, process loss, launcher restart, reboot and offline/online checks passed; startup observations recorded.")
+    print("Release APK upgrade, persisted setting, four tabs, four widgets, Mini Rings move/resize, night mode, process loss, launcher restart, reboot and offline/online checks passed; startup observations recorded.")
 
 
 if __name__ == "__main__":
