@@ -88,92 +88,246 @@ class Smoke:
         (self.directory / (name + ".png")).write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
         return root
 
-    def inspect_launcher(self, component):
-        """Capture discovery evidence only; never guess a widget-placement gesture."""
-        launcher = component.splitlines()[-1].split("/", 1)[0]
-        report = {"launcher": launcher, "status": "home_only"}
-        root = None
-        opened_menu = False
+    @staticmethod
+    def assert_no_system_error(root):
+        assert not any(node.get("resource-id", "").startswith("android:id/aerr_")
+                       for node in root.iter("node")), "System error dialog blocks widget smoke; it was not dismissed"
 
-        def capture_launcher(name):
-            # Preserve pixels even if an unresponsive launcher prevents a hierarchy dump.
-            (self.directory / (name + ".png")).write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
-            return self.dump(name)
+    def widget_capture(self, name):
+        # Keep transition/failure pixels if UIAutomator hangs, then capture the settled UI too.
+        (self.directory / (name + "-before-dump.png")).write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
+        root = self.capture(name)
+        self.assert_no_system_error(root)
+        return root
 
-        def error_dialog_visible():
-            return root is not None and any(node.get("resource-id", "").startswith("android:id/aerr_")
-                                            for node in root.iter("node"))
+    @staticmethod
+    def control(root, package, label=None, resource_id=None):
+        parents = {child: parent for parent in root.iter() for child in parent}
+        controls = {}
+        for node in root.iter("node"):
+            if node.get("package") != package:
+                continue
+            if label is not None and label not in (node.get("text"), node.get("content-desc")):
+                continue
+            if resource_id is not None and node.get("resource-id") != resource_id:
+                continue
+            while node is not None and node.get("package") == package:
+                if node.get("enabled") == "true" and node.get("clickable") == "true" and bounds(node):
+                    controls[bounds(node)] = node
+                    break
+                node = parents.get(node)
+        assert len(controls) <= 1, f"Ambiguous {package} control: {label or resource_id}"
+        return next(iter(controls.values()), None)
 
-        try:
-            self.adb("shell", "input", "keyevent", "KEYCODE_HOME")
-            root = capture_launcher("launcher-home")
-            if error_dialog_visible():
-                report["reason"] = "System error dialog present; no launcher interaction attempted."
-                return
-            candidates = []
-            for node in root.iter("node"):
-                if (node.get("package") != launcher or node.get("enabled") != "true"
-                        or node.get("long-clickable") != "true" or not bounds(node)):
-                    continue
-                is_workspace = node.get("resource-id") == launcher + ":id/workspace"
-                is_app_icon = "Usage Limits" in (node.get("text"), node.get("content-desc"))
-                if not (is_workspace or is_app_icon):
-                    continue
-                x1, y1, x2, y2 = bounds(node)
-                x, y = (x1 + x2) // 2, (y1 + y2) // 2
-                # A workspace's centre is usable only when the dump shows no content there.
-                occupied = is_workspace and any(
-                    child is not node and bounds(child)
-                    and (child.get("clickable") == "true" or child.get("long-clickable") == "true"
-                         or child.get("text") or child.get("content-desc"))
-                    and bounds(child)[0] <= x < bounds(child)[2]
-                    and bounds(child)[1] <= y < bounds(child)[3]
-                    for child in node.iter("node"))
-                if not occupied:
-                    candidates.append(node)
-            if len(candidates) != 1:
-                report["reason"] = f"Found {len(candidates)} unambiguous long-click targets; captured Home only."
-                return
-            target = candidates[0]
-            report["longClickTarget"] = dict(target.attrib)
-            x1, y1, x2, y2 = bounds(target)
+    def widget_control(self, name, package, label=None, resource_id=None, scroll=False, text_only=False):
+        for attempt in range(12):
+            root = self.widget_capture(f"{name}-{attempt}")
+            if text_only:
+                targets = [node for node in root.iter("node") if node.get("package") == package
+                           and node.get("text") == label and bounds(node)]
+                assert len(targets) <= 1, f"Ambiguous displayed text: {label}"
+                target = next(iter(targets), None)
+            else:
+                target = self.control(root, package, label, resource_id)
+            if target is not None:
+                return target
+            if scroll:
+                scrollables = [node for node in root.iter("node") if node.get("package") == package
+                               and node.get("scrollable") == "true" and bounds(node)
+                               and (node.get("resource-id") == self.launcher + ":id/widgets_list_view"
+                                    if package == self.launcher else bool(matches(root, "Save widget")))]
+                if scrollables:
+                    x1, y1, x2, y2 = max((bounds(node) for node in scrollables),
+                                          key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
+                    x = str((x1 + x2) // 2)
+                    self.adb("shell", "input", "swipe", x, str(y1 + (y2 - y1) * 3 // 4),
+                             x, str(y1 + (y2 - y1) // 4), "400")
+            time.sleep(1)
+        raise AssertionError(f"Missing observed {package} control: {label or resource_id}; see {name} captures")
+
+    def widget_home(self, name):
+        self.adb("shell", "input", "keyevent", "KEYCODE_HOME")
+        self.widget_capture(name + "-arrival")
+        self.wait_for(name, lambda root: any(node.get("resource-id") == self.launcher + ":id/workspace"
+                                            for node in root.iter("node")))
+        return self.widget_capture(name)
+
+    def open_widget_picker(self, name):
+        root = self.widget_home(name + "-home")
+        workspaces = [node for node in root.iter("node")
+                      if node.get("resource-id") == self.launcher + ":id/workspace" and bounds(node)]
+        assert len(workspaces) == 1, "Expected one observed Launcher workspace"
+        workspace = workspaces[0]
+        # API 36 Quickstep's observed workspace uses a custom long-press gesture even
+        # though its accessibility long-clickable flag is false. Stay within its page.
+        pages = [node for node in workspace if bounds(node)]
+        assert len(pages) == 1, "Cannot identify the current workspace page from the hierarchy"
+        page = bounds(pages[0])
+        occupied = [bounds(node) for node in workspace.iter("node") if node is not workspace and bounds(node)
+                    and (node.get("clickable") == "true" or node.get("long-clickable") == "true"
+                         or node.get("class", "").endswith("AppWidgetHostView"))]
+        xs = sorted({page[0], page[2]} | {max(page[0], min(page[2], edge)) for box in occupied for edge in (box[0], box[2])})
+        ys = sorted({page[1], page[3]} | {max(page[1], min(page[3], edge)) for box in occupied for edge in (box[1], box[3])})
+        free = [(x1, y1, x2, y2) for x1, x2 in zip(xs, xs[1:]) for y1, y2 in zip(ys, ys[1:])
+                if x2 > x1 and y2 > y1 and not any(
+                    box[0] < x2 and x1 < box[2] and box[1] < y2 and y1 < box[3] for box in occupied)]
+        assert free, "No observed empty workspace region for the normal Widgets menu"
+        x1, y1, x2, y2 = max(free, key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
+        self.text(name + "-longpress-region.json", json.dumps({"page": page, "emptyRegion": [x1, y1, x2, y2]}))
+        x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
+        self.adb("shell", "input", "swipe", x, y, x, y, "1000")
+        self.tap(self.widget_control(name + "-menu", self.launcher, label="Widgets"))
+        self.tap(self.widget_control(name + "-app", self.launcher, label="Usage Limits", scroll=True))
+
+    @staticmethod
+    def selected(node):
+        return any(child.get("checked") == "true" or child.get("selected") == "true" for child in node.iter("node"))
+
+    def widget_configuration(self, name, label, color, save):
+        self.wait_for(name + "-loaded", lambda root: bool(matches(root, label)) and bool(matches(root, "Save widget")))
+        for control_label in [color + " background", "Auto", "All accounts"]:
+            target = self.widget_control(name + "-" + control_label.replace(" ", "-"), PACKAGE,
+                                         label=control_label, scroll=True)
+            if save:
+                self.tap(target)
+                self.wait_for(name + "-selected", lambda root: (
+                    (target := self.control(root, PACKAGE, label=control_label)) is not None and self.selected(target)))
+            else:
+                assert self.selected(target), f"Saved {control_label} selection was lost after upgrade"
+            self.widget_capture(name + "-verified-" + control_label.replace(" ", "-"))
+            if control_label == color + " background":
+                self.widget_control(name + "-opacity", PACKAGE, label="Opacity · 100 %", scroll=True, text_only=True)
+        button = "Save widget" if save else "Cancel"
+        self.tap(self.widget_control(name + "-finish", PACKAGE, label=button))
+        self.wait_for(name + "-returned", lambda root: not matches(root, "Save widget")
+                      and not matches(root, "Saving…") and any(
+                          node.get("resource-id") == self.launcher + ":id/workspace" for node in root.iter("node")))
+        self.widget_capture(name + "-returned")
+
+    def widget_bindings(self, name):
+        dump = self.adb("shell", "dumpsys", "appwidget")
+        self.text(name + "-appwidget.txt", dump)
+        assert "\nWidgets:\n" in dump and "\nHosts:\n" in dump, "Unrecognized appwidget dump"
+        section = dump.split("\nWidgets:\n", 1)[1].split("\nHosts:\n", 1)[0]
+        result = {}
+        for widget_id, block in re.findall(r"(?ms)^  \[\d+\] id=(\d+)\n(.*?)(?=^  \[\d+\]|\Z)", section):
+            provider = re.search(r"provider=ProviderId\{[^\n]*cmp:ComponentInfo\{com\.usagelimits/([^}]+)\}", block)
+            if provider:
+                assert provider[1] not in result, "Duplicate provider instances make the fixture ambiguous"
+                assert f"pkg:{self.launcher}" in block, "Widget is not bound to the actual launcher"
+                result[provider[1]] = int(widget_id)
+        return result
+
+    def find_placed_widget(self, name, label):
+        self.widget_home(name + "-home")
+        # Add may create another workspace page. Search only by observed host descriptions.
+        for direction in ["left", "right"]:
+            for attempt in range(6):
+                root = self.widget_capture(f"{name}-{direction}-{attempt}")
+                hosts = [node for node in root.iter("node") if node.get("class", "").endswith("AppWidgetHostView")
+                         and node.get("content-desc") == label and bounds(node)]
+                assert len(hosts) <= 1, f"Ambiguous placed {label} widget"
+                if hosts:
+                    return hosts[0]
+                workspaces = [node for node in root.iter("node")
+                              if node.get("resource-id") == self.launcher + ":id/workspace" and bounds(node)]
+                assert len(workspaces) == 1, "No observed workspace for page navigation"
+                x1, y1, x2, y2 = bounds(workspaces[0])
+                start, end = x1 + (x2 - x1) * 3 // 4, x1 + (x2 - x1) // 4
+                if direction == "right":
+                    start, end = end, start
+                self.adb("shell", "input", "swipe", str(start), str((y1 + y2) // 2), str(end), str((y1 + y2) // 2), "400")
+        raise AssertionError(f"The launcher does not expose the placed {label} widget")
+
+    def place_widgets(self):
+        assert not self.widget_bindings("widgets-before"), "Expected a fresh launcher with no Usage Limits widgets"
+        fixtures = [
+            ("Usage Summary", "CompactUsageWidgetReceiver", "Navy"),
+            ("Usage Bars", "DetailedUsageWidgetReceiver", "White"),
+            ("Account Rings", "MinimalUsageWidgetReceiver", "Navy"),
+            ("Mini Rings", "MiniRingsWidgetReceiver", "White"),
+        ]
+        placed = []
+        for index, (label, receiver, color) in enumerate(fixtures):
+            name = f"previous-widget-{index}"
+            self.open_widget_picker(name)
+            self.tap(self.widget_control(name + "-preview", self.launcher, label=label, scroll=True))
+            self.tap(self.widget_control(name + "-add", self.launcher,
+                                         resource_id=self.launcher + ":id/widget_add_button"))
+            self.widget_configuration(name + "-config", label, color, save=True)
+            self.find_placed_widget(name + "-placed", label)
+            bindings = self.widget_bindings(name)
+            component = PACKAGE + ".widget." + receiver
+            assert component in bindings, f"{label} was not bound to the launcher"
+            placed.append({"label": label, "component": component, "color": color, "id": bindings[component]})
+            self.text("widgets-placement.json", json.dumps(placed, indent=2))
+        assert len(placed) == 4, "All four widget types must be placed"
+        return placed
+
+    def verify_widgets_after_upgrade(self, placed, phase="current"):
+        expected = {item["component"]: item["id"] for item in placed}
+        assert self.widget_bindings(phase + "-widgets") == expected, "Placed widget IDs changed"
+        for index, item in enumerate(placed):
+            name = f"{phase}-widget-{index}"
+            self.find_placed_widget(name, item["label"])
+            marker = "Stale" if item["label"] == "Usage Summary" else "No matching accounts"
+            host = None
+            for attempt in range(12):
+                root = self.widget_capture(f"{name}-content-{attempt}")
+                hosts = [node for node in root.iter("node") if node.get("class", "").endswith("AppWidgetHostView")
+                         and node.get("content-desc") == item["label"] and bounds(node)]
+                assert len(hosts) <= 1, f"Ambiguous placed {item['label']} widget"
+                if hosts:
+                    text = [node.get("text", "") for node in hosts[0].iter("node")]
+                    assert not any("Can't show content" in value or "Problem loading widget" in value for value in text), text
+                    if any(marker in value for value in text):
+                        host = hosts[0]
+                        break
+                time.sleep(1)
+            assert host is not None, f"{item['label']} did not display its empty-account content"
+            x1, y1, x2, y2 = bounds(host)
             x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
             self.adb("shell", "input", "swipe", x, y, x, y, "1000")
-            opened_menu = True
-            root = capture_launcher("launcher-longpress")
-            if error_dialog_visible():
-                report["reason"] = "System error dialog present after long press; no further interaction."
-                return
-            parents = {child: parent for parent in root.iter() for child in parent}
-            controls = {}
-            for node in root.iter("node"):
-                if node.get("package") != launcher or "Widgets" not in (node.get("text"), node.get("content-desc")):
-                    continue
-                while node is not None and node.get("package") == launcher:
-                    if node.get("enabled") == "true" and node.get("clickable") == "true" and bounds(node):
-                        controls[bounds(node)] = node
-                        break
-                    node = parents.get(node)
-            if len(controls) != 1:
-                report["reason"] = f"Found {len(controls)} enabled Widgets controls; picker was not opened."
-                return
-            self.tap(next(iter(controls.values())))
-            root = capture_launcher("launcher-picker")
-            report["status"] = "post_widgets_capture"
-            if error_dialog_visible():
-                report.update(status="diagnostic_error", reason="System error dialog present after Widgets tap.")
-        except (subprocess.SubprocessError, ET.ParseError) as error:
-            root = None  # Do not navigate based on the hierarchy from before the failed capture.
-            report.update(status="diagnostic_error", reason=str(error))
+            self.tap(self.widget_control(name + "-edit", self.launcher,
+                                         resource_id=self.launcher + ":id/widget_reconfigure_button"))
+            self.widget_configuration(name + "-config", item["label"], item["color"], save=False)
+            assert self.widget_bindings(name + "-verified") == expected, "Reconfigure replaced a widget ID"
+        self.text(phase + "-widgets-verified.json", json.dumps({"result": "passed", "phase": phase, "widgets": placed,
+                  "scope": "Visible empty-account host content, retained IDs and saved appearance selections; no fresh quota measurement."}, indent=2))
+
+    def verify_widget_lifecycle(self, placed):
+        original = self.adb("shell", "cmd", "uimode", "night")
+        mode = re.search(r"Night mode: (auto|no|yes|custom)\b", original)
+        assert mode, f"Unrecognized original night mode: {original}"
+        try:
+            for target, expected_night in [("yes", 0x20), ("no", 0x10)]:
+                self.adb("shell", "cmd", "uimode", "night", target)
+                state = self.adb("shell", "dumpsys", "uimode")
+                self.text(f"widgets-night-{target}-system.txt", state)
+                current = re.search(r"mCurUiMode=0x([0-9a-fA-F]+)", state)
+                assert current and (int(current[1], 16) & 0x30) == expected_night, "System did not apply the requested night mode"
+                self.verify_widgets_after_upgrade(placed, phase="night-" + target)
         finally:
-            # Never dismiss an observed system error dialog. Normal app launch still follows.
-            if opened_menu and root is not None and not error_dialog_visible():
-                try:
-                    self.adb("shell", "input", "keyevent", "KEYCODE_BACK")
-                    self.adb("shell", "input", "keyevent", "KEYCODE_HOME")
-                except subprocess.SubprocessError as error:
-                    report["cleanupError"] = str(error)
-            self.text("launcher-discovery.json", json.dumps(report, indent=2))
+            self.adb("shell", "cmd", "uimode", "night", mode[1])
+
+        self.launch("widgets-before-process-loss")
+        self.widget_home("widgets-before-process-loss-home")
+        before = set(self.adb("shell", "pidof", PACKAGE).split())
+        assert before, "No background app process exists to exercise normal process loss"
+        self.adb("shell", "am", "kill", PACKAGE)
+        for _ in range(12):
+            try:
+                after = set(self.adb("shell", "pidof", PACKAGE).split())
+            except subprocess.CalledProcessError as error:
+                if error.returncode != 1:
+                    raise
+                after = set()
+            if before.isdisjoint(after):
+                break
+            time.sleep(1)
+        self.text("widgets-process-loss.json", json.dumps({"before": sorted(before), "after": sorted(after)}, indent=2))
+        assert before.isdisjoint(after), "am kill did not end the observed background app process"
+        self.verify_widgets_after_upgrade(placed, phase="process-loss")
 
     def wait_for(self, name, predicate):
         last_error = None
@@ -310,6 +464,7 @@ def main():
         "fontScale": smoke.adb("shell", "settings", "get", "system", "font_scale"),
         "launcher": smoke.adb("shell", "cmd", "package", "resolve-activity", "--brief", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME"),
     }
+    smoke.launcher = environment["launcher"].splitlines()[-1].split("/", 1)[0]
     smoke.text("environment.json", json.dumps(environment, indent=2))
     smoke.adb("logcat", "-c")
     try:
@@ -318,7 +473,6 @@ def main():
         previous = smoke.installed("previous")
         assert int(previous["versionCode"]) == old["versionCode"] and previous["versionName"] == old["versionName"]
         smoke.adb("shell", "pm", "grant", PACKAGE, "android.permission.POST_NOTIFICATIONS")
-        smoke.inspect_launcher(environment["launcher"])
         smoke.launch("previous-start")
         smoke.navigate("Settings", "Provider icons", "previous-settings")
         setting = smoke.setting("previous-setting")
@@ -330,6 +484,7 @@ def main():
         smoke.launch("previous-relaunch")
         smoke.navigate("Settings", "Provider icons", "previous-relaunch-settings")
         smoke.setting_is_disabled("previous-persisted")
+        placed_widgets = smoke.place_widgets()
 
         smoke.text("upgrade-install.txt", smoke.adb("install", "-r", str(args.apk), timeout=180))
         current = smoke.installed("current")
@@ -350,6 +505,8 @@ def main():
         smoke.adb("shell", "am", "force-stop", PACKAGE)
         smoke.launch("current-relaunch")
         smoke.navigate("Overview", "0 accounts monitored", "current-relaunch-overview")
+        smoke.verify_widgets_after_upgrade(placed_widgets)
+        smoke.verify_widget_lifecycle(placed_widgets)
     except Exception:
         try:
             smoke.capture("failure")
@@ -366,8 +523,9 @@ def main():
     assert not re.search(r"\breason=(?:4|5|6|7)\b", exits), "Application crash or ANR exit recorded"
     smoke.text("result.json", json.dumps({"result": "passed", "commit": os.environ["GITHUB_SHA"],
         "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": ["Overview", "Accounts", "Resets", "Settings"],
-        "scope": "Empty-account release smoke; widget placement and provider-authenticated flows were not tested."}, indent=2))
-    print("Release APK upgrade, persisted setting, four tabs, relaunch and crash checks passed.")
+        "widgets": placed_widgets,
+        "scope": "Empty-account release smoke with four launcher widgets; provider-authenticated quotas were not tested."}, indent=2))
+    print("Release APK upgrade, persisted setting, four tabs, four launcher widgets, night mode and process-loss checks passed.")
 
 
 if __name__ == "__main__":

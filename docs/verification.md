@@ -25,9 +25,17 @@ or inconsistent values. Signature continuity alone does not prove an on-device u
 The API 36 runtime job installs v0.2.0 on a fresh AOSP emulator, changes and reloads
 a setting, then installs the same run's signed minified APK with `adb install -r`.
 It verifies the installed APK hash, preserved setting and package identity, four
-tabs, relaunch and crash/ANR diagnostics. Its artifact records the commit, device
-environment, screenshots and UI XML. A passing run establishes an empty-account
-upgrade; it does not exercise populated accounts or widgets in a launcher.
+tabs, relaunch and crash/ANR diagnostics. It also places all four empty widget
+types through the launcher and checks their IDs, visible content and saved
+appearance selections after upgrading, changing day/night mode and ending the
+observed background app process with `am kill`. Reconfiguration checks cancel
+without saving, so they cannot repair lost settings. These checks are required;
+missing launcher controls fail with screenshots and UI XML for diagnosis.
+Its artifact records the commit and device environment. A passing run establishes
+empty-account upgrade and the stated launcher checks; it does not establish
+populated-account behavior, a fresh provider repaint, reboot or physical-device
+lifecycle behavior. The earlier force-stop/relaunch checks remain distinct from
+the background-process-loss check.
 iOS CI runs the shared package on Linux and macOS and builds/runs the app with the
 real SDK on iPhone and iPad simulators.
 
