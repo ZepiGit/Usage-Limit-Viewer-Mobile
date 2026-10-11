@@ -84,6 +84,24 @@ fi
 sdkmanager --install 'emulator' 'system-images;android-36;default;x86_64' > "$evidence/emulator-sdk-install.txt" 2>&1
 avdmanager create avd --name usage-runtime --package 'system-images;android-36;default;x86_64' \
   --device pixel_7_pro <<< no > "$evidence/emulator-avd-create.txt" 2>&1
+# Keep the same 411x891 dp viewport while reducing the CPU-bound software-rendered
+# surface from 1440x3120 to 720x1560 pixels. A failed API 36 boot showed SystemUI
+# blocked 14.3s in SurfaceControl.getGPUContextPriority while SurfaceFlinger and
+# the graphics composer were saturated on a four-vCPU GitHub host.
+python3 - "$ANDROID_AVD_HOME/usage-runtime.avd/config.ini" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+config = Path(sys.argv[1])
+text = config.read_text()
+for key, value in {"hw.lcd.width": "720", "hw.lcd.height": "1560", "hw.lcd.density": "280"}.items():
+    pattern = rf"(?m)^{re.escape(key)}=.*$"
+    if len(re.findall(pattern, text)) != 1:
+        raise SystemExit(f"Expected exactly one {key} AVD setting")
+    text = re.sub(pattern, f"{key}={value}", text)
+config.write_text(text)
+PY
 cp "$ANDROID_AVD_HOME/usage-runtime.avd/config.ini" "$evidence/emulator-avd-config.ini"
 # The previous runner requested 2048M, but this image raised it to 4096MB.
 # Keep that actual allocation and the boot options; use four CPUs.
@@ -124,6 +142,26 @@ import sys
 modes = set(re.findall(r"vulkan_mode_selected:(\S+)\s+gles_mode_selected:(\S+)", Path(sys.argv[1]).read_text()))
 if modes != {("lavapipe", "llvmpipe")}:
     raise SystemExit(f"Expected Lavapipe/LLVMpipe; observed renderer modes: {sorted(modes)}")
+PY
+
+display_size=$(timeout 10s adb -s "$ANDROID_SERIAL" shell wm size | tr -d '\r')
+display_density=$(timeout 10s adb -s "$ANDROID_SERIAL" shell wm density | tr -d '\r')
+printf '%s\n%s\n' "$display_size" "$display_density" > "$evidence/emulator-runtime-display.txt"
+python3 - "$evidence/emulator-runtime-display.txt" <<'PY'
+from pathlib import Path
+import math
+import re
+import sys
+
+lines = Path(sys.argv[1]).read_text().splitlines()
+size = re.fullmatch(r"Physical size: (\d+)x(\d+)", lines[0]) if len(lines) == 2 else None
+density = re.fullmatch(r"Physical density: (\d+)", lines[1]) if len(lines) == 2 else None
+if not size or not density or (int(size[1]), int(size[2]), int(density[1])) != (720, 1560, 280):
+    raise SystemExit(f"Unexpected API 36 display: {lines}")
+dp = tuple(int(value) * 160 / int(density[1]) for value in size.groups())
+if any(not math.isclose(actual, expected, abs_tol=0.6)
+       for actual, expected in zip(dp, (1440 * 160 / 560, 3120 * 160 / 560))):
+    raise SystemExit(f"The reduced-resolution display changed the logical viewport: {dp}")
 PY
 
 for setting in window_animation_scale transition_animation_scale animator_duration_scale; do
