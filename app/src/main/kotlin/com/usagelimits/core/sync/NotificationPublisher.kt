@@ -186,7 +186,11 @@ class NotificationPublisher(
             .build()
 
         runCatching {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+            try {
+                NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+            } catch (_: SecurityException) {
+                // Permission can be revoked after hasPermission(); claimed events stay consumed.
+            }
         }
     }
 
