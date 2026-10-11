@@ -35,11 +35,12 @@ or inconsistent values. Signature continuity alone does not prove an on-device u
 The API 36 runtime job starts a fresh AOSP emulator and waits for a focused
 launcher window and its observed workspace before sending test input. Boot logs
 are retained; a system error dialog fails the run. Both Android and release CI
-keep Xvfb alive around the runtime wrapper. The software renderer uses bundled
-Lavapipe/LLVMpipe with `EGL_PLATFORM=x11`; native EGL requires a display even
-with `-no-window`. The wrapper rejects missing `DISPLAY` and verifies the actual
-renderer modes before APK installation. This setup addresses the observed CI
-graphics initialization path; it does not establish physical-device performance.
+keep Xvfb alive around the runtime wrapper with `EGL_PLATFORM=x11`. The emulator
+uses explicit `-gpu swiftshader` and verifies SwiftShader Vulkan/GLES backends
+before APK installation. This matches an earlier healthy boot; LLVMpipe boots
+also produced a SystemUI startup ANR while waiting on SurfaceFlinger under CPU
+pressure. The wrapper rejects missing `DISPLAY` and retains all system-dialog
+and ANR checks. This setup does not establish physical-device performance.
 The fresh API 36 AVD renders at 720x1560 pixels and 280 dpi, preserving the
 previous 1440x3120 at 560 dpi logical viewport (about 411x891 dp) while reducing
 CPU-bound software-rendering work. The wrapper records and checks both physical
