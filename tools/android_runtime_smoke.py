@@ -475,7 +475,15 @@ class Smoke:
             text = nodes[0].get("text", "")
             target = re.fullmatch(r"Move to row (\d+) column (\d+) in (Home screen \d+ of \d+|New home screen page)", text)
             assert target, f"Unrecognized launcher move target: {text}"
-            return {"row": int(target[1]), "column": int(target[2]), "page": target[3], "text": text}
+            parents = {child: parent for parent in root.iter() for child in parent}
+            popup = parents.get(nodes[0])
+            while popup is not None and popup.get("focusable") != "true":
+                popup = parents.get(popup)
+            assert popup is not None and popup.get("package") == self.launcher and (
+                popup.get("class") == "android.widget.LinearLayout" and popup.get("enabled") == "true"
+            ), "Cannot identify the keyboard move popup's input-focus owner"
+            return {"row": int(target[1]), "column": int(target[2]), "page": target[3], "text": text,
+                    "focused": popup.get("focused") == "true"}
 
         self.find_placed_widget("move-resize-before-locate", item["label"])
         initial = observe("move-resize-before", lambda box: True)
@@ -487,19 +495,45 @@ class Smoke:
         original_target = move_target(self.widget_capture("move-target-original"))
         assert original_target is not None and original_target["page"].startswith("Home screen "), "No existing-page move origin"
         report["moveOrigin"] = original_target
+        report["moveFocus"] = []
         report["moveTargets"] = []
-        selected = None
-        # Each key navigates launcher-provided valid destinations; never infer grid coordinates.
-        for index, direction in enumerate(["DOWN", "LEFT", "RIGHT", "UP"]):
-            self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_DPAD_" + direction)
+        target = original_target
+        # Touch-mode focus acquisition can consume a key without moving the virtual target.
+        for index in range(4):
+            if target["focused"]:
+                break
+            self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_TAB")
+            target = move_target(self.widget_capture(f"move-focus-{index}"))
+            assert target is not None, "Keyboard move UI disappeared while acquiring input focus"
+            report["moveFocus"].append(target)
+            record()
+        assert target["focused"], "Keyboard move popup did not acquire input focus within four TAB keys"
+
+        def is_destination(candidate):
+            return candidate["page"] == original_target["page"] and (
+                candidate["row"], candidate["column"]) != (original_target["row"], original_target["column"])
+
+        # A focus-acquisition TAB may already have selected a valid destination.
+        selected = target if is_destination(target) else None
+        seen = {target["text"]}
+        # TAB traverses valid cells in reading order; spatial DPAD navigation can change pages.
+        for index in range(40):
+            if selected is not None:
+                break
+            previous = target["text"]
+            self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_TAB")
+            self.wait_for(f"move-target-{index}-changed", lambda root: (
+                (candidate := move_target(root)) is not None and candidate["focused"] and candidate["text"] != previous))
             target = move_target(self.widget_capture(f"move-target-{index}"))
             assert target is not None, "Keyboard move UI disappeared before a target was chosen"
-            report["moveTargets"].append({"key": direction, "target": target})
+            assert target["focused"] and target["text"] != previous, "Keyboard move target lost its observed change/focus"
+            report["moveTargets"].append({"key": "TAB", "target": target})
             record()
-            if target["page"] == original_target["page"] and (
-                target["row"], target["column"]) != (original_target["row"], original_target["column"]):
+            if is_destination(target):
                 selected = target
                 break
+            assert target["text"] not in seen, "Keyboard move targets cycled without a different same-page destination"
+            seen.add(target["text"])
         assert selected is not None, "No different observed move target on the original Home page"
         self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ENTER")
         # Quickstep opens the resize frame after a resizable widget is dropped.
