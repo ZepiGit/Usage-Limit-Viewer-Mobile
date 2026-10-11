@@ -201,7 +201,7 @@ final class ProductionShapeTests: XCTestCase {
         XCTAssertFalse(windows.contains { $0.id == "xai-on-demand" })
     }
 
-    // MARK: - xAI: absent spend must stay unknown, never read as zero (Astra, verified)
+    // MARK: - xAI: absent spend must stay unknown, never read as zero
 
     func testXaiBillingSpendNamesWithBareAndWrappedCentsAndBothEnvelopes() throws {
         let names = ["used", "includedUsed", "included_used", "totalUsed", "total_used"]

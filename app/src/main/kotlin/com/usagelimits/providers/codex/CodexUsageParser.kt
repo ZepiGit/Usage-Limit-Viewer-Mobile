@@ -120,7 +120,7 @@ object CodexUsageParser {
      * may be truncated while the count is exact.
      */
     fun availableCreditCount(payload: JsonObject?): Int? =
-        JsonSupport.double(payload, "available_count", "availableCount")?.toInt()
+        count(JsonSupport.double(payload, "available_count", "availableCount"))
 
     /**
      * How many of those credits can be spent against the limit that is currently reached.
@@ -134,11 +134,18 @@ object CodexUsageParser {
      * user really holds. Carrying both is correct under either.
      */
     fun applicableCreditCount(payload: JsonObject?): Int? =
-        JsonSupport.double(
-            payload,
-            "applicable_available_count",
-            "applicableAvailableCount",
-        )?.toInt()
+        count(
+            JsonSupport.double(
+                payload,
+                "applicable_available_count",
+                "applicableAvailableCount",
+            ),
+        )
+
+    /** Only a non-negative whole count that fits an Int is known; anything else is unstated. */
+    private fun count(value: Double?): Int? = value?.takeIf {
+        it.isFinite() && it >= 0.0 && it <= Int.MAX_VALUE.toDouble() && it == Math.floor(it)
+    }?.toInt()
 
     /** Reads the subscription plan, which the usage endpoint reports alongside the windows. */
     fun parsePlan(payload: JsonObject): String? =
@@ -170,7 +177,18 @@ object CodexUsageParser {
             classified.longWindow?.let {
                 toWindow(it, "$idPrefix-long", labelPrefix, nowMs, group)
             },
-        )
+        ) + classified.unslotted.map { window ->
+            // Two windows can share a category (a weekly and a monthly limit, or two 5-hour
+            // limits). The slots exist for identity only, so a window that found none keeps
+            // its own id by payload position instead of being dropped.
+            val position = if (window === primary) "primary" else "secondary"
+            toWindow(window, "$idPrefix-$position", labelPrefix, nowMs, group)
+        }
+        // An explicit block with no child window is still a reported block. Keep it as an
+        // unmeasured window instead of inventing a percentage, duration or reset time.
+        if (limitReached && windows.isEmpty()) {
+            return listOf(blockedWindow(idPrefix, labelPrefix, group))
+        }
         // The flag belongs to this family. A spent short window explains it without also
         // exhausting a positive weekly window. Preserve an otherwise unexplained block on
         // one representative window, while leaving its provider-reported figure untouched.
@@ -179,7 +197,23 @@ object CodexUsageParser {
         return windows.map { if (it === blocked) it.copy(exhausted = true) else it }
     }
 
-    private data class Classified(val shortWindow: JsonObject?, val longWindow: JsonObject?)
+    private fun blockedWindow(idPrefix: String, labelPrefix: String?, group: String?) = UsageWindow(
+        id = "$idPrefix-blocked",
+        label = if (labelPrefix == null) "Limit reached" else "$labelPrefix · Limit reached",
+        category = WindowCategory.OTHER,
+        usedPercent = null,
+        periodSeconds = null,
+        resetAt = null,
+        exhausted = true,
+        group = group,
+        scope = if (group == null) UsageScope.GLOBAL else UsageScope.MODEL,
+    )
+
+    private data class Classified(
+        val shortWindow: JsonObject?,
+        val longWindow: JsonObject?,
+        val unslotted: List<JsonObject>,
+    )
 
     /**
      * Sorts the two reported windows into a short (5-hour) and a long (weekly/monthly) slot
@@ -225,7 +259,11 @@ object CodexUsageParser {
             else if (shortWindow == null) shortWindow = window
         }
 
-        return Classified(shortWindow, longWindow)
+        return Classified(
+            shortWindow,
+            longWindow,
+            windows.filter { it !== shortWindow && it !== longWindow },
+        )
     }
 
     private fun toWindow(

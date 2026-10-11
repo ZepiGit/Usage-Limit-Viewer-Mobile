@@ -324,7 +324,9 @@ final class XaiBillingParserTests: XCTestCase {
             let fromBilling = XaiBillingParser.parseBilling(source, now: now)
             XCTAssertEqual(fromBilling.map(\.id), ["xai-credits", "xai-on-demand"])
             XCTAssertEqual(try percent(fromBilling, "xai-credits"), usedPercent)
-            XCTAssertEqual(fromBilling.first?.scope, .global)
+            // A positive cap makes the included allowance one of two pools, exactly as the
+            // deprecated monthly view of the same account reports it.
+            XCTAssertEqual(fromBilling.first?.scope, .model)
 
             let credits = XaiBillingParser.parseCredits(["creditUsagePercent": usedPercent], now: now)
             let legacy = XaiBillingParser.parseBilling(["monthlyLimit": 10000, "used": 10000], now: now)
@@ -465,5 +467,50 @@ final class XaiBillingParserTests: XCTestCase {
           "billingPeriodEnd": "2026-10-01T00:00:00Z" }
         """), now: liveNow)
         XCTAssertEqual(legacy.map(\.id), ["xai-monthly", "xai-on-demand"])
+    }
+
+    // MARK: - The credit and monthly views of one allowance agree on availability
+
+    private func severity(_ windows: [UsageWindow]) -> Severity {
+        UsageSnapshot(accountID: "a", fetchedAt: now, status: .ok, windows: windows).severity
+    }
+
+    private func views(_ fields: String) -> (monthly: Severity, credits: Severity, unified: Severity) {
+        let monthly = XaiBillingParser.parseBilling(
+            payload(#"{"monthlyLimit": 10000, "used": 10000, \#(fields)}"#), now: now)
+        let credits = XaiBillingParser.merge(
+            XaiBillingParser.parseCredits(payload(#"{"creditUsagePercent": 100}"#), now: now),
+            XaiBillingParser.parseBilling(payload("{\(fields)}"), now: now))
+        let unified = XaiBillingParser.parseBilling(
+            payload(#"{"creditUsagePercent": 100, "monthlyLimit": 10000, "used": 10000, \#(fields)}"#), now: now)
+        return (severity(monthly), severity(credits), severity(unified))
+    }
+
+    func testExhaustedCreditsWithUnusedPositiveOnDemandCapAreLimited() {
+        let result = views(#""onDemandCap": 5000, "onDemandUsed": 0"#)
+        XCTAssertEqual(result.monthly, .limited)
+        XCTAssertEqual(result.credits, .limited)
+        XCTAssertEqual(result.unified, .limited)
+    }
+
+    func testBothPoolsExhaustedReadExhaustedInEitherRepresentation() {
+        let result = views(#""onDemandCap": 5000, "onDemandUsed": 5000"#)
+        XCTAssertEqual(result.monthly, .exhausted)
+        XCTAssertEqual(result.credits, .exhausted)
+        XCTAssertEqual(result.unified, .exhausted)
+    }
+
+    func testWithoutAProvenPositiveCapExhaustedCreditsStayGlobal() {
+        for fields in [#""onDemandCap": 0, "onDemandUsed": 0"#, #""onDemandUsed": 0"#,
+                       #""onDemandCap": "x""#, #""onDemandCap": null"#] {
+            let credits = XaiBillingParser.merge(
+                XaiBillingParser.parseCredits(payload(#"{"creditUsagePercent": 100}"#), now: now),
+                XaiBillingParser.parseBilling(payload("{\(fields)}"), now: now))
+            XCTAssertEqual(credits.first { $0.id == "xai-credits" }?.scope, .global, fields)
+            XCTAssertEqual(severity(credits), .exhausted, fields)
+        }
+        let alone = XaiBillingParser.merge(
+            XaiBillingParser.parseCredits(payload(#"{"creditUsagePercent": 100}"#), now: now), [])
+        XCTAssertEqual(severity(alone), .exhausted)
     }
 }

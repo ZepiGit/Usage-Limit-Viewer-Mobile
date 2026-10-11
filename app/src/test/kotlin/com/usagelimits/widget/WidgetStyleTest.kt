@@ -144,4 +144,29 @@ class WidgetStyleTest {
         assertTrue(view.transparent)
         assertFalse(WidgetUpdater.WidgetView(WidgetSnapshot.Empty).transparent)
     }
+
+    @Test
+    fun `a row's own block outranks the full-quota colour`() {
+        for (style in listOf(WidgetStyle(), WidgetStyle(WidgetBackground(0xFFF3F0E8.toInt(), 100)))) {
+            val blockedFull = WidgetRow("Weekly", WindowCategory.WEEKLY, 100.0, null, Severity.EXHAUSTED)
+            assertEquals(style.accent(Severity.EXHAUSTED), style.bar(blockedFull))
+            assertEquals(style.textColor(Severity.EXHAUSTED), style.barText(blockedFull))
+
+            val healthyFull = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 100.0, null, Severity.HEALTHY)
+            assertEquals(WidgetStyle.Teal, style.bar(healthyFull))
+            val nearlyFull = healthyFull.copy(remainingPercent = 99.6)
+            assertEquals(WidgetStyle.Teal, style.bar(nearlyFull))
+            val healthy = healthyFull.copy(remainingPercent = 98.0)
+            assertEquals(style.accent(Severity.HEALTHY), style.bar(healthy))
+            val small = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 0.4, null, Severity.LOW)
+            assertEquals(style.accent(Severity.LOW), style.bar(small))
+
+            // Data validity still outranks both.
+            for (validity in listOf(Severity.STALE, Severity.ERROR, Severity.UNKNOWN)) {
+                assertEquals(style.accent(validity), style.bar(blockedFull, validity))
+                assertEquals(style.accent(validity), style.bar(healthyFull, validity))
+            }
+            assertEquals(style.accent(Severity.STALE), style.bar(blockedFull.copy(resetElapsed = true)))
+        }
+    }
 }

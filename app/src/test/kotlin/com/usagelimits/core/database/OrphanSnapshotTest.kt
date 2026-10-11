@@ -204,7 +204,10 @@ class OrphanSnapshotTest {
             assertEquals(expectedIds, restored.windows.map { it.id })
             assertEquals(com.usagelimits.core.model.UsageScope.MODEL, restored.windows.last().scope)
             if (used != "null") {
-                assertEquals(80.0, restored.mostCritical!!.remainingPercent!!, 0.0)
+                // A measured on-demand pool proves a positive cap, so the credit view is one
+                // of two pools, exactly as the monthly representation of the same account.
+                assertEquals(com.usagelimits.core.model.UsageScope.MODEL, restored.windows.first().scope)
+                assertEquals(80.0, restored.windows.first().remainingPercent!!, 0.0)
                 assertEquals(com.usagelimits.core.model.Severity.LIMITED, restored.severity)
             }
         }
@@ -231,6 +234,17 @@ class OrphanSnapshotTest {
         assertTrue(restored.windows.all { it.scope == com.usagelimits.core.model.UsageScope.MODEL })
         assertEquals(com.usagelimits.core.model.Severity.LIMITED, restored.severity)
         assertEquals(now, restored.fetchedAt)
+    }
+
+    @Test
+    fun `cached exhausted credits beside available on demand stay limited after a reload`() = runBlocking {
+        val restored = cachedXai("""[
+            {"id":"xai-credits","label":"Monthly credits","category":"MONTHLY","usedPercent":100.0,"exhausted":true,"scope":"GLOBAL"},
+            {"id":"xai-on-demand","label":"On-demand","category":"MONTHLY","usedPercent":0.0,"scope":"MODEL"}
+        ]""")
+
+        assertEquals(com.usagelimits.core.model.UsageScope.MODEL, restored.windows.first().scope)
+        assertEquals(com.usagelimits.core.model.Severity.LIMITED, restored.severity)
     }
 
     @Test
