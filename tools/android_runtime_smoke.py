@@ -741,8 +741,8 @@ class Smoke:
         report = {
             "apk": apk, "environmentReport": "environment.json", "widgets": placed,
             "nightMode": self.adb("shell", "cmd", "uimode", "night"),
-            "method": "One excluded warmup and three launches after force-stop and observed process absence; grouped by Android's reported launch state; empty Overview; five seconds idle before process meminfo.",
-            "limits": "Background jobs can start the process between the PID check and activity launch, so force-stop does not guarantee a COLD sample. Initial display, not fully ready or storage-cold. Sequential shared CI emulator, uncontrolled ART/file caches and host load. No timing thresholds or improvement claim. Memory reports exclude launcher memory and are retained raw until their platform format is verified.",
+            "method": "One excluded warmup and three launches after force-stop; any previously observed PIDs must be absent, while a new background PID is allowed. Grouped by Android's reported launch state; empty Overview; five seconds idle before process meminfo.",
+            "limits": "Background jobs can restart the process before the post-stop PID check or activity launch, so force-stop does not guarantee a process-free interval or a COLD sample. Initial display, not fully ready or storage-cold. Sequential shared CI emulator, uncontrolled ART/file caches and host load. No timing thresholds or improvement claim. Memory reports exclude launcher memory and are retained raw for separate analysis.",
             "samples": [],
         }
 
@@ -758,13 +758,21 @@ class Smoke:
         self.navigate("Overview", "0 accounts monitored", phase + "-performance-prepare-overview")
         for index in range(4):
             name = f"{phase}-performance-{index}"
+            before_stop = pids()
             self.adb("shell", "am", "force-stop", PACKAGE)
+            stopped_pid_observations = []
             for _ in range(12):
-                if not pids():
+                observed = pids()
+                stopped_pid_observations.append(observed)
+                if set(before_stop).isdisjoint(observed):
                     break
                 time.sleep(1)
             before_launch = pids()
-            assert not before_launch, "App process survived performance force-stop"
+            self.text(name + "-process-transition.json", json.dumps({
+                "pidsBeforeForceStop": before_stop, "pidsAfterForceStop": stopped_pid_observations,
+                "pidsBeforeLaunch": before_launch,
+            }, indent=2))
+            assert set(before_stop).isdisjoint(before_launch), "A prior app PID survived performance force-stop"
             launch = self.adb("shell", "am", "start", "-W", "-n", activity,
                               "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER")
             self.text(name + "-launch.txt", launch)
@@ -787,13 +795,14 @@ class Smoke:
             memory = self.adb("shell", "dumpsys", "meminfo", observed_pids[0])
             self.text(name + "-meminfo.txt", memory)
             assert pids() == observed_pids, "App process changed during memory observation"
-            # Preserve the actual API 36 report; do not guess a PSS column before seeing it.
+            # Preserve the complete platform report for separate memory analysis.
             report["samples"].append({
                 "index": index, "warmup": index == 0, "launchState": launch_state,
-                "pidsBeforeLaunch": before_launch, "totalTimeMs": int(total[1]),
+                "pidsBeforeForceStop": before_stop, "pidsBeforeLaunch": before_launch,
+                "totalTimeMs": int(total[1]),
                 "waitTimeMs": int(wait[1]) if wait else None, "pid": observed_pids[0],
                 "memoryDelaySeconds": memory_delay, "memoryReport": name + "-meminfo.txt",
-                "memoryPssKiB": None, "memoryStatus": "raw report retained; PSS format not yet verified",
+                "memoryPssKiB": None, "memoryStatus": "raw report retained; PSS not parsed by this script",
             })
             report["totalTimeMsByLaunchState"] = {}
             for state in ("COLD", "WARM", "HOT"):

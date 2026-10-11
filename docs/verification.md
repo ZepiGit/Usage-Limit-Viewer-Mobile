@@ -65,9 +65,11 @@ real SDK on iPhone and iPad simulators.
 The runtime script also records one excluded warmup and three launches after
 force-stop per APK with four widgets placed, then saves process memory reports
 after five idle seconds on Overview. Timings are grouped by Android's reported
-COLD, WARM or HOT state. A background job can start the process between the PID
-check and activity launch; observing no process beforehand does not guarantee a
-cold sample. These observations use the same emulator, but do not control
+COLD, WARM or HOT state. The script records PIDs before force-stop and before
+launch, requiring termination of the prior PIDs. A background job can create a
+new process before the post-stop PID check or activity launch; it must not be
+mistaken for a surviving old process or counted as a guaranteed cold start.
+These observations use the same emulator, but do not control
 shared host load, ART profiles or file caches. They do not establish general speed,
 scrolling, battery or background-work improvements.
 
