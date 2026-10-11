@@ -18,6 +18,16 @@ saved colors across day/night and resize, and requires materialized account and
 quota text in collection widgets. A background-only PNG is not sufficient proof.
 These are synthetic Robolectric renders, not physical launcher lifecycle tests.
 
+The resolved release dependencies at `4ec7c53` included WorkManager 2.10.0 and
+DataStore 1.1.1. The patch updates to
+[WorkManager 2.10.5](https://developer.android.com/jetpack/androidx/releases/work#2.10.5)
+and [DataStore 1.1.7](https://developer.android.com/jetpack/androidx/releases/datastore#1.1.7)
+include upstream fixes for incorrect network-constraint evaluation, startup storage
+races, PreferencesDataStore corruption and missing R8/ProGuard rules. These changes
+do not establish the cause of the reported widget color change or a measured
+performance improvement. CI records the resulting dependency graph and runs the
+existing scheduling and persistence tests and the minified APK upgrade path.
+
 The APK reports record package/version metadata, SHA-256 and signer certificates.
 When the existing release key is configured, CI compares the previous published
 APK's identity, version code and signer with the new artifact and fails on missing
