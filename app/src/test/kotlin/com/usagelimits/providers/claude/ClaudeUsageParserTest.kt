@@ -67,7 +67,7 @@ class ClaudeUsageParserTest {
         // weekly row is indistinguishable from a second real limit.
         val windows = ClaudeUsageParser.parse(JsonSupport.parseObject(fullPayload), now)
 
-        assertEquals(listOf("five-hour", "seven-day", "seven-day-fable"), windows.map { it.id })
+        assertEquals(listOf("five-hour", "seven-day", "seven-day-fable", "nimbus-quill"), windows.map { it.id })
     }
 
     @Test
@@ -189,7 +189,7 @@ class ClaudeUsageParserTest {
     }
 
     @Test
-    fun `a limits array whose every percent is unreadable falls back to the flat keys`() {
+    fun `an unreadable scoped limit remains unknown beside a valid flat window`() {
         // An array that yields nothing is no better than an absent one, and silently rendering
         // an empty screen would be the worst of the three outcomes.
         val payload = JsonSupport.parseObject(
@@ -202,8 +202,9 @@ class ClaudeUsageParserTest {
             """.trimIndent(),
         )
 
-        val window = ClaudeUsageParser.parse(payload, now).single()
-
+        val windows = ClaudeUsageParser.parse(payload, now)
+        assertNull(windows.single { it.id == "seven-day-fable" }.remainingPercent)
+        val window = windows.single { it.id == "iguana-necktie" }
         assertEquals("iguana-necktie", window.id)
         assertEquals(5.0, window.usedPercent!!, 0.0001)
     }
@@ -258,12 +259,11 @@ class ClaudeUsageParserTest {
     }
 
     @Test
-    fun `an untouched codename slot is not surfaced`() {
-        // `nimbus_quill` sits at 0 % on a live account. A screen meant to be read in three
-        // seconds does not need a row for a placeholder nobody is consuming.
+    fun `an untouched declared codename window remains visible`() {
+        // Zero use does not prove that a declared quota is a placeholder.
         val windows = ClaudeUsageParser.parse(JsonSupport.parseObject(fullPayload), now)
 
-        assertTrue(windows.none { it.id == "nimbus-quill" })
+        assertEquals(100.0, windows.single { it.id == "nimbus-quill" }.remainingPercent!!, 0.0)
     }
 
     @Test
@@ -353,7 +353,7 @@ class ClaudeUsageParserTest {
     }
 
     @Test
-    fun `a window object without utilization yields no row while its siblings parse`() {
+    fun `a window object without utilization remains unknown while siblings parse`() {
         val payload = JsonSupport.parseObject(
             """
             {
@@ -366,12 +366,12 @@ class ClaudeUsageParserTest {
 
         val windows = ClaudeUsageParser.parse(payload, now)
 
-        assertEquals(listOf("five-hour", "seven-day-opus"), windows.map { it.id })
+        assertEquals(listOf("five-hour", "seven-day", "seven-day-opus"), windows.map { it.id })
         assertEquals(42.5, windows.first().usedPercent!!, 0.0001)
     }
 
     @Test
-    fun `a non numeric utilization yields no row while its siblings parse`() {
+    fun `a non numeric utilization remains unknown while its siblings parse`() {
         val payload = JsonSupport.parseObject(
             """
             {
@@ -385,12 +385,14 @@ class ClaudeUsageParserTest {
         val windows = ClaudeUsageParser.parse(payload, now)
 
         // A numeric string is still usable; only the unreadable ones are dropped.
-        assertEquals(listOf("seven-day-opus"), windows.map { it.id })
-        assertEquals(10.0, windows.single().usedPercent!!, 0.0001)
+        assertEquals(listOf("five-hour", "seven-day", "seven-day-opus"), windows.map { it.id })
+        assertNull(windows.first().remainingPercent)
+        assertEquals(10.0, windows.last().usedPercent!!, 0.0001)
+        assertTrue(ClaudeUsageParser.hasInvalidUsage(payload))
     }
 
     @Test
-    fun `every surviving window has a usable usedPercent`() {
+    fun `unknown values retain their windows without inventing consumption`() {
         val payload = JsonSupport.parseObject(
             """
             {
@@ -405,7 +407,8 @@ class ClaudeUsageParserTest {
         val windows = ClaudeUsageParser.parse(payload, now)
 
         assertTrue(windows.isNotEmpty())
-        assertTrue(windows.all { it.usedPercent != null })
+        assertEquals(2, windows.count { it.usedPercent != null })
+        assertEquals(2, windows.count { it.usedPercent == null })
         assertFalse(windows.any { it.severity == Severity.ERROR })
     }
 
@@ -510,9 +513,8 @@ class ClaudeUsageParserTest {
     }
 
     @Test
-    fun `a codename key sharing a reset instant with a limits entry is not shown twice`() {
-        // The same quota under two names. Rendering both puts two constraints on screen where
-        // there is one, and integer-versus-decimal rounding makes them look like they disagree.
+    fun `matching reset instants do not prove two windows have the same scope`() {
+        // A matching reset does not prove these are aliases; keep both without inferring scope.
         val payload = JsonSupport.parseObject(
             """
             {
@@ -526,7 +528,7 @@ class ClaudeUsageParserTest {
 
         val windows = ClaudeUsageParser.parse(payload, now)
 
-        assertEquals(listOf("seven-day-fable"), windows.map { it.id })
+        assertEquals(listOf("seven-day-fable", "juniper-tide"), windows.map { it.id })
     }
 
     @Test
@@ -656,4 +658,42 @@ class ClaudeUsageParserTest {
     }
 
     // endregion
+    @Test
+    fun `zero consumed global windows survive alongside a consumed model window`() {
+        val windows = ClaudeUsageParser.parse(JsonSupport.parseObject("""
+            {"five_hour":{"utilization":0},"seven_day":{"utilization":0},
+             "seven_day_opus":{"utilization":100}}
+        """), now)
+        assertEquals(listOf("five-hour", "seven-day", "seven-day-opus"), windows.map { it.id })
+        assertEquals(listOf(100.0, 100.0, 0.0), windows.map { it.remainingPercent })
+    }
+
+    @Test
+    fun `colliding model names keep stable identities when the array order changes`() {
+        val first = """{"kind":"weekly_scoped","percent":10,"scope":{"model":{"id":"Sonnet 4.5","display_name":"First"}}}"""
+        val second = """{"kind":"weekly_scoped","percent":20,"scope":{"model":{"id":"sonnet-4.5","display_name":"Second"}}}"""
+        fun ids(entries: String) = ClaudeUsageParser.parse(JsonSupport.parseObject("""{"limits":[$entries]}"""), now)
+            .associate { it.label to it.id }
+        assertEquals(ids("$first,$second"), ids("$second,$first"))
+    }
+
+    @Test fun `missing primary measurement cannot hide a measured flat twin`() {
+        val rows = ClaudeUsageParser.parse(JsonSupport.parseObject("""{"limits":[{"kind":"session","percent":null}],"five_hour":{"utilization":20}}"""), now)
+        assertEquals(80.0, rows.single().remainingPercent!!, 0.0)
+    }
+
+    @Test fun `distinct provider model IDs stay independent even with identical display names`() {
+        val rows = ClaudeUsageParser.parse(JsonSupport.parseObject("""{"limits":[
+          {"kind":"weekly_scoped","percent":100,"scope":{"model":{"id":"a","display_name":"Same"}}},
+          {"kind":"weekly_scoped","percent":20,"scope":{"model":{"id":"b","display_name":"Same"}}}] }"""), now)
+        assertEquals(com.usagelimits.core.model.Severity.LIMITED,
+            com.usagelimits.core.model.UsageSnapshot("synthetic", now, com.usagelimits.core.model.SnapshotStatus.OK, rows).severity)
+    }
+
+    @Test fun `unrecognized limits with separate provider identities remain separate`() {
+        val rows = ClaudeUsageParser.parse(JsonSupport.parseObject("""{"limits":[{"id":"a","percent":20},{"id":"b","percent":80}]}"""), now)
+        assertEquals(2, rows.size)
+        assertEquals(2, rows.map { it.id }.distinct().size)
+    }
+
 }

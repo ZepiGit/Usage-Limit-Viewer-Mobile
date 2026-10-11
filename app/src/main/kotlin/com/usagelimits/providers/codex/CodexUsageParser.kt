@@ -4,6 +4,7 @@ import com.usagelimits.core.model.planLabel
 
 import com.usagelimits.core.model.ResetCredit
 import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.time.Instants
@@ -162,14 +163,20 @@ object CodexUsageParser {
 
         val classified = classify(primary, secondary)
 
-        return listOfNotNull(
+        val windows = listOfNotNull(
             classified.shortWindow?.let {
-                toWindow(it, "$idPrefix-short", labelPrefix, limitReached, nowMs, group)
+                toWindow(it, "$idPrefix-short", labelPrefix, nowMs, group)
             },
             classified.longWindow?.let {
-                toWindow(it, "$idPrefix-long", labelPrefix, limitReached, nowMs, group)
+                toWindow(it, "$idPrefix-long", labelPrefix, nowMs, group)
             },
         )
+        // The flag belongs to this family. A spent short window explains it without also
+        // exhausting a positive weekly window. Preserve an otherwise unexplained block on
+        // one representative window, while leaving its provider-reported figure untouched.
+        if (!limitReached || windows.any { it.exhausted }) return windows
+        val blocked = windows.minByOrNull { it.remainingPercent ?: Double.MAX_VALUE }
+        return windows.map { if (it === blocked) it.copy(exhausted = true) else it }
     }
 
     private data class Classified(val shortWindow: JsonObject?, val longWindow: JsonObject?)
@@ -225,16 +232,15 @@ object CodexUsageParser {
         window: JsonObject,
         id: String,
         labelPrefix: String?,
-        limitReached: Boolean,
         nowMs: Long,
         group: String?,
     ): UsageWindow {
         val periodSeconds = periodSeconds(window)
         val category = WindowCategory.fromPeriodSeconds(periodSeconds)
 
-        // A spent family reports no percentage; treat it as fully used rather than unknown.
+        // An explicit family block is separate from an unstated measurement.
         val usedPercent = JsonSupport.double(window, "used_percent", "usedPercent")
-            ?: if (limitReached) 100.0 else null
+            ?.takeIf { it.isFinite() && it in 0.0..100.0 }
 
         val resetAt = Instants.parse(JsonSupport.string(window, "reset_at", "resetAt"))
             ?: Instants.fromOffsetSeconds(
@@ -249,8 +255,9 @@ object CodexUsageParser {
             usedPercent = usedPercent,
             periodSeconds = periodSeconds,
             resetAt = resetAt,
-            exhausted = (usedPercent != null && usedPercent >= 100.0) || (usedPercent == null && limitReached),
+            exhausted = usedPercent == 100.0,
             group = group,
+            scope = if (group == null) UsageScope.GLOBAL else UsageScope.MODEL,
         )
     }
 

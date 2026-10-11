@@ -129,7 +129,7 @@ class AntigravityQuotaParserTest {
     }
 
     @Test
-    fun `a bucket without a remaining fraction is skipped but its siblings survive`() {
+    fun `a bucket without a remaining fraction stays unknown alongside its siblings`() {
         val payload = """
             {
               "groups": [
@@ -148,12 +148,13 @@ class AntigravityQuotaParserTest {
 
         val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(payload), now)
 
-        assertEquals(listOf("gemini-5h"), windows.map { it.id })
-        assertEquals(60.0, windows.single().usedPercent!!, 1e-9)
+        assertEquals(listOf("gemini-5h", "gemini-weekly"), windows.map { it.id })
+        assertEquals(60.0, windows.first().usedPercent!!, 1e-9)
+        assertNull(windows.last().remainingPercent)
     }
 
     @Test
-    fun `a group whose buckets all drop out disappears entirely`() {
+    fun `a group with missing measurements remains visible as unknown`() {
         val payload = """
             {
               "groups": [
@@ -171,9 +172,9 @@ class AntigravityQuotaParserTest {
 
         val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(payload), now)
 
-        assertEquals(1, windows.size)
-        assertEquals("Gemini Pro", windows.single().group)
-        assertTrue(windows.none { it.group == "Unavailable" })
+        assertEquals(3, windows.size)
+        assertEquals("Gemini Pro", windows.last().group)
+        assertTrue(windows.filter { it.group == "Unavailable" }.all { it.remainingPercent == null })
     }
 
     @Test
@@ -210,7 +211,7 @@ class AntigravityQuotaParserTest {
     }
 
     @Test
-    fun `out of range fractions are clamped into zero to one`() {
+    fun `out of range fractions remain unknown`() {
         val payload = """
             {
               "groups": [
@@ -230,11 +231,11 @@ class AntigravityQuotaParserTest {
         val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(payload), now)
             .associateBy { it.id }
 
-        assertEquals(0.0, windows.getValue("over").usedPercent!!, 1e-9)
+        assertNull(windows.getValue("over").usedPercent)
         assertFalse(windows.getValue("over").exhausted)
 
-        assertEquals(100.0, windows.getValue("under").usedPercent!!, 1e-9)
-        assertTrue(windows.getValue("under").exhausted)
+        assertNull(windows.getValue("under").usedPercent)
+        assertFalse(windows.getValue("under").exhausted)
     }
 
     @Test

@@ -44,7 +44,7 @@ object KimiUsageParser {
             limit = JsonSupport.double(usage, "limit", "total"),
             used = JsonSupport.double(usage, "used"),
             remaining = JsonSupport.double(usage, "remaining"),
-        ) ?: return null
+        )
 
         return UsageWindow(
             id = "kimi-weekly",
@@ -53,7 +53,7 @@ object KimiUsageParser {
             usedPercent = percent,
             periodSeconds = WEEK_SECONDS,
             resetAt = resetInstant(usage),
-            exhausted = percent >= 100.0,
+            exhausted = percent == 100.0,
         )
     }
 
@@ -72,7 +72,7 @@ object KimiUsageParser {
                 limit = JsonSupport.double(detail, "limit", "total"),
                 used = JsonSupport.double(detail, "used"),
                 remaining = JsonSupport.double(detail, "remaining"),
-            ) ?: return@mapIndexedNotNull null
+            )
 
             val seconds = JsonSupport.long(entry, "windowSeconds", "window_seconds")
                 ?: JsonSupport.long(detail, "windowSeconds", "window_seconds")
@@ -88,7 +88,7 @@ object KimiUsageParser {
                 usedPercent = percent,
                 periodSeconds = seconds,
                 resetAt = resetInstant(detail) ?: resetInstant(entry),
-                exhausted = percent >= 100.0,
+                exhausted = percent == 100.0,
             )
         }
 
@@ -101,9 +101,10 @@ object KimiUsageParser {
     private fun usedPercent(limit: Double?, used: Double?, remaining: Double?): Double? {
         // A zero limit is not a full bar — it is a provider that stated no limit, and dividing
         // by it gives infinity or NaN.
-        if (limit == null || limit <= 0.0) return null
+        if (limit == null || !limit.isFinite() || limit <= 0.0) return null
         val consumed = used ?: remaining?.let { limit - it } ?: return null
-        return (consumed / limit * 100.0).coerceIn(0.0, 100.0)
+        if (!consumed.isFinite() || consumed !in 0.0..limit) return null
+        return consumed / limit * 100.0
     }
 
     /** The reset instant, in whichever unit it arrived. */

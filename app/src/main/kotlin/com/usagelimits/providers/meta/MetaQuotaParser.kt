@@ -80,7 +80,7 @@ object MetaQuotaParser {
         includeDuration: Boolean,
     ): UsageWindow? {
         val used = JsonSupport.double(value, "used_percent", "usedPercent")
-            ?.coerceIn(0.0, 100.0)
+            ?.takeIf { it.isFinite() && it in 0.0..100.0 }
         val durationMinutes = if (includeDuration) {
             JsonSupport.long(value, "window_duration_mins", "windowDurationMins")
                 ?.takeIf { it > 0 }

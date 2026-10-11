@@ -465,11 +465,11 @@ class XaiBillingParserTest {
         assertEquals(90.0, included.usedPercent!!, 1e-9)
     }
 
-    // ---- absent percentage: proto3 implicit presence ----
+    // ---- absent percentage is unknown, independently of period metadata ----
 
     private val liveNow = Instant.parse("2026-09-05T12:00:00Z").toEpochMilli()
 
-    /** The credit view as the wire carries it when nothing has been spent: no percentage. */
+    /** Synthetic current period with no credit measurement. */
     private val untouchedWeek = """
         { "config": {
             "currentPeriod": { "type": "USAGE_PERIOD_TYPE_WEEKLY",
@@ -479,31 +479,24 @@ class XaiBillingParserTest {
             "isUnifiedBillingUser": true } }
     """.trimIndent()
 
-    /**
-     * xAI's billing message is proto3 and `credit_usage_percent` has implicit presence: an
-     * exact zero is not written to the wire. The one week the user has spent nothing in used
-     * to be the week the row vanished — the account showed only its monthly limit.
-     */
     @Test
-    fun `an absent percentage inside the live period is zero, not a missing row`() {
+    fun `an absent percentage inside the live period stays unknown`() {
         val windows = XaiBillingParser.parseCredits(JsonSupport.parseObject(untouchedWeek), liveNow)
 
         assertEquals(1, windows.size)
         val window = windows.single()
         assertEquals(XaiBillingParser.CREDITS_WINDOW_ID, window.id)
-        assertEquals(0.0, window.usedPercent!!, 0.0)
+        assertNull(window.usedPercent)
         assertEquals(WindowCategory.WEEKLY, window.category)
         assertEquals(Instant.parse("2026-09-09T00:00:00Z").toEpochMilli(), window.resetAt)
         assertFalse(window.exhausted)
     }
 
     @Test
-    fun `an absent percentage outside the reported period stays a missing row`() {
-        // The zero is only readable for the period that contains now: a stale period is a
-        // payload this parser does not understand, and inventing a bar for it would show
-        // "100 % remaining" for a week that has already ended.
+    fun `an absent percentage outside the period stays unknown without inventing a reset`() {
+        // Neither current nor past period metadata proves zero usage.
         val afterThePeriod = Instant.parse("2026-09-20T12:00:00Z").toEpochMilli()
-        assertTrue(XaiBillingParser.parseCredits(JsonSupport.parseObject(untouchedWeek), afterThePeriod).isEmpty())
+        assertNull(XaiBillingParser.parseCredits(JsonSupport.parseObject(untouchedWeek), afterThePeriod).single().usedPercent)
 
         // And with no period at all there is nothing to anchor the zero to.
         val noPeriod = """{ "config": { "isUnifiedBillingUser": true, "onDemandCap": { "val": 0 } } }"""
@@ -526,13 +519,13 @@ class XaiBillingParserTest {
         assertEquals(604_800L, window.periodSeconds)
         assertEquals(Instant.parse("2026-09-09T00:00:00Z").toEpochMilli(), window.resetAt)
 
-        // The flat spelling anchors the implicit zero just as the nested one does.
+        // The flat spelling also identifies a window without inventing its percentage.
         val flatUntouched = """
             { "usagePeriodType": "USAGE_PERIOD_TYPE_WEEKLY",
               "usagePeriodStart": "2026-09-02T00:00:00Z",
               "usagePeriodEnd":   "2026-09-09T00:00:00Z" }
         """.trimIndent()
-        assertEquals(0.0, XaiBillingParser.parseCredits(JsonSupport.parseObject(flatUntouched), liveNow).single().usedPercent!!, 0.0)
+        assertNull(XaiBillingParser.parseCredits(JsonSupport.parseObject(flatUntouched), liveNow).single().usedPercent)
     }
 
     @Test
@@ -569,4 +562,48 @@ class XaiBillingParserTest {
             billing(billingPayload).map { it.id },
         )
     }
+    @Test
+    fun `explicit invalid credit figures never become zero consumption in a current period`() {
+        for (value in listOf("null", "true", "{}", "\"bad\"", "\"NaN\"", "-1", "101")) {
+            val raw = """{"creditUsagePercent":$value,"currentPeriod":{"type":"weekly","start":"2026-09-02T00:00:00Z","end":"2026-09-09T00:00:00Z"}}"""
+            val row = XaiBillingParser.parseCredits(JsonSupport.parseObject(raw), liveNow).single()
+            assertNull("value=$value", row.remainingPercent)
+            assertFalse(row.exhausted)
+        }
+    }
+
+    @Test
+    fun `only an explicitly present empty cent object defaults to zero`() {
+        assertEquals(0.0, billing("""{"monthlyLimit":{"val":1000},"used":{}}""").single().usedPercent!!, 0.0)
+        for (value in listOf("null", "{\"val\":null}", "{\"val\":\"bad\"}", "-1")) {
+            assertNull(billing("""{"monthlyLimit":1000,"used":$value}""").single().remainingPercent)
+        }
+    }
+
+    @Test
+    fun `a known billing credit value replaces an unknown credit view during merge`() {
+        val unknown = XaiBillingParser.parseCredits(JsonSupport.parseObject("""{"creditUsagePercent":null,"usagePeriodType":"weekly"}"""), now)
+        val measured = credits("""{"creditUsagePercent":20,"usagePeriodType":"weekly"}""")
+        assertEquals(80.0, XaiBillingParser.merge(unknown, measured).single().remainingPercent!!, 0.0)
+    }
+
+    @Test
+    fun `explicit unknown on-demand spend is not derived from included spend`() {
+        val rows = billing("""{"monthlyLimit":1000,"used":1400,"onDemandCap":500,"onDemandUsed":null}""")
+        assertNull(rows.single { it.id == "xai-on-demand" }.remainingPercent)
+    }
+
+    @Test fun `malformed explicit figures produce a data warning but null stays unknown`() {
+        assertTrue(XaiBillingParser.hasInvalidUsage(JsonSupport.parseObject("""{"creditUsagePercent":101}""")))
+        assertTrue(XaiBillingParser.hasInvalidUsage(JsonSupport.parseObject("""{"monthlyLimit":-1}""")))
+        assertFalse(XaiBillingParser.hasInvalidUsage(JsonSupport.parseObject("""{"creditUsagePercent":null,"used":{"val":null}}""")))
+        assertFalse(XaiBillingParser.hasInvalidUsage(JsonSupport.parseObject("""{"used":{}}""")))
+    }
+
+    @Test fun `on-demand usage can exist without a monthly allowance response`() {
+        val row = billing("""{"onDemandCap":500,"onDemandUsed":100}""").single()
+        assertEquals("xai-on-demand", row.id)
+        assertEquals(80.0, row.remainingPercent!!, 0.0)
+    }
+
 }

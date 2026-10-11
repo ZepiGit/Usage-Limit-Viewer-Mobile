@@ -4,6 +4,8 @@ import com.usagelimits.core.auth.OAuthCredentials
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.ConnectionStatus
+import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.network.ProviderEndpoints.Xai
@@ -320,32 +322,50 @@ class XaiProvider(
     ): UsageResult {
         val headers = usageHeaders(credentials)
         val now = nowMs()
-        var lastFailure: ProviderException? = null
+        val failures = mutableListOf<ProviderException>()
+        var malformedUsage = false
 
         // null means "this view failed", which is not the same as "this view reported
         // nothing" — an empty list is a legitimate answer.
         val credits: List<UsageWindow>? = try {
             val response = http.request(url = Xai.BILLING_CREDITS_URL, headers = headers)
-            XaiBillingParser.parseCredits(JsonSupport.parseObject(response.body), now)
+            val payload = JsonSupport.parseObject(response.body)
+            malformedUsage = malformedUsage || XaiBillingParser.hasInvalidUsage(payload)
+            XaiBillingParser.parseCredits(payload, now)
         } catch (e: ProviderException) {
-            lastFailure = e
+            failures += e
             null
         }
 
         val billing: List<UsageWindow>? = try {
             val response = http.request(url = Xai.BILLING_URL, headers = headers)
-            XaiBillingParser.parseBilling(JsonSupport.parseObject(response.body), now)
+            val payload = JsonSupport.parseObject(response.body)
+            malformedUsage = malformedUsage || XaiBillingParser.hasInvalidUsage(payload)
+            XaiBillingParser.parseBilling(payload, now)
         } catch (e: ProviderException) {
-            lastFailure = e
+            failures += e
             null
         }
 
         if (credits == null && billing == null) {
-            throw lastFailure ?: ProviderException.Unexpected("xAI billing returned nothing")
+            throw failures.firstOrNull { it is ProviderException.Unauthorized }
+                ?: failures.lastOrNull() ?: ProviderException.Unexpected("xAI billing returned nothing")
         }
 
         // xAI exposes no reset credits, so the list stays empty rather than being faked.
-        return UsageResult(windows = XaiBillingParser.merge(credits.orEmpty(), billing.orEmpty()))
+        val authFailure = failures.any { it is ProviderException.Unauthorized }
+        val partial = failures.isNotEmpty() || malformedUsage
+        return UsageResult(
+            windows = XaiBillingParser.merge(credits.orEmpty(), billing.orEmpty()),
+            status = if (partial) SnapshotStatus.PARTIAL else SnapshotStatus.OK,
+            errorMessage = when {
+                authFailure -> "One billing view rejected authentication; some usage could not be refreshed."
+                failures.isNotEmpty() -> "One billing view could not be refreshed; only returned usage is shown."
+                malformedUsage -> "Some billing values could not be read; available usage is shown."
+                else -> null
+            },
+            connectionStatus = if (authFailure) ConnectionStatus.UNKNOWN else ConnectionStatus.CONNECTED,
+        )
     }
 
     /**

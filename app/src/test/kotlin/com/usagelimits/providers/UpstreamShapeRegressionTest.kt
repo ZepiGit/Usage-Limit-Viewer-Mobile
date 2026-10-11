@@ -6,6 +6,7 @@ import com.usagelimits.providers.codex.CodexUsageParser
 import com.usagelimits.providers.xai.XaiBillingParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -141,7 +142,7 @@ class UpstreamShapeRegressionTest {
 
         assertEquals(1, windows.size)
         assertTrue(windows[0].exhausted)
-        assertEquals(100.0, windows[0].usedPercent!!, 0.001)
+        assertNull(windows[0].usedPercent)
     }
 
     @Test

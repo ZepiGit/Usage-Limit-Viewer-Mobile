@@ -5,6 +5,8 @@ import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ResetCredit
 import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.ConnectionStatus
 
 /** Identity a provider reports after login, before the account gets a local id. */
 data class ProviderProfile(
@@ -32,6 +34,9 @@ data class UsageResult(
      * Null means the provider does not report the distinction, not that none are spendable.
      */
     val applicableResetCreditCount: Int? = null,
+    val status: SnapshotStatus = SnapshotStatus.OK,
+    val errorMessage: String? = null,
+    val connectionStatus: ConnectionStatus = ConnectionStatus.CONNECTED,
 )
 
 /**

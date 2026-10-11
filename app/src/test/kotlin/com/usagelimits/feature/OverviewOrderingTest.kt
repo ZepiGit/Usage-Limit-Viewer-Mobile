@@ -154,6 +154,25 @@ class OverviewOrderingTest {
         )
     }
 
+    @Test
+    fun `a never-successful failure cannot advance screen freshness`() {
+        val failed = usage("A").let {
+            it.copy(snapshot = it.snapshot!!.copy(status = SnapshotStatus.FAILED))
+        }
+        assertNull(UsageUiState(accounts = listOf(failed)).lastUpdated)
+    }
+
+    @Test
+    fun `an explicit exhausted window outranks a measured low window across accounts`() {
+        val exhausted = usage("A").let {
+            it.copy(snapshot = it.snapshot!!.copy(windows = listOf(window("blocked", null).copy(
+                usedPercent = null, exhausted = true,
+            ))))
+        }
+        val low = usageWith("B", 95.0)
+        assertEquals("A", UsageUiState(accounts = listOf(low, exhausted)).mostCritical?.first?.account?.localId)
+    }
+
     private fun usageWith(id: String, usedPercent: Double) = AccountUsage(
         account(id),
         UsageSnapshot(

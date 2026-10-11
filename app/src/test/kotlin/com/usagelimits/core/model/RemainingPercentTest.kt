@@ -40,10 +40,12 @@ class RemainingPercentTest {
     }
 
     @Test
-    fun `an absurd but finite usage is clamped rather than refused`() {
+    fun `out of contract percentages stay unknown`() {
         // The clamp handles every finite value, so the guard is about non-finite ones alone: a
         // merely enormous figure still means "nothing left", which the app can honestly say.
-        assertEquals(0.0, window(1e300).remainingPercent!!, 1e-9)
+        assertNull(window(1e300).remainingPercent)
+        assertNull(window(-1.0).remainingPercent)
+        assertNull(window(100.1).remainingPercent)
     }
 
     @Test

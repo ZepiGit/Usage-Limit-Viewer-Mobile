@@ -38,10 +38,12 @@ enum class WindowCategory {
 /**
  * One quota bar in the UI, normalised from whatever shape the provider used.
  *
- * The app's display value is [remainingPercent]: the reference design reads
- * "82 % remaining", while every provider reports consumption instead. Both are kept so a
- * screen can show either without re-deriving and rounding twice.
+ * [usedPercent] is the sole stored percentage; [remainingPercent] is derived once.
+ * Providers normalize explicit percentages or compatible amount/capacity ratios here.
  */
+/** Whether exhausting this window blocks the entire account or only a model/pool. */
+enum class UsageScope { GLOBAL, MODEL, UNKNOWN }
+
 data class UsageWindow(
     val id: String,
     val label: String,
@@ -53,18 +55,17 @@ data class UsageWindow(
     val exhausted: Boolean,
     /** Optional grouping key, e.g. an Antigravity quota group or Codex "code review". */
     val group: String? = null,
+    val scope: UsageScope = UsageScope.GLOBAL,
 ) {
     val remainingPercent: Double?
         get() {
-            // A non-finite figure is UNKNOWN, not zero and not full. A limit of zero divided
-            // into anything yields one, and the clamp propagates it rather than catching it:
-            // NaN compares false against every bound, so coerceIn hands it straight back. The
-            // iOS twin refuses it for the same reason, where the consequence is worse — Swift's
-            // Int conversion traps on it inside a widget extension rather than saturating.
             val used = usedPercent ?: return null
-            if (!used.isFinite()) return null
-            return (100.0 - used).coerceIn(0.0, 100.0)
+            if (!used.isFinite() || used !in 0.0..100.0) return null
+            return 100.0 - used
         }
+
+    val hasConflictingAvailability: Boolean
+        get() = exhausted && (remainingPercent ?: 0.0) > 0.0
 
     val severity: Severity
         get() = Severity.fromRemainingPercent(remainingPercent, exhausted)
@@ -92,6 +93,8 @@ data class UsageSnapshot(
     val applicableResetCreditCount: Int? = null,
     val errorMessage: String? = null,
     val connectionStatus: ConnectionStatus = ConnectionStatus.fromStored(null, status, errorMessage),
+    /** Last attempted refresh; failed attempts do not advance [fetchedAt]. */
+    val lastAttemptAt: Long = fetchedAt,
 ) {
     /**
      * How many credits the user holds, spendable or not — the number worth displaying.
@@ -132,16 +135,17 @@ data class UsageSnapshot(
     val spendableResetCredits: Int
         get() = spendableResetCreditsAt(System.currentTimeMillis())
 
-    /**
-     * The window closest to running out — what the summary card leads with.
-     *
-     * An explicitly exhausted window outranks everything, whatever its percentage says. Ranked
-     * by percentage alone, a window the provider flagged exhausted but gave no figure for sorted
-     * LAST — unknown reads as "infinitely much left" — and the summary led with a 10 %-remaining
-     * neighbour while the real emergency sat below it.
-     */
+    /** Global constraints lead summaries; model restrictions remain separate named rows. */
     val mostCritical: UsageWindow?
-        get() = windows.minByOrNull { if (it.exhausted) -1.0 else it.remainingPercent ?: Double.MAX_VALUE }
+        get() {
+            val global = windows.filter { it.scope == UsageScope.GLOBAL }
+            return (global.ifEmpty { windows }).minByOrNull {
+                if (it.severity == Severity.EXHAUSTED) -1.0 else it.remainingPercent ?: Double.MAX_VALUE
+            }
+        }
+
+    val restrictedWindows: List<UsageWindow>
+        get() = windows.filter { it.scope != UsageScope.GLOBAL && it.severity == Severity.EXHAUSTED }
 
     /** The next rollover across all windows, used by the Resets screen and the widgets. */
     val nextReset: Long?
@@ -151,9 +155,20 @@ data class UsageSnapshot(
      * Severity ignoring age. Prefer [severityAt] wherever a clock is available.
      */
     val severity: Severity
-        get() = when (status) {
-            SnapshotStatus.FAILED -> Severity.ERROR
-            else -> windows.maxOfOrNull { it.severity } ?: Severity.ERROR
+        get() {
+            if (status == SnapshotStatus.FAILED) return Severity.ERROR
+            val global = windows.filter { it.scope == UsageScope.GLOBAL }
+            if (global.any { it.severity == Severity.EXHAUSTED }) return Severity.EXHAUSTED
+            if (restrictedWindows.isNotEmpty()) {
+                // Complete exhaustion is defensible only when every reported pool is known,
+                // model-specific and exhausted. Unknown scope/data never proves a global block.
+                return if (windows.all { it.scope == UsageScope.MODEL } &&
+                    windows.groupBy { it.group ?: it.id }.values.all { pool -> pool.any { it.severity == Severity.EXHAUSTED } }) {
+                    Severity.EXHAUSTED
+                } else Severity.LIMITED
+            }
+            return (global.ifEmpty { windows }).map { it.severity }
+                .filter { it != Severity.UNKNOWN }.maxOrNull() ?: Severity.UNKNOWN
         }
 
     /**
@@ -197,14 +212,10 @@ data class ResetCredit(
     val status: String,
 )
 
-/**
- * "87%" — the one way a remaining percentage is printed anywhere on Android.
- *
- * Rounded, as iOS rounds, so the two phones print the same number for one snapshot: with
- * `toInt()` Android said "87%" where iOS said "88%" for 87.6, and — the half that matters —
- * printed "0%" beside an amber LOW bar for a window with 0.9 % left, which reads as
- * exhausted when it is not. Rounding up to 100 is only possible from 99.5, which is exactly
- * the threshold both platforms already use to paint the bar as full.
- */
-fun percentLabel(remaining: Double?): String =
-    remaining?.let { "${it.coerceIn(0.0, 100.0).roundToInt()}%" } ?: "—"
+/** Display rounding never turns a positive remainder into zero, or a partial quota into full. */
+fun percentLabel(remaining: Double?): String = when {
+    remaining == null || !remaining.isFinite() || remaining !in 0.0..100.0 -> "—"
+    remaining > 0.0 && remaining < 1.0 -> "<1%"
+    remaining < 100.0 && remaining.roundToInt() == 100 -> ">99%"
+    else -> "${remaining.roundToInt()}%"
+}

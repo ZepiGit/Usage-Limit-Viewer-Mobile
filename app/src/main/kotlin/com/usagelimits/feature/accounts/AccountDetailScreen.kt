@@ -111,10 +111,30 @@ fun AccountDetailScreen(
 
         item {
             Text(
-                text = Countdown.freshnessLabel(snapshot?.fetchedAt, nowMs),
+                text = Countdown.freshnessLabel(usage.measurementAt, nowMs),
                 style = MaterialTheme.typography.bodyMedium,
                 color = UsageColors.TextTertiary,
             )
+        }
+
+        if (snapshot != null && snapshot.status != com.usagelimits.core.model.SnapshotStatus.OK) {
+            item {
+                val age = (nowMs - snapshot.lastAttemptAt).coerceAtLeast(0)
+                Text(
+                    text = if (age < 60_000) "Last attempt just now" else "Last attempt ${Countdown.format(age)} ago",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = UsageColors.TextTertiary,
+                )
+            }
+        }
+        if (!snapshot?.restrictedWindows.isNullOrEmpty()) {
+            item {
+                Text(
+                    text = "Restricted: " + snapshot!!.restrictedWindows.joinToString { it.label },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = UsageColors.Amber,
+                )
+            }
         }
 
         if (snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) {
@@ -133,7 +153,12 @@ fun AccountDetailScreen(
                         color = UsageColors.Amber,
                     )
                     Text(
-                        text = "The figures below are the last values that loaded successfully.",
+                        text = when {
+                            snapshot.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL ->
+                                "Available figures are from this update; some limits could not be refreshed."
+                            usage.measurementAt == null -> "No usage measurement has loaded yet."
+                            else -> "The figures below are the last values that loaded successfully."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = UsageColors.TextSecondary,
                     )
