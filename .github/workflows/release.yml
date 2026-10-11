@@ -128,7 +128,7 @@ jobs:
     name: Verify the release APK on API 36
     needs: [metadata, android]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
       actions: read

@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import statistics
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -329,6 +330,135 @@ class Smoke:
         assert before.isdisjoint(after), "am kill did not end the observed background app process"
         self.verify_widgets_after_upgrade(placed, phase="process-loss")
 
+        self.widget_home("widgets-before-launcher-restart")
+        home = self.adb("shell", "cmd", "package", "resolve-activity", "--brief",
+                        "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME").splitlines()[-1]
+        assert home.startswith(self.launcher + "/"), "The active HOME component changed"
+        before = set(self.adb("shell", "pidof", self.launcher).split())
+        assert before, "No launcher process exists to exercise a launcher restart"
+        restart_started = time.monotonic()
+        self.adb("shell", "am", "force-stop", self.launcher)
+        self.text("widgets-launcher-restart-start.txt", self.adb(
+            "shell", "am", "start", "-W", "-n", home,
+            "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME"))
+        for _ in range(12):
+            try:
+                after = set(self.adb("shell", "pidof", self.launcher, timeout=5).split())
+            except subprocess.CalledProcessError as error:
+                if error.returncode != 1:
+                    raise
+                after = set()
+            if after and before.isdisjoint(after):
+                break
+            time.sleep(1)
+        restart = {"component": home, "before": sorted(before), "after": sorted(after),
+                   "restartSeconds": time.monotonic() - restart_started}
+        self.text("widgets-launcher-restart.json", json.dumps(restart, indent=2))
+        assert after and before.isdisjoint(after), "Launcher restart did not replace the observed process"
+        verification_started = time.monotonic()
+        self.verify_widgets_after_upgrade(placed, phase="launcher-restart")
+        restart["verificationSeconds"] = time.monotonic() - verification_started
+        self.text("widgets-launcher-restart.json", json.dumps(restart, indent=2))
+
+        # Reboot clears logcat; preserve and check the preceding runtime before it can be lost.
+        assert self.diagnostics("pre-reboot-"), "Could not collect the pre-reboot runtime diagnostics"
+        self.assert_no_app_failures("pre-reboot-")
+        boot_before = self.adb("shell", "cat", "/proc/sys/kernel/random/boot_id")
+        boot_id_pattern = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+        assert re.fullmatch(boot_id_pattern, boot_before), "Unrecognized pre-reboot kernel boot ID"
+        reboot = {"beforeBootId": boot_before, "afterBootId": None, "bootCompleted": None}
+        self.text("widgets-reboot.json", json.dumps(reboot, indent=2))
+        reboot_started = time.monotonic()
+        self.adb("reboot", timeout=30)
+        deadline = reboot_started + 180
+        ready = False
+        last_error = None
+        while time.monotonic() < deadline:
+            try:
+                reboot["afterBootId"] = self.adb("shell", "cat", "/proc/sys/kernel/random/boot_id",
+                                                  timeout=min(5, max(0.1, deadline - time.monotonic())))
+                reboot["bootCompleted"] = self.adb("shell", "getprop", "sys.boot_completed",
+                                                    timeout=min(5, max(0.1, deadline - time.monotonic())))
+                ready = bool(re.fullmatch(boot_id_pattern, reboot["afterBootId"])) and (
+                    reboot["afterBootId"] != boot_before and reboot["bootCompleted"] == "1")
+                if ready:
+                    break
+            except subprocess.SubprocessError as error:
+                last_error = str(error)
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
+        reboot.update({"bootWaitSeconds": time.monotonic() - reboot_started, "lastProbeError": last_error})
+        self.text("widgets-reboot.json", json.dumps(reboot, indent=2))
+        assert ready, "Device did not report a completed new boot within 180 seconds"
+        verification_started = time.monotonic()
+        self.verify_widgets_after_upgrade(placed, phase="reboot")
+        reboot["verificationSeconds"] = time.monotonic() - verification_started
+        self.text("widgets-reboot.json", json.dumps(reboot, indent=2))
+
+    def performance_observations(self, phase, apk, placed):
+        """Descriptive process-cold startup observations, separate from normal process loss."""
+        expected_widgets = {item["component"]: item["id"] for item in placed}
+        assert len(expected_widgets) == 4 and self.widget_bindings(phase + "-performance") == expected_widgets
+        activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
+        assert activity.startswith(PACKAGE + "/"), activity
+        report = {
+            "apk": apk, "environmentReport": "environment.json", "widgets": placed,
+            "nightMode": self.adb("shell", "cmd", "uimode", "night"),
+            "method": "One excluded warmup and three process-cold force-stop launches; empty Overview; five seconds idle before process meminfo.",
+            "limits": "Initial display, not fully ready; not storage-cold. Sequential shared CI emulator, uncontrolled ART/file caches and host load. No timing thresholds or improvement claim. Memory reports are snapshots, exclude launcher memory, and are retained raw until their platform format is verified.",
+            "samples": [],
+        }
+
+        def pids():
+            try:
+                return self.adb("shell", "pidof", PACKAGE).split()
+            except subprocess.CalledProcessError as error:
+                if error.returncode != 1:
+                    raise
+                return []
+
+        self.launch(phase + "-performance-prepare")
+        self.navigate("Overview", "0 accounts monitored", phase + "-performance-prepare-overview")
+        for index in range(4):
+            name = f"{phase}-performance-{index}"
+            self.adb("shell", "am", "force-stop", PACKAGE)
+            for _ in range(12):
+                if not pids():
+                    break
+                time.sleep(1)
+            assert not pids(), "App process survived performance force-stop"
+            launch = self.adb("shell", "am", "start", "-W", "-n", activity,
+                              "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER")
+            self.text(name + "-launch.txt", launch)
+            assert re.search(r"^Status: ok$", launch, re.M), "Performance launch did not succeed"
+            assert re.search(r"^LaunchState: COLD$", launch, re.M), "Performance sample was not process-cold"
+            total = re.search(r"^TotalTime: (\d+)$", launch, re.M)
+            assert total, "Performance launch did not report TotalTime"
+            wait = re.search(r"^WaitTime: (\d+)$", launch, re.M)
+            root = self.wait_for(name + "-overview", lambda root: selected_tab(root, "Overview")
+                                 and bool(matches(root, "0 accounts monitored")))
+            self.assert_no_system_error(root)
+            ready_at = time.monotonic()
+            observed_pids = pids()
+            assert len(observed_pids) == 1, "Expected one foreground app process for memory observation"
+            time.sleep(5)
+            assert pids() == observed_pids, "App process changed during memory settling"
+            memory_delay = time.monotonic() - ready_at
+            memory = self.adb("shell", "dumpsys", "meminfo", observed_pids[0])
+            self.text(name + "-meminfo.txt", memory)
+            assert pids() == observed_pids, "App process changed during memory observation"
+            # Preserve the actual API 36 report; do not guess a PSS column before seeing it.
+            report["samples"].append({
+                "index": index, "warmup": index == 0, "totalTimeMs": int(total[1]),
+                "waitTimeMs": int(wait[1]) if wait else None, "pid": observed_pids[0],
+                "memoryDelaySeconds": memory_delay, "memoryReport": name + "-meminfo.txt",
+                "memoryPssKiB": None, "memoryStatus": "raw report retained; PSS format not yet verified",
+            })
+            measured = [sample["totalTimeMs"] for sample in report["samples"] if not sample["warmup"]]
+            if measured:
+                report["totalTimeMs"] = {"count": len(measured), "median": statistics.median(measured),
+                                         "min": min(measured), "max": max(measured)}
+            self.text(phase + "-performance.json", json.dumps(report, indent=2))
+
     def wait_for(self, name, predicate):
         last_error = None
         for _ in range(12):
@@ -409,7 +539,7 @@ class Smoke:
             fields[key] = match.group(1).strip()
         return fields
 
-    def diagnostics(self):
+    def diagnostics(self, prefix=""):
         complete = True
         for filename, command in {
             "crash-log.txt": ("logcat", "-b", "crash", "-d", "-v", "threadtime"),
@@ -417,11 +547,18 @@ class Smoke:
             "widget-providers.txt": ("shell", "dumpsys", "appwidget"),
         }.items():
             try:
-                self.text(filename, self.adb(*command))
+                self.text(prefix + filename, self.adb(*command))
             except subprocess.SubprocessError as error:
-                self.text(filename, str(error))
+                self.text(prefix + filename, str(error))
                 complete = False
         return complete
+
+    def assert_no_app_failures(self, prefix=""):
+        crash_log = (self.directory / (prefix + "crash-log.txt")).read_text()
+        assert not re.search(r"Process: com\.usagelimits(?:,|\s)|>>> com\.usagelimits <<<", crash_log), "Application crash recorded"
+        exits = (self.directory / (prefix + "activity-exits.txt")).read_text()
+        # ApplicationExitInfo reasons: crash=4, native crash=5, ANR=6, initialization failure=7.
+        assert not re.search(r"\breason=(?:4|5|6|7)\b", exits), "Application crash or ANR exit recorded"
 
 
 def apk_metadata(aapt, path):
@@ -485,6 +622,7 @@ def main():
         smoke.navigate("Settings", "Provider icons", "previous-relaunch-settings")
         smoke.setting_is_disabled("previous-persisted")
         placed_widgets = smoke.place_widgets()
+        smoke.performance_observations("previous", old, placed_widgets)
 
         smoke.text("upgrade-install.txt", smoke.adb("install", "-r", str(args.apk), timeout=180))
         current = smoke.installed("current")
@@ -506,6 +644,7 @@ def main():
         smoke.launch("current-relaunch")
         smoke.navigate("Overview", "0 accounts monitored", "current-relaunch-overview")
         smoke.verify_widgets_after_upgrade(placed_widgets)
+        smoke.performance_observations("current", new, placed_widgets)
         smoke.verify_widget_lifecycle(placed_widgets)
     except Exception:
         try:
@@ -516,16 +655,12 @@ def main():
     finally:
         diagnostics_complete = smoke.diagnostics()
     assert diagnostics_complete, "Could not collect the runtime diagnostics"
-    crash_log = (args.evidence / "crash-log.txt").read_text()
-    assert not re.search(r"Process: com\.usagelimits(?:,|\s)|>>> com\.usagelimits <<<", crash_log), "Application crash recorded"
-    exits = (args.evidence / "activity-exits.txt").read_text()
-    # ApplicationExitInfo reasons: crash=4, native crash=5, ANR=6, initialization failure=7.
-    assert not re.search(r"\breason=(?:4|5|6|7)\b", exits), "Application crash or ANR exit recorded"
+    smoke.assert_no_app_failures()
     smoke.text("result.json", json.dumps({"result": "passed", "commit": os.environ["GITHUB_SHA"],
         "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": ["Overview", "Accounts", "Resets", "Settings"],
         "widgets": placed_widgets,
         "scope": "Empty-account release smoke with four launcher widgets; provider-authenticated quotas were not tested."}, indent=2))
-    print("Release APK upgrade, persisted setting, four tabs, four launcher widgets, night mode and process-loss checks passed.")
+    print("Release APK upgrade, persisted setting, four tabs, four widgets, night mode, process loss, launcher restart and reboot checks passed; startup observations recorded.")
 
 
 if __name__ == "__main__":

@@ -27,21 +27,28 @@ a setting, then installs the same run's signed minified APK with `adb install -r
 It verifies the installed APK hash, preserved setting and package identity, four
 tabs, relaunch and crash/ANR diagnostics. It also places all four empty widget
 types through the launcher and checks their IDs, visible content and saved
-appearance selections after upgrading, changing day/night mode and ending the
-observed background app process with `am kill`. Reconfiguration checks cancel
+appearance selections after upgrading, changing day/night mode, ending the
+observed background app process with `am kill`, restarting the launcher and
+rebooting the emulator. Recorded process and boot IDs verify those transitions;
+crash diagnostics are checked and preserved before reboot. Reconfiguration checks cancel
 without saving, so they cannot repair lost settings. These checks are required;
 missing launcher controls fail with screenshots and UI XML for diagnosis.
 Its artifact records the commit and device environment. A passing run establishes
 empty-account upgrade and the stated launcher checks; it does not establish
-populated-account behavior, a fresh provider repaint, reboot or physical-device
+populated-account behavior, a fresh provider repaint or physical-device
 lifecycle behavior. The earlier force-stop/relaunch checks remain distinct from
 the background-process-loss check.
 iOS CI runs the shared package on Linux and macOS and builds/runs the app with the
 real SDK on iPhone and iPad simulators.
 
+The runtime script also records one warmup and three process-cold launches per
+APK with four widgets placed, then saves process memory reports after five idle
+seconds on Overview. These observations use the same emulator, but do not control
+shared host load, ART profiles or file caches. They do not establish general speed,
+scrolling, battery or background-work improvements.
+
 The spontaneous widget background change reported on Pixel 10a/GrapheneOS remains
-unreproduced. No live provider responses or controlled startup, memory, battery or
-background-work measurements were collected for this change. The original 25-day
+unreproduced. No live provider responses were collected for this change. The original 25-day
 Claude reset is retained; it has not been verified against live source data.
 Physical-device lifecycle, populated-account behavior and installation of the
 published artifact remain separate checks. Release publication and verification
