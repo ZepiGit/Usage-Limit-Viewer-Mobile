@@ -115,6 +115,7 @@ jobs:
           cp app/build/outputs/bundle/release/app-release.aab dist/
           cp app/build/outputs/apk/release/app-release.apk dist/
           cp app/build/outputs/mapping/release/mapping.txt dist/
+          sha256sum dist/app-release.apk > dist/app-release.apk.sha256
 
       - name: Upload the build outputs
         uses: actions/upload-artifact@v4
@@ -122,6 +123,82 @@ jobs:
           name: android-release
           path: dist
           if-no-files-found: error
+
+  android-runtime:
+    name: Verify the release APK on API 36
+    needs: [metadata, android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RELEASE_COMMIT: ${{ needs.metadata.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-release
+          path: runtime/apk
+      - name: Download the published upgrade baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/previous runtime/evidence
+          gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'UsageLimits-0.2.0.apk' --dir runtime/previous
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Record release APK identity and signatures
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD)" != "$RELEASE_COMMIT" ] || [ "$GITHUB_SHA" != "$RELEASE_COMMIT" ]; then
+            echo '::error::Release metadata, runtime checkout and workflow commit must match.' >&2
+            exit 1
+          fi
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$build_tools/aapt" dump badging runtime/apk/app-release.apk > runtime/evidence/apk-metadata.txt
+          "$build_tools/aapt" dump badging runtime/previous/UsageLimits-0.2.0.apk > runtime/evidence/apk-previous-metadata.txt
+          "$build_tools/apksigner" verify --verbose --print-certs runtime/apk/app-release.apk > runtime/evidence/apk-signature.txt
+          "$build_tools/apksigner" verify --verbose --print-certs runtime/previous/UsageLimits-0.2.0.apk > runtime/evidence/apk-previous-signature.txt
+          cp runtime/apk/app-release.apk.sha256 runtime/evidence/apk-sha256.txt
+      - name: Check the AOSP API 36 image is available
+        run: |
+          set -euo pipefail
+          sdkmanager --list > runtime/evidence/sdk-packages.txt
+          if ! grep -Eq '^[[:space:]]*system-images;android-36;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 36 x86_64 image.' >&2
+            exit 1
+          fi
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Upgrade and navigate the release APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: default
+          arch: x86_64
+          profile: pixel_7_pro
+          cores: 2
+          ram-size: 2048M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: python3 tools/android_runtime_smoke.py --previous-apk runtime/previous/UsageLimits-0.2.0.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/apk/app-release.apk.sha256 --evidence runtime/evidence
+      - name: Upload release runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android-runtime-evidence-${{ needs.metadata.outputs.version }}
+          path: runtime/evidence
+          if-no-files-found: warn
 
   ios:
     name: iOS archive
@@ -183,7 +260,7 @@ jobs:
 
   package:
     name: Package artifacts for the release owner
-    needs: [metadata, android, ios]
+    needs: [metadata, android, android-runtime, ios]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

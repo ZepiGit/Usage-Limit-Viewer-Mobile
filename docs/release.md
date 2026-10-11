@@ -120,6 +120,18 @@ It decodes the key into the runner's temporary directory, builds with
 It does not use the Gradle caching action. The uploaded artifacts include the
 signed AAB, APK and matching R8 `mapping.txt`.
 
+Before packaging, the release workflow tests that same `android-release` APK on
+an AOSP API 36 emulator, installing it over the published v0.2.0 APK. The build
+job's SHA-256 binds the tested file to its artifact; the runtime checkout,
+workflow SHA and release metadata commit must match. The shared smoke script
+checks upgrade continuity, the preserved setting, navigation and app crash
+diagnostics. `release-android-runtime-evidence-<version>` retains its result,
+environment, APK hashes, screenshots, and both APKs' `aapt` metadata and
+`apksigner` verification reports. Packaging requires this runtime job to pass;
+a branch workflow's APK result does not substitute for this release-artifact
+check. Review the evidence's stated scope for device, widget and live-provider
+coverage.
+
 The workflow uses the full Git commit count as the Android version code and the
 validated manual input or tag name as the version name. The iOS archive receives
 the same marketing version and build number. The final
