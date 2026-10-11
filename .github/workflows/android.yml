@@ -247,6 +247,12 @@ jobs:
           gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
             --pattern 'UsageLimits-0.2.0.apk' --dir runtime/previous
 
+      # setup-android adds SDK command-line tools (including sdkmanager) to PATH.
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
       - name: Check the AOSP API 36 image is available
         run: |
           set -euo pipefail
