@@ -5,81 +5,92 @@ quota left is only marginally better than hitting the limit and finding out the 
 number on the home screen is the actual product. Everything below follows from that, including
 the decision to make the widgets read a cache rather than the network.
 
-Both are built with Glance (`androidx.glance:glance-appwidget:1.1.1`), which compiles a
+All four Android widgets use Glance (`androidx.glance:glance-appwidget:1.2.0`), which compiles a
 Compose-like description into `RemoteViews` that the launcher renders in its own process.
-`app/src/main/kotlin/com/usagelimits/widget/` holds all three files: `UsageWidgets.kt` (the two
-widgets and their receivers), `WidgetData.kt` (the reducer and its data types) and
-`WidgetUpdater.kt` (the bridge to the cache, plus the refresh action).
+In `app/src/main/kotlin/com/usagelimits/widget/`, `UsageWidgets.kt` implements Summary and
+Bars, and `RingWidgets.kt` implements Account Rings and Mini Rings. `WidgetData.kt` reduces
+cached data, `WidgetUpdater.kt` observes it and refreshes instances, and the remaining files
+handle configuration, style, layout metrics, bitmap rings, receivers and scheduled repaints.
 
-## The three Android sizes
+## The four Android widgets
 
-### Minimal — one ring, nothing else (`MinimalUsageWidget`)
+### Account Rings (`MinimalUsageWidget`)
 
-Declared at `targetCellWidth="1"`, `targetCellHeight="1"`. A single ring whose arc is what is
-LEFT of the leading account's tightest window, with the percentage, the window's label and its
-reset inside. It exists because a bar has to be as wide as the tile to be legible, so a tile of
-bars is a tile of little else — where a ring carries the same number in a square, and four of
-them fit where one detailed widget does.
+Declared at 3×2 cells, resizeable in both axes down to 110×60dp. A scrollable list shows a
+ring and provider icon beside each account's label and reset time or warning. It uses one
+column unless both the available width (including font scale) and height/placement metrics
+allow two. The ring uses the model's representative window, preferring global constraints;
+an exhausted model-specific window is retained as a named restriction rather than silently
+turning an available global quota into zero. Percentages are included in the ring's
+accessibility description; the provider icon occupies its centre.
 
-`UsageRing.fractionFor` returns a FULL ring for an unknown percentage rather than an empty one,
-and the label then reads "—": an empty ring is what "exhausted" looks like, and drawing it for
-"the provider did not say" would announce a limit nobody reported.
+### Mini Rings (`MiniRingsWidget`)
 
-### Compact — one row, four tiles (`CompactUsageWidget`)
+Declared at 1×1 cells, resizeable in both axes down to 56×56dp. This is a fixed grid of rings
+and provider icons without the adjacent account/reset text. `WidgetMetrics` estimates the
+placement's cell spans, and `WidgetLayout.miniGrid` allocates two slots per estimated cell:
+twice the rows in portrait, or twice the columns in landscape. Accounts beyond that capacity
+are not rendered. The visible rows follow the selected account count so unused grid capacity
+does not reserve empty rows. Both ring widgets show "No matching accounts" when empty.
+
+`UsageRing.fractionFor` returns zero for missing or invalid percentages, and `UsageRing.draw`
+renders those values as a dashed neutral track without a foreground arc. A reported zero
+uses a solid track. A partial update adds a visible `!` badge; known exhausted quota keeps its
+red accent even when an optional endpoint failed.
+
+### Usage Summary (`CompactUsageWidget`)
 
 Declared at `targetCellWidth="4"`, `targetCellHeight="1"`, resizeable horizontally down to
-180dp. Four equal tiles across a rounded card:
+180dp. `WidgetLayout.compactLayout` chooses four tiles, two metrics or one focused readout
+according to the actual width and font scale. The widest layout contains:
 
 | Tile | Shows |
 |---|---|
 | **5h limit** | The leading account's global five-hour constraint, when reported |
-| **Weekly / Monthly** | The same account's global weekly/monthly constraint, retaining its label |
+| **Weekly / Monthly / other** | The same account's selected long-horizon constraint, retaining its label |
 | **Next reset** | The next future reset for that account |
-| **Account** | The leading account's status; warnings affecting other selected accounts are labeled separately |
+| **Account / N accounts** | The worst status across the selection, explicitly labeled with the selected account count when there is more than one |
 
 The account owner is shown with the readings. A valid number on one account is never paired
-with an unexplained error from a different selected account. Unknown quotas use a neutral
-track and an unknown label, rather than a full healthy ring. Model-specific labels survive
-the parser-to-widget mapping.
+with an unlabeled status from a different selected account. Partial updates add a separate
+"Sync issue" warning. Headline windows prefer global constraints when present, and scoped
+labels survive the parser-to-widget mapping. Missing percentages display "—".
 
-### Detailed — header plus account cards (`DetailedUsageWidget`)
+### Usage Bars (`DetailedUsageWidget`)
 
-Declared at `targetCellWidth="4"`, `targetCellHeight="2"`, resizeable in both axes. A header
-row carries the app name, "*N* accounts monitored", a freshness label (`Countdown.freshnessLabel`
-with the leading "Updated " trimmed, so it reads "37m ago"), and a small circular refresh
-button. Below it, one card per account, each showing the provider name and plan followed by up
-to two rows — the five-hour window and the weekly (or monthly) one — where each row is
-`label · bar · remaining % · reset countdown`.
+Declared at 3×2 cells, resizeable in both axes down to 180×110dp. With multiple accounts, a
+header carries "Usage Limits", "N accounts" and a refresh button above a `LazyColumn` of
+account cards. With one account the outer header/card background is omitted and the account
+header carries the refresh button. Accounts are not capped at three.
 
-At most three account cards are drawn, followed by a "+*N* more" line when there are more. A
-Glance layout that overflows its host is silently clipped, so the cap plus the explicit count
-is the honest version: the widget says what it is not showing instead of appearing to show
-everything. With no accounts at all it renders "No accounts yet — tap to add one".
+Each account shows its provider icon, title and account label (falling back to masked e-mail),
+followed by all retained limit rows: label and remaining percentage above a bar and absolute
+reset time/date. The headline horizons lead, then independently scoped and optional limits
+remain available in the detail. Reconnection, failed/stale data and partial updates have
+explicit warnings. `AccountLimitRows` groups and recursively splits rows to stay within
+Glance's ten-direct-child limit; a third or later limit must not disappear. The empty state
+reads "No matching accounts. Edit this widget to choose an account."
 
-One inconsistency worth recording: `WidgetAccount` carries a `subtitle` holding the masked
-e-mail (`m***@gmail.com`), and the detailed widget never renders it. Currently two accounts on
-the same provider and plan are indistinguishable in the widget. Drawing the subtitle when it
-is present is a two-line fix and should happen; it is listed here rather than quietly left in
-the code.
-
-All three widgets use `SizeMode.Responsive` with three declared sizes (250/320/420dp wide) rather
-than `SizeMode.Exact`. Launcher grid cells differ enormously between a phone, a tablet and an
-unfolded foldable; with `Responsive`, the launcher picks the nearest size the widget was
-actually designed for instead of re-measuring one layout into a shape it never anticipated.
+All four widgets use `SizeMode.Exact`. They consume the host's actual dimensions rather than
+three predefined responsive buckets. `WidgetLayout` handles Summary width/font-scale choices
+and ring columns/capacity; saved `WidgetMetrics` accounts for launcher cells that are not square.
 
 ## The configuration model
 
-Each placed widget can, in principle, show something different. `WidgetScope` names the four
+Each placed widget can show something different. `WidgetScope` names six
 possibilities:
 
 - **`MOST_CRITICAL`** — every account, ordered worst-first, so whatever is closest to running
-  out leads. The default and the fallback.
+  out leads, using severity urgency and five-point percentage bands.
 - **`ACCOUNT`** — one specific account, by `localId`.
 - **`PROVIDER`** — every account of one provider, by provider id.
 - **`ALL_ACCOUNTS`** — everything, in the user's account order.
+- **`CLOSEST_RESETS`** — every account, ordered by its next future reset. The default and fallback.
+- **`CUSTOM`** — selected account IDs in the widget's saved custom order.
 
-`MOST_CRITICAL` and `ALL_ACCOUNTS` select the same set and differ only in ordering; that is the
-whole distinction, and it matters because the detailed widget shows the first three.
+`MOST_CRITICAL`, `CLOSEST_RESETS` and `ALL_ACCOUNTS` select the same set with different ordering.
+This determines the Summary owner and which accounts fit in Mini Rings. Stored scope names
+retain their meaning; `MOST_CRITICAL` is not an alias for `CLOSEST_RESETS`.
 
 The choice is persisted per widget in the Room table `widget_configs`, keyed by the
 framework's `appWidgetId` and holding `scope`, `accountId`, `provider`, `updatedAt`, the custom
@@ -109,55 +120,52 @@ through repeated compose/apply/reapply and day/night host contexts. This host-re
 is separate from physical launcher verification; changing transparency or recreating a
 widget is not a substitute for identifying a reproduced lifecycle failure.
 
-`WidgetUpdater.loadSnapshot` resolves the `GlanceId` to an
-`appWidgetId`, reads the row, and passes the result to `WidgetDataBuilder.build`. Both the
+`WidgetUpdater.observe` resolves the `GlanceId` to an
+`appWidgetId`, observes its configuration alongside account usage and settings, and passes
+the result to `WidgetDataBuilder.build`. Both the
 scope name and the enum names are part of the on-disk contract, which is why `WidgetScope`
 carries a "do not rename casually" note; `WidgetScope.fromName` maps anything unrecognised —
-including `null` — to `MOST_CRITICAL` so a bad or missing row degrades to a useful widget
+including `null` — to `CLOSEST_RESETS` so a bad or missing row degrades to a useful widget
 rather than an empty one.
 
 **The configuration screen.** `WidgetConfigActivity` is declared as `android:configure` on
-both providers, so the launcher opens it when a widget is dropped and again on reconfigure
-(`android:widgetFeatures="reconfigurable"`). It receives `EXTRA_APPWIDGET_ID`, offers the four
-scopes — "most important limits", "all accounts", one provider, one account — upserts a single
+all four providers, so the launcher opens it when a widget is dropped and again on reconfigure
+(`android:widgetFeatures="reconfigurable"`). It receives `EXTRA_APPWIDGET_ID`, offers the six
+scope modes plus appearance controls, and on "Save widget" upserts a single
 `WidgetConfigEntity` through `WidgetConfigDao`, repaints so the widget lands showing the chosen
 scope, and returns `RESULT_OK` with the id.
 
-The result is set to `RESULT_CANCELED` first and only flipped on an explicit choice. That is
-the framework contract: backing out removes the widget rather than leaving an unconfigured one
-on the home screen. The activity is not exported — only the system starts it, through the
+The result is set to `RESULT_CANCELED` first and only flipped after a successful explicit save.
+Cancel does not rewrite an existing widget's configuration; initial placement cancellation is
+handled by the launcher. The activity is not exported; the launcher/system opens it through the
 `APPWIDGET_CONFIGURE` action.
-
-This screen was missing for a while, and the cost was larger than "a setting you cannot
-change": with no row ever written, `WidgetScope.fromName(null)` sent every widget down the
-`MOST_CRITICAL` path, so `ACCOUNT` and `PROVIDER` were unreachable code and two widgets placed
-to watch two different Codex accounts rendered identically.
 
 ## The data path, and why a token cannot reach the home screen
 
-The complete chain for a widget render:
+All four widgets use this data path. Summary and Bars call it from their `provideGlance`
+methods; Account Rings and Mini Rings share the inherited `AccountRingsWidget.provideGlance`.
 
-```
-launcher asks for an update
-  -> CompactUsageWidget/DetailedUsageWidget.provideGlance(context, glanceId)
-     -> WidgetUpdater.loadSnapshot(context, glanceId)
-        -> WidgetConfigDao.get(appWidgetId)          (scope + ids)
-        -> UsageRepository.accountUsageOnce()        (accounts + latest snapshots)
-        -> WidgetDataBuilder.build(...)              (pure function, no I/O)
-     -> WidgetSnapshot  ->  Glance composition
+```mermaid
+flowchart TD
+    Config["WidgetConfigDao.observe(appWidgetId)"] --> Observe["WidgetUpdater.observe"]
+    Usage["UsageRepository.observeAccountUsage()"] --> Observe
+    Settings["settingsStore.settings"] --> Observe
+    Observe --> Build["WidgetDataBuilder.build: snapshot"]
+    Build --> View["WidgetView: snapshot, style, metrics"]
+    Observe -->|"style and metrics"| View
+    View --> Glance["Glance composition"]
 ```
 
 Three properties make the "no token" claim structural rather than aspirational:
 
-1. **The only data source is Room**, and Room by design holds no token — `AccountEntity`
+1. **Usage comes from Room; appearance also uses settings.** Room holds no token — `AccountEntity`
    stores a `credentialReference` (a lookup name like `claude_9f2c…`), never a credential. Even
    a bug that dumped the entire widget input would expose usage numbers and a masked e-mail.
 2. **`WidgetDataBuilder` is a pure function** over already-loaded `AccountUsage` values. It
    cannot fetch, cannot decrypt and cannot suspend on anything; a token has no route in.
-3. **The `widget` package imports no credential or provider code.** Its complete set of
-   in-project imports is `core.model.*`, `core.time.Countdown`, `core.database.AccountUsage`,
-   `core.sync.SyncWorker`, plus `UsageLimitsApp` and `MainActivity`. Neither `core.auth` nor
-   `providers` appears — one grep re-verifies it.
+3. **The `widget` package imports no credential store or provider connector.** It uses models,
+   cache/configuration types, scheduling, settings and UI resources such as provider logos.
+   Neither `core.auth` nor the `providers` package is part of this render path.
 
 The output type reinforces this: `WidgetSnapshot`, `WidgetAccount` and `WidgetRow` have fields
 for labels, percentages, reset times and severities, and no field a credential could occupy
@@ -173,21 +181,17 @@ container; that is the right change if this package ever grows.
 
 ## How a placed widget gets updated
 
-Three paths, deliberately independent of one another, so that no single deferral leaves a
-tile frozen:
+Three update paths serve different triggers; Android can defer background delivery:
 
 1. **After a sync moves the cache** (`WidgetUpdater.refreshAll`, called from
-   `publishAfterSync` and every foreground action). Immediate, but only as reliable as the
-   app's own WorkManager queue: the periodic `SyncWorker` runs when Android lets it, and each
-   Glance repaint is itself a WorkManager job (`SessionWorker`) that is lost if the process
-   dies before it starts.
+   `publishAfterSync` and foreground refresh/account actions). This requests a repaint from
+   the updated cache; periodic sync and Glance session work still depend on Android scheduling.
 2. **On the system's clock.** Every provider XML declares `updatePeriodMillis="1800000"`, the
-   floor the framework honours. The launcher then asks the receiver for a render every thirty
-   minutes whether or not the app has run — inside Doze maintenance windows, and after the
-   process was killed. `UsageWidgetReceiver.onUpdate` repaints from the cache and, when the
-   cache is older than the sync interval or a reset has passed since it was fetched
-   (`SyncWorker.cacheNeedsSync`), enqueues a fetch. Placement and resize fire the same
-   callback, so the fetch is conditional: a widget dropped a minute after a sync costs nothing.
+   minimum interval requested from the framework, not a guarantee of exact thirty-minute
+   delivery. `UsageWidgetReceiver.onUpdate` delegates the cache repaint to Glance and calls
+   `SyncWorker.syncIfCacheAged`. The decision checks each account's missing/aged data and
+   elapsed resets, with recent attempts limiting retries. A fresh account does not hide an
+   older account that still needs a sync. Size changes are handled by Glance's size-update path.
 3. **At a presentation boundary** (`WidgetPresentationWorker`): a cache-only repaint when a
    snapshot crosses its staleness threshold or a reset instant arrives, plus the same
    conditional fetch, because a reset is the one boundary a repaint cannot get right on its own.
@@ -213,10 +217,9 @@ the widgets were last repainted, alongside the device's own background restricti
 `RefreshWidgetAction` is an `ActionCallback` whose entire body is `SyncWorker.syncNow(context)`.
 It does not call a provider, does not touch the credential store, and does not await a result.
 
-The launcher is a bad place to do network work. An `ActionCallback` runs on a short budget in
-a process the app does not own and cannot keep alive; a token refresh plus four provider
-fetches over a slow mobile connection will not reliably finish inside it, and a half-completed
-refresh is exactly the scenario that burns a rotated refresh token.
+A widget action should not perform a token refresh and provider fetch inline. The callback
+enqueues work in the app; the launcher renders the resulting `RemoteViews`. Network work goes
+through the normal sync path with its scheduling and concurrency controls.
 
 Routing through WorkManager buys four things at once. The pass obeys the same
 `NetworkType.CONNECTED` constraint as every other sync, so tapping refresh with no signal
@@ -240,9 +243,9 @@ credit, and a removed account.
 
 ## Glance constraints that shaped the layout
 
-Glance is not Compose. It emits `RemoteViews`, so there is no measurement, no custom drawing,
-no arbitrary layout, and no access to the app's process at draw time. Four consequences are
-visible in the code:
+Glance is not the app's Compose UI. It emits supported `RemoteViews` layouts for the host;
+custom ring drawing is supplied as a bitmap, not a launcher-side Canvas composable. Four
+consequences are visible in the code:
 
 **The bars use Glance's own progress indicator.** `androidx.glance.appwidget.LinearProgressIndicator`
 accepts a per-instance `color` and `backgroundColor` and fills whatever width its modifier
@@ -261,40 +264,34 @@ silent wrong answer rather than a visible overflow.
 resolve against a parent whose width Glance does not know at composition time — which is why
 the fraction has to be handed to a primitive that resolves it at inflation, rather than
 computed in the composable. Inside the detailed row the bar takes `defaultWeight()` so it
-absorbs whatever the fixed-width label and percent columns leave.
+absorbs the width left beside the fixed-width reset label.
 
-**Glance cannot read the app's theme.** Composition happens for the launcher's process, so
-`MaterialTheme` and the app's `UsageColors` are not reachable. The handful of colours the
-widgets need are restated in a private object `W` at the top of `UsageWidgets.kt` — the same
-warm-neutral surfaces and the same severity ramp (teal for an untouched window, green, amber,
-red, slate for stale). This is duplication, and it is acknowledged as such: a palette change is
-two edits, one in `ui/theme/Color.kt` and one in `W`. Keeping them in one object on each side is
-what makes that a mechanical change rather than a hunt. The severity *mapping* is not
-duplicated in any meaningful sense — both sides read the same `Severity` enum computed by the
-same `Severity.fromRemainingPercent`, so the two surfaces cannot disagree about whether
-something is low, only about the exact hex value used to say so.
+**The stored widget style is explicit.** `WidgetStyle` owns panel, text, card, track and status
+colors; `LocalWidgetStyle` supplies it during composition. The host receives those colors in
+`RemoteViews` rather than inheriting the app's Material theme. Status handling distinguishes
+quota severity from stale/error validity, model-specific restrictions and partial updates.
+The refresh chip is a tinted `ic_refresh` drawable with a "Refresh usage" description.
 
-**No scrolling and no overflow reporting.** A widget that draws past its host is clipped
-without complaint, which is why the detailed widget caps at three accounts and states the
-remainder in text. For the same reason the refresh control is a text glyph (`↻`) in a circular
-box rather than a vector icon: it is one composable, it scales with the text system, and it
-needs no drawable at a size Glance would have to be told about.
+**Collections can scroll; ordinary layouts can still truncate.** Usage Bars and Account Rings
+use Glance `LazyColumn`; Mini Rings is a fixed-capacity grid. Glance limits a Row/Column to ten
+direct children, so detailed limits use nested groups instead of one long flat card. Real host
+size and font scale still matter: text can be ellipsized and a single large account card can
+exceed the visible viewport. A collection adapter must be materialized when testing its
+`RemoteViews`; a background-only bitmap does not verify the account rows.
 
-A fifth, smaller constraint drove `Countdown`: it is deliberately free of Android and locale
-APIs, so "5d 2h" is formatted identically in the app process and in the launcher process. Both
-widgets call `System.currentTimeMillis()` inline during composition, which is fine because a
-countdown is only redrawn when the widget is updated — but it does mean the displayed countdown
-is as old as the last update, not live.
+Reset labels are absolute rather than a live countdown: `Countdown.absoluteResetLabel` serves
+Summary, and `compactRingReset` uses the device's time format for today, a localized date for
+later days, and "Reset due" for passed instants. Recomposition is driven by updates, not a
+per-second timer; the presentation worker schedules reset/staleness boundaries.
 
-## Adding a third size later
+## Adding another Android widget
 
 The reducer is size-agnostic, so a new size is mostly declaration:
 
-1. Add a `GlanceAppWidget` subclass in `UsageWidgets.kt` with its own `SizeMode.Responsive` set,
-   composing from the same `WidgetSnapshot`. Reuse `UsageBar`, `percentText` and the `W`
-   palette; add a new selection helper to `WidgetDataBuilder` only if the size needs data the
-   snapshot does not already carry (for example a per-provider grouping, or more than two rows
-   per account — both would be new headline selectors, not a new data path).
+1. Add a `GlanceAppWidget` subclass using the existing `WidgetView` and its snapshot, style
+   and metrics. Choose its size/layout policy explicitly; the current four use `SizeMode.Exact`.
+   Reuse `UsageBar`, `UsageRing` and `WidgetStyle` as appropriate. The snapshot already retains
+   all account limit rows; a new layout does not require a new data path.
 2. Add a matching `GlanceAppWidgetReceiver` subclass.
 3. Add `res/xml/widget_<name>_info.xml` with `minWidth`/`minHeight`, `minResizeWidth`/
    `minResizeHeight`, `targetCellWidth`/`targetCellHeight`, `resizeMode`, a
@@ -304,10 +301,11 @@ The reducer is size-agnostic, so a new size is mostly declaration:
 5. **Add the new widget to `WidgetUpdater.allWidgets`**, paired with its receiver, and make
    the receiver extend `UsageWidgetReceiver`. Declare `updatePeriodMillis="1800000"` in the
    XML. `WidgetRefreshCoverageTest` reads the manifest and fails on any of the three being
-   missing, because each is a step that otherwise fails silently.
+   missing, because each is a step that otherwise fails silently. Register its configuration
+   label in `WidgetConfigActivity` and declare the configure/reconfigurable metadata too.
 
 Nothing else needs to change: the configuration table is keyed by `appWidgetId` and is
-class-agnostic, and `loadSnapshot` works for any `GlanceId`.
+class-agnostic, and `WidgetUpdater.observe` works for any supported `GlanceId`.
 
 ## The iOS widgets
 
