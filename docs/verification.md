@@ -1,5 +1,38 @@
 # Verification
 
+## Quota and widget regression coverage — PR #15
+
+[PR #15](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/pull/15) adds synthetic
+regressions for scoped quota availability, malformed and absent percentages,
+Claude window identity, current xAI credits versus deprecated monthly totals,
+partial refresh diagnostics, credential races and measurement age. Its check
+runs and downloadable artifacts are the source of execution results. Historical
+results below apply only to their stated commits and environments.
+
+Android CI runs the unit suite and lint, then builds debug and minified release
+APKs. `android-verification-evidence` contains test XML, lint output, generated
+Room schemas and widget PNGs. Schema 10 adds a nullable attempt timestamp;
+upgrade tests preserve accounts, snapshots and widget configuration from every
+retained schema. The RemoteViews test uses an actual `AppWidgetHostView`, verifies
+saved colors across day/night and resize, and requires materialized account and
+quota text in collection widgets. A background-only PNG is not sufficient proof.
+These are synthetic Robolectric renders, not physical launcher lifecycle tests.
+
+The APK reports record package/version metadata, SHA-256 and signer certificates.
+When the existing release key is configured, CI compares the previous published
+APK's identity, version code and signer with the new artifact and fails on missing
+or inconsistent values. Signature continuity does not prove an on-device upgrade.
+iOS CI runs the shared package on Linux and macOS and builds/runs the app with the
+real SDK on iPhone and iPad simulators.
+
+The spontaneous widget background change reported on Pixel 10a/GrapheneOS remains
+unreproduced. No live provider responses or controlled startup, memory, battery or
+background-work measurements were collected for this change. The original 25-day
+Claude reset is retained; it has not been verified against live source data.
+Physical-device lifecycle, populated-account behavior and installation of the
+published artifact remain separate checks. Release publication and verification
+follow [release.md](release.md); a successful CI artifact build is not publication.
+
 Usage Limits reads quota for seven providers: OpenAI Codex, Anthropic Claude,
 Google Antigravity, xAI Grok, Kimi Code, Devin and Meta Muse. Google Vertex is deliberately
 excluded because CliProxyAPI exposes it through API-key/service-account authentication rather

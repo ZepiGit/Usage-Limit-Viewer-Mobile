@@ -137,6 +137,8 @@ jobs:
             mkdir -p "$RUNNER_TEMP/previous-release"
             gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
               --pattern 'UsageLimits-0.2.0.apk' --dir "$RUNNER_TEMP/previous-release"
+            "$build_tools/aapt" dump badging \
+              "$RUNNER_TEMP/previous-release/UsageLimits-0.2.0.apk" > app/build/reports/apk-previous-metadata.txt
             "$build_tools/apksigner" verify --print-certs \
               "$RUNNER_TEMP/previous-release/UsageLimits-0.2.0.apk" > "$RUNNER_TEMP/previous-signature.txt"
             # apksigner uses either "Signer #1" or a scheme prefix such as "V2 Signer:".
@@ -152,7 +154,33 @@ jobs:
               echo '::error::Release signing certificate differs from v0.2.0.' >&2
               exit 1
             fi
-            echo 'Release signing certificate matches v0.2.0.' > app/build/reports/apk-upgrade.txt
+            previous_package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" app/build/reports/apk-previous-metadata.txt)
+            current_package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            previous_code=$(sed -n "s/^package: .* versionCode='\([^']*\)'.*/\1/p" app/build/reports/apk-previous-metadata.txt)
+            current_code=$(sed -n "s/^package: .* versionCode='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            previous_version=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" app/build/reports/apk-previous-metadata.txt)
+            current_version=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            if [[ ! "$previous_package" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ || "$previous_package" != "$current_package" ]]; then
+              echo '::error::Expected the same valid package name in both APK reports.' >&2
+              exit 1
+            fi
+            if [[ ! "$previous_code" =~ ^[1-9][0-9]{0,9}$ || ! "$current_code" =~ ^[1-9][0-9]{0,9}$ ]]; then
+              echo '::error::Expected a positive numeric versionCode in both APK reports.' >&2
+              exit 1
+            fi
+            if (( previous_code > 2100000000 || current_code > 2100000000 || current_code <= previous_code )); then
+              echo '::error::APK versionCodes must be in range and the new versionCode must increase.' >&2
+              exit 1
+            fi
+            if [[ -z "$previous_version" || -z "$current_version" ]]; then
+              echo '::error::Expected a versionName in both APK reports.' >&2
+              exit 1
+            fi
+            {
+              printf 'Previous APK: package=%s versionName=%s versionCode=%s\n' "$previous_package" "$previous_version" "$previous_code"
+              printf 'Current APK: package=%s versionName=%s versionCode=%s\n' "$current_package" "$current_version" "$current_code"
+              echo 'Package matches, versionCode increased, and signing certificate matches v0.2.0.'
+            } > app/build/reports/apk-upgrade.txt
           else
             echo 'Verification build only; release signing is unavailable.' > app/build/reports/apk-upgrade.txt
           fi
