@@ -34,6 +34,9 @@ cleanup() {
   # Preserve boot/system evidence before terminating only the emulator we started.
   if [[ -n "$emulator_pid" ]]; then
     timeout 15s adb -s "$ANDROID_SERIAL" logcat -b all -d -v threadtime > "$evidence/emulator-system-log.txt" 2>&1
+    printf '%s\n' "$?" > "$evidence/emulator-system-log-exit-status.txt"
+    timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys dropbox --print system_app_anr > "$evidence/emulator-system-app-anr.txt" 2>&1
+    printf '%s\n' "$?" > "$evidence/emulator-system-app-anr-exit-status.txt"
     timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys activity lastanr > "$evidence/emulator-last-anr.txt" 2>&1
     timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys window > "$evidence/emulator-window.txt" 2>&1
     timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys activity activities > "$evidence/emulator-activities.txt" 2>&1
@@ -83,9 +86,12 @@ avdmanager create avd --name usage-runtime --package 'system-images;android-36;d
   --device pixel_7_pro <<< no > "$evidence/emulator-avd-create.txt" 2>&1
 cp "$ANDROID_AVD_HOME/usage-runtime.avd/config.ini" "$evidence/emulator-avd-config.ini"
 # The previous runner requested 2048M, but this image raised it to 4096MB.
-# Keep that actual allocation and the same rendering/boot options; use four CPUs.
+# Keep that actual allocation and the boot options; use four CPUs.
+# Select the supported software backends. swiftshader_indirect is deprecated;
+# captured API 36 boots recorded SystemUI startup ANRs during shader compilation.
+# https://developer.android.com/studio/run/emulator-acceleration
 emulator_args=(-avd usage-runtime -port 5554 -cores 4 -memory 4096
-  -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+  -no-window -gpu software -no-snapshot -noaudio -no-boot-anim
   -camera-back none -camera-front none)
 printf '%s\n' "${emulator_args[@]}" > "$evidence/emulator-arguments.txt"
 "$ANDROID_HOME/emulator/emulator" "${emulator_args[@]}" > "$evidence/emulator-boot.txt" 2>&1 &
