@@ -1,0 +1,146 @@
+name: Diagnose captured boot 885
+
+on:
+  push:
+    branches: [verify/runtime-boot-885fa]
+    paths: [.github/workflows/diagnose-boot-885.yml]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify archive and print bounded boot evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, io, json, os, re, stat, urllib.error
+          import urllib.parse, urllib.request, zipfile
+          import xml.etree.ElementTree as ET
+          from pathlib import PurePosixPath
+
+          ARTIFACT = 11702795379
+          RUN = 38139315046
+          SHA = "885fa3785803166e951e089780d118f2f7adbd53"
+          DIGEST = "781bfef6cea2bf86c97541afc028f4559628de126d7fd0b941efd31ba1a48de7"
+          API = "https://api.github.com/repos/ZepiGit/Usage-Limit-Viewer-Mobile"
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args):
+                  return None
+
+          client = urllib.request.build_opener(NoRedirect)
+
+          def request(path):
+              return urllib.request.Request(API + path, headers={
+                  "Authorization": "Bearer " + os.environ["GITHUB_TOKEN"],
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              })
+
+          def emit(value):
+              value = re.sub(r"https?://\S+", "[URL]", str(value))
+              value = re.sub(
+                  r"(?i)\b(token|password|secret|authorization)\s*[:=]\s*\S+",
+                  r"\1=[REDACTED]", value)
+              print("EVIDENCE " + json.dumps(value[:1600], ensure_ascii=True))
+
+          def excerpt(name, rows, limit):
+              emit(f"{name}: {len(rows)} matching lines; displaying at most {limit}")
+              for row in rows[:limit]:
+                  emit(row)
+              if len(rows) > limit:
+                  emit("EXCERPT TRUNCATED")
+
+          def main():
+              with client.open(request(f"/actions/artifacts/{ARTIFACT}"), timeout=30) as response:
+                  meta = json.load(response)
+              assert meta["id"] == ARTIFACT and not meta["expired"]
+              assert meta["workflow_run"]["id"] == RUN
+              assert meta["workflow_run"]["head_sha"] == SHA
+              assert meta["name"] == "android-runtime-evidence-" + SHA
+              assert meta["digest"] == "sha256:" + DIGEST
+              try:
+                  response = client.open(
+                      request(f"/actions/artifacts/{ARTIFACT}/zip"), timeout=30)
+              except urllib.error.HTTPError as error:
+                  assert error.code == 302, "Unexpected artifact response"
+                  location = error.headers["Location"]
+                  assert urllib.parse.urlsplit(location).scheme == "https"
+                  response = urllib.request.urlopen(location, timeout=30)
+              with response:
+                  archive = response.read(8 * 1024 * 1024 + 1)
+              assert len(archive) <= 8 * 1024 * 1024, "Archive budget exceeded"
+              assert len(archive) == meta["size_in_bytes"], "Archive size mismatch"
+              assert hashlib.sha256(archive).hexdigest() == DIGEST, "Archive digest mismatch"
+
+              with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+                  entries = zipped.infolist()
+                  assert len(entries) <= 60, "Unexpected archive entry count"
+                  assert sum(item.file_size for item in entries) <= 100 * 1024 * 1024
+                  files = {}
+                  for item in entries:
+                      path = PurePosixPath(item.filename)
+                      assert not path.is_absolute() and ".." not in path.parts
+                      assert not re.search(r"[\\:\x00-\x1f]", item.filename)
+                      assert not stat.S_ISLNK(item.external_attr >> 16)
+                      assert not item.flag_bits & 1, "Encrypted archive entry"
+                      assert item.file_size <= 64 * 1024 * 1024
+                      if not item.is_dir():
+                          assert path.name not in files, "Duplicate basename"
+                          files[path.name] = item
+                  assert len(files) == 25, "Unexpected file count"
+                  assert "previous-install.txt" not in files, "Unexpected install evidence"
+                  assert "last-anr.txt" in files and "system-log.txt" in files
+                  emit(f"Verified artifact={ARTIFACT}, run={RUN}, commit={SHA}, files={len(files)}")
+                  for name in sorted(files):
+                      emit(f"FILE {name} bytes={files[name].file_size}")
+
+                  dialogs = []
+                  for name, item in sorted(files.items()):
+                      if name.endswith(".xml") and (
+                          name.startswith("initial-home") or name == "failure.xml"
+                      ):
+                          assert item.file_size <= 2 * 1024 * 1024
+                          root = ET.fromstring(zipped.read(item))
+                          for node in root.iter("node"):
+                              resource = node.get("resource-id", "")
+                              if resource.startswith("android:id/aerr_"):
+                                  dialogs.append({
+                                      "file": name, "id": resource,
+                                      "text": node.get("text", ""),
+                                      "description": node.get("content-desc", ""),
+                                  })
+                  assert dialogs, "Expected captured system-error dialog missing"
+                  excerpt("SYSTEM ERROR CONTROLS", dialogs, 30)
+                  patterns = {
+                      "anr": r"ANR in|^\s*(Process:|PID:|Reason:|ErrorId:|Frozen:|Load:|CPU usage)|^\s*[0-9.]+%|no ANR has occurred",
+                      "log": r"ANR in|am_anr\s*:|Input dispatching timed out|no focused window|FATAL EXCEPTION|Process:|Fatal signal|WATCHDOG KILLING|Boot completed",
+                      "window": r"\bmCurrentFocus=|\bmFocusedApp=",
+                      "boot": r"\b(ERROR|FATAL|PANIC|WARNING)\b",
+                  }
+                  for name, item in sorted(files.items()):
+                      kind = (
+                          "anr" if name.endswith("last-anr.txt") else
+                          "log" if name in {"system-log.txt", "emulator-system-log.txt", "crash-log.txt"} else
+                          "window" if name.endswith("-window.txt") else
+                          "boot" if name == "emulator-boot.txt" else None
+                      )
+                      if kind:
+                          lines = zipped.read(item).decode("utf-8", errors="replace").splitlines()
+                          selected = [line for line in lines if re.search(patterns[kind], line)]
+                          excerpt(name, selected, 60 if kind in {"anr", "log"} else 20)
+              emit("DIAGNOSTIC EXTRACTION COMPLETE; original runtime remains failed")
+
+          try:
+              main()
+          except Exception as error:
+              print("DIAGNOSTIC EXTRACTION FAILED: " + type(error).__name__)
+              raise SystemExit(1)
+          PY
