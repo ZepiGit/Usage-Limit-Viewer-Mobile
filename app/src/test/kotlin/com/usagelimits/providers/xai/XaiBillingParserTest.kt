@@ -456,13 +456,20 @@ class XaiBillingParserTest {
             """
             {"config":{
               "monthlyLimit":1000,
-              "used":null,
               "includedUsed":{"val":900},
               "totalUsed":100
             }}
             """.trimIndent(),
         ).single()
         assertEquals(90.0, included.usedPercent!!, 1e-9)
+    }
+
+    @Test
+    fun `explicit null legacy spend does not fall through to a different spend field`() {
+        val row = billing("""{"monthlyLimit":1000,"used":null,"includedUsed":{"val":900},"totalUsed":100}""").single()
+        assertNull(row.usedPercent)
+        assertNull(row.remainingPercent)
+        assertFalse(row.exhausted)
     }
 
     // ---- absent percentage is unknown, independently of period metadata ----

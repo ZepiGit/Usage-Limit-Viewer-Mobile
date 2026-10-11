@@ -146,8 +146,8 @@ object ClaudeUsageParser {
      */
     private fun parseLimits(payload: JsonObject): List<UsageWindow> {
         data class Entry(val payload: JsonObject, val kind: String?, val model: String?, val modelKey: String?) {
-            val identity: String get() = JsonSupport.string(payload, "id")
-                ?: if (kind != null || modelKey != null) "${kind.orEmpty()}|${modelKey.orEmpty()}" else payload.toString()
+            val identity: String get() = JsonSupport.string(this.payload, "id")
+                ?: if (kind != null || modelKey != null) "${kind.orEmpty()}|${modelKey.orEmpty()}" else this.payload.toString()
             val baseId: String get() = when (kind) {
                 "session" -> FIVE_HOUR_ID
                 "weekly_all" -> SEVEN_DAY_ID

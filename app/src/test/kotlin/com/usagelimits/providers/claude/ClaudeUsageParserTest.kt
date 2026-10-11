@@ -694,6 +694,9 @@ class ClaudeUsageParserTest {
         val rows = ClaudeUsageParser.parse(JsonSupport.parseObject("""{"limits":[{"id":"a","percent":20},{"id":"b","percent":80}]}"""), now)
         assertEquals(2, rows.size)
         assertEquals(2, rows.map { it.id }.distinct().size)
+        assertEquals(listOf(20.0, 80.0), rows.map { it.usedPercent })
+        val reordered = ClaudeUsageParser.parse(JsonSupport.parseObject("""{"limits":[{"id":"b","percent":80},{"id":"a","percent":20}]}"""), now)
+        assertEquals(rows.associate { it.usedPercent to it.id }, reordered.associate { it.usedPercent to it.id })
     }
 
 }
