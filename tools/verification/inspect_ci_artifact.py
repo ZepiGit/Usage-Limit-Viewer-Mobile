@@ -284,7 +284,12 @@ def pngs(zipped, files, paths, mode):
             root = xml(zipped, files[xml_path])
             hosts = [{"label": node.get("content-desc"), "bounds": node.get("bounds")}
                      for node in root.iter("node") if node.get("class", "").endswith("AppWidgetHostView")]
-            assert hosts, "No widget host in paired XML"
+            if re.search(r"/?move-(?:target-original|focus-\d+)\.png$", path):
+                assert any(node.get("resource-id", "").endswith(":id/label")
+                           and node.get("text", "").startswith("Move to row ")
+                           for node in root.iter("node")), "No move label in paired XML"
+            else:
+                assert hosts, "No widget host in paired XML"
         encoded = base64.b64encode(data).decode("ascii")
         count = (len(encoded) + 4095) // 4096
         emit("png-begin", path=path, bytes=len(data), sha256=hashlib.sha256(data).hexdigest(),
