@@ -1,0 +1,89 @@
+name: Quota baseline replay
+
+on:
+  push:
+    branches: ['verify/quota-baseline-regressions']
+    paths:
+      - '.github/workflows/quota-baseline.yml'
+      - 'tools/verification/QuotaScreenshotRegressionTest.kt'
+      - 'tools/verification/verify_quota_replay.py'
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    name: Quota contract (${{ matrix.role }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - role: baseline
+            revision: ac362ff22100ed218694107e3a3b736983bf90b8
+          - role: fixed
+            revision: 0fe32b452bc396067e9505de06eadd16c14748ce
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: contract
+          persist-credentials: false
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.revision }}
+          path: subject
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install the identical synthetic contract and secure build bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_dir=subject/app/src/test/kotlin/com/usagelimits/core/model
+          mkdir -p "$test_dir" evidence
+          cp contract/tools/verification/QuotaScreenshotRegressionTest.kt "$test_dir/"
+          # The baseline application code stays unchanged. Both runs use the patched,
+          # checksum-pinned bootstrap instead of the baseline's Gradle 8.11.1.
+          cp contract/gradle/wrapper/gradle-wrapper.properties subject/gradle/wrapper/
+          cp contract/gradle/wrapper/gradle-wrapper.jar subject/gradle/wrapper/
+
+      - name: Execute the contract on the selected application revision
+        shell: bash
+        working-directory: subject
+        run: |
+          set -uo pipefail
+          set +e
+          ./gradlew --no-daemon --no-build-cache :app:testDebugUnitTest --tests 'com.usagelimits.core.model.QuotaScreenshotRegressionTest' --console=plain 2>&1 | tee ../evidence/gradle.log
+          result=${PIPESTATUS[0]}
+          printf '%s\n' "$result" > ../evidence/gradle-exit-code.txt
+          exit 0
+
+      - name: Require assertion failures on the baseline and passes on the fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 contract/tools/verification/verify_quota_replay.py \
+            subject '${{ matrix.role }}' '${{ matrix.revision }}' \
+            --gradle-exit-code "$(cat evidence/gradle-exit-code.txt)" --report evidence/replay.json
+
+      - name: Preserve replay evidence, including expected red JUnit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quota-replay-${{ matrix.role }}
+          if-no-files-found: error
+          path: |
+            evidence
+            subject/app/build/test-results/testDebugUnitTest
+            contract/tools/verification/QuotaScreenshotRegressionTest.kt
+            contract/tools/verification/verify_quota_replay.py
+            contract/.github/workflows/quota-baseline.yml
