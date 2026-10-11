@@ -134,7 +134,7 @@ class Smoke:
             if scroll:
                 scrollables = [node for node in root.iter("node") if node.get("package") == package
                                and node.get("scrollable") == "true" and bounds(node)
-                               and (node.get("resource-id") == self.launcher + ":id/widgets_list_view"
+                               and (node.get("resource-id") == self.launcher + ":id/primary_widgets_list_view"
                                     if package == self.launcher else bool(matches(root, "Save widget")))]
                 if scrollables:
                     x1, y1, x2, y2 = max((bounds(node) for node in scrollables),
