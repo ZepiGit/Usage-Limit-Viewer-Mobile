@@ -130,6 +130,19 @@ class Smoke:
                 target = next(iter(targets), None)
             else:
                 target = self.control(root, package, label, resource_id)
+            scroll_down = False
+            if target is not None and scroll and package == self.launcher:
+                picker = next((node for node in root.iter("node")
+                               if node.get("resource-id") == self.launcher + ":id/primary_widgets_list_view"
+                               and node.get("scrollable") == "true" and bounds(node)), None)
+                if picker is not None:
+                    _, top, _, bottom = bounds(picker)
+                    center_y = (bounds(target)[1] + bounds(target)[3]) // 2
+                    # Picker nodes extend behind fixed search/navigation overlays.
+                    # Bring their tap centers into the middle of the observed list.
+                    scroll_down = center_y < top + (bottom - top) // 4
+                    if scroll_down or center_y > top + (bottom - top) * 3 // 4:
+                        target = None
             if target is not None:
                 return target
             if scroll:
@@ -141,8 +154,10 @@ class Smoke:
                     x1, y1, x2, y2 = max((bounds(node) for node in scrollables),
                                           key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
                     x = str((x1 + x2) // 2)
-                    self.adb("shell", "input", "swipe", x, str(y1 + (y2 - y1) * 3 // 4),
-                             x, str(y1 + (y2 - y1) // 4), "400")
+                    start, end = y1 + (y2 - y1) * 3 // 4, y1 + (y2 - y1) // 4
+                    if scroll_down:
+                        start, end = end, start
+                    self.adb("shell", "input", "swipe", x, str(start), x, str(end), "400")
             time.sleep(1)
         raise AssertionError(f"Missing observed {package} control: {label or resource_id}; see {name} captures")
 
@@ -254,7 +269,7 @@ class Smoke:
             self.open_widget_picker(name)
             self.tap(self.widget_control(name + "-preview", self.launcher, label=label, scroll=True))
             self.tap(self.widget_control(name + "-add", self.launcher,
-                                         resource_id=self.launcher + ":id/widget_add_button"))
+                                         resource_id=self.launcher + ":id/widget_add_button", scroll=True))
             self.widget_configuration(name + "-config", label, color, save=True)
             self.find_placed_widget(name + "-placed", label)
             bindings = self.widget_bindings(name)
