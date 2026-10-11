@@ -1,0 +1,194 @@
+name: API 36 renderer boot probe
+
+on:
+  push:
+    branches: ['verify/api36-renderer-probe']
+    paths: ['.github/workflows/api36-renderer-probe.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    name: One fresh boot with ${{ matrix.gpu }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu: [swiftshader_indirect, software]
+    env:
+      BASE_COMMIT: 8618f9bf84de8ada85dfe37d30fa222887fedbff
+      GPU_MODE: ${{ matrix.gpu }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify unchanged runtime sources
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/evidence
+          test "$(git rev-parse HEAD^)" = "$BASE_COMMIT"
+          git diff --exit-code "$BASE_COMMIT" -- tools/run_android_runtime.sh tools/android_runtime_smoke.py
+
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Check the AOSP API 36 image is available
+        run: |
+          set -euo pipefail
+          sdkmanager --list > runtime/evidence/sdk-packages.txt
+          if ! grep -Eq '^[[:space:]]*system-images;android-36;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 36 x86_64 image.' >&2
+            exit 1
+          fi
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # software selects available GLES/Vulkan software backends, not a fixed renderer.
+      # https://developer.android.com/studio/releases/emulator#36.4.9
+      - name: Boot once with the selected GPU mode and unchanged readiness gates
+        run: |
+          set -euo pipefail
+          export PROBE_DIRECTORY
+          PROBE_DIRECTORY=$(mktemp -d "$RUNNER_TEMP/usage-renderer-probe.XXXXXX")
+          trap 'rm -rf -- "$PROBE_DIRECTORY"' EXIT
+          python3 - <<'PY'
+          import difflib
+          import hashlib
+          import os
+          from pathlib import Path
+
+          source = Path("tools/run_android_runtime.sh").read_text()
+          mode = os.environ["GPU_MODE"]
+          assert mode in {"swiftshader_indirect", "software"}
+          assert source.count("-gpu swiftshader_indirect") == 1
+          modified = source.replace("-gpu swiftshader_indirect", "-gpu " + mode, 1)
+          logcat = '    timeout 15s adb -s "$ANDROID_SERIAL" logcat -b all -d -v threadtime > "$evidence/emulator-system-log.txt" 2>&1\n'
+          assert modified.count(logcat) == 1
+          modified = modified.replace(logcat, logcat + '    printf "%s\\n" "$?" > "$evidence/emulator-system-log-exit-status.txt"\n', 1)
+          anchor = '    timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys activity lastanr'
+          assert modified.count(anchor) == 1
+          capture = '    timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys dropbox --print system_app_anr > "$evidence/emulator-system-app-anr.txt" 2>&1\n'
+          capture += '    printf "%s\\n" "$?" > "$evidence/emulator-system-app-anr-exit-status.txt"\n'
+          modified = modified.replace(anchor, capture + anchor, 1)
+          directory = Path(os.environ["PROBE_DIRECTORY"])
+          (directory / "run_android_runtime.sh").write_text(modified)
+          evidence = Path("runtime/evidence")
+          (evidence / "wrapper.diff").write_text("".join(difflib.unified_diff(
+              source.splitlines(keepends=True), modified.splitlines(keepends=True),
+              fromfile="original/run_android_runtime.sh", tofile="temporary/run_android_runtime.sh")))
+          (evidence / "source-sha256.txt").write_text("".join(
+              hashlib.sha256(Path(path).read_bytes()).hexdigest() + "  " + path + "\n"
+              for path in ("tools/run_android_runtime.sh", "tools/android_runtime_smoke.py",
+                           ".github/workflows/api36-renderer-probe.yml")))
+          PY
+          cat > "$PROBE_DIRECTORY/android_runtime_smoke.py" <<'PY'
+          import argparse
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"]) / "tools"))
+          from android_runtime_smoke import PACKAGE, Smoke, run
+
+          parser = argparse.ArgumentParser()
+          parser.add_argument("--evidence", type=Path, required=True)
+          args = parser.parse_args()
+          devices = [line.split()[0] for line in run("adb", "devices").splitlines()[1:]
+                     if len(line.split()) >= 2 and line.split()[1] == "device"]
+          assert devices == [os.environ["ANDROID_SERIAL"]], "Requires only the probe emulator"
+          smoke = Smoke(args.evidence, devices[0])
+          assert smoke.adb("shell", "getprop", "ro.kernel.qemu") == "1", "Requires an emulator"
+          assert smoke.adb("shell", "getprop", "ro.build.version.sdk") == "36", "Expected API 36"
+          assert not smoke.adb("shell", "pm", "list", "packages", PACKAGE), "App must not be installed"
+          home = smoke.adb("shell", "cmd", "package", "resolve-activity", "--brief",
+                           "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
+          component = home.splitlines()[-1]
+          smoke.launcher = component.split("/", 1)[0]
+          environment = {
+              "commit": os.environ["GITHUB_SHA"], "baseCommit": os.environ["BASE_COMMIT"],
+              "runId": os.environ["GITHUB_RUN_ID"], "serial": devices[0], "launcher": home,
+              "requestedGpuMode": os.environ["GPU_MODE"],
+              "hostCpuCount": (args.evidence / "host-nproc.txt").read_text().strip(),
+              "fingerprint": smoke.adb("shell", "getprop", "ro.build.fingerprint"),
+              "guestCpuOnline": smoke.adb("shell", "cat", "/sys/devices/system/cpu/online"),
+              "guestUptimeBeforeReadiness": smoke.adb("shell", "cat", "/proc/uptime"),
+              "hwTimeoutMultiplier": smoke.adb("shell", "getprop", "ro.hw_timeout_multiplier"),
+              "gpuProperties": {key: smoke.adb("shell", "getprop", key) for key in (
+                  "ro.hardware.egl", "ro.hardware.vulkan", "debug.renderengine.backend", "debug.hwui.renderer")},
+          }
+          smoke.text("environment.json", json.dumps(environment, indent=2))
+          print("BOOT_ENVIRONMENT " + json.dumps(environment, sort_keys=True), flush=True)
+          assert environment["guestCpuOnline"] == "0-3", "Expected four online guest CPUs"
+          smoke.wait_for_launcher("initial-home", component)
+          assert not smoke.adb("shell", "pm", "list", "packages", PACKAGE), "App unexpectedly installed"
+          smoke.text("readiness-result.json", json.dumps({
+              "result": "passed", "commit": os.environ["GITHUB_SHA"], "apkInstalled": False,
+              "requestedGpuMode": os.environ["GPU_MODE"],
+              "guestUptimeAfterReadiness": smoke.adb("shell", "cat", "/proc/uptime"),
+              "scope": "One fresh API 36 boot; unchanged launcher readiness and ANR checks",
+          }, indent=2))
+          PY
+          sha256sum "$PROBE_DIRECTORY/run_android_runtime.sh" "$PROBE_DIRECTORY/android_runtime_smoke.py" > runtime/evidence/probe-sha256.txt
+          date -u +%FT%TZ > runtime/evidence/wrapper-started-at.txt
+          probe_started=$SECONDS
+          probe_status=0
+          bash "$PROBE_DIRECTORY/run_android_runtime.sh" --evidence runtime/evidence || probe_status=$?
+          printf '%s\n' "$probe_status" > runtime/evidence/wrapper-exit-status.txt
+          printf '%s\n' "$((SECONDS - probe_started))" > runtime/evidence/wrapper-elapsed-seconds.txt
+          exit "$probe_status"
+
+      - name: Check captured ANRs and summarize observations
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import re
+
+          evidence = Path("runtime/evidence")
+          for report in ("emulator-system-log", "emulator-system-app-anr"):
+              assert (evidence / (report + "-exit-status.txt")).read_text().strip() == "0", report + " capture failed"
+              assert (evidence / (report + ".txt")).read_text().strip(), report + " capture was empty"
+          assert (evidence / "emulator-last-anr.txt").read_text().strip().splitlines() == [
+              "ACTIVITY MANAGER LAST ANR (dumpsys activity lastanr)",
+              "  <no ANR has occurred since boot>",
+          ], "Cleanup found an ANR or an unrecognized ANR report"
+          events = [line for line in (evidence / "emulator-system-log.txt").read_text().splitlines()
+                    if re.search(r"\bam_anr\s*:|\bActivityManager\s*:\s+ANR in\b", line)]
+          print("BOOT_ANR_EVENTS " + str(len(events)), flush=True)
+          for line in events[:10]:
+              print(line, flush=True)
+          observed = {}
+          for name in ("emulator-boot.txt", "emulator-system-log.txt"):
+              observed[name] = [line for line in (evidence / name).read_text().splitlines()
+                  if re.search(r"Boot completed|RenderEngine|[Ss]hader.*(?:compil|generat)|[Rr]enderer|[Gg]raphics backend|[Gg][Pp][Uu] mode", line)]
+          (evidence / "renderer-observations.json").write_text(json.dumps(observed, indent=2) + "\n")
+          assert not events, "Boot recorded an ANR even if its dialog is no longer visible"
+          assert (evidence / "wrapper-exit-status.txt").read_text().strip() == "0", "Wrapper/readiness failed"
+          readiness = json.loads((evidence / "readiness-result.json").read_text())
+          assert readiness["result"] == "passed" and readiness["apkInstalled"] is False
+          result = {**readiness, "recordedAnrEvents": len(events),
+                    "wrapperElapsedSeconds": int((evidence / "wrapper-elapsed-seconds.txt").read_text()),
+                    "scope": "One observed fresh boot for this GPU mode; no APK or statistical reliability claim"}
+          (evidence / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+          print("RENDERER_PROBE_RESULT " + json.dumps(result, sort_keys=True), flush=True)
+          PY
+
+      - name: Upload boot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api36-renderer-${{ matrix.gpu }}-${{ github.sha }}
+          path: runtime/evidence
+          if-no-files-found: error
