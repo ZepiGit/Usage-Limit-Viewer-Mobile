@@ -34,7 +34,13 @@ APK's identity, version code and signer with the new artifact and fails on missi
 or inconsistent values. Signature continuity alone does not prove an on-device upgrade.
 The API 36 runtime job starts a fresh AOSP emulator and waits for a focused
 launcher window and its observed workspace before sending test input. Boot logs
-are retained; a system error dialog fails the run. It installs v0.2.0, changes and reloads
+are retained; a system error dialog fails the run. Both Android and release CI
+keep Xvfb alive around the runtime wrapper. The software renderer uses bundled
+Lavapipe/LLVMpipe with `EGL_PLATFORM=x11`; native EGL requires a display even
+with `-no-window`. The wrapper rejects missing `DISPLAY` and verifies the actual
+renderer modes before APK installation. This setup addresses the observed CI
+graphics initialization path; it does not establish physical-device performance.
+It installs v0.2.0, changes and reloads
 a setting, then installs the same run's signed minified APK with `adb install -r`.
 It verifies the installed APK hash, preserved setting and package identity, four
 tabs, relaunch and crash/ANR diagnostics. It also places all four empty widget
@@ -178,10 +184,10 @@ The scripted HTTP tests do not establish what error an Apple URLSession emits on
 ## Local audit results — 12 September 2026
 
 The completed baseline checks used JDK 17, Android SDK 35 and Swift 6.0.3 in
-Docker. The current Android source targets API 36 with AGP 8.10.1 and Robolectric
-4.16.1; its tests use JDK 21, while app bytecode remains Java 17. The final local
-build, test and emulator results are below. The corrected iPhone/iPad CI run
-remains pending.
+Docker. The audit's Android source targeted API 36 with AGP 8.10.1 and Robolectric
+4.16.1; its tests used JDK 21, while app bytecode targeted Java 17. The final local
+build, test and emulator results for that audit are below. The corrected
+iPhone/iPad CI run was pending at that time.
 
 | Check | Result |
 |---|---|
@@ -234,7 +240,8 @@ The Linux shims catch missing declarations and some type and concurrency errors.
 They do not reproduce the Apple SDK's full behavior, render the SwiftUI screens,
 or prove an Xcode build. The separate real-SDK CI run compiled the source at
 `19fc063`, then failed three provider-picker UI checks involving scroll gestures.
-The corrected iPhone/iPad run, including landscape and large text, is still pending.
+The corrected iPhone/iPad run, including landscape and large text, was pending
+at the audit; current execution evidence is recorded in PR #15's check runs.
 
 ## What the tests establish
 
@@ -343,9 +350,11 @@ authentication attempts while the cause is unknown.
 
 This audit has not established end-to-end access to any live account. Historical
 fixtures remain useful regression evidence, but no current provider response was
-captured or re-confirmed here. Physical-device checks, the corrected iOS CI run,
-populated-account behavior and a controlled performance comparison remain open.
-The final API 36 emulator smoke and cold-launch measurements are complete.
+captured or re-confirmed here. Physical-device checks, populated-account behavior
+and a controlled performance comparison remain open. The completed API 36
+emulator smoke and cold-launch measurements above belong to the September local
+audit; current Android runtime and iOS simulator results belong to PR #15's
+check runs and their artifacts.
 Both platforms have the shared app-icon assets configured; their presence does
 not establish store acceptance.
 

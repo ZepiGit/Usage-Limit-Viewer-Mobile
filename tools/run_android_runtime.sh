@@ -21,6 +21,7 @@ mkdir -p "$evidence"
 script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 : "${ANDROID_HOME:?Android SDK setup is required}"
 : "${RUNNER_TEMP:?A dedicated CI runner is required}"
+: "${DISPLAY:?Run under xvfb-run; the bundled LLVMpipe EGL backend requires X11}"
 export ANDROID_SERIAL=emulator-5554
 runtime_directory=$(mktemp -d "$RUNNER_TEMP/usage-runtime.XXXXXX")
 export ANDROID_AVD_HOME="$runtime_directory/avd"
@@ -59,8 +60,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# The API 36 guest exhausted its two assigned CPUs during captured SystemUI
-# startup ANRs. Record the host and require capacity for four guest CPUs.
+# Keep the verified four-CPU guest allocation and record the host capacity.
 runtime_host_cpus=$(nproc)
 printf '%s\n' "$runtime_host_cpus" > "$evidence/host-nproc.txt"
 lscpu > "$evidence/host-lscpu.txt"
@@ -87,14 +87,16 @@ avdmanager create avd --name usage-runtime --package 'system-images;android-36;d
 cp "$ANDROID_AVD_HOME/usage-runtime.avd/config.ini" "$evidence/emulator-avd-config.ini"
 # The previous runner requested 2048M, but this image raised it to 4096MB.
 # Keep that actual allocation and the boot options; use four CPUs.
-# Select the supported software backends. swiftshader_indirect is deprecated;
-# captured API 36 boots recorded SystemUI startup ANRs during shader compilation.
+# Software mode otherwise uses SwANGLE for GLES. Captured API 36 SystemUI ANRs
+# blocked on its shader compilation; use the bundled LLVMpipe GLES backend.
+# Its native EGL requires an X11 display even with -no-window.
 # https://developer.android.com/studio/run/emulator-acceleration
 emulator_args=(-avd usage-runtime -port 5554 -cores 4 -memory 4096
   -no-window -gpu software -no-snapshot -noaudio -no-boot-anim
   -camera-back none -camera-front none)
 printf '%s\n' "${emulator_args[@]}" > "$evidence/emulator-arguments.txt"
-"$ANDROID_HOME/emulator/emulator" "${emulator_args[@]}" > "$evidence/emulator-boot.txt" 2>&1 &
+ANDROID_EMU_LAVAPIPE_GL_MODE_LLVMPIPE=1 EGL_PLATFORM=x11 \
+  "$ANDROID_HOME/emulator/emulator" "${emulator_args[@]}" > "$evidence/emulator-boot.txt" 2>&1 &
 emulator_pid=$!
 boot_deadline=$((SECONDS + 600))
 timeout 120s adb -s "$ANDROID_SERIAL" wait-for-device
@@ -112,6 +114,17 @@ while :; do
   [[ "$boot_completed" == 1 ]] && break
   sleep 1
 done
+
+# Fail before APK installation if an SDK update changes the selected backends.
+python3 - "$evidence/emulator-boot.txt" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+modes = set(re.findall(r"vulkan_mode_selected:(\S+)\s+gles_mode_selected:(\S+)", Path(sys.argv[1]).read_text()))
+if modes != {("lavapipe", "llvmpipe")}:
+    raise SystemExit(f"Expected Lavapipe/LLVMpipe; observed renderer modes: {sorted(modes)}")
+PY
 
 for setting in window_animation_scale transition_animation_scale animator_duration_scale; do
   timeout 10s adb -s "$ANDROID_SERIAL" shell settings put global "$setting" 0.0

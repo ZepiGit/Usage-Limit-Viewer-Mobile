@@ -186,7 +186,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Upgrade and navigate the release APK
-        run: bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-0.2.0.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/apk/app-release.apk.sha256 --evidence runtime/evidence
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-0.2.0.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/apk/app-release.apk.sha256 --evidence runtime/evidence
       - name: Upload release runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
