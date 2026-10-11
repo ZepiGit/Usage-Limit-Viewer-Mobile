@@ -105,15 +105,14 @@ PY
 cp "$ANDROID_AVD_HOME/usage-runtime.avd/config.ini" "$evidence/emulator-avd-config.ini"
 # The previous runner requested 2048M, but this image raised it to 4096MB.
 # Keep that actual allocation and the boot options; use four CPUs.
-# Software mode otherwise uses SwANGLE for GLES. Captured API 36 SystemUI ANRs
-# blocked on its shader compilation; use the bundled LLVMpipe GLES backend.
-# Its native EGL requires an X11 display even with -no-window.
+# Captured LLVMpipe boots stalled SystemUI's GPU-priority request to SurfaceFlinger.
+# Select SwiftShader explicitly, matching the earlier healthy boot's backends.
 # https://developer.android.com/studio/run/emulator-acceleration
 emulator_args=(-avd usage-runtime -port 5554 -cores 4 -memory 4096
-  -no-window -gpu software -no-snapshot -noaudio -no-boot-anim
+  -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim
   -camera-back none -camera-front none)
 printf '%s\n' "${emulator_args[@]}" > "$evidence/emulator-arguments.txt"
-ANDROID_EMU_LAVAPIPE_GL_MODE_LLVMPIPE=1 EGL_PLATFORM=x11 \
+EGL_PLATFORM=x11 \
   "$ANDROID_HOME/emulator/emulator" "${emulator_args[@]}" > "$evidence/emulator-boot.txt" 2>&1 &
 emulator_pid=$!
 boot_deadline=$((SECONDS + 600))
@@ -140,8 +139,8 @@ import re
 import sys
 
 modes = set(re.findall(r"vulkan_mode_selected:(\S+)\s+gles_mode_selected:(\S+)", Path(sys.argv[1]).read_text()))
-if modes != {("lavapipe", "llvmpipe")}:
-    raise SystemExit(f"Expected Lavapipe/LLVMpipe; observed renderer modes: {sorted(modes)}")
+if modes != {("swiftshader", "swiftshader")}:
+    raise SystemExit(f"Expected SwiftShader Vulkan/GLES; observed renderer modes: {sorted(modes)}")
 PY
 
 display_size=$(timeout 10s adb -s "$ANDROID_SERIAL" shell wm size | tr -d '\r')
