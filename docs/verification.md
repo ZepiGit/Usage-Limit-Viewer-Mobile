@@ -56,9 +56,12 @@ the background-process-loss check.
 iOS CI runs the shared package on Linux and macOS and builds/runs the app with the
 real SDK on iPhone and iPad simulators.
 
-The runtime script also records one warmup and three process-cold launches per
-APK with four widgets placed, then saves process memory reports after five idle
-seconds on Overview. These observations use the same emulator, but do not control
+The runtime script also records one excluded warmup and three launches after
+force-stop per APK with four widgets placed, then saves process memory reports
+after five idle seconds on Overview. Timings are grouped by Android's reported
+COLD, WARM or HOT state. A background job can start the process between the PID
+check and activity launch; observing no process beforehand does not guarantee a
+cold sample. These observations use the same emulator, but do not control
 shared host load, ART profiles or file caches. They do not establish general speed,
 scrolling, battery or background-work improvements.
 

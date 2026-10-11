@@ -596,7 +596,7 @@ class Smoke:
         self.text("widgets-network.json", json.dumps(report, indent=2))
 
     def performance_observations(self, phase, apk, placed):
-        """Descriptive process-cold startup observations, separate from normal process loss."""
+        """Descriptive launches after force-stop, grouped by Android's actual launch state."""
         expected_widgets = {item["component"]: item["id"] for item in placed}
         assert len(expected_widgets) == 4 and self.widget_bindings(phase + "-performance") == expected_widgets
         activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
@@ -604,8 +604,8 @@ class Smoke:
         report = {
             "apk": apk, "environmentReport": "environment.json", "widgets": placed,
             "nightMode": self.adb("shell", "cmd", "uimode", "night"),
-            "method": "One excluded warmup and three process-cold force-stop launches; empty Overview; five seconds idle before process meminfo.",
-            "limits": "Initial display, not fully ready; not storage-cold. Sequential shared CI emulator, uncontrolled ART/file caches and host load. No timing thresholds or improvement claim. Memory reports are snapshots, exclude launcher memory, and are retained raw until their platform format is verified.",
+            "method": "One excluded warmup and three launches after force-stop and observed process absence; grouped by Android's reported launch state; empty Overview; five seconds idle before process meminfo.",
+            "limits": "Background jobs can start the process between the PID check and activity launch, so force-stop does not guarantee a COLD sample. Initial display, not fully ready or storage-cold. Sequential shared CI emulator, uncontrolled ART/file caches and host load. No timing thresholds or improvement claim. Memory reports exclude launcher memory and are retained raw until their platform format is verified.",
             "samples": [],
         }
 
@@ -626,12 +626,15 @@ class Smoke:
                 if not pids():
                     break
                 time.sleep(1)
-            assert not pids(), "App process survived performance force-stop"
+            before_launch = pids()
+            assert not before_launch, "App process survived performance force-stop"
             launch = self.adb("shell", "am", "start", "-W", "-n", activity,
                               "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER")
             self.text(name + "-launch.txt", launch)
             assert re.search(r"^Status: ok$", launch, re.M), "Performance launch did not succeed"
-            assert re.search(r"^LaunchState: COLD$", launch, re.M), "Performance sample was not process-cold"
+            launch_states = re.findall(r"^LaunchState: (\S+)$", launch, re.M)
+            assert len(launch_states) == 1 and launch_states[0] in ("COLD", "WARM", "HOT"), "Unknown performance launch state"
+            launch_state = launch_states[0]
             total = re.search(r"^TotalTime: (\d+)$", launch, re.M)
             assert total, "Performance launch did not report TotalTime"
             wait = re.search(r"^WaitTime: (\d+)$", launch, re.M)
@@ -649,15 +652,20 @@ class Smoke:
             assert pids() == observed_pids, "App process changed during memory observation"
             # Preserve the actual API 36 report; do not guess a PSS column before seeing it.
             report["samples"].append({
-                "index": index, "warmup": index == 0, "totalTimeMs": int(total[1]),
+                "index": index, "warmup": index == 0, "launchState": launch_state,
+                "pidsBeforeLaunch": before_launch, "totalTimeMs": int(total[1]),
                 "waitTimeMs": int(wait[1]) if wait else None, "pid": observed_pids[0],
                 "memoryDelaySeconds": memory_delay, "memoryReport": name + "-meminfo.txt",
                 "memoryPssKiB": None, "memoryStatus": "raw report retained; PSS format not yet verified",
             })
-            measured = [sample["totalTimeMs"] for sample in report["samples"] if not sample["warmup"]]
-            if measured:
-                report["totalTimeMs"] = {"count": len(measured), "median": statistics.median(measured),
-                                         "min": min(measured), "max": max(measured)}
+            report["totalTimeMsByLaunchState"] = {}
+            for state in ("COLD", "WARM", "HOT"):
+                measured = [sample["totalTimeMs"] for sample in report["samples"]
+                            if not sample["warmup"] and sample["launchState"] == state]
+                if measured:
+                    report["totalTimeMsByLaunchState"][state] = {
+                        "count": len(measured), "median": statistics.median(measured),
+                        "min": min(measured), "max": max(measured)}
             self.text(phase + "-performance.json", json.dumps(report, indent=2))
 
     def wait_for(self, name, predicate):
