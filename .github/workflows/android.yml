@@ -139,9 +139,19 @@ jobs:
               --pattern 'UsageLimits-0.2.0.apk' --dir "$RUNNER_TEMP/previous-release"
             "$build_tools/apksigner" verify --print-certs \
               "$RUNNER_TEMP/previous-release/UsageLimits-0.2.0.apk" > "$RUNNER_TEMP/previous-signature.txt"
-            previous=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/previous-signature.txt")
-            current=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' app/build/reports/apk-signature.txt)
-            test -n "$previous" && test "$previous" = "$current"
+            # apksigner uses either "Signer #1" or a scheme prefix such as "V2 Signer:".
+            # A certificate repeated across schemes is one signer; distinct digests are ambiguous.
+            certificate_pattern='s/^(Signer #[0-9]+|V[0-9]+(\.[0-9]+)* Signer:) certificate SHA-256 digest: (.*)$/\3/p'
+            previous=$(sed -nE "$certificate_pattern" "$RUNNER_TEMP/previous-signature.txt" | tr '[:upper:]' '[:lower:]' | sort -u)
+            current=$(sed -nE "$certificate_pattern" app/build/reports/apk-signature.txt | tr '[:upper:]' '[:lower:]' | sort -u)
+            if [[ ! "$previous" =~ ^[0-9a-f]{64}$ || ! "$current" =~ ^[0-9a-f]{64}$ ]]; then
+              echo '::error::Expected exactly one nonempty SHA-256 signing certificate in each APK report.' >&2
+              exit 1
+            fi
+            if [ "$previous" != "$current" ]; then
+              echo '::error::Release signing certificate differs from v0.2.0.' >&2
+              exit 1
+            fi
             echo 'Release signing certificate matches v0.2.0.' > app/build/reports/apk-upgrade.txt
           else
             echo 'Verification build only; release signing is unavailable.' > app/build/reports/apk-upgrade.txt

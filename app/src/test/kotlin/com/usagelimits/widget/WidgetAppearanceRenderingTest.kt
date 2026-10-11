@@ -2,19 +2,20 @@ package com.usagelimits.widget
 
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
+import android.appwidget.AppWidgetHostView
 import android.content.ComponentName
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
 import android.view.ViewGroup
-import android.widget.FrameLayout
+import android.widget.AdapterView
 import android.widget.TextView
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.glance.ExperimentalGlanceApi
 import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.compose
+import androidx.glance.appwidget.runComposition
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.WidgetConfigEntity
@@ -23,6 +24,7 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -92,27 +94,50 @@ class WidgetAppearanceRenderingTest {
                     RuntimeEnvironment.setQualifiers(if (night) "+night" else "+notnight")
                     for ((styleIndex, config) in configs.withIndex()) {
                         for ((sizeIndex, size) in sizes.getValue(placed.name).withIndex()) {
-                            val remote = placed.widget().compose(app, id = glanceManager.getGlanceIdBy(config.appWidgetId), size = size)
-                            val view = remote.apply(app, FrameLayout(app))
-                            remote.reapply(app, view)
-                            ShadowLooper.idleMainLooper()
-                            val bitmap = draw(view, size.width.value.toInt(), size.height.value.toInt())
-                            val name = "${placed.name}-${styleIndex}-${if (night) "night" else "day"}-$sizeIndex"
-                            export(bitmap, name)
-                            assertEquals("$name preserves the selected background",
-                                config.backgroundArgb, bitmap.getPixel(bitmap.width / 2, 2))
-                            if (placed.name == "CompactUsageWidget") {
-                                val owner = textViews(view).firstOrNull { it.text.toString() == account.label }
-                                assertNotNull("$name identifies whose quota is displayed", owner)
-                                assertEquals("$name keeps readable saved ink", styles[styleIndex].textPrimary.toArgb(), owner!!.currentTextColor)
-                                assertTrue("$name displays the partial-sync warning",
-                                    textViews(view).any { it.text.toString().contains("Sync issue") })
+                            // Keep the composition alive until its collection views have been
+                            // applied, laid out and inspected inside the first-emission callback.
+                            placed.widget().runComposition(app,
+                                id = glanceManager.getGlanceIdBy(config.appWidgetId), sizes = listOf(size)).first { remote ->
+                                // Android refuses collection adapters unless rootParent is an
+                                // AppWidgetHostView. FrameLayout silently produced blank list widgets.
+                                val host = AppWidgetHostView(app).apply { setAppWidget(config.appWidgetId, null) }
+                                val view = remote.apply(app, host)
+                                host.addView(view)
+                                remote.reapply(app, view)
+                                ShadowLooper.idleMainLooper()
+                                val bitmap = draw(view, size.width.value.toInt(), size.height.value.toInt())
+                                val name = "${placed.name}-${styleIndex}-${if (night) "night" else "day"}-$sizeIndex"
+                                export(bitmap, name)
+                                assertEquals("$name preserves the selected background",
+                                    config.backgroundArgb, bitmap.getPixel(bitmap.width / 2, 2))
+                                if (placed.name == "CompactUsageWidget") {
+                                    val owner = textViews(view).firstOrNull { it.text.toString() == account.label }
+                                    assertNotNull("$name identifies whose quota is displayed", owner)
+                                    assertEquals("$name keeps readable saved ink", styles[styleIndex].textPrimary.toArgb(), owner!!.currentTextColor)
+                                    assertTrue("$name displays the partial-sync warning",
+                                        textViews(view).any { it.text.toString().contains("Sync issue") })
+                                }
+                                if (placed.name == "MiniRingsWidget") {
+                                    assertTrue("$name keeps a visible partial-update badge",
+                                        textViews(view).any { it.text.toString() == "!" })
+                                }
+                                if (placed.name == "DetailedUsageWidget" || placed.name == "MinimalUsageWidget") {
+                                    val collections = adapterViews(view)
+                                    assertEquals("$name has one account collection", 1, collections.size)
+                                    assertEquals("$name binds the selected account to its adapter", 1, collections.single().adapter?.count)
+                                    val text = textViews(view).map { it.text.toString() }
+                                    assertTrue("$name materializes the account row, not only the panel", account.label in text)
+                                    if (placed.name == "DetailedUsageWidget") {
+                                        assertTrue("$name retains the scoped limit", "Weekly (Fable)" in text)
+                                        assertTrue("$name renders the global remaining quota", "37%" in text)
+                                        assertTrue("$name renders the independent fetch warning", "Some limits could not be updated" in text)
+                                    } else {
+                                        assertTrue("$name renders the fetch warning", "Partial update" in text)
+                                    }
+                                }
+                                assertEquals(config, dao.get(config.appWidgetId))
+                                true
                             }
-                            if (placed.name == "MiniRingsWidget") {
-                                assertTrue("$name keeps a visible partial-update badge",
-                                    textViews(view).any { it.text.toString() == "!" })
-                            }
-                            assertEquals(config, dao.get(config.appWidgetId))
                         }
                     }
                 }
@@ -128,6 +153,11 @@ class WidgetAppearanceRenderingTest {
     private fun textViews(view: View): List<TextView> = buildList {
         if (view is TextView) add(view)
         if (view is ViewGroup) for (index in 0 until view.childCount) addAll(textViews(view.getChildAt(index)))
+    }
+
+    private fun adapterViews(view: View): List<AdapterView<*>> = buildList {
+        if (view is AdapterView<*>) add(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(adapterViews(view.getChildAt(index)))
     }
 
     private fun draw(view: View, width: Int, height: Int): Bitmap {
