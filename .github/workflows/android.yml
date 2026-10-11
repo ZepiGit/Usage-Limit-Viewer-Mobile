@@ -50,7 +50,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Test
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug
 
       # Uploaded on failure only, and always: a red unit test is unreadable from the console
       # output alone, and the HTML report is the thing that says which assertion and with what
@@ -62,6 +62,18 @@ jobs:
           name: unit-test-report
           path: app/build/reports/tests/testDebugUnitTest
           if-no-files-found: ignore
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-verification-evidence
+          path: |
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/lint-results-debug.*
+            app/build/reports/widget-renderings
+            app/schemas
+          if-no-files-found: error
 
   assemble:
     name: Debug APK
@@ -109,6 +121,39 @@ jobs:
         run: |
           export ANDROID_VERSION_CODE="$(git rev-list --count HEAD)"
           ./gradlew --no-daemon --no-configuration-cache assembleDebug assembleRelease
+
+      - name: Verify APK identity and signing continuity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          apk=app/build/outputs/apk/release/app-release.apk
+          mkdir -p app/build/reports
+          "$build_tools/aapt" dump badging "$apk" > app/build/reports/apk-metadata.txt
+          "$build_tools/apksigner" verify --verbose --print-certs "$apk" > app/build/reports/apk-signature.txt
+          sha256sum "$apk" > app/build/reports/apk-sha256.txt
+          if [ -n "${ANDROID_KEYSTORE_PATH:-}" ]; then
+            mkdir -p "$RUNNER_TEMP/previous-release"
+            gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
+              --pattern 'UsageLimits-0.2.0.apk' --dir "$RUNNER_TEMP/previous-release"
+            "$build_tools/apksigner" verify --print-certs \
+              "$RUNNER_TEMP/previous-release/UsageLimits-0.2.0.apk" > "$RUNNER_TEMP/previous-signature.txt"
+            previous=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$RUNNER_TEMP/previous-signature.txt")
+            current=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' app/build/reports/apk-signature.txt)
+            test -n "$previous" && test "$previous" = "$current"
+            echo 'Release signing certificate matches v0.2.0.' > app/build/reports/apk-upgrade.txt
+          else
+            echo 'Verification build only; release signing is unavailable.' > app/build/reports/apk-upgrade.txt
+          fi
+
+      - name: Upload APK verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-verification
+          path: app/build/reports/apk-*.txt
+          if-no-files-found: ignore
 
       - name: Forget the signing key
         if: always()
