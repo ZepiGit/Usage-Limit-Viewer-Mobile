@@ -592,6 +592,36 @@ class Smoke:
         self.widget_home("widgets-before-process-loss-home")
         before = set(self.adb("shell", "pidof", PACKAGE).split())
         assert before, "No background app process exists to exercise normal process loss"
+        # HOME hides the activity, but newly started Glance SessionWorkers can still
+        # hold a JobService binding. Android 16 am kill skips setAdj < SERVICE_ADJ
+        # (500), so observe eligibility before issuing the one normal kill request.
+        ready = False
+        started = time.monotonic()
+        report = {"before": sorted(before), "after": None, "eligibility": []}
+        while time.monotonic() - started < 120:
+            processes = self.adb("shell", "dumpsys", "activity", "processes", PACKAGE)
+            blocks = re.split(r"(?m)^  \*(?:APP|PERS)\* UID \d+ ", processes)[1:]
+            adjustments = {}
+            for block in blocks:
+                pid = re.match(r"ProcessRecord\{\S+ (\d+):" + re.escape(PACKAGE) + r"/", block)
+                adj = re.search(r"(?m)^    oom adj:.*\bset=(-?\d+)$", block)
+                if pid and adj:
+                    adjustments[pid[1]] = int(adj[1])
+            report["eligibility"].append({"seconds": time.monotonic() - started,
+                                          "setAdj": adjustments})
+            self.text("widgets-process-loss.json", json.dumps(report, indent=2))
+            self.text("widgets-process-loss-processes.txt", processes)
+            if len(report["eligibility"]) == 1:
+                self.text("widgets-process-loss-initial-processes.txt", processes)
+                self.text("widgets-process-loss-initial-services.txt", self.adb(
+                    "shell", "dumpsys", "activity", "services", PACKAGE))
+                self.text("widgets-process-loss-initial-jobs.txt", self.adb(
+                    "shell", "dumpsys", "jobscheduler", PACKAGE))
+            if set(adjustments) == before and all(adj >= 500 for adj in adjustments.values()):
+                ready = True
+                break
+            time.sleep(1)
+        assert ready, "Background app processes did not become eligible for normal am kill"
         self.adb("shell", "am", "kill", PACKAGE)
         for _ in range(12):
             try:
@@ -603,7 +633,8 @@ class Smoke:
             if before.isdisjoint(after):
                 break
             time.sleep(1)
-        self.text("widgets-process-loss.json", json.dumps({"before": sorted(before), "after": sorted(after)}, indent=2))
+        report["after"] = sorted(after)
+        self.text("widgets-process-loss.json", json.dumps(report, indent=2))
         assert before.isdisjoint(after), "am kill did not end the observed background app process"
         self.verify_widgets_after_upgrade(placed, phase="process-loss")
 

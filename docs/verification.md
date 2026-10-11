@@ -65,6 +65,11 @@ empty-account upgrade and the stated launcher checks; it does not establish
 populated-account behavior, a fresh provider repaint or physical-device
 lifecycle behavior. The earlier force-stop/relaunch checks remain distinct from
 the background-process-loss check.
+That check first observes every original app PID's Android 16 `setAdj` at or
+above `SERVICE_ADJ` (500), with a bounded wait and saved process/service/job
+diagnostics. Going Home alone is insufficient while Glance's widget jobs retain
+service bindings. It then issues one `am kill` and still requires disappearance
+of every original PID before checking retained widget content and settings.
 iOS CI runs the shared package on Linux and macOS and builds/runs the app with the
 real SDK on iPhone and iPad simulators.
 
