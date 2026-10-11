@@ -42,18 +42,25 @@ def matches(root, label):
             and label in (node.get("text"), node.get("content-desc"))]
 
 
-def clickable(root, label):
+def navigation_target(root, label):
     parents = {child: parent for parent in root.iter() for child in parent}
     candidates = {}
     for node in matches(root, label):
         while node is not None:
             box = bounds(node)
-            if box and node.get("clickable") == "true" and node.get("enabled") == "true":
+            if box and node.get("enabled") == "true" and (
+                node.get("clickable") == "true" or node.get("selected") == "true"
+            ):
                 candidates[box] = node
                 break
             node = parents.get(node)
     # Portrait navigation is below any identically named screen heading.
     return max(candidates.values(), key=lambda node: bounds(node)[3], default=None)
+
+
+def selected_tab(root, label):
+    target = navigation_target(root, label)
+    return target is not None and target.get("selected") == "true"
 
 
 class Smoke:
@@ -101,13 +108,16 @@ class Smoke:
         activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
         assert activity.startswith(PACKAGE + "/"), activity
         self.text(name + "-launch.txt", self.adb("shell", "am", "start", "-W", "-n", activity))
-        self.wait_for(name, lambda root: clickable(root, "Overview") is not None)
+        self.wait_for(name, lambda root: navigation_target(root, "Overview") is not None)
 
     def navigate(self, tab, marker, name):
         root = self.dump(name + "-before")
-        target = clickable(root, tab)
-        assert target is not None, f"No clickable {tab} navigation item"
-        self.tap(target)
+        target = navigation_target(root, tab)
+        assert target is not None, f"No enabled {tab} navigation item"
+        if target.get("selected") != "true":
+            assert target.get("clickable") == "true", f"Unselected {tab} tab is not clickable"
+            self.tap(target)
+        self.wait_for(name + "-selected", lambda root: selected_tab(root, tab))
         # A restored Settings destination can retain the previous scroll position.
         if tab == "Settings":
             for attempt in range(9):
@@ -115,7 +125,7 @@ class Smoke:
                 if matches(root, marker):
                     break
                 self.scroll(root, up=False)
-        self.wait_for(name, lambda root: bool(matches(root, marker)))
+        self.wait_for(name, lambda root: selected_tab(root, tab) and bool(matches(root, marker)))
         self.capture(name)
         assert self.adb("shell", "pidof", PACKAGE), "App process exited after navigation"
 
