@@ -147,7 +147,16 @@ object XaiBillingParser {
         // These are newer and deprecated representations of the same included allowance.
         // The first-party schema explicitly prefers measured credits over monthlyLimit/used.
         val measuredCredits = byId[CREDITS_WINDOW_ID]?.remainingPercent != null
-        return byId.values.filterNot { measuredCredits && it.id == MONTHLY_WINDOW_ID }
+        // Both representations describe one allowance, so they must agree on whether it is the
+        // only pool. A positive cap (the monthly window's MODEL scope) or a measured on-demand
+        // window (a percentage needs a positive cap) proves an alternative reserve. Without
+        // that evidence the credit view stays global: an unknown on-demand row proves nothing.
+        val all = credits + billing
+        val reserve = all.any { it.id == MONTHLY_WINDOW_ID && it.scope == UsageScope.MODEL } ||
+            all.any { it.id == ON_DEMAND_WINDOW_ID && it.remainingPercent != null }
+        return byId.values
+            .filterNot { measuredCredits && it.id == MONTHLY_WINDOW_ID }
+            .map { if (reserve && it.id == CREDITS_WINDOW_ID) it.copy(scope = UsageScope.MODEL) else it }
     }
 
     /** Verified nonnegative spend beyond a valid cap exhausts that allowance, never exceeds 100%. */

@@ -6,6 +6,7 @@ import com.usagelimits.core.auth.OAuthCredentials
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ResetCredit
+import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.network.ProviderEndpoints.Codex
@@ -19,7 +20,9 @@ import com.usagelimits.providers.LoginChallenge
 import com.usagelimits.providers.ProviderProfile
 import com.usagelimits.providers.UsageProvider
 import com.usagelimits.providers.UsageResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -354,13 +357,15 @@ class CodexProvider(
             "rate_limit_reset_credits",
             "rateLimitResetCredits",
         )
-        val credits = runCatching { fetchResetCredits(account, credentials) }
-            .getOrElse {
-                CreditsResult(
-                    credits = CodexUsageParser.parseResetCredits(embedded),
-                    count = CodexUsageParser.availableCreditCount(embedded),
-                )
-            }
+        val dedicated = try {
+            fetchResetCredits(account, credentials)
+        } catch (e: CancellationException) {
+            // Cancellation is the caller's decision, not an endpoint fault to absorb.
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        val credits = dedicated ?: creditsFrom(embedded)
 
         // The two sources are not the same payload with the same fields, which is easy to miss
         // and was wrong here until a live account was checked. The dedicated endpoint returns
@@ -371,14 +376,16 @@ class CodexProvider(
         // when the authoritative call succeeded.
         val applicable = CodexUsageParser.applicableCreditCount(embedded)
 
-        // The reported count wins over the row count. The list can be truncated or filtered
-        // while the count stays exact, and gating the redeem button on the rows would hide it
-        // from someone who actually holds credits.
+        // A failed optional call with no embedded copy leaves the credit count unknown. That is
+        // a partial refresh, not a confirmed zero: the usage windows themselves are current.
+        val creditsUnknown = dedicated == null && credits.count == null
         return UsageResult(
             windows = windows,
             resetCredits = credits.credits,
-            resetCreditCount = credits.count ?: credits.credits.size,
+            resetCreditCount = credits.count,
             applicableResetCreditCount = applicable,
+            status = if (creditsUnknown) SnapshotStatus.PARTIAL else SnapshotStatus.OK,
+            errorMessage = if (creditsUnknown) "Reset credits could not be refreshed" else null,
         )
     }
 
@@ -386,6 +393,20 @@ class CodexProvider(
         val credits: List<ResetCredit>,
         val count: Int?,
     )
+
+    /**
+     * The reported count wins over the row count. The list can be truncated or filtered while
+     * the count stays exact, and gating the redeem button on the rows would hide it from
+     * someone who actually holds credits. Rows count only when the source actually listed them.
+     */
+    private fun creditsFrom(payload: JsonObject?): CreditsResult {
+        val rows = CodexUsageParser.parseResetCredits(payload)
+        val listed = payload?.get("credits") is JsonArray
+        return CreditsResult(
+            credits = rows,
+            count = CodexUsageParser.availableCreditCount(payload) ?: rows.size.takeIf { listed },
+        )
+    }
 
     private suspend fun fetchResetCredits(
         account: ProviderAccount,
@@ -395,11 +416,7 @@ class CodexProvider(
             url = Codex.RESET_CREDITS_URL,
             headers = usageHeaders(account, credentials) + Codex.RESET_CREDIT_HEADERS,
         )
-        val payload = JsonSupport.parseObject(response.body)
-        return CreditsResult(
-            credits = CodexUsageParser.parseResetCredits(payload),
-            count = CodexUsageParser.availableCreditCount(payload),
-        )
+        return creditsFrom(JsonSupport.parseObject(response.body))
     }
 
     /**

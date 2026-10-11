@@ -1,7 +1,7 @@
 # UsageLimitViewer — Widget Root-Cause Audit and Optimized Remediation Plan
 
 Audit date: 13 September 2026
-Auditor: GPT-6-Astra (external deep-research run; prompt: `2026-09-13-gpt6-astra-widget-audit-prompt.md`)
+Scope: external read-only review of the widget source at the pin below.
 Audited repository: ZepiGit/Usage-Limit-Viewer
 Exact audit pin: 1cb94c205b87e651a7b5629d469706c66d65923f
 Method: Read-only inspection of pinned GitHub source, existing tests, and official framework references. No builds, tests, provider requests, or repository modifications were performed. Only this report was generated outside the repository.

@@ -121,12 +121,11 @@ public enum CodexUsageParser: Sendable {
     private static func count(_ payload: [String: Any]?, _ names: String...) -> Int? {
         guard let value = JSONSupport.double(payload, names[0], names[1]) else { return nil }
 
-        // Match Kotlin Double.toInt(): truncate, saturate to signed 32-bit bounds,
-        // and map NaN to zero rather than trapping on Swift's numeric conversion.
-        if value.isNaN { return 0 }
-        if value >= Double(Int32.max) { return Int(Int32.max) }
-        if value <= Double(Int32.min) { return Int(Int32.min) }
-        return Int(value.rounded(.towardZero))
+        // Only a non-negative whole count that fits a 32-bit Int is known, matching Kotlin.
+        // Negative, fractional or oversized values are unstated, not rounded or saturated.
+        guard value.isFinite, value >= 0, value <= Double(Int32.max),
+              value == value.rounded(.towardZero) else { return nil }
+        return Int(value)
     }
 
     public static func parsePlan(_ payload: [String: Any]) -> String? {
@@ -177,6 +176,39 @@ public enum CodexUsageParser: Sendable {
                     group: group
                 )
             )
+        }
+
+        // Two windows can share a category (weekly and monthly, or two 5-hour limits). Slots
+        // are identities only, so a window that found none keeps its own id by position.
+        for index in windows.indices where index != classified.short && index != classified.long {
+            guard let window = windows[index] else { continue }
+            result.append(
+                toWindow(
+                    window,
+                    id: "\(idPrefix)-\(index == 0 ? "primary" : "secondary")",
+                    labelPrefix: labelPrefix,
+                    now: now,
+                    group: group
+                )
+            )
+        }
+
+        // An explicit block with no child window is still a reported block. Keep it as an
+        // unmeasured window instead of inventing a percentage, duration or reset time.
+        if limitReached, result.isEmpty {
+            return [
+                UsageWindow(
+                    id: "\(idPrefix)-blocked",
+                    label: labelPrefix.map { "\($0) · Limit reached" } ?? "Limit reached",
+                    category: .other,
+                    usedPercent: nil,
+                    periodSeconds: nil,
+                    resetAt: nil,
+                    exhausted: true,
+                    group: group,
+                    scope: group == nil ? .global : .model
+                )
+            ]
         }
 
         if limitReached, !result.contains(where: \.exhausted),

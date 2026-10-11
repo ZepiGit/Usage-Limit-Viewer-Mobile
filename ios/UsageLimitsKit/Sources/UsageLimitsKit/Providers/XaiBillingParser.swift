@@ -171,7 +171,22 @@ public enum XaiBillingParser: Sendable {
         if windows.contains(where: { $0.id == creditsWindowID && $0.remainingPercent != nil }) {
             windows.removeAll { $0.id == monthlyWindowID }
         }
-        return windows
+        // Both representations describe one allowance, so they must agree on whether it is the
+        // only pool. A positive cap (the monthly window's model scope) or a measured on-demand
+        // window (a percentage needs a positive cap) proves an alternative reserve. Without
+        // that evidence the credit view stays global: an unknown on-demand row proves nothing.
+        let all = credits + billing
+        let reserve = all.contains { $0.id == monthlyWindowID && $0.scope == .model }
+            || all.contains { $0.id == onDemandWindowID && $0.remainingPercent != nil }
+        guard reserve else { return windows }
+        return windows.map { window in
+            guard window.id == creditsWindowID else { return window }
+            return UsageWindow(
+                id: window.id, label: window.label, category: window.category,
+                usedPercent: window.usedPercent, periodSeconds: window.periodSeconds,
+                resetAt: window.resetAt, exhausted: window.exhausted, group: window.group,
+                scope: .model)
+        }
     }
 
     /// Missing and explicit null remain unknown; malformed reported numbers require a warning.

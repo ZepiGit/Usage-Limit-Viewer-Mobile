@@ -118,14 +118,17 @@ data class WidgetStyle(
         // The row's own validity — a reset that has passed since the fetch — ranks with the
         // account's: the figure describes a window the provider has already closed.
         (validity ?: row.validity) != null -> accent((validity ?: row.validity)!!)
-        row.remainingPercent != null && row.remainingPercent >= 99.5 -> Teal
+        // The full-quota colour is a reward for a healthy row only. A row the provider has
+        // explicitly blocked keeps the block colour whatever percentage it still reports.
+        row.severity == Severity.HEALTHY && row.remainingPercent != null && row.remainingPercent >= 99.5 -> Teal
         else -> accent(row.severity)
     }
 
     /** [bar] for the row's words. */
     fun barText(row: WidgetRow, validity: Severity? = null): Color = when {
         (validity ?: row.validity) != null -> textColor((validity ?: row.validity)!!)
-        row.remainingPercent != null && row.remainingPercent >= 99.5 -> if (lightInk) Teal else Color(0xFF247A69)
+        row.severity == Severity.HEALTHY && row.remainingPercent != null && row.remainingPercent >= 99.5 ->
+            if (lightInk) Teal else Color(0xFF247A69)
         else -> textColor(row.severity)
     }
 
