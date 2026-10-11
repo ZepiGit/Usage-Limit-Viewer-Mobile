@@ -151,7 +151,7 @@ class Smoke:
         fields = {}
         for key, pattern in {
             "versionCode": r"versionCode=(\d+)", "versionName": r"versionName=([^\r\n]+)",
-            "userId": r"userId=(\d+)", "firstInstallTime": r"firstInstallTime=([^\r\n]+)",
+            "appId": r"\bappId=(\d+)", "firstInstallTime": r"firstInstallTime=([^\r\n]+)",
         }.items():
             match = re.search(pattern, package)
             assert match, f"Installed package has no {key}"
@@ -236,7 +236,7 @@ def main():
         smoke.text("upgrade-install.txt", smoke.adb("install", "-r", str(args.apk), timeout=180))
         current = smoke.installed("current")
         assert int(current["versionCode"]) == new["versionCode"] and current["versionName"] == new["versionName"]
-        assert current["userId"] == previous["userId"] and current["firstInstallTime"] == previous["firstInstallTime"], "Package was replaced instead of updated"
+        assert current["appId"] == previous["appId"] and current["firstInstallTime"] == previous["firstInstallTime"], "Package was replaced instead of updated"
         installed_paths = smoke.adb("shell", "pm", "path", PACKAGE).splitlines()
         assert len(installed_paths) == 1 and installed_paths[0].startswith("package:"), installed_paths
         installed_apk = args.evidence / "installed.apk"
