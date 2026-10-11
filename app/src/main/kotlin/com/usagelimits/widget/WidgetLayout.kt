@@ -3,9 +3,17 @@ package com.usagelimits.widget
 object WidgetLayout {
     data class Grid(val columns: Int, val rows: Int) { val capacity: Int get() = columns * rows }
 
-    fun accountColumns(width: Float, height: Float, metrics: WidgetMetrics? = null): Int =
-        if (metrics == null) { if (width >= 240f && height >= 240f) 2 else 1 }
+    fun accountColumns(width: Float, height: Float, metrics: WidgetMetrics? = null, fontScale: Float = 1f): Int {
+        // Each column needs a 36dp ring, an 8dp gap, 4dp padding and readable label space.
+        // A tall host alone cannot make two labelled columns fit a narrow widget.
+        val minimumColumn = 48f + 96f * fontScale.coerceAtLeast(1f)
+        if (width - 20f < 2 * minimumColumn) return 1
+        return if (metrics == null) { if (height >= 240f) 2 else 1 }
         else { val span = metrics.span(width, height); if (span.columns >= 2 && span.rows >= 4) 2 else 1 }
+    }
+
+    fun miniVisibleRows(grid: Grid, accountCount: Int): Int =
+        ((accountCount.coerceAtMost(grid.capacity) + grid.columns - 1) / grid.columns).coerceAtLeast(1)
 
     fun miniGrid(width: Float, height: Float, metrics: WidgetMetrics = WidgetMetrics()): Grid {
         val span = metrics.span(width, height)

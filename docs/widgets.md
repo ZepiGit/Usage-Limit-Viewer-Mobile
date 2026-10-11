@@ -32,14 +32,15 @@ Declared at `targetCellWidth="4"`, `targetCellHeight="1"`, resizeable horizontal
 
 | Tile | Shows |
 |---|---|
-| **5h limit** | The tightest five-hour window across every account in scope, as remaining percent, with a bar |
-| **Weekly** | The tightest weekly window, with a bar — falling back to the tightest monthly window when a plan has no weekly one |
-| **Next reset** | The clock time of the *earliest* reset still ahead for the LEADING account — absolute, never a countdown, because a widget cannot tick; and only a reset still ahead, because a snapshot keeps a passed instant until the next fetch replaces it |
-| **Quota** | One word for the overall worst state: `OK`, `Fair`, `Low`, `Out`, `Stale`, `Error`, coloured by severity |
+| **5h limit** | The leading account's global five-hour constraint, when reported |
+| **Weekly / Monthly** | The same account's global weekly/monthly constraint, retaining its label |
+| **Next reset** | The next future reset for that account |
+| **Account** | The leading account's status; warnings affecting other selected accounts are labeled separately |
 
-It deliberately aggregates rather than showing one account. At a single cell of height there is
-room for a glance, not a list, and the question this size answers is "do I need to think about
-this right now?" Tapping anywhere opens the app.
+The account owner is shown with the readings. A valid number on one account is never paired
+with an unexplained error from a different selected account. Unknown quotas use a neutral
+track and an unknown label, rather than a full healthy ring. Model-specific labels survive
+the parser-to-widget mapping.
 
 ### Detailed — header plus account cards (`DetailedUsageWidget`)
 
@@ -95,19 +96,20 @@ the entity fails validation at launch.
 `WidgetStyle` turns those three columns into every colour a widget draws. The panel is the
 chosen colour with the opacity folded into its alpha; the ink — text, tile and track — is
 derived from the panel's luminance, so a light panel gets dark text without a second setting.
-`AUTO` treats a fully transparent widget as dark-wallpaper by default, because there is no
-panel to read against; `LIGHT` and `DARK` exist for the wallpaper that guess gets wrong. Bars
+`AUTO` follows the selected panel color at every opacity, including zero. It does not
+read the wallpaper or follow system theme changes. `LIGHT` and `DARK` provide explicit
+text-color overrides for transparent widgets. Bars
 and rings keep the raw status accents on either ink; only the words switch to the deeper
 variants that clear 4.5:1 on near-white. `WidgetStyleTest` pins the derivation.
 
-None of the widgets read a colour constant any more. That matters beyond taste: the launcher
-renders a widget from the ARGB values baked into its `RemoteViews`, and a widget that mixed
-a user-chosen panel with a fixed light ink would be blank on a light panel. It also means a
-launcher that re-tints third-party widgets — some do, to match the phone's light or dark
-theme, and the effect looks like the panel changing on its own when a widget is moved — is
-given a panel whose opacity the user controls: a translucent or transparent panel is left
-alone by that kind of theming, which is the workaround for a launcher that will not respect
-the colour as sent. `WidgetUpdater.loadSnapshot` resolves the `GlanceId` to an
+Background and foreground are resolved together from the stored per-widget style and
+sent as explicit colors in `RemoteViews`. A changing launcher-rendered color does not by
+itself prove a configuration write or a launcher defect. Fixed configurations are tested
+through repeated compose/apply/reapply and day/night host contexts. This host-render test
+is separate from physical launcher verification; changing transparency or recreating a
+widget is not a substitute for identifying a reproduced lifecycle failure.
+
+`WidgetUpdater.loadSnapshot` resolves the `GlanceId` to an
 `appWidgetId`, reads the row, and passes the result to `WidgetDataBuilder.build`. Both the
 scope name and the enum names are part of the on-disk contract, which is why `WidgetScope`
 carries a "do not rename casually" note; `WidgetScope.fromName` maps anything unrecognised —
