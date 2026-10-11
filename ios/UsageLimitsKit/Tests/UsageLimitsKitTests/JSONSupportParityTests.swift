@@ -18,6 +18,32 @@ final class JSONSupportParityTests: XCTestCase {
         XCTAssertEqual(JSONSupport.double(decode(#"{"p": "2.5"}"#), "p"), 2.5)
     }
 
+    func testNativeBoxedAndDecodedBooleansRemainBooleansAcrossAccessors() {
+        for expected in [true, false] {
+            let decoded = decode(expected ? #"{"v":true}"# : #"{"v":false}"#)["v"]!
+            let values: [Any] = [expected, NSNumber(value: expected), decoded]
+            for value in values {
+                let source = ["v": value]
+                XCTAssertEqual(JSONSupport.bool(source, "v"), expected)
+                XCTAssertNil(JSONSupport.double(source, "v"))
+                XCTAssertNil(JSONSupport.int64(source, "v"))
+            }
+        }
+    }
+
+    func testNativeBoxedAndDecodedZeroAndOneRemainNumbersAcrossAccessors() {
+        for expected in [0, 1] {
+            let decoded = decode(expected == 0 ? #"{"v":0}"# : #"{"v":1}"#)["v"]!
+            let values: [Any] = [expected, Double(expected), NSNumber(value: expected), decoded]
+            for value in values {
+                let source = ["v": value]
+                XCTAssertNil(JSONSupport.bool(source, "v"))
+                XCTAssertEqual(JSONSupport.double(source, "v"), Double(expected))
+                XCTAssertEqual(JSONSupport.int64(source, "v"), Int64(expected))
+            }
+        }
+    }
+
     func testANumberIsNotABoolean() {
         // `"has_claude_max": 1` yielded a "Max" plan on Swift and none on Android.
         XCTAssertNil(JSONSupport.bool(decode(#"{"b": 1}"#), "b"))

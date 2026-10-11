@@ -119,6 +119,7 @@ fun UsageWindowRow(window: UsageWindow, nowMs: Long, modifier: Modifier = Modifi
     val remaining = window.remainingPercent
     val percent = percentLabel(remaining)
     val label = when {
+        window.scope != com.usagelimits.core.model.UsageScope.GLOBAL -> window.label
         window.group != null && window.category == com.usagelimits.core.model.WindowCategory.FIVE_HOUR -> "5h limit"
         window.group != null && window.category == com.usagelimits.core.model.WindowCategory.WEEKLY -> "Weekly"
         window.group != null && window.category == com.usagelimits.core.model.WindowCategory.MONTHLY -> "Monthly"
@@ -138,6 +139,10 @@ fun UsageWindowRow(window: UsageWindow, nowMs: Long, modifier: Modifier = Modifi
                 color = SeverityPalette.textColor(window.severity))
         }
         UsageBar(remaining, window.severity, Modifier.fillMaxWidth(), height = 6.dp)
+        if (window.hasConflictingAvailability) {
+            Text("Provider reports this limit as blocked despite a positive remaining value.",
+                style = MaterialTheme.typography.bodySmall, color = UsageColors.Amber)
+        }
         if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.TextTertiary)
         Spacer(Modifier.height(3.dp))
     }

@@ -6,6 +6,17 @@ import org.junit.Test
 class WidgetMetricsTest {
     private val pixel = WidgetMetrics(70f, 131f, 132f, 66f)
 
+    @Test fun `mini rings allocate height only to populated rows`() {
+        val grid = WidgetLayout.Grid(columns = 1, rows = 6)
+        assertEquals(1, WidgetLayout.miniVisibleRows(grid, 1))
+        assertEquals(3, WidgetLayout.miniVisibleRows(grid, 3))
+        assertEquals(6, WidgetLayout.miniVisibleRows(grid, 10))
+    }
+
+    @Test fun `large text requires a single labelled column at intermediate widths`() {
+        assertEquals(1, WidgetLayout.accountColumns(330f, 516f, pixel, fontScale = 1.5f))
+    }
+
     @Test fun `portrait and landscape placements both hold two accounts per cell`() {
         assertEquals(2, WidgetLayout.miniGrid(62.9f, 123.6f, pixel).capacity)
         assertEquals(2, WidgetLayout.miniGrid(124f, 58.2f, pixel).capacity)
@@ -14,9 +25,10 @@ class WidgetMetricsTest {
         assertEquals(8, WidgetLayout.miniGrid(256f, 124f, pixel).capacity)
     }
 
-    @Test fun `account rings add a column when the host grows from three by two to three by four`() {
+    @Test fun `account ring columns require actual space for their labels`() {
         assertEquals(1, WidgetLayout.accountColumns(202f, 254f, pixel))
-        assertEquals(2, WidgetLayout.accountColumns(202f, 516f, pixel))
+        assertEquals(1, WidgetLayout.accountColumns(202f, 516f, pixel))
+        assertEquals(2, WidgetLayout.accountColumns(330f, 516f, pixel))
     }
 
     @Test fun `square launcher cells preserve the same capacity contract`() {

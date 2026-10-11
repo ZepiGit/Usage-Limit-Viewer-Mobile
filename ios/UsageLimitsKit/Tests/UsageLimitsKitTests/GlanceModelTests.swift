@@ -240,9 +240,8 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(snapshot.nextResetAt, now.addingTimeInterval(20 * 86_400))
     }
 
-    func testAnUnknownPercentageIsTheMostUrgentHeadlineNotTheLeast() throws {
-        // A nil percentage resolves to `.error`. Treating it as the largest possible number
-        // made the one window the app could not read the last one it would ever show.
+    func testAnUnknownPercentageDoesNotHideAKnownHeadline() throws {
+        // An optional unknown row must not hide a measured quota on a compact surface.
         let unreadable = AccountUsage(
             account: account("mixed", .codex),
             snapshot: UsageSnapshot(
@@ -258,8 +257,8 @@ final class GlanceModelTests: XCTestCase {
 
         let snapshot = GlanceModel.build([unreadable], now: now, scope: .mostCritical)
 
-        XCTAssertNil(snapshot.headlineShort?.remainingPercent ?? nil)
-        XCTAssertEqual(snapshot.headlineShort?.severity, .error)
+        XCTAssertEqual(snapshot.headlineShort?.remainingPercent, 90)
+        XCTAssertEqual(snapshot.headlineShort?.severity, .healthy)
     }
 
     func testSubPointDriftDoesNotReorderTheTiles() {
@@ -430,15 +429,13 @@ extension GlanceModelTests {
         }
     }
 
-    func testAnAbsurdButFiniteUsageIsClampedRatherThanRefused() throws {
-        // The clamp handles every finite value, so the guard above is about non-finite ones
-        // alone: a merely enormous figure still means "nothing left", which is a statement the
-        // app can honestly make.
+    func testAnOutOfRangeUsageRemainsUnknown() throws {
+        // A finite number outside the declared percentage scale is malformed, not exhausted.
         let usage = parityUsage("a", used: 1e300, fetchedAt: parityNow)
 
         let snapshot = GlanceModel.build([usage], now: parityNow, scope: .mostCritical)
 
-        XCTAssertEqual(snapshot.accounts.first?.rows.first?.remainingPercent, 0)
+        XCTAssertNil(snapshot.accounts.first?.rows.first?.remainingPercent)
     }
 
     func testAPlanThatIsOnlyWhitespaceIsNotAPlan() throws {
@@ -627,4 +624,43 @@ extension GlanceModelTests {
         XCTAssertEqual(snapshot.mostCritical?.id, "a")
     }
 
+}
+
+extension GlanceModelTests {
+    func testGlobalHeadlinesPreserveScopedWarningAndWindowLabel() {
+        let data = withWindows([
+            UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 0,
+                        periodSeconds: 18_000, resetAt: nil, exhausted: false),
+            UsageWindow(id: "weekly", label: "Weekly credits", category: .weekly, usedPercent: 63,
+                        periodSeconds: 604_800, resetAt: nil, exhausted: false),
+            UsageWindow(id: "fable", label: "Weekly (Fable)", category: .weekly, usedPercent: 100,
+                        periodSeconds: 604_800, resetAt: nil, exhausted: true, scope: .model)])
+        let glance = GlanceModel.build([data], now: now, scope: .allAccounts)
+        XCTAssertEqual(glance.headlineLong?.label, "Weekly credits")
+        XCTAssertEqual(glance.headlineLong?.remainingPercent, 37)
+        XCTAssertEqual(glance.accounts.first?.severity, .limited)
+        XCTAssertEqual(glance.accounts.first?.statusMessage, "Restricted: Weekly (Fable)")
+    }
+
+    func testExplicitlyBlockedUnknownHeadlineBeatsKnownHealthyWindow() {
+        let data = withWindows([
+            UsageWindow(id: "known", label: "Measured", category: .fiveHour, usedPercent: 0,
+                        periodSeconds: 18_000, resetAt: nil, exhausted: false),
+            UsageWindow(id: "blocked", label: "Blocked", category: .fiveHour, usedPercent: nil,
+                        periodSeconds: 18_000, resetAt: nil, exhausted: true)])
+        let glance = GlanceModel.build([data], now: now, scope: .allAccounts)
+        XCTAssertEqual(glance.headlineShort?.label, "Blocked")
+        XCTAssertEqual(glance.headlineShort?.severity, .exhausted)
+        XCTAssertNil(glance.headlineShort?.remainingPercent)
+    }
+
+    func testFirstFailedFetchDoesNotClaimAnUpdateTime() {
+        let failed = AccountUsage(account: account("new", .claude),
+            snapshot: UsageSnapshot(accountID: "new", fetchedAt: now, status: .failed,
+                                    windows: [], errorMessage: "Offline"))
+        let glance = GlanceModel.build([failed], now: now, scope: .allAccounts)
+        XCTAssertNil(glance.updatedAt)
+        XCTAssertNil(glance.accounts.first?.fetchedAt)
+        XCTAssertEqual(glance.accounts.first?.severity, .error)
+    }
 }

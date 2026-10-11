@@ -321,9 +321,9 @@ public enum NotificationEvaluator {
                 // the severity, and both must say the same thing about the same payload.
                 let exhausted = window.severity == .exhausted
 
-                // An unknown percentage does not hold a window low: unknown is an absence of
-                // evidence, and the account already reads as error on screen.
-                let recovered = !exhausted && (remaining ?? warningPercent) >= warningPercent
+                // An unknown measurement proves neither recovery nor a new low-quota episode.
+                guard exhausted || remaining != nil else { continue }
+                let recovered = !exhausted && (remaining ?? 0) >= warningPercent
                 if recovered {
                     if windowState.active {
                         windowState.active = false

@@ -43,6 +43,9 @@ public struct UsageResult: Sendable {
     /// Nil from every provider that signs in by OAuth, where the identity comes from the token
     /// exchange and this would be a second answer to a settled question.
     public let accountIdentity: String?
+    public let status: SnapshotStatus
+    public let errorMessage: String?
+    public let connectionStatus: ConnectionStatus
 
     public init(
         windows: [UsageWindow] = [],
@@ -50,7 +53,10 @@ public struct UsageResult: Sendable {
         resetCreditCount: Int? = nil,
         applicableResetCreditCount: Int? = nil,
         plan: String? = nil,
-        accountIdentity: String? = nil
+        accountIdentity: String? = nil,
+        status: SnapshotStatus = .ok,
+        errorMessage: String? = nil,
+        connectionStatus: ConnectionStatus = .connected
     ) {
         self.windows = windows
         self.resetCredits = resetCredits
@@ -58,6 +64,9 @@ public struct UsageResult: Sendable {
         self.applicableResetCreditCount = applicableResetCreditCount
         self.plan = plan
         self.accountIdentity = accountIdentity
+        self.status = status
+        self.errorMessage = errorMessage
+        self.connectionStatus = connectionStatus
     }
 }
 
@@ -374,7 +383,10 @@ public struct ClaudeClient: SyncProvider, Sendable {
             endpoint: "claude usage"
         )
         let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "claude usage")
-        return UsageResult(windows: ClaudeUsageParser.parse(payload, now: now()))
+        let invalid = ClaudeUsageParser.hasInvalidUsage(payload)
+        return UsageResult(windows: ClaudeUsageParser.parse(payload, now: now()),
+                           status: invalid ? .partial : .ok,
+                           errorMessage: invalid ? "Some usage data could not be read" : nil)
     }
 }
 
@@ -549,14 +561,17 @@ public struct XaiClient: SyncProvider, Sendable {
         headers.merge(ProviderEndpoints.Xai.identityHeaders) { current, _ in current }
 
         var creditsWindows: [UsageWindow]?
+        var invalidUsage = false
         var creditsFailure: Error?
         do {
-            creditsWindows = try await fetchWindows(
+            let fetched = try await fetchWindows(
                 url: Self.creditsURL,
                 endpoint: "credits billing",
                 headers: headers,
                 parse: XaiBillingParser.parseCredits
             )
+            creditsWindows = fetched.windows
+            invalidUsage = invalidUsage || fetched.invalidUsage
         } catch let error as CancellationError {
             throw error
         } catch {
@@ -566,26 +581,34 @@ public struct XaiClient: SyncProvider, Sendable {
         var billingWindows: [UsageWindow]?
         var billingFailure: Error?
         do {
-            billingWindows = try await fetchWindows(
+            let fetched = try await fetchWindows(
                 url: Self.billingURL,
                 endpoint: "billing",
                 headers: headers,
                 parse: XaiBillingParser.parseBilling
             )
+            billingWindows = fetched.windows
+            invalidUsage = invalidUsage || fetched.invalidUsage
         } catch let error as CancellationError {
             throw error
         } catch {
             billingFailure = error
         }
 
-        if let creditsWindows, let billingWindows {
-            return UsageResult(windows: XaiBillingParser.merge(creditsWindows, billingWindows))
-        }
-        if let creditsWindows {
-            return UsageResult(windows: creditsWindows)
-        }
-        if let billingWindows {
-            return UsageResult(windows: billingWindows)
+        if creditsWindows != nil || billingWindows != nil {
+            let failures = [creditsFailure, billingFailure].compactMap { $0 }
+            let needsReconnect = failures.contains { error in
+                if case .unauthorised? = error as? ProviderError { return true }
+                return false
+            }
+            let partial = !failures.isEmpty || invalidUsage
+            return UsageResult(
+                windows: XaiBillingParser.merge(creditsWindows ?? [], billingWindows ?? []),
+                status: partial ? .partial : .ok,
+                errorMessage: needsReconnect
+                    ? "One billing view rejected authentication; some usage could not be refreshed."
+                    : (partial ? "Some billing data could not be updated" : nil),
+                connectionStatus: needsReconnect ? .unknown : .connected)
         }
         throw Self.preferredFailure(creditsFailure, billingFailure)
     }
@@ -596,12 +619,12 @@ public struct XaiClient: SyncProvider, Sendable {
         endpoint: String,
         headers: [String: String],
         parse: (_ payload: [String: Any], _ now: Date) -> [UsageWindow]
-    ) async throws -> [UsageWindow] {
+    ) async throws -> (windows: [UsageWindow], invalidUsage: Bool) {
         let response = try await ProviderHTTP.request(
             httpClient, url: url, headers: headers,
             endpoint: endpoint)
         let payload = try ProviderHTTP.decodeObject(response.body, endpoint: endpoint)
-        return parse(payload, now())
+        return (parse(payload, now()), XaiBillingParser.hasInvalidUsage(payload))
     }
 
     /// Picks which failure to surface when both routes were tried and both failed.

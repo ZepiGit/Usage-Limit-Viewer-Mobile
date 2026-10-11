@@ -44,6 +44,7 @@ final class SyncEngineTests: XCTestCase {
         private var generation = 1
         private(set) var exchanges = 0
         private(set) var fetches = 0
+        private(set) var fetchedAccessTokens: [String] = []
         var rejectFetchUntilRefreshed = false
         /// A provider that does not rotate: its response omits the refresh token entirely.
         var omitsRefreshTokenInResponse = false
@@ -78,6 +79,7 @@ final class SyncEngineTests: XCTestCase {
             attributes: [String: String]
         ) async throws -> UsageResult {
             fetches += 1
+            fetchedAccessTokens.append(credentials.accessToken)
             if rejectFetchUntilRefreshed { throw ProviderError.unauthorised }
             return UsageResult(
                 windows: [], resetCredits: [], resetCreditCount: nil,
@@ -433,6 +435,8 @@ extension SyncEngineTests {
         // removed the account would put the deleted credential back.
         let updates = await store.attemptedUpdates
         XCTAssertEqual(updates, attempts, "rotations must persist update-only, never upsert")
+        let fetchedTokens = await provider.fetchedAccessTokens
+        XCTAssertEqual(fetchedTokens, ["access-2"], "the accepted in-memory rotation must still serve the request")
     }
 
     // MARK: - A removal must beat a refresh that is already running
@@ -483,28 +487,47 @@ extension SyncEngineTests {
             providers: ["codex": provider], credentials: store, sink: sink,
             now: { [now] in now })
 
-        _ = try? await engine.sync(accounts: [account("a")])
+        let outcomes = try await engine.sync(accounts: [account("a")])
 
         let stored = await store.current
         XCTAssertEqual(stored?.accessToken, "login-access",
                        "the sign-in the user just completed must survive the refresh")
+        guard case .success = outcomes[0] else { return XCTFail("the current login should fetch usage") }
+        let fetchedTokens = await provider.fetchedAccessTokens
+        XCTAssertEqual(fetchedTokens, ["login-access"], "a discarded rotation must never reach the usage endpoint")
+    }
+
+    func testACredentialRemovedDuringRefreshDoesNotReachTheUsageEndpoint() async throws {
+        let store = SwappingCredentialStore(initial: expired("access-1"), afterFirstLoad: nil)
+        let provider = RotatingProvider()
+        let engine = SyncEngine(
+            providers: ["codex": provider], credentials: store, sink: RecordingSink(),
+            now: { [now] in now })
+
+        let outcomes = try await engine.sync(accounts: [account("a")])
+
+        guard case .failure = outcomes[0] else { return XCTFail("removed credentials cannot authorize a fetch") }
+        let fetchedTokens = await provider.fetchedAccessTokens
+        XCTAssertTrue(fetchedTokens.isEmpty, "a rotation discarded after removal must never be used")
+        let stored = await store.current
+        XCTAssertNil(stored)
     }
 
     /// Hands back the original pair for the first reads and the login afterwards — a sign-in
     /// landing while a refresh is in flight, without needing real concurrency to schedule it.
     ///
-    /// The count matters and is the whole reason this double is delicate. The engine reads
-    /// three times for one refresh: once to see whether the token is usable, once inside the
-    /// exchange, and once more when persisting the result. Swapping any earlier than that
+    /// The count matters and is the whole reason this double is delicate. The first reads
+    /// check whether the token is usable, check inside the exchange, then persist the result.
+    /// Swapping any earlier than that
     /// third read means the exchange itself sees the login, decides nothing needs doing, and
     /// never persists at all — so the test passes with the fix removed and proves nothing. It
     /// did exactly that on the first attempt.
     private actor SwappingCredentialStore: CredentialStore {
         private var stored: OAuthCredentials?
-        private let afterFirstLoad: OAuthCredentials
+        private let afterFirstLoad: OAuthCredentials?
         private var loads = 0
 
-        init(initial: OAuthCredentials, afterFirstLoad: OAuthCredentials) {
+        init(initial: OAuthCredentials, afterFirstLoad: OAuthCredentials?) {
             stored = initial
             self.afterFirstLoad = afterFirstLoad
         }
@@ -609,6 +632,8 @@ extension SyncEngineTests {
 
         let exchanges = await provider.exchanges
         XCTAssertEqual(exchanges, 1, "the second sync must not spend the grant again")
+        let fetchedTokens = await provider.fetchedAccessTokens
+        XCTAssertEqual(fetchedTokens, ["access-2", "access-2"])
         let outcomes = await sink.outcomes
         XCTAssertEqual(outcomes.count, 2)
         for outcome in outcomes {
@@ -732,8 +757,10 @@ extension SyncEngineTests {
 
     private actor FixedRotationProvider: SyncProvider {
         let providerID = "codex"
+        private(set) var fetchedAccessTokens: [String] = []
         func fetchUsage(credentials: OAuthCredentials, attributes: [String: String]) async throws -> UsageResult {
-            UsageResult()
+            fetchedAccessTokens.append(credentials.accessToken)
+            return UsageResult()
         }
         func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials {
             OAuthCredentials(accessToken: "access-A1", refreshToken: "refresh-A1",
@@ -749,14 +776,17 @@ extension SyncEngineTests {
     func testAFailedRotationDoesNotOverrideALoginThatLandedMeanwhile() async throws {
         let login = fresh("access-B")
         let store = StoreWithALateLogin(initial: expired("access-A"), login: login)
+        let provider = FixedRotationProvider()
         let engine = SyncEngine(
-            providers: ["codex": FixedRotationProvider()], credentials: store,
+            providers: ["codex": provider], credentials: store,
             sink: RecordingSink(), now: { [now] in now })
 
         _ = try await engine.sync(accounts: [account("a")])
 
         let current = try await engine.usableCredentials(reference: "ref-a", provider: "codex")
         XCTAssertEqual(current.accessToken, "access-B", "the login must win, not the old session's rotation")
+        let fetchedTokens = await provider.fetchedAccessTokens
+        XCTAssertEqual(fetchedTokens, ["access-B"], "the request must use the accepted login, not the discarded rotation")
     }
 
 }

@@ -422,7 +422,12 @@ public actor SyncEngine {
             // account within the same second. Returning it means this session keeps working,
             // and the sign-out is deferred to the next launch rather than caused now.
             await self.persist(renewed, reference: reference, replacing: current)
-            return Exchange(credentials: renewed, exchanged: true)
+            // Persistence may discard this rotation after a new login or removal. Resolve
+            // the accepted pair, including any unsaved rotation, before authorizing a request.
+            guard let accepted = try await self.currentCredentials(reference: reference) else {
+                throw SyncEngineError.credentialsAbsent
+            }
+            return Exchange(credentials: accepted, exchanged: accepted == renewed)
         }
 
         // Nothing between the look-up above and this store suspends, so on this actor the

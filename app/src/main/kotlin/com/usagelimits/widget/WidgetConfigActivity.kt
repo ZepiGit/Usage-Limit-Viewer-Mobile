@@ -343,11 +343,12 @@ private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widget
             if (snapshot.accounts.isEmpty()) Text("Select accounts to see your widget", color = style.textSecondary)
             else if (kind.contains("Rings")) Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 snapshot.accounts.take(4).forEach { account ->
-                    val row = account.rows.minByOrNull { it.remainingPercent ?: Double.MAX_VALUE }
+                    val row = ringLimit(account)
                     Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(
                             progress = { ((row?.remainingPercent ?: 0.0) / 100).toFloat() }, modifier = Modifier.fillMaxSize(),
-                            color = row?.let(style::bar) ?: WidgetStyle.Green, trackColor = style.track, strokeWidth = 4.dp,
+                            color = row?.let { style.bar(it, account.dataValidity) } ?: WidgetStyle.Slate,
+                            trackColor = style.track, strokeWidth = 4.dp,
                         )
                         ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
                     }

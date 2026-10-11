@@ -4,12 +4,16 @@ public enum XaiBillingParser: Sendable {
     private static let creditsWindowID = "xai-credits"
     private static let monthlyWindowID = "xai-monthly"
     private static let onDemandWindowID = "xai-on-demand"
+    private static let creditFields = ["creditUsagePercent", "credit_usage_percent"]
+    private static let monthlyLimitFields = ["monthlyLimit", "monthly_limit"]
+    private static let usedFields = ["used", "includedUsed", "included_used", "totalUsed", "total_used"]
+    private static let onDemandCapFields = ["onDemandCap", "on_demand_cap"]
+    private static let onDemandUsedFields = ["onDemandUsed", "on_demand_used"]
 
     // A nominal 30-day month keeps calendar months of different lengths categorised alike.
     private static let billingPeriodSeconds: Int64 = 2_592_000
 
-    // `now` decides whether the reported period is the CURRENT one, which is what makes an
-    // absent percentage readable as zero — see below.
+    // A clock never supplies a missing provider measurement, even at a period boundary.
     public static func parseCredits(_ payload: [String: Any], now: Date) -> [UsageWindow] {
         let body = config(payload)
 
@@ -22,24 +26,10 @@ public enum XaiBillingParser: Sendable {
         let periodType = (JSONSupport.string(period, "type")
             ?? JSONSupport.string(body, "usagePeriodType", "usage_period_type"))?.lowercased()
 
-        // An ABSENT percentage is a zero when the period is live, and unknown otherwise.
-        //
-        // xAI's billing message is proto3, and `credit_usage_percent` is an implicit-presence
-        // float there: a value of exactly zero is not written to the wire at all. So the one
-        // week in which the user has spent nothing — the first week, the week after a reset —
-        // arrives with the field missing, and reading that as "no credit window" is how the
-        // weekly row vanished from the app the moment it read 100 % remaining. The provider's
-        // own web client reads the omitted scalar as zero; so does this, but only when the
-        // payload proves it describes the period that contains now. A period in the past, or
-        // none at all, is a payload this parser does not understand, and that stays a missing
-        // row rather than an invented bar.
-        let reported = JSONSupport.double(body, "creditUsagePercent", "credit_usage_percent")
-            .flatMap { $0.isFinite ? $0 : nil }
-        let periodIsLive: Bool = {
-            guard let start, let end else { return false }
-            return start <= now && now <= end
-        }()
-        guard let usedPercent = reported ?? (periodIsLive ? 0.0 : nil) else {
+        // xai-org/grok-build BillingConfig.credit_usage_percent is Option<f64> in 0...100.
+        // Period metadata identifies a window, but supplies no default for its percentage.
+        let usedPercent = percentage(firstValue(body, creditFields))
+        guard firstValue(body, creditFields) != nil || start != nil || end != nil || periodType != nil else {
             return []
         }
 
@@ -95,16 +85,14 @@ public enum XaiBillingParser: Sendable {
         // view's copy) and keeps the row when the credit view alone stops answering.
         let weekly = parseCredits(payload, now: now)
 
-        let monthlyLimit = cents(body, "monthlyLimit", "monthly_limit")
+        let monthlyLimit = cents(body, monthlyLimitFields)
         // Every name the production shape carries for spend — see the Kotlin twin for why
         // reading `used` alone rendered a 90 %-spent account as untouched.
-        let used = cents(body, "used")
-            ?? cents(body, "includedUsed", "included_used")
-            ?? cents(body, "totalUsed", "total_used")
-
-        guard monthlyLimit != nil || used != nil else {
-            return weekly
-        }
+        let used = cents(body, usedFields)
+        let onDemandCap = cents(body, onDemandCapFields)
+        // A positive on-demand facility provides an alternative to the included allowance.
+        // Exhaustion of either individual pool alone must not block the entire account.
+        let billingScope: UsageScope = (onDemandCap ?? 0) > 0 ? .model : .global
 
         let resetAt = date(body, "billingPeriodEnd", "billing_period_end")
 
@@ -115,26 +103,32 @@ public enum XaiBillingParser: Sendable {
             used.flatMap { percentOf(amount: min($0, limit), total: limit) }
         }
 
-        var windows = weekly + [
-            UsageWindow(
+        var windows = weekly
+        if firstValue(body, monthlyLimitFields) != nil || firstValue(body, usedFields) != nil {
+            windows.append(UsageWindow(
                 id: monthlyWindowID,
                 label: "Monthly included",
                 category: .monthly,
                 usedPercent: includedPercent,
                 periodSeconds: billingPeriodSeconds,
                 resetAt: resetAt,
-                exhausted: isExhausted(includedPercent)
-            )
-        ]
+                exhausted: isExhausted(includedPercent),
+                scope: billingScope
+            ))
+        }
 
-        // Without a positive cap, there is no on-demand facility worth showing.
-        let onDemandCap = cents(body, "onDemandCap", "on_demand_cap") ?? 0
-        if onDemandCap > 0 {
+        // A known zero cap disables this facility. An absent or malformed cap supplies no
+        // percentage, but reported on-demand fields still identify an unknown window.
+        let hasOnDemand = firstValue(body, onDemandCapFields) != nil || firstValue(body, onDemandUsedFields) != nil
+        if hasOnDemand, onDemandCap != 0 {
             // Deriving overage needs BOTH a known allowance and known spend; with either
             // missing the row is shown with an unknown percentage rather than omitted.
-            let onDemandUsed = cents(body, "onDemandUsed", "on_demand_used")
-                ?? monthlyLimit.flatMap { limit in used.map { max(0, $0 - limit) } }
-            let onDemandPercent = onDemandUsed.flatMap { percentOf(amount: $0, total: onDemandCap) }
+            let onDemandUsed = firstValue(body, onDemandUsedFields) != nil
+                ? cents(body, onDemandUsedFields)
+                : monthlyLimit.flatMap { limit in used.map { max(0, $0 - limit) } }
+            let onDemandPercent = onDemandCap.flatMap { cap in
+                onDemandUsed.flatMap { percentOf(amount: $0, total: cap) }
+            }
 
             windows.append(
                 UsageWindow(
@@ -144,22 +138,52 @@ public enum XaiBillingParser: Sendable {
                     usedPercent: onDemandPercent,
                     periodSeconds: billingPeriodSeconds,
                     resetAt: resetAt,
-                    exhausted: isExhausted(onDemandPercent)
+                    exhausted: isExhausted(onDemandPercent),
+                    scope: .model
                 )
             )
         }
 
-        return windows
+        return merge([], windows)
     }
 
     public static func merge(
         _ credits: [UsageWindow],
         _ billing: [UsageWindow]
     ) -> [UsageWindow] {
-        // First occurrence wins so directly reported credits retain precedence if IDs
-        // ever collide. Independent endpoint failures need not discard the other view.
-        var seen = Set<String>()
-        return (credits + billing).filter { seen.insert($0.id).inserted }
+        // Preserve endpoint order and direct measurements, but let a measured fallback
+        // replace an unknown duplicate from the credit endpoint.
+        var windows = [UsageWindow]()
+        var indices = [String: Int]()
+        for window in credits + billing {
+            if let index = indices[window.id] {
+                if windows[index].usedPercent.flatMap({ percentage($0) }) == nil,
+                   window.usedPercent.flatMap({ percentage($0) }) != nil {
+                    windows[index] = window
+                }
+            } else {
+                indices[window.id] = windows.count
+                windows.append(window)
+            }
+        }
+        // BillingConfig prefers measured credit usage over the deprecated monthly fields.
+        // Unknown credit still needs that fallback; on-demand is a separate optional pool.
+        if windows.contains(where: { $0.id == creditsWindowID && $0.remainingPercent != nil }) {
+            windows.removeAll { $0.id == monthlyWindowID }
+        }
+        return windows
+    }
+
+    /// Missing and explicit null remain unknown; malformed reported numbers require a warning.
+    public static func hasInvalidUsage(_ payload: [String: Any]) -> Bool {
+        let body = config(payload)
+        let credit = firstValue(body, creditFields)
+        if let credit, !(credit is NSNull), percentage(credit) == nil { return true }
+        for fields in [monthlyLimitFields, usedFields, onDemandCapFields, onDemandUsedFields] {
+            let value = firstValue(body, fields)
+            if !isUnknown(value), cents(body, fields) == nil { return true }
+        }
+        return false
     }
 
     private static func config(_ payload: [String: Any]) -> [String: Any] {
@@ -168,19 +192,41 @@ public enum XaiBillingParser: Sendable {
         JSONSupport.object(payload, "config") ?? payload
     }
 
-    private static func cents(
-        _ source: [String: Any]?,
-        _ name: String,
-        _ alternate: String? = nil
-    ) -> Double? {
+    private static func cents(_ source: [String: Any], _ names: [String]) -> Double? {
         // Money may be bare or wrapped in {"val": ...}. Ratios use cents throughout,
         // so no currency conversion or display-unit assumption is necessary.
-        let alternateName = alternate ?? name
-        if let value = JSONSupport.double(source, name, alternateName) {
-            return value
+        let raw = firstValue(source, names)
+        let value: Double?
+        if let wrapped = raw as? [String: Any] {
+            // The provider's Cent.val has serde(default): only a present empty cent object
+            // proves zero. A missing field, null, or malformed object does not.
+            value = wrapped.isEmpty ? 0 : number(wrapped["val"])
+        } else {
+            value = number(raw)
         }
-        let wrapped = JSONSupport.object(source, name, alternateName)
-        return JSONSupport.double(wrapped, "val")
+        return value.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+    }
+
+    private static func firstValue(_ source: [String: Any], _ names: [String]) -> Any? {
+        for name in names {
+            if let value = source[name] { return value }
+        }
+        return nil
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        guard let value else { return nil }
+        return JSONSupport.double(["value": value], "value")
+    }
+
+    private static func percentage(_ value: Any?) -> Double? {
+        number(value).flatMap { (0...100).contains($0) ? $0 : nil }
+    }
+
+    private static func isUnknown(_ value: Any?) -> Bool {
+        guard let value else { return true }
+        if value is NSNull { return true }
+        return (value as? [String: Any])?["val"] is NSNull
     }
 
     private static func date(
@@ -196,10 +242,12 @@ public enum XaiBillingParser: Sendable {
     private static func percentOf(amount: Double, total: Double) -> Double? {
         // Guard the denominator and the result: even valid finite amounts can overflow
         // during percentage calculation, and non-finite bars have no useful meaning.
-        guard total > 0 else {
+        guard amount.isFinite, amount >= 0, total.isFinite, total > 0 else {
             return nil
         }
-        let percentage = amount / total * 100
+        // Valid spend over a known cap exhausts that quota; clamp the amounts before division
+        // so valid finite values cannot overflow into a fabricated or unknown percentage.
+        let percentage = min(amount, total) / total * 100
         return percentage.isFinite ? percentage : nil
     }
 

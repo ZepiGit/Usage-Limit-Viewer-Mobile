@@ -92,6 +92,6 @@ private struct ResetRow: View {
         guard let remaining = window.remainingPercent else {
             return "\(window.label): remaining quota unknown"
         }
-        return "\(window.label): \(Int(remaining.rounded())) per cent remaining"
+        return "\(window.label): \(UsageWindow.percentLabel(remaining)) remaining"
     }
 }

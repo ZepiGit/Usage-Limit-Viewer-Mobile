@@ -7,6 +7,7 @@ import com.usagelimits.core.model.ResetCredit
 import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -19,7 +20,14 @@ import java.util.UUID
 data class AccountUsage(
     val account: ProviderAccount,
     val snapshot: UsageSnapshot?,
-)
+) {
+    /** A first failed attempt has a timestamp but has never produced a measurement. */
+    val measurementAt: Long?
+        get() = snapshot?.takeIf {
+            it.status != SnapshotStatus.FAILED || account.lastSuccessfulSync != null ||
+                it.windows.isNotEmpty() || it.resetCredits.isNotEmpty() || it.resetCreditCount != null
+        }?.fetchedAt
+}
 
 /**
  * Runs a block with the database's write serialisation held for its whole duration.
@@ -73,6 +81,7 @@ class UsageRepository(
         val resetAt: Long? = null,
         val exhausted: Boolean = false,
         val group: String? = null,
+        val scope: String? = null,
     )
 
     @Serializable
@@ -92,7 +101,7 @@ class UsageRepository(
             accounts.mapNotNull { entity ->
                 AccountUsage(
                     account = entity.toDomain() ?: return@mapNotNull null,
-                    snapshot = byAccount[entity.localId]?.toDomain(),
+                    snapshot = byAccount[entity.localId]?.toDomain(ProviderId.fromId(entity.provider)),
                 )
             }
         }
@@ -105,13 +114,13 @@ class UsageRepository(
     suspend fun account(localId: String): ProviderAccount? = accountDao.getById(localId)?.toDomain()
 
     suspend fun snapshot(accountId: String): UsageSnapshot? =
-        snapshotDao.getForAccount(accountId)?.toDomain()
+        snapshotDao.getForAccount(accountId)?.toDomain(account(accountId)?.provider)
 
     /** Snapshot of the whole cache, for widget rendering off the main thread. */
     suspend fun accountUsageOnce(): List<AccountUsage> {
         val snapshots = snapshotDao.getAll().associateBy { it.accountId }
         return accountDao.getAll().mapNotNull { entity ->
-            AccountUsage(entity.toDomain() ?: return@mapNotNull null, snapshots[entity.localId]?.toDomain())
+            AccountUsage(entity.toDomain() ?: return@mapNotNull null, snapshots[entity.localId]?.toDomain(ProviderId.fromId(entity.provider)))
         }
     }
 
@@ -216,6 +225,7 @@ class UsageRepository(
                     resetCreditCount = snapshot.resetCreditCount,
                     applicableResetCreditCount = snapshot.applicableResetCreditCount,
                     connectionStatus = snapshot.connectionStatus.name,
+                    lastAttemptAt = snapshot.lastAttemptAt,
                 ),
             )
             if (snapshot.status != SnapshotStatus.FAILED) {
@@ -246,14 +256,15 @@ class UsageRepository(
                         // Keep the original fetch time: the data is as old as it was, and
                         // the failure is carried separately.
                         fetchedAt = previous?.fetchedAt ?: nowMs,
+                        lastAttemptAt = nowMs,
                         status = SnapshotStatus.FAILED.name,
                         errorMessage = message,
                         windowsJson = previous?.windowsJson ?: "[]",
                         resetCreditsJson = previous?.resetCreditsJson ?: "[]",
                         resetCreditCount = previous?.resetCreditCount,
                         applicableResetCreditCount = previous?.applicableResetCreditCount,
-                    connectionStatus = if (requiresReauthentication) ConnectionStatus.RECONNECT_REQUIRED.name
-                        else previous?.toDomain()?.connectionStatus?.name ?: ConnectionStatus.UNKNOWN.name,
+                        connectionStatus = if (requiresReauthentication) ConnectionStatus.RECONNECT_REQUIRED.name
+                            else previous?.toDomain()?.connectionStatus?.name ?: ConnectionStatus.UNKNOWN.name,
                     ),
                 )
             }
@@ -285,15 +296,26 @@ class UsageRepository(
         )
     }
 
-    private fun UsageSnapshotEntity.toDomain(): UsageSnapshot = UsageSnapshot(
+    private fun UsageSnapshotEntity.toDomain(provider: ProviderId? = null): UsageSnapshot = UsageSnapshot(
         accountId = accountId,
         fetchedAt = fetchedAt,
+        lastAttemptAt = lastAttemptAt ?: fetchedAt,
         status = runCatching { SnapshotStatus.valueOf(status) }.getOrDefault(SnapshotStatus.FAILED),
         windows = runCatching {
-            json.decodeFromString(
+            val storedWindows = json.decodeFromString(
                 kotlinx.serialization.builtins.ListSerializer(StoredWindow.serializer()),
                 windowsJson,
-            ).map { it.toDomain() }
+            )
+            // Before scope was stored, xAI emitted on-demand only for a positive cap.
+            // Its presence proves monthly and on-demand were alternative billing pools.
+            val hasLegacyXaiOnDemand = provider == ProviderId.XAI && storedWindows.any {
+                it.id == "xai-on-demand" && it.scope == null
+            }
+            storedWindows.map { it.toDomain(provider, hasLegacyXaiOnDemand) }.let { windows ->
+                if (provider == ProviderId.XAI) {
+                    com.usagelimits.providers.xai.XaiBillingParser.merge(windows, emptyList())
+                } else windows
+            }
         }.getOrDefault(emptyList()),
         resetCredits = runCatching {
             json.decodeFromString(
@@ -317,9 +339,10 @@ class UsageRepository(
         resetAt = resetAt,
         exhausted = exhausted,
         group = group,
+        scope = scope.name,
     )
 
-    private fun StoredWindow.toDomain() = UsageWindow(
+    private fun StoredWindow.toDomain(provider: ProviderId?, hasLegacyXaiOnDemand: Boolean) = UsageWindow(
         id = id,
         label = label,
         category = runCatching { WindowCategory.valueOf(category) }
@@ -329,6 +352,18 @@ class UsageRepository(
         resetAt = resetAt,
         exhausted = exhausted,
         group = group,
+        scope = scope?.let { stored ->
+            runCatching { UsageScope.valueOf(stored) }.getOrDefault(UsageScope.UNKNOWN)
+        } ?: when {
+            provider == ProviderId.XAI && id == "xai-on-demand" -> UsageScope.MODEL
+            provider == ProviderId.XAI && id == "xai-monthly" && hasLegacyXaiOnDemand -> UsageScope.MODEL
+            provider == ProviderId.ANTIGRAVITY -> UsageScope.MODEL
+            provider == ProviderId.CODEX && (id.startsWith("code-review-") || id.startsWith("additional-")) -> UsageScope.MODEL
+            provider != ProviderId.CLAUDE -> UsageScope.GLOBAL
+            id == "five-hour" || id == "seven-day" -> UsageScope.GLOBAL
+            id.startsWith("seven-day-") -> UsageScope.MODEL
+            else -> UsageScope.UNKNOWN
+        },
     )
 
     private fun ResetCredit.toStored() = StoredCredit(id, grantedAt, expiresAt, status)

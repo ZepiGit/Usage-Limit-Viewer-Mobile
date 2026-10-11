@@ -37,8 +37,8 @@ What is unverified beyond "it has never run":
   parser now reads alongside `used`. When a limit is present with no spend figure under any
   of those names, the window is emitted with an UNKNOWN percentage — until 10 September both
   platforms substituted zero and showed a 90 %-spent account as untouched. The credit view is
-  the mirror image: an absent `creditUsagePercent` inside the live period IS a zero, because
-  proto3 omits it — see "The implicit zero" under normalisation.
+  also treats absent `creditUsagePercent` as unknown; period metadata alone cannot establish
+  zero usage. The only confirmed implicit zero is an explicitly present empty Cent object.
 - Whether `/v1/me` is reachable with the granted scopes. It is only used when no ID token is
   issued, so a failure there is invisible in the common case.
 
@@ -164,12 +164,12 @@ The monthly spend view, in which **every amount is an integer number of cents**:
 
 | Payload field | Maps to | Direction and units |
 |---|---|---|
-| `creditUsagePercent` / `credit_usage_percent` | `usedPercent` of the `xai-credits` window | **Percent CONSUMED**, 0–100, used unchanged. `34.0` renders as "66 % remaining". Absent → **zero when the reported period contains now**, and no window otherwise — see "The implicit zero" below. |
+| `creditUsagePercent` / `credit_usage_percent` | `usedPercent` of the `xai-credits` window | **Percent CONSUMED**, 0–100, used unchanged. `34.0` renders as "66 % remaining". Absent/null → unknown; period metadata can identify a row but never supplies its percentage. |
 | `currentPeriod.start` and `.end`, or the flat `usagePeriodStart` / `usagePeriodEnd` | `periodSeconds` (derived) and `resetAt` | Both absolute instants. The span is **measured** as `end − start`, not assumed from the `"weekly"` label; `resetAt` is `end`. An absent, unusable or inverted pair leaves the period null → `OTHER`, still rendered but not claimed to be weekly. |
 | `currentPeriod.type`, or the flat `usagePeriodType` | category when no span can be measured | `USAGE_PERIOD_TYPE_WEEKLY` in production; matched by substring (`week`, `month`), never by the exact literal. |
 | `monthlyLimit` / `monthly_limit` | denominator of the `xai-monthly` window | **Integer cents.** |
 | `used` | numerator of `xai-monthly`, clamped to the limit | **Integer cents**, total spend for the period. |
-| `onDemandCap` / `on_demand_cap` | denominator of the `xai-on-demand` window | **Integer cents.** Zero or absent → no on-demand window at all. |
+| `onDemandCap` / `on_demand_cap` | denominator of the `xai-on-demand` window | **Integer cents.** Explicit zero → no on-demand window. A stated but unknown cap or spend keeps an unknown row. |
 | `onDemandUsed` / `on_demand_used` | numerator of `xai-on-demand` | **Integer cents.** Absent → derived as `max(0, used − monthlyLimit)`, since on older payloads everything above the allowance is by definition on-demand spend. |
 | `billingPeriodEnd` / `billing_period_end` | `resetAt` for both monthly windows | Absolute instant → epoch millis. |
 | — | `periodSeconds` for both monthly windows | Fixed at 2 592 000 s (30 days). The endpoint reports period *stamps*, not a length, and a real calendar month is 28–31 days; 30 days sits inside the band `WindowCategory.fromPeriodSeconds` recognises as `MONTHLY`, so the window is categorised correctly whatever month it is. |
@@ -197,42 +197,42 @@ from.
 change upstream reclassifies itself instead of mislabelling a fortnight as a week. The two
 billing windows are `MONTHLY` by construction.
 
-**The implicit zero.** xAI's billing message is proto3, and `credit_usage_percent` is an
-implicit-presence float there: a value of exactly zero is not written to the wire at all. So
-the one week in which nothing has been spent — the first week, the week after a reset —
-arrives with the field *missing*, and the earlier rule "absent means no window" made the
-weekly row vanish at precisely the moment it read 100 % remaining; the account showed only
-its monthly limit. The provider's own web client reads the omitted scalar as zero, and so does
-the parser now — but only when the payload proves it describes the period that contains now
-(`start ≤ now ≤ end`). A period in the past, or none at all, still yields no window rather than
-an invented bar. This is the one place `nowMs` is consulted in the xAI parser.
+**Missing is unknown.** The first-party [Grok Build BillingConfig](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-shell/src/extensions/billing.rs)
+represents `credit_usage_percent` as `Option<f64>`, describing a consumed percentage from
+0 to 100. There is no default zero for that field. Its `Cent.val` is explicitly defaulted,
+so a present empty `{}` amount means zero cents; an absent field, explicit null,
+`{"val":null}`, or malformed value does not. Earlier documentation incorrectly generalized
+protobuf defaults from amounts to the optional credit percentage.
 
-**The weekly row is read from both views.** The unified-billing shape of `/v1/billing` carries
-`creditUsagePercent` and the flat `usagePeriod*` trio beside its monthly figures, so
-`parseBilling` yields the weekly window as well. `merge` keeps the credit view's copy when
-both answer, and the row survives if the credit view alone stops answering.
+**Quality is independent of quota.** Known weekly 80% remaining stays 80% when legacy monthly spend
+is absent or exhausted. Unknown legacy data is not an error or proof the tariff lacks that allowance.
+Explicit invalid values produce a partial-data warning and never a fabricated 100% bar.
+First-present alias selection preserves null instead of falling through to a second field.
 
-**Included and on-demand are two bars, not one**, because they run out independently: an
-account can have burned its entire monthly allowance and still be able to spend on demand. The
-included bar is **clamped at 100 %** — spend past the allowance is on-demand spend, and
-without the clamp an overspending account would read "140 % used", which is both wrong for
-that window and hides the overage from the row that actually meters it. The on-demand window
-is omitted entirely when the cap is zero or absent, since showing an empty bar for a facility
-the account does not have is pure noise.
+**New credit fields supersede the legacy included allowance.** The first-party `BillingConfig`
+explicitly describes `monthlyLimit`/`used` and `billingPeriod*` as deprecated fallbacks for
+`creditUsagePercent`/`currentPeriod`, not independent simultaneous blockers. Both responses
+can carry credits. The merger prefers the direct credit response, except that an unknown
+measurement cannot hide a measured copy from the other response. Once a measured credit
+percentage exists, the deprecated monthly row is omitted, including when it arrived from
+the other endpoint. Missing/unknown credits retain the legacy monthly fallback.
 
-**De-duplication on merge.** `merge()` concatenates credits first, then billing, and keeps the
-first occurrence of each id. The two endpoints are projections of one resource — `?format=credits`
-is the same billing record under a different view — so if the credit view ever starts
-reporting a monthly figure too, the account gets one bar rather than two contradictory ones.
-Credits-first ordering means the view that reports a real percentage stays authoritative for
-anything it covers.
+**Included and on-demand are separate pools.** On-demand is always scoped separately;
+a positive cap establishes a usable facility, while a missing cap keeps its percentage unknown. Exhausting one then signals a restriction, while exhausting both exhausts those
+reported pools. Weekly global constraints still block the account. Spend ratios require finite,
+nonnegative compatible amounts and positive capacity; only validated over-cap spend is capped
+at 100%. Explicit unknown on-demand spend is never replaced by derived overage; derivation is
+reserved for an absent spend field. On-demand may exist without a monthly response.
 
-**Partial failure is a first-class case.** The two views are fetched independently and each
-failure is caught separately. A `null` result means "this view failed", which is *not* the same
-as an empty list, which is a legitimate answer meaning "nothing to report". If one view fails
-the account still shows real numbers for whatever answered; only when **both** fail does the
-last error propagate, so that a total outage surfaces as a failure rather than as an account
-that appears to have no limits at all.
+**Partial fetch failures remain visible.** One failed endpoint yields `PARTIAL`, preserves the
+returned measurements and attaches a warning. A single authentication rejection has unknown
+connection state plus an explicit warning; it does not prematurely demand a new login when the
+other endpoint succeeded. If both views fail, the error propagates (authentication first so
+normal token renewal can run). HTTP success with legitimately absent figures remains distinct.
+
+No live authenticated xAI response was available during this revision; parser and provider
+fixtures are synthetic. First-party schema evidence establishes field semantics, not an
+end-to-end verification for any user's account or tariff.
 
 **No reset credits.** `supportsResetCredits` is explicitly false. xAI has no such facility and
 the app does not invent one.
@@ -267,7 +267,7 @@ the app does not invent one.
   the CLI's identity headers but does not disguise itself further. If that is not enough, the
   correct outcome is a clear error rather than an evasion attempt.
 - **Zero windows parsed.** As with the other providers, an account that parses to no windows
-  renders with `Severity.ERROR` even though the sync recorded `OK`. For xAI this can only
+  renders with `Severity.UNKNOWN` when the sync succeeded. For xAI this can only
   happen if both views return payloads that parse but contain none of the recognised fields —
   a shape change rather than an outage.
 

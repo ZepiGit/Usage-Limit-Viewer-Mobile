@@ -347,7 +347,6 @@ final class ProductionShapeTests: XCTestCase {
         let included = XaiBillingParser.parseBilling(payload("""
         {"config":{
           "monthlyLimit":1000,
-          "used":null,
           "includedUsed":{"val":900},
           "totalUsed":100
         }}

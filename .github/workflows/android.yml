@@ -5,9 +5,8 @@ name: Android
 # half that can actually be built on a free Linux runner. The iOS workflow existed first only
 # because the shared Swift package happens to compile on Linux too.
 #
-# Two jobs rather than one, because they answer different questions. `test` says the logic is
-# right and is the fast signal on every push; `assemble` says the app still packages, which
-# catches the manifest, resource and Proguard-shaped faults a unit test never sees.
+# `test` checks logic, `assemble` packages the APK, and `runtime` installs that same signed,
+# minified artifact over the previous release and navigates it on a real Android emulator.
 
 on:
   push:
@@ -16,6 +15,8 @@ on:
       - 'gradle/**'
       - '*.gradle.kts'
       - 'gradle.properties'
+      - 'tools/android_runtime_smoke.py'
+      - 'tools/run_android_runtime.sh'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
@@ -23,6 +24,8 @@ on:
       - 'gradle/**'
       - '*.gradle.kts'
       - 'gradle.properties'
+      - 'tools/android_runtime_smoke.py'
+      - 'tools/run_android_runtime.sh'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -50,7 +53,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Test
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug
 
       # Uploaded on failure only, and always: a red unit test is unreadable from the console
       # output alone, and the HTML report is the thing that says which assertion and with what
@@ -62,6 +65,18 @@ jobs:
           name: unit-test-report
           path: app/build/reports/tests/testDebugUnitTest
           if-no-files-found: ignore
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-verification-evidence
+          path: |
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/lint-results-debug.*
+            app/build/reports/widget-renderings
+            app/schemas
+          if-no-files-found: error
 
   assemble:
     name: Debug APK
@@ -109,6 +124,79 @@ jobs:
         run: |
           export ANDROID_VERSION_CODE="$(git rev-list --count HEAD)"
           ./gradlew --no-daemon --no-configuration-cache assembleDebug assembleRelease
+          mkdir -p app/build/reports
+          ./gradlew --no-daemon --no-configuration-cache :app:dependencies --configuration releaseRuntimeClasspath --console=plain > app/build/reports/apk-runtime-dependencies.txt
+
+      - name: Verify APK identity and signing continuity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          apk=app/build/outputs/apk/release/app-release.apk
+          mkdir -p app/build/reports
+          "$build_tools/aapt" dump badging "$apk" > app/build/reports/apk-metadata.txt
+          "$build_tools/apksigner" verify --verbose --print-certs "$apk" > app/build/reports/apk-signature.txt
+          sha256sum "$apk" > app/build/reports/apk-sha256.txt
+          if [ -n "${ANDROID_KEYSTORE_PATH:-}" ]; then
+            mkdir -p "$RUNNER_TEMP/previous-release"
+            gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
+              --pattern 'UsageLimits-0.2.0.apk' --dir "$RUNNER_TEMP/previous-release"
+            "$build_tools/aapt" dump badging \
+              "$RUNNER_TEMP/previous-release/UsageLimits-0.2.0.apk" > app/build/reports/apk-previous-metadata.txt
+            "$build_tools/apksigner" verify --print-certs \
+              "$RUNNER_TEMP/previous-release/UsageLimits-0.2.0.apk" > "$RUNNER_TEMP/previous-signature.txt"
+            # apksigner uses either "Signer #1" or a scheme prefix such as "V2 Signer:".
+            # A certificate repeated across schemes is one signer; distinct digests are ambiguous.
+            certificate_pattern='s/^(Signer #[0-9]+|V[0-9]+(\.[0-9]+)* Signer:) certificate SHA-256 digest: (.*)$/\3/p'
+            previous=$(sed -nE "$certificate_pattern" "$RUNNER_TEMP/previous-signature.txt" | tr '[:upper:]' '[:lower:]' | sort -u)
+            current=$(sed -nE "$certificate_pattern" app/build/reports/apk-signature.txt | tr '[:upper:]' '[:lower:]' | sort -u)
+            if [[ ! "$previous" =~ ^[0-9a-f]{64}$ || ! "$current" =~ ^[0-9a-f]{64}$ ]]; then
+              echo '::error::Expected exactly one nonempty SHA-256 signing certificate in each APK report.' >&2
+              exit 1
+            fi
+            if [ "$previous" != "$current" ]; then
+              echo '::error::Release signing certificate differs from v0.2.0.' >&2
+              exit 1
+            fi
+            previous_package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" app/build/reports/apk-previous-metadata.txt)
+            current_package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            previous_code=$(sed -n "s/^package: .* versionCode='\([^']*\)'.*/\1/p" app/build/reports/apk-previous-metadata.txt)
+            current_code=$(sed -n "s/^package: .* versionCode='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            previous_version=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" app/build/reports/apk-previous-metadata.txt)
+            current_version=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            if [[ ! "$previous_package" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ || "$previous_package" != "$current_package" ]]; then
+              echo '::error::Expected the same valid package name in both APK reports.' >&2
+              exit 1
+            fi
+            if [[ ! "$previous_code" =~ ^[1-9][0-9]{0,9}$ || ! "$current_code" =~ ^[1-9][0-9]{0,9}$ ]]; then
+              echo '::error::Expected a positive numeric versionCode in both APK reports.' >&2
+              exit 1
+            fi
+            if (( previous_code > 2100000000 || current_code > 2100000000 || current_code <= previous_code )); then
+              echo '::error::APK versionCodes must be in range and the new versionCode must increase.' >&2
+              exit 1
+            fi
+            if [[ -z "$previous_version" || -z "$current_version" ]]; then
+              echo '::error::Expected a versionName in both APK reports.' >&2
+              exit 1
+            fi
+            {
+              printf 'Previous APK: package=%s versionName=%s versionCode=%s\n' "$previous_package" "$previous_version" "$previous_code"
+              printf 'Current APK: package=%s versionName=%s versionCode=%s\n' "$current_package" "$current_version" "$current_code"
+              echo 'Package matches, versionCode increased, and signing certificate matches v0.2.0.'
+            } > app/build/reports/apk-upgrade.txt
+          else
+            echo 'Verification build only; release signing is unavailable.' > app/build/reports/apk-upgrade.txt
+          fi
+
+      - name: Upload APK verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-verification
+          path: app/build/reports/apk-*.txt
+          if-no-files-found: ignore
 
       - name: Forget the signing key
         if: always()
@@ -128,3 +216,73 @@ jobs:
           name: app-release-verification
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+
+  runtime:
+    name: API 36 release upgrade smoke
+    needs: assemble
+    # Fork PRs cannot access release signing. A debug-signed build cannot update v0.2.0.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    # Eight rounds revisit all four widget configurations, plus placement and geometry checks.
+    # Individual UI/control deadlines remain bounded in the smoke script.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Same-run artifacts bind this test to the exact SHA/version produced by `assemble`.
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-release-verification
+          path: runtime/apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk-verification
+          path: runtime/verification
+
+      - name: Download the published upgrade baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/previous
+          gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'UsageLimits-0.2.0.apk' --dir runtime/previous
+
+      # setup-android adds SDK command-line tools (including sdkmanager) to PATH.
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Check the AOSP API 36 image is available
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/evidence
+          sdkmanager --list > runtime/evidence/sdk-packages.txt
+          if ! grep -Eq '^[[:space:]]*system-images;android-36;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 36 x86_64 image.' >&2
+            exit 1
+          fi
+
+      # KVM setup from https://github.com/ReactiveCircus/android-emulator-runner
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Upgrade and navigate the release APK
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-0.2.0.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-runtime-evidence-${{ github.sha }}
+          path: runtime/evidence
+          if-no-files-found: warn

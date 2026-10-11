@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 /**
  * A sync that lands after its account was removed must not write.
@@ -135,4 +136,167 @@ class OrphanSnapshotTest {
         // The failure keeps the numbers it found, which is the whole point of saveFailure.
         assertTrue(snapshotDao.rows.getValue("A").windowsJson.contains("Weekly"))
     }
+    @Test
+    fun `a failed attempt preserves measurement time and records its own time`() = runBlocking {
+        val accounts = mutableMapOf("A" to account("A"))
+        val snapshots = FakeSnapshotDao(accounts)
+        val repository = UsageRepository(FakeAccountDao(accounts), snapshots)
+        repository.saveSnapshot(snapshot("A"))
+        repository.saveFailure("A", "No network connection", now + 60_000)
+        val saved = repository.snapshot("A")!!
+        assertEquals(now, saved.fetchedAt)
+        assertEquals(now + 60_000, saved.lastAttemptAt)
+        assertEquals(60.0, saved.windows.single().remainingPercent!!, 0.0)
+    }
+
+    @Test
+    fun `window scope survives persistence`() = runBlocking {
+        val accounts = mutableMapOf("A" to account("A"))
+        val repository = UsageRepository(FakeAccountDao(accounts), FakeSnapshotDao(accounts))
+        val original = snapshot("A")
+        repository.saveSnapshot(original.copy(windows = original.windows.map {
+            it.copy(scope = com.usagelimits.core.model.UsageScope.MODEL)
+        }))
+        assertEquals(com.usagelimits.core.model.UsageScope.MODEL, repository.snapshot("A")!!.windows.single().scope)
+    }
+
+    @Test
+    fun `legacy Claude scopes are inferred from preserved identities`() = runBlocking {
+        val accounts = mutableMapOf("A" to account("A").copy(provider = "claude"))
+        val snapshots = FakeSnapshotDao(accounts)
+        snapshots.rows["A"] = UsageSnapshotEntity(
+            accountId = "A", fetchedAt = now, status = "OK", errorMessage = null,
+            windowsJson = """[
+                {"id":"five-hour","label":"5h limit","category":"FIVE_HOUR","usedPercent":0.0},
+                {"id":"seven-day","label":"Weekly","category":"WEEKLY","usedPercent":63.0},
+                {"id":"seven-day-fable","label":"Weekly (Fable)","category":"WEEKLY","usedPercent":100.0},
+                {"id":"iguana-necktie","label":"Iguana necktie","category":"WEEKLY","usedPercent":100.0}
+            ]""", resetCreditsJson = "[]",
+        )
+        val restored = UsageRepository(FakeAccountDao(accounts), snapshots).snapshot("A")!!
+        assertEquals(
+            listOf(com.usagelimits.core.model.UsageScope.GLOBAL, com.usagelimits.core.model.UsageScope.GLOBAL,
+                com.usagelimits.core.model.UsageScope.MODEL, com.usagelimits.core.model.UsageScope.UNKNOWN),
+            restored.windows.map { it.scope },
+        )
+        assertEquals(37.0, restored.mostCritical!!.remainingPercent!!, 0.0)
+        assertEquals(com.usagelimits.core.model.Severity.LIMITED, restored.severity)
+        assertEquals(now, restored.lastAttemptAt)
+    }
+
+    @Test
+    fun `legacy xai cache uses measured credits before monthly fallback and scopes on demand`() = runBlocking {
+        for ((used, expectedIds) in listOf(
+            "20.0" to listOf("xai-credits", "xai-on-demand"),
+            "null" to listOf("xai-credits", "xai-monthly", "xai-on-demand"),
+        )) {
+            val accounts = mutableMapOf("A" to account("A").copy(provider = "xai"))
+            val snapshots = FakeSnapshotDao(accounts)
+            snapshots.rows["A"] = UsageSnapshotEntity(
+                accountId = "A", fetchedAt = now, status = "OK", errorMessage = null,
+                windowsJson = """[
+                    {"id":"xai-credits","label":"Weekly credits","category":"WEEKLY","usedPercent":$used},
+                    {"id":"xai-monthly","label":"Monthly included","category":"MONTHLY","usedPercent":100.0},
+                    {"id":"xai-on-demand","label":"On-demand","category":"MONTHLY","usedPercent":100.0}
+                ]""", resetCreditsJson = "[]",
+            )
+            val restored = UsageRepository(FakeAccountDao(accounts), snapshots).snapshot("A")!!
+            assertEquals(expectedIds, restored.windows.map { it.id })
+            assertEquals(com.usagelimits.core.model.UsageScope.MODEL, restored.windows.last().scope)
+            if (used != "null") {
+                assertEquals(80.0, restored.mostCritical!!.remainingPercent!!, 0.0)
+                assertEquals(com.usagelimits.core.model.Severity.LIMITED, restored.severity)
+            }
+        }
+    }
+
+    private suspend fun cachedXai(windowsJson: String): UsageSnapshot {
+        val accounts = mutableMapOf("A" to account("A").copy(provider = "xai"))
+        val snapshots = FakeSnapshotDao(accounts)
+        snapshots.rows["A"] = UsageSnapshotEntity(
+            accountId = "A", fetchedAt = now, status = "OK", errorMessage = null,
+            windowsJson = windowsJson, resetCreditsJson = "[]",
+        )
+        return UsageRepository(FakeAccountDao(accounts), snapshots).snapshot("A")!!
+    }
+
+    @Test
+    fun `legacy xai cache retains available on demand beside exhausted monthly without a refresh`() = runBlocking {
+        val restored = cachedXai("""[
+            {"id":"xai-monthly","label":"Monthly included","category":"MONTHLY","usedPercent":100.0},
+            {"id":"xai-on-demand","label":"On-demand","category":"MONTHLY","usedPercent":0.0}
+        ]""")
+
+        assertEquals(listOf(0.0, 100.0), restored.windows.map { it.remainingPercent })
+        assertTrue(restored.windows.all { it.scope == com.usagelimits.core.model.UsageScope.MODEL })
+        assertEquals(com.usagelimits.core.model.Severity.LIMITED, restored.severity)
+        assertEquals(now, restored.fetchedAt)
+    }
+
+    @Test
+    fun `legacy xai monthly without on demand remains a global constraint`() = runBlocking {
+        val restored = cachedXai("""[
+            {"id":"xai-monthly","label":"Monthly included","category":"MONTHLY","usedPercent":100.0}
+        ]""")
+
+        assertEquals(com.usagelimits.core.model.UsageScope.GLOBAL, restored.windows.single().scope)
+        assertEquals(com.usagelimits.core.model.Severity.EXHAUSTED, restored.severity)
+    }
+
+    @Test
+    fun `xai cache preserves every explicit monthly and on demand scope`() = runBlocking {
+        for (scope in com.usagelimits.core.model.UsageScope.entries) {
+            val monthly = cachedXai("""[
+                {"id":"xai-monthly","label":"Monthly included","category":"MONTHLY","usedPercent":100.0,"scope":"${scope.name}"},
+                {"id":"xai-on-demand","label":"On-demand","category":"MONTHLY","usedPercent":0.0}
+            ]""")
+            assertEquals(scope, monthly.windows.first().scope)
+
+            val demand = cachedXai("""[
+                {"id":"xai-monthly","label":"Monthly included","category":"MONTHLY","usedPercent":100.0},
+                {"id":"xai-on-demand","label":"On-demand","category":"MONTHLY","usedPercent":0.0,"scope":"${scope.name}"}
+            ]""")
+            assertEquals(scope, demand.windows.last().scope)
+            // A new on-demand row can have an unknown cap; only the old shape proves cap > 0.
+            assertEquals(com.usagelimits.core.model.UsageScope.GLOBAL, demand.windows.first().scope)
+        }
+    }
+
+    @Test
+    fun `partial provider sync persists fresh values and its warning together`() = runBlocking {
+        val accounts = mutableMapOf("A" to account("A").copy(provider = "xai"))
+        val repository = UsageRepository(FakeAccountDao(accounts), FakeSnapshotDao(accounts))
+        repository.saveSnapshot(snapshot("A").copy(fetchedAt = now - 60_000))
+        val credentials = object : com.usagelimits.core.auth.CredentialStore {
+            override suspend fun load(reference: String) = com.usagelimits.core.auth.OAuthCredentials(
+                accessToken = "synthetic-test-token", refreshToken = null, idToken = null, expiresAt = null,
+            )
+            override suspend fun save(reference: String, credentials: com.usagelimits.core.auth.OAuthCredentials) = Unit
+            override suspend fun delete(reference: String) = Unit
+            override suspend fun references(): Set<String> = emptySet()
+        }
+        val http = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+            val credits = chain.request().url.toString() == com.usagelimits.core.network.ProviderEndpoints.Xai.BILLING_CREDITS_URL
+            okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                .code(if (credits) 200 else 403).message(if (credits) "OK" else "Forbidden")
+                .body((if (credits) """{"creditUsagePercent":20.0}""" else "{}")
+                    .toResponseBody(com.usagelimits.core.network.HttpClient.JSON_MEDIA_TYPE))
+                .build()
+        }.build()
+        val engine = com.usagelimits.core.sync.SyncEngine(
+            repository, credentials,
+            com.usagelimits.providers.ProviderRegistry(com.usagelimits.core.network.HttpClient(http)),
+            nowMs = { now },
+        )
+        val outcome = engine.syncAccount("A")
+        val saved = repository.snapshot("A")!!
+        assertTrue("usable partial data must not trigger a whole-account retry", outcome.success)
+        assertEquals(SnapshotStatus.PARTIAL, saved.status)
+        assertTrue(saved.errorMessage?.isNotBlank() == true)
+        assertEquals(now, saved.fetchedAt)
+        assertEquals(now, saved.lastAttemptAt)
+        assertEquals(listOf("xai-credits"), saved.windows.map { it.id })
+        assertEquals(80.0, saved.windows.single().remainingPercent!!, 0.0)
+    }
+
 }

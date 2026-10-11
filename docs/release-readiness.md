@@ -1,9 +1,12 @@
 # Release verification, 12 September 2026
 
-This is a private verification build. It is not signed for distribution and no live provider
-account has been accessed during this audit.
+This historical record covers the local audit of 12 September 2026. Its test counts,
+runtime observations and outstanding CI work apply to that audit's private verification
+build, which was not signed for distribution. No live provider account was accessed.
+For current PR #15 checks and execution evidence, see
+[verification.md](verification.md#quota-and-widget-regression-coverage--pr-15).
 
-## Current verification state
+## Verification state at the audit
 
 The final local run passed all 400 Android tests, with no failures or skips, and
 all 456 Swift package tests. Android debug and minified release APKs built
