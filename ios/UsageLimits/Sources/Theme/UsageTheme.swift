@@ -82,7 +82,11 @@ enum SeverityPalette {
         case .error: return UsageColors.red
         default: break
         }
-        if let remaining = remainingPercent, remaining == 100 { return UsageColors.teal }
+        // The full-quota colour rewards a healthy row only; an explicitly blocked row keeps
+        // the block colour whatever percentage it still reports.
+        if severity == .healthy, let remaining = remainingPercent, remaining == 100 {
+            return UsageColors.teal
+        }
         return accent(severity)
     }
 
