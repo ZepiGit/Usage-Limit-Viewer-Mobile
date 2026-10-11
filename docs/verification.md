@@ -21,7 +21,13 @@ These are synthetic Robolectric renders, not physical launcher lifecycle tests.
 The APK reports record package/version metadata, SHA-256 and signer certificates.
 When the existing release key is configured, CI compares the previous published
 APK's identity, version code and signer with the new artifact and fails on missing
-or inconsistent values. Signature continuity does not prove an on-device upgrade.
+or inconsistent values. Signature continuity alone does not prove an on-device upgrade.
+The API 36 runtime job installs v0.2.0 on a fresh AOSP emulator, changes and reloads
+a setting, then installs the same run's signed minified APK with `adb install -r`.
+It verifies the installed APK hash, preserved setting and package identity, four
+tabs, relaunch and crash/ANR diagnostics. Its artifact records the commit, device
+environment, screenshots and UI XML. A passing run establishes an empty-account
+upgrade; it does not exercise populated accounts or widgets in a launcher.
 iOS CI runs the shared package on Linux and macOS and builds/runs the app with the
 real SDK on iPhone and iPad simulators.
 
