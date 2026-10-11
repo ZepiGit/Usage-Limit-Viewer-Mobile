@@ -310,7 +310,7 @@ class XaiBillingParserTest {
         assertFalse(billingWindows.any { it.id == "xai-on-demand" })
     }
 
-    // ---- absent spend must stay unknown, never read as zero (Astra, verified) ----
+    // ---- absent spend must stay unknown, never read as zero ----
     @Test
     fun `all billing spend names support bare and wrapped cents in flat and enveloped payloads`() {
         val names = listOf("used", "includedUsed", "included_used", "totalUsed", "total_used")
