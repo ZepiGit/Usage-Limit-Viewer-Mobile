@@ -50,6 +50,55 @@ class WidgetAppearanceRenderingTest {
         runBlocking { ApplicationProvider.getApplicationContext<UsageLimitsApp>().startupJob?.join() }
     }
 
+    @Test fun `detailed widget retains more than ten independent limits`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        val repository = app.container.repository
+        val account = repository.upsertFromLogin(ProviderId.CLAUDE, "many-widget-limits",
+            "limits@example.invalid", "Many limits fixture", "Pro", emptyMap())
+        val now = System.currentTimeMillis()
+        val windows = (1..11).map { index ->
+            UsageWindow("model-$index", "Model limit $index", WindowCategory.OTHER,
+                index.toDouble(), 604_800, now + index * 86_400_000L, false, scope = UsageScope.MODEL)
+        }
+        repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.PARTIAL, windows = windows))
+        val config = WidgetConfigEntity(200, "CUSTOM", null, null, now,
+            customAccountIdsJson = "[\"${account.localId}\"]")
+        app.container.widgetConfigDao.upsert(config)
+        shadowOf(AppWidgetManager.getInstance(app)).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
+            provider = ComponentName(app, DetailedUsageWidgetReceiver::class.java)
+        })
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            DetailedUsageWidget().runComposition(app,
+                id = GlanceAppWidgetManager(app).getGlanceIdBy(config.appWidgetId),
+                sizes = listOf(DpSize(300.dp, 700.dp))).first { remote ->
+                val host = AppWidgetHostView(app).apply { setAppWidget(config.appWidgetId, null) }
+                val view = remote.apply(app, host)
+                host.addView(view)
+                remote.reapply(app, view)
+                ShadowLooper.idleMainLooper()
+                export(draw(view, 300, 700), "DetailedUsageWidget-eleven-limits")
+                val text = textViews(view).map { it.text.toString() }
+                assertTrue("The account header remains visible", account.label in text)
+                assertTrue("The independent fetch warning remains visible", "Some limits could not be updated" in text)
+                val expectedPercents = (1..11).map { index -> "${100 - index}%" }
+                windows.forEachIndexed { index, window ->
+                    assertTrue("The collection retains ${window.label}", window.label in text)
+                    assertTrue("The collection retains the value for ${window.label}", expectedPercents[index] in text)
+                }
+                // This checks retention, not date formatting (covered by CountdownTest).
+                val nonResetText = windows.map { it.label } + expectedPercents + listOf(
+                    "Claude Pro", "Many limits fixture", "Some limits could not be updated")
+                val resetText = text.filterNot { it in nonResetText }
+                assertEquals("Every limit retains its reset text", 11, resetText.size)
+                assertTrue("All resets are present", resetText.all { it.isNotBlank() && it != "—" })
+                true
+            }
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test fun `saved panel and text survive theme changes resizing and host reapply for every widget`() = runTest {
         val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
         val repository = app.container.repository
