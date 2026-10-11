@@ -1,5 +1,9 @@
 package com.usagelimits.providers.codex
 
+import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageScope
+import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.network.JsonSupport
 import org.junit.Assert.assertEquals
@@ -699,6 +703,163 @@ class CodexUsageParserTest {
             ),
         )
         assertNull(CodexUsageParser.applicableCreditCount(null))
+    }
+
+    // endregion
+
+    // region every reported window survives classification
+
+    private fun windowsOf(primary: String?, secondary: String?) = CodexUsageParser.parse(
+        JsonSupport.parseObject(
+            """{"rate_limit":{"primary_window":${primary ?: "null"},"secondary_window":${secondary ?: "null"}}}""",
+        ),
+        now,
+    )
+
+    @Test
+    fun `a weekly and a monthly window are both kept`() {
+        val windows = windowsOf(
+            """{"limit_window_seconds":604800,"used_percent":10}""",
+            """{"limit_window_seconds":2592000,"used_percent":100}""",
+        )
+        assertEquals(2, windows.size)
+        assertEquals(setOf(WindowCategory.WEEKLY, WindowCategory.MONTHLY), windows.map { it.category }.toSet())
+        assertTrue(windows.single { it.category == WindowCategory.MONTHLY }.exhausted)
+        assertEquals(windows.size, windows.map { it.id }.toSet().size)
+        val snapshot = UsageSnapshot("a", now, SnapshotStatus.OK, windows)
+        assertEquals(Severity.EXHAUSTED, snapshot.severity)
+    }
+
+    @Test
+    fun `a monthly and a weekly window are both kept in reversed order`() {
+        val windows = windowsOf(
+            """{"limit_window_seconds":2592000,"used_percent":100}""",
+            """{"limit_window_seconds":604800,"used_percent":10}""",
+        )
+        assertEquals(listOf(WindowCategory.MONTHLY, WindowCategory.WEEKLY), windows.map { it.category })
+        assertEquals(2, windows.map { it.id }.toSet().size)
+    }
+
+    @Test
+    fun `two five-hour windows are both kept with distinct ids`() {
+        val windows = windowsOf(
+            """{"limit_window_seconds":18000,"used_percent":10}""",
+            """{"limit_window_seconds":18000,"used_percent":90}""",
+        )
+        assertEquals(listOf(10.0, 90.0), windows.map { it.usedPercent })
+        assertEquals(listOf("codex-short", "codex-secondary"), windows.map { it.id })
+    }
+
+    @Test
+    fun `a window without a duration is kept beside a known five-hour window`() {
+        val windows = windowsOf(
+            """{"used_percent":30}""",
+            """{"limit_window_seconds":18000,"used_percent":10}""",
+        )
+        assertEquals(setOf(30.0, 10.0), windows.map { it.usedPercent }.toSet())
+        assertEquals(2, windows.map { it.id }.toSet().size)
+    }
+
+    @Test
+    fun `control pairs keep their established ids`() {
+        assertEquals(
+            listOf("codex-short", "codex-long"),
+            windowsOf(
+                """{"limit_window_seconds":18000,"used_percent":10}""",
+                """{"limit_window_seconds":604800,"used_percent":20}""",
+            ).map { it.id },
+        )
+        assertEquals(
+            listOf("codex-short", "codex-long"),
+            windowsOf(
+                """{"limit_window_seconds":18000,"used_percent":10}""",
+                """{"limit_window_seconds":86400,"used_percent":20}""",
+            ).map { it.id },
+        )
+    }
+
+    @Test
+    fun `duplicate known windows in an additional family keep distinct ids`() {
+        val payload = JsonSupport.parseObject(
+            """
+            {"additional_rate_limits":[{"limit_name":"Spark","rate_limit":{
+              "primary_window":{"limit_window_seconds":604800,"used_percent":5},
+              "secondary_window":{"limit_window_seconds":604800,"used_percent":50}}}]}
+            """.trimIndent(),
+        )
+        val windows = CodexUsageParser.parse(payload, now)
+        assertEquals(2, windows.size)
+        assertEquals(2, windows.map { it.id }.toSet().size)
+        assertTrue(windows.all { it.scope == UsageScope.MODEL && it.group == "Spark" })
+    }
+
+    // endregion
+
+    // region explicit global block without child windows
+
+    @Test
+    fun `an explicit global block with no windows survives a healthy model family`() {
+        val payload = JsonSupport.parseObject(
+            """
+            {"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":null,"secondary_window":null},
+             "code_review_rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":10}}}
+            """.trimIndent(),
+        )
+        val windows = CodexUsageParser.parse(payload, now)
+        val blocked = windows.single { it.scope == UsageScope.GLOBAL }
+        assertTrue(blocked.exhausted)
+        // Nothing is invented: no percentage, duration or reset time.
+        assertNull(blocked.usedPercent)
+        assertNull(blocked.periodSeconds)
+        assertNull(blocked.resetAt)
+        assertEquals(Severity.EXHAUSTED, UsageSnapshot("a", now, SnapshotStatus.OK, windows).severity)
+    }
+
+    @Test
+    fun `a blocked model family without windows stays model scoped`() {
+        val payload = JsonSupport.parseObject(
+            """
+            {"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":10}},
+             "code_review_rate_limit":{"limit_reached":true}}
+            """.trimIndent(),
+        )
+        val windows = CodexUsageParser.parse(payload, now)
+        val blocked = windows.single { it.group == "Code review" }
+        assertTrue(blocked.exhausted)
+        assertEquals(UsageScope.MODEL, blocked.scope)
+        assertEquals(Severity.LIMITED, UsageSnapshot("a", now, SnapshotStatus.OK, windows).severity)
+    }
+
+    @Test
+    fun `an unblocked family without windows still adds nothing`() {
+        val payload = JsonSupport.parseObject("""{"rate_limit":{"allowed":true,"limit_reached":false}}""")
+        assertTrue(CodexUsageParser.parse(payload, now).isEmpty())
+    }
+
+    // endregion
+
+    // region credit counts accept only whole non-negative values
+
+    @Test
+    fun `invalid credit counts are unknown rather than rounded or saturated`() {
+        for (raw in listOf("-3", "2.9", "1e30", "2147483648", "true", "\"x\"", "null")) {
+            val payload = JsonSupport.parseObject(
+                """{"available_count":$raw,"applicable_available_count":$raw}""",
+            )
+            assertNull("available_count $raw", CodexUsageParser.availableCreditCount(payload))
+            assertNull("applicable_available_count $raw", CodexUsageParser.applicableCreditCount(payload))
+        }
+    }
+
+    @Test
+    fun `valid credit counts are kept, including a real zero`() {
+        for ((raw, expected) in listOf("0" to 0, "3" to 3, "3.0" to 3, "\"4\"" to 4, "2147483647" to Int.MAX_VALUE)) {
+            val payload = JsonSupport.parseObject(
+                """{"available_count":$raw,"applicable_available_count":$raw}""",
+            )
+            assertEquals(expected, CodexUsageParser.availableCreditCount(payload))
+            assertEquals(expected, CodexUsageParser.applicableCreditCount(payload))
+        }
     }
 
     // endregion

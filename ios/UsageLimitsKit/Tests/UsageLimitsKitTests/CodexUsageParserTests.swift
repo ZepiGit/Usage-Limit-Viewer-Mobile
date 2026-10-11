@@ -374,4 +374,114 @@ final class CodexUsageParserTests: XCTestCase {
 
         XCTAssertEqual(windows.first?.id, "codex-short")
     }
+
+    // MARK: - Every reported window survives classification
+
+    private func rateLimit(_ primary: String, _ secondary: String) -> [UsageWindow] {
+        CodexUsageParser.parse(payload("""
+        {"rate_limit": {"primary_window": \(primary), "secondary_window": \(secondary)}}
+        """), now: now)
+    }
+
+    func testWeeklyAndMonthlyWindowsAreBothKept() {
+        let windows = rateLimit(
+            #"{"limit_window_seconds": 604800, "used_percent": 10}"#,
+            #"{"limit_window_seconds": 2592000, "used_percent": 100}"#)
+        XCTAssertEqual(Set(windows.map(\.category)), [.weekly, .monthly])
+        XCTAssertEqual(Set(windows.map(\.id)).count, 2)
+        XCTAssertEqual(windows.first { $0.category == .monthly }?.exhausted, true)
+        let snapshot = UsageSnapshot(accountID: "a", fetchedAt: now, status: .ok, windows: windows)
+        XCTAssertEqual(snapshot.severity, .exhausted)
+    }
+
+    func testMonthlyAndWeeklyWindowsAreBothKeptInReversedOrder() {
+        let windows = rateLimit(
+            #"{"limit_window_seconds": 2592000, "used_percent": 100}"#,
+            #"{"limit_window_seconds": 604800, "used_percent": 10}"#)
+        XCTAssertEqual(windows.map(\.category), [.monthly, .weekly])
+        XCTAssertEqual(Set(windows.map(\.id)).count, 2)
+    }
+
+    func testTwoFiveHourWindowsAreBothKeptWithDistinctIDs() {
+        let windows = rateLimit(
+            #"{"limit_window_seconds": 18000, "used_percent": 10}"#,
+            #"{"limit_window_seconds": 18000, "used_percent": 90}"#)
+        XCTAssertEqual(windows.map(\.usedPercent), [10, 90])
+        XCTAssertEqual(windows.map(\.id), ["codex-short", "codex-secondary"])
+    }
+
+    func testWindowWithoutDurationIsKeptBesideAKnownFiveHourWindow() {
+        let windows = rateLimit(
+            #"{"used_percent": 30}"#,
+            #"{"limit_window_seconds": 18000, "used_percent": 10}"#)
+        XCTAssertEqual(Set(windows.compactMap(\.usedPercent)), [30, 10])
+        XCTAssertEqual(Set(windows.map(\.id)).count, 2)
+    }
+
+    func testControlPairsKeepTheirEstablishedIDs() {
+        XCTAssertEqual(rateLimit(
+            #"{"limit_window_seconds": 18000, "used_percent": 10}"#,
+            #"{"limit_window_seconds": 604800, "used_percent": 20}"#).map(\.id),
+            ["codex-short", "codex-long"])
+        XCTAssertEqual(rateLimit(
+            #"{"limit_window_seconds": 18000, "used_percent": 10}"#,
+            #"{"limit_window_seconds": 86400, "used_percent": 20}"#).map(\.id),
+            ["codex-short", "codex-long"])
+    }
+
+    // MARK: - Explicit global block without child windows
+
+    func testExplicitGlobalBlockWithoutWindowsSurvivesAHealthyModelFamily() throws {
+        let windows = CodexUsageParser.parse(payload("""
+        {"rate_limit": {"allowed": false, "limit_reached": true,
+                        "primary_window": null, "secondary_window": null},
+         "code_review_rate_limit": {"primary_window": {"limit_window_seconds": 18000, "used_percent": 10}}}
+        """), now: now)
+        let blocked = windows.filter { $0.scope == .global }
+        XCTAssertEqual(blocked.count, 1)
+        let window = try XCTUnwrap(blocked.first)
+        XCTAssertTrue(window.exhausted)
+        XCTAssertNil(window.usedPercent)
+        XCTAssertNil(window.periodSeconds)
+        XCTAssertNil(window.resetAt)
+        let snapshot = UsageSnapshot(accountID: "a", fetchedAt: now, status: .ok, windows: windows)
+        XCTAssertEqual(snapshot.severity, .exhausted)
+    }
+
+    func testBlockedModelFamilyWithoutWindowsStaysModelScoped() throws {
+        let windows = CodexUsageParser.parse(payload("""
+        {"rate_limit": {"primary_window": {"limit_window_seconds": 18000, "used_percent": 10}},
+         "code_review_rate_limit": {"limit_reached": true}}
+        """), now: now)
+        let blocked = windows.filter { $0.group == "Code review" }
+        XCTAssertEqual(blocked.count, 1)
+        let window = try XCTUnwrap(blocked.first)
+        XCTAssertTrue(window.exhausted)
+        XCTAssertEqual(window.scope, .model)
+        let snapshot = UsageSnapshot(accountID: "a", fetchedAt: now, status: .ok, windows: windows)
+        XCTAssertEqual(snapshot.severity, .limited)
+    }
+
+    func testUnblockedFamilyWithoutWindowsStillAddsNothing() {
+        XCTAssertTrue(CodexUsageParser.parse(
+            payload(#"{"rate_limit": {"allowed": true, "limit_reached": false}}"#), now: now).isEmpty)
+    }
+
+    // MARK: - Credit counts accept only whole non-negative values
+
+    func testInvalidCreditCountsAreUnknownRatherThanRoundedOrSaturated() {
+        for raw in ["-3", "2.9", "1e30", "2147483648", "true", #""x""#, "null"] {
+            let source = payload(#"{"available_count": \#(raw), "applicable_available_count": \#(raw)}"#)
+            XCTAssertNil(CodexUsageParser.availableCreditCount(source), raw)
+            XCTAssertNil(CodexUsageParser.applicableCreditCount(source), raw)
+        }
+    }
+
+    func testValidCreditCountsAreKeptIncludingARealZero() {
+        for (raw, expected) in [("0", 0), ("3", 3), ("3.0", 3), (#""4""#, 4), ("2147483647", Int(Int32.max))] {
+            let source = payload(#"{"available_count": \#(raw), "applicable_available_count": \#(raw)}"#)
+            XCTAssertEqual(CodexUsageParser.availableCreditCount(source), expected, raw)
+            XCTAssertEqual(CodexUsageParser.applicableCreditCount(source), expected, raw)
+        }
+    }
 }
