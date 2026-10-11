@@ -9,6 +9,11 @@ and dependency versions are committed; no global Gradle installation is needed.
 The current build uses AGP 8.10.1 and Robolectric 4.16.1, with Java 17 app
 bytecode. Use JDK 21 when running the build and tests together.
 
+The wrapper pins Gradle 8.14.6 and its official distribution checksum. This
+includes the fix for [repository fallback after SSL failures](https://github.com/gradle/gradle/security/advisories/GHSA-j5m7-59rp-24f5).
+CI records the resolved release runtime dependency graph alongside the build
+reports, so dependency review can distinguish requested and effective versions.
+
 From the repository root in PowerShell:
 
 ```powershell

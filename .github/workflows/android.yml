@@ -122,6 +122,8 @@ jobs:
         run: |
           export ANDROID_VERSION_CODE="$(git rev-list --count HEAD)"
           ./gradlew --no-daemon --no-configuration-cache assembleDebug assembleRelease
+          mkdir -p app/build/reports
+          ./gradlew --no-daemon --no-configuration-cache :app:dependencies --configuration releaseRuntimeClasspath --console=plain > app/build/reports/apk-runtime-dependencies.txt
 
       - name: Verify APK identity and signing continuity
         env:

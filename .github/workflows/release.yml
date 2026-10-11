@@ -71,7 +71,9 @@ jobs:
           java-version: '21'
 
       - name: Test and lint before signing
-        run: ./gradlew --no-daemon --no-configuration-cache :app:testDebugUnitTest :app:lintDebug
+        run: |
+          ./gradlew --no-daemon --no-configuration-cache :app:testDebugUnitTest :app:lintDebug
+          ./gradlew --no-daemon --no-configuration-cache :app:dependencies --configuration releaseRuntimeClasspath --console=plain > app/build/reports/release-runtime-dependencies.txt
 
       - name: Upload verification reports
         if: always()
@@ -81,6 +83,7 @@ jobs:
           path: |
             app/build/reports/tests/testDebugUnitTest
             app/build/reports/lint-results-debug.*
+            app/build/reports/release-runtime-dependencies.txt
           if-no-files-found: ignore
 
       # No Gradle caching action: signing settings must not enter a shared cache.
