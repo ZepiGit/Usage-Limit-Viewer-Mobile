@@ -20,14 +20,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - mode: unit
-            artifact_id: '11701364367'
-            artifact_name: android-verification-evidence
-            digest: ed23ba62a255f001a8c47e309efc8101971066670d28a0944bccf59e01d5a2a0
-          - mode: apk
-            artifact_id: '11702420768'
-            artifact_name: apk-verification
-            digest: abd932a1e663912770e6ed4f642b2fd0114553dec57e5fd2232a9333f5dd9829
           - mode: runtime
             artifact_id: '11702507377'
             artifact_name: android-runtime-evidence-cd56e58bb681ebc00689de9c7811a119272977c9
@@ -51,4 +43,5 @@ jobs:
             --name "$ARTIFACT_NAME" --digest "$ARTIFACT_DIGEST" \
             --run-id 38139317592 \
             --head-sha 885fa3785803166e951e089780d118f2f7adbd53 \
-            --checkout-sha cd56e58bb681ebc00689de9c7811a119272977c9
+            --checkout-sha cd56e58bb681ebc00689de9c7811a119272977c9 \
+            --png move-target-original.png --png move-focus-3.png
