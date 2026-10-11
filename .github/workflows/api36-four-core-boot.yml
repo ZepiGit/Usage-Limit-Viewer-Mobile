@@ -1,0 +1,151 @@
+name: API 36 four-core boot probe
+
+on:
+  push:
+    branches: ['verify/api36-four-core-boot']
+    paths: ['.github/workflows/api36-four-core-boot.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_COMMIT: 885fa3785803166e951e089780d118f2f7adbd53
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify unchanged runtime sources
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$BASE_COMMIT"
+          git diff --exit-code "$BASE_COMMIT" -- tools/run_android_runtime.sh tools/android_runtime_smoke.py
+          mkdir -p runtime/evidence
+
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Check the AOSP API 36 image is available
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/evidence
+          sdkmanager --list > runtime/evidence/sdk-packages.txt
+          if ! grep -Eq '^[[:space:]]*system-images;android-36;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 36 x86_64 image.' >&2
+            exit 1
+          fi
+
+      # KVM setup from https://github.com/ReactiveCircus/android-emulator-runner
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Verify and record host CPU and KVM
+        run: |
+          set -euo pipefail
+          nproc > runtime/evidence/host-nproc.txt
+          lscpu > runtime/evidence/host-lscpu.txt
+          stat /dev/kvm > runtime/evidence/host-kvm.txt
+          test "$(cat runtime/evidence/host-nproc.txt)" -ge 4
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          printf 'HOST_NPROC=%s\n' "$(cat runtime/evidence/host-nproc.txt)"
+
+      - name: Boot once with four cores and the unchanged readiness gates
+        run: |
+          set -euo pipefail
+          export PROBE_DIRECTORY
+          PROBE_DIRECTORY=$(mktemp -d "$RUNNER_TEMP/usage-four-core.XXXXXX")
+          trap 'rm -rf -- "$PROBE_DIRECTORY"' EXIT
+          python3 - <<'PY'
+          import difflib
+          import hashlib
+          import os
+          from pathlib import Path
+
+          source = Path("tools/run_android_runtime.sh").read_text()
+          old, new = "-cores 2 -memory 4096", "-cores 4 -memory 4096"
+          assert source.count(old) == 1, "Expected exactly one two-core allocation"
+          modified = source.replace(old, new, 1)
+          directory = Path(os.environ["PROBE_DIRECTORY"])
+          (directory / "run_android_runtime.sh").write_text(modified)
+          evidence = Path("runtime/evidence")
+          (evidence / "wrapper.diff").write_text("".join(difflib.unified_diff(
+              source.splitlines(keepends=True), modified.splitlines(keepends=True),
+              fromfile="original/run_android_runtime.sh", tofile="temporary/run_android_runtime.sh")))
+          (evidence / "source-sha256.txt").write_text("".join(
+              hashlib.sha256(Path(path).read_bytes()).hexdigest() + "  " + path + "\n"
+              for path in ("tools/run_android_runtime.sh", "tools/android_runtime_smoke.py")))
+          PY
+          cat > "$PROBE_DIRECTORY/android_runtime_smoke.py" <<'PY'
+          import argparse
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"]) / "tools"))
+          from android_runtime_smoke import PACKAGE, Smoke, run
+
+          parser = argparse.ArgumentParser()
+          parser.add_argument("--evidence", type=Path, required=True)
+          args = parser.parse_args()
+          devices = [line.split()[0] for line in run("adb", "devices").splitlines()[1:]
+                     if len(line.split()) >= 2 and line.split()[1] == "device"]
+          assert devices == [os.environ["ANDROID_SERIAL"]], "Requires only the probe emulator"
+          smoke = Smoke(args.evidence, devices[0])
+          assert smoke.adb("shell", "getprop", "ro.kernel.qemu") == "1", "Requires an emulator"
+          assert smoke.adb("shell", "getprop", "ro.build.version.sdk") == "36", "Expected API 36"
+          assert not smoke.adb("shell", "pm", "list", "packages", PACKAGE), "App must not be installed"
+          home = smoke.adb("shell", "cmd", "package", "resolve-activity", "--brief",
+                           "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
+          component = home.splitlines()[-1]
+          smoke.launcher = component.split("/", 1)[0]
+          environment = {
+              "commit": os.environ["GITHUB_SHA"], "baseCommit": os.environ["BASE_COMMIT"],
+              "runId": os.environ["GITHUB_RUN_ID"], "serial": devices[0], "launcher": home,
+              "fingerprint": smoke.adb("shell", "getprop", "ro.build.fingerprint"),
+              "guestCpuOnline": smoke.adb("shell", "cat", "/sys/devices/system/cpu/online"),
+              "hwTimeoutMultiplier": smoke.adb("shell", "getprop", "ro.hw_timeout_multiplier"),
+          }
+          smoke.text("environment.json", json.dumps(environment, indent=2))
+          print("BOOT_ENVIRONMENT " + json.dumps(environment, sort_keys=True), flush=True)
+          assert environment["guestCpuOnline"] == "0-3", "Expected four online guest CPUs"
+          smoke.wait_for_launcher("initial-home", component)
+          assert not smoke.adb("shell", "pm", "list", "packages", PACKAGE), "App unexpectedly installed"
+          smoke.text("result.json", json.dumps({
+              "result": "passed", "commit": os.environ["GITHUB_SHA"], "apkInstalled": False,
+              "scope": "One fresh four-core API 36 boot; unchanged launcher readiness and ANR checks",
+          }, indent=2))
+          print("Four-core API 36 boot passed the existing launcher readiness and ANR gates; no APK installed.")
+          PY
+          bash "$PROBE_DIRECTORY/run_android_runtime.sh" --evidence runtime/evidence
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          events = [line for line in Path("runtime/evidence/emulator-system-log.txt").read_text().splitlines()
+                    if re.search(r"\bam_anr\s*:|\bActivityManager\s*:\s+ANR in\b", line)]
+          print("BOOT_ANR_EVENTS " + str(len(events)), flush=True)
+          for line in events[:10]:
+              print(line, flush=True)
+          assert not events, "Boot recorded an ANR even if its dialog is no longer visible"
+          PY
+
+      - name: Upload boot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api36-four-core-boot-${{ github.sha }}
+          path: runtime/evidence
+          if-no-files-found: error
