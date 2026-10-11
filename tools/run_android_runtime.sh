@@ -21,7 +21,7 @@ mkdir -p "$evidence"
 script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 : "${ANDROID_HOME:?Android SDK setup is required}"
 : "${RUNNER_TEMP:?A dedicated CI runner is required}"
-: "${DISPLAY:?Run under xvfb-run; the bundled LLVMpipe EGL backend requires X11}"
+: "${DISPLAY:?Run under xvfb-run for the configured X11 environment}"
 export ANDROID_SERIAL=emulator-5554
 runtime_directory=$(mktemp -d "$RUNNER_TEMP/usage-runtime.XXXXXX")
 export ANDROID_AVD_HOME="$runtime_directory/avd"
