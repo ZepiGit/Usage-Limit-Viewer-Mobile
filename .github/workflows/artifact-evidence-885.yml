@@ -1,0 +1,54 @@
+name: Inspect pinned CI evidence 885
+
+on:
+  push:
+    branches: [verify/artifact-evidence-885fa]
+    paths:
+      - .github/workflows/artifact-evidence-885.yml
+      - tools/verification/inspect_ci_artifact.py
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    name: Read ${{ matrix.mode }} evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: unit
+            artifact_id: '11701364367'
+            artifact_name: android-verification-evidence
+            digest: ed23ba62a255f001a8c47e309efc8101971066670d28a0944bccf59e01d5a2a0
+          - mode: apk
+            artifact_id: '11702420768'
+            artifact_name: apk-verification
+            digest: abd932a1e663912770e6ed4f642b2fd0114553dec57e5fd2232a9333f5dd9829
+          - mode: runtime
+            artifact_id: '11702507377'
+            artifact_name: android-runtime-evidence-cd56e58bb681ebc00689de9c7811a119272977c9
+            digest: fdc35dfc17d5d922e8ec63c27ba9043ab438c09eeec55bfd4ea91e39e4d56761
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: tools/verification
+      - name: Inspect existing artifact only
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVIDENCE_MODE: ${{ matrix.mode }}
+          ARTIFACT_ID: ${{ matrix.artifact_id }}
+          ARTIFACT_NAME: ${{ matrix.artifact_name }}
+          ARTIFACT_DIGEST: ${{ matrix.digest }}
+        run: |
+          python3 -m py_compile tools/verification/inspect_ci_artifact.py
+          python3 tools/verification/inspect_ci_artifact.py \
+            --mode "$EVIDENCE_MODE" --artifact-id "$ARTIFACT_ID" \
+            --name "$ARTIFACT_NAME" --digest "$ARTIFACT_DIGEST" \
+            --run-id 38139317592 \
+            --head-sha 885fa3785803166e951e089780d118f2f7adbd53 \
+            --checkout-sha cd56e58bb681ebc00689de9c7811a119272977c9
