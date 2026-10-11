@@ -25,10 +25,10 @@ jobs:
           import xml.etree.ElementTree as ET
           from pathlib import PurePosixPath
 
-          ARTIFACT = 11702795379
+          ARTIFACT = 11702721005
           RUN = 38139315046
           SHA = "885fa3785803166e951e089780d118f2f7adbd53"
-          DIGEST = "781bfef6cea2bf86c97541afc028f4559628de126d7fd0b941efd31ba1a48de7"
+          DIGEST = "d39cf3357eb1fe7cfd5aec3b042826f0bcbf0054d2289c298d94c90fc3af2c8c"
           API = "https://api.github.com/repos/ZepiGit/Usage-Limit-Viewer-Mobile"
 
           class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -115,20 +115,23 @@ jobs:
                               continue
                           for node in root.iter("node"):
                               resource = node.get("resource-id", "")
-                              if resource.startswith("android:id/aerr_"):
+                              if resource.startswith("android:id/aerr_") or resource in {
+                                      "android:id/alertTitle", "android:id/message", "android:id/text1"
+                                  }:
                                   dialogs.append({
                                       "file": name, "id": resource,
                                       "text": node.get("text", ""),
                                       "description": node.get("content-desc", ""),
                                   })
-                  assert dialogs, "Expected captured system-error dialog missing"
+                  assert any(row["id"].startswith("android:id/aerr_") for row in dialogs), "Expected captured system-error dialog missing"
                   excerpt("SYSTEM ERROR CONTROLS", dialogs, 30)
                   patterns = {
                       "anr": r"ANR in|^\s*(Process:|PID:|Reason:|ErrorId:|Frozen:|Load:|CPU usage)|^\s*[0-9.]+%|no ANR has occurred",
-                      "log": r"ANR in|am_anr\s*:|Input dispatching timed out|no focused window|FATAL EXCEPTION|Process:|Fatal signal|WATCHDOG KILLING|Boot completed",
+                      "log": r"ANR in|am_anr\s*:|Input dispatching timed out|no focused window|FATAL EXCEPTION|\bProcess:|Fatal signal|WATCHDOG KILLING|Boot completed",
                       "window": r"\bmCurrentFocus=|\bmFocusedApp=",
                       "boot": r"\b(ERROR|FATAL|PANIC|WARNING)\b",
                   }
+                  anr_contexts = 0
                   for name, item in sorted(files.items()):
                       kind = (
                           "anr" if name.endswith("last-anr.txt") else
@@ -140,6 +143,18 @@ jobs:
                           lines = zipped.read(item).decode("utf-8", errors="replace").splitlines()
                           selected = [line for line in lines if re.search(patterns[kind], line)]
                           excerpt(name, selected, 60 if kind in {"anr", "log"} else 20)
+                          if kind == "log" and anr_contexts < 2:
+                              covered_until = -1
+                              for index, line in enumerate(lines):
+                                  if index <= covered_until or not re.search(r"\bANR in\b|\bam_anr\s*:", line):
+                                      continue
+                                  emit(f"{name}: ANR CONTEXT {anr_contexts + 1}, source line {index + 1}")
+                                  for context in lines[index:index + 37]:
+                                      emit(context)
+                                  covered_until = index + 36
+                                  anr_contexts += 1
+                                  if anr_contexts == 2:
+                                      break
               emit("DIAGNOSTIC EXTRACTION COMPLETE; original runtime remains failed")
 
           try:
