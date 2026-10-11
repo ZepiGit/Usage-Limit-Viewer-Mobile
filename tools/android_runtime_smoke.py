@@ -543,6 +543,8 @@ class Smoke:
         complete = True
         for filename, command in {
             "crash-log.txt": ("logcat", "-b", "crash", "-d", "-v", "threadtime"),
+            "system-log.txt": ("logcat", "-d", "-v", "threadtime"),
+            "last-anr.txt": ("shell", "dumpsys", "activity", "lastanr"),
             "activity-exits.txt": ("shell", "dumpsys", "activity", "exit-info", PACKAGE),
             "widget-providers.txt": ("shell", "dumpsys", "appwidget"),
         }.items():
