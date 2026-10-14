@@ -2,7 +2,7 @@
 
 <h1 align="center">Usage Limits Mobile</h1>
 
-<p align="center"><strong>Know what’s left. See what resets next.</strong><br>Codex, Claude, Antigravity, Grok, Kimi, Devin and Meta Muse — on your phone and home screen.</p>
+<p align="center"><strong>Know what’s left. See what resets next.</strong><br>Codex, Claude, Antigravity, Grok, Kimi, Devin and Meta Muse — on your phone and home screen as widgets.</p>
 
 <p align="center">
 <a href="#build"><img src="docs/01-terracotta/android-badge.png" height="25" alt="Android 8.0+"></a> <a href="#build"><img src="docs/01-terracotta/ios-badge.png" height="25" alt="iOS 16.0+"></a> <a href="#build"><img src="docs/01-terracotta/source-badge.png" height="25" alt="Build from source"></a> 
@@ -12,13 +12,11 @@
 
 <p align="center"><img src="docs/01-terracotta/devices.png" width="1000" alt="Usage Limits source-based mockups on an Android phone, iPhone and unfolded foldable"></p>
 
-<p><sub>Illustrative device mockups with synthetic data, retained from the original Terracotta design; not native app captures. Foldable hardware transitions remain unverified.</sub></p>
-
 > **Development preview · build from source.** Live
-> sign-in and physical-device verification are not complete for every provider and device.
 
 
 [![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/redirect.html?id=firefin)
+
 
 ## Features
 
@@ -36,7 +34,6 @@ Codex accounts and two Claude accounts**, with different allowances for each con
 
 <p align="center"><a href="docs/01-terracotta/widgets-gallery.png"><img src="docs/01-terracotta/widgets-gallery.png" width="1000" alt="Four source-based widget renders: Usage Bars with two Codex and two Claude accounts, Usage Summary, Account Rings and Mini Rings"></a></p>
 
-<p><sub>Source-based widget illustrations with synthetic accounts, not native screenshots. OS text rendering and launcher dimensions can differ. <a href="docs/01-terracotta/ASSET-SOURCES.md">Image sources and scope</a>.</sub></p>
 
 ### Usage Summary — the compact check
 
