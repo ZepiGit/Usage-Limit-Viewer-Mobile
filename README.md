@@ -18,6 +18,8 @@
 > sign-in and physical-device verification are not complete for every provider and device.
 
 
+[![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/redirect.html?id=firefin)
+
 ## Features
 
 | One overview | Reset timeline | Home-screen widgets |
