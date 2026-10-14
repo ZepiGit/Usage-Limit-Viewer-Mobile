@@ -2,7 +2,7 @@
 
 <h1 align="center">Usage Limits Mobile</h1>
 
-<p align="center"><strong>Know what’s left. See what resets next.</strong><br>Codex, Claude, Antigravity, Grok, Kimi, Devin and Meta Muse — on your phone and home screen as widgets.</p>
+<p align="center"><strong>Check your usage limits and reset times.</strong><br>Track Codex, Claude, Antigravity, Grok, Kimi, Devin and Meta Muse on your phone and in home-screen widgets.</p>
 
 <p align="center">
 <a href="#build"><img src="docs/01-terracotta/android-badge.png" height="25" alt="Android 8.0+"></a> <a href="#build"><img src="docs/01-terracotta/ios-badge.png" height="25" alt="iOS 16.0+"></a> <a href="#build"><img src="docs/01-terracotta/source-badge.png" height="25" alt="Build from source"></a> 
@@ -10,124 +10,99 @@
 
 <p align="center"><a href="#features">Features</a> · <a href="#home-screen-widgets">Widgets</a> · <a href="#multiple-accounts-per-provider">Multiple accounts</a> · <a href="#app-tour">App tour</a> · <a href="#providers">Providers</a> · <a href="#build">Build</a> · <a href="#documentation">Documentation</a></p>
 
-<p align="center"><img src="docs/01-terracotta/devices.png" width="1000" alt="Usage Limits source-based mockups on an Android phone, iPhone and unfolded foldable"></p>
+<p align="center"><img src="docs/01-terracotta/devices.png" width="1000" alt="Usage Limits on Android, iPhone and an unfolded foldable"></p>
 
-> **Development preview · build from source.** Live
+> **Development preview.** See [Build](#build) to run the app from source.
 
-
-[![Get it on Orion Store](https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png)](https://rookieenough.github.io/Orion-Data/redirect.html?id=firefin)
-
+<p align="center"><a href="https://rookieenough.github.io/Orion-Data/redirect.html?id=firefin"><img src="https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png" width="206" alt="Get it on Orion Store"></a></p>
 
 ## Features
 
-| One overview | Reset timeline | Home-screen widgets |
+| Accounts | Reset times | Home-screen widgets |
 | :--- | :--- | :--- |
-| Every connected account, with the windows that need attention first. | See when each allowance comes back, in chronological order. | Read your cached usage without opening the app. |
+| Check usage across all your connected accounts. | See which limit resets next and when. | Check your usage without opening the app. |
 
-<img src="docs/01-terracotta/widgets.png" width="1000" alt="Home-screen widget summary with demonstration quota values">
+<img src="docs/01-terracotta/widgets.png" width="1000" alt="Usage Summary home-screen widget">
 
 ## Home-screen widgets
 
-**The home screen is part of the app.** Choose the view that fits your space: a compact
-summary, detailed usage bars, account rings or mini rings. The examples below use **two
-Codex accounts and two Claude accounts**, with different allowances for each connection.
+Choose a compact summary, detailed usage bars or rings to keep your usage visible on
+the home screen.
 
-<p align="center"><a href="docs/01-terracotta/widgets-gallery.png"><img src="docs/01-terracotta/widgets-gallery.png" width="1000" alt="Four source-based widget renders: Usage Bars with two Codex and two Claude accounts, Usage Summary, Account Rings and Mini Rings"></a></p>
+<p align="center"><a href="docs/01-terracotta/widgets-gallery.png"><img src="docs/01-terracotta/widgets-gallery.png" width="1000" alt="Usage Bars, Usage Summary, Account Rings and Mini Rings widgets"></a></p>
 
 
-### Usage Summary — the compact check
+### Usage Summary
 
-A short row for the five-hour allowance, the long allowance window, the next reset and
-quota status. Smaller placements adapt the readout to the available width.
+Shows the five-hour and longer-term allowances, the next reset and the account's quota
+status in a compact row. The layout adjusts to the widget's width.
 
-**Track two accounts separately:** place the widget twice and choose a different account
-for each instance. The names above these examples are presentation captions, not added
-widget controls. Each tile reports its selected account; it does not add subscriptions together.
+To track more than one account, add a widget for each and select the account in its settings.
 
-<p align="center"><a href="docs/01-terracotta/summary-scopes.png"><img src="docs/01-terracotta/summary-scopes.png" width="1000" alt="Two separate Usage Summary instances: Codex Personal has 72 percent of its five-hour allowance left and Codex Work has 41 percent"></a></p>
+<p align="center"><a href="docs/01-terracotta/summary-scopes.png"><img src="docs/01-terracotta/summary-scopes.png" width="1000" alt="Usage Summary widgets for personal and work Codex accounts"></a></p>
 
-### Usage Bars — every account keeps its own rows
+### Usage Bars
 
-Provider, account label, quota windows, percentages and reset times stay together. **Two
-accounts with the same provider are two separate cards**, not a shared provider balance.
-Choose one provider to keep its accounts together, or use a custom selection and order.
-The large gallery above shows all four demo accounts in one widget.
+Shows each account's provider, remaining allowances and reset times as a set of usage bars.
+Filter by provider or choose a custom set of accounts and arrange them in any order.
 
-### Account Rings — identity, allowance and reset
+### Account Rings
 
-A provider logo sits inside each account’s usage ring, with account information and the
-reset alongside it. On Android, account labels make **Personal** and **Work** easy to distinguish;
-the iOS layout uses the account title. Larger placements can show more than one column.
+Shows a usage ring around each provider logo, with the account name and reset time beside
+it. Larger widgets can display multiple columns.
 
-### Mini Rings — the smallest view
+### Mini Rings
 
-One ring and provider logo for each selected account. **Matching logos can belong to different
-accounts**: the examples show two Codex logos and two Claude logos, with different ring fills.
-Mini Rings deliberately omit long labels; select the accounts and their order in the widget
-configuration rather than expecting names inside a tiny ring.
+Compact rings with a provider logo for each account. Choose which accounts appear and
+their order in the widget settings.
 
-<p align="center"><a href="docs/01-terracotta/rings-multiaccount.png"><img src="docs/01-terracotta/rings-multiaccount.png" width="1000" alt="Account Rings show Personal and Work separately; Mini Rings show two independent Codex accounts and a four-account Codex and Claude selection"></a></p>
+<p align="center"><a href="docs/01-terracotta/rings-multiaccount.png"><img src="docs/01-terracotta/rings-multiaccount.png" width="1000" alt="Account Rings and Mini Rings with personal and work accounts"></a></p>
 
 <details>
-<summary><strong>All iPhone and iPad widget entries — including the original variants</strong></summary>
+<summary><strong>iPhone and iPad widgets</strong></summary>
 
-<p align="center"><a href="docs/01-terracotta/ios-widget-gallery.png"><img src="docs/01-terracotta/ios-widget-gallery.png" width="1000" alt="Source-based iOS examples of Usage Bars, Account Rings, Mini Rings, Usage Limits, Usage Limits Clear and Usage Ring"></a></p>
+<p align="center"><a href="docs/01-terracotta/ios-widget-gallery.png"><img src="docs/01-terracotta/ios-widget-gallery.png" width="1000" alt="Usage Bars, Account Rings, Mini Rings, Usage Limits, Usage Limits Clear and Usage Ring on iOS"></a></p>
 
-| Widget | Availability | What it adds |
+| Widget | Availability | Layout and options |
 | :--- | :--- | :--- |
-| **Usage Bars** | iOS 17+ | Configurable account, provider or custom selection; small, medium and large. |
-| **Account Rings** | iOS 17+ | Configurable ring grid with account title and reset information. |
-| **Mini Rings** | iOS 17+ | Configurable provider-logo rings without the text column. |
-| **Usage Limits** | iOS 16+ | Original small, medium and large quota tiles; also a rectangular Lock Screen accessory. |
-| **Usage Limits (Clear)** | iOS 16+ | Original quota tiles without the opaque panel. |
+| **Usage Bars** | iOS 17+ | Usage bars in small, medium and large sizes. Choose an account, a provider or a custom selection. |
+| **Account Rings** | iOS 17+ | A grid of rings with account names and reset times. |
+| **Mini Rings** | iOS 17+ | Compact rings with provider logos. |
+| **Usage Limits** | iOS 16+ | Usage tiles in small, medium and large sizes; also available on the Lock Screen as a rectangular widget. |
+| **Usage Limits (Clear)** | iOS 16+ | Usage tiles with a transparent background. |
 | **Usage Ring** | iOS 16+ | A single-account ring; also a circular Lock Screen accessory. |
 
-The original iOS entries follow the ranked account selection. **Use the configurable iOS
-17+ entries to choose a particular account, one provider or a saved custom layout.**
-The availability of a widget is separate from the app’s iOS 16 deployment target.
+The iOS 16 widgets select accounts using the app's ranking. On iOS 17+, use Usage Bars,
+Account Rings or Mini Rings to choose an account, filter by provider or use a saved layout.
 
 </details>
 
-### Make each widget your own
+### Widget settings
 
 | Choose the content | Arrange the accounts | Set the appearance |
 | :--- | :--- | :--- |
-| All accounts, one provider, one account or a custom selection. | Follow the app’s account order or use an independent custom order. | Android: panel colour, opacity and text tone. Configurable iOS widgets: transparent background and text tone. |
+| Show all accounts, one provider, one account or a custom selection. | Use the app's account order or set your own. | Android: background colour, opacity and text colour. Configurable iOS widgets: transparent background and text colour. |
 
-Widgets read the local usage cache, not account credentials. Android refresh enqueues the
-app’s sync work; iOS refresh opens the app. Widget refreshes do not make model requests.
-For implementation details, see [Widgets](docs/widgets.md).
+Widgets display locally cached usage. Refreshing a widget requests a sync on Android and
+opens the app on iOS. See [Widgets](docs/widgets.md) for configuration and technical details.
 
 ## Multiple accounts per provider
 
-**Two Codex subscriptions? Separate personal and work accounts with Claude? Keep both.**
-Each connection has its own account identity, quota windows and reset clock. A provider is
-not a single-account slot, and different accounts’ allowances are not pooled.
+Add multiple accounts from the same provider, such as personal and work subscriptions.
+Each account has its own usage limits and reset times.
 
-<p align="center"><a href="docs/01-terracotta/accounts-by-provider.png"><img src="docs/01-terracotta/accounts-by-provider.png" width="1000" alt="Two provider-scoped Usage Bars widgets: Codex Personal and Codex Work on the left, Claude Personal and Claude Work on the right, all with independent quota windows"></a></p>
+<p align="center"><a href="docs/01-terracotta/accounts-by-provider.png"><img src="docs/01-terracotta/accounts-by-provider.png" width="1000" alt="Usage Bars widgets for personal and work accounts in Codex and Claude"></a></p>
 
-| Same provider | Separate accounts | Independent five-hour allowance in the illustration |
-| :--- | :--- | :--- |
-| **OpenAI Codex** | Personal · Work | 72% left · 41% left |
-| **Claude** | Personal · Work | 58% left · 18% left |
-
-Connect your own accounts individually in **Accounts**. Then choose **One provider** in a
-widget’s content settings to show that provider’s accounts, **One account** for a dedicated
-tile, or **Custom** for a mixed selection. On iOS, use a configurable widget on iOS 17+ and
-save custom layouts in the app’s settings. These are illustrative accounts, not live usage.
+Add each account in **Accounts**. In the widget settings, select **One provider** to group
+its accounts, **One account** to show a single account, or **Custom** to combine accounts
+from different providers. On iOS 17+, custom layouts can be saved in the app's settings.
 
 ## App tour
 
-<p align="center"><a href="docs/01-terracotta/DEMO.md"><img src="docs/01-terracotta/tour-card.png" width="1000" alt="Open the offline app screenshot tour: Overview, Accounts, Resets and Settings"></a></p>
+<p align="center"><a href="docs/01-terracotta/DEMO.md"><img src="docs/01-terracotta/tour-card.png" width="1000" alt="App tour: Overview, Accounts, Resets and Settings"></a></p>
 
-**[Open the screenshot tour](docs/01-terracotta/DEMO.md).** Click the bottom tabs to explore
-four original iPhone Simulator captures. The tour also includes a widget gallery with the
-same demo accounts used above. It is an offline presentation, **not a functioning web port**:
-there is no sign-in, sync, account editing or access to real provider data.
-
-The supplied browser preview opens the tour directly. On GitHub, the link leads to the
-local-opening instructions; an interactive HTML page must be opened in a browser or hosted
-separately, rather than executed inside the README.
+Explore Overview, Accounts, Resets and Settings in the **[app tour](docs/01-terracotta/DEMO.md)**,
+which also includes a widget gallery. The linked page explains how to open the tour in your browser.
 
 ## Providers
 
@@ -141,16 +116,15 @@ separately, rather than executed inside the README.
 | **Devin** | Daily and weekly seat quota | OAuth + PKCE loopback |
 | **Meta Muse** | Rolling subscription window and weekly quota | OAuth device code |
 
-All seven have implementations on Android and iOS. Google Vertex is intentionally not included:
-CliProxyAPI exposes it as an API-key/service-account integration rather than an OAuth provider.
-Live sign-in is not verified for every provider; Kimi OAuth usage access may require vendor approval.
+Android and iOS include integrations for all seven providers. Sign-in has not yet been
+verified for every provider, and Kimi OAuth usage access may require vendor approval.
 
 
 ## Build
 
 ### Android
 
-Use JDK 21 for tests and Android SDK platform 36.
+Use Android SDK platform 36 and JDK 21 for the tests.
 
 ```bash
 ./gradlew :app:assembleDebug
@@ -159,7 +133,7 @@ Use JDK 21 for tests and Android SDK platform 36.
 
 ### iOS
 
-The app requires macOS, Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+You'll need macOS, Xcode and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
 swift test --package-path ios/UsageLimitsKit
@@ -169,16 +143,14 @@ cd ios/UsageLimits && xcodegen generate
 Open the generated project in Xcode to configure signing and run the app.
 
 
-## Privacy & boundaries
+## Privacy
 
-Your phone talks directly to the providers with your own account. There is **no app-owned
-account, backend, proxy or telemetry**. This app reads quota; it does not make model calls.
-Credentials remain in Android Keystore-backed storage or iOS Keychain. Widgets read only
-the local cache, never credentials.
+The app connects directly to each provider using your account. It reads usage limits without
+making model requests and has no backend, proxy or telemetry. Credentials are kept in
+Android Keystore-backed storage or iOS Keychain; widgets only access cached usage data.
 
-Several integrations use undocumented first-party endpoints. They can change or disappear.
-Use only accounts you control, and review provider terms before public distribution.
-See the [security model](docs/security.md) and [release readiness](docs/release-readiness.md).
+Some integrations use undocumented provider APIs and may need updates when those APIs change.
+See the [security model](docs/security.md) and [release readiness](docs/release-readiness.md) for details.
 
 
 ## Documentation
@@ -189,6 +161,6 @@ See the [security model](docs/security.md) and [release readiness](docs/release-
 | [Widgets](docs/widgets.md) | [Verification](docs/verification.md) |
 | [Security](docs/security.md) | [Release guide](docs/release.md) |
 
-For provider-specific behavior, see [Codex](docs/providers-codex.md), [Devin](docs/providers-devin.md),
-[Meta Muse](docs/providers-meta.md) and the other `docs/providers-*` guides. Report reproducible problems in
+Provider setup and limitations are covered in the [Codex](docs/providers-codex.md), [Devin](docs/providers-devin.md),
+[Meta Muse](docs/providers-meta.md) and other `docs/providers-*` guides. Report bugs in
 [Issues](https://github.com/ZepiGit/Usage-Limit-Viewer/issues).
