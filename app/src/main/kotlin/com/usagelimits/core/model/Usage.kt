@@ -69,6 +69,10 @@ data class UsageWindow(
 
     val severity: Severity
         get() = Severity.fromRemainingPercent(remainingPercent, exhausted)
+
+    /** Reset passed after [fetchedAt]: the figure describes a closed window until a fetch confirms. */
+    fun resetElapsedAt(fetchedAt: Long, nowMs: Long): Boolean =
+        resetAt != null && resetAt <= nowMs && fetchedAt < resetAt
 }
 
 /** Why a snapshot looks the way it does. Drives the "stale"/"failed" banners. */
@@ -180,7 +184,9 @@ data class UsageSnapshot(
      * over stale data is the exact failure this app exists to prevent.
      */
     fun severityAt(nowMs: Long, staleAfterMs: Long = Severity.STALE_AFTER_MS): Severity {
-        val base = severity
+        // A window whose reset passed since the fetch describes a closed window ("Reset due"),
+        // so it no longer decides the verdict; with none left the answer is unknown, not old.
+        val base = copy(windows = windows.filterNot { it.resetElapsedAt(fetchedAt, nowMs) }).severity
         if (base == Severity.ERROR) return base
         val age = nowMs - fetchedAt
         return if (age >= staleAfterMs) Severity.STALE else base

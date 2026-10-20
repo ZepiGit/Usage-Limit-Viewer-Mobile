@@ -5,14 +5,16 @@ quota left is only marginally better than hitting the limit and finding out the 
 number on the home screen is the actual product. Everything below follows from that, including
 the decision to make the widgets read a cache rather than the network.
 
-All four Android widgets use Glance (`androidx.glance:glance-appwidget:1.2.0`), which compiles a
+The four usage widgets and the Credits widget below use Glance (`androidx.glance:glance-appwidget:1.2.0`), which compiles a
 Compose-like description into `RemoteViews` that the launcher renders in its own process.
 In `app/src/main/kotlin/com/usagelimits/widget/`, `UsageWidgets.kt` implements Summary and
 Bars, and `RingWidgets.kt` implements Account Rings and Mini Rings. `WidgetData.kt` reduces
 cached data, `WidgetUpdater.kt` observes it and refreshes instances, and the remaining files
 handle configuration, style, layout metrics, bitmap rings, receivers and scheduled repaints.
 
-## The four Android widgets
+## The four Android usage widgets
+
+(The fifth, Credits, is covered after them.)
 
 ### Account Rings (`MinimalUsageWidget`)
 
@@ -195,6 +197,7 @@ Three update paths serve different triggers; Android can defer background delive
 3. **At a presentation boundary** (`WidgetPresentationWorker`): a cache-only repaint when a
    snapshot crosses its staleness threshold or a reset instant arrives, plus the same
    conditional fetch, because a reset is the one boundary a repaint cannot get right on its own.
+   `publishAfterSync` reschedules it after every sync, worker or foreground.
 
 Before the second path existed, the ring widgets showed the numbers from the moment they were
 placed for as long as the app's periodic sync was deferred — including after every limit had
@@ -202,7 +205,9 @@ reset. The reset case compounds it: a cache-only repaint at the reset instant ca
 the spent window's figure, so `WidgetRow.resetElapsed` now marks a row whose reset passed
 after its fetch, and every surface draws such a row in the stale treatment beside "Reset due"
 until a fetch confirms the new window. Neither the old number in a confident colour nor an
-unreported full ring is claimed.
+unreported full ring is claimed. Such a window also stops deciding the account's severity
+(`UsageSnapshot.severityAt`) and its ring/most-critical representative while another window is
+still open; the app's rows use the same rule (`UsageWindow.resetElapsedAt`).
 
 `refreshAll` also stops failing silently. Each widget is refreshed on its own, cancellation
 is rethrown rather than swallowed, other failures are logged, and when Glance's stored
@@ -372,3 +377,18 @@ and later. `accessibilityReduceMotion` suppresses them. These run only when Widg
 a changed timeline entry; no timer, network request or extra reload is scheduled. Glance keeps
 its static rendering because it does not expose Compose animation in RemoteViews. Ring and
 minimal widgets retain their transparent backgrounds; detailed cards retain the app palette.
+
+## Credits (`CreditsWidget`)
+
+Declared at 2×2 cells, resizeable in both axes, with no configuration screen: it shows every
+credit account (see [credits.md](credits.md)), worst first by the same urgency ranking the
+overview uses, ties in the user's order. `SizeMode.Responsive` has three layouts and
+`CreditWidgetBuilder.capacity` maps them to 1 account (2×2, amount large with "as of"), 3
+(4×2) and 6 (4×4). Each row is a severity dot, the account name and its worst balance, formatted
+for the device locale; an uncapped OpenRouter key reads "spent this month". A stale snapshot
+reads "Out of date", a failed account with no balance reads "Error". Tapping opens the app.
+
+It follows the same rules as the other widgets: it reads `CreditRepository` through
+`WidgetUpdater.observeCredits` and nothing from `core.auth`, so no key can reach the home screen;
+`WidgetUpdater.allWidgets` refreshes it after every sync, and `updatePeriodMillis` plus
+`UsageWidgetReceiver` give it the system tick and the aged-cache sync.

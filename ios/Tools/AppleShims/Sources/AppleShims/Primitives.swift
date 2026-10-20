@@ -29,6 +29,62 @@ public struct ButtonRole {
     public static let cancel = ButtonRole()
 }
 
+/// `ButtonStyle`, as the SDK declares it: `makeBody(configuration:)` over a configuration that
+/// carries the label and the pressed state. `Configuration` is a typealias in an extension for
+/// the same reason `ViewModifier.Content` is (see SwiftUIShim.swift).
+@MainActor
+public protocol ButtonStyle {
+    associatedtype Body: View
+    @ViewBuilder func makeBody(configuration: ButtonStyleConfiguration) -> Body
+}
+
+@MainActor
+extension ButtonStyle {
+    public typealias Configuration = ButtonStyleConfiguration
+}
+
+@MainActor
+public struct ButtonStyleConfiguration {
+    public struct Label: View {
+        public init() {}
+        public var body: some View { ShimLeaf() }
+    }
+    public let label = Label()
+    public let isPressed = false
+}
+
+public struct AccessibilityTraits {
+    public static let isHeader = AccessibilityTraits()
+}
+
+public enum ControlSize { case mini, small, regular, large }
+
+public struct NavigationBarItem {
+    public enum TitleDisplayMode { case automatic, inline, large }
+}
+
+/// `@FocusState` for the one shape the app uses, a `Bool` per field.
+@propertyWrapper
+public struct FocusState<Value: Hashable> {
+    public struct Binding {}
+    private final class Box { var value: Value; init(_ value: Value) { self.value = value } }
+    private let box: Box
+    // No `init(wrappedValue:)`, as in the SDK: its presence would turn the field into a
+    // memberwise-init parameter, which the real property wrapper never is.
+    public init() where Value == Bool { box = Box(false) }
+    public var wrappedValue: Value {
+        get { box.value }
+        nonmutating set { box.value = newValue }
+    }
+    public var projectedValue: Binding { Binding() }
+}
+
+public struct AccessibilityChildBehavior {
+    public static let combine = AccessibilityChildBehavior()
+    public static let ignore = AccessibilityChildBehavior()
+    public static let contain = AccessibilityChildBehavior()
+}
+
 public struct ButtonStyleShim {
     public static let bordered = ButtonStyleShim()
     public static let borderedProminent = ButtonStyleShim()
@@ -253,6 +309,8 @@ public struct Image: View {
     public init(_ name: String) {}
     public var body: some View { ShimLeaf() }
     public func resizable() -> Image { self }
+    public enum TemplateRenderingMode { case template, original }
+    public func renderingMode(_ mode: TemplateRenderingMode?) -> Image { self }
     public func scaledToFit() -> Image { self }
 }
 
@@ -527,6 +585,7 @@ public struct EnvironmentValues {
         set {}
     }
     public var accessibilityReduceMotion = false
+    public var isEnabled = true
     public var dismiss = DismissAction()
     public var openURL = OpenURLAction()
     public var dynamicTypeSize: DynamicTypeSize = .large
@@ -638,6 +697,17 @@ public struct TextField: View {
     public init(_ title: String, text: Binding<String>) {}
     public init(_ title: String, text: Binding<String>, prompt: Any?) {}
     public var body: some View { ShimLeaf() }
+}
+
+/// Hidden text entry, for keys.
+public struct SecureField: View {
+    public init(_ title: String, text: Binding<String>) {}
+    public var body: some View { ShimLeaf() }
+}
+
+public struct KeyboardTypeShim {
+    public static let decimalPad = KeyboardTypeShim()
+    public static let `default` = KeyboardTypeShim()
 }
 
 public struct TextFieldStyleShim {

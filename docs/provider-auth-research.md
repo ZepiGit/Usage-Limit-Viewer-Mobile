@@ -204,3 +204,27 @@ is why every URL, header and client version lives in a single
 `ProviderEndpoints` file, why every parser tolerates missing and unknown fields,
 and why the parsers carry the bulk of the test suite. An upstream change should
 cost one row on one card and one edit in one file.
+
+## Additional providers (October 2026)
+
+Checked against the providers CLIProxyAPI's console lists (`internal/auth/`: antigravity,
+claude, codex, devin, kimi, meta, vertex, xai) and against usage endpoints that a phone can
+reach without CLIProxyAPI. A provider is added only when the endpoint is confirmed and the
+credential can be obtained on a phone without impersonating another program.
+
+| Provider | Endpoint | Credential | Decision | Reason |
+|---|---|---|---|---|
+| Kimi International | `api.kimi.ai/coding/v1/usages`, device flow on `auth.kimi.ai` | same public client id as kimi.com | **Added** as a region of Kimi | Same flow and payload as kimi.com; tokens are region-bound, so the region is stored with the credential |
+| Z.ai GLM Coding Plan | `api.z.ai/api/monitor/usage/quota/limit` (China `open.bigmodel.cn`) | API key, Bearer | **Added** | One GET with the user's own key; undocumented, so the parser tolerates the three limit types and missing reset times |
+| OpenCode Go | `opencode.ai/zen/go/v1/usage` | API key, Bearer | **Added** | One GET with the user's own key; undocumented, unknown `status` values read as unknown |
+| GitHub Copilot | `api.github.com/copilot_internal/user` | GitHub token | Not added | An OAuth app of our own is refused; it works only with VS Code's client id (impersonation) or a pasted `gh` token that also grants repository access |
+| Warp | `app.warp.dev/graphql/v2?op=GetRequestLimitInfo` | `wk-` key | Not added | Works only when the request poses as the Warp client (`x-warp-client-id: warp-app`, `User-Agent: Warp/…`) |
+| Gemini CLI / Google AI Pro | `cloudcode-pa…:retrieveUserQuota` | Google OAuth | Not added | Google ended Gemini CLI sign-in for individual and AI Pro/Ultra accounts on 2026-06-18; those users are pointed at Antigravity, which the app already covers |
+| Vertex AI | Cloud Monitoring quota metrics | service account + IAM | Not added (still excluded) | Quotas are per Google Cloud project, not per person, and report rate-quota fill rather than a plan window |
+| Cursor | `cursor.com/api/usage-summary` | session cookie | Not feasible | Browser session cookie only |
+| Perplexity | `www.perplexity.ai/rest/billing/credits` | session cookie | Not feasible | Browser session cookie only |
+| Mistral (Le Chat, Vibe) | `admin.mistral.ai/api/billing/…` | session cookie + CSRF | Not feasible | Console session only, needs billing access |
+| Zed | `cloud.zed.dev/frontend/billing/usage` | session cookie | Not feasible | Session cookie or a desktop keychain token |
+| Qwen (Qwen Code, console) | console form POST | console cookies + `sec_token` | Not feasible | Free OAuth tier ended 2026-04-15; the console needs cookies |
+
+Prepaid credit balances (a separate feature) are covered in `docs/credits.md`.

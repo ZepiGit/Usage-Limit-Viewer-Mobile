@@ -112,10 +112,11 @@ public enum ViewBuilder {
 extension View {
     public func modifier(_ modifier: some ViewModifier) -> Self { self }
     public func font(_ value: Font?) -> Self { self }
-    public func accessibilityElement(children: Any? = nil) -> Self { self }
+    public func accessibilityElement(children: AccessibilityChildBehavior = .ignore) -> Self { self }
     public func accessibilityHidden(_ value: Bool) -> Self { self }
     public func accessibilityValue(_ value: Any) -> Self { self }
     public func accessibilityAddTraits(_ value: Any) -> Self { self }
+    public func accessibilityAddTraits(_ traits: AccessibilityTraits) -> Self { self }
     public func dynamicTypeSize(_ value: Any) -> Self { self }
     public func privacySensitive(_ value: Bool = true) -> Self { self }
     public func unredacted() -> Self { self }
@@ -139,6 +140,11 @@ extension View {
     public func accessibilityLabel(_ value: Any) -> Self { self }
     public func accessibilityIdentifier(_ value: String) -> Self { self }
     public func buttonStyle(_ value: ButtonStyleShim) -> Self { self }
+    public func buttonStyle<S: ButtonStyle>(_ style: S) -> Self { self }
+    public func navigationBarTitleDisplayMode(_ mode: NavigationBarItem.TitleDisplayMode) -> Self { self }
+    public func focused(_ condition: FocusState<Bool>.Binding) -> Self { self }
+    public func controlSize(_ size: ControlSize) -> Self { self }
+    public func tracking(_ value: CGFloat) -> Self { self }
     public func navigationTitle(_ value: Any) -> Self { self }
     public func listRowBackground(_ value: Any?) -> Self { self }
     public func listRowSeparator(_ value: Visibility) -> Self { self }
@@ -180,6 +186,7 @@ extension View {
     public func opacity(_ value: Double) -> Self { self }
     public func overlay(_ value: Any) -> Self { self }
     public func overlay(@ViewBuilder content: () -> any View) -> Self { self }
+    public func overlay(alignment: Alignment, @ViewBuilder content: () -> any View) -> Self { self }
     public func clipShape(_ shape: Any) -> Self { self }
     public func cornerRadius(_ radius: Any) -> Self { self }
     public func contentShape(_ shape: Any) -> Self { self }
@@ -195,6 +202,7 @@ extension View {
     public func labelsHidden() -> Self { self }
     public func textFieldStyle(_ value: TextFieldStyleShim) -> Self { self }
     public func autocorrectionDisabled(_ disabled: Bool = true) -> Self { self }
+    public func keyboardType(_ value: KeyboardTypeShim) -> Self { self }
     public func textInputAutocapitalization(
         _ value: TextInputAutocapitalizationShim?
     ) -> Self { self }

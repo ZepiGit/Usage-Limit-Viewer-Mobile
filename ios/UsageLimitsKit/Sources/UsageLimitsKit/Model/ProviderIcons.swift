@@ -46,8 +46,20 @@ public enum ProviderIconCatalog {
             ProviderIconChoice(id: "meta-color", label: "Meta Muse · Color", assetName: "ProviderIconMetaColor"),
             ProviderIconChoice(id: "meta", label: "Meta Muse · Monochrome", assetName: "ProviderIconMeta"),
         ]
+        case .zai: return [
+            ProviderIconChoice(id: "zai", label: "Z.ai GLM", assetName: "ProviderIconZai"),
+        ]
+        case .opencode: return [
+            ProviderIconChoice(id: "opencode", label: "OpenCode Go", assetName: "ProviderIconOpencode"),
+        ]
         }
     }
+
+    /// Providers without bundled artwork draw a letter instead: `assetName` -> glyph. A view that
+    /// is handed an asset name checks here first, so the widget needs no second code path.
+    public static func glyph(forAssetName name: String) -> String? { glyphs[name] }
+    private static let glyphs = ["ProviderIconZai": "Z", "ProviderIconOpencode": "O"]
+
     public static func selected(for provider: ProviderID, id: String?) -> ProviderIconChoice {
         let options = choices(for: provider)
         return options.first { $0.id == id } ?? options[0]

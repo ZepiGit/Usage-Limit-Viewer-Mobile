@@ -3,6 +3,7 @@ package com.usagelimits.providers.kimi
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.network.JsonSupport
+import com.usagelimits.core.time.Instants
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -76,6 +77,7 @@ object KimiUsageParser {
 
             val seconds = JsonSupport.long(entry, "windowSeconds", "window_seconds")
                 ?: JsonSupport.long(detail, "windowSeconds", "window_seconds")
+                ?: windowSeconds(JsonSupport.obj(entry, "window"))
                 ?: FIVE_HOURS_SECONDS
             val label = JsonSupport.string(entry, "name", "label")
                 ?: JsonSupport.string(detail, "name", "label")
@@ -107,13 +109,30 @@ object KimiUsageParser {
         return consumed / limit * 100.0
     }
 
-    /** The reset instant, in whichever unit it arrived. */
+    /**
+     * The reset instant, in whichever form it arrived. The live endpoint sends ISO-8601 (Kimi's
+     * own CLI reads it with `fromisoformat`); epoch seconds or millis are kept for older shapes.
+     */
     private fun resetInstant(obj: JsonObject?): Long? {
-        if (obj == null) return null
-        val raw = JsonSupport.long(obj, "resetTime", "reset_time", "resetAt", "reset_at")
-            ?: return null
-        if (raw <= 0) return null
-        return if (raw < SECONDS_CUTOFF) raw * 1000 else raw
+        JsonSupport.long(obj, "resetTime", "reset_time", "resetAt", "reset_at")?.let { raw ->
+            if (raw <= 0) return null
+            return if (raw < SECONDS_CUTOFF) raw * 1000 else raw
+        }
+        return Instants.parse(JsonSupport.string(obj, "resetTime", "reset_time", "resetAt", "reset_at"))
+    }
+
+    /** The live shape, `window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" }`, as kimi-cli reads it. */
+    private fun windowSeconds(window: JsonObject?): Long? {
+        val duration = JsonSupport.long(window, "duration")?.takeIf { it > 0 } ?: return null
+        val unit = JsonSupport.string(window, "timeUnit", "time_unit").orEmpty().uppercase()
+        val factor = when {
+            "SECOND" in unit -> 1L
+            "MINUTE" in unit -> 60L
+            "HOUR" in unit -> 3_600L
+            "DAY" in unit -> 86_400L
+            else -> return null
+        }
+        return runCatching { Math.multiplyExact(duration, factor) }.getOrNull()
     }
 
     private fun defaultLabel(seconds: Long): String = when (seconds) {

@@ -4,19 +4,16 @@ import com.usagelimits.core.model.title
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,16 +26,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
-import com.usagelimits.feature.overview.providerSymbol
-import com.usagelimits.feature.overview.providerTint
-import com.usagelimits.ui.components.IconBadge
+import com.usagelimits.ui.components.Dot
+import com.usagelimits.ui.components.ErrorBlock
+import com.usagelimits.ui.components.InkButton
+import com.usagelimits.ui.components.OutlineButton
+import com.usagelimits.ui.components.RuleDivider
 import com.usagelimits.ui.components.SectionHeader
-import com.usagelimits.ui.components.StatusPill
+import com.usagelimits.ui.components.Spinner
+import com.usagelimits.ui.components.StatusMark
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.components.UsageWindowRow
 import com.usagelimits.ui.theme.UsageColors
+import com.usagelimits.ui.theme.UsageType
+
+private const val REMOVE_BODY = "Its stored credentials are deleted from this device. Nothing changes on " +
+    "the provider side, and you can add the account again at any time."
 
 /**
  * One account in full: every window, its reset credits, and account management.
@@ -65,13 +70,13 @@ fun AccountDetailScreen(
         Column(
             modifier = modifier
                 .fillMaxSize()
-                .background(UsageColors.Background)
+                .background(UsageColors.Ground)
                 .padding(16.dp),
         ) {
             Text(
                 text = "This account is no longer available.",
                 style = MaterialTheme.typography.bodyLarge,
-                color = UsageColors.TextSecondary,
+                color = UsageColors.Muted,
             )
         }
         return
@@ -79,88 +84,82 @@ fun AccountDetailScreen(
 
     var showRemoveDialog by remember { mutableStateOf(false) }
     val snapshot = usage.snapshot
+    val severity = snapshot?.severityAt(nowMs, staleAfterMs)
+    // Old or failed: the figures stay, in grey.
+    val stale = severity == Severity.STALE || severity == Severity.ERROR
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(UsageColors.Background),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .background(UsageColors.Ground),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                com.usagelimits.ui.ProviderBadge(provider = usage.account.provider, size = 46.dp)
+                com.usagelimits.ui.ProviderBadge(provider = usage.account.provider, size = 34.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = usage.account.title(),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = UsageColors.TextPrimary,
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = UsageColors.Ink,
                     )
                     Text(
                         text = usage.account.maskedEmail ?: usage.account.label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = UsageColors.TextSecondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = UsageColors.Muted,
                     )
                 }
-                snapshot?.severityAt(nowMs, staleAfterMs)?.let {
-                    StatusPill(it, label = if (snapshot.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) "Reconnect" else null)
+                severity?.let {
+                    StatusMark(it, label = if (snapshot.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) "Reconnect" else null)
                 }
             }
         }
 
         item {
-            Text(
-                text = Countdown.freshnessLabel(usage.measurementAt, nowMs),
-                style = MaterialTheme.typography.bodyMedium,
-                color = UsageColors.TextTertiary,
-            )
-        }
-
-        if (snapshot != null && snapshot.status != com.usagelimits.core.model.SnapshotStatus.OK) {
-            item {
+            val attempt = if (snapshot != null && snapshot.status != com.usagelimits.core.model.SnapshotStatus.OK) {
                 val age = (nowMs - snapshot.lastAttemptAt).coerceAtLeast(0)
-                Text(
-                    text = if (age < 60_000) "Last attempt just now" else "Last attempt ${Countdown.format(age)} ago",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = UsageColors.TextTertiary,
-                )
-            }
+                " · " + if (age < 60_000) "Last attempt just now" else "Last attempt ${Countdown.format(age)} ago"
+            } else ""
+            Text(
+                text = Countdown.freshnessLabel(usage.measurementAt, nowMs) + attempt,
+                style = MaterialTheme.typography.bodySmall,
+                color = UsageColors.Faint,
+            )
         }
         if (!snapshot?.restrictedWindows.isNullOrEmpty()) {
             item {
-                Text(
-                    text = "Restricted: " + snapshot!!.restrictedWindows.joinToString { it.label },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = UsageColors.Amber,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Dot(UsageColors.Warning, size = 6.dp)
+                    Text(
+                        text = "Restricted: " + snapshot!!.restrictedWindows.joinToString { it.label },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = UsageColors.Muted,
+                    )
+                }
             }
         }
 
         if (snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) {
             item {
-                androidx.compose.material3.Button(onClick = onReconnect, modifier = Modifier.fillMaxWidth()) {
-                    Text("Reconnect account")
-                }
+                // The one filled primary on this screen.
+                InkButton("Reconnect account", onReconnect, Modifier.fillMaxWidth())
             }
         }
         snapshot?.errorMessage?.let { error ->
             item {
-                UsageCard(borderColor = UsageColors.AmberSurface) {
-                    Text(
-                        text = error,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = UsageColors.Amber,
-                    )
-                    Text(
-                        text = when {
-                            snapshot.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL ->
-                                "Available figures are from this update; some limits could not be refreshed."
+                val partial = snapshot.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL
+                UsageCard {
+                    ErrorBlock(
+                        message = error,
+                        dot = if (partial) UsageColors.Warning else UsageColors.Negative,
+                        detail = when {
+                            partial -> "Available figures are from this update; some limits could not be refreshed."
                             usage.measurementAt == null -> "No usage measurement has loaded yet."
                             else -> "The figures below are the last values that loaded successfully."
                         },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = UsageColors.TextSecondary,
+                        onRetry = onRefresh,
                     )
                 }
             }
@@ -169,30 +168,29 @@ fun AccountDetailScreen(
         val windows = snapshot?.windows.orEmpty()
         if (windows.isNotEmpty()) {
             item { SectionHeader("Limits") }
-            // Grouped windows keep their heading so a shared quota bucket reads as one thing.
-            val ungrouped = windows.filter { it.group == null }
-            if (ungrouped.isNotEmpty()) {
-                item {
-                    UsageCard {
-                        ungrouped.forEach { window ->
-                            UsageWindowRow(window, nowMs)
-                            Spacer(Modifier.height(8.dp))
-                        }
+            // One ledger card; grouped windows keep their heading so a shared quota bucket
+            // reads as one thing.
+            item(key = "limits") {
+                val rowPadding = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                val ungrouped = windows.filter { it.group == null }
+                val groups = windows.filter { it.group != null }.groupBy { it.group!! }
+                UsageCard(contentPadding = PaddingValues(0.dp)) {
+                    var first = true
+                    fun divide(): Boolean { val had = !first; first = false; return had }
+                    ungrouped.forEach { window ->
+                        if (divide()) RuleDivider(Modifier.padding(horizontal = 16.dp))
+                        UsageWindowRow(window, nowMs, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
                     }
-                }
-            }
-            windows.filter { it.group != null }.groupBy { it.group!! }.forEach { (group, rows) ->
-                item(key = "group-$group") {
-                    UsageCard {
+                    groups.forEach { (group, rows) ->
+                        if (divide()) RuleDivider(Modifier.padding(horizontal = 16.dp))
                         Text(
                             text = group,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
                             style = MaterialTheme.typography.titleMedium,
-                            color = UsageColors.TextPrimary,
+                            color = UsageColors.Ink,
                         )
-                        Spacer(Modifier.height(8.dp))
                         rows.forEach { window ->
-                            UsageWindowRow(window, nowMs)
-                            Spacer(Modifier.height(8.dp))
+                            UsageWindowRow(window, nowMs, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
                         }
                     }
                 }
@@ -230,21 +228,13 @@ fun AccountDetailScreen(
             }
         }
 
+        item { OutlineButton("Refresh now", onRefresh, Modifier.fillMaxWidth()) }
+
+        // Destructive and rare: its own section, last, with the consequence stated above it.
         item {
-            UsageCard {
-                Button(
-                    onClick = onRefresh,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = UsageColors.SurfaceElevated,
-                        contentColor = UsageColors.TextPrimary,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Refresh now") }
-                Spacer(Modifier.height(8.dp))
-                TextButton(
-                    onClick = { showRemoveDialog = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Remove account", color = UsageColors.Red) }
+            Column(Modifier.padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(REMOVE_BODY, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+                OutlineButton("Remove account", { showRemoveDialog = true }, Modifier.fillMaxWidth(), color = UsageColors.NegativeText)
             }
         }
     }
@@ -252,24 +242,18 @@ fun AccountDetailScreen(
     if (showRemoveDialog) {
         AlertDialog(
             onDismissRequest = { showRemoveDialog = false },
-            containerColor = UsageColors.SurfaceElevated,
-            title = { Text("Remove account?", color = UsageColors.TextPrimary) },
-            text = {
-                Text(
-                    "Its stored credentials are deleted from this device. Nothing changes on " +
-                        "the provider side, and you can add the account again at any time.",
-                    color = UsageColors.TextSecondary,
-                )
-            },
+            containerColor = UsageColors.Raised,
+            title = { Text("Remove account?", style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink) },
+            text = { Text(REMOVE_BODY, color = UsageColors.Muted) },
             confirmButton = {
                 TextButton(onClick = {
                     showRemoveDialog = false
                     onRemove()
-                }) { Text("Remove", color = UsageColors.Red) }
+                }) { Text("Remove", color = UsageColors.NegativeText) }
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveDialog = false }) {
-                    Text("Cancel", color = UsageColors.TextSecondary)
+                    Text("Cancel", color = UsageColors.Muted)
                 }
             },
         )
@@ -305,8 +289,8 @@ private fun ResetCreditCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = if (heldCount > 0) "$heldCount available" else "None available",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (heldCount > 0) UsageColors.Terracotta else UsageColors.TextSecondary,
+                    style = UsageType.FigureLarge,
+                    color = if (heldCount > 0) UsageColors.Ink else UsageColors.Muted,
                 )
                 Text(
                     text = when {
@@ -315,54 +299,39 @@ private fun ResetCreditCard(
                         else -> "Credits appear here when your plan grants one"
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = UsageColors.TextSecondary,
+                    color = UsageColors.Muted,
                 )
             }
-            if (inFlight) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                    color = UsageColors.Terracotta,
-                )
-            }
+            if (inFlight) Spinner()
         }
         if (spendableCount > 0) {
             Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = { showConfirm = true },
-                enabled = !inFlight,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = UsageColors.Terracotta,
-                    contentColor = UsageColors.Background,
-                    disabledContainerColor = UsageColors.SurfaceMuted,
-                    disabledContentColor = UsageColors.TextTertiary,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Reset limit") }
+            // Spends a credit, so it is deliberately not the screen's primary.
+            OutlineButton("Reset limit", { showConfirm = true }, Modifier.fillMaxWidth(), enabled = !inFlight)
         }
     }
 
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
-            containerColor = UsageColors.SurfaceElevated,
-            title = { Text("Use a reset credit?", color = UsageColors.TextPrimary) },
+            containerColor = UsageColors.Raised,
+            title = { Text("Use a reset credit?", style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink) },
             text = {
                 Text(
                     "This consumes 1 reset credit and cannot be undone. Your rate limit will " +
                         "be reset immediately.",
-                    color = UsageColors.TextSecondary,
+                    color = UsageColors.Muted,
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     showConfirm = false
                     onConsume()
-                }) { Text("Use credit", color = UsageColors.Terracotta) }
+                }) { Text("Use credit", color = UsageColors.Ink) }
             },
             dismissButton = {
                 TextButton(onClick = { showConfirm = false }) {
-                    Text("Cancel", color = UsageColors.TextSecondary)
+                    Text("Cancel", color = UsageColors.Muted)
                 }
             },
         )

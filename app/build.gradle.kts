@@ -131,6 +131,8 @@ ksp {
 // Android sandboxes are not. A fresh worker avoids sharing that native state.
 tasks.withType<Test>().configureEach {
     if (System.getProperty("os.name").startsWith("Windows")) forkEvery = 1
+    // RedesignCaptureTest writes PNGs only when -PcaptureDir=<abs path> is given.
+    providers.gradleProperty("captureDir").orNull?.let { systemProperty("capture.dir", it) }
 }
 
 dependencies {

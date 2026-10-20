@@ -173,6 +173,46 @@ final class UsageLimitsContainerTests: XCTestCase {
         XCTAssertTrue(GlanceSnapshotCodec.read(fromDirectory: directory).accounts.isEmpty)
     }
 
+    /// Answers the fast account at once and holds the slow one until its task is cancelled.
+    private struct SlowAccountTransport: HTTPTransport {
+        let usage: String
+        func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+            if request.value(forHTTPHeaderField: "Authorization")?.contains("slow") == true {
+                try await Task.sleep(nanoseconds: 60_000_000_000)
+            }
+            let body = request.value(forHTTPHeaderField: "OpenAI-Beta") == nil ? usage : #"{"credits": []}"#
+            let response = HTTPURLResponse(url: request.url ?? URL(string: "https://example.invalid")!,
+                statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [:])!
+            return (Data(body.utf8), response)
+        }
+    }
+
+    func testACancelledRefreshStillPublishesTheAccountsItRecorded() async throws {
+        // A background task that runs out of time cancels the sync after some accounts were
+        // already recorded. Skipping the publish left the widget on the previous generation
+        // while the app's own cache held the new numbers.
+        let subject = UsageLimitsContainer(
+            directory: directory,
+            credentials: InMemoryCredentialStore(credentials: [
+                "ref-a": OAuthCredentials(accessToken: "fast", refreshToken: "r"),
+                "ref-b": OAuthCredentials(accessToken: "slow", refreshToken: "r")]),
+            transport: SlowAccountTransport(usage: codexUsage),
+            now: { [now] in now })
+        try await subject.add(account("a"))
+        try await subject.add(account("b"))
+
+        let refresh = Task { try await subject.refresh() }
+        for _ in 0..<500 {
+            if await subject.usage().first(where: { $0.account.id == "a" })?.snapshot != nil { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        refresh.cancel()
+        _ = try? await refresh.value
+
+        let published = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertEqual(published.accounts.first { $0.id == "a" }?.rows.first?.remainingPercent, 60)
+    }
+
     func testTheWidgetFileHoldsNoTokenMaterial() async throws {
         // It lives in a container a second process reads, so this is worth asserting rather
         // than assuming.

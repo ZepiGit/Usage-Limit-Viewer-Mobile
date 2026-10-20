@@ -22,7 +22,9 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.Image
 import androidx.compose.ui.semantics.Role
 import kotlin.math.roundToInt
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -44,9 +46,18 @@ import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.WidgetScope
 import com.usagelimits.ui.ProviderLogo
+import com.usagelimits.ui.components.ErrorBlock
+import com.usagelimits.ui.components.InkButton
+import com.usagelimits.ui.components.RuleDivider
+import com.usagelimits.ui.components.ScreenTitle
 import com.usagelimits.ui.components.SectionHeader
+import com.usagelimits.ui.components.Segment
+import com.usagelimits.ui.components.SegmentedRow
+import com.usagelimits.ui.components.Spinner
+import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.theme.UsageType
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import kotlinx.coroutines.launch
@@ -114,8 +125,8 @@ class WidgetConfigActivity : ComponentActivity() {
                             }
                         }
                     })
-                else Box(Modifier.fillMaxSize().background(UsageColors.Background).safeDrawingPadding(), contentAlignment = Alignment.Center) {
-                    if (error == null) CircularProgressIndicator() else Text(error!!)
+                else Box(Modifier.fillMaxSize().background(UsageColors.Ground).safeDrawingPadding(), contentAlignment = Alignment.Center) {
+                    if (error == null) Spinner() else Text(error!!, color = UsageColors.NegativeText)
                 }
             }
         }
@@ -169,17 +180,15 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
         val to = (from + direction).coerceIn(0, ids.lastIndex)
         if (from != to) { ids.add(to, ids.removeAt(from)); order = ids }
     }
-    Scaffold(containerColor = UsageColors.Background, bottomBar = {
-        Row(Modifier.fillMaxWidth().background(UsageColors.Surface).navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick = onCancel, enabled = !saving) { Text("Cancel") }
-            Button(modifier = Modifier.weight(1f), enabled = valid && !saving,
-                onClick = { onSave(scope, accountId, providerId, style, currentOrder.filter { it in selected }) }) {
-                Text(if (saving) "Saving…" else "Save widget")
-            }
+    Scaffold(containerColor = UsageColors.Ground, bottomBar = {
+        Row(Modifier.fillMaxWidth().background(UsageColors.Surface).navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextAction("Cancel", onCancel, color = UsageColors.Muted, enabled = !saving)
+            InkButton(if (saving) "Saving…" else "Save widget", { onSave(scope, accountId, providerId, style, currentOrder.filter { it in selected }) },
+                Modifier.weight(1f), enabled = valid && !saving)
         }
     }) { inset ->
-        LazyColumn(Modifier.fillMaxSize().padding(inset), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item { Text(kind, style = MaterialTheme.typography.headlineLarge, color = UsageColors.TextPrimary) }
+        LazyColumn(Modifier.fillMaxSize().padding(inset), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item { ScreenTitle(kind) }
             item { ContentPreview(preview, kind, style) }
             item {
                 BackgroundSettings(
@@ -193,17 +202,28 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
             // Restored as a real choice: it was removed from this screen once and the saved
             // value kept working, so a widget could silently watch "most critical" with no way
             // to see or change that from here.
-            item { ScopeChoice("Most Critical", "Automatically shows whatever needs attention most", scope == WidgetScope.MOST_CRITICAL) { scopeName = WidgetScope.MOST_CRITICAL.name } }
-            item { ScopeChoice("Closest Resets", "Automatically shows whatever account resets next", scope == WidgetScope.CLOSEST_RESETS) { scopeName = WidgetScope.CLOSEST_RESETS.name } }
-            item { ScopeChoice("All accounts", "Same order as Overview", scope == WidgetScope.ALL_ACCOUNTS) { scopeName = WidgetScope.ALL_ACCOUNTS.name } }
+            item {
+                ChoiceCard {
+                    ScopeChoice("Most Critical", "Automatically shows whatever needs attention most", scope == WidgetScope.MOST_CRITICAL) { scopeName = WidgetScope.MOST_CRITICAL.name }
+                    RuleDivider(Modifier.padding(horizontal = 16.dp))
+                    ScopeChoice("Closest Resets", "Automatically shows whatever account resets next", scope == WidgetScope.CLOSEST_RESETS) { scopeName = WidgetScope.CLOSEST_RESETS.name }
+                    RuleDivider(Modifier.padding(horizontal = 16.dp))
+                    ScopeChoice("All accounts", "Same order as Overview", scope == WidgetScope.ALL_ACCOUNTS) { scopeName = WidgetScope.ALL_ACCOUNTS.name }
+                }
+            }
             item { SectionHeader("One provider") }
-            items(accounts.map { it.account.provider }.distinct(), key = { "provider-${it.id}" }) { provider ->
-                ScopeChoice(provider.displayName, "All ${provider.displayName} accounts", scope == WidgetScope.PROVIDER && providerId == provider.id, provider) {
-                    providerId = provider.id; scopeName = WidgetScope.PROVIDER.name
+            item {
+                ChoiceCard {
+                    accounts.map { it.account.provider }.distinct().forEachIndexed { index, provider ->
+                        if (index > 0) RuleDivider(Modifier.padding(horizontal = 16.dp))
+                        ScopeChoice(provider.displayName, "All ${provider.displayName} accounts", scope == WidgetScope.PROVIDER && providerId == provider.id, provider) {
+                            providerId = provider.id; scopeName = WidgetScope.PROVIDER.name
+                        }
+                    }
                 }
             }
             if (kind != "Usage Summary") {
-                item { ScopeChoice("Custom", "Choose accounts and drag to reorder", scope == WidgetScope.CUSTOM) { scopeName = WidgetScope.CUSTOM.name } }
+                item { ChoiceCard { ScopeChoice("Custom", "Choose accounts and drag to reorder", scope == WidgetScope.CUSTOM) { scopeName = WidgetScope.CUSTOM.name } } }
                 if (scope == WidgetScope.CUSTOM) items(currentOrder, key = { "custom-$it" }) { id ->
                     val account = accounts.first { it.account.localId == id }.account
                     ReorderableItem(reorderState, key = "custom-$id") { _ ->
@@ -212,8 +232,8 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
                                 modifier = Modifier.semantics { contentDescription = "Show ${account.label}" })
                             ProviderLogo(account.provider, Modifier.size(24.dp))
                             Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                                Text(account.label, maxLines = 1, color = UsageColors.TextPrimary)
-                                Text(account.provider.displayName, style = MaterialTheme.typography.bodySmall, color = UsageColors.TextSecondary)
+                                Text(account.label, maxLines = 1, color = UsageColors.Ink)
+                                Text(account.provider.displayName, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
                             }
                             TextButton(onClick = { move(id, -1) }, enabled = currentOrder.first() != id,
                                 modifier = Modifier.size(40.dp).semantics { contentDescription = "Move up ${account.label}" }) { Text("↑") }
@@ -221,7 +241,7 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
                                 modifier = Modifier.size(40.dp).semantics { contentDescription = "Move down ${account.label}" }) { Text("↓") }
                             Box(Modifier.size(44.dp).draggableHandle().semantics { contentDescription = "Move ${account.label}" },
                                 contentAlignment = Alignment.Center) {
-                                Icon(com.usagelimits.ui.AppIcons.DragHandle, null, tint = UsageColors.TextSecondary)
+                                Icon(com.usagelimits.ui.AppIcons.DragHandle, null, tint = UsageColors.Muted)
                             }
                         }
                     }
@@ -229,29 +249,41 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
             }
             if (accounts.isNotEmpty()) {
                 item { SectionHeader("One account") }
-                items(accounts, key = { "account-${it.account.localId}" }) { usage ->
-                    ScopeChoice(usage.account.label, usage.account.provider.displayName,
-                        scope == WidgetScope.ACCOUNT && accountId == usage.account.localId, usage.account.provider) {
-                        accountId = usage.account.localId; scopeName = WidgetScope.ACCOUNT.name
+                item {
+                    ChoiceCard {
+                        accounts.forEachIndexed { index, usage ->
+                            if (index > 0) RuleDivider(Modifier.padding(horizontal = 16.dp))
+                            ScopeChoice(usage.account.label, usage.account.provider.displayName,
+                                scope == WidgetScope.ACCOUNT && accountId == usage.account.localId, usage.account.provider) {
+                                accountId = usage.account.localId; scopeName = WidgetScope.ACCOUNT.name
+                            }
+                        }
                     }
                 }
             }
-            error?.let { item { Text(it, color = UsageColors.RedText) } }
+            error?.let { item { ErrorBlock(it) } }
         }
     }
 }
 
+/** One card per group of radio rows, split by hairlines. */
+@Composable
+private fun ChoiceCard(content: @Composable ColumnScope.() -> Unit) = UsageCard(contentPadding = PaddingValues(0.dp), content = content)
+
 @Composable
 private fun ScopeChoice(title: String, subtitle: String, selected: Boolean, provider: ProviderId? = null, onClick: () -> Unit) {
-    UsageCard(modifier = Modifier.clickable(onClick = onClick)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (provider != null) { ProviderLogo(provider, Modifier.size(28.dp)); Spacer(Modifier.width(12.dp)) }
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = UsageColors.TextPrimary)
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = UsageColors.TextSecondary)
-            }
-            RadioButton(selected, onClick = onClick)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            .selectable(selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (provider != null) { ProviderLogo(provider, Modifier.size(24.dp)); Spacer(Modifier.width(12.dp)) }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
         }
+        RadioButton(selected, onClick = null)
     }
 }
 
@@ -271,8 +303,8 @@ private fun BackgroundSettings(
     onTextTone: (WidgetTextTone) -> Unit,
 ) {
     UsageCard {
-        Text("Background", style = MaterialTheme.typography.titleMedium, color = UsageColors.TextPrimary)
-        Text("Colour and opacity of this widget's panel", style = MaterialTheme.typography.bodyMedium, color = UsageColors.TextSecondary)
+        Text("Background", style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
+        Text("Colour and opacity of this widget's panel", style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
         Spacer(Modifier.height(12.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             WidgetStyle.CHOICES.forEach { choice ->
@@ -281,7 +313,7 @@ private fun BackgroundSettings(
                     Modifier.size(40.dp)
                         .clip(CircleShape)
                         .background(androidx.compose.ui.graphics.Color(choice.argb))
-                        .border(if (chosen) 3.dp else 1.dp, if (chosen) UsageColors.Terracotta else UsageColors.Outline, CircleShape)
+                        .border(if (chosen) 2.dp else 1.dp, if (chosen) UsageColors.Ink else UsageColors.Control, CircleShape)
                         .selectable(chosen, role = Role.RadioButton) { onColor(choice.argb) }
                         .semantics { contentDescription = "${choice.label} background" },
                 )
@@ -291,7 +323,7 @@ private fun BackgroundSettings(
         val percent = style.background.clampedOpacity
         Text(
             if (percent == 0) "Opacity · transparent" else "Opacity · $percent %",
-            style = MaterialTheme.typography.bodyLarge, color = UsageColors.TextPrimary,
+            style = MaterialTheme.typography.bodyMedium, color = UsageColors.Ink,
         )
         Slider(
             value = percent.toFloat(),
@@ -299,44 +331,35 @@ private fun BackgroundSettings(
             valueRange = 0f..100f,
             steps = 19,
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Background opacity" },
-            colors = SliderDefaults.colors(thumbColor = UsageColors.Terracotta, activeTrackColor = UsageColors.Terracotta, inactiveTrackColor = UsageColors.SurfaceMuted),
+            colors = SliderDefaults.colors(thumbColor = UsageColors.Ink, activeTrackColor = UsageColors.Ink, inactiveTrackColor = UsageColors.Rule),
         )
         Spacer(Modifier.height(8.dp))
-        Text("Text", style = MaterialTheme.typography.bodyLarge, color = UsageColors.TextPrimary)
+        Text("Text", style = MaterialTheme.typography.bodyLarge, color = UsageColors.Ink)
         // States AUTO's actual assumption, which is now continuous at every opacity: the ink
         // contrasts the chosen COLOUR, never the wallpaper — a widget cannot see the wallpaper,
         // so a see-through panel needs the explicit override when the colour's guess is wrong.
         Text(
             "Auto contrasts the colour above at any opacity. If the wallpaper shows through, pick Light or Dark yourself.",
-            style = MaterialTheme.typography.bodyMedium, color = UsageColors.TextSecondary,
+            style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted,
         )
         Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SegmentedRow {
             listOf(WidgetTextTone.AUTO to "Auto", WidgetTextTone.LIGHT to "Light", WidgetTextTone.DARK to "Dark").forEach { (tone, label) ->
-                FilterChip(
-                    selected = style.textTone == tone,
-                    onClick = { onTextTone(tone) },
-                    label = { Text(label) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = UsageColors.TerracottaSurface, selectedLabelColor = UsageColors.Terracotta,
-                        labelColor = UsageColors.TextSecondary,
-                    ),
-                )
+                Segment(label, style.textTone == tone) { onTextTone(tone) }
             }
         }
     }
 }
 
 /**
- * The widget as it will look, drawn with the same style rules the widget itself uses, over
- * a stand-in for the wallpaper so a translucent panel reads as translucent.
+ * The widget as it will look, drawn with the same style rules the widget itself uses, over a
+ * flat mat so a translucent panel reads as translucent.
  */
 @Composable
 private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: WidgetStyle) {
-    val wallpaper = Brush.linearGradient(listOf(androidx.compose.ui.graphics.Color(0xFF3B2F6B), androidx.compose.ui.graphics.Color(0xFFE0A33E)))
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(wallpaper).padding(12.dp)) {
+    Box(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(androidx.compose.ui.graphics.Color(0xFF3A3936)).padding(12.dp)) {
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(style.background.color).padding(14.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(style.background.color).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("Preview · ${snapshot.accountCount} selected", style = MaterialTheme.typography.labelMedium, color = style.textSecondary)
@@ -345,27 +368,31 @@ private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widget
                 snapshot.accounts.take(4).forEach { account ->
                     val row = ringLimit(account)
                     Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(
-                            progress = { ((row?.remainingPercent ?: 0.0) / 100).toFloat() }, modifier = Modifier.fillMaxSize(),
-                            color = row?.let { style.bar(it, account.dataValidity) } ?: WidgetStyle.Slate,
-                            trackColor = style.track, strokeWidth = 4.dp,
+                        Image(
+                            UsageRing.draw(160, row?.remainingPercent, ringAccent(account, style).toArgb(), style.trackArgb).asImageBitmap(),
+                            null, Modifier.fillMaxSize(),
                         )
                         ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
                     }
                 }
             } else snapshot.accounts.take(if (kind == "Usage Summary") 1 else 2).forEach { account ->
-                Text(account.title, color = style.textPrimary)
+                Text(account.title, style = MaterialTheme.typography.titleMedium, color = style.textPrimary)
                 account.rows.take(2).forEach { row ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(row.label, Modifier.width(64.dp), style = MaterialTheme.typography.bodySmall, color = style.textSecondary)
-                        LinearProgressIndicator(
-                            progress = { ((row.remainingPercent ?: 0.0) / 100).toFloat() }, modifier = Modifier.weight(1f),
-                            color = style.bar(row), trackColor = style.track,
-                        )
-                        Text(com.usagelimits.core.model.percentLabel(row.remainingPercent), color = style.barText(row))
+                        PreviewBar(((row.remainingPercent ?: 0.0) / 100).toFloat(), style.bar(row, account.dataValidity), style.track, Modifier.weight(1f))
+                        Text(com.usagelimits.core.model.percentLabel(row.remainingPercent), style = UsageType.Figure, color = style.barText(row, account.dataValidity))
                     }
                 }
             }
         }
+    }
+}
+
+/** A 4dp bar on the widget's own track; no fill when the widget would draw none. */
+@Composable
+private fun PreviewBar(fraction: Float, fill: androidx.compose.ui.graphics.Color?, track: androidx.compose.ui.graphics.Color, modifier: Modifier) {
+    Box(modifier.height(4.dp).clip(RoundedCornerShape(2.dp)).background(track)) {
+        if (fill != null) Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().background(fill))
     }
 }

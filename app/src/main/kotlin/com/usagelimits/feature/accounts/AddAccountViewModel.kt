@@ -9,7 +9,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.network.ProviderException
+import com.usagelimits.core.oauth.SignInKeepAliveService
 import com.usagelimits.core.sync.userMessage
 import com.usagelimits.providers.DeviceCodeLoginCapable
 import com.usagelimits.providers.LoginChallenge
@@ -29,6 +31,9 @@ import kotlinx.coroutines.launch
 /** Where the add-account flow currently is. */
 sealed interface AddAccountState {
     data object PickProvider : AddAccountState
+
+    /** Kimi and Z.ai run a China and an international service; keys and sign-ins do not cross. */
+    data class ChoosingRegion(val provider: ProviderId) : AddAccountState
 
     data class Starting(val provider: ProviderId) : AddAccountState
 
@@ -90,6 +95,15 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
 
     private var loginJob: Job? = null
 
+    /** The region picked for a regional provider; kept so "try again" and "use a key" reuse it. */
+    private var chosenRegion: Pair<ProviderId, ProviderRegion>? = null
+
+    /** Records the picked region and carries on with the login it was asked for. */
+    fun chooseRegion(context: Context, providerId: ProviderId, region: ProviderRegion) {
+        chosenRegion = providerId to region
+        startLogin(context, providerId)
+    }
+
     fun availableProviders(): List<ProviderId> =
         container.providerRegistry.available().map { it.providerId }
 
@@ -119,9 +133,17 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
         /** The device-code way in, for a provider whose browser redirect did not land. */
         withDeviceCode: Boolean = false,
     ) {
+        val regionChoice = ProviderRegion.options(providerId)
+        val region = chosenRegion?.takeIf { it.first == providerId }?.second
+        if (regionChoice.isNotEmpty() && region == null) {
+            loginJob?.cancel()
+            _state.value = AddAccountState.ChoosingRegion(providerId)
+            return
+        }
         val previous = loginJob
         previous?.cancel()
-        val keyAlternative = container.providerRegistry.forId(providerId) is KeyLoginCapable
+        // A key is an alternative only where a flow exists beside it.
+        val keyAlternative = (container.providerRegistry.forId(providerId) as? KeyLoginCapable)?.keyOnly == false
         val deviceCodeAlternative = container.providerRegistry.forId(providerId) is DeviceCodeLoginCapable
         loginJob = viewModelScope.launch {
             _state.value = AddAccountState.Starting(providerId)
@@ -132,15 +154,17 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
             // a failure — or had its freshly stored PKCE pair wiped by the old attempt's
             // clean-up. Waiting here makes the retry start from a clean provider.
             previous?.join()
+            var keepAlive: Long? = null
             try {
                 val provider = container.providerRegistry.forId(providerId)
                     ?: throw ProviderException.Unexpected("Provider unavailable")
 
                 val challenge = when {
-                    withKey -> (provider as? KeyLoginCapable)?.keyLoginChallenge()
+                    withKey -> (provider as? KeyLoginCapable)?.keyLoginChallenge(region)
                         ?: throw ProviderException.Unexpected("This provider takes no key")
                     withDeviceCode -> (provider as? DeviceCodeLoginCapable)?.deviceLoginChallenge()
                         ?: throw ProviderException.Unexpected("This provider has no device code")
+                    region != null -> provider.beginLogin(region)
                     else -> provider.beginLogin()
                 }
 
@@ -171,6 +195,9 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                             deviceCodeAlternative = deviceCodeAlternative,
                             authorizationUrl = challenge.authorizationUrl,
                         )
+                        // The redirect lands on a socket in this process, which the cached-apps
+                        // freezer would freeze while the browser is in front.
+                        keepAlive = SignInKeepAliveService.start(context.applicationContext)
                         openUrl(context, challenge.authorizationUrl)
                     }
 
@@ -213,6 +240,7 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                 // the next background pass.
                 WidgetUpdater.refreshAll(context.applicationContext)
 
+                chosenRegion = null
                 _state.value = AddAccountState.Success(providerId, account.label)
             } catch (e: ProviderException) {
                 _state.value = AddAccountState.Failed(
@@ -224,6 +252,8 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                 _state.value = AddAccountState.Failed(
                     providerId, "Sign-in failed", keyAlternative, deviceCodeAlternative, withDeviceCode,
                 )
+            } finally {
+                keepAlive?.let { SignInKeepAliveService.stop(context.applicationContext, it) }
             }
         }
     }
@@ -231,10 +261,12 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
     fun cancel() {
         loginJob?.cancel()
         loginJob = null
+        chosenRegion = null
         _state.value = AddAccountState.PickProvider
     }
 
     fun reset() {
+        chosenRegion = null
         _state.value = AddAccountState.PickProvider
     }
 

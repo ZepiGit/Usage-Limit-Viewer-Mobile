@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!--
@@ -57,6 +58,15 @@
             </intent-filter>
         </activity>
 
+        <!--
+          Keeps the process out of the cached state while a browser sign-in waits on the loopback
+          listener; see SignInKeepAliveService. Short service: no extra permission, 3-minute cap.
+        -->
+        <service
+            android:name=".core.oauth.SignInKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
+
         <receiver
             android:name=".widget.CompactUsageWidgetReceiver"
             android:exported="true"
@@ -96,6 +106,11 @@
         <receiver android:name=".widget.MiniRingsWidgetReceiver" android:exported="true" android:label="Mini Rings">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_mini_rings_info" />
+        </receiver>
+
+        <receiver android:name=".widget.CreditsWidgetReceiver" android:exported="true" android:label="Credits">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_credits_info" />
         </receiver>
 
         <!--

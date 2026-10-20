@@ -1,5 +1,7 @@
 package com.usagelimits.core.network
 
+import com.usagelimits.core.model.ProviderRegion
+
 /**
  * Every provider URL, client identifier and request header the app sends, in one place.
  *
@@ -234,14 +236,32 @@ object ProviderEndpoints {
      * Source: CLIProxyAPI internal/auth/kimi/kimi.go.
      */
     object Kimi {
-        /** The public client id every Kimi Code device-flow client presents. */
+        /** The public client id every Kimi Code device-flow client presents, on both hosts. */
         const val CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098"
-        const val DEVICE_CODE_URL = "https://auth.kimi.com/api/oauth/device_authorization"
-        const val TOKEN_URL = "https://auth.kimi.com/api/oauth/token"
         const val DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 
-        const val USAGE_ENDPOINT = "https://api.kimi.com/coding/v1/usages"
-        const val CONSOLE_URL = "https://www.kimi.com/code"
+        /** One region's hosts. A token or key only works on the host that issued it. */
+        data class Urls(
+            val deviceCodeUrl: String,
+            val tokenUrl: String,
+            val usageEndpoint: String,
+            val consoleUrl: String,
+        )
+
+        val CHINA = Urls(
+            deviceCodeUrl = "https://auth.kimi.com/api/oauth/device_authorization",
+            tokenUrl = "https://auth.kimi.com/api/oauth/token",
+            usageEndpoint = "https://api.kimi.com/coding/v1/usages",
+            consoleUrl = "https://www.kimi.com/code/console",
+        )
+        val INTERNATIONAL = Urls(
+            deviceCodeUrl = "https://auth.kimi.ai/api/oauth/device_authorization",
+            tokenUrl = "https://auth.kimi.ai/api/oauth/token",
+            usageEndpoint = "https://api.kimi.ai/coding/v1/usages",
+            consoleUrl = "https://www.kimi.ai/code/console",
+        )
+
+        fun urls(region: ProviderRegion): Urls = if (region == ProviderRegion.INTL) INTERNATIONAL else CHINA
 
         /** This app's own name, sent wherever Kimi asks which program is calling. */
         const val PLATFORM = "UsageLimits"
@@ -252,6 +272,29 @@ object ProviderEndpoints {
             "X-Msh-Platform" to PLATFORM,
             "X-Msh-Version" to version,
         )
+    }
+
+    /**
+     * Z.ai GLM Coding Plan. Undocumented quota route, API key only. The China service
+     * (open.bigmodel.cn) serves the same path with its own keys. See docs/providers-zai.md.
+     */
+    object Zai {
+        fun usageEndpoint(region: ProviderRegion): String =
+            (if (region == ProviderRegion.CN) "https://open.bigmodel.cn" else "https://api.z.ai") +
+                "/api/monitor/usage/quota/limit"
+
+        fun consoleUrl(region: ProviderRegion): String =
+            if (region == ProviderRegion.CN) {
+                "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys"
+            } else {
+                "https://z.ai/manage-apikey/apikey-list"
+            }
+    }
+
+    /** OpenCode Go. Undocumented usage route, API key only. See docs/providers-opencode.md. */
+    object OpenCode {
+        const val USAGE_ENDPOINT = "https://opencode.ai/zen/go/v1/usage"
+        const val CONSOLE_URL = "https://opencode.ai/auth"
     }
 
     /**
@@ -303,5 +346,31 @@ object ProviderEndpoints {
         const val API_BASE_URL = "https://api.meta.ai/v1"
         const val USER_AGENT = "muse-code/1.0.2"
         const val API_VERSION = "1.0.0"
+    }
+
+    /**
+     * Prepaid balance endpoints (the Credit Viewer). Documented where the provider documents
+     * them; none is reverse-engineered. See docs/credits.md.
+     */
+    object Credits {
+        const val OPENROUTER_CREDITS = "https://openrouter.ai/api/v1/credits"
+        const val OPENROUTER_KEY = "https://openrouter.ai/api/v1/key"
+        const val DEEPSEEK_BALANCE = "https://api.deepseek.com/user/balance"
+
+        /** A key from one host answers 401 on the other, so the region picks the host. */
+        fun moonshotBalance(region: ProviderRegion): String =
+            (if (region == ProviderRegion.CN) "https://api.moonshot.cn" else "https://api.moonshot.ai") +
+                "/v1/users/me/balance"
+
+        const val XAI_VALIDATION = "https://management-api.x.ai/auth/management-keys/validation"
+
+        fun xaiBalance(teamId: String): String {
+            // Typed by the user, so it cannot be trusted to be a path segment.
+            val segment = java.net.URLEncoder.encode(teamId, "UTF-8").replace("+", "%20").replace("*", "%2A")
+            return "https://management-api.x.ai/v1/billing/teams/$segment/prepaid/balance"
+        }
+
+        const val FAL_BILLING = "https://api.fal.ai/v1/account/billing?expand=credits"
+        const val NOVITA_BALANCE = "https://api.novita.ai/openapi/v1/billing/balance/detail"
     }
 }

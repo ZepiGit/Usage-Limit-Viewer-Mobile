@@ -202,14 +202,32 @@ public enum ProviderEndpoints {
     /// `403 access_terminated`, and a key from the user's own console stays the other way in.
     /// See docs/providers-kimi.md.
     public enum Kimi {
-        /// The public client id every Kimi Code device-flow client presents.
+        /// The public client id every Kimi Code device-flow client presents, on both hosts.
         public static let clientID = "17e5f671-d194-4dfb-9706-5516cb48c098"
-        public static let deviceCodeURL = "https://auth.kimi.com/api/oauth/device_authorization"
-        public static let tokenURL = "https://auth.kimi.com/api/oauth/token"
         public static let deviceCodeGrantType = "urn:ietf:params:oauth:grant-type:device_code"
 
-        public static let usageEndpoint = "https://api.kimi.com/coding/v1/usages"
-        public static let consoleURL = "https://www.kimi.com/code"
+        /// One region's hosts. A token or key only works on the host that issued it.
+        public struct URLs: Sendable, Equatable {
+            public let deviceCodeURL: String
+            public let tokenURL: String
+            public let usageEndpoint: String
+            public let consoleURL: String
+        }
+
+        public static let china = URLs(
+            deviceCodeURL: "https://auth.kimi.com/api/oauth/device_authorization",
+            tokenURL: "https://auth.kimi.com/api/oauth/token",
+            usageEndpoint: "https://api.kimi.com/coding/v1/usages",
+            consoleURL: "https://www.kimi.com/code/console")
+        public static let international = URLs(
+            deviceCodeURL: "https://auth.kimi.ai/api/oauth/device_authorization",
+            tokenURL: "https://auth.kimi.ai/api/oauth/token",
+            usageEndpoint: "https://api.kimi.ai/coding/v1/usages",
+            consoleURL: "https://www.kimi.ai/code/console")
+
+        public static func urls(_ region: ProviderRegion) -> URLs {
+            region == .intl ? international : china
+        }
 
         /// This app's own name, sent wherever Kimi asks which program is calling.
         public static let platform = "UsageLimits"
@@ -224,6 +242,25 @@ public enum ProviderEndpoints {
                 "X-Msh-Version": version,
             ]
         }
+    }
+
+    /// Z.ai GLM Coding Plan. Undocumented quota route, API key only. The China service
+    /// (open.bigmodel.cn) serves the same path with its own keys. See docs/providers-zai.md.
+    public enum Zai {
+        public static func usageEndpoint(_ region: ProviderRegion) -> String {
+            (region == .cn ? "https://open.bigmodel.cn" : "https://api.z.ai") + "/api/monitor/usage/quota/limit"
+        }
+        public static func consoleURL(_ region: ProviderRegion) -> String {
+            region == .cn
+                ? "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys"
+                : "https://z.ai/manage-apikey/apikey-list"
+        }
+    }
+
+    /// OpenCode Go. Undocumented usage route, API key only. See docs/providers-opencode.md.
+    public enum OpenCode {
+        public static let usageEndpoint = "https://opencode.ai/zen/go/v1/usage"
+        public static let consoleURL = "https://opencode.ai/auth"
     }
 
     /// Devin / Cognition.
@@ -274,5 +311,37 @@ public enum ProviderEndpoints {
         public static let apiBaseURL = "https://api.meta.ai/v1"
         public static let userAgent = "muse-code/1.0.2"
         public static let apiVersion = "1.0.0"
+    }
+
+    /// Prepaid balance endpoints (the Credit Viewer). Documented where the provider documents
+    /// them; none is reverse-engineered. See docs/credits.md.
+    public enum Credits {
+        public static let openRouterCredits = "https://openrouter.ai/api/v1/credits"
+        public static let openRouterKey = "https://openrouter.ai/api/v1/key"
+        public static let deepSeekBalance = "https://api.deepseek.com/user/balance"
+        /// A key from one host answers 401 on the other, so the region picks the host.
+        public static func moonshotBalance(_ region: ProviderRegion) -> String {
+            (region == .cn ? "https://api.moonshot.cn" : "https://api.moonshot.ai") + "/v1/users/me/balance"
+        }
+        public static let xaiValidation = "https://management-api.x.ai/auth/management-keys/validation"
+        public static func xaiBalance(teamID: String) -> String {
+            // Typed by the user, so it cannot be trusted to be a path segment.
+            var allowed = CharacterSet.alphanumerics
+            allowed.insert(charactersIn: "-_.")
+            let segment = teamID.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+            return "https://management-api.x.ai/v1/billing/teams/\(segment)/prepaid/balance"
+        }
+        public static let falBilling = "https://api.fal.ai/v1/account/billing?expand=credits"
+        public static let novitaBalance = "https://api.novita.ai/openapi/v1/billing/balance/detail"
+    }
+
+    /// Where the user creates the key or signs in for a provider, or nil if it has no console.
+    public static func consoleURL(for provider: ProviderID, region: ProviderRegion) -> String? {
+        switch provider {
+        case .kimi: return Kimi.urls(region).consoleURL
+        case .zai: return Zai.consoleURL(region)
+        case .opencode: return OpenCode.consoleURL
+        default: return nil
+        }
     }
 }

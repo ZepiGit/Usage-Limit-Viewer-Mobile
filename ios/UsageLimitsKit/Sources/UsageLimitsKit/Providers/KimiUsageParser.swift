@@ -65,6 +65,7 @@ public enum KimiUsageParser {
 
             let seconds = JSONSupport.int64(entry, "windowSeconds", "window_seconds")
                 ?? JSONSupport.int64(detail, "windowSeconds", "window_seconds")
+                ?? windowSeconds(JSONSupport.object(entry, "window"))
                 ?? fiveHoursSeconds
             let label = JSONSupport.string(entry, "name", "label")
                 ?? JSONSupport.string(detail, "name", "label")
@@ -102,14 +103,30 @@ public enum KimiUsageParser {
         return consumed / limit * 100
     }
 
-    /// The reset instant, in whichever unit it arrived.
+    /// The reset instant, in whichever form it arrived. The live endpoint sends ISO-8601 (Kimi's
+    /// own CLI reads it with `fromisoformat`); epoch seconds or millis are kept for older shapes.
     private static func resetInstant(_ object: [String: Any]?) -> Date? {
-        guard let object,
-              let raw = JSONSupport.int64(object, "resetTime", "reset_time", "resetAt", "reset_at"),
-              raw > 0
+        guard let object else { return nil }
+        if let raw = JSONSupport.int64(object, "resetTime", "reset_time", "resetAt", "reset_at") {
+            guard raw > 0 else { return nil }
+            let millis = raw < secondsCutoff ? raw * 1000 : raw
+            return Date(timeIntervalSince1970: Double(millis) / 1000)
+        }
+        return JSONSupport.date(JSONSupport.string(object, "resetTime", "reset_time", "resetAt", "reset_at"))
+    }
+
+    /// The live shape, `window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" }`, as kimi-cli reads it.
+    private static func windowSeconds(_ window: [String: Any]?) -> Int64? {
+        guard let window, let duration = JSONSupport.int64(window, "duration"), duration > 0 else { return nil }
+        let unit = (JSONSupport.string(window, "timeUnit", "time_unit") ?? "").uppercased()
+        let factor: Int64
+        if unit.contains("SECOND") { factor = 1 }
+        else if unit.contains("MINUTE") { factor = 60 }
+        else if unit.contains("HOUR") { factor = 3_600 }
+        else if unit.contains("DAY") { factor = 86_400 }
         else { return nil }
-        let millis = raw < secondsCutoff ? raw * 1000 : raw
-        return Date(timeIntervalSince1970: Double(millis) / 1000)
+        let (seconds, overflow) = duration.multipliedReportingOverflow(by: factor)
+        return overflow ? nil : seconds
     }
 
     private static func defaultLabel(_ seconds: Int64) -> String {

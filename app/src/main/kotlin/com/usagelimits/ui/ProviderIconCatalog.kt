@@ -44,6 +44,9 @@ object ProviderIconCatalog {
             ProviderIconChoice("meta-color", "Meta Muse · Color", R.drawable.icon_meta_color),
             ProviderIconChoice("meta", "Meta Muse · Monochrome", R.drawable.icon_meta),
         )
+        // No bundled artwork: a lettered ring, like the iOS ProviderMark.
+        ProviderId.ZAI -> listOf(ProviderIconChoice("zai", "Z.ai GLM", R.drawable.icon_zai))
+        ProviderId.OPENCODE -> listOf(ProviderIconChoice("opencode", "OpenCode Go", R.drawable.icon_opencode))
     }
     fun selected(provider: ProviderId, id: String?): ProviderIconChoice =
         choices(provider).firstOrNull { it.id == id } ?: choices(provider).first()

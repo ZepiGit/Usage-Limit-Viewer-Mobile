@@ -2,6 +2,7 @@ package com.usagelimits.core.sync
 
 import android.content.Context
 import com.usagelimits.core.di.AppContainer
+import com.usagelimits.widget.WidgetPresentationWorker
 import com.usagelimits.widget.WidgetUpdater
 
 /**
@@ -27,6 +28,9 @@ import com.usagelimits.widget.WidgetUpdater
 suspend fun AppContainer.publishAfterSync(context: Context) {
     // Widgets read the cache, so they only need waking once the cache has moved.
     WidgetUpdater.refreshAll(context)
+    // New cache, new presentation boundaries: a reset or staleness threshold passing later is
+    // repainted from the cache, whether this sync came from the worker or the foreground.
+    WidgetPresentationWorker.scheduleNext(context)
 
     NotificationPublisher(context, settingsStore, notificationDao, transactions = transactions)
         .publishFor(repository.accountUsageOnce())

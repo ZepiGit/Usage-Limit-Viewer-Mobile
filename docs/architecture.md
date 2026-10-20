@@ -50,8 +50,9 @@ a layer:
 - `core/sync/SyncEngine` and `core/di/AppContainer` import `providers.ProviderRegistry`. The
   alternative — a registry interface in `core` implemented in `providers` — buys an indirection
   that no second implementation would ever use.
-- `core/sync/SyncWorker` imports `widget.WidgetUpdater`, because "the cache moved, wake the
-  widgets" has to be expressed somewhere and the worker is where the pass ends.
+- `core/sync/PostSync` imports `widget.WidgetUpdater` and `widget.WidgetPresentationWorker`,
+  because "the cache moved, wake the widgets and reschedule their next repaint" has to be
+  expressed somewhere and `publishAfterSync` is where every sync pass ends.
 
 There is one genuine leak worth naming: `feature/accounts/AddAccountViewModel` imports
 `CodexProvider` to call `displayCode()`, because Codex packs a user code and a device id into
@@ -233,7 +234,10 @@ refresh the user just asked for does not wait for a Doze window. The system's pe
 tick and the presentation-boundary repaint enqueue the same one-shot with an `onlyIfAged`
 flag: the worker fetches only when the cache is older than the interval or a reset has passed
 since it was taken (`SyncWorker.cacheNeedsSync`), so a widget placed a minute after a sync
-costs no provider round trip.
+costs no provider round trip. A forced trigger supersedes a pending `onlyIfAged` one: the aged
+request carries a tag, `syncNow` cancels that tag before enqueueing with `KEEP`, so a tap that
+lands behind a widget tick still syncs rather than inheriting the tick's skip. A tick behind a
+pending forced pass is still dropped by `KEEP`.
 
 Only the periodic pass may return `Result.retry()`, and it backs off linearly by ten minutes.
 A one-shot that retried used to sit in WorkManager's exponential backoff queue under the
@@ -285,10 +289,13 @@ spending anything.
 previous windows forward and deliberately keeps the *original* `fetchedAt`, so the data ages
 truthfully while the error is carried alongside it.
 
-After the engine finishes, the worker refreshes the widgets and hands the whole cache to
+After the engine finishes, `publishAfterSync` — shared by the worker and every foreground
+refresh — refreshes the widgets, schedules the next presentation boundary
+(`WidgetPresentationWorker.scheduleNext`), and hands the whole cache to
 `NotificationPublisher`, which folds every finding across every account into at most one
 grouped notification posted to a fixed id — so a later sync replaces the earlier alert instead
-of stacking a pile.
+of stacking a pile. A worker pass cancelled part-way (a lost constraint, the system reclaiming
+it) still runs this step under `NonCancellable`, so accounts it already saved reach the widgets.
 
 ## Deliberate deviations
 

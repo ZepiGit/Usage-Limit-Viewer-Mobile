@@ -28,5 +28,7 @@ Authorization: Basic <session_token>-<session_token>
 The JSON Connect request carries the session token in `metadata.apiKey` together with the
 `chisel` client metadata. `userStatus.planStatus` reports daily and weekly *remaining*
 percentages; the parser converts them to consumed percentages and preserves Unix reset times.
+Connect JSON omits zero-valued fields, so a window with a reset time but no percentage is read as
+0 % remaining (exhausted).
 `planInfo.planName` supplies the plan label. Unknown fields and malformed individual windows are
 ignored independently.

@@ -286,7 +286,10 @@ object WidgetDataBuilder {
             accountLabel = account.label,
             requiresReauthentication = snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED,
             resetTimes = windows.mapNotNull { it.resetAt },
-            representative = snapshot?.mostCritical?.toRow(fetchedAt, nowMs),
+            // Chosen among windows still open, as severityAt is; all reset since the fetch → "reset due".
+            representative = snapshot?.let { s ->
+                s.copy(windows = s.windows.filterNot { it.resetElapsedAt(fetchedAt, nowMs) }).mostCritical ?: s.mostCritical
+            }?.toRow(fetchedAt, nowMs),
             restrictions = snapshot?.restrictedWindows.orEmpty().map { it.label },
             partialUpdate = snapshot?.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL,
         )

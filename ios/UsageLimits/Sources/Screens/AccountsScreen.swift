@@ -18,49 +18,52 @@ struct AccountsScreen: View {
         }
     }
 
-    private func filterButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(.subheadline.weight(.medium)).padding(.horizontal, 14).padding(.vertical, 10)
-                .foregroundStyle(selected ? UsageColors.background : UsageColors.textSecondary)
-                .background(selected ? UsageColors.terracotta : UsageColors.surfaceElevated).clipShape(Capsule())
-        }.buttonStyle(.plain)
+    private func option(_ title: String, selected: Bool, action: @escaping () -> Void) -> SegmentOption {
+        SegmentOption(id: title, title: title, selected: selected, action: action)
+    }
+
+    private var filterOptions: [SegmentOption] {
+        var options = [
+            option("All", selected: providerFilter == nil && !attentionOnly) { providerFilter = nil; attentionOnly = false },
+            option("Needs attention", selected: attentionOnly) { attentionOnly.toggle() },
+        ]
+        for provider in ProviderID.allCases where store.accounts.contains(where: { $0.account.provider == provider }) {
+            options.append(option(provider.displayName, selected: providerFilter == provider) {
+                providerFilter = providerFilter == provider ? nil : provider
+            })
+        }
+        return options
     }
 
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            filterButton("All", selected: providerFilter == nil && !attentionOnly) { providerFilter = nil; attentionOnly = false }
-                            filterButton("Needs attention", selected: attentionOnly) { attentionOnly.toggle() }
-                            ForEach(ProviderID.allCases, id: \.self) { provider in
-                                if store.accounts.contains(where: { $0.account.provider == provider }) {
-                                    filterButton(provider.displayName, selected: providerFilter == provider) {
-                                        providerFilter = providerFilter == provider ? nil : provider
-                                    }
-                                }
-                            }
-                        }
-                    }
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    SegmentedRow(options: filterOptions)
                     // Driven from `store.accounts` rather than the glance model, because this
                     // screen is the one place that needs more than the reduced view: the reset
                     // credits a card can spend do not travel in a glance.
+                    if !store.hasLoaded {
+                        AccountSkeletonCard()
+                        AccountSkeletonCard()
+                    } else if store.accounts.isEmpty {
+                        EmptyStateCard()
+                    }
                     ForEach(filteredAccounts, id: \.account.id) { usage in
                         AccountSummaryCard(usage: usage, now: store.now).id(usage.account.id)
                     }
 
-                    Button { isAdding = true } label: { AddAccountCard() }
-                        .buttonStyle(.plain)
+                    AddAccountButton { isAdding = true }
                 }
                 .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: store.accounts.map { $0.account.id })
                 .padding(16)
                 .readableWidth()
             }
             .accessibilityIdentifier("accounts-scroll")
-            .background(UsageColors.background)
+            .background(UsageColors.ground)
             .navigationTitle("Accounts")
+            .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
             .refreshable { await store.refresh() }
             .sheet(isPresented: $isAdding) { AddAccountSheet() }
@@ -88,6 +91,10 @@ private struct AccountSummaryCard: View {
 
     private var snapshot: UsageSnapshot? { usage.snapshot }
 
+    private var agedSeverity: Severity {
+        snapshot?.severity(at: now, staleAfter: store.settings.staleAfter) ?? .stale
+    }
+
     private var notificationsEnabled: Bool {
         store.notificationsEnabled(accountID: usage.account.id)
     }
@@ -98,15 +105,15 @@ private struct AccountSummaryCard: View {
                 ProviderBadge(provider: usage.account.provider)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(usage.account.label)
-                        .font(.headline)
-                        .foregroundStyle(UsageColors.textPrimary)
+                        .usageFont(.section)
+                        .foregroundStyle(UsageColors.ink)
                     // Through the shared `planLabel`, so "claude_max_20x" reads as "Claude Max
                     // 20×" here exactly as it does on Android, rather than as the raw value
                     // one platform happened to print.
                     if let subtitle = planLabel(usage.account.plan) ?? usage.account.maskedEmail {
                         Text(subtitle)
-                            .font(.footnote)
-                            .foregroundStyle(UsageColors.textSecondary)
+                            .usageFont(.small)
+                            .foregroundStyle(UsageColors.faint)
                     }
                 }
                 Spacer()
@@ -115,10 +122,10 @@ private struct AccountSummaryCard: View {
                 // to notify rather than as the user having asked it not to.
                 if !notificationsEnabled {
                     Image(systemName: "bell.slash.fill")
-                        .foregroundStyle(UsageColors.textTertiary)
+                        .foregroundStyle(UsageColors.faint)
                         .accessibilityLabel("Notifications muted")
                 }
-                StatusPill(severity: snapshot?.severity(at: now, staleAfter: store.settings.staleAfter) ?? .stale, label: snapshot?.connectionStatus == .reconnectRequired ? "Reconnect" : nil)
+                StatusMark(severity: agedSeverity, label: snapshot?.connectionStatus == .reconnectRequired ? "Reconnect" : nil)
                 // Disconnecting has been possible in the container, and tested there, since
                 // before anything on screen could ask for it — so a user could connect an
                 // account and then had no way at all to disconnect it. Deleting the app was
@@ -141,8 +148,11 @@ private struct AccountSummaryCard: View {
                     }
                     .disabled(store.isRemoving)
                 } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .foregroundStyle(UsageColors.textSecondary)
+                    // 44pt to hit, however small the glyph.
+                    Image(systemName: "ellipsis")
+                        .foregroundStyle(UsageColors.muted)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Account actions")
             }
@@ -167,10 +177,12 @@ private struct AccountSummaryCard: View {
 
             if let message = snapshot?.statusMessage {
                 // The failure is shown on the account it belongs to, beside the numbers it
-                // could not update — the one place a user can act on it.
-                Text(verbatim: message)
-                    .font(.footnote)
-                    .foregroundStyle(SeverityPalette.text(.error))
+                // could not update — the one place a user can act on it. A sign-in that has
+                // expired is answered from the menu, not by trying again.
+                NoticeLine(
+                    message: message, dot: UsageColors.negative,
+                    retry: snapshot?.connectionStatus == .reconnectRequired
+                        ? nil : { Task { await store.refresh() } })
             }
 
             ForEach(snapshot?.windows ?? [], id: \.id) { window in
@@ -181,7 +193,10 @@ private struct AccountSummaryCard: View {
                         remainingPercent: window.remainingPercent,
                         resetAt: window.resetAt,
                         severity: window.severity),
-                    now: now)
+                    now: now,
+                    // The account's aged verdict outranks a row's own: a stale or failed account
+                    // keeps its last numbers, but they stop looking fresh.
+                    severity: agedSeverity == .stale || agedSeverity == .error ? agedSeverity : nil)
             }
 
             resetCredits
@@ -198,23 +213,22 @@ private struct AccountSummaryCard: View {
     @ViewBuilder
     private var resetCredits: some View {
         if let snapshot, snapshot.heldResetCredits > 0 {
-            Divider().overlay(UsageColors.outline).padding(.vertical, 2)
+            UsageColors.rule.frame(height: 1)
 
             HStack {
                 Text(snapshot.heldResetCredits == 1
                      ? "1 reset credit"
                      : "\(snapshot.heldResetCredits) reset credits")
-                    .font(.footnote)
-                    .foregroundStyle(UsageColors.textSecondary)
+                    .usageFont(.body)
+                    .foregroundStyle(UsageColors.muted)
                 Spacer()
                 if snapshot.spendableResetCredits > 0 {
                     Button("Reset limit") { isConfirmingRedeem = true }
-                        .buttonStyle(.bordered)
-                        .tint(UsageColors.terracotta)
+                        .buttonStyle(OutlineButtonStyle())
                 } else {
                     Text("None applies to this limit")
-                        .font(.caption)
-                        .foregroundStyle(UsageColors.textTertiary)
+                        .usageFont(.small)
+                        .foregroundStyle(UsageColors.faint)
                 }
             }
             // A confirmation, because this is the only irreversible thing the app can do. The
@@ -239,18 +253,21 @@ private struct AccountSummaryCard: View {
     }
 }
 
-private struct AddAccountCard: View {
+/// "+ Add account" as the secondary button it is, with the sentence that says what it does.
+private struct AddAccountButton: View {
+    let action: () -> Void
+
     var body: some View {
-        UsageCard {
-            Text("+ Add account")
-                .font(.headline)
-                .foregroundStyle(UsageColors.terracotta)
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: action) { Text("+ Add account") }
+                .buttonStyle(OutlineButtonStyle(fullWidth: true))
             // Sign-in happens in the user's own browser, on the provider's own page. Stated
             // here because the alternative — an embedded web view — is what credential-harvesting
             // apps do, and a user has no way to tell one from the other inside the app.
             Text("Opens the provider's normal sign-in page in your browser.")
-                .font(.footnote)
-                .foregroundStyle(UsageColors.textSecondary)
+                .usageFont(.small)
+                .foregroundStyle(UsageColors.muted)
         }
+        .padding(.top, 8)
     }
 }

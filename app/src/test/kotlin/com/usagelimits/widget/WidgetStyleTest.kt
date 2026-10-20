@@ -31,12 +31,15 @@ class WidgetStyleTest {
         val navy = WidgetStyle(WidgetBackground(0xFF16213A.toInt(), 100))
         assertFalse(cream.lightInk)
         assertTrue(navy.lightInk)
-        // The status words switch with the ink; the bars keep the raw accent on both.
-        assertEquals(WidgetStyle.Amber, navy.textColor(Severity.MEDIUM))
-        assertTrue(cream.textColor(Severity.MEDIUM) != WidgetStyle.Amber)
+        // The words switch with the ink: amber is a figure tone only on the dark side, and is
+        // pulled down to clear 4.5:1 on the light one. Healthy and moderate figures are plain ink.
+        assertEquals(WidgetStyle.Amber, navy.textColor(Severity.LOW))
+        assertTrue(cream.textColor(Severity.LOW) != WidgetStyle.Amber)
+        assertEquals(navy.textPrimary, navy.textColor(Severity.MEDIUM))
+        // The bar is the data hue on both, in the panel's own form of it.
         val row = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 40.0, null, Severity.MEDIUM)
-        assertEquals(WidgetStyle.Amber, cream.bar(row))
-        assertEquals(WidgetStyle.Amber, navy.bar(row))
+        assertEquals(WidgetStyle.Terracotta, navy.bar(row))
+        assertEquals(WidgetStyle.TerracottaOnLight, cream.bar(row))
     }
 
     @Test
@@ -69,47 +72,56 @@ class WidgetStyleTest {
     }
 
     @Test
-    fun `a stale full quota is not healthy teal`() {
-        // WGT-006. Data validity outranks quota decoration: the teal "untouched" state is a
-        // claim about the numbers, and a stale reading is not one to be trusted.
+    fun `a stale full quota is grey, not the data hue`() {
+        // WGT-006. Data validity outranks quota decoration: a stale reading is not one to be trusted.
         val full = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 100.0, null, Severity.HEALTHY)
         val style = WidgetStyle()
-        assertEquals(WidgetStyle.Teal, style.bar(full))
-        assertEquals(WidgetStyle.Slate, style.bar(full, Severity.STALE))
+        assertEquals(WidgetStyle.Terracotta, style.bar(full))
+        assertEquals(WidgetStyle.Stale, style.bar(full, Severity.STALE))
         assertEquals(style.textColor(Severity.STALE), style.barText(full, Severity.STALE))
     }
 
     @Test
     fun `a row whose reset has passed is drawn stale, not in its cached colour`() {
         // The figure is the spent window's; the provider has opened a fresh one the cache
-        // has not seen. Neither the healthy green nor a teal "untouched" may vouch for it.
+        // has not seen. The data hue may not vouch for it.
         val overtaken = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 100.0, null, Severity.HEALTHY, resetElapsed = true)
         val style = WidgetStyle()
-        assertEquals(WidgetStyle.Slate, style.bar(overtaken))
+        assertEquals(WidgetStyle.Stale, style.bar(overtaken))
         assertEquals(style.textColor(Severity.STALE), style.barText(overtaken))
-        // An account-level failure still outranks it.
-        assertEquals(WidgetStyle.Red, style.bar(overtaken, Severity.ERROR))
+        // An account-level failure still outranks it, and a failed reading draws no fill at all.
+        assertNull(style.bar(overtaken, Severity.ERROR))
     }
 
     @Test
-    fun `an error full quota keeps the invalid-data treatment`() {
+    fun `an error full quota draws the bare track`() {
         val full = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 100.0, null, Severity.HEALTHY)
         val style = WidgetStyle()
-        assertEquals(WidgetStyle.Red, style.bar(full, Severity.ERROR))
+        assertNull(style.bar(full, Severity.ERROR))
         assertEquals(style.textColor(Severity.ERROR), style.barText(full, Severity.ERROR))
     }
 
     @Test
-    fun `a healthy short window does not inherit an exhausted long window's colour`() {
+    fun `a healthy short window does not inherit an exhausted long window's treatment`() {
         // The other direction of WGT-006: validity is DATA validity only. Quota severity stays
         // per row, so an exhausted monthly window never recolours a healthy five-hour one.
         val short = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 40.0, null, Severity.MEDIUM)
         val style = WidgetStyle()
-        assertEquals(WidgetStyle.Amber, style.bar(short))
-        assertEquals(WidgetStyle.Amber, style.bar(short, validity = null))
+        assertEquals(WidgetStyle.Terracotta, style.bar(short))
+        assertEquals(WidgetStyle.Terracotta, style.bar(short, validity = null))
         // And a depleted long horizon on the same account does not make the data untrusted.
         val exhaustedAccount = WidgetAccount("a", "A", null, emptyList(), Severity.EXHAUSTED)
         assertNull(exhaustedAccount.dataValidity)
+    }
+
+    @Test
+    fun `the data hue falls back to ink where the panel would swallow it`() {
+        // Terracotta on the Terracotta panel measures 2.9:1; the bar is ink there.
+        val terracottaPanel = WidgetStyle(WidgetBackground(0xFF6E3A2B.toInt(), 100))
+        assertEquals(terracottaPanel.textPrimary, terracottaPanel.data)
+        assertEquals(WidgetStyle.Terracotta, WidgetStyle().data)
+        // Words fall back to the primary ink where the quiet tone would measure under 4.5:1.
+        assertEquals(terracottaPanel.textPrimary, terracottaPanel.textSecondary)
     }
 
     @Test
@@ -146,27 +158,25 @@ class WidgetStyleTest {
     }
 
     @Test
-    fun `a row's own block outranks the full-quota colour`() {
+    fun `an exhausted row draws no fill whatever percentage it still reports`() {
         for (style in listOf(WidgetStyle(), WidgetStyle(WidgetBackground(0xFFF3F0E8.toInt(), 100)))) {
             val blockedFull = WidgetRow("Weekly", WindowCategory.WEEKLY, 100.0, null, Severity.EXHAUSTED)
-            assertEquals(style.accent(Severity.EXHAUSTED), style.bar(blockedFull))
+            assertNull(style.bar(blockedFull))
             assertEquals(style.textColor(Severity.EXHAUSTED), style.barText(blockedFull))
 
+            // Full is a full data bar now; there is no separate "untouched" colour.
             val healthyFull = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 100.0, null, Severity.HEALTHY)
-            assertEquals(WidgetStyle.Teal, style.bar(healthyFull))
-            val nearlyFull = healthyFull.copy(remainingPercent = 99.6)
-            assertEquals(WidgetStyle.Teal, style.bar(nearlyFull))
-            val healthy = healthyFull.copy(remainingPercent = 98.0)
-            assertEquals(style.accent(Severity.HEALTHY), style.bar(healthy))
+            assertEquals(style.data, style.bar(healthyFull))
             val small = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 0.4, null, Severity.LOW)
-            assertEquals(style.accent(Severity.LOW), style.bar(small))
+            assertEquals(style.data, style.bar(small))
+            // The last fifth is told by the figure, not the fill.
+            assertEquals(style.textColor(Severity.LOW), style.barText(small))
 
             // Data validity still outranks both.
-            for (validity in listOf(Severity.STALE, Severity.ERROR, Severity.UNKNOWN)) {
-                assertEquals(style.accent(validity), style.bar(blockedFull, validity))
-                assertEquals(style.accent(validity), style.bar(healthyFull, validity))
-            }
-            assertEquals(style.accent(Severity.STALE), style.bar(blockedFull.copy(resetElapsed = true)))
+            assertEquals(style.stale, style.bar(blockedFull, Severity.STALE))
+            assertEquals(style.stale, style.bar(healthyFull, Severity.STALE))
+            assertNull(style.bar(healthyFull, Severity.UNKNOWN))
+            assertEquals(style.stale, style.bar(blockedFull.copy(resetElapsed = true)))
         }
     }
 }

@@ -458,13 +458,20 @@ public struct KimiDeviceLogin: DeviceLoginProvider {
 
     private let httpClient: UsageHTTPClient
     private let now: @Sendable () -> Date
+    /// Where `begin` asks. The choice rides in the challenge, so `complete` polls the same host.
+    private let region: ProviderRegion
     var waitForPoll: @Sendable (TimeInterval) async throws -> Void = {
         try await DeviceLoginTiming.sleep(seconds: $0)
     }
 
-    public init(httpClient: UsageHTTPClient, now: @Sendable @escaping () -> Date = { Date() }) {
+    public init(
+        httpClient: UsageHTTPClient,
+        now: @Sendable @escaping () -> Date = { Date() },
+        region: ProviderRegion = .cn
+    ) {
         self.httpClient = httpClient
         self.now = now
+        self.region = region
     }
 
     private var headers: [String: String] {
@@ -479,7 +486,7 @@ public struct KimiDeviceLogin: DeviceLoginProvider {
     public func begin() async throws -> DeviceLoginChallenge {
         let response = try await ProviderHTTP.request(
             httpClient,
-            url: ProviderEndpoints.Kimi.deviceCodeURL,
+            url: ProviderEndpoints.Kimi.urls(region).deviceCodeURL,
             method: "POST", headers: headers,
             body: TokenExchange.formBody(["client_id": ProviderEndpoints.Kimi.clientID]),
             endpoint: "kimi device")
@@ -505,13 +512,14 @@ public struct KimiDeviceLogin: DeviceLoginProvider {
             verificationURIComplete: complete,
             expiresAt: now().addingTimeInterval(lifetime),
             pollInterval: max(interval, DeviceLoginTiming.minimumPollInterval),
-            continuation: ["device_code": deviceCode])
+            continuation: ["device_code": deviceCode, ProviderRegion.key: region.rawValue])
     }
 
     public func complete(_ challenge: DeviceLoginChallenge) async throws -> OAuthCredentials {
         guard let deviceCode = challenge.continuation["device_code"] else {
             throw DeviceLoginError.malformedResponse("the challenge carries no device code")
         }
+        let region = challenge.continuation[ProviderRegion.key].flatMap(ProviderRegion.init(rawValue:)) ?? .cn
 
         let body = TokenExchange.formBody([
             "grant_type": ProviderEndpoints.Kimi.deviceCodeGrantType,
@@ -526,13 +534,18 @@ public struct KimiDeviceLogin: DeviceLoginProvider {
             try Task.checkCancellation()
 
             let payload = try await DeviceTokenPoll.payload(
-                httpClient, url: ProviderEndpoints.Kimi.tokenURL, headers: headers, body: body)
+                httpClient, url: ProviderEndpoints.Kimi.urls(region).tokenURL, headers: headers, body: body)
 
             if let payload {
                 switch JSONSupport.string(payload, "error") {
                 case nil:
-                    return try TokenExchange.credentials(
+                    let issued = try TokenExchange.credentials(
                         from: payload, endpoint: "kimi device token", now: now())
+                    // Recorded with the tokens: a refresh sees nothing else of the account.
+                    return OAuthCredentials(
+                        accessToken: issued.accessToken, refreshToken: issued.refreshToken,
+                        idToken: issued.idToken, expiresAt: issued.expiresAt, scope: issued.scope,
+                        providerData: [ProviderRegion.key: region.rawValue])
                 case "authorization_pending":
                     break
                 case "slow_down":
@@ -557,13 +570,15 @@ public struct KimiDeviceLogin: DeviceLoginProvider {
         let usage = try await KimiClient(httpClient: httpClient)
             .fetchUsage(credentials: credentials, attributes: [:])
         let named = usage.accountIdentity?.trimmingCharacters(in: .whitespaces) ?? ""
+        let region = ProviderRegion.stored(provider: .kimi, credentials: credentials)
         return ProviderProfile(
-            externalAccountID: named.isEmpty
-                ? UsageLimitsContainer.pastedKeyIdentity(credentials.accessToken)
-                : named,
+            externalAccountID: region.scopedID(
+                named.isEmpty ? UsageLimitsContainer.pastedKeyIdentity(credentials.accessToken) : named,
+                for: .kimi),
             email: nil,
             displayName: nil,
-            plan: nil)
+            plan: nil,
+            attributes: [ProviderRegion.key: region.rawValue])
     }
 }
 
@@ -731,6 +746,7 @@ public enum DeviceLoginSupport {
     public static func style(for provider: ProviderID) -> LoginStyle {
         switch provider {
         case .xai, .kimi, .meta: return .deviceCode
+        case .zai, .opencode: return .pastedKey
         // Codex runs the CLI's own browser flow on its registered redirect; the device flow
         // is kept as the fallback the app switches to when that port is taken.
         case .codex, .claude, .antigravity, .devin: return .loopbackRedirect

@@ -28,6 +28,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -39,6 +42,9 @@ import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.delay
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.feature.UsageViewModel
+import com.usagelimits.feature.credits.AddCreditScreen
+import com.usagelimits.feature.credits.AddCreditViewModel
+import com.usagelimits.feature.credits.CreditDetailScreen
 import com.usagelimits.feature.accounts.AccountDetailScreen
 import com.usagelimits.feature.accounts.AccountsScreen
 import com.usagelimits.feature.accounts.AddAccountScreen
@@ -66,6 +72,10 @@ private sealed class Destination(val route: String) {
     data object Resets : Destination("resets")
     data object Settings : Destination("settings")
     data object AddAccount : Destination("add-account")
+    data object AddCredit : Destination("add-credit")
+    data object CreditDetail : Destination("credit/{creditId}") {
+        fun of(creditId: String) = "credit/$creditId"
+    }
     data object AccountDetail : Destination("account/{accountId}") {
         fun of(accountId: String) = "account/$accountId"
     }
@@ -136,9 +146,9 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         }
     }
 
-    Row(modifier = Modifier.fillMaxSize().background(UsageColors.Background)) {
+    Row(modifier = Modifier.fillMaxSize().background(UsageColors.Ground)) {
         if (showSideRail) {
-            NavigationRail(containerColor = UsageColors.Surface) {
+            NavigationRail(containerColor = UsageColors.Ground) {
                 TABS.forEach { tab ->
                     val selected = currentRoute?.hierarchy
                         ?.any { it.route == tab.destination.route } == true
@@ -148,11 +158,11 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         icon = { Icon(tab.icon, contentDescription = null) },
                         label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
                         colors = NavigationRailItemDefaults.colors(
-                            selectedIconColor = UsageColors.Terracotta,
-                            selectedTextColor = UsageColors.Terracotta,
-                            indicatorColor = UsageColors.TerracottaSurface,
-                            unselectedIconColor = UsageColors.TextTertiary,
-                            unselectedTextColor = UsageColors.TextTertiary,
+                            selectedIconColor = UsageColors.Ink,
+                            selectedTextColor = UsageColors.Ink,
+                            indicatorColor = UsageColors.Raised,
+                            unselectedIconColor = UsageColors.Faint,
+                            unselectedTextColor = UsageColors.Faint,
                         ),
                     )
                 }
@@ -160,11 +170,18 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         }
 
     Scaffold(
-        containerColor = UsageColors.Background,
+        containerColor = UsageColors.Ground,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar(containerColor = UsageColors.Surface) {
+                NavigationBar(
+                    containerColor = UsageColors.Ground,
+                    tonalElevation = 0.dp,
+                    // A 1px rule on the top edge, not a tone step or a shadow.
+                    modifier = Modifier.drawBehind {
+                        drawLine(UsageColors.Rule, Offset.Zero, Offset(size.width, 0f), strokeWidth = 1.dp.toPx())
+                    },
+                ) {
                     TABS.forEach { tab ->
                         val selected = currentRoute?.hierarchy
                             ?.any { it.route == tab.destination.route } == true
@@ -174,11 +191,11 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                             icon = { Icon(tab.icon, contentDescription = null) },
                             label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
                             colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = UsageColors.Terracotta,
-                                selectedTextColor = UsageColors.Terracotta,
-                                indicatorColor = UsageColors.TerracottaSurface,
-                                unselectedIconColor = UsageColors.TextTertiary,
-                                unselectedTextColor = UsageColors.TextTertiary,
+                                selectedIconColor = UsageColors.Ink,
+                                selectedTextColor = UsageColors.Ink,
+                                indicatorColor = UsageColors.Raised,
+                                unselectedIconColor = UsageColors.Faint,
+                                unselectedTextColor = UsageColors.Faint,
                             ),
                         )
                     }
@@ -199,7 +216,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         ConstrainedContent(
             modifier = Modifier
                 .fillMaxSize()
-                .background(UsageColors.Background)
+                .background(UsageColors.Ground)
                 .padding(padding),
         ) {
             NavHost(navController = navController, startDestination = Destination.Overview.route) {
@@ -211,6 +228,8 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
                         onAddAccount = { navController.navigate(Destination.AddAccount.route) },
                         onReorder = viewModel::reorderAccounts,
+                        onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
+                        onAddCredit = { navController.navigate(Destination.AddCredit.route) },
                     )
                 }
 
@@ -220,6 +239,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         nowMs = nowMs,
                         onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
                         onAddAccount = { navController.navigate(Destination.AddAccount.route) },
+                        onRefresh = viewModel::refresh,
                     )
                 }
 
@@ -256,6 +276,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         onStart = { addViewModel.startLogin(context, it) },
                         onStartWithKey = { addViewModel.startLogin(context, it, withKey = true) },
                         onStartWithDeviceCode = { addViewModel.startLogin(context, it, withDeviceCode = true) },
+                        onChooseRegion = { provider, region -> addViewModel.chooseRegion(context, provider, region) },
                         onSubmitApiKey = addViewModel::submitApiKey,
                         onCancel = {
                             addViewModel.cancel()
@@ -263,6 +284,42 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         },
                         onDone = {
                             addViewModel.reset()
+                            navController.popBackStack()
+                        },
+                    )
+                }
+
+                composable(Destination.AddCredit.route) {
+                    val addViewModel: AddCreditViewModel =
+                        viewModel(factory = AddCreditViewModel.Factory(container, appContext))
+                    val addState by addViewModel.state.collectAsState()
+                    AddCreditScreen(
+                        state = addState,
+                        onSubmit = addViewModel::submit,
+                        onCancel = {
+                            addViewModel.reset()
+                            navController.popBackStack()
+                        },
+                        onDone = {
+                            addViewModel.reset()
+                            navController.popBackStack()
+                        },
+                    )
+                }
+
+                composable(Destination.CreditDetail.route) { entry ->
+                    val creditId = entry.arguments?.getString("creditId")
+                    CreditDetailScreen(
+                        entry = state.credits.firstOrNull { it.id == creditId },
+                        nowMs = nowMs,
+                        staleAfterMs = state.staleAfterMs,
+                        onSave = { label, threshold ->
+                            creditId?.let { viewModel.updateCredit(it, label, threshold) }
+                            navController.popBackStack()
+                        },
+                        onRefresh = viewModel::refresh,
+                        onRemove = {
+                            creditId?.let(viewModel::removeCredit)
                             navController.popBackStack()
                         },
                     )

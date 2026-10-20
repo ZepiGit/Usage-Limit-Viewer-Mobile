@@ -46,7 +46,7 @@ class WidgetPresentationWorker(
     }
 
     companion object {
-        private const val WORK_NAME = "widget_presentation_boundary"
+        internal const val WORK_NAME = "widget_presentation_boundary"
 
         /** Never wake the device more often than this for a presentation boundary. */
         private const val MIN_DELAY_MS = 60_000L
@@ -80,7 +80,8 @@ class WidgetPresentationWorker(
             val staleAfter = Severity.staleAfterMs(settings.syncIntervalMinutes)
 
             val boundary = nextPresentationBoundary(
-                fetchedAtMs = accounts.mapNotNull { it.snapshot?.fetchedAt },
+                fetchedAtMs = accounts.mapNotNull { it.snapshot?.fetchedAt } +
+                    container.creditRepository.entriesOnce().mapNotNull { it.snapshot?.fetchedAt },
                 resetAtMs = accounts.flatMap { it.snapshot?.windows.orEmpty().mapNotNull { w -> w.resetAt } },
                 staleAfterMs = staleAfter,
                 nowMs = now,

@@ -349,6 +349,23 @@ would have to guess the 32-byte random state to have their code accepted — and
 narrow: the socket accepts exactly one request, has a backlog of one, and is closed in a
 `finally` block.
 
+Third, and a liveness problem rather than a security one: the listener lives inside this
+process, and with the browser in front the process is cached. Android 14+'s cached-apps freezer
+freezes a cached process about ten seconds later, and an incoming loopback connection does not
+thaw it, so the kernel accepts the browser's request and nothing answers; the page after the
+provider's final "Sign in" loads forever until the user returns to the app. While a browser-redirect
+login waits (Claude, Codex, Antigravity, Devin), `AddAccountViewModel` therefore runs
+`SignInKeepAliveService`, a `shortService` foreground service with a low-importance "Sign-in"
+notification, started just before the browser opens and stopped in the login job's `finally`
+(success, failure or cancel), each login holding its own lease so a cancelled login's late
+clean-up cannot stop a newer login's service. A short service is capped at three minutes but a
+redirect wait allows five, so `onTimeout` stops the service and posts a "Return to Usage Limits to
+finish signing in" notification that opens the app (returning thaws it and the listener answers);
+the hint is cleared when the login ends. The login itself keeps waiting. Denying
+`POST_NOTIFICATIONS` does not stop the service from running; it only hides the notification, and
+the hint is skipped. If the service cannot start (no foreground start allowed) the login proceeds
+without it.
+
 That single-accept behaviour is not purely a mitigation, and it is worth stating plainly: a
 local app that connect-polls the port can win the one `accept()` the server performs, after
 which Claude and Antigravity login can never complete while that app is installed. The failure
