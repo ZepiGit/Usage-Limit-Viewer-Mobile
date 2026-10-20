@@ -89,7 +89,14 @@ public actor UsageLimitsContainer {
         // widget must be told the list is empty, or it goes on showing accounts that were
         // removed.
         if !accounts.isEmpty {
-            _ = try await engine.sync(accounts: accounts)
+            do {
+                _ = try await engine.sync(accounts: accounts)
+            } catch {
+                // Cancellation still leaves the accounts that finished recorded; the widget
+                // must get them too, or it stays a generation behind the app's own cache.
+                await publishCurrent(await repository.usage())
+                throw error
+            }
         }
 
         let usage = await repository.usage()
