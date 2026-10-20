@@ -43,6 +43,9 @@ class AppLaunchTest {
         ShadowLooper.idleMainLooper()
         runBlocking { app().startupJob?.join() }
         ShadowLooper.idleMainLooper()
+        // startupJob only *enqueues*; WorkManager's serial executor opens its database — and
+        // on SDK < 35 loads the native runtime — afterwards. Wait for it, or it races the next class.
+        WorkManager.getInstance(app()).cancelAllWork().result.get()
     }
 
     @Test
