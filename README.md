@@ -2,7 +2,7 @@
 
 <h1 align="center">Usage Limits Mobile</h1>
 
-<p align="center"><strong>Check your usage limits and reset times.</strong><br>Track Codex, Claude, Antigravity, Grok, Kimi, Devin and Meta Muse on your phone and in home-screen widgets.</p>
+<p align="center"><strong>Check your usage limits and reset times.</strong><br>Track Codex, Claude, Antigravity, Grok, Kimi, Devin, Meta Muse, Z.ai and OpenCode Go, plus prepaid API credits, on your phone and in home-screen widgets.</p>
 
 <p align="center">
 <a href="#build"><img src="docs/01-terracotta/android-badge.png" height="25" alt="Android 8.0+"></a> <a href="#build"><img src="docs/01-terracotta/ios-badge.png" height="25" alt="iOS 16.0+"></a> <a href="#build"><img src="docs/01-terracotta/source-badge.png" height="25" alt="Build from source"></a> 
@@ -112,11 +112,17 @@ which also includes a widget gallery. The linked page explains how to open the t
 | **Claude** | Five-hour and reported weekly / per-model windows | OAuth + PKCE |
 | **Antigravity** | Per-model quota buckets | Google OAuth + PKCE |
 | **Grok** | Weekly credits and monthly billing window | Device-code flow |
-| **Kimi Code** | Coding quota and reset windows | Device code or console key |
+| **Kimi Code** | Coding quota and reset windows (kimi.com and kimi.ai) | Device code or console key |
 | **Devin** | Daily and weekly seat quota | OAuth + PKCE loopback |
 | **Meta Muse** | Rolling subscription window and weekly quota | OAuth device code |
+| **Z.ai GLM Coding Plan** | Five-hour, weekly and monthly limits (z.ai and bigmodel.cn) | API key |
+| **OpenCode Go** | Five-hour, weekly and monthly limits | API key |
 
-Android and iOS include integrations for all seven providers. Sign-in has not yet been
+Prepaid API balances for OpenRouter, DeepSeek, Moonshot, xAI, fal.ai and Novita appear in a
+separate Credits section and widget; see [Credits](docs/credits.md). Anthropic and OpenAI offer no
+balance endpoint for API keys.
+
+Android and iOS include integrations for all nine providers. Sign-in has not yet been
 verified for every provider, and Kimi OAuth usage access may require vendor approval.
 
 
