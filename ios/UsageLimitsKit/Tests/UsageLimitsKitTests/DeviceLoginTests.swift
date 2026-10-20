@@ -65,6 +65,8 @@ final class DeviceLoginTests: XCTestCase {
         XCTAssertEqual(DeviceLoginSupport.style(for: .kimi), .deviceCode)
         XCTAssertEqual(DeviceLoginSupport.style(for: .devin), .loopbackRedirect)
         XCTAssertEqual(DeviceLoginSupport.style(for: .meta), .deviceCode)
+        XCTAssertEqual(DeviceLoginSupport.style(for: .zai), .pastedKey)
+        XCTAssertEqual(DeviceLoginSupport.style(for: .opencode), .pastedKey)
         XCTAssertTrue(DeviceLoginSupport.acceptsPastedKey(.kimi))
         XCTAssertFalse(DeviceLoginSupport.acceptsPastedKey(.codex))
         XCTAssertEqual(DeviceLoginSupport.supported, ProviderID.allCases)
@@ -104,7 +106,7 @@ final class DeviceLoginTests: XCTestCase {
         XCTAssertEqual(challenge.continuation["device_code"], "dev-1")
         let sent = await transport.requests
         let request = try XCTUnwrap(sent.first)
-        XCTAssertEqual(request.url?.absoluteString, ProviderEndpoints.Kimi.deviceCodeURL)
+        XCTAssertEqual(request.url?.absoluteString, ProviderEndpoints.Kimi.china.deviceCodeURL)
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-Msh-Platform"), "UsageLimits")
         XCTAssertTrue(request.value(forHTTPHeaderField: "User-Agent")?.hasPrefix("UsageLimits/") == true)
         XCTAssertFalse(request.value(forHTTPHeaderField: "User-Agent")?.contains("KimiCLI") == true)
@@ -220,7 +222,7 @@ final class DeviceLoginTests: XCTestCase {
         XCTAssertEqual(refreshed.refreshToken, "ref-1", "an omitted refresh token means keep the old one")
         let sent = await transport.requests
         let request = try XCTUnwrap(sent.first)
-        XCTAssertEqual(request.url?.absoluteString, ProviderEndpoints.Kimi.tokenURL)
+        XCTAssertEqual(request.url?.absoluteString, ProviderEndpoints.Kimi.china.tokenURL)
         let body = String(data: try XCTUnwrap(request.httpBody), encoding: .utf8) ?? ""
         XCTAssertTrue(body.contains("grant_type=refresh_token"))
         XCTAssertTrue(body.contains("refresh_token=ref-1"))

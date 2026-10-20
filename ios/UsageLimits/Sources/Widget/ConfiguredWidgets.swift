@@ -15,11 +15,11 @@ enum WidgetContentChoice: String, AppEnum {
 
 @available(iOS 17.0, *)
 enum WidgetProviderChoice: String, AppEnum {
-    case codex, claude, antigravity, xai, kimi, devin, meta
+    case codex, claude, antigravity, xai, kimi, devin, meta, zai, opencode
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Provider"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
         .codex: "OpenAI Codex", .claude: "Claude", .antigravity: "Antigravity", .xai: "Grok", .kimi: "Kimi",
-        .devin: "Devin", .meta: "Meta Muse"]
+        .devin: "Devin", .meta: "Meta Muse", .zai: "Z.ai GLM", .opencode: "OpenCode Go"]
 }
 
 @available(iOS 17.0, *)
@@ -240,7 +240,7 @@ private struct ConfiguredRingGrid: View {
                                     .stroke(SeverityPalette.text(severity), style: StrokeStyle(lineWidth: 4, lineCap: .round))
                                     .rotationEffect(.degrees(-90))
                                 if let provider = ProviderID(rawValue: account.providerID ?? "") {
-                                    Image(account.iconAssetName ?? provider.assetName).resizable().scaledToFit().frame(width: 20, height: 20)
+                                    ProviderMark(assetName: account.iconAssetName ?? provider.assetName).frame(width: 20, height: 20)
                                 }
                             }.frame(width: 38, height: 38)
                             if mini && account.statusMessage != nil {

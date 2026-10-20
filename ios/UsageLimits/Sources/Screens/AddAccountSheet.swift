@@ -26,6 +26,8 @@ struct AddAccountSheet: View {
         case waiting(ProviderID, DeviceLoginChallenge)
         /// No flow to drive: the user has to fetch a key and paste it.
         case awaitingKey(ProviderID)
+        /// Kimi and Z.ai run a China and an international service; keys do not cross.
+        case choosingRegion(ProviderID)
         case failed(ProviderID, String)
     }
 
@@ -34,6 +36,8 @@ struct AddAccountSheet: View {
     @State private var loopback = LoopbackSignIn()
     @State private var copied = false
     @State private var pastedKey = ""
+    /// The region picked for a regional provider, or nil until the user picks.
+    @State private var region: ProviderRegion?
 
     var body: some View {
         NavigationStack {
@@ -48,6 +52,8 @@ struct AddAccountSheet: View {
                         waiting(provider, challenge)
                     case .awaitingKey(let provider):
                         awaitingKey(provider)
+                    case .choosingRegion(let provider):
+                        choosingRegion(provider)
                     case .failed(let provider, let message):
                         failure(provider, message)
                     }
@@ -83,6 +89,7 @@ struct AddAccountSheet: View {
         case .waiting: return 2
         case .awaitingKey: return 3
         case .failed: return 4
+        case .choosingRegion: return 5
         }
     }
 
@@ -90,7 +97,7 @@ struct AddAccountSheet: View {
 
     private var chooser: some View {
         ForEach(ProviderID.allCases, id: \.self) { provider in
-            Button { start(provider) } label: {
+            Button { select(provider) } label: {
                 UsageCard {
                     ProviderBadge(provider: provider)
                     Text(provider.displayName)
@@ -105,6 +112,25 @@ struct AddAccountSheet: View {
                 }
             }
             .buttonStyle(.plain)
+        }
+    }
+
+    private func choosingRegion(_ provider: ProviderID) -> some View {
+        UsageCard {
+            Text("\(provider.displayName) region")
+                .font(.headline)
+                .foregroundStyle(UsageColors.textPrimary)
+            Text("Keys and sign-ins only work on the service they were issued by. Pick the one your account is on.")
+                .font(.footnote)
+                .foregroundStyle(UsageColors.textSecondary)
+            ForEach(ProviderRegion.options(for: provider), id: \.self) { option in
+                Button(option.label(for: provider)) {
+                    region = option
+                    start(provider)
+                }
+                .buttonStyle(.bordered)
+                .tint(UsageColors.terracotta)
+            }
         }
     }
 
@@ -196,7 +222,8 @@ struct AddAccountSheet: View {
     /// The sign-in with nothing to drive: a key from the provider's console.
     ///
     /// Kimi Code's second way in, under its device flow, for the time before Moonshot has
-    /// allowlisted this app's name on the coding API. See docs/providers-kimi.md.
+    /// allowlisted this app's name on the coding API (see docs/providers-kimi.md), and the only
+    /// way in for Z.ai and OpenCode Go.
     private func awaitingKey(_ provider: ProviderID) -> some View {
         UsageCard {
             Text("Paste your \(provider.displayName) key")
@@ -207,6 +234,12 @@ struct AddAccountSheet: View {
                  + "It is stored on this device only, in the keychain with every other account.")
                 .font(.footnote)
                 .foregroundStyle(UsageColors.textSecondary)
+
+            if let region {
+                Text(region.label(for: provider))
+                    .font(.caption)
+                    .foregroundStyle(UsageColors.textTertiary)
+            }
 
             TextField("API key", text: $pastedKey)
                 .textFieldStyle(.roundedBorder)
@@ -220,7 +253,9 @@ struct AddAccountSheet: View {
                     .disabled(pastedKey.trimmingCharacters(in: .whitespaces).isEmpty)
 
                 Button("Open console") {
-                    if let url = URL(string: ProviderEndpoints.Kimi.consoleURL) { openURL(url) }
+                    let target = ProviderEndpoints.consoleURL(
+                        for: provider, region: region ?? ProviderRegion.defaultRegion(for: provider))
+                    if let target, let url = URL(string: target) { openURL(url) }
                 }
                 .buttonStyle(.bordered)
                 .tint(UsageColors.terracotta)
@@ -260,6 +295,16 @@ struct AddAccountSheet: View {
 
     // MARK: - Driving the flow
 
+    /// A regional provider asks for its region first; the rest start straight away.
+    private func select(_ provider: ProviderID) {
+        if ProviderRegion.options(for: provider).isEmpty {
+            region = nil
+            start(provider)
+        } else {
+            stage = .choosingRegion(provider)
+        }
+    }
+
     /// Three styles now, so a binary check would call the pasted-key row a browser sign-in.
     private func signInHint(for provider: ProviderID) -> String {
         switch DeviceLoginSupport.style(for: provider) {
@@ -280,7 +325,7 @@ struct AddAccountSheet: View {
                 return
             }
             do {
-                _ = try await container.completePastedKeyLogin(provider: provider, key: key)
+                _ = try await container.completePastedKeyLogin(provider: provider, key: key, region: region)
                 await store.load()
                 await store.refresh()
                 dismiss()
@@ -304,7 +349,7 @@ struct AddAccountSheet: View {
             do {
                 switch DeviceLoginSupport.style(for: provider) {
                 case .deviceCode:
-                    let challenge = try await container.beginLogin(provider: provider)
+                    let challenge = try await container.beginLogin(provider: provider, region: region)
                     stage = .waiting(provider, challenge)
                     // Blocks until the user approves, the code expires, or the provider refuses.
                     _ = try await container.completeLogin(

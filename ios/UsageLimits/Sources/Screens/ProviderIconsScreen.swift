@@ -14,7 +14,7 @@ struct ProviderIconsScreen: View {
                             store.settings.providerIcons[provider.rawValue] = choice.id
                         } label: {
                             HStack(spacing: 16) {
-                                Image(choice.assetName).resizable().scaledToFit().frame(width: 36, height: 36)
+                                ProviderMark(assetName: choice.assetName).frame(width: 36, height: 36)
                                 Text(choice.label).foregroundStyle(UsageColors.textPrimary)
                                 Spacer()
                                 if selected { Image(systemName: "checkmark").foregroundStyle(UsageColors.terracotta) }

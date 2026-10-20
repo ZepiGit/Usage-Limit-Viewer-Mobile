@@ -60,6 +60,8 @@ public actor UsageLimitsContainer {
             ProviderID.kimi.rawValue: KimiClient(httpClient: http),
             ProviderID.devin.rawValue: DevinClient(httpClient: http, now: now),
             ProviderID.meta.rawValue: MetaClient(httpClient: http, now: now),
+            ProviderID.zai.rawValue: ZaiClient(httpClient: http),
+            ProviderID.opencode.rawValue: OpenCodeClient(httpClient: http),
         ]
         self.providers = providers
 
@@ -114,7 +116,13 @@ public actor UsageLimitsContainer {
     ///
     /// Throws `unsupportedOnThisPlatform` only when a provider has no registered flow, carrying
     /// the reason so a caller renders an explanation rather than a control that cannot finish.
-    public func beginLogin(provider: ProviderID) async throws -> DeviceLoginChallenge {
+    public func beginLogin(
+        provider: ProviderID, region: ProviderRegion? = nil
+    ) async throws -> DeviceLoginChallenge {
+        // Kimi's host depends on the region the user picked; the challenge carries it on.
+        if provider == .kimi, let region {
+            return try await KimiDeviceLogin(httpClient: http, now: now, region: region).begin()
+        }
         guard let login = logins[provider] else {
             throw DeviceLoginError.unsupportedOnThisPlatform(
                 DeviceLoginSupport.unsupportedReason(for: provider)
@@ -151,7 +159,9 @@ public actor UsageLimitsContainer {
 
     /// Completes the sign-in that has no flow: a key the user pasted.
     ///
-    /// Kimi Code only, beside its device flow. The key is proved against the usage endpoint BEFORE an account row
+    /// Kimi Code beside its device flow, and the only way in for Z.ai and OpenCode Go. For a
+    /// regional provider `region` (default: the provider's) is stored with the key and decides
+    /// which host proves it. The key is proved against the usage endpoint BEFORE an account row
     /// exists — a key that cannot read usage is not a connected account, and storing it would
     /// leave a permanently failing row the user then has to work out how to remove.
     ///
@@ -160,7 +170,8 @@ public actor UsageLimitsContainer {
     /// account instead of adding a second one beside it.
     public func completePastedKeyLogin(
         provider: ProviderID,
-        key: String
+        key: String,
+        region: ProviderRegion? = nil
     ) async throws -> ProviderAccount {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -171,14 +182,18 @@ public actor UsageLimitsContainer {
                 "This provider cannot be signed into here.")
         }
 
+        // Stored with the key, where a refresh can read it. Only regional providers have one.
+        let regional: [String: String] = ProviderRegion.options(for: provider).isEmpty ? [:]
+            : [ProviderRegion.key: (region ?? ProviderRegion.defaultRegion(for: provider)).rawValue]
         let credentials = OAuthCredentials(
             accessToken: trimmed,
             refreshToken: nil,
             idToken: nil,
-            expiresAt: nil)
+            expiresAt: nil,
+            providerData: regional)
 
         // Throws if the key is not usable, which is the whole point of doing it here.
-        let usage = try await client.fetchUsage(credentials: credentials, attributes: [:])
+        let usage = try await client.fetchUsage(credentials: credentials, attributes: regional)
 
         let profile = ProviderProfile(
             // The provider's own id where the response states one, and a digest of the key only
@@ -194,7 +209,8 @@ public actor UsageLimitsContainer {
                 .nilIfEmpty ?? Self.pastedKeyIdentity(trimmed),
             email: nil,
             displayName: nil,
-            plan: nil)
+            plan: usage.plan,
+            attributes: regional)
         return try await store(profile: profile, credentials: credentials, provider: provider)
     }
 
