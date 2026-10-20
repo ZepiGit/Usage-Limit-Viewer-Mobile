@@ -141,9 +141,21 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         return aged == .healthy ? (row?.severity ?? aged) : aged
     }
 
+    /// The one row that stands for the account (ring, ordering): an exhausted row first, then the
+    /// lowest percentage, among rows whose reset has not passed since the fetch. When every row
+    /// has reset they all stay candidates, drawn as "reset due". Android's `representative`.
+    public func representative(at date: Date) -> GlanceRow? {
+        let open = rows.filter { !$0.resetPending(at: date, fetchedAt: fetchedAt) }
+        return (open.isEmpty ? rows : open).min { Self.rank($0) < Self.rank($1) }
+    }
+
+    private static func rank(_ row: GlanceRow) -> Double {
+        row.severity == .exhausted ? -1 : (row.remainingPercent ?? .greatestFiniteMagnitude)
+    }
+
     /// The tightest number this block actually shows. Used only for ordering.
-    var tightestRemaining: Double {
-        rows.compactMap(\.remainingPercent).min() ?? .greatestFiniteMagnitude
+    func tightestRemaining(at date: Date) -> Double {
+        representative(at: date)?.remainingPercent ?? .greatestFiniteMagnitude
     }
 }
 
@@ -293,7 +305,7 @@ public enum GlanceModel {
 
         let accounts = selected.map { glanceAccount($0, now: now, staleAfter: staleAfter, providerIcons: providerIcons) }
         let ordered: [GlanceAccount]
-        if scope == .mostCritical { ordered = sortedByUrgency(accounts) }
+        if scope == .mostCritical { ordered = sortedByUrgency(accounts, now: now) }
         else if scope == .closestResets {
             let indexed = accounts.enumerated().map { index, account in
                 let next = selected.first { $0.account.id == account.id }?.snapshot?.windows
@@ -342,13 +354,13 @@ public enum GlanceModel {
     /// screen means the reader re-scans from scratch each time and stops trusting the position
     /// of anything. Within a band the original order holds, so a tile only moves when something
     /// meaningful changed.
-    private static func sortedByUrgency(_ accounts: [GlanceAccount]) -> [GlanceAccount] {
+    private static func sortedByUrgency(_ accounts: [GlanceAccount], now: Date) -> [GlanceAccount] {
         accounts.enumerated()
             .sorted { lhs, rhs in
                 let l = urgency(lhs.element.severity), r = urgency(rhs.element.severity)
                 if l != r { return l < r }
-                let lb = band(lhs.element.tightestRemaining)
-                let rb = band(rhs.element.tightestRemaining)
+                let lb = band(lhs.element.tightestRemaining(at: now))
+                let rb = band(rhs.element.tightestRemaining(at: now))
                 if lb != rb { return lb < rb }
                 return lhs.offset < rhs.offset
             }
@@ -487,7 +499,7 @@ public enum GlanceModel {
             severity: usage.snapshot?.severity(at: now, staleAfter: staleAfter) ?? .stale,
             // The unaged judgement and the instant it was made, so a widget rendering this
             // hours later can age it itself instead of repeating a verdict from write time.
-            baseSeverity: usage.snapshot?.severity ?? .stale,
+            baseSeverity: usage.snapshot?.severityOfOpenWindows(at: now) ?? .stale,
             fetchedAt: usage.snapshot.flatMap { $0.failed && $0.windows.isEmpty ? nil : $0.fetchedAt }, providerID: usage.account.provider.rawValue,
             connectionStatus: usage.snapshot?.connectionStatus ?? .unknown,
             resetDates: usage.snapshot?.windows.compactMap(\.resetAt),

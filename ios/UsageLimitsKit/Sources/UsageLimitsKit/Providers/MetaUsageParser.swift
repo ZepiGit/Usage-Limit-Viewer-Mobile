@@ -187,11 +187,6 @@ public enum MetaUsageParser {
             used = normalisePercent(value)
         } else if let value = JSONSupport.double(object, "remaining_percent", "remainingPercent") {
             used = normalisePercent(100 - value)
-        } else if let value = JSONSupport.double(object, "percent") {
-            // `percent` is used as remaining by quota responses; the explicit consumed keys
-            // above win when both are present.
-            let remaining = value >= 0 && value <= 100 ? value : nil
-            used = remaining.map { 100 - $0 }
         } else if let limit = JSONSupport.double(object, "limit", "total", "max"), limit.isFinite, limit > 0,
                   let remaining = JSONSupport.double(object, "remaining", "available") {
             used = normalisePercent((limit - remaining) / limit * 100)
@@ -202,7 +197,7 @@ public enum MetaUsageParser {
             used = nil
         }
         let quotaKeys = ["used_percent", "usedPercent", "utilization", "percent_used", "percentUsed",
-                         "remaining_percent", "remainingPercent", "percent", "limit", "total", "max", "used", "consumed"]
+                         "remaining_percent", "remainingPercent", "limit", "total", "max", "used", "consumed"]
         guard used != nil || allowUnknown || quotaKeys.contains(where: { object?[$0] != nil }) else { return nil }
 
         let rawID = JSONSupport.string(object, "id", "key", "name", "window", "type")

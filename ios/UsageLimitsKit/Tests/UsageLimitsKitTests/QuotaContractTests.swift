@@ -14,6 +14,21 @@ final class QuotaContractTests: XCTestCase {
         UsageSnapshot(accountID: "synthetic", fetchedAt: now, status: .ok, windows: windows)
     }
 
+    func testAWindowWhoseResetPassedSinceTheFetchNoLongerDecidesTheVerdict() {
+        // Exhausted at the fetch, reset a minute later: "Out" would present a spent window as
+        // current. Parity with Android StalenessTest.
+        let spent = UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 100,
+            periodSeconds: 18_000, resetAt: now.addingTimeInterval(60), exhausted: true)
+        let weekly = UsageWindow(id: "wk", label: "Weekly", category: .weekly, usedPercent: 70,
+            periodSeconds: 604_800, resetAt: now.addingTimeInterval(86_400_000), exhausted: false)
+        let both = snapshot([spent, weekly])
+
+        XCTAssertEqual(both.severity(at: now.addingTimeInterval(30)), .exhausted)
+        XCTAssertEqual(both.severity(at: now.addingTimeInterval(120)), .medium)
+        // Nothing left that has not reset: unknown until a fetch, never the old verdict.
+        XCTAssertEqual(snapshot([spent]).severity(at: now.addingTimeInterval(120)), .unknown)
+    }
+
     func testScopedExhaustionDoesNotExhaustAvailableGlobalQuotas() {
         let value = snapshot([window("5h", used: 0), window("Weekly", used: 63),
                               window("Weekly (Fable)", used: 100, scope: .model)])

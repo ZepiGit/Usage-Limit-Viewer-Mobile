@@ -124,4 +124,10 @@ public struct UsageWindow: Sendable, Codable, Equatable {
     public var severity: Severity {
         Severity.from(remainingPercent: remainingPercent, exhausted: exhausted)
     }
+
+    /// Reset passed after `fetchedAt`: the figure describes a closed window until a fetch confirms.
+    public func resetElapsed(fetchedAt: Date, at now: Date) -> Bool {
+        guard let resetAt else { return false }
+        return resetAt <= now && fetchedAt < resetAt
+    }
 }
