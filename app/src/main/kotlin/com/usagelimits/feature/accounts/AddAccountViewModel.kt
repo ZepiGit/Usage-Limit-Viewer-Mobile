@@ -11,6 +11,7 @@ import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.network.ProviderException
+import com.usagelimits.core.oauth.SignInKeepAliveService
 import com.usagelimits.core.sync.userMessage
 import com.usagelimits.providers.DeviceCodeLoginCapable
 import com.usagelimits.providers.LoginChallenge
@@ -193,6 +194,9 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                             deviceCodeAlternative = deviceCodeAlternative,
                             authorizationUrl = challenge.authorizationUrl,
                         )
+                        // The redirect lands on a socket in this process, which the cached-apps
+                        // freezer would freeze while the browser is in front.
+                        SignInKeepAliveService.start(context.applicationContext)
                         openUrl(context, challenge.authorizationUrl)
                     }
 
@@ -247,6 +251,8 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                 _state.value = AddAccountState.Failed(
                     providerId, "Sign-in failed", keyAlternative, deviceCodeAlternative, withDeviceCode,
                 )
+            } finally {
+                SignInKeepAliveService.stop(context.applicationContext)
             }
         }
     }
