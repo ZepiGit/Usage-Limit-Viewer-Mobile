@@ -722,4 +722,48 @@ extension GlanceModelTests {
         let account = try XCTUnwrap(GlanceModel.build([blocked], now: now, scope: .allAccounts).accounts.first)
         XCTAssertEqual(account.representative(at: now)?.label, "Blocked")
     }
+
+    // MARK: - Exported before a reset, rendered after it
+
+    /// Exported at `now`: the 5h window (0 % left, exhausted) resets in a minute, weekly is open at 80 % left.
+    private func exhaustedShortUntilReset() -> AccountUsage {
+        withWindows([
+            UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 100,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(60), exhausted: true),
+            UsageWindow(id: "wk", label: "Weekly", category: .weekly, usedPercent: 20,
+                        periodSeconds: 604_800, resetAt: now.addingTimeInterval(86_400), exhausted: false)])
+    }
+
+    func testAnEntryAfterAResetRecomputesTheVerdictRankingAndColourFromTheExport() throws {
+        let later = now.addingTimeInterval(120)
+        let other = usage("other", .claude, usedPercent: 45)
+        let export = GlanceModel.build([exhaustedShortUntilReset(), other], now: now, scope: .allAccounts)
+        let exhausted = try XCTUnwrap(export.accounts.first { $0.id == "a" })
+        XCTAssertEqual(exhausted.severity(at: now, staleAfter: 3600), .exhausted)
+
+        XCTAssertEqual(exhausted.severity(at: later, staleAfter: 3600), .healthy)
+        XCTAssertEqual(export.selecting(scope: .mostCritical, now: later).accounts.first?.id, "other")
+        let representative = exhausted.representative(at: later)
+        XCTAssertEqual(representative?.label, "Weekly")
+        XCTAssertEqual(exhausted.displaySeverity(of: representative, at: later, staleAfter: 3600), .healthy)
+        XCTAssertEqual(
+            export.selecting(scope: .mostCritical, now: now).accounts.first?.id, "a",
+            "before the reset the exhausted account still leads")
+    }
+
+    func testTheRepresentativeSurvivesTheExportOfOnlyTwoHeadlines() throws {
+        // Two short windows: 0 % (resets in a minute) and 10 % (open). The export keeps one
+        // short headline, so choosing among its rows after the reset picked the 80 % weekly.
+        let usage = withWindows([
+            UsageWindow(id: "5h-a", label: "5h limit", category: .fiveHour, usedPercent: 100,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(60), exhausted: true),
+            UsageWindow(id: "5h-b", label: "5h other", category: .fiveHour, usedPercent: 90,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(3_600), exhausted: false),
+            UsageWindow(id: "wk", label: "Weekly", category: .weekly, usedPercent: 20,
+                        periodSeconds: 604_800, resetAt: now.addingTimeInterval(86_400), exhausted: false)])
+        let account = try XCTUnwrap(GlanceModel.build([usage], now: now, scope: .allAccounts).accounts.first)
+
+        XCTAssertEqual(account.representative(at: now.addingTimeInterval(120))?.label, "5h other")
+        XCTAssertEqual(account.representative(at: now)?.label, "5h limit")
+    }
 }
