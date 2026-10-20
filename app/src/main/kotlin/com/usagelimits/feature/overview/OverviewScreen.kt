@@ -221,35 +221,36 @@ private fun OverviewHeader(state: UsageUiState, nowMs: Long, onRefresh: () -> Un
  */
 @Composable
 private fun LeadStrip(state: UsageUiState, nowMs: Long) {
-    val critical = state.mostCritical
-    val window = critical?.second
-    // The reset of the account the strip is ABOUT. Falls back to the fleet-wide soonest only
-    // when there is no most-depleted account to scope it to.
-    val nextReset = (critical?.first?.account?.localId?.let { state.nextResetAt(nowMs, it) } ?: state.nextResetAt(nowMs))
-        ?.let { Countdown.format(it - nowMs) }
+    val lead = state.leadAt(nowMs)
+    val window = lead?.window
+    // Fleet-wide, as before the redesign: the soonest rollover anywhere, not the lead account's.
+    val nextReset = state.nextResetAt(nowMs)?.let { Countdown.format(it - nowMs) }
     val percent = com.usagelimits.core.model.percentLabel(window?.remainingPercent)
-    val reset = Countdown.resetLabel(window?.resetAt, nowMs)
+    // A stale lead says how old it is instead of promising a reset the cache cannot vouch for.
+    val reset = if (lead?.stale == true) Countdown.freshnessLabel(lead.usage.snapshot?.fetchedAt, nowMs)
+        else Countdown.resetLabel(window?.resetAt, nowMs)
 
     UsageCard {
         Column(
             Modifier.semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
-                    critical?.let { "${it.first.account.label}, ${it.second.label}, $percent left" }, reset,
+                    lead?.let { "${it.usage.account.label}, ${it.window.label}, $percent left" }, reset,
                 ).joinToString(", ")
             },
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (critical != null) {
-                val worst = critical.second
-                Text("${critical.first.account.label} · ${worst.label}",
+            if (lead != null) {
+                val worst = lead.window
+                val severity = if (lead.stale) Severity.STALE else worst.severity
+                Text("${lead.usage.account.label} · ${worst.label}",
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted, maxLines = 1)
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(percent, style = MaterialTheme.typography.headlineMedium,
-                        color = SeverityPalette.figureColor(worst.severity))
+                        color = SeverityPalette.figureColor(severity))
                     Text("left", Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
                 }
                 Spacer(Modifier.height(2.dp))
-                UsageBar(worst.remainingPercent, worst.severity, Modifier.fillMaxWidth())
+                UsageBar(worst.remainingPercent, severity, Modifier.fillMaxWidth())
                 if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {
                 Text("—", style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)

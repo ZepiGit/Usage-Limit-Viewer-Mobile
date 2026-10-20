@@ -37,7 +37,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -350,12 +349,12 @@ fun OutlineButton(
 
 /** Text only, flush with the content edge, 44dp touch. */
 @Composable
-fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = UsageColors.Ink) {
+fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = UsageColors.Ink, enabled: Boolean = true) {
     Box(
         modifier = modifier
             .heightIn(min = 44.dp)
             .widthIn(min = 44.dp)
-            .clickable(role = Role.Button, onClick = onClick),
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.CenterStart,
     ) {
         Text(text, style = MaterialTheme.typography.labelLarge, color = color)
@@ -369,8 +368,8 @@ fun Spinner(modifier: Modifier = Modifier, color: Color = UsageColors.Muted) {
 }
 
 /**
- * A row of mutually exclusive choices in a 1px frame. Cells are 36dp tall but each keeps a 48dp
- * touch target, and the row scrolls sideways rather than wrapping.
+ * A row of mutually exclusive choices in a 1px frame. Cells are 36dp tall at least and grow with the text; each keeps
+ * a 48dp touch target, and the row scrolls sideways rather than wrapping.
  */
 @Composable
 fun SegmentedRow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -378,7 +377,9 @@ fun SegmentedRow(modifier: Modifier = Modifier, content: @Composable () -> Unit)
         modifier = modifier
             .horizontalScroll(rememberScrollState())
             .drawBehind {
-                val h = 36.dp.toPx()
+                // The cells' height less their 8dp touch padding plus the 2dp frame margin each side (36dp at base size).
+                // Following the cells keeps the frame around a cell that grew with the text.
+                val h = size.height - 12.dp.toPx()
                 val stroke = 1.dp.toPx()
                 drawRoundRect(
                     UsageColors.Rule,
@@ -396,13 +397,15 @@ fun SegmentedRow(modifier: Modifier = Modifier, content: @Composable () -> Unit)
 fun Segment(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .minimumInteractiveComponentSize()
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
+            .widthIn(min = 48.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            // 8dp each side keeps the 48dp touch target at the base height and grows with the cell.
+            .padding(vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .height(32.dp)
+                .heightIn(min = 32.dp)
                 .clip(MaterialTheme.shapes.small)
                 .background(if (selected) UsageColors.Raised else Color.Transparent)
                 .padding(horizontal = 14.dp),

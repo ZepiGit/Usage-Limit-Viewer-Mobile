@@ -182,7 +182,7 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
     }
     Scaffold(containerColor = UsageColors.Ground, bottomBar = {
         Row(Modifier.fillMaxWidth().background(UsageColors.Surface).navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextAction("Cancel", onCancel, color = UsageColors.Muted)
+            TextAction("Cancel", onCancel, color = UsageColors.Muted, enabled = !saving)
             InkButton(if (saving) "Saving…" else "Save widget", { onSave(scope, accountId, providerId, style, currentOrder.filter { it in selected }) },
                 Modifier.weight(1f), enabled = valid && !saving)
         }

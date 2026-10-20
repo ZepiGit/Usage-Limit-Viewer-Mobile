@@ -46,6 +46,9 @@ data class UpcomingReset(
     val severity: Severity,
 )
 
+/** The overview lead: [window] of [usage], [stale] when its data is old, failed or past its reset. */
+data class Lead(val usage: AccountUsage, val window: UsageWindow, val stale: Boolean)
+
 /** Everything the screens render. */
 data class UsageUiState(
     val accounts: List<AccountUsage> = emptyList(),
@@ -130,6 +133,27 @@ data class UsageUiState(
         get() = accounts.mapNotNull { usage ->
             usage.snapshot?.mostCritical?.let { usage to it }
         }.minByOrNull { if (it.second.exhausted) -1.0 else it.second.remainingPercent ?: Double.MAX_VALUE }
+
+    /**
+     * The window the overview leads with: the tightest among accounts whose data is still valid.
+     *
+     * Validity is the model's own: a failed or old snapshot ([Severity.STALE]/[Severity.ERROR]) and
+     * a window whose reset passed since the fetch do not compete, so cached 80% on a failed account
+     * cannot outrank live numbers. Only when nothing is valid does a cached window lead, flagged
+     * [Lead.stale] so the strip paints it grey rather than blank.
+     */
+    fun leadAt(nowMs: Long): Lead? {
+        val candidates = accounts.mapNotNull { usage ->
+            val snapshot = usage.snapshot ?: return@mapNotNull null
+            val open = snapshot.copy(windows = snapshot.windows.filterNot { it.resetElapsedAt(snapshot.fetchedAt, nowMs) })
+                .mostCritical
+            val trusted = snapshot.severityAt(nowMs, staleAfterMs) !in setOf(Severity.STALE, Severity.ERROR)
+            val window = open ?: snapshot.mostCritical ?: return@mapNotNull null
+            Lead(usage, window, stale = !trusted || open == null)
+        }
+        return (candidates.filterNot { it.stale }.ifEmpty { candidates })
+            .minByOrNull { if (it.window.exhausted) -1.0 else it.window.remainingPercent ?: Double.MAX_VALUE }
+    }
 
     /** Chronological reset timeline; past events are dropped by the screen. */
     fun upcomingResets(nowMs: Long): List<UpcomingReset> =
