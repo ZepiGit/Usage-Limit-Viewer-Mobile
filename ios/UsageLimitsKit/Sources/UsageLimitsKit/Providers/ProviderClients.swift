@@ -666,9 +666,11 @@ public struct KimiClient: SyncProvider, Sendable {
             "Accept": "application/json",
         ]
         headers.merge(ProviderEndpoints.Kimi.identityHeaders) { current, _ in current }
+        // Keys and tokens are region-bound: ask the host that issued this one.
+        let region = ProviderRegion.stored(provider: .kimi, credentials: credentials, attributes: attributes)
         let response = try await ProviderHTTP.request(
             httpClient,
-            url: ProviderEndpoints.Kimi.usageEndpoint,
+            url: ProviderEndpoints.Kimi.urls(region).usageEndpoint,
             headers: headers,
             endpoint: "kimi usages")
         let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "kimi usages")
@@ -706,7 +708,7 @@ public struct KimiClient: SyncProvider, Sendable {
         headers.merge(ProviderEndpoints.Kimi.identityHeaders) { current, _ in current }
         let refreshed = try await TokenExchange.post(
             httpClient,
-            url: ProviderEndpoints.Kimi.tokenURL,
+            url: ProviderEndpoints.Kimi.urls(ProviderRegion.stored(provider: .kimi, credentials: credentials)).tokenURL,
             headers: headers,
             body: TokenExchange.formBody([
                 "grant_type": "refresh_token",
@@ -722,4 +724,77 @@ public struct KimiClient: SyncProvider, Sendable {
             idToken: refreshed.idToken,
             expiresAt: refreshed.expiresAt)
     }
+}
+
+
+/// Z.ai GLM Coding Plan, reached with an API key the user pasted. The key is region-bound (see
+/// `ProviderRegion`) and the response names no user, so the account is filed under a digest of
+/// the key. See docs/providers-zai.md.
+public struct ZaiClient: SyncProvider, Sendable {
+    public let providerID = "zai"
+
+    let httpClient: UsageHTTPClient
+
+    public init(httpClient: UsageHTTPClient) {
+        self.httpClient = httpClient
+    }
+
+    public func fetchUsage(
+        credentials: OAuthCredentials,
+        attributes: [String: String]
+    ) async throws -> UsageResult {
+        let region = ProviderRegion.stored(provider: .zai, credentials: credentials, attributes: attributes)
+        let response = try await ProviderHTTP.request(
+            httpClient,
+            url: ProviderEndpoints.Zai.usageEndpoint(region),
+            headers: [
+                "Authorization": "Bearer \(credentials.accessToken)",
+                "Accept": "application/json",
+            ],
+            endpoint: "zai quota")
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "zai quota")
+        // Z.ai can refuse inside a 200: {"code":401,"success":false,...}.
+        if JSONSupport.int64(payload, "code") == 401 { throw ProviderError.unauthorised }
+        guard payload["data"] is [String: Any] else {
+            throw ProviderError.malformedPayload("zai quota has no data")
+        }
+        return UsageResult(windows: ZaiUsageParser.parse(payload), plan: ZaiUsageParser.plan(payload))
+    }
+
+    /// A key has no refresh grant.
+    public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
+}
+
+/// OpenCode Go, reached with an API key the user pasted. The response names no user, so the
+/// account is filed under a digest of the key. See docs/providers-opencode.md.
+public struct OpenCodeClient: SyncProvider, Sendable {
+    public let providerID = "opencode"
+
+    let httpClient: UsageHTTPClient
+
+    public init(httpClient: UsageHTTPClient) {
+        self.httpClient = httpClient
+    }
+
+    public func fetchUsage(
+        credentials: OAuthCredentials,
+        attributes: [String: String]
+    ) async throws -> UsageResult {
+        let response = try await ProviderHTTP.request(
+            httpClient,
+            url: ProviderEndpoints.OpenCode.usageEndpoint,
+            headers: [
+                "Authorization": "Bearer \(credentials.accessToken)",
+                "Accept": "application/json",
+            ],
+            endpoint: "opencode usage")
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "opencode usage")
+        guard payload["usage"] is [String: Any] else {
+            throw ProviderError.malformedPayload("opencode usage has no usage")
+        }
+        return UsageResult(windows: OpenCodeUsageParser.parse(payload))
+    }
+
+    /// A key has no refresh grant.
+    public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
 }

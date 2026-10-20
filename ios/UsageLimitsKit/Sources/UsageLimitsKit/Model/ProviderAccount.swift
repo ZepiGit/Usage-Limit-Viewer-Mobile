@@ -12,6 +12,8 @@ public enum ProviderID: String, CaseIterable, Sendable, Codable {
     case kimi
     case devin
     case meta
+    case zai
+    case opencode
 
     public var displayName: String {
         switch self {
@@ -22,6 +24,8 @@ public enum ProviderID: String, CaseIterable, Sendable, Codable {
         case .kimi: return "Kimi"
         case .devin: return "Devin"
         case .meta: return "Meta Muse"
+        case .zai: return "Z.ai GLM"
+        case .opencode: return "OpenCode Go"
         }
     }
 }

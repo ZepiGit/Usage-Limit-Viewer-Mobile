@@ -174,11 +174,30 @@ struct ProviderBadge: View {
     let provider: ProviderID
 
     var body: some View {
-        Image(ProviderIconCatalog.selected(for: provider, id: choices[provider.rawValue]).assetName).resizable().scaledToFit().padding(6)
+        ProviderMark(assetName: ProviderIconCatalog.selected(for: provider, id: choices[provider.rawValue]).assetName)
+            .padding(6)
             .frame(width: 40, height: 40)
             .accessibilityLabel(provider.displayName)
     }
 
+}
+
+/// A provider's bundled artwork, or a lettered ring for a provider that has none.
+struct ProviderMark: View {
+    let assetName: String
+
+    var body: some View {
+        if let glyph = ProviderIconCatalog.glyph(forAssetName: assetName) {
+            Text(verbatim: glyph)
+                .font(.headline.weight(.bold))
+                .minimumScaleFactor(0.5)
+                .foregroundStyle(UsageColors.terracotta)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(Circle().stroke(UsageColors.terracotta, lineWidth: 2))
+        } else {
+            Image(assetName).resizable().scaledToFit()
+        }
+    }
 }
 
 /// Keeps quota rows legible in wide iPad and resizable windows while filling narrow panes.
