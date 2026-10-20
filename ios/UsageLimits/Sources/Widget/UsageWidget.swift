@@ -334,14 +334,26 @@ struct WidgetInk {
     let secondary: Color
     let tertiary: Color
     let track: Color
-    let chip: Color
+    /// The quota hue, the stale grey, and the two figure colours that have to be re-pulled for
+    /// a light wallpaper (the dark panel's amber and red are unreadable on it).
+    let data: Color
+    let staleMark: Color
+    let warning: Color
+    let negativeText: Color
+    /// Whether single-colour artwork must be drawn in `primary`: the white provider logos
+    /// vanish on a light wallpaper.
+    let tintsLogos: Bool
 
     static let light = WidgetInk(
-        primary: UsageColors.textPrimary,
-        secondary: UsageColors.textSecondary,
-        tertiary: UsageColors.textTertiary,
-        track: UsageColors.progressTrack,
-        chip: UsageColors.surface)
+        primary: UsageColors.ink,
+        secondary: UsageColors.muted,
+        tertiary: UsageColors.faint,
+        track: UsageColors.dataTrack,
+        data: UsageColors.data,
+        staleMark: UsageColors.staleMark,
+        warning: UsageColors.warning,
+        negativeText: UsageColors.negativeText,
+        tintsLogos: false)
 
     /// The light palette's counterpart for a transparent tile over a light wallpaper: the
     /// same hues pulled down, mirroring the Android dark-ink constants.
@@ -350,7 +362,28 @@ struct WidgetInk {
         secondary: Color(hex: 0x5C5A53),
         tertiary: Color(hex: 0x6B6960),
         track: Color(hex: 0x1A1918).opacity(0.18),
-        chip: Color(hex: 0x14000000))
+        data: Color(hex: 0xB35F42),
+        staleMark: Color(hex: 0x6B6960),
+        warning: Color(hex: 0x8A5A0A),
+        negativeText: Color(hex: 0xB03A31),
+        tintsLogos: true)
+
+    /// The bar or arc colour for a severity: the data hue, or the stale grey for a reading that
+    /// is no longer to be trusted.
+    func bar(_ severity: Severity) -> Color {
+        SeverityPalette.isStaleFill(severity) ? staleMark : data
+    }
+
+    /// The colour a percentage is written in, on THIS ink — `SeverityPalette.figureColor` is
+    /// the dark panel's and reads wrongly on a light wallpaper.
+    func figure(_ severity: Severity) -> Color {
+        switch SeverityPalette.figureTone(severity) {
+        case .ink: return primary
+        case .warning: return warning
+        case .negative: return negativeText
+        case .faint: return tertiary
+        }
+    }
 
     /// The tone only matters when the wallpaper is the backdrop; an opaque panel always
     /// pairs with light ink. `darkTone` arrives as a Bool because the tone choice is an
@@ -418,7 +451,7 @@ private struct QuotaBar: View {
     let context: String
     var ink: WidgetInk = .light
 
-    @ScaledMetric(relativeTo: .caption) private var barHeight = 5
+    @ScaledMetric(relativeTo: .caption) private var barHeight = 4
 
     var body: some View {
         GeometryReader { proxy in
@@ -429,13 +462,12 @@ private struct QuotaBar: View {
                 if let remainingPercent {
                     // Unknown percentages draw the empty track only — never a 0 % sliver.
                     Capsule()
-                        .fill(SeverityPalette.bar(remainingPercent: remainingPercent, severity: severity))
+                        .fill(ink.bar(severity))
                         .frame(width: proxy.size.width * QuotaFormatting.fraction(remainingPercent))
                 }
             }
         }
         .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: remainingPercent)
-        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: severity)
         .frame(height: barHeight)
         // A bar shape tells VoiceOver nothing; state the number in words.
         .accessibilityElement()
@@ -472,16 +504,7 @@ private struct QuotaBar: View {
 struct WidgetEmptyStateView: View {
 
     var reason: ConfiguredSelectionOutcome = .noAccounts
-
-    private var icon: String {
-        switch reason {
-        case .missingAccount: return "person.slash"
-        case .missingPreset: return "slider.horizontal.3"
-        case .sourceUnavailable: return "lock"
-        case .corruptSource: return "exclamationmark.triangle"
-        case .ready, .noAccounts: return "gauge.with.needle"
-        }
-    }
+    var ink: WidgetInk = .light
 
     private var title: String {
         switch reason {
@@ -505,15 +528,12 @@ struct WidgetEmptyStateView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundColor(UsageColors.textSecondary)
             Text(title)
-                .font(.headline)
-                .foregroundColor(UsageColors.textPrimary)
+                .usageFont(.bodyStrong)
+                .foregroundColor(ink.primary)
             Text(detail)
-                .font(.caption)
-                .foregroundColor(UsageColors.textSecondary)
+                .usageFont(.small)
+                .foregroundColor(ink.secondary)
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -548,22 +568,22 @@ private struct MediumAccountRow: View {
             HStack(spacing: 6) {
                 // A severity dot: the colour-blind-readable twin of the bar colour.
                 // Redundant to VoiceOver, which already hears the percentage.
+                // A healthy account is the default and keeps the slot empty, so titles align.
+                let accountSeverity = account.severity(at: now, staleAfter: staleAfter)
                 Circle()
-                    .fill(SeverityPalette.accent(account.severity(at: now, staleAfter: staleAfter)))
+                    .fill(accountSeverity == .healthy ? Color.clear : SeverityPalette.accent(accountSeverity))
                     .frame(width: 6, height: 6)
                     .accessibilityHidden(true)
                 Text(verbatim: account.title)
-                    .font(.subheadline)
+                    .usageFont(.bodyStrong)
                     .foregroundColor(ink.primary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                WidgetPercentage(remainingPercent: row?.remainingPercent)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(SeverityPalette.text(rowSeverity))
+                WidgetFigure(remainingPercent: row?.remainingPercent, font: .figure, ink: ink, severity: rowSeverity)
                     .lineLimit(1)
             }
             if let message = account.statusMessage {
-                Text(verbatim: message).font(.caption2).foregroundColor(ink.secondary).lineLimit(2)
+                Text(verbatim: message).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(2)
             }
             QuotaBar(
                 remainingPercent: row?.remainingPercent,
@@ -593,10 +613,10 @@ struct UsageWidgetSmallView: View {
             if let focus = WidgetFocus(snapshot: entry.snapshot) {
                 content(for: focus)
             } else {
-                WidgetEmptyStateView(reason: entry.unavailable ?? .noAccounts)
+                WidgetEmptyStateView(reason: entry.unavailable ?? .noAccounts, ink: ink)
             }
         }
-        .widgetBackground(transparent ? nil : UsageColors.background)
+        .widgetBackground(transparent ? nil : UsageColors.ground)
         .widgetURL(DeepLink.glance)
     }
 
@@ -622,26 +642,24 @@ struct UsageWidgetSmallView: View {
         let severity = focus.account.displaySeverity(of: focus.row, at: entry.date, staleAfter: entry.snapshot.staleAfter)
         return VStack(alignment: .leading, spacing: 4) {
             Text(verbatim: focus.account.title)
-                .font(.headline)
+                .usageFont(.bodyStrong)
                 .foregroundColor(ink.primary)
                 .lineLimit(1)
 
             if let row = focus.row {
                 Text(verbatim: row.label)
-                    .font(.caption)
+                    .usageFont(.small)
                     .foregroundColor(ink.secondary)
                     .lineLimit(1)
             }
 
             if let message = focus.account.statusMessage {
-                Text(verbatim: message).font(.caption2).foregroundColor(ink.secondary).lineLimit(2)
+                Text(verbatim: message).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(2)
             }
 
             Spacer(minLength: 4)
 
-            WidgetPercentage(remainingPercent: focus.row?.remainingPercent)
-                .font(.system(.title2, design: .rounded).weight(.semibold))
-                .foregroundColor(SeverityPalette.text(severity))
+            WidgetFigure(remainingPercent: focus.row?.remainingPercent, font: .widgetLead, ink: ink, severity: severity)
                 .lineLimit(1)
 
             QuotaBar(
@@ -653,7 +671,7 @@ struct UsageWidgetSmallView: View {
 
             if let reset = GlanceText.resetLine(resetAt: shownReset, now: entry.date) {
                 Text(verbatim: reset)
-                    .font(.caption2)
+                    .usageFont(.micro)
                     .foregroundColor(ink.secondary)
                     .lineLimit(1)
             }
@@ -664,7 +682,7 @@ struct UsageWidgetSmallView: View {
             if let asOf = GlanceText.asOfLine(
                 updatedAt: focus.account.fetchedAt, now: entry.date) {
                 Text(verbatim: asOf)
-                    .font(.caption2)
+                    .usageFont(.micro)
                     .foregroundColor(ink.tertiary)
                     .lineLimit(1)
             }
@@ -717,12 +735,12 @@ struct UsageWidgetMediumView: View {
     var body: some View {
         Group {
             if entry.snapshot.accounts.isEmpty {
-                WidgetEmptyStateView(reason: entry.unavailable ?? .noAccounts)
+                WidgetEmptyStateView(reason: entry.unavailable ?? .noAccounts, ink: ink)
             } else {
                 content
             }
         }
-        .widgetBackground(transparent ? nil : UsageColors.background)
+        .widgetBackground(transparent ? nil : UsageColors.ground)
         .widgetURL(DeepLink.glance)
     }
 
@@ -743,11 +761,8 @@ struct UsageWidgetMediumView: View {
                 // Counted, not drawn: the reader learns the rest exist without
                 // being shown three unreadable half-rows.
                 Text(verbatim: "+\(hiddenCount) more")
-                    .font(.caption2)
+                    .usageFont(.micro)
                     .foregroundColor(ink.tertiary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(ink.chip))
             }
         }
         .padding(12)
@@ -783,7 +798,7 @@ struct UsageAccessoryRectangularView: View {
 
             HStack(spacing: 4) {
                 WidgetPercentage(remainingPercent: focus.row?.remainingPercent)
-                    .font(.title3.weight(.semibold))
+                    .font(.system(.title3, design: .monospaced).weight(.semibold))
                     .lineLimit(1)
                 // The ACCOUNT's severity, which is the one that carries staleness. The row's
                 // is computed from the percentage alone, so the lock screen wrote "Healthy"
@@ -847,12 +862,11 @@ private struct UsageRing: View {
                 Circle()
                     .trim(from: 0, to: QuotaFormatting.fraction(remainingPercent))
                     .stroke(
-                        SeverityPalette.bar(remainingPercent: remainingPercent, severity: severity),
+                        ink.bar(severity),
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     // From twelve o'clock, clockwise. `trim` starts at three o'clock.
                     .rotationEffect(Angle.degrees(-90))
                     .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: remainingPercent)
-                    .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: severity)
             }
         }
     }
@@ -866,13 +880,14 @@ private struct UsageRing: View {
 struct UsageRingWidgetView: View {
 
     let entry: UsageEntry
+    var ink: WidgetInk = .light
 
     var body: some View {
         Group {
             if let focus = WidgetFocus(snapshot: entry.snapshot) {
                 content(for: focus)
             } else {
-                WidgetEmptyStateView(reason: entry.unavailable ?? .noAccounts)
+                WidgetEmptyStateView(reason: entry.unavailable ?? .noAccounts, ink: ink)
             }
         }
         // Transparent: the wallpaper shows through the system's widget material. A ring reads
@@ -894,19 +909,17 @@ struct UsageRingWidgetView: View {
                 UsageRing(
                     remainingPercent: focus.row?.remainingPercent,
                     severity: severity,
-                    lineWidth: 9)
+                    lineWidth: 9,
+                    ink: ink)
                 VStack(spacing: 1) {
-                    WidgetPercentage(remainingPercent: focus.row?.remainingPercent)
-                        .font(.system(.title2, design: .rounded).weight(.semibold))
-                        .foregroundColor(SeverityPalette.text(severity))
+                    WidgetFigure(remainingPercent: focus.row?.remainingPercent, font: .figureLarge, ink: ink, severity: severity)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.6)
+                        .minimumScaleFactor(0.85)
                     if let row = focus.row {
                         Text(verbatim: row.label)
-                            .font(.caption2)
-                            .foregroundColor(UsageColors.textSecondary)
+                            .usageFont(.micro)
+                            .foregroundColor(ink.secondary)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.7)
                     }
                 }
                 .padding(10)
@@ -915,18 +928,24 @@ struct UsageRingWidgetView: View {
             .accessibilityLabel(spoken(focus))
 
             Text(verbatim: focus.account.title)
-                .font(.caption2.weight(.semibold))
-                .foregroundColor(UsageColors.textPrimary)
+                .usageFont(.smallStrong)
+                .foregroundColor(ink.primary)
                 .lineLimit(1)
             if let message = focus.account.statusMessage {
-                Text(verbatim: message).font(.caption2).foregroundColor(UsageColors.textSecondary).lineLimit(2)
+                Text(verbatim: message).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(2)
             }
             if let reset = GlanceText.resetLine(resetAt: shownReset, now: entry.date) {
                 Text(verbatim: reset)
-                    .font(.caption2)
-                    .foregroundColor(UsageColors.textSecondary)
+                    .usageFont(.micro)
+                    .foregroundColor(ink.secondary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+            }
+            // The data's own stamp, like every other tile that has room for one.
+            if let asOf = GlanceText.asOfLine(updatedAt: focus.account.fetchedAt, now: entry.date) {
+                Text(verbatim: asOf)
+                    .usageFont(.micro)
+                    .foregroundColor(ink.tertiary)
+                    .lineLimit(1)
             }
         }
         .padding(10)
@@ -965,9 +984,9 @@ struct UsageAccessoryCircularView: View {
             }
             VStack(spacing: 1) {
                 WidgetPercentage(remainingPercent: remaining)
-                    .font(.caption.weight(.semibold))
+                    .font(.system(.caption, design: .monospaced).weight(.semibold))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+                    .minimumScaleFactor(0.85)
                 if focus?.account.statusMessage != nil {
                     Image(systemName: "exclamationmark.circle").font(.caption2)
                 }
@@ -1022,12 +1041,12 @@ struct UsageWidgetLargeView: View {
     var body: some View {
         Group {
             if entry.snapshot.accounts.isEmpty {
-                WidgetEmptyStateView(reason: entry.unavailable ?? .noAccounts)
+                WidgetEmptyStateView(reason: entry.unavailable ?? .noAccounts, ink: ink)
             } else {
                 content
             }
         }
-        .widgetBackground(transparent ? nil : UsageColors.background)
+        .widgetBackground(transparent ? nil : UsageColors.ground)
         .widgetURL(DeepLink.glance)
     }
 
@@ -1046,11 +1065,8 @@ struct UsageWidgetLargeView: View {
 
             if hiddenCount > 0 {
                 Text(verbatim: "+\(hiddenCount) more")
-                    .font(.caption2)
+                    .usageFont(.micro)
                     .foregroundColor(ink.tertiary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(ink.chip))
             }
 
             Spacer(minLength: 0)
@@ -1074,14 +1090,14 @@ private struct WidgetHeader: View {
             // freshen an older visible one, so the aggregate names itself truthfully.
             if let asOf = GlanceText.asOfLine(updatedAt: entry.snapshot.updatedAt, now: entry.date, label: "Latest update") {
                 Text(verbatim: asOf)
-                    .font(.caption2)
+                    .usageFont(.micro)
                     .foregroundColor(ink.tertiary)
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
             if let reset = GlanceText.resetLine(resetAt: entry.snapshot.nextResetAt, now: entry.date) {
                 Text(verbatim: reset)
-                    .font(.caption2)
+                    .usageFont(.micro)
                     .foregroundColor(ink.secondary)
                     .lineLimit(1)
             }
@@ -1092,7 +1108,7 @@ private struct WidgetHeader: View {
                 // has no such button rather than a decorative one that does nothing.
                 Link(destination: refresh) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.caption2.weight(.semibold))
+                        .usageFont(.small)
                         .foregroundColor(ink.secondary)
                 }
                 .accessibilityLabel("Refresh in the app")
@@ -1260,6 +1276,27 @@ private struct WidgetPercentage: View {
         } else {
             Text(verbatim: QuotaFormatting.percentText(remainingPercent))
                 .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
+        }
+    }
+}
+
+/// A percentage in the figure face and the colour its severity earns on this ink — or, when the
+/// provider reported none, a small dash. A missing value must not hold the weight of a figure.
+private struct WidgetFigure: View {
+    let remainingPercent: Double?
+    let font: UsageFont
+    let ink: WidgetInk
+    let severity: Severity
+
+    var body: some View {
+        if remainingPercent == nil {
+            Text(verbatim: QuotaFormatting.percentText(nil))
+                .usageFont(.small)
+                .foregroundColor(ink.secondary)
+        } else {
+            WidgetPercentage(remainingPercent: remainingPercent)
+                .usageFont(font)
+                .foregroundColor(ink.figure(severity))
         }
     }
 }

@@ -109,7 +109,7 @@ private struct CreditBar: View {
     let severity: Severity
     var ink: WidgetInk = .light
 
-    @ScaledMetric(relativeTo: .caption) private var barHeight = 5
+    @ScaledMetric(relativeTo: .caption) private var barHeight = 4
 
     var body: some View {
         GeometryReader { proxy in
@@ -117,7 +117,7 @@ private struct CreditBar: View {
                 Capsule().fill(ink.track)
                 if let remainingPercent {
                     Capsule()
-                        .fill(SeverityPalette.bar(remainingPercent: remainingPercent, severity: severity))
+                        .fill(ink.bar(severity))
                         .frame(width: proxy.size.width * QuotaFormatting.fraction(remainingPercent))
                 }
             }
@@ -136,30 +136,38 @@ struct CreditsSmallView: View {
             if let credit = entry.credits.first {
                 let severity = credit.severity(at: entry.date, staleAfter: entry.staleAfter)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(verbatim: credit.title).font(.headline).foregroundColor(ink.primary).lineLimit(1)
+                    Text(verbatim: credit.title).usageFont(.bodyStrong).foregroundColor(ink.primary).lineLimit(1)
                     if let name = credit.providerName, name != credit.title {
-                        Text(verbatim: name).font(.caption).foregroundColor(ink.secondary).lineLimit(1)
+                        Text(verbatim: name).usageFont(.small).foregroundColor(ink.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 4)
+                    // Money is the one figure that stays bold, and it stays ink: a balance does
+                    // not change colour with its severity. A missing amount is a small dash.
                     Text(verbatim: credit.headlineText)
-                        .font(.system(.title2, design: .rounded).weight(.semibold))
-                        .foregroundColor(SeverityPalette.text(severity))
-                        .minimumScaleFactor(0.6)
+                        .usageFont(credit.balances.isEmpty ? .small : .widgetMoney)
+                        .foregroundColor(credit.balances.isEmpty ? ink.secondary : ink.primary)
+                        .minimumScaleFactor(0.85)
                         .lineLimit(1)
                     if let extra = credit.extraText {
-                        Text(verbatim: extra).font(.caption2).foregroundColor(ink.secondary).lineLimit(1)
+                        Text(verbatim: extra).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(1)
                     }
                     CreditBar(remainingPercent: credit.balances.first?.remainingPercent, severity: severity, ink: ink)
-                    Text(verbatim: statusLine(credit, severity))
-                        .font(.caption2).foregroundColor(ink.secondary).lineLimit(1)
+                    HStack(spacing: 6) {
+                        if severity != .healthy {
+                            Circle().fill(SeverityPalette.accent(severity)).frame(width: 6, height: 6)
+                                .accessibilityHidden(true)
+                        }
+                        Text(verbatim: statusLine(credit, severity))
+                            .usageFont(.micro).foregroundColor(ink.secondary).lineLimit(1)
+                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                CreditsEmptyView(state: entry.state)
+                CreditsEmptyView(state: entry.state, ink: ink)
             }
         }
-        .widgetBackground(UsageColors.background)
+        .widgetBackground(UsageColors.ground)
         .widgetURL(DeepLink.glance)
     }
 
@@ -182,19 +190,21 @@ private struct CreditRow: View {
         let severity = credit.severity(at: now, staleAfter: staleAfter)
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Circle().fill(SeverityPalette.accent(severity)).frame(width: 7, height: 7)
+                // A healthy balance is the default and leaves the slot empty, so titles align.
+                Circle().fill(severity == .healthy ? Color.clear : SeverityPalette.accent(severity))
+                    .frame(width: 6, height: 6)
                     .accessibilityLabel(SeverityPalette.label(severity))
-                Text(verbatim: credit.title).font(.subheadline.weight(.semibold))
+                Text(verbatim: credit.title).usageFont(.bodyStrong)
                     .foregroundColor(ink.primary).lineLimit(1)
                 Spacer(minLength: 4)
                 Text(verbatim: credit.headlineText)
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                    .foregroundColor(SeverityPalette.text(severity))
+                    .usageFont(credit.balances.isEmpty ? .small : .rowMoney)
+                    .foregroundColor(credit.balances.isEmpty ? ink.secondary : ink.primary)
                     .lineLimit(1)
             }
             CreditBar(remainingPercent: credit.balances.first?.remainingPercent, severity: severity, ink: ink)
             if let message = credit.statusMessage ?? credit.extraText {
-                Text(verbatim: message).font(.caption2).foregroundColor(ink.secondary).lineLimit(1)
+                Text(verbatim: message).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(1)
             }
         }
     }
@@ -216,16 +226,16 @@ struct CreditsListView: View {
     var body: some View {
         Group {
             if entry.credits.isEmpty {
-                CreditsEmptyView(state: entry.state)
+                CreditsEmptyView(state: entry.state, ink: ink)
             } else {
                 let shown = Array(entry.credits.prefix(visibleLimit))
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text("Credits").font(.caption.weight(.semibold)).foregroundColor(ink.secondary)
+                        Text("Credits").usageFont(.smallStrong).foregroundColor(ink.secondary)
                         Spacer(minLength: 4)
                         if let asOf = GlanceText.asOfLine(
                             updatedAt: entry.updatedAt, now: entry.date, label: "Latest update") {
-                            Text(verbatim: asOf).font(.caption2).foregroundColor(ink.tertiary).lineLimit(1)
+                            Text(verbatim: asOf).usageFont(.micro).foregroundColor(ink.tertiary).lineLimit(1)
                         }
                     }
                     ForEach(shown) { credit in
@@ -234,9 +244,7 @@ struct CreditsListView: View {
                     let hidden = entry.credits.count - shown.count
                     if hidden > 0 {
                         Text(verbatim: "+\(hidden) more")
-                            .font(.caption2).foregroundColor(ink.tertiary)
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().fill(ink.chip))
+                            .usageFont(.micro).foregroundColor(ink.tertiary)
                     }
                     Spacer(minLength: 0)
                 }
@@ -244,13 +252,14 @@ struct CreditsListView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .widgetBackground(UsageColors.background)
+        .widgetBackground(UsageColors.ground)
         .widgetURL(DeepLink.glance)
     }
 }
 
 struct CreditsEmptyView: View {
     let state: CreditsEntry.State
+    var ink: WidgetInk = .light
 
     private var title: String {
         switch state {
@@ -270,10 +279,8 @@ struct CreditsEmptyView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Image(systemName: state == .locked ? "lock" : "creditcard")
-                .font(.title3).foregroundColor(UsageColors.textSecondary)
-            Text(title).font(.headline).foregroundColor(UsageColors.textPrimary)
-            Text(detail).font(.caption).foregroundColor(UsageColors.textSecondary)
+            Text(title).usageFont(.bodyStrong).foregroundColor(ink.primary)
+            Text(detail).usageFont(.small).foregroundColor(ink.secondary)
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

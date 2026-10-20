@@ -14,29 +14,27 @@ struct CreditsScreen: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
+            LazyVStack(alignment: .leading, spacing: 8) {
                 ForEach(store.credits) { entry in
                     CreditCard(
                         entry: entry, now: store.now, staleAfter: store.settings.staleAfter,
                         onEdit: { editing = entry }, onRemove: { removing = entry })
                 }
-                Button { isAdding = true } label: {
-                    UsageCard {
-                        Label("Add a credit balance", systemImage: "plus.circle")
-                            .font(.headline)
-                            .foregroundStyle(UsageColors.terracotta)
-                        Text("OpenRouter, DeepSeek, Moonshot, xAI, fal.ai and Novita. Keys stay in the keychain on this device.")
-                            .font(.footnote)
-                            .foregroundStyle(UsageColors.textSecondary)
-                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    Button { isAdding = true } label: { Text("Add a credit balance") }
+                        .buttonStyle(OutlineButtonStyle(fullWidth: true))
+                    Text("OpenRouter, DeepSeek, Moonshot, xAI, fal.ai and Novita. Keys stay in the keychain on this device.")
+                        .usageFont(.small)
+                        .foregroundStyle(UsageColors.muted)
                 }
-                .buttonStyle(.plain)
+                .padding(.top, 8)
             }
             .padding(16)
             .readableWidth()
         }
-        .background(UsageColors.background)
+        .background(UsageColors.ground)
         .navigationTitle("Credits")
+        .navigationBarTitleDisplayMode(.inline)
         .refreshable { await store.refresh() }
         .sheet(isPresented: $isAdding) { AddCreditSheet() }
         .sheet(item: $editing) { entry in EditCreditSheet(entry: entry) }
@@ -59,6 +57,8 @@ struct CreditsScreen: View {
 /// One credit account: who, how much is left, and how sure we are.
 struct CreditCard: View {
 
+    @EnvironmentObject private var store: UsageStore
+
     let entry: CreditEntry
     let now: Date
     let staleAfter: TimeInterval
@@ -73,33 +73,41 @@ struct CreditCard: View {
     private var glance: GlanceCredit { GlanceCredit(entry: entry, now: now, staleAfter: staleAfter) }
     private var severity: Severity { glance.severity(at: now, staleAfter: staleAfter) }
 
+    /// The provider and the age of the reading, on one line.
+    private var subline: String {
+        var parts: [String] = []
+        if entry.account.label != entry.account.provider.displayName {
+            parts.append(entry.account.provider.displayName)
+        }
+        if let fetchedAt = glance.fetchedAt { parts.append(updatedText(since: fetchedAt)) }
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
         UsageCard {
             HStack(spacing: 10) {
-                CreditGlyph(provider: entry.account.provider)
-                Circle()
-                    .fill(SeverityPalette.accent(severity))
-                    .frame(width: 8, height: 8)
-                    .accessibilityLabel(SeverityPalette.label(severity))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: entry.account.label)
-                        .font(.headline)
-                        .foregroundStyle(UsageColors.textPrimary)
-                    if entry.account.label != entry.account.provider.displayName {
-                        Text(verbatim: entry.account.provider.displayName)
-                            .font(.footnote)
-                            .foregroundStyle(UsageColors.textSecondary)
+                        .usageFont(.section)
+                        .foregroundStyle(UsageColors.ink)
+                    if !subline.isEmpty {
+                        Text(verbatim: subline)
+                            .usageFont(.small)
+                            .foregroundStyle(UsageColors.faint)
                     }
                 }
                 Spacer()
-                StatusPill(severity: severity)
+                StatusMark(severity: severity)
                 if onEdit != nil || onRemove != nil {
                     Menu {
                         if let onEdit { Button("Edit", action: onEdit) }
                         if let onRemove { Button("Remove", role: .destructive, action: onRemove) }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .foregroundStyle(UsageColors.textSecondary)
+                        // 44pt to hit, however small the glyph.
+                        Image(systemName: "ellipsis")
+                            .foregroundStyle(UsageColors.muted)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("More")
                 }
@@ -107,22 +115,17 @@ struct CreditCard: View {
 
             if glance.balances.isEmpty {
                 Text("No balance read yet")
-                    .font(.subheadline)
-                    .foregroundStyle(UsageColors.textSecondary)
+                    .usageFont(.body)
+                    .foregroundStyle(UsageColors.muted)
             }
             ForEach(Array(glance.balances.enumerated()), id: \.offset) { _, balance in
-                BalanceRow(balance: balance, account: entry.account, severity: severity)
+                BalanceRow(balance: balance, severity: severity)
             }
 
             if let error = entry.snapshot?.error {
-                Text(verbatim: error)
-                    .font(.footnote)
-                    .foregroundStyle(UsageColors.amber)
-            }
-            if let fetchedAt = glance.fetchedAt {
-                Text(updatedText(since: fetchedAt))
-                    .font(.caption)
-                    .foregroundStyle(UsageColors.textTertiary)
+                NoticeLine(
+                    message: error, dot: UsageColors.negative,
+                    retry: { Task { await store.refresh() } })
             }
         }
     }
@@ -130,69 +133,44 @@ struct CreditCard: View {
 
 private struct BalanceRow: View {
     let balance: CreditBalance
-    let account: CreditAccount
     /// The account's aged severity: stale data must not keep its last colour.
     let severity: Severity
 
-    /// The balance's own colour, unless the whole reading is stale or failed.
-    private var shown: Severity {
-        severity == .stale || severity == .error
-            ? severity
-            : CreditSeverity.of(balance, lowThreshold: account.lowThreshold(for: balance.currency))
-    }
     private var amount: String { CreditFormat.string(balance.amount, currency: balance.currency) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if balance.unlimited {
                 Text(verbatim: balance.label ?? "No limit")
-                    .font(.system(.title2, design: .rounded).weight(.semibold))
-                    .foregroundStyle(UsageColors.textPrimary)
+                    .usageFont(.body)
+                    .foregroundStyle(UsageColors.ink)
                 Text("\(amount) spent this month")
-                    .font(.subheadline)
-                    .foregroundStyle(UsageColors.textSecondary)
+                    .usageFont(.body)
+                    .foregroundStyle(UsageColors.muted)
             } else {
-                if let label = balance.label {
-                    Text(verbatim: label)
-                        .font(.subheadline)
-                        .foregroundStyle(UsageColors.textSecondary)
+                // Money is always ink — status lives on the card's mark — and a real zero
+                // prints as itself.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: amount)
+                        .usageFont(.money)
+                        .foregroundStyle(UsageColors.ink)
+                    if let total = balance.total {
+                        Text(verbatim: "of \(CreditFormat.string(total, currency: balance.currency))")
+                            .usageFont(.body)
+                            .foregroundStyle(UsageColors.muted)
+                    }
+                    Spacer(minLength: 8)
+                    if let label = balance.label {
+                        Text(verbatim: label)
+                            .usageFont(.small)
+                            .foregroundStyle(UsageColors.muted)
+                    }
                 }
-                Text(verbatim: amount)
-                    .font(.system(.title, design: .rounded).weight(.semibold))
-                    .foregroundStyle(SeverityPalette.text(shown))
-                    .monospacedDigit()
                 if let percent = balance.remainingPercent, let total = balance.total {
-                    UsageBar(remainingPercent: percent, severity: shown)
+                    UsageBar(remainingPercent: percent, severity: severity)
                         .accessibilityLabel("\(amount) of \(CreditFormat.string(total, currency: balance.currency)) left")
                 }
             }
-        }
-    }
-}
-
-/// A lettered ring, like the providers that have no artwork.
-struct CreditGlyph: View {
-    let provider: CreditProviderID
-
-    var body: some View {
-        Text(verbatim: glyph)
-            .font(.headline.weight(.bold))
-            .minimumScaleFactor(0.5)
-            .foregroundStyle(UsageColors.terracotta)
-            .frame(width: 28, height: 28)
-            .overlay(Circle().stroke(UsageColors.terracotta, lineWidth: 2))
-            .padding(6)
-            .accessibilityLabel(provider.displayName)
-    }
-
-    private var glyph: String {
-        switch provider {
-        case .openrouter: return "R"
-        case .deepseek: return "D"
-        case .moonshot: return "M"
-        case .xai: return "X"
-        case .fal: return "F"
-        case .novita: return "N"
         }
     }
 }
@@ -223,45 +201,55 @@ struct AddCreditSheet: View {
                 .padding(16)
                 .readableWidth()
             }
-            .background(UsageColors.background)
+            .background(UsageColors.ground)
             .navigationTitle("Add credit balance")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
     }
 
+    /// The providers as ledger rows in one card, 56pt apart, with the ones that cannot be added
+    /// listed after them — so a missing provider reads as impossible, not as forgotten.
     private var chooser: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(CreditProviderID.allCases, id: \.self) { option in
+        UsageCard(padding: 0, spacing: 0) {
+            ForEach(Array(CreditProviderID.allCases.enumerated()), id: \.offset) { index, option in
+                if index > 0 { LedgerDivider() }
                 Button { provider = option } label: {
-                    UsageCard {
-                        HStack {
-                            CreditGlyph(provider: option)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(verbatim: option.displayName)
-                                    .font(.headline)
-                                    .foregroundStyle(UsageColors.terracotta)
-                                Text(verbatim: option.keyHint)
-                                    .font(.footnote)
-                                    .foregroundStyle(UsageColors.textSecondary)
-                            }
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: option.displayName)
+                                .usageFont(.section)
+                                .foregroundStyle(UsageColors.ink)
+                            Text(verbatim: option.keyHint)
+                                .usageFont(.small)
+                                .foregroundStyle(UsageColors.muted)
                         }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(UsageColors.faint)
+                            .accessibilityHidden(true)
                     }
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 56)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
-            // Listed so a missing provider reads as impossible, not as forgotten.
             ForEach(CreditProviderID.notPossible) { option in
-                UsageCard {
+                LedgerDivider()
+                VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: option.displayName)
-                        .font(.headline)
-                        .foregroundStyle(UsageColors.textTertiary)
+                        .usageFont(.section)
+                        .foregroundStyle(UsageColors.faint)
                     Text(verbatim: option.reason)
-                        .font(.footnote)
-                        .foregroundStyle(UsageColors.textTertiary)
+                        .usageFont(.small)
+                        .foregroundStyle(UsageColors.faint)
                 }
-                .opacity(0.6)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(option.displayName): not available. \(option.reason)")
             }
         }
@@ -270,66 +258,60 @@ struct AddCreditSheet: View {
     private func form(_ provider: CreditProviderID) -> some View {
         UsageCard {
             Text(verbatim: provider.displayName)
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+                .usageFont(.section)
+                .foregroundStyle(UsageColors.ink)
             Text(verbatim: provider.keyHint)
-                .font(.footnote)
-                .foregroundStyle(UsageColors.textSecondary)
+                .usageFont(.small)
+                .foregroundStyle(UsageColors.muted)
 
             TextField(provider.displayName, text: $label)
-                .textFieldStyle(.roundedBorder)
+                .ledgerField()
                 .accessibilityLabel("Name")
 
             if provider.hasRegion {
-                Picker("Region", selection: $region) {
-                    ForEach(CreditProviderID.regions, id: \.self) { option in
-                        Text(CreditProviderID.regionLabel(option)).tag(option)
-                    }
-                }
-                .tint(UsageColors.terracotta)
+                SegmentedRow(options: CreditProviderID.regions.map { option in
+                    SegmentOption(
+                        id: CreditProviderID.regionLabel(option), title: CreditProviderID.regionLabel(option),
+                        selected: region == option) { region = option }
+                })
             }
             if provider.acceptsTeamID {
                 TextField("Team id (only if the key is not team-scoped)", text: $teamID)
-                    .textFieldStyle(.roundedBorder)
+                    .ledgerField()
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
             TextField("Low balance below (optional)", text: $threshold)
-                .textFieldStyle(.roundedBorder)
+                .ledgerField()
                 .keyboardType(.decimalPad)
 
             SecureField("Key", text: $key)
-                .textFieldStyle(.roundedBorder)
+                .ledgerField()
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
 
             Text("Checked against \(provider.displayName) before it is saved, then kept in the keychain on this device only.")
-                .font(.caption)
-                .foregroundStyle(UsageColors.textTertiary)
+                .usageFont(.small)
+                .foregroundStyle(UsageColors.faint)
 
             if let failure {
-                Text(verbatim: failure)
-                    .font(.footnote)
-                    .foregroundStyle(UsageColors.redText)
+                NoticeLine(message: failure, dot: UsageColors.negative)
             }
 
             HStack(spacing: 10) {
                 Button { submit(provider) } label: {
-                    if isWorking { ProgressView() } else { Text("Add") }
+                    if isWorking { ProgressView().tint(UsageColors.muted).controlSize(.small) } else { Text("Add") }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(InkButtonStyle())
                 .disabled(isWorking || key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 Button("Open console") {
                     if let url = URL(string: provider.consoleURL) { openURL(url) }
                 }
-                .buttonStyle(.bordered)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(OutlineButtonStyle())
 
                 Button("Back") { self.provider = nil; failure = nil }
-                    .buttonStyle(.bordered)
-                    .tint(UsageColors.textSecondary)
+                    .buttonStyle(TextActionStyle(label: UsageColors.muted))
                     .disabled(isWorking)
             }
         }
@@ -383,15 +365,15 @@ struct EditCreditSheet: View {
             ScrollView {
                 UsageCard {
                     TextField("Name", text: $label)
-                        .textFieldStyle(.roundedBorder)
+                        .ledgerField()
                     TextField("Low balance below (empty for the default)", text: $threshold)
-                        .textFieldStyle(.roundedBorder)
+                        .ledgerField()
                         .keyboardType(.decimalPad)
                     Text("Below this the balance reads Low, below twice it Moderate. Ignored when the provider reports a total: the share left decides.")
-                        .font(.caption)
-                        .foregroundStyle(UsageColors.textTertiary)
+                        .usageFont(.small)
+                        .foregroundStyle(UsageColors.faint)
                     if let failure {
-                        Text(verbatim: failure).font(.footnote).foregroundStyle(UsageColors.redText)
+                        NoticeLine(message: failure, dot: UsageColors.negative)
                     }
                     Button("Save") {
                         guard let figure = CreditThresholdField.parse(threshold) else {
@@ -403,14 +385,14 @@ struct EditCreditSheet: View {
                             dismiss()
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(UsageColors.terracotta)
+                    .buttonStyle(InkButtonStyle())
                 }
                 .padding(16)
                 .readableWidth()
             }
-            .background(UsageColors.background)
+            .background(UsageColors.ground)
             .navigationTitle("Edit")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
