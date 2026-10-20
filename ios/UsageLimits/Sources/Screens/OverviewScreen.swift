@@ -49,6 +49,26 @@ struct OverviewScreen: View {
                         .onMove(perform: move)
                     }
                 }
+
+                // Prepaid balances: a separate list with its own screen, below the usage
+                // accounts and outside the reorder gesture.
+                Section(header: Text("Credits")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(UsageColors.textSecondary)
+                ) {
+                    ForEach(store.credits) { entry in
+                        CreditCard(entry: entry, now: store.now, staleAfter: store.settings.staleAfter)
+                            .plainRow()
+                            .moveDisabled(true)
+                    }
+                    NavigationLink(store.credits.isEmpty ? "Add a credit balance" : "Manage credits") {
+                        CreditsScreen()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(UsageColors.terracotta)
+                    .plainRow()
+                    .moveDisabled(true)
+                }
             }
             .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: store.orderedAccounts.map(\.id))
             .readableWidth()

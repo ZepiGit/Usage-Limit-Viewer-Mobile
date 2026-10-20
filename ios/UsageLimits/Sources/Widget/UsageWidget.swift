@@ -1245,6 +1245,7 @@ struct UsageWidgets: WidgetBundle {
         UsageWidget()
         UsageClearWidget()
         UsageRingWidget()
+        CreditsWidget()
     }
 }
 /// WidgetKit animates only when a timeline value changes; no timer or background task is added.
