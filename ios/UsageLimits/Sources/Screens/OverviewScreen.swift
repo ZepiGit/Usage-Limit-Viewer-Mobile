@@ -19,55 +19,71 @@ struct OverviewScreen: View {
     @State private var editMode: EditMode = .inactive
 
     var body: some View {
-        NavigationStack {
+        let glance = store.glance
+        return NavigationStack {
             List {
                 Section {
-                    SummaryCard(snapshot: store.glance, now: store.now)
+                    ScreenHeader(title: "Usage Limits", stamp: stamp(glance))
                         .plainRow()
+                        .moveDisabled(true)
+
+                    // Until the cache has been read the lists are empty because nothing has
+                    // asked yet, not because there are no accounts: drawing the empty state
+                    // here is a false "No accounts yet" on every cold start.
+                    if !store.hasLoaded {
+                        LoadingOverview().plainRow().moveDisabled(true)
+                    } else if !store.accounts.isEmpty {
                         // Never draggable: it is the headline, not one of the accounts, and a
                         // list that lets it be dropped between two cards makes the whole gesture
                         // read as broken.
-                        .moveDisabled(true)
-                }
-
-                Section {
-                    if store.accounts.isEmpty {
-                        EmptyStateCard().plainRow()
-                    } else {
-                        ForEach(store.orderedAccounts) { account in
-                            AccountCard(
-                                account: account,
-                                provider: store.accounts.first { $0.account.id == account.id }?.account.provider,
-                                now: store.now,
-                                tier: store.settings.showSubscriptionTier
-                                    ? store.tierLabel(accountID: account.id) : nil,
-                                renewal: store.settings.showRenewalTime
-                                    ? store.renewalLabel(accountID: account.id, now: store.now)
-                                    : nil)
-                                .plainRow()
-                        }
-                        .onMove(perform: move)
-                    }
-                }
-
-                // Prepaid balances: a separate list with its own screen, below the usage
-                // accounts and outside the reorder gesture.
-                Section(header: Text("Credits")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(UsageColors.textSecondary)
-                ) {
-                    ForEach(store.credits) { entry in
-                        CreditCard(entry: entry, now: store.now, staleAfter: store.settings.staleAfter)
+                        LeadStrip(snapshot: glance, now: store.now)
                             .plainRow()
                             .moveDisabled(true)
                     }
-                    NavigationLink(store.credits.isEmpty ? "Add a credit balance" : "Manage credits") {
-                        CreditsScreen()
+                }
+
+                if store.hasLoaded {
+                    Section {
+                        if store.accounts.isEmpty {
+                            EmptyStateCard().plainRow()
+                        } else {
+                            ForEach(store.orderedAccounts) { account in
+                                AccountCard(
+                                    account: account,
+                                    provider: store.accounts.first { $0.account.id == account.id }?.account.provider,
+                                    now: store.now,
+                                    tier: store.settings.showSubscriptionTier
+                                        ? store.tierLabel(accountID: account.id) : nil,
+                                    renewal: store.settings.showRenewalTime
+                                        ? store.renewalLabel(accountID: account.id, now: store.now)
+                                        : nil)
+                                    .plainRow()
+                            }
+                            .onMove(perform: move)
+                        }
                     }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(UsageColors.terracotta)
-                    .plainRow()
-                    .moveDisabled(true)
+
+                    // Prepaid balances: a separate list with its own screen, below the usage
+                    // accounts and outside the reorder gesture.
+                    Section {
+                        SectionTitle(text: "Credits")
+                            .padding(.top, 28)
+                            .plainRow()
+                            .moveDisabled(true)
+                        ForEach(store.credits) { entry in
+                            CreditCard(entry: entry, now: store.now, staleAfter: store.settings.staleAfter)
+                                .plainRow()
+                                .moveDisabled(true)
+                        }
+                        NavigationLink(store.credits.isEmpty ? "Add a credit balance" : "Manage credits") {
+                            CreditsScreen()
+                        }
+                        .usageFont(.bodyStrong)
+                        .foregroundStyle(UsageColors.ink)
+                        .frame(minHeight: 44)
+                        .plainRow()
+                        .moveDisabled(true)
+                    }
                 }
             }
             .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: store.orderedAccounts.map(\.id))
@@ -75,8 +91,9 @@ struct OverviewScreen: View {
             .listStyle(.plain)
             .environment(\.editMode, $editMode)
             .scrollContentBackground(.hidden)
-            .background(UsageColors.background)
+            .background(UsageColors.ground)
             .navigationTitle("Overview")
+            .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
             .toolbar {
                 // `|| editMode.isEditing` is the half that matters. Gated on the count alone,
@@ -114,6 +131,20 @@ struct OverviewScreen: View {
         ids.move(fromOffsets: offsets, toOffset: destination)
         Task { await store.reorderAccounts(ids: ids) }
     }
+
+    /// The one line that dates this screen: how many accounts, and the instant their numbers
+    /// were read — or that a read is under way, which replaces the stamp rather than adding a
+    /// spinner that would shift the layout.
+    ///
+    /// The instant, not an age: this screen does re-render on a clock, but naming the instant
+    /// matches the widget, and one wording across both surfaces is worth more than the marginal
+    /// readability of "12 minutes ago".
+    private func stamp(_ glance: GlanceSnapshot) -> String {
+        if !store.hasLoaded || store.isRefreshing { return "Refreshing…" }
+        let accounts = glance.accountCount == 1 ? "1 account" : "\(glance.accountCount) accounts"
+        guard let updated = glance.updatedAt else { return "\(accounts) · Never updated" }
+        return "\(accounts) · As of \(Countdown.absolute(updated, now: store.now))"
+    }
 }
 
 private extension View {
@@ -127,68 +158,119 @@ private extension View {
         self
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
     }
 }
 
-/// The headline: one status word, the tightest short and long window, and the next reset.
-private struct SummaryCard: View {
+/// The headline, in two bands: the tightest limit across every account and when it comes back,
+/// then when anything next resets and how many accounts are connected.
+///
+/// This used to lead with "2/3 connected" at 30pt bold, which answers a question nobody opens
+/// the app to ask. What runs out first is `mostCritical`, the kit's own urgency ranking, and the
+/// row that stands for that account is its `representative` — the same pair the widgets lead with.
+private struct LeadStrip: View {
 
     let snapshot: GlanceSnapshot
     let now: Date
 
     var body: some View {
-        UsageCard {
-            HStack(alignment: .firstTextBaseline) {
-                Text(healthyLabel)
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(snapshot.accounts.contains { $0.connectionStatus == .reconnectRequired } ? UsageColors.red : UsageColors.textPrimary)
-                Spacer()
-                Text(freshness)
-                    .font(.footnote)
-                    .foregroundStyle(UsageColors.textTertiary)
+        let lead = snapshot.selecting(scope: .mostCritical, now: now).accounts.first
+        let row = lead?.representative(at: now)
+        UsageCard(padding: 0, spacing: 0) {
+            band(lead: lead, row: row)
+            UsageColors.rule.frame(height: 1)
+            HStack(spacing: 0) {
+                cell("Next reset") {
+                    if let next = nextReset {
+                        Text(Countdown.format(until: next, from: now)).usageFont(.figureLarge).foregroundStyle(UsageColors.data)
+                    } else {
+                        Text("—").usageFont(.small).foregroundStyle(UsageColors.faint)
+                    }
+                }
+                .overlay(alignment: .trailing) { UsageColors.rule.frame(width: 1) }
+                cell("Connected accounts") {
+                    Text("\(connected)/\(snapshot.accountCount)").usageFont(.figureLarge).foregroundStyle(UsageColors.ink)
+                        .accessibilityLabel("\(connected)/\(snapshot.accountCount) connected")
+                }
             }
-
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(UsageColors.textSecondary)
         }
     }
 
-    /// Healthy over total, coloured by the fleet's worst severity.
-    ///
-    /// This card used to lead with the severity WORD — "Exhausted" — printed in the colour that
-    /// already said so, and then repeat the two tightest windows underneath. Both went: the
-    /// account cards below carry every window with its own bar, so the summary was restating the
-    /// first card. What is left is the pair of numbers that cannot be read off anything else,
-    /// how many accounts are fine and when the next limit rolls over.
-    ///
-    /// Counted through `severity(at:staleAfter:)` rather than the stored value, so an account
-    /// whose numbers went stale while this screen was open stops counting as healthy.
-    private var healthyLabel: String {
-        let connected = snapshot.accounts.filter { $0.connectionStatus == .connected }.count
-        return "\(connected)/\(snapshot.accountCount) connected"
+    private func band(lead: GlanceAccount?, row: GlanceRow?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let lead, let row {
+                // Aged to now, like every other surface: a stale account's last number is
+                // still shown, but it stops speaking in a severity colour.
+                let severity = lead.displaySeverity(of: row, at: now, staleAfter: snapshot.staleAfter)
+                let percent = UsageWindow.percentLabel(row.remainingPercent)
+                Text(verbatim: "\(lead.title) · \(row.label)")
+                    .usageFont(.small).foregroundStyle(UsageColors.muted).lineLimit(1)
+                Text(verbatim: percent)
+                    .usageFont(.lead).foregroundStyle(SeverityPalette.figureColor(severity))
+                UsageBar(remainingPercent: row.remainingPercent, severity: severity)
+                    .padding(.vertical, 4)
+                if let resetAt = row.resetAt {
+                    Text("Resets in \(Countdown.format(until: resetAt, from: now))")
+                        .usageFont(.small).foregroundStyle(UsageColors.faint)
+                }
+            } else {
+                Text("—").usageFont(.small).foregroundStyle(UsageColors.faint)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(spoken(lead: lead, row: row))
     }
 
-    private var subtitle: String {
-        let accounts = snapshot.accountCount == 1 ? "1 account" : "\(snapshot.accountCount) accounts"
-        guard let next = snapshot.accounts.flatMap(\.resetDates).filter({ $0 > now }).min() else { return accounts }
-        return "\(accounts) · next reset \(Countdown.format(until: next, from: now))"
+    private func cell<Value: View>(_ title: String, @ViewBuilder value: () -> Value) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).usageFont(.small).foregroundStyle(UsageColors.muted)
+            value()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The stamp on the data, not its age.
-    ///
-    /// This screen does re-render on a clock, so an age would be honest here — but naming the
-    /// instant matches the widget, and one wording across both surfaces is worth more than the
-    /// marginal readability of "12 minutes ago".
-    private var freshness: String {
-        guard let updated = snapshot.updatedAt else { return "Never updated" }
-        return "As of \(Countdown.absolute(updated, now: now))"
+    private func spoken(lead: GlanceAccount?, row: GlanceRow?) -> String {
+        guard let lead, let row else { return "No limit to report" }
+        guard row.remainingPercent != nil else { return "\(lead.title), \(row.label): remaining unknown" }
+        return "\(lead.title), \(row.label): \(UsageWindow.percentLabel(row.remainingPercent)) remaining"
+    }
+
+    private var nextReset: Date? {
+        snapshot.accounts.flatMap(\.resetDates).filter { $0 > now }.min()
+    }
+
+    /// Counted through the connection status, so an account that needs signing in again stops
+    /// counting as connected.
+    private var connected: Int {
+        snapshot.accounts.filter { $0.connectionStatus == .connected }.count
+    }
+}
+
+/// The overview's final layout in `raised` blocks at real size, so nothing jumps when the cache
+/// arrives. No shimmer: it would animate a screen that is about to be replaced.
+private struct LoadingOverview: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            UsageCard {
+                SkeletonBar(width: 0.4, height: 12)
+                SkeletonBar(width: 0.3, height: 30)
+                UsageBar(remainingPercent: nil, severity: .healthy)
+            }
+            AccountSkeletonCard()
+            AccountSkeletonCard()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading usage")
     }
 }
 
 /// One account: who it is, how it is doing, and its two horizons.
 private struct AccountCard: View {
+
+    @EnvironmentObject private var store: UsageStore
 
     let account: GlanceAccount
     let provider: ProviderID?
@@ -199,58 +281,57 @@ private struct AccountCard: View {
     /// When the long allowance comes back, when the user has asked to see it.
     let renewal: String?
 
+    /// A failure the user can answer with another try, as opposed to one that needs a sign-in.
+    private var canRetry: Bool {
+        account.severity == .error && account.connectionStatus != .reconnectRequired
+    }
+
     var body: some View {
         UsageCard {
             HStack(spacing: 10) {
                 if let provider { ProviderBadge(provider: provider) }
-                Circle()
-                    .fill(SeverityPalette.accent(account.severity))
-                    .frame(width: 8, height: 8)
-                    // The dot is the fastest read on the card and says nothing to VoiceOver,
-                    // so it carries the status in words.
-                    .accessibilityLabel(SeverityPalette.label(account.severity))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 0) {
                         Text(provider?.displayName ?? account.title)
-                            .font(.headline)
-                            .foregroundStyle(UsageColors.textPrimary)
+                            .usageFont(.section)
+                            .foregroundStyle(UsageColors.ink)
                         if let tier {
-                            Text(tier)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(UsageColors.textSecondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(UsageColors.surfaceElevated)
-                                .clipShape(Capsule())
+                            Text(verbatim: " · \(tier)")
+                                .usageFont(.body)
+                                .foregroundStyle(UsageColors.muted)
                         }
                     }
+                    .lineLimit(1)
                     if let subtitle = account.subtitle {
                         Text(subtitle)
-                            .font(.footnote)
-                            .foregroundStyle(UsageColors.textSecondary)
+                            .usageFont(.small)
+                            .foregroundStyle(UsageColors.faint)
                     }
                     if let renewal {
                         Text(renewal)
-                            .font(.caption)
-                            .foregroundStyle(UsageColors.textTertiary)
+                            .usageFont(.small)
+                            .foregroundStyle(UsageColors.faint)
                             .lineLimit(1)
                     }
                 }
 
                 Spacer()
 
-                StatusPill(severity: account.severity, label: account.connectionStatus == .reconnectRequired ? "Reconnect" : nil)
+                StatusMark(severity: account.severity, label: account.connectionStatus == .reconnectRequired ? "Reconnect" : nil)
             }
 
             if let message = account.statusMessage {
-                Text(verbatim: message)
-                    .font(.footnote)
-                    .foregroundStyle(UsageColors.amber)
+                NoticeLine(
+                    message: message,
+                    dot: account.severity == .error ? UsageColors.negative : UsageColors.warning,
+                    retry: canRetry ? { Task { await store.refresh() } } : nil)
             }
 
             ForEach(Array(account.rows.enumerated()), id: \.offset) { _, row in
-                WindowRow(row: row, now: now)
+                WindowRow(
+                    row: row, now: now,
+                    severity: account.displaySeverity(of: row, at: now, staleAfter: store.settings.staleAfter))
             }
         }
     }
@@ -261,30 +342,39 @@ struct WindowRow: View {
 
     let row: GlanceRow
     let now: Date
+    /// What colours the figure and the bar. The caller's aged verdict where it has one; a row's
+    /// own severity knows only its percentage, so left alone it paints a stale reading as fresh.
+    var severity: Severity? = nil
+
+    private var shown: Severity { severity ?? row.severity }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(row.label)
-                    .font(.subheadline)
-                    .foregroundStyle(UsageColors.textSecondary)
+                    .usageFont(.body)
+                    .foregroundStyle(UsageColors.muted)
                 Spacer()
-                Text(remainingText)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(UsageColors.textPrimary)
-                    .monospacedDigit()
+                if row.remainingPercent == nil {
+                    // A missing value is a small dash, not a figure-sized one: it is the absence
+                    // of a number and should not hold the weight of one.
+                    Text(remainingText).usageFont(.small).foregroundStyle(UsageColors.faint)
+                } else {
+                    Text(remainingText)
+                        .usageFont(.figure)
+                        .foregroundStyle(SeverityPalette.figureColor(shown))
+                }
             }
 
-            UsageBar(remainingPercent: row.remainingPercent, severity: row.severity)
+            UsageBar(remainingPercent: row.remainingPercent, severity: shown)
                 .accessibilityLabel("\(row.label): \(remainingText) remaining")
 
             if let resetAt = row.resetAt {
                 Text("Resets in \(Countdown.format(until: resetAt, from: now))")
-                    .font(.caption)
-                    .foregroundStyle(UsageColors.textTertiary)
+                    .usageFont(.small)
+                    .foregroundStyle(UsageColors.faint)
             }
         }
-        .padding(.vertical, 2)
     }
 
     /// An em dash, never a zero.
@@ -296,32 +386,15 @@ struct WindowRow: View {
     }
 }
 
-/// The status word, on its severity's tint.
-struct StatusPill: View {
-
-    let severity: Severity
-    var label: String? = nil
-
+struct EmptyStateCard: View {
     var body: some View {
-        Text(label ?? SeverityPalette.label(severity))
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(SeverityPalette.text(severity))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(SeverityPalette.container(severity))
-            .clipShape(Capsule())
-    }
-}
-
-private struct EmptyStateCard: View {
-    var body: some View {
-        UsageCard {
+        DashedBox {
             Text("No accounts yet")
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+                .usageFont(.body)
+                .foregroundStyle(UsageColors.ink)
             Text("Add a subscription to see how much usage is left and when it resets.")
-                .font(.subheadline)
-                .foregroundStyle(UsageColors.textSecondary)
+                .usageFont(.body)
+                .foregroundStyle(UsageColors.muted)
         }
     }
 }

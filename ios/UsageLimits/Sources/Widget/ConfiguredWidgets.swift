@@ -175,10 +175,10 @@ struct ConfiguredUsageWidget: Widget {
                         transparent: entry.transparent,
                         ink: WidgetInk.ink(transparent: entry.transparent, darkTone: entry.tone == .dark))
                 } else {
-                    WidgetEmptyStateView(reason: entry.outcome)
+                    WidgetEmptyStateView(reason: entry.outcome, ink: WidgetInk.ink(transparent: entry.transparent, darkTone: entry.tone == .dark))
                 }
             }
-            .widgetBackground(entry.transparent ? nil : UsageColors.background)
+            .widgetBackground(entry.transparent ? nil : UsageColors.ground)
             .widgetURL(DeepLink.glance)
         }.configurationDisplayName("Usage Bars")
             .description("Your accounts, your order. Choose one account, a provider or a custom layout.")
@@ -214,10 +214,10 @@ private struct ConfiguredRingGrid: View {
             } else {
                 // The rings used to render nothing at all when the selection came up empty —
                 // not even a word. The captured outcome says which nothing it is.
-                WidgetEmptyStateView(reason: entry.outcome)
+                WidgetEmptyStateView(reason: entry.outcome, ink: ink)
             }
         }
-        .containerBackground(for: .widget) { entry.transparent ? Color.clear : UsageColors.background }
+        .containerBackground(for: .widget) { entry.transparent ? Color.clear : UsageColors.ground }
     }
 
     private var grid: some View {
@@ -235,27 +235,41 @@ private struct ConfiguredRingGrid: View {
                                 // circles white at full opacity, and a partly filled ring read
                                 // as full. The track drops its own opacity in those modes so
                                 // the arc's geometry carries the amount. (WGT-004)
-                                Circle().stroke(ink.track, lineWidth: 4).opacity(trackOpacity)
+                                Circle().stroke(ink.track, lineWidth: mini ? 4 : 5).opacity(trackOpacity)
                                 Circle().trim(from: 0, to: CGFloat((limit?.remainingPercent ?? 0) / 100))
-                                    .stroke(SeverityPalette.text(severity), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                                    .stroke(ink.bar(severity), style: StrokeStyle(lineWidth: mini ? 4 : 5, lineCap: .round))
                                     .rotationEffect(.degrees(-90))
-                                if let provider = ProviderID(rawValue: account.providerID ?? "") {
-                                    ProviderMark(assetName: account.iconAssetName ?? provider.assetName).frame(width: 20, height: 20)
+                                if mini {
+                                    // Only room for the logo: the figure is the arc.
+                                    logo(for: account).frame(width: 20, height: 20)
+                                } else {
+                                    // A ring this size reads best with its number inside; the
+                                    // logo goes beside the name instead.
+                                    Text(verbatim: QuotaFormatting.percentText(limit?.remainingPercent))
+                                        .usageFont(limit?.remainingPercent == nil ? .small : .smallStrong)
+                                        .foregroundStyle(ink.figure(severity))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.85)
+                                        .monospaced()
                                 }
-                            }.frame(width: 38, height: 38)
+                            }.frame(width: mini ? 38 : 46, height: mini ? 38 : 46)
                             if mini && account.statusMessage != nil {
-                                Image(systemName: "exclamationmark.circle").font(.caption2).foregroundStyle(ink.primary)
+                                // Partial update: a dot, not a badge.
+                                Circle().fill(ink.warning).frame(width: 6, height: 6)
                             }
                             if !mini {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(account.title).font(.caption).lineLimit(1)
-                                    if account.connectionStatus == .reconnectRequired { Text("Reconnect").font(.caption2) }
-                                    else if let message = account.statusMessage { Text(verbatim: message).font(.caption2).lineLimit(2) }
+                                    HStack(spacing: 6) {
+                                        logo(for: account).frame(width: 16, height: 16)
+                                        Text(account.title).usageFont(.smallStrong).lineLimit(1)
+                                    }
+                                    if account.connectionStatus == .reconnectRequired { Text("Reconnect").usageFont(.micro) }
+                                    else if let message = account.statusMessage { Text(verbatim: message).usageFont(.micro).lineLimit(2) }
                                     // Overdue-aware and date-aware: a passed reset says so, a
                                     // reset days out carries its date, not a bare clock time
                                     // that could mean any day. (WGT-007)
                                     else if let reset = GlanceText.resetLine(resetAt: limit?.resetAt, now: entry.date) {
-                                        Text(verbatim: reset).font(.caption2).lineLimit(1)
+                                        Text(verbatim: reset).usageFont(.micro).lineLimit(1)
                                     }
                                 }.foregroundStyle(ink.primary)
                             }
@@ -263,6 +277,17 @@ private struct ConfiguredRingGrid: View {
                     }
                 }
             }
+        }
+    }
+
+    /// The provider's mark, drawn in the ink's own colour when the tile sits on a light
+    /// wallpaper, where the white artwork would vanish.
+    @ViewBuilder
+    private func logo(for account: GlanceAccount) -> some View {
+        if let provider = ProviderID(rawValue: account.providerID ?? "") {
+            ProviderMark(
+                assetName: account.iconAssetName ?? provider.assetName,
+                tint: ink.tintsLogos ? ink.primary : nil)
         }
     }
 

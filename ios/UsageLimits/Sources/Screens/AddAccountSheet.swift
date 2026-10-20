@@ -65,8 +65,9 @@ struct AddAccountSheet: View {
                 .readableWidth()
             }
             .accessibilityIdentifier("provider-picker-scroll")
-            .background(UsageColors.background)
+            .background(UsageColors.ground)
             .navigationTitle("Add account")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -95,41 +96,53 @@ struct AddAccountSheet: View {
 
     // MARK: - Choosing
 
+    /// The providers as ledger rows in one card, 56pt apart.
     private var chooser: some View {
-        ForEach(ProviderID.allCases, id: \.self) { provider in
-            Button { select(provider) } label: {
-                UsageCard {
-                    ProviderBadge(provider: provider)
-                    Text(provider.displayName)
-                        .font(.headline)
-                        .foregroundStyle(UsageColors.terracotta)
-                    // Named before the tap, not after: a user should know what the button is
-                    // about to do with their account before it does it. The two flows feel
-                    // different enough that saying which one is coming is worth a line.
-                    Text(signInHint(for: provider))
-                        .font(.footnote)
-                        .foregroundStyle(UsageColors.textSecondary)
+        UsageCard(padding: 0, spacing: 0) {
+            ForEach(Array(ProviderID.allCases.enumerated()), id: \.offset) { index, provider in
+                if index > 0 { LedgerDivider() }
+                Button { select(provider) } label: {
+                    HStack(spacing: 12) {
+                        ProviderBadge(provider: provider)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(provider.displayName)
+                                .usageFont(.section)
+                                .foregroundStyle(UsageColors.ink)
+                            // Named before the tap, not after: a user should know what the button is
+                            // about to do with their account before it does it. The two flows feel
+                            // different enough that saying which one is coming is worth a line.
+                            Text(signInHint(for: provider))
+                                .usageFont(.body)
+                                .foregroundStyle(UsageColors.muted)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(UsageColors.faint)
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 56)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
     }
 
     private func choosingRegion(_ provider: ProviderID) -> some View {
         UsageCard {
             Text("\(provider.displayName) region")
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+                .usageFont(.section)
+                .foregroundStyle(UsageColors.ink)
             Text("Keys and sign-ins only work on the service they were issued by. Pick the one your account is on.")
-                .font(.footnote)
-                .foregroundStyle(UsageColors.textSecondary)
+                .usageFont(.body)
+                .foregroundStyle(UsageColors.muted)
             ForEach(ProviderRegion.options(for: provider), id: \.self) { option in
                 Button(option.label(for: provider)) {
                     region = option
                     start(provider)
                 }
-                .buttonStyle(.bordered)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(OutlineButtonStyle(fullWidth: true))
             }
         }
     }
@@ -139,13 +152,13 @@ struct AddAccountSheet: View {
     private func starting(_ provider: ProviderID) -> some View {
         UsageCard {
             Text(provider.displayName)
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+                .usageFont(.section)
+                .foregroundStyle(UsageColors.ink)
             HStack(spacing: 8) {
-                if reduceMotion { Text("...") } else { ProgressView() }
+                if reduceMotion { Text("...") } else { ProgressView().tint(UsageColors.muted).controlSize(.small) }
                 Text("Asking \(provider.displayName) for a code…")
-                    .font(.footnote)
-                    .foregroundStyle(UsageColors.textSecondary)
+                    .usageFont(.body)
+                    .foregroundStyle(UsageColors.muted)
             }
         }
     }
@@ -153,29 +166,31 @@ struct AddAccountSheet: View {
     private func waiting(_ provider: ProviderID, _ challenge: DeviceLoginChallenge) -> some View {
         UsageCard {
             Text("Enter this code")
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+                .usageFont(.section)
+                .foregroundStyle(UsageColors.ink)
 
             // Monospaced digits so the code does not reflow while it is being read aloud or
             // copied character by character, and selectable because typing it on another device
             // is the whole point.
+            // The sheet's one lead figure: a code is a figure, so it is monospaced ink, not a
+            // second brand colour.
             Text(verbatim: challenge.userCode)
-                .font(.system(.largeTitle, design: .monospaced).weight(.semibold))
-                .foregroundStyle(UsageColors.terracotta)
+                .tracking(1.2)
+                .usageFont(.lead)
+                .foregroundStyle(UsageColors.ink)
                 .textSelection(.enabled)
                 .accessibilityLabel(spelledOut(challenge.userCode))
 
             Text(verbatim: challenge.verificationURI)
-                .font(.footnote)
-                .foregroundStyle(UsageColors.textSecondary)
+                .usageFont(.small)
+                .foregroundStyle(UsageColors.muted)
 
             HStack(spacing: 10) {
                 Button(copied ? "Copied" : "Copy code") {
                     UIPasteboard.general.string = challenge.userCode
                     copied = true
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(InkButtonStyle())
 
                 Button("Open sign-in page") {
                     // The pre-filled page when the provider offers one, so the code does not have
@@ -184,20 +199,19 @@ struct AddAccountSheet: View {
                     let target = challenge.verificationURIComplete ?? challenge.verificationURI
                     if let url = URL(string: target) { openURL(url) }
                 }
-                .buttonStyle(.bordered)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(OutlineButtonStyle())
             }
 
             HStack(spacing: 8) {
-                if reduceMotion { Text("...") } else { ProgressView() }
+                if reduceMotion { Text("...") } else { ProgressView().tint(UsageColors.muted).controlSize(.small) }
                 Text("Waiting for you to approve it…")
-                    .font(.footnote)
-                    .foregroundStyle(UsageColors.textSecondary)
+                    .usageFont(.body)
+                    .foregroundStyle(UsageColors.muted)
             }
 
             Text("The browser opens \(provider.displayName)'s own sign-in page. This app never sees your password.")
-                .font(.caption)
-                .foregroundStyle(UsageColors.textTertiary)
+                .usageFont(.small)
+                .foregroundStyle(UsageColors.faint)
 
             if DeviceLoginSupport.acceptsPastedKey(provider) {
                 // The flow is the default because it costs the user nothing; the key is for
@@ -206,8 +220,7 @@ struct AddAccountSheet: View {
                     login?.cancel()
                     stage = .awaitingKey(provider)
                 }
-                .buttonStyle(.bordered)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(TextActionStyle())
             }
         }
         // On the clipboard before either button is pressed: the browser is opened for the user,
@@ -227,29 +240,28 @@ struct AddAccountSheet: View {
     private func awaitingKey(_ provider: ProviderID) -> some View {
         UsageCard {
             Text("Paste your \(provider.displayName) key")
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+                .usageFont(.section)
+                .foregroundStyle(UsageColors.ink)
 
             Text("Create a key in your \(provider.displayName) console and paste it here. "
                  + "It is stored on this device only, in the keychain with every other account.")
-                .font(.footnote)
-                .foregroundStyle(UsageColors.textSecondary)
+                .usageFont(.body)
+                .foregroundStyle(UsageColors.muted)
 
             if let region {
                 Text(region.label(for: provider))
-                    .font(.caption)
-                    .foregroundStyle(UsageColors.textTertiary)
+                    .usageFont(.small)
+                    .foregroundStyle(UsageColors.faint)
             }
 
             TextField("API key", text: $pastedKey)
-                .textFieldStyle(.roundedBorder)
+                .ledgerField()
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
 
             HStack(spacing: 10) {
                 Button("Connect") { submitKey(provider) }
-                    .buttonStyle(.borderedProminent)
-                    .tint(UsageColors.terracotta)
+                    .buttonStyle(InkButtonStyle())
                     .disabled(pastedKey.trimmingCharacters(in: .whitespaces).isEmpty)
 
                 Button("Open console") {
@@ -257,31 +269,32 @@ struct AddAccountSheet: View {
                         for: provider, region: region ?? ProviderRegion.defaultRegion(for: provider))
                     if let target, let url = URL(string: target) { openURL(url) }
                 }
-                .buttonStyle(.bordered)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(OutlineButtonStyle())
             }
         }
     }
 
     private func failure(_ provider: ProviderID, _ message: String) -> some View {
         UsageCard {
-            Text("Could not add \(provider.displayName)")
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+            HStack(spacing: 8) {
+                Circle().fill(UsageColors.negative).frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+                Text("Could not add \(provider.displayName)")
+                    .usageFont(.section)
+                    .foregroundStyle(UsageColors.ink)
+            }
             Text(verbatim: message)
-                .font(.footnote)
-                .foregroundStyle(UsageColors.textSecondary)
+                .usageFont(.body)
+                .foregroundStyle(UsageColors.muted)
             HStack(spacing: 10) {
                 Button("Try again") { start(provider) }
-                    .buttonStyle(.bordered)
-                    .tint(UsageColors.terracotta)
+                    .buttonStyle(InkButtonStyle())
                 if DeviceLoginSupport.acceptsPastedKey(provider) {
                     Button("Use an API key") {
                         login?.cancel()
                         stage = .awaitingKey(provider)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(UsageColors.terracotta)
+                    .buttonStyle(OutlineButtonStyle())
                 }
             }
         }

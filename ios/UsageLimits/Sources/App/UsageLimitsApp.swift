@@ -149,6 +149,6 @@ struct RootView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(Tab.settings)
         }
-        .tint(UsageColors.terracotta)
+        .tint(UsageColors.ink)
     }
 }

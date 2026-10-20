@@ -56,6 +56,9 @@ final class UsageStore: ObservableObject {
     /// non-nil check needs somewhere to write `false` back to.
     func clearError() { lastError = nil }
     @Published private(set) var isRefreshing = false
+    /// Whether the cache has been read once. Until then an empty account list means "nothing has
+    /// asked yet", not "no accounts", and the screens draw a skeleton instead of an empty state.
+    @Published private(set) var hasLoaded = false
     @Published private(set) var lastError: String?
 
     /// Ticks so countdowns move without every view owning a timer.
@@ -75,6 +78,7 @@ final class UsageStore: ObservableObject {
         if MarketingDemo.isEnabled {
             now = MarketingDemo.now
             accounts = MarketingDemo.accounts
+            hasLoaded = true
             return
         }
         #endif
@@ -227,6 +231,7 @@ final class UsageStore: ObservableObject {
         #if DEBUG
         if MarketingDemo.isEnabled { return }
         #endif
+        defer { hasLoaded = true }
         guard let container else {
             // Said here as well as in `refresh`, because a cold launch renders this screen before
             // anything is refreshed: without it the user sees an empty account list and the
