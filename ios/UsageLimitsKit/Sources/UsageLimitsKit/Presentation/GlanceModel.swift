@@ -22,19 +22,40 @@ public struct GlanceRow: Sendable, Equatable, Codable {
     public let remainingPercent: Double?
     public let resetAt: Date?
     public let severity: Severity
+    /// Carried so the representative can prefer global windows among those still open at
+    /// render time, as Android's `mostCritical` does, instead of fixing the pool at export.
+    public let scope: UsageScope
 
     public init(
         label: String,
         category: WindowCategory,
         remainingPercent: Double?,
         resetAt: Date?,
-        severity: Severity
+        severity: Severity,
+        scope: UsageScope = .global
     ) {
         self.label = label
         self.category = category
         self.remainingPercent = remainingPercent
         self.resetAt = resetAt
         self.severity = severity
+        self.scope = scope
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case label, category, remainingPercent, resetAt, severity, scope
+    }
+
+    /// Lenient on `scope`: a row written before it was carried came from the global-or-all
+    /// pool already, so reading it as global keeps its behaviour.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        label = try c.decode(String.self, forKey: .label)
+        category = try c.decode(WindowCategory.self, forKey: .category)
+        remainingPercent = try c.decodeIfPresent(Double.self, forKey: .remainingPercent)
+        resetAt = try c.decodeIfPresent(Date.self, forKey: .resetAt)
+        severity = try c.decode(Severity.self, forKey: .severity)
+        scope = try c.decodeIfPresent(UsageScope.self, forKey: .scope) ?? .global
     }
 }
 
@@ -67,8 +88,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     /// rendered after one needs the verdict of the windows still open, not the export-time one.
     public let baseSeverityAfterResets: [GlanceSeverityStep]
 
-    /// Every window the account reports (global ones when it has any), unlike `rows`, which keeps
-    /// one short and one long headline. The representative is chosen among these at render time.
+    /// Every window the account reports, scoped ones included, unlike `rows`, which keeps one
+    /// short and one long headline. The representative is chosen among these at render time.
     public let candidates: [GlanceRow]
 
     /// When the provider was last read, so freshness can be judged again later.
@@ -168,11 +189,15 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     }
 
     /// The one row that stands for the account (ring, ordering): an exhausted row first, then the
-    /// lowest percentage, among rows whose reset has not passed since the fetch. When every row
-    /// has reset they all stay candidates, drawn as "reset due". Android's `representative`.
+    /// lowest percentage, among global rows whose reset has not passed since the fetch — scoped
+    /// rows stand in only once no open global one is left. When every row has reset they all
+    /// stay candidates, drawn as "reset due". Android's `representative`: windows reset since
+    /// the fetch drop out FIRST, then `mostCritical` prefers globals among what remains.
     public func representative(at date: Date) -> GlanceRow? {
         let open = candidates.filter { !$0.resetPending(at: date, fetchedAt: fetchedAt) }
-        return (open.isEmpty ? candidates : open).min { Self.rank($0) < Self.rank($1) }
+        let pool = open.isEmpty ? candidates : open
+        let global = pool.filter { $0.scope == .global }
+        return (global.isEmpty ? pool : global).min { Self.rank($0) < Self.rank($1) }
     }
 
     private static func rank(_ row: GlanceRow) -> Double {
@@ -264,12 +289,13 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
     }
 
     /// The instants after `date` at which this snapshot's presentation changes on its own:
-    /// each account's stale boundary, each shown row's reset and the lead's next reset. A
-    /// timeline needs an entry at each, or a throttled widget keeps presenting the spent
-    /// window's number as current past its reset.
+    /// each account's stale boundary and every reset of every window it reports (`resetDates`,
+    /// which the representative and the severity steps are keyed by) plus the lead's next
+    /// reset. A timeline needs an entry at each, or a throttled widget keeps presenting the
+    /// spent window's number — or a verdict it no longer holds — past the reset.
     public func presentationBoundaries(after date: Date) -> [Date] {
         let stale = accounts.compactMap { $0.fetchedAt?.addingTimeInterval(staleAfter) }
-        let resets = accounts.flatMap { $0.rows.compactMap(\.resetAt) } + [nextResetAt].compactMap { $0 }
+        let resets = accounts.flatMap(\.resetDates) + [nextResetAt].compactMap { $0 }
         return Array(Set((stale + resets).filter { $0 > date })).sorted()
     }
 
@@ -547,7 +573,8 @@ public enum GlanceModel {
             // hours later can age it itself instead of repeating a verdict from write time.
             baseSeverity: usage.snapshot?.severityOfOpenWindows(at: now) ?? .stale,
             baseSeverityAfterResets: afterResets,
-            candidates: windows.map(row),
+            // Scoped ones too: which pool leads is decided at render time, among windows still open.
+            candidates: allWindows.map(row),
             fetchedAt: usage.snapshot.flatMap { $0.failed && $0.windows.isEmpty ? nil : $0.fetchedAt }, providerID: usage.account.provider.rawValue,
             connectionStatus: usage.snapshot?.connectionStatus ?? .unknown,
             resetDates: usage.snapshot?.windows.compactMap(\.resetAt),
@@ -561,6 +588,7 @@ public enum GlanceModel {
             category: window.category,
             remainingPercent: window.remainingPercent,
             resetAt: window.resetAt,
-            severity: window.severity)
+            severity: window.severity,
+            scope: window.scope)
     }
 }
