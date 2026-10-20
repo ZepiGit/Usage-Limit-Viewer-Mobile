@@ -71,6 +71,59 @@ final class CreditsTests: XCTestCase {
         XCTAssertEqual(CreditJSON.decimal(["a": " -3.50 "], "a"), dec("-3.5"))
     }
 
+    private func assertMalformed(_ body: @autoclosure () throws -> Any, _ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertThrowsError(try body(), message, file: file, line: line) { error in
+            guard case .malformed = error as? CreditError else {
+                return XCTFail("expected a malformed payload error, got \(error). \(message)", file: file, line: line)
+            }
+        }
+    }
+
+    func testNumericMoneyNeverGoesThroughDouble() async throws {
+        // As a Double 100.000000000000001 is exactly 100, and the balance would read exhausted.
+        let body = #"{"data":{"total_credits":100.000000000000001,"total_usage":100}}"#
+        let balances = try OpenRouterCreditParser.parseCredits(try XCTUnwrap(CreditJSON.object(fromText: body)))
+        XCTAssertEqual(balances[0].amount, dec("0.000000000000001"))
+        XCTAssertEqual(balances[0].total, dec("100.000000000000001"))
+
+        let transport = Transport([("/api/v1/credits", [(200, body)])])
+        let fetched = try await OpenRouterCreditClient(httpClient: http(transport))
+            .fetchBalances(key: "sk-test", attributes: [:])
+        XCTAssertEqual(fetched[0].amount, dec("0.000000000000001"))
+
+        XCTAssertEqual(
+            CreditJSON.decimal(try XCTUnwrap(CreditJSON.object(fromText: #"{"a":1e-05}"#)), "a"),
+            dec("0.00001"))
+        // Literals and strings are not mistaken for numbers.
+        let mixed = try XCTUnwrap(CreditJSON.object(fromText: #"{"ok":true,"gone":null,"s":"a 1 \" 2","n":-3}"#))
+        XCTAssertEqual(mixed["ok"] as? Bool, true)
+        XCTAssertTrue(mixed["gone"] is NSNull)
+        XCTAssertEqual(mixed["s"] as? String, #"a 1 " 2"#)
+        XCTAssertEqual(CreditJSON.decimal(mixed, "n"), -3)
+        XCTAssertNil(CreditJSON.object(fromText: "[1]"))
+    }
+
+    func testOpenRouterKeyMissingFieldsAreMalformedNotUnlimited() throws {
+        for body in [
+            #"{}"#, #"{"data":{}}"#, #"{"data":null}"#,
+            #"{"data":{"usage_monthly":3}}"#,  // no `limit` at all
+            #"{"data":{"limit":null}}"#,       // unlimited, but no spend to show
+            #"{"data":{"limit":null,"usage_monthly":"abc"}}"#,
+        ] {
+            assertMalformed(try OpenRouterCreditParser.parseKey(json(body)), body)
+        }
+        // An explicit null limit with a spend is the genuine unlimited key, even at $0.
+        let balance = try OpenRouterCreditParser.parseKey(json(#"{"data":{"limit":null,"usage_monthly":0}}"#))[0]
+        XCTAssertTrue(balance.unlimited)
+        XCTAssertEqual(balance.amount, 0)
+    }
+
+    func testOpenRouterCreditsMissingTotalsAreMalformed() {
+        for body in [#"{}"#, #"{"data":{}}"#, #"{"data":{"total_usage":1}}"#, #"{"data":{"total_credits":1}}"#] {
+            assertMalformed(try OpenRouterCreditParser.parseCredits(json(body)), body)
+        }
+    }
+
     // MARK: - OpenRouter
 
     func testOpenRouterCreditsIsPurchasedMinusUsed() throws {
@@ -324,6 +377,35 @@ final class CreditsTests: XCTestCase {
         XCTAssertEqual(
             try JSONDecoder().decode(CreditBalance.self, from: Data(#"{"currency":"USD","amount":4.5}"#.utf8)).amount,
             dec("4.5"))
+    }
+
+    func testBalanceDecodingRejectsAMissingOrInvalidAmount() throws {
+        for body in [
+            #"{"currency":"USD"}"#, #"{"currency":"USD","amount":"garbage"}"#,
+            #"{"currency":"USD","amount":"12abc"}"#, #"{"currency":"USD","amount":true}"#,
+        ] {
+            XCTAssertThrowsError(try JSONDecoder().decode(CreditBalance.self, from: Data(body.utf8)), body)
+        }
+        let noTotal = try JSONDecoder().decode(CreditBalance.self, from: Data(#"{"currency":"USD","amount":"4"}"#.utf8))
+        XCTAssertNil(noTotal.total)
+    }
+
+    func testThresholdFieldDisplaysAndParsesInOneLocale() {
+        let german = Locale(identifier: "de_DE")
+        XCTAssertEqual(CreditThresholdField.display("5.5", locale: german), "5,5")
+        XCTAssertEqual(CreditThresholdField.display("5.5", locale: usEnglish), "5.5")
+        XCTAssertEqual(CreditThresholdField.display(nil, locale: german), "")
+        XCTAssertEqual(CreditThresholdField.parse("5,5", locale: german)?.value, dec("5.5"))
+        XCTAssertEqual(CreditThresholdField.parse("5.5", locale: usEnglish)?.value, dec("5.5"))
+        // The display of a stored figure parses back to it.
+        XCTAssertEqual(CreditThresholdField.parse(CreditThresholdField.display("12.25", locale: german), locale: german)?.value, dec("12.25"))
+        // "5.5" under de_DE used to read as 5; now it is rejected, as is anything not wholly numeric.
+        for text in ["5.5", "5,5x", "abc", "0", "-1", "1,2,3"] {
+            XCTAssertNil(CreditThresholdField.parse(text, locale: german), text)
+        }
+        XCTAssertNil(CreditThresholdField.parse("5,5", locale: usEnglish))
+        XCTAssertNotNil(CreditThresholdField.parse("  ", locale: german))
+        XCTAssertNil(CreditThresholdField.parse("  ", locale: german)?.value)
     }
 
     func testAFailedSyncKeepsThePreviousBalancesAndFetchTime() async throws {

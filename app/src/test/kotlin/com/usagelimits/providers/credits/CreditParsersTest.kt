@@ -90,6 +90,27 @@ class CreditParsersTest {
         }
     }
 
+    @Test fun `openrouter key missing fields are malformed not unlimited`() {
+        for (body in listOf(
+            """{}""", """{"data":{}}""", """{"data":null}""",
+            """{"data":{"usage_monthly":3}}""", // no `limit` at all
+            """{"data":{"limit":null}}""", // unlimited, but no spend to show
+            """{"data":{"limit":null,"usage_monthly":"abc"}}""",
+        )) {
+            assertThrows(body, CreditError.Malformed::class.java) { OpenRouterCreditParser.parseKey(json(body)) }
+        }
+        // An explicit null limit with a spend is the genuine unlimited key, even at $0.
+        val balance = OpenRouterCreditParser.parseKey(json("""{"data":{"limit":null,"usage_monthly":0}}"""))[0]
+        assertTrue(balance.unlimited)
+        assertAmount("0", balance.amount)
+    }
+
+    @Test fun `openrouter credits missing totals are malformed`() {
+        for (body in listOf("""{}""", """{"data":{}}""", """{"data":{"total_usage":1}}""", """{"data":{"total_credits":1}}""")) {
+            assertThrows(body, CreditError.Malformed::class.java) { OpenRouterCreditParser.parseCredits(json(body)) }
+        }
+    }
+
     // MARK: DeepSeek
 
     @Test fun `deepseek gives one balance per currency`() {

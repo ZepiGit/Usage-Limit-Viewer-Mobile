@@ -29,16 +29,44 @@ public enum CreditError: Error, LocalizedError, Equatable {
 /// without a network. Amounts are `Decimal` from the text the provider sent where it sent text.
 public enum CreditJSON {
 
-    /// A strict decimal: digits with an optional sign and fraction. `Decimal(string:)` alone
-    /// accepts a numeric prefix ("12abc" is 12), which would turn garbage into a balance.
+    /// A strict decimal: digits with an optional sign, fraction and exponent. `Decimal(string:)`
+    /// alone accepts a numeric prefix ("12abc" is 12), which would turn garbage into a balance.
     static func decimal(text: String) -> Decimal? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.range(of: #"^[+-]?[0-9]+(\.[0-9]+)?$"#, options: .regularExpression) != nil else { return nil }
+        guard trimmed.range(of: #"^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$"#, options: .regularExpression) != nil
+        else { return nil }
         return Decimal(string: trimmed, locale: Locale(identifier: "en_US_POSIX"))
     }
 
-    /// A JSON number or a numeric string. A number goes through its shortest decimal spelling,
-    /// so 49.58894 stays 49.58894 rather than picking up binary noise.
+    /// A JSON object whose numbers arrive as the text the provider sent. `JSONSerialization`
+    /// turns a number into a `Double`, and 100.000000000000001 is exactly 100 as one: a balance
+    /// of 0.000000000000001 would read as empty. Quoting every number literal first keeps the
+    /// digits, and `decimal` then reads them as `Decimal`. Nil when the text is not a JSON object.
+    public static func object(fromText text: String) -> [String: Any]? {
+        var out = ""
+        var inString = false
+        var escaped = false
+        var number = false
+        for character in text {
+            if inString {
+                out.append(character)
+                if escaped { escaped = false } else if character == "\\" { escaped = true } else if character == "\"" { inString = false }
+                continue
+            }
+            // A literal starts with a digit or "-"; the "e" of true/false/null is not one.
+            let digit = character.isASCII && character.isNumber
+            let numeric = number ? (digit || "+-.eE".contains(character)) : (digit || character == "-")
+            if numeric && !number { out.append("\""); number = true }
+            if !numeric && number { out.append("\""); number = false }
+            if character == "\"" { inString = true }
+            out.append(character)
+        }
+        if number { out.append("\"") }
+        return (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+    }
+
+    /// A numeric string, or a number from a payload that did not come through `object(fromText:)`
+    /// (a test literal); that fallback goes through its shortest decimal spelling.
     static func decimal(_ source: [String: Any]?, _ names: String...) -> Decimal? {
         guard let raw = JSONSupport.field(source, names) else { return nil }
         if let text = raw as? String { return decimal(text: text) }
@@ -77,10 +105,16 @@ public enum OpenRouterCreditParser {
                 currency: "USD", amount: remaining, total: CreditJSON.decimal(budget, "limit_usd"),
                 label: "Key limit")]
         }
-        guard JSONSupport.field(data, ["limit"]) != nil else {
-            return [CreditBalance(
-                currency: "USD", amount: CreditJSON.decimal(data, "usage_monthly") ?? 0,
-                label: "No limit", unlimited: true)]
+        // `limit` must be SENT: an explicit null is an uncapped key, an absent one is a payload
+        // that is not what this app expects, and must not read as a healthy $0.
+        guard let limit = data["limit"] else {
+            throw CreditError.malformed("openrouter key has no limit field")
+        }
+        if limit is NSNull {
+            guard let spent = CreditJSON.decimal(data, "usage_monthly") else {
+                throw CreditError.malformed("openrouter key has no limit and no monthly usage")
+            }
+            return [CreditBalance(currency: "USD", amount: spent, label: "No limit", unlimited: true)]
         }
         guard let remaining = CreditJSON.decimal(data, "limit_remaining") else {
             throw CreditError.malformed("openrouter key has a limit but no remainder")

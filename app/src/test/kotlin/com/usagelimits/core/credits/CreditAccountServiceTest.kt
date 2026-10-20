@@ -7,7 +7,13 @@ import com.usagelimits.providers.credits.CreditError
 import com.usagelimits.providers.credits.CreditRegistry
 import com.usagelimits.providers.RecordedRequest
 import com.usagelimits.providers.scriptedHttp
+import com.usagelimits.core.auth.CredentialStore
+import com.usagelimits.core.auth.OAuthCredentials
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -52,6 +58,30 @@ class CreditAccountServiceTest {
         }
         assertTrue(repository.accounts().isEmpty())
         assertTrue(store.items.isEmpty())
+    }
+
+    /** Writes the key, then the caller is cancelled (Back) and the next suspension point notices. */
+    private class CancelAfterSave(private val inner: MemoryCredentialStore, private val cancel: () -> Unit) :
+        CredentialStore by inner {
+        override suspend fun save(reference: String, credentials: OAuthCredentials) {
+            inner.save(reference, credentials)
+            cancel()
+            yield()
+        }
+    }
+
+    @Test fun `cancelling right after the key is saved neither strands the key nor loses the account`() = runBlocking {
+        lateinit var job: Job
+        val svc = CreditAccountService(
+            repository, CancelAfterSave(store) { job.cancel() },
+            CreditRegistry(scriptedHttp(200 to """{"data":{"available_balance":3}}""")),
+        ) { now }
+        job = launch(start = CoroutineStart.LAZY) { svc.add(CreditProviderId.MOONSHOT, "mk") }
+        job.join()
+
+        assertTrue(job.isCancelled)
+        // Either both exist or neither: never a key that no account names.
+        assertEquals(store.items.keys, repository.accounts().map { it.credentialReference }.toSet())
     }
 
     @Test fun `a blank key is refused before any request`() = runBlocking {

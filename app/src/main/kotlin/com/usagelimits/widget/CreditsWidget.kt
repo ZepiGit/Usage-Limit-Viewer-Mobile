@@ -98,7 +98,10 @@ class CreditsWidget : GlanceAppWidget() {
         )
         Text(
             statusText(row), maxLines = 2,
-            style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 10.sp),
+            style = TextStyle(
+                color = ColorProvider(if (refreshFailed(row)) style.textColor(Severity.ERROR) else style.textSecondary),
+                fontSize = 10.sp,
+            ),
         )
     }
 
@@ -107,10 +110,19 @@ class CreditsWidget : GlanceAppWidget() {
         Row(GlanceModifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(GlanceModifier.size(8.dp).cornerRadius(4.dp).background(style.accent(row.severity))) {}
             Spacer(GlanceModifier.width(8.dp))
-            Text(
-                row.title, GlanceModifier.defaultWeight(), maxLines = 1,
-                style = TextStyle(color = ColorProvider(style.textPrimary), fontSize = 12.sp),
-            )
+            Column(GlanceModifier.defaultWeight()) {
+                Text(
+                    row.title, maxLines = 1,
+                    style = TextStyle(color = ColorProvider(style.textPrimary), fontSize = 12.sp),
+                )
+                // Independent of the balance's colour: a stale or failed read must not hide behind it.
+                if (refreshFailed(row)) {
+                    Text(
+                        "Refresh failed", maxLines = 1,
+                        style = TextStyle(color = ColorProvider(style.textColor(Severity.ERROR)), fontSize = 9.sp),
+                    )
+                }
+            }
             Spacer(GlanceModifier.width(8.dp))
             Text(
                 amountText(row), maxLines = 1,
@@ -131,9 +143,14 @@ internal fun amountText(row: CreditWidgetRow): String =
     row.balances.firstOrNull()?.let { CreditFormat.line(it) }
         ?: if (row.severity == Severity.ERROR) "Error" else "—"
 
+/** The last refresh failed but a cached balance is still shown; severity then describes the balance only. */
+internal fun refreshFailed(row: CreditWidgetRow): Boolean = row.statusMessage != null && row.balances.isNotEmpty()
+
 /** The line under the tile's amount: when it was read, or why it was not. */
 internal fun statusText(row: CreditWidgetRow): String = when {
     row.severity == Severity.ERROR -> row.statusMessage ?: "Could not be read"
+    refreshFailed(row) -> "Refresh failed: ${row.statusMessage}" +
+        (row.fetchedAt?.let { " · " + Countdown.asOfLabel(it, nowMs = System.currentTimeMillis()) } ?: "")
     row.fetchedAt == null -> "Not read yet"
     row.severity == Severity.STALE -> "Out of date · ${Countdown.asOfLabel(row.fetchedAt, nowMs = System.currentTimeMillis())}"
     else -> row.providerName + " · " + Countdown.asOfLabel(row.fetchedAt, nowMs = System.currentTimeMillis())

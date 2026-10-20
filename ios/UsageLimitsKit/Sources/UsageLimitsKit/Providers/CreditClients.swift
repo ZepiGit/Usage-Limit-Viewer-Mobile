@@ -31,8 +31,7 @@ enum CreditHTTP {
                 throw CreditError.unavailable("\(endpoint) could not be reached")
             }
         }
-        guard let data = response.body.data(using: .utf8),
-              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+        guard let object = CreditJSON.object(fromText: response.body) else {
             throw CreditError.malformed("\(endpoint) did not return a JSON object")
         }
         return object
