@@ -180,12 +180,13 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     ///
     /// Invalid data (error, stale) outranks everything; then a row whose own reset has passed
     /// since the fetch reads stale — its number describes the spent window, as Android's
-    /// `WidgetRow.validity` says; then the row speaks only while the account is healthy.
+    /// `WidgetRow.validity` says; otherwise the row speaks with its own quota severity, never the
+    /// account's worst one.
     public func displaySeverity(of row: GlanceRow?, at date: Date, staleAfter: TimeInterval) -> Severity {
         let aged = severity(at: date, staleAfter: staleAfter)
         if aged == .error || aged == .stale { return aged }
         if row?.resetPending(at: date, fetchedAt: fetchedAt) == true { return .stale }
-        return aged == .healthy ? (row?.severity ?? aged) : aged
+        return row?.severity ?? aged
     }
 
     /// The one row that stands for the account (ring, ordering): an exhausted row first, then the

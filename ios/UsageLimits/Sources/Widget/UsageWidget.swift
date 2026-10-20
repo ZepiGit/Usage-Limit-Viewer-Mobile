@@ -370,8 +370,12 @@ struct WidgetInk {
 
     /// The bar or arc colour for a severity: the data hue, or the stale grey for a reading that
     /// is no longer to be trusted.
-    func bar(_ severity: Severity) -> Color {
-        SeverityPalette.isStaleFill(severity) ? staleMark : data
+    func bar(_ severity: Severity) -> Color? {
+        switch severity {
+        case .stale: return staleMark
+        case .unknown, .error, .exhausted: return nil
+        default: return data
+        }
     }
 
     /// The colour a percentage is written in, on THIS ink — `SeverityPalette.figureColor` is
@@ -459,10 +463,10 @@ private struct QuotaBar: View {
                 Capsule()
                     .fill(ink.track)
                     .modifier(AccentedTrackYield())
-                if let remainingPercent {
+                if let remainingPercent, let fill = ink.bar(severity) {
                     // Unknown percentages draw the empty track only — never a 0 % sliver.
                     Capsule()
-                        .fill(ink.bar(severity))
+                        .fill(fill)
                         .frame(width: proxy.size.width * QuotaFormatting.fraction(remainingPercent))
                 }
             }
@@ -855,14 +859,14 @@ private struct UsageRing: View {
             Circle()
                 .stroke(ink.track, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .modifier(AccentedTrackYield())
-            if let remainingPercent {
+            if let remainingPercent, let arc = ink.bar(severity) {
                 // Unknown draws the track alone. A full ring for "the provider did not say"
                 // would be an all-clear nothing reported, which is the one direction a quota
                 // display must never round in.
                 Circle()
                     .trim(from: 0, to: QuotaFormatting.fraction(remainingPercent))
                     .stroke(
-                        ink.bar(severity),
+                        arc,
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     // From twelve o'clock, clockwise. `trim` starts at three o'clock.
                     .rotationEffect(Angle.degrees(-90))

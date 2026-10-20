@@ -236,9 +236,11 @@ private struct ConfiguredRingGrid: View {
                                 // as full. The track drops its own opacity in those modes so
                                 // the arc's geometry carries the amount. (WGT-004)
                                 Circle().stroke(ink.track, lineWidth: mini ? 4 : 5).opacity(trackOpacity)
-                                Circle().trim(from: 0, to: CGFloat((limit?.remainingPercent ?? 0) / 100))
-                                    .stroke(ink.bar(severity), style: StrokeStyle(lineWidth: mini ? 4 : 5, lineCap: .round))
-                                    .rotationEffect(.degrees(-90))
+                                if let arc = ink.bar(severity) {
+                                    Circle().trim(from: 0, to: CGFloat((limit?.remainingPercent ?? 0) / 100))
+                                        .stroke(arc, style: StrokeStyle(lineWidth: mini ? 4 : 5, lineCap: .round))
+                                        .rotationEffect(.degrees(-90))
+                                }
                                 if mini {
                                     // Only room for the logo: the figure is the arc.
                                     logo(for: account).frame(width: 20, height: 20)
