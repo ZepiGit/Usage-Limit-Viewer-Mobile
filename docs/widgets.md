@@ -202,7 +202,9 @@ reset. The reset case compounds it: a cache-only repaint at the reset instant ca
 the spent window's figure, so `WidgetRow.resetElapsed` now marks a row whose reset passed
 after its fetch, and every surface draws such a row in the stale treatment beside "Reset due"
 until a fetch confirms the new window. Neither the old number in a confident colour nor an
-unreported full ring is claimed.
+unreported full ring is claimed. Such a window also stops deciding the account's severity
+(`UsageSnapshot.severityAt`) and its ring/most-critical representative while another window is
+still open; the app's rows use the same rule (`UsageWindow.resetElapsedAt`).
 
 `refreshAll` also stops failing silently. Each widget is refreshed on its own, cancellation
 is rethrown rather than swallowed, other failures are logged, and when Glance's stored

@@ -129,6 +129,18 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         return now.timeIntervalSince(fetchedAt) >= staleAfter ? .stale : baseSeverity
     }
 
+    /// The severity a surface colours one shown row with at `date`.
+    ///
+    /// Invalid data (error, stale) outranks everything; then a row whose own reset has passed
+    /// since the fetch reads stale — its number describes the spent window, as Android's
+    /// `WidgetRow.validity` says; then the row speaks only while the account is healthy.
+    public func displaySeverity(of row: GlanceRow?, at date: Date, staleAfter: TimeInterval) -> Severity {
+        let aged = severity(at: date, staleAfter: staleAfter)
+        if aged == .error || aged == .stale { return aged }
+        if row?.resetPending(at: date, fetchedAt: fetchedAt) == true { return .stale }
+        return aged == .healthy ? (row?.severity ?? aged) : aged
+    }
+
     /// The tightest number this block actually shows. Used only for ordering.
     var tightestRemaining: Double {
         rows.compactMap(\.remainingPercent).min() ?? .greatestFiniteMagnitude
@@ -195,6 +207,16 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         headlineLong = try c.decodeIfPresent(GlanceRow.self, forKey: .headlineLong)
         staleAfter = try c.decodeIfPresent(TimeInterval.self, forKey: .staleAfter)
             ?? Severity.staleAfter
+    }
+
+    /// The instants after `date` at which this snapshot's presentation changes on its own:
+    /// each account's stale boundary, each shown row's reset and the lead's next reset. A
+    /// timeline needs an entry at each, or a throttled widget keeps presenting the spent
+    /// window's number as current past its reset.
+    public func presentationBoundaries(after date: Date) -> [Date] {
+        let stale = accounts.compactMap { $0.fetchedAt?.addingTimeInterval(staleAfter) }
+        let resets = accounts.flatMap { $0.rows.compactMap(\.resetAt) } + [nextResetAt].compactMap { $0 }
+        return Array(Set((stale + resets).filter { $0 > date })).sorted()
     }
 
     public static let empty = GlanceSnapshot(
@@ -372,8 +394,9 @@ public enum GlanceModel {
         case .low: return 2
         case .medium: return 3
         case .healthy: return 4
-        case .unknown: return 5
-        case .error: return 6
+        // Same order as Android's `Severity.urgency`: ERROR 5, UNKNOWN 6.
+        case .error: return 5
+        case .unknown: return 6
         case .stale: return 7
         }
     }

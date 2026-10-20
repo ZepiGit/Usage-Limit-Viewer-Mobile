@@ -24,9 +24,11 @@ extension GlanceSnapshot {
             // then the tightest number in five-point bands, then the original order. A second
             // copy of the comparator would be a second answer to the same question, so the
             // kit's own is reused.
+            // Aged at `now`, as `build` would at this instant: the export's stored verdict is
+            // from write time, and an account gone stale since must not keep leading on it.
             selected = accounts.enumerated().sorted { lhs, rhs in
-                let left = GlanceModel.urgency(lhs.element.severity)
-                let right = GlanceModel.urgency(rhs.element.severity)
+                let left = GlanceModel.urgency(lhs.element.severity(at: now, staleAfter: staleAfter))
+                let right = GlanceModel.urgency(rhs.element.severity(at: now, staleAfter: staleAfter))
                 if left != right { return left < right }
                 let leftBand = GlanceModel.band(lhs.element.tightestRemaining)
                 let rightBand = GlanceModel.band(rhs.element.tightestRemaining)

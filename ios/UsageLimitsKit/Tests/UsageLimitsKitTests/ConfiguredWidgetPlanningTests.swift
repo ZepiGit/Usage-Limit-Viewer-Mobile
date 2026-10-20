@@ -117,4 +117,53 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
             resetAt: nil, severity: .healthy)
         XCTAssertFalse(noReset.resetPending(at: now, fetchedAt: now.addingTimeInterval(-100)))
     }
+
+    // A reading whose own reset has passed is drawn in the stale treatment, as Android's
+    // `WidgetRow.validity` does — never in the quota colour that vouches for the spent window.
+    func testResetPendingRowIsShownStaleNotInItsQuotaColour() {
+        let pending = GlanceRow(label: "5h limit", category: .fiveHour, remainingPercent: 0,
+            resetAt: now.addingTimeInterval(-60), severity: .exhausted)
+        let future = GlanceRow(label: "5h limit", category: .fiveHour, remainingPercent: 0,
+            resetAt: now.addingTimeInterval(600), severity: .exhausted)
+        let account = GlanceAccount(id: "a", title: "Codex", subtitle: nil, rows: [pending],
+            severity: .exhausted, fetchedAt: now.addingTimeInterval(-600))
+
+        XCTAssertEqual(account.displaySeverity(of: pending, at: now, staleAfter: 3600), .stale)
+        XCTAssertEqual(account.displaySeverity(of: future, at: now, staleAfter: 3600), .exhausted)
+        // Invalid data outranks everything; an aged account stays stale.
+        let failed = GlanceAccount(id: "a", title: "Codex", subtitle: nil, rows: [pending],
+            severity: .error, fetchedAt: now.addingTimeInterval(-600))
+        XCTAssertEqual(failed.displaySeverity(of: pending, at: now, staleAfter: 3600), .error)
+        XCTAssertEqual(account.displaySeverity(of: future, at: now, staleAfter: 60), .stale)
+        // A healthy account still speaks with the shown row's own severity.
+        let lowRow = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 15, resetAt: nil, severity: .low)
+        let healthy = GlanceAccount(id: "h", title: "Codex", subtitle: nil, rows: [lowRow],
+            severity: .healthy, fetchedAt: now)
+        XCTAssertEqual(healthy.displaySeverity(of: lowRow, at: now, staleAfter: 3600), .low)
+    }
+
+    // A shown row's reset is a presentation boundary wherever it falls, not only the lead's
+    // and not only inside the first hour: without an entry there, a throttled timeline keeps
+    // showing the spent window's number as current, with "Resets 14:00" after 14:00.
+    func testEveryShownRowResetIsAPresentationBoundary() {
+        func usage(_ id: String, reset: Date) -> AccountUsage {
+            AccountUsage(
+                account: ProviderAccount(id: id, provider: .codex, externalAccountID: id,
+                    email: "\(id)@example.com", displayName: id, plan: "Plus", credentialReference: id,
+                    createdAt: now, lastSuccessfulSync: now),
+                snapshot: UsageSnapshot(accountID: id, fetchedAt: now, status: .ok,
+                    windows: [UsageWindow(id: "short", label: "5h limit", category: .fiveHour,
+                        usedPercent: 90, periodSeconds: 18_000, resetAt: reset, exhausted: false)]))
+        }
+        let leadReset = now.addingTimeInterval(3 * 3600)
+        let otherReset = now.addingTimeInterval(20 * 60)
+        let snapshot = GlanceModel.build([usage("lead", reset: leadReset), usage("other", reset: otherReset)],
+            now: now, scope: .allAccounts)
+
+        let boundaries = Set(capture(.loaded(snapshot)).presentationBoundaries(after: now))
+        XCTAssertTrue(boundaries.contains(leadReset))
+        XCTAssertTrue(boundaries.contains(otherReset))
+        XCTAssertTrue(boundaries.contains(now.addingTimeInterval(3600)))   // staleness still planned
+        XCTAssertEqual(Set(snapshot.presentationBoundaries(after: now)), boundaries)
+    }
 }

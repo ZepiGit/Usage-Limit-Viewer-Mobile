@@ -93,15 +93,9 @@ public struct ConfiguredWidgetCapture: Sendable, Equatable {
     /// as long as the timeline lasts: the severity is computed at each entry's date, but only
     /// where an ENTRY exists to compute it. A staleness boundary past the horizon needs its
     /// own entry, drawn from the immutable cache — no reload, no network, just the flip the
-    /// cached data itself implies.
+    /// cached data itself implies. So does each SELECTED row's reset, not only the lead's.
     public func presentationBoundaries(after date: Date) -> [Date] {
-        guard case .loaded(let snapshot) = source else { return [] }
-        var boundaries: [Date] = []
-        for account in snapshot.accounts {
-            guard let fetchedAt = account.fetchedAt else { continue }
-            let staleAt = fetchedAt.addingTimeInterval(snapshot.staleAfter)
-            if staleAt > date { boundaries.append(staleAt) }
-        }
-        return boundaries
+        guard case .loaded = source else { return [] }
+        return selectedSnapshot(at: date).presentationBoundaries(after: date)
     }
 }

@@ -80,10 +80,14 @@ struct UsageProvider: TimelineProvider {
         // severity at each entry's date, but only where an entry exists to age it. Drawn
         // from the captured cache — no reload, no network, just the flip the cached data
         // itself implies when no refresh has come to overwrite it.
-        dates.append(contentsOf: Self.staleBoundaries(of: snapshot, after: now))
+        // Every shown row's reset too, not only the lead's: a medium tile's second account
+        // otherwise kept its spent number in quota colour until the next budgeted reload.
+        dates.append(contentsOf: snapshot.presentationBoundaries(after: now))
         let unavailable = Self.unavailable(from: load)
-        let entries = dates.map {
-            UsageEntry(date: $0, snapshot: snapshot, unavailable: unavailable)
+        // Ranked at each entry's own date, as a fresh build then would: an account that ages
+        // stale mid-timeline stops leading on its write-time verdict.
+        let entries = Set(dates).sorted().map {
+            UsageEntry(date: $0, snapshot: Self.criticalSelection(of: load.snapshot, now: $0), unavailable: unavailable)
         }
         completion(
             Timeline(
@@ -122,18 +126,6 @@ struct UsageProvider: TimelineProvider {
         case .unreadable: return .sourceUnavailable
         case .corrupt: return .corruptSource
         }
-    }
-
-    /// The earliest instant at which a cached account ages out of "current", per account.
-    private static func staleBoundaries(of snapshot: GlanceSnapshot, after now: Date) -> [Date] {
-        snapshot.accounts.compactMap { account in
-            guard let fetchedAt = account.fetchedAt else { return nil }
-            let staleAt = fetchedAt.addingTimeInterval(snapshot.staleAfter)
-            return staleAt > now ? staleAt : nil
-        }
-        .sorted()
-        .prefix(2)   // The soonest flip or two; a dozen accounts need not mean a dozen entries.
-        .map { $0 }
     }
 
     // MARK: Timeline maths
@@ -548,8 +540,7 @@ private struct MediumAccountRow: View {
     /// speak unconditionally painted a stale or failed account in the colour of its last good
     /// number — the one reading a quota widget must never give.
     private var rowSeverity: Severity {
-        let aged = account.severity(at: now, staleAfter: staleAfter)
-        return aged == .healthy ? (row?.severity ?? aged) : aged
+        account.displaySeverity(of: row, at: now, staleAfter: staleAfter)
     }
 
     var body: some View {
@@ -624,11 +615,11 @@ struct UsageWidgetSmallView: View {
         // Aged to THIS entry's date, not to the moment the app wrote the snapshot. A timeline
         // holds several entries built from one snapshot, so a frozen verdict means a tile that
         // was healthy at write time still reads healthy hours later with nothing behind it.
-        let aged = focus.account.severity(at: entry.date, staleAfter: entry.snapshot.staleAfter)
         // The row's severity comes from its percentage alone and knows nothing about age, so
-        // it may only speak while the account itself is healthy. Otherwise a stale or failed
-        // account was painted in the colour of its last good number.
-        let severity = aged == .healthy ? (focus.row?.severity ?? aged) : aged
+        // it may only speak while the account itself is healthy and the row's reset has not
+        // passed since the fetch. Otherwise a stale, failed or rolled-over reading was painted
+        // in the colour of its last good number.
+        let severity = focus.account.displaySeverity(of: focus.row, at: entry.date, staleAfter: entry.snapshot.staleAfter)
         return VStack(alignment: .leading, spacing: 4) {
             Text(verbatim: focus.account.title)
                 .font(.headline)
@@ -891,8 +882,7 @@ struct UsageRingWidgetView: View {
     }
 
     private func content(for focus: WidgetFocus) -> some View {
-        let aged = focus.account.severity(at: entry.date, staleAfter: entry.snapshot.staleAfter)
-        let severity = aged == .healthy ? (focus.row?.severity ?? aged) : aged
+        let severity = focus.account.displaySeverity(of: focus.row, at: entry.date, staleAfter: entry.snapshot.staleAfter)
         // Same rule as the small tile: a row whose own reset has passed shows that instant,
         // not some other window's still-future one. See `UsageWidgetSmallView`.
         let shownReset: Date? = {

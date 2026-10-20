@@ -114,12 +114,11 @@ struct ConfiguredUsageProvider: AppIntentTimelineProvider {
         if let reset = lead.nextResetAt, reset > now, reset < now.addingTimeInterval(3600) {
             dates.append(reset.addingTimeInterval(2))
         }
-        // A staleness boundary past the hour horizon needs its own entry: the views age each
-        // account's severity at the entry's date, but only where an entry exists to age it.
-        // Drawn from the captured cache — no reload, no network.
-        dates.append(contentsOf: capture.presentationBoundaries(after: now)
-            .filter { $0 > now.addingTimeInterval(3600) })
-        let entries = dates.sorted().map { date in
+        // Staleness and every selected row's reset need their own entries, inside the hour or
+        // past it: the views age each account's severity at the entry's date, but only where
+        // an entry exists to age it. Drawn from the captured cache — no reload, no network.
+        dates.append(contentsOf: capture.presentationBoundaries(after: now))
+        let entries = Set(dates).sorted().map { date in
             Entry(date: date, snapshot: capture.selectedSnapshot(at: date),
                 transparent: configuration.transparent, tone: configuration.tone, outcome: outcome)
         }
@@ -230,7 +229,7 @@ private struct ConfiguredRingGrid: View {
                     Link(destination: URL(string: "usagelimits://account/\(account.id)")!) {
                         HStack(spacing: 8) {
                             let limit = account.rows.min { ($0.remainingPercent ?? .infinity) < ($1.remainingPercent ?? .infinity) }
-                            let severity = account.severity(at: entry.date, staleAfter: entry.snapshot.staleAfter)
+                            let severity = account.displaySeverity(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter)
                             ZStack {
                                 // In accented/monochrome renderings the host recolors both
                                 // circles white at full opacity, and a partly filled ring read
