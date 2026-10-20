@@ -146,4 +146,25 @@ class CredentialWriteFailureTest {
         // The reference still lists, so the account is not silently forgotten either.
         assertEquals(setOf("codex_a"), store(prefs).references())
     }
+
+    @Test
+    fun `a record written before regions existed loads with no region data`() = runBlocking {
+        val prefs = FailablePrefs()
+        // The shape a Kimi key saved by an earlier build has: no providerData field at all.
+        prefs.backing["cred_kimi_a"] = """{"accessToken":"sk-legacy","refreshToken":"ref","expiresAt":5}"""
+
+        val loaded = store(prefs).load("kimi_a")
+
+        assertEquals("sk-legacy", loaded?.accessToken)
+        assertEquals(emptyMap<String, String>(), loaded?.providerData)
+    }
+
+    @Test
+    fun `the region rides in providerData through a save and a load`() = runBlocking {
+        val store = store(FailablePrefs())
+
+        store.save("zai_a", OAuthCredentials("key", null, null, null, providerData = mapOf("region" to "cn")))
+
+        assertEquals("cn", store.load("zai_a")?.providerData?.get("region"))
+    }
 }

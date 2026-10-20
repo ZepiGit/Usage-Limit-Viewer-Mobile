@@ -78,6 +78,8 @@ fun providerSymbol(provider: ProviderId): String = when (provider) {
     ProviderId.KIMI -> "☾"
     ProviderId.DEVIN -> "D"
     ProviderId.META -> "∞"
+    ProviderId.ZAI -> "Z"
+    ProviderId.OPENCODE -> "O"
 }
 
 fun providerTint(provider: ProviderId): Color = when (provider) {
@@ -88,6 +90,8 @@ fun providerTint(provider: ProviderId): Color = when (provider) {
     ProviderId.KIMI -> UsageColors.Indigo
     ProviderId.DEVIN -> UsageColors.Teal
     ProviderId.META -> UsageColors.Terracotta
+    ProviderId.ZAI -> UsageColors.Terracotta
+    ProviderId.OPENCODE -> UsageColors.Terracotta
 }
 
 /**

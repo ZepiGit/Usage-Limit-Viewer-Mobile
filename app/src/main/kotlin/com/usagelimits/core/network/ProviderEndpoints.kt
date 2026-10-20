@@ -1,5 +1,7 @@
 package com.usagelimits.core.network
 
+import com.usagelimits.core.model.ProviderRegion
+
 /**
  * Every provider URL, client identifier and request header the app sends, in one place.
  *
@@ -234,14 +236,32 @@ object ProviderEndpoints {
      * Source: CLIProxyAPI internal/auth/kimi/kimi.go.
      */
     object Kimi {
-        /** The public client id every Kimi Code device-flow client presents. */
+        /** The public client id every Kimi Code device-flow client presents, on both hosts. */
         const val CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098"
-        const val DEVICE_CODE_URL = "https://auth.kimi.com/api/oauth/device_authorization"
-        const val TOKEN_URL = "https://auth.kimi.com/api/oauth/token"
         const val DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 
-        const val USAGE_ENDPOINT = "https://api.kimi.com/coding/v1/usages"
-        const val CONSOLE_URL = "https://www.kimi.com/code"
+        /** One region's hosts. A token or key only works on the host that issued it. */
+        data class Urls(
+            val deviceCodeUrl: String,
+            val tokenUrl: String,
+            val usageEndpoint: String,
+            val consoleUrl: String,
+        )
+
+        val CHINA = Urls(
+            deviceCodeUrl = "https://auth.kimi.com/api/oauth/device_authorization",
+            tokenUrl = "https://auth.kimi.com/api/oauth/token",
+            usageEndpoint = "https://api.kimi.com/coding/v1/usages",
+            consoleUrl = "https://www.kimi.com/code/console",
+        )
+        val INTERNATIONAL = Urls(
+            deviceCodeUrl = "https://auth.kimi.ai/api/oauth/device_authorization",
+            tokenUrl = "https://auth.kimi.ai/api/oauth/token",
+            usageEndpoint = "https://api.kimi.ai/coding/v1/usages",
+            consoleUrl = "https://www.kimi.ai/code/console",
+        )
+
+        fun urls(region: ProviderRegion): Urls = if (region == ProviderRegion.INTL) INTERNATIONAL else CHINA
 
         /** This app's own name, sent wherever Kimi asks which program is calling. */
         const val PLATFORM = "UsageLimits"
@@ -252,6 +272,29 @@ object ProviderEndpoints {
             "X-Msh-Platform" to PLATFORM,
             "X-Msh-Version" to version,
         )
+    }
+
+    /**
+     * Z.ai GLM Coding Plan. Undocumented quota route, API key only. The China service
+     * (open.bigmodel.cn) serves the same path with its own keys. See docs/providers-zai.md.
+     */
+    object Zai {
+        fun usageEndpoint(region: ProviderRegion): String =
+            (if (region == ProviderRegion.CN) "https://open.bigmodel.cn" else "https://api.z.ai") +
+                "/api/monitor/usage/quota/limit"
+
+        fun consoleUrl(region: ProviderRegion): String =
+            if (region == ProviderRegion.CN) {
+                "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys"
+            } else {
+                "https://z.ai/manage-apikey/apikey-list"
+            }
+    }
+
+    /** OpenCode Go. Undocumented usage route, API key only. See docs/providers-opencode.md. */
+    object OpenCode {
+        const val USAGE_ENDPOINT = "https://opencode.ai/zen/go/v1/usage"
+        const val CONSOLE_URL = "https://opencode.ai/auth"
     }
 
     /**

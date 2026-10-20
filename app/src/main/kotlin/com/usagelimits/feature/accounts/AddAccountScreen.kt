@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.feature.overview.providerSymbol
 import com.usagelimits.feature.overview.providerTint
 import com.usagelimits.ui.components.IconBadge
@@ -71,6 +72,8 @@ fun AddAccountScreen(
     onStartWithKey: (ProviderId) -> Unit = {},
     /** The device-code way in, for a provider whose browser redirect may not land. */
     onStartWithDeviceCode: (ProviderId) -> Unit = {},
+    /** The region picked for Kimi or Z.ai, before the code or key step. */
+    onChooseRegion: (ProviderId, ProviderRegion) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val activeState by rememberUpdatedState(state)
@@ -111,6 +114,34 @@ fun AddAccountScreen(
                         providers.forEach { provider ->
                             ProviderRow(provider) { if (acceptsInput()) onStart(provider) }
                         }
+                    }
+
+                    is AddAccountState.ChoosingRegion -> {
+                        UsageCard {
+                            Text(
+                                text = "${state.provider.displayName} region",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = UsageColors.TextPrimary,
+                            )
+                            Text(
+                                text = "Keys and sign-ins only work on the service they were issued by. " +
+                                    "Pick the one your account is on.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = UsageColors.TextSecondary,
+                            )
+                            Spacer(Modifier.height(14.dp))
+                            ProviderRegion.options(state.provider).forEach { option ->
+                                Button(
+                                    onClick = { if (acceptsInput()) onChooseRegion(state.provider, option) },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = UsageColors.TerracottaSurface,
+                                        contentColor = UsageColors.Terracotta,
+                                    ),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(option.label(state.provider)) }
+                            }
+                        }
+                        TextButton(onClick = { if (acceptsInput()) onCancel() }) { Text("Cancel", color = UsageColors.TextSecondary) }
                     }
 
                     is AddAccountState.Starting -> LoadingCard("Contacting ${state.provider.displayName}…")
@@ -418,6 +449,8 @@ private fun loginHint(provider: ProviderId): String = when (provider) {
     ProviderId.KIMI -> "Sign in with a device code"
     ProviderId.DEVIN -> "Sign in in your browser"
     ProviderId.META -> "Sign in with a device code"
+    ProviderId.ZAI -> "Paste an API key"
+    ProviderId.OPENCODE -> "Paste an API key"
 }
 
 @Composable

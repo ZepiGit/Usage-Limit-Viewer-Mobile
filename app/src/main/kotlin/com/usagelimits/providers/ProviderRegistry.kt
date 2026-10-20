@@ -8,7 +8,9 @@ import com.usagelimits.providers.codex.CodexProvider
 import com.usagelimits.providers.devin.DevinProvider
 import com.usagelimits.providers.kimi.KimiProvider
 import com.usagelimits.providers.meta.MetaProvider
+import com.usagelimits.providers.opencode.OpenCodeProvider
 import com.usagelimits.providers.xai.XaiProvider
+import com.usagelimits.providers.zai.ZaiProvider
 
 /**
  * Resolves a [ProviderId] to its implementation.
@@ -26,6 +28,8 @@ class ProviderRegistry(http: HttpClient) {
         put(ProviderId.KIMI, KimiProvider(http))
         put(ProviderId.DEVIN, DevinProvider(http))
         put(ProviderId.META, MetaProvider(http))
+        put(ProviderId.ZAI, ZaiProvider(http))
+        put(ProviderId.OPENCODE, OpenCodeProvider(http))
     }
 
     fun forId(id: ProviderId): UsageProvider? = providers[id]
