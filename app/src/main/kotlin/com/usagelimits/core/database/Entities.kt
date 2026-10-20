@@ -188,3 +188,48 @@ data class NotificationStateEntity(
     @androidx.room.ColumnInfo(defaultValue = "{}")
     val windowsJson: String = "{}",
 )
+
+/**
+ * A prepaid-balance (credit) account.
+ *
+ * Like [AccountEntity], no key material: [credentialReference] names an entry in the encrypted
+ * credential store, so this table can be read freely (and by widgets) without any path that
+ * could surface a key.
+ */
+@Entity(tableName = "credit_accounts")
+data class CreditAccountEntity(
+    @PrimaryKey val id: String,
+    val provider: String,
+    val label: String,
+    val credentialReference: String,
+    /** Non-secret extras (`region`, `teamId`, `lowThreshold`) as a JSON object of strings. */
+    val attributesJson: String,
+    val sortOrder: Int,
+    val createdAt: Long,
+)
+
+/**
+ * The latest balance read per credit account. A failed read keeps [balancesJson] and
+ * [fetchedAt] from the previous row and only moves [lastAttemptAt], [status] and [error].
+ */
+@Entity(
+    tableName = "credit_snapshots",
+    foreignKeys = [
+        ForeignKey(
+            entity = CreditAccountEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["accountId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class CreditSnapshotEntity(
+    @PrimaryKey val accountId: String,
+    /** [com.usagelimits.core.model.CreditBalance] list as JSON; amounts are decimal strings. */
+    val balancesJson: String,
+    val fetchedAt: Long,
+    val lastAttemptAt: Long,
+    /** A [com.usagelimits.core.model.CreditStatus] name. */
+    val status: String,
+    val error: String?,
+)

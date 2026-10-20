@@ -127,6 +127,9 @@ class WidgetAppearanceRenderingTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
             for ((widgetIndex, placed) in WidgetUpdater.allWidgets.withIndex()) {
+                // Credits has no configuration screen, so no saved panel or text tone to survive;
+                // CreditsWidgetRenderingTest composes it at each of its sizes.
+                if (placed.name !in sizes) continue
                 val configs = styles.mapIndexed { styleIndex, style ->
                     WidgetConfigEntity(100 + widgetIndex * 10 + styleIndex, "CUSTOM", null, null, now,
                         customAccountIdsJson = "[\"${account.localId}\"]",

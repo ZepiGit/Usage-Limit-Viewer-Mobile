@@ -48,18 +48,38 @@ Shown in the add picker as disabled rows with the reason, and not stored or sync
 
 ## Formatting
 
-Locale-aware currency, two fraction digits. A positive amount under one cent shows as `<$0.01`.
-Negative amounts (arrears) are shown as they are.
+Locale-aware currency (`NumberFormat.getCurrencyInstance` with `Currency.getInstance(code)` on
+Android, `Decimal.FormatStyle.Currency` on iOS), two fraction digits. A positive amount under one
+cent shows as `<$0.01`. Negative amounts (arrears) are shown as they are. An uncapped OpenRouter key
+reads "$12.50 spent this month" rather than a balance.
 
 ## Where it lives
 
-- iOS: `credits.json` in the shared container beside `accounts.json`; keys in the keychain under
-  `credit:<account id>`. Balances are written as decimal strings. The widget reads the `credits`
-  array that `GlanceSnapshot` now carries (absent in files from older builds).
-- Refresh runs inside `UsageLimitsContainer.refresh()`, so the background task updates balances
-  with usage. Each account is isolated; there is no token refresh.
+| | Android | iOS |
+|---|---|---|
+| Accounts and last read | Room v11: `credit_accounts` and `credit_snapshots` (migration 10 to 11, additive, schema exported as `11.json`); a snapshot row cascades with its account | `credits.json` in the shared container beside `accounts.json` |
+| Key | `KeystoreCredentialStore` under the account's reference `credit:<account id>` (stored as the access token, no refresh grant); never in Room | Keychain under `credit:<account id>` |
+| Amounts on disk | Decimal strings in `credit_snapshots.balancesJson` (`BigDecimal`, never `Double`) | Decimal strings in `credits.json` (`Decimal`) |
+| Account id | `credit-<provider>-<digest>`, digest = first 8 bytes of SHA-256 of the key, hex (`providers/KeyIdentity.kt`) | `credit-<provider>-<digest>`, digest = FNV-1a of the key, hex |
+| Refresh | `CreditSyncEngine`, run beside `SyncEngine` by `SyncWorker` and the foreground refresh | `CreditSyncEngine`, run by `UsageLimitsContainer.refresh()` |
+| Widget | `Credits` Glance widget: 1 account at 2x2, 3 at 4x2, 6 at 4x4, worst first; reads the credit repository only | `CreditsWidget`: small 1, medium 3, large 6; reads the `credits` array of the glance snapshot (absent in files from older builds) |
+| UI | Overview "Credits" section, add screen, detail screen (edit name and low-balance figure, refresh, remove) | Overview "Credits" section, `CreditsScreen`, add and edit sheets |
+
+The account id digest differs per platform because the two apps do not share storage; nothing
+compares ids across them.
+
+- A refresh updates every credit account in the same pass as the usage accounts, so the background
+  task updates balances with usage. Each account is isolated: one bad key becomes that account's
+  error line and nothing else's. There is no token refresh.
 - A key is checked against the provider before the account is created. A rejected key leaves no
-  account and no keychain entry.
+  account and no stored key. The same key pasted again updates the same account (it keeps its place
+  and creation time). For xAI the team id is resolved at add time (a typed id wins, else the
+  validation call's `scopeId`, else the add is refused) and stored in `attributes.teamId`.
+- A failed sync keeps the previous balances and the original `fetchedAt`; only the attempt time,
+  status and error change. A balance read for an account removed mid-fetch is dropped.
+- Status mapping for every provider: 401 and 403 read as "the key was rejected (HTTP n)", 404 as
+  not found, anything else as "answered HTTP n". OpenRouter falls back to `/key` on **403 only**;
+  a 401 is a bad key and does not retry.
 
 ## Security notes
 

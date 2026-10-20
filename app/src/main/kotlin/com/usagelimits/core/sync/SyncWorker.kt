@@ -16,6 +16,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.settings.AppSettings
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
@@ -54,14 +55,18 @@ class SyncWorker(
         if (inputData.getBoolean(KEY_ONLY_IF_AGED, false)) {
             val accounts = container.repository.accountUsageOnce()
             val interval = container.settingsStore.settings.first().syncIntervalMinutes
-            if (!cacheNeedsSync(accounts, interval, now)) return Result.success()
+            val credits = container.creditRepository.entriesOnce()
+            if (!cacheNeedsSync(accounts, interval, now) && !creditCacheNeedsSync(credits, interval, now)) {
+                return Result.success()
+            }
         }
 
         container.settingsStore.recordSyncAttempt(now)
 
         val outcomes = publishingEvenIfCancelled(
             sync = {
-                container.syncEngine.syncAll()
+                // Credit accounts ride the same pass. Each is isolated, so a bad key costs one line.
+                (container.syncEngine.syncAll() + container.creditSyncEngine.syncAll())
                     .also { container.settingsStore.recordSyncFinished(System.currentTimeMillis()) }
             },
             publish = { container.publishAfterSync(applicationContext) },
@@ -133,6 +138,15 @@ class SyncWorker(
                     resetAt != null && resetAt <= nowMs && snapshot.lastAttemptAt < resetAt
                 }
                 due || resetSinceAttempt
+            }
+        }
+
+        /** [cacheNeedsSync] for credit accounts: never read, or last attempted an interval ago. */
+        fun creditCacheNeedsSync(entries: List<CreditEntry>, syncIntervalMinutes: Int, nowMs: Long): Boolean {
+            val intervalMs = syncIntervalMinutes.coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES) * 60_000L
+            return entries.any { entry ->
+                val snapshot = entry.snapshot ?: return@any true
+                nowMs - snapshot.lastAttemptAt >= intervalMs
             }
         }
 
