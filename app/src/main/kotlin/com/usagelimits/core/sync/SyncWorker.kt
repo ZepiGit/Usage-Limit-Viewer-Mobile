@@ -17,7 +17,9 @@ import androidx.work.workDataOf
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.settings.AppSettings
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 /**
@@ -57,15 +59,13 @@ class SyncWorker(
 
         container.settingsStore.recordSyncAttempt(now)
 
-        val outcomes = container.syncEngine.syncAll()
-
-        container.settingsStore.recordSyncFinished(System.currentTimeMillis())
-
-        container.publishAfterSync(applicationContext)
-
-        // New cache, new presentation boundaries: the repaint that flips a tile to "stale" or
-        // crosses a reset is scheduled from the freshly written cache, without the network.
-        com.usagelimits.widget.WidgetPresentationWorker.scheduleNext(applicationContext)
+        val outcomes = publishingEvenIfCancelled(
+            sync = {
+                container.syncEngine.syncAll()
+                    .also { container.settingsStore.recordSyncFinished(System.currentTimeMillis()) }
+            },
+            publish = { container.publishAfterSync(applicationContext) },
+        )
 
         return resultFor(outcomes, periodic = inputData.getBoolean(KEY_PERIODIC, false))
     }
@@ -79,6 +79,9 @@ class SyncWorker(
 
         /** Set by widget-driven triggers: fetch only when the cache is older than the interval. */
         internal const val KEY_ONLY_IF_AGED = "onlyIfAged"
+
+        /** Tags the `onlyIfAged` one-shot, so a user's tap can find and supersede it. */
+        internal const val AGED_TAG = "usage_sync_aged"
 
         /**
          * How long a periodic pass waits after every account failed.
@@ -99,6 +102,20 @@ class SyncWorker(
             outcomes.isEmpty() || outcomes.any { it.success } -> Result.success()
             periodic -> Result.retry()
             else -> Result.failure()
+        }
+
+        /**
+         * Runs [sync], then [publish] — even when the pass is cancelled part-way (a lost
+         * constraint, the system reclaiming the worker): accounts it already saved must reach
+         * the widgets now, not at the next pass.
+         */
+        internal suspend fun <T> publishingEvenIfCancelled(
+            sync: suspend () -> T,
+            publish: suspend () -> Unit,
+        ): T = try {
+            sync()
+        } finally {
+            withContext(NonCancellable) { publish() }
         }
 
         /**
@@ -145,8 +162,17 @@ class SyncWorker(
             )
         }
 
-        /** Fires an immediate sync — app start, pull-to-refresh, a widget's refresh tap. */
-        fun syncNow(context: Context) = enqueueOneShot(context, onlyIfAged = false)
+        /**
+         * Fires an immediate sync — app start, pull-to-refresh, a widget's refresh tap.
+         *
+         * A pending `onlyIfAged` pass would otherwise hold the unique name under KEEP and may
+         * skip the fetch, swallowing the tap; cancel it first. WorkManager runs both operations
+         * on its serial executor, so the cancel lands before the enqueue.
+         */
+        fun syncNow(context: Context) {
+            WorkManager.getInstance(context).cancelAllWorkByTag(AGED_TAG)
+            enqueueOneShot(context, onlyIfAged = false)
+        }
 
         /**
          * Fires a sync only if the cache has aged past the interval or been overtaken by a
@@ -159,6 +185,7 @@ class SyncWorker(
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(connected())
                 .setInputData(workDataOf(KEY_ONLY_IF_AGED to onlyIfAged))
+                .apply { if (onlyIfAged) addTag(AGED_TAG) }
                 .apply {
                     // Expedited so a refresh the user just asked for — or one the system just
                     // asked for on behalf of a widget — does not wait for the next Doze
@@ -171,8 +198,9 @@ class SyncWorker(
                 }
                 .build()
 
-            // KEEP: an impatient user tapping five times gets one pass. Safe now that a
-            // one-shot never lingers in a retry backoff — see the class comment.
+            // KEEP: an impatient user tapping five times gets one pass, and a tick behind a
+            // pending tap adds nothing. Safe now that a one-shot never lingers in a retry
+            // backoff — see the class comment — and a tap first clears an aged pass (syncNow).
             WorkManager.getInstance(context).enqueueUniqueWork(
                 ONE_SHOT_WORK_NAME,
                 ExistingWorkPolicy.KEEP,
