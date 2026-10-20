@@ -8,34 +8,14 @@
 <a href="#build-it-yourself"><img src="docs/01-terracotta/android-badge.png" height="25" alt="Android 8.0+"></a> <a href="#build-it-yourself"><img src="docs/01-terracotta/ios-badge.png" height="25" alt="iOS 16.0+"></a> <a href="#build-it-yourself"><img src="docs/01-terracotta/source-badge.png" height="25" alt="Build from source"></a>
 </p>
 
-<p align="center"><a href="#whats-new-on-this-branch">What's new</a> · <a href="#what-the-app-does">What it does</a> · <a href="#supported-services">Services</a> · <a href="#prepaid-credits">Credits</a> · <a href="#widgets">Widgets</a> · <a href="#your-data">Your data</a> · <a href="#build-it-yourself">Build</a></p>
+<p align="center"><a href="#what-the-app-does">What it does</a> · <a href="#supported-services">Services</a> · <a href="#prepaid-credits">Credits</a> · <a href="#widgets">Widgets</a> · <a href="#your-data">Your data</a> · <a href="#build-it-yourself">Build</a></p>
 
 <p align="center"><img src="docs/01-terracotta/devices.png" width="1000" alt="Usage Limits on Android, iPhone and an unfolded foldable"></p>
 
-> **Development preview.** There is no store release of this branch yet. You can build it
+> **Development preview.** Usage Limits is not in the app stores yet. You can build it
 > yourself (see below) or grab the debug APK from the latest Android run under *Actions*.
 
 <p align="center"><a href="https://rookieenough.github.io/Orion-Data/redirect.html?id=firefin"><img src="https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png" width="206" alt="Get it on Orion Store"></a></p>
-
-## What's new on this branch
-
-This branch (`feat/providers-credits-redesign`) is the 0.3.0 work. In short:
-
-- **Two more services, and Kimi's international site.** Z.ai's GLM Coding Plan and OpenCode Go
-  join the list. Kimi now works with both kimi.com and kimi.ai; you pick the region when you
-  add the account.
-- **Credits.** A new section and widget for prepaid API balances: OpenRouter, DeepSeek,
-  Moonshot, xAI, fal.ai and Novita.
-- **Numbers you can trust.** About twenty-five fixes for percentages that were wrong or out of
-  date, mostly in widgets. The biggest one: once a limit has reset, the app no longer shows
-  the old "used up" figure as if it were still true.
-- **Signing in actually finishes on newer phones.** On Android 14 and later, signing in to
-  Claude, Codex, Antigravity or Devin could hang on the last page. That is fixed (details
-  under [Signing in](#signing-in)).
-- **A calmer look.** The screens and widgets were redesigned: neutral colours for everything
-  around your data, the Terracotta brand colour only on the bars and rings that matter, and
-  the tightest limit right at the top of the overview. Before and after screenshots are in
-  [docs/redesign](docs/redesign).
 
 ## What the app does
 
@@ -55,6 +35,9 @@ Some details that make it pleasant to live with:
   refresh, it is shown as "reset due", not as still used up.
 - **No model calls.** The app only asks each service for your usage. It never sends a prompt,
   so checking your limits never costs you any of them.
+- **One look for everything.** Neutral colours for everything around your data, a single
+  Terracotta colour for the bars and rings that matter, and the limit closest to running out
+  right at the top.
 
 <img src="docs/01-terracotta/widgets.png" width="1000" alt="Usage Summary home-screen widget">
 
@@ -97,6 +80,8 @@ minutes, the notification asks you to come back to the app, and that finishes it
 If you use AI through API keys, the **Credits** section shows how much money is left on
 each account, in that account's currency, and warns you when it gets low.
 
+<p align="center"><a href="docs/01-terracotta/credits-devices.png"><img src="docs/01-terracotta/credits-devices.png" width="1000" alt="The Credits screen on Android and iPhone with OpenRouter, DeepSeek, Moonshot and fal.ai balances"></a></p>
+
 | Service | Which key it needs |
 | :--- | :--- |
 | **OpenRouter** | A management key shows the whole account; a normal key shows that key's own limit |
@@ -110,7 +95,11 @@ each account, in that account's currency, and warns you when it gets low.
 with an API key, so the app says so instead of guessing.
 
 You can set your own "low" threshold per account. Credits refresh together with your usage,
-and there is a Credits widget too. More in [docs/credits.md](docs/credits.md).
+and the Credits widget puts the lowest balances on your home screen in three sizes:
+
+<p align="center"><a href="docs/01-terracotta/credits-widgets.png"><img src="docs/01-terracotta/credits-widgets.png" width="1000" alt="Credits widget in small, medium and large sizes, lowest balance first"></a></p>
+
+More in [docs/credits.md](docs/credits.md).
 
 ## Widgets
 
@@ -158,8 +147,9 @@ More about how widgets stay current: [docs/widgets.md](docs/widgets.md).
 <p align="center"><a href="docs/01-terracotta/DEMO.md"><img src="docs/01-terracotta/tour-card.png" width="1000" alt="App tour: Overview, Accounts, Resets and Settings"></a></p>
 
 The [app tour](docs/01-terracotta/DEMO.md) walks through Overview, Accounts, Resets and
-Settings in your browser. The tour and the pictures above show the previous look; the
-redesigned screens are in [docs/redesign/after](docs/redesign/after).
+Settings in your browser. The tour and the usage pictures above still show the earlier look;
+current screens and widgets are in [docs/redesign/after](docs/redesign/after), next to the
+[old ones](docs/redesign/before).
 
 ## Your data
 
