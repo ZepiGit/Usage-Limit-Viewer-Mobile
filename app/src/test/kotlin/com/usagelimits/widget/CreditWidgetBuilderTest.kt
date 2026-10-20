@@ -58,7 +58,8 @@ class CreditWidgetBuilderTest {
         )
         val row = CreditWidgetBuilder.build(listOf(failed), now, stale).rows.single()
         assertEquals(Severity.ERROR, row.severity)
-        assertEquals("Error", amountText(row))
+        // Never the word "Error" in the figure slot: a quiet dash, with the severity dot beside it.
+        assertEquals("—", amountText(row))
         assertEquals("rejected", statusText(row))
     }
 

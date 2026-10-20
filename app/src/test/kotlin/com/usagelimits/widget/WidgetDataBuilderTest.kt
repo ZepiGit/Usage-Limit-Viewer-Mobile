@@ -46,7 +46,8 @@ class WidgetDataBuilderTest {
         assertTrue(data.hasPartialUpdate)
         assertEquals(Severity.EXHAUSTED, data.overallSeverity)
         assertEquals(0.0, ringLimit(data.accounts.single())!!.remainingPercent!!, 0.001)
-        assertEquals(WidgetStyle.Red, ringAccent(data.accounts.single()))
+        // An exhausted ring is an empty arc in the data hue; the zero is carried by its figure and dot.
+        assertEquals(WidgetStyle().data, ringAccent(data.accounts.single(), WidgetStyle()))
     }
 
     @Test

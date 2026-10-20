@@ -9,23 +9,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -35,21 +32,26 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ProviderRegion
-import com.usagelimits.feature.overview.providerSymbol
-import com.usagelimits.feature.overview.providerTint
-import com.usagelimits.ui.components.IconBadge
+import com.usagelimits.ui.AppIcons
+import androidx.compose.material3.Icon
+import com.usagelimits.ui.components.Dot
+import com.usagelimits.ui.components.InkButton
+import com.usagelimits.ui.components.LedgerField
+import com.usagelimits.ui.components.OutlineButton
+import com.usagelimits.ui.components.RuleDivider
+import com.usagelimits.ui.components.ScreenTitle
+import com.usagelimits.ui.components.Spinner
+import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.theme.UsageColors
 
@@ -59,6 +61,7 @@ import com.usagelimits.ui.theme.UsageColors
  * Each provider's step is described in plain language before the browser opens, because an
  * unexplained jump to an OAuth page is exactly what a phishing flow looks like.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AddAccountScreen(
     state: AddAccountState,
@@ -81,16 +84,12 @@ fun AddAccountScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(UsageColors.Background)
+            .background(UsageColors.Ground)
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            text = "Add account",
-            style = MaterialTheme.typography.headlineLarge,
-            color = UsageColors.TextPrimary,
-        )
+        ScreenTitle("Add account")
 
         Crossfade(
             targetState = state,
@@ -101,18 +100,21 @@ fun AddAccountScreen(
             val acceptsInput = { displayedState == activeState }
             Column(
                 modifier = if (acceptsInput()) Modifier else Modifier.clearAndSetSemantics {},
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 when (val state = displayedState) {
                     is AddAccountState.PickProvider -> {
                         Text(
                             text = "You can connect several accounts per provider.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = UsageColors.TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = UsageColors.Muted,
                         )
                         Spacer(Modifier.height(4.dp))
-                        providers.forEach { provider ->
-                            ProviderRow(provider) { if (acceptsInput()) onStart(provider) }
+                        UsageCard(contentPadding = PaddingValues(0.dp)) {
+                            providers.forEachIndexed { index, provider ->
+                                if (index > 0) RuleDivider(Modifier.padding(horizontal = 16.dp))
+                                ProviderRow(provider) { if (acceptsInput()) onStart(provider) }
+                            }
                         }
                     }
 
@@ -121,27 +123,26 @@ fun AddAccountScreen(
                             Text(
                                 text = "${state.provider.displayName} region",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = UsageColors.TextPrimary,
+                                color = UsageColors.Ink,
                             )
                             Text(
                                 text = "Keys and sign-ins only work on the service they were issued by. " +
                                     "Pick the one your account is on.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = UsageColors.TextSecondary,
+                                color = UsageColors.Muted,
                             )
                             Spacer(Modifier.height(14.dp))
-                            ProviderRegion.options(state.provider).forEach { option ->
-                                Button(
-                                    onClick = { if (acceptsInput()) onChooseRegion(state.provider, option) },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = UsageColors.TerracottaSurface,
-                                        contentColor = UsageColors.Terracotta,
-                                    ),
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) { Text(option.label(state.provider)) }
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ProviderRegion.options(state.provider).forEach { option ->
+                                    OutlineButton(
+                                        option.label(state.provider),
+                                        { if (acceptsInput()) onChooseRegion(state.provider, option) },
+                                        Modifier.fillMaxWidth(),
+                                    )
+                                }
                             }
                         }
-                        TextButton(onClick = { if (acceptsInput()) onCancel() }) { Text("Cancel", color = UsageColors.TextSecondary) }
+                        TextAction("Cancel", { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
                     }
 
                     is AddAccountState.Starting -> LoadingCard("Contacting ${state.provider.displayName}…")
@@ -164,22 +165,22 @@ fun AddAccountScreen(
                             Text(
                                 text = "Enter this code",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = UsageColors.TextPrimary,
+                                color = UsageColors.Ink,
                             )
                             Text(
                                 text = "Your browser is opening ${state.verificationUri}. Paste the code " +
                                     "there — this app never sees your password.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = UsageColors.TextSecondary,
+                                color = UsageColors.Muted,
                             )
                             Spacer(Modifier.height(14.dp))
+                            // The sheet's lead figure: a code, so the figure face, in ink.
                             Text(
                                 text = state.userCode,
-                                style = MaterialTheme.typography.headlineLarge,
-                                fontWeight = FontWeight.Bold,
-                                // Wide tracking so the code is easy to read a character at a time.
-                                letterSpacing = 6.sp,
-                                color = UsageColors.Terracotta,
+                                style = MaterialTheme.typography.headlineMedium,
+                                // 0.04em, enough to read the code a character at a time.
+                                letterSpacing = 1.2.sp,
+                                color = UsageColors.Ink,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -191,56 +192,36 @@ fun AddAccountScreen(
                             Text(
                                 text = if (copied) "Copied to your clipboard" else "Tap the code to copy",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = UsageColors.TextTertiary,
+                                color = UsageColors.Faint,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                             Spacer(Modifier.height(14.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(
-                                    onClick = { if (acceptsInput()) copy() },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = UsageColors.Terracotta,
-                                        contentColor = UsageColors.Background,
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                ) { Text("Copy code") }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                InkButton("Copy code", { if (acceptsInput()) copy() }, Modifier.weight(1f))
                                 // The browser was opened once already. This is for the times it was not —
                                 // no default browser, the tab dismissed, the wrong profile — where the
                                 // flow is otherwise dead with a code and nowhere to put it.
-                                Button(
-                                    onClick = { if (acceptsInput()) uriHandler.openUri(state.verificationUri) },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = UsageColors.TerracottaSurface,
-                                        contentColor = UsageColors.Terracotta,
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                ) { Text("Open page") }
+                                OutlineButton("Open page", { if (acceptsInput()) uriHandler.openUri(state.verificationUri) }, Modifier.weight(1f))
                             }
                             Spacer(Modifier.height(14.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = UsageColors.TextTertiary,
-                                )
+                                Spinner()
                                 Spacer(Modifier.width(10.dp))
                                 Text(
                                     text = "Waiting for approval…",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = UsageColors.TextSecondary,
+                                    color = UsageColors.Muted,
                                 )
                             }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.Center) {
                             if (state.keyAlternative) {
                                 // The flow is the default because it costs the user nothing. The key
                                 // is for when the flow's account cannot reach the API yet.
-                                TextButton(onClick = { if (acceptsInput()) onStartWithKey(state.provider) }) {
-                                    Text("Use an API key instead", color = UsageColors.Terracotta)
-                                }
+                                TextAction("Use an API key instead", { if (acceptsInput()) onStartWithKey(state.provider) })
                             }
-                            TextButton(onClick = { if (acceptsInput()) onCancel() }) { Text("Cancel", color = UsageColors.TextSecondary) }
+                            TextAction("Cancel", { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
                         }
                     }
 
@@ -252,52 +233,26 @@ fun AddAccountScreen(
                             Text(
                                 text = "Paste your ${state.provider.displayName} key",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = UsageColors.TextPrimary,
+                                color = UsageColors.Ink,
                             )
                             Text(
                                 text = state.hint,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = UsageColors.TextSecondary,
+                                color = UsageColors.Muted,
                             )
                             Spacer(Modifier.height(14.dp))
-                            OutlinedTextField(
+                            LedgerField(
+                                label = "API key",
                                 value = key,
                                 onValueChange = { if (acceptsInput()) key = it },
-                                singleLine = true,
-                                label = { Text("API key") },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = UsageColors.TextPrimary,
-                                    unfocusedTextColor = UsageColors.TextPrimary,
-                                    focusedBorderColor = UsageColors.Terracotta,
-                                    unfocusedBorderColor = UsageColors.Outline,
-                                    focusedLabelColor = UsageColors.Terracotta,
-                                    unfocusedLabelColor = UsageColors.TextSecondary,
-                                    cursorColor = UsageColors.Terracotta,
-                                ),
                             )
                             Spacer(Modifier.height(14.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(
-                                    onClick = { if (acceptsInput()) onSubmitApiKey(key) },
-                                    enabled = key.isNotBlank(),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = UsageColors.Terracotta,
-                                        contentColor = UsageColors.Background,
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                ) { Text("Connect") }
-                                Button(
-                                    onClick = { if (acceptsInput()) uriHandler.openUri(state.consoleUrl) },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = UsageColors.TerracottaSurface,
-                                        contentColor = UsageColors.Terracotta,
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                ) { Text("Open console") }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                InkButton("Connect", { if (acceptsInput()) onSubmitApiKey(key) }, Modifier.weight(1f), enabled = key.isNotBlank())
+                                OutlineButton("Open console", { if (acceptsInput()) uriHandler.openUri(state.consoleUrl) }, Modifier.weight(1f))
                             }
                         }
-                        TextButton(onClick = { if (acceptsInput()) onCancel() }) { Text("Cancel", color = UsageColors.TextSecondary) }
+                        TextAction("Cancel", { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
                     }
 
                     is AddAccountState.AwaitingBrowser -> {
@@ -314,96 +269,80 @@ fun AddAccountScreen(
                                 text = "Browser not coming back? Sign in with a code instead — " +
                                     "you type it on the provider's page and no redirect is needed.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = UsageColors.TextSecondary,
+                                color = UsageColors.Muted,
                             )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.Center) {
                             if (state.deviceCodeAlternative) {
-                                TextButton(onClick = { if (acceptsInput()) onStartWithDeviceCode(state.provider) }) {
-                                    Text("Use a device code", color = UsageColors.Terracotta)
-                                }
+                                TextAction("Use a device code", { if (acceptsInput()) onStartWithDeviceCode(state.provider) })
                             }
                             state.authorizationUrl?.let { url ->
-                                TextButton(onClick = { if (acceptsInput()) uriHandler.openUri(url) }) {
-                                    Text("Open page again", color = UsageColors.Terracotta)
-                                }
+                                TextAction("Open page again", { if (acceptsInput()) uriHandler.openUri(url) })
                             }
-                            TextButton(onClick = { if (acceptsInput()) onCancel() }) { Text("Cancel", color = UsageColors.TextSecondary) }
+                            TextAction("Cancel", { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
                         }
                     }
 
                     is AddAccountState.Success -> {
                         UsageCard {
-                            Text(
-                                text = "Connected",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = UsageColors.Green,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Dot(UsageColors.Positive)
+                                Text(
+                                    text = "Connected",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = UsageColors.Ink,
+                                )
+                            }
                             Text(
                                 text = "${state.accountLabel} is now being monitored.",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = UsageColors.TextSecondary,
+                                color = UsageColors.Muted,
                             )
                         }
-                        Button(
-                            onClick = { if (acceptsInput()) onDone() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = UsageColors.Terracotta,
-                                contentColor = UsageColors.Background,
-                            ),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Done") }
+                        InkButton("Done", { if (acceptsInput()) onDone() }, Modifier.fillMaxWidth())
                     }
 
                     is AddAccountState.Failed -> {
-                        UsageCard(borderColor = UsageColors.RedSurface) {
-                            Text(
-                                text = "Sign-in failed",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = UsageColors.Red,
-                            )
+                        UsageCard {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Dot(UsageColors.Negative)
+                                Text(
+                                    text = "Sign-in failed",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = UsageColors.Ink,
+                                )
+                            }
                             Text(
                                 text = state.message,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = UsageColors.TextSecondary,
+                                color = UsageColors.Muted,
                             )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.Center) {
                             state.provider?.let { provider ->
-                                Button(
+                                InkButton(
+                                    "Try again",
                                     // The same way in as the attempt that failed: someone who
                                     // chose the code because the browser never came back
                                     // must not be sent back to the browser by "try again".
-                                    onClick = {
+                                    {
                                         if (acceptsInput()) {
                                             if (state.viaDeviceCode) onStartWithDeviceCode(provider) else onStart(provider)
                                         }
                                     },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = UsageColors.Terracotta,
-                                        contentColor = UsageColors.Background,
-                                    ),
-                                ) { Text("Try again") }
+                                )
                                 if (state.keyAlternative) {
-                                    TextButton(onClick = { if (acceptsInput()) onStartWithKey(provider) }) {
-                                        Text("Use an API key", color = UsageColors.Terracotta)
-                                    }
+                                    TextAction("Use an API key", { if (acceptsInput()) onStartWithKey(provider) })
                                 }
                                 if (state.deviceCodeAlternative) {
                                     if (state.viaDeviceCode) {
-                                        TextButton(onClick = { if (acceptsInput()) onStart(provider) }) {
-                                            Text("Use the browser", color = UsageColors.Terracotta)
-                                        }
+                                        TextAction("Use the browser", { if (acceptsInput()) onStart(provider) })
                                     } else {
-                                        TextButton(onClick = { if (acceptsInput()) onStartWithDeviceCode(provider) }) {
-                                            Text("Use a device code", color = UsageColors.Terracotta)
-                                        }
+                                        TextAction("Use a device code", { if (acceptsInput()) onStartWithDeviceCode(provider) })
                                     }
                                 }
                             }
-                            TextButton(onClick = { if (acceptsInput()) onCancel() }) {
-                                Text("Back", color = UsageColors.TextSecondary)
-                            }
+                            TextAction("Back", { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
                         }
                     }
                 }
@@ -412,31 +351,32 @@ fun AddAccountScreen(
     }
 }
 
+/** A 56dp ledger row: logo, name, how you sign in, chevron. */
 @Composable
 private fun ProviderRow(provider: ProviderId, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(UsageColors.Surface)
+            .heightIn(min = 56.dp)
             .clickable(onClick = onClick)
-            .padding(16.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        com.usagelimits.ui.ProviderBadge(provider = provider)
+        com.usagelimits.ui.ProviderBadge(provider = provider, size = 34.dp)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = provider.displayName,
                 style = MaterialTheme.typography.titleMedium,
-                color = UsageColors.TextPrimary,
+                color = UsageColors.Ink,
             )
             Text(
                 text = loginHint(provider),
                 style = MaterialTheme.typography.bodyMedium,
-                color = UsageColors.TextSecondary,
+                color = UsageColors.Muted,
             )
         }
+        Icon(AppIcons.ChevronRight, contentDescription = null, tint = UsageColors.Faint, modifier = Modifier.size(16.dp))
     }
 }
 
@@ -457,16 +397,12 @@ private fun loginHint(provider: ProviderId): String = when (provider) {
 private fun LoadingCard(message: String) {
     UsageCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(18.dp),
-                strokeWidth = 2.dp,
-                color = UsageColors.Terracotta,
-            )
+            Spinner()
             Spacer(Modifier.width(12.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = UsageColors.TextSecondary,
+                color = UsageColors.Muted,
             )
         }
     }
