@@ -43,26 +43,27 @@ public enum CreditJSON {
     /// of 0.000000000000001 would read as empty. Quoting every number literal first keeps the
     /// digits, and `decimal` then reads them as `Decimal`. Nil when the text is not a JSON object.
     public static func object(fromText text: String) -> [String: Any]? {
-        var out = ""
+        // Scalars, not Characters: a quote followed by a combining mark is one Character.
+        var out = String.UnicodeScalarView()
         var inString = false
         var escaped = false
         var number = false
-        for character in text {
+        for character in text.unicodeScalars {
             if inString {
                 out.append(character)
                 if escaped { escaped = false } else if character == "\\" { escaped = true } else if character == "\"" { inString = false }
                 continue
             }
             // A literal starts with a digit or "-"; the "e" of true/false/null is not one.
-            let digit = character.isASCII && character.isNumber
-            let numeric = number ? (digit || "+-.eE".contains(character)) : (digit || character == "-")
+            let digit = ("0"..."9").contains(character)
+            let numeric = number ? (digit || "+-.eE".unicodeScalars.contains(character)) : (digit || character == "-")
             if numeric && !number { out.append("\""); number = true }
             if !numeric && number { out.append("\""); number = false }
             if character == "\"" { inString = true }
             out.append(character)
         }
         if number { out.append("\"") }
-        return (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+        return (try? JSONSerialization.jsonObject(with: Data(String(out).utf8))) as? [String: Any]
     }
 
     /// A numeric string, or a number from a payload that did not come through `object(fromText:)`

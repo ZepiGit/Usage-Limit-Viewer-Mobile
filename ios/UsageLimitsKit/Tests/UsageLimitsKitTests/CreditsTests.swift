@@ -101,6 +101,10 @@ final class CreditsTests: XCTestCase {
         XCTAssertEqual(mixed["s"] as? String, #"a 1 " 2"#)
         XCTAssertEqual(CreditJSON.decimal(mixed, "n"), -3)
         XCTAssertNil(CreditJSON.object(fromText: "[1]"))
+        // A combining mark right after a quote must not hide the quote.
+        let accented = try XCTUnwrap(CreditJSON.object(fromText: "{\"s\":\"\u{301}12\",\"n\":5}"))
+        XCTAssertEqual(accented["s"] as? String, "\u{301}12")
+        XCTAssertEqual(CreditJSON.decimal(accented, "n"), 5)
     }
 
     func testOpenRouterKeyMissingFieldsAreMalformedNotUnlimited() throws {
