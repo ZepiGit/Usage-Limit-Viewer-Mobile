@@ -91,6 +91,25 @@ final class MetaDevinUsageParserTests: XCTestCase {
         XCTAssertEqual(status.dailyResetAt, Date(timeIntervalSince1970: 1_800_000_000))
     }
 
+    func testDevinSkipsFixedWidthProtobufFieldsInsteadOfDroppingTheQuota() throws {
+        // A double (wire 1) or float (wire 5) anywhere before the quota fields made the reader
+        // throw; the nested loops swallow that and stop, so the percentages were silently lost.
+        var planStatus: [UInt8] = []
+        appendVarint(&planStatus, UInt64(9 << 3 | 1)); planStatus += [UInt8](repeating: 0, count: 8)
+        appendVarint(&planStatus, UInt64(10 << 3 | 5)); planStatus += [UInt8](repeating: 0, count: 4)
+        appendVarintField(&planStatus, field: 14, value: 80)
+        appendVarintField(&planStatus, field: 15, value: 50)
+        var userStatus: [UInt8] = []
+        appendVarint(&userStatus, UInt64(40 << 3 | 1)); userStatus += [UInt8](repeating: 0, count: 8)
+        appendBytes(&userStatus, field: 13, value: planStatus)
+        var outer: [UInt8] = []
+        appendBytes(&outer, field: 1, value: userStatus)
+
+        let status = try DevinUsageParser.parseProto(outer)
+        XCTAssertEqual(status.dailyRemainingPercent, 80)
+        XCTAssertEqual(status.weeklyRemainingPercent, 50)
+    }
+
     private func appendString(_ bytes: inout [UInt8], field: Int, value: String) {
         appendBytes(&bytes, field: field, value: Array(value.utf8))
     }

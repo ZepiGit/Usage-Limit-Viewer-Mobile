@@ -283,7 +283,9 @@ public enum DevinUsageParser {
 
     private enum Wire: UInt8 {
         case varint = 0
+        case fixed64 = 1
         case bytes = 2
+        case fixed32 = 5
     }
 
     private struct Field {
@@ -339,6 +341,13 @@ public enum DevinUsageParser {
             switch wire {
             case .varint: _ = try varint()
             case .bytes: _ = try bytes()
+            // A double or float: skipped, not fatal, or every later field is lost with it.
+            case .fixed64, .fixed32:
+                let width = wire == .fixed64 ? 8 : 4
+                guard data.count - index >= width else {
+                    throw ProviderError.malformedPayload("devin status had a truncated protobuf field")
+                }
+                index += width
             }
         }
     }
