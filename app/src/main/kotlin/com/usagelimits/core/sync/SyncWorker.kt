@@ -167,9 +167,10 @@ class SyncWorker(
          *
          * A pending `onlyIfAged` pass would otherwise hold the unique name under KEEP and may
          * skip the fetch, swallowing the tap; cancel it first. WorkManager runs both operations
-         * on its serial executor, so the cancel lands before the enqueue.
+         * on its serial executor, so the cancel lands before the enqueue. Both triggers hold
+         * [triggerLock] so an aged enqueue from another thread cannot land between the two.
          */
-        fun syncNow(context: Context) {
+        fun syncNow(context: Context) = synchronized(triggerLock) {
             WorkManager.getInstance(context).cancelAllWorkByTag(AGED_TAG)
             enqueueOneShot(context, onlyIfAged = false)
         }
@@ -179,7 +180,11 @@ class SyncWorker(
          * reset — the trigger for anything that runs on a clock rather than a user's tap: the
          * system's periodic widget update, and the cache-only presentation repaint.
          */
-        fun syncIfCacheAged(context: Context) = enqueueOneShot(context, onlyIfAged = true)
+        fun syncIfCacheAged(context: Context) = synchronized(triggerLock) {
+            enqueueOneShot(context, onlyIfAged = true)
+        }
+
+        private val triggerLock = Any()
 
         private fun enqueueOneShot(context: Context, onlyIfAged: Boolean) {
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
