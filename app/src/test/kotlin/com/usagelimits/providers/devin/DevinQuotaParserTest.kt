@@ -74,6 +74,25 @@ class DevinQuotaParserTest {
     }
 
     @Test
+    fun `a spent window that protojson omitted at zero but whose reset is stated reads exhausted`() {
+        // Connect JSON drops zero-valued proto3 fields: a fully used daily quota arrives as its
+        // reset stamp alone. Dropping the row hid the exhausted limit behind a healthy weekly.
+        val omitted = JsonSupport.parseObject(
+            """{ "userStatus": { "planStatus": {
+                "weeklyQuotaRemainingPercent": 40,
+                "dailyQuotaResetAtUnix": "1789372800",
+                "weeklyQuotaResetAtUnix": "1789891200"
+            } } }""",
+        )
+
+        val windows = DevinQuotaParser.parse(omitted)
+        assertEquals(listOf("devin-daily", "devin-weekly"), windows.map { it.id })
+        assertEquals(100.0, windows[0].usedPercent!!, 0.0001)
+        assertTrue(windows[0].exhausted)
+        assertEquals(60.0, windows[1].usedPercent!!, 0.0001)
+    }
+
+    @Test
     fun `malformed percentages and reset values stay unknown independently`() {
         val malformed = JsonSupport.parseObject(
             """{ "userStatus": { "planStatus": {

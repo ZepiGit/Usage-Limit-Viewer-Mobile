@@ -169,7 +169,7 @@ authenticate forever and never show a number.
 
 | Payload field | Maps to | Direction and units |
 |---|---|---|
-| `buckets[].remainingFraction` / `remaining_fraction` | `UsageWindow.usedPercent` | **This is the direction inversion in this provider.** The field is a fraction 0–1 of what is **REMAINING**. The app's model stores what was **CONSUMED** as a percentage, so the parser clamps to 0–1 and computes `(1 − fraction) × 100`. `remainingFraction: 0.53` becomes `usedPercent = 47.0`, which the UI renders back as "53 % remaining". A bucket with no fraction is skipped entirely — a missing row beats a bar drawn from an assumed zero. |
+| `buckets[].remainingFraction` / `remaining_fraction` | `UsageWindow.usedPercent` | **This is the direction inversion in this provider.** The field is a fraction 0–1 of what is **REMAINING**. The app's model stores what was **CONSUMED** as a percentage, so the parser clamps to 0–1 and computes `(1 − fraction) × 100`. `remainingFraction: 0.53` becomes `usedPercent = 47.0`, which the UI renders back as "53 % remaining". Google's JSON omits a zero fraction, so a bucket with a `resetTime` but no fraction (and not `disabled`) is read as exhausted; one with neither stays an unknown row. |
 | `buckets[].window` | `UsageWindow.category` and `periodSeconds` | Free-form string, matched case-insensitively against a small alias set: `5h`/`five-hour`/`five_hour` → `FIVE_HOUR` (18 000 s), `weekly`/`week` → `WEEKLY` (604 800 s). Anything else → `OTHER` with a null period. |
 | `buckets[].resetTime` / `reset_time` | `UsageWindow.resetAt` | Absolute instant → epoch millis via `Instants.parse`. Antigravity reports absolute stamps only, so this parser never needs the injected clock — the `nowMs` parameter exists to keep the four parsers' signatures identical. |
 | `buckets[].bucketId` / `bucket_id` | `UsageWindow.id` | Used verbatim. Absent → `"<group-slug>-<window-or-index>"`. |
@@ -199,8 +199,9 @@ top-to-bottom as "soonest limit first"; unknown windows sort by label only, so t
 stays stable across refreshes regardless of what order the server emits them in. Group order
 is left exactly as the server sent it.
 
-**A bucket that cannot be rendered is dropped, not faked.** No `remainingFraction` means no
-row. The siblings in the group survive.
+**A missing fraction is the omitted zero only when the bucket states a reset.** No
+`remainingFraction` with a `resetTime` reads exhausted; with neither, the row stays unknown. The
+siblings in the group survive.
 
 **A group whose buckets all drop out disappears entirely**, rather than rendering as an empty
 card with a title and nothing under it.

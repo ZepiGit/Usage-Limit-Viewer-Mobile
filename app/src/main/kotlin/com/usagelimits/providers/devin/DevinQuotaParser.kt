@@ -115,13 +115,16 @@ object DevinQuotaParser {
         periodSeconds: Long,
         category: WindowCategory,
     ): UsageWindow? {
-        val remaining = JsonSupport.double(status, *remainingNames)
-            ?.takeIf { it in 0.0..100.0 }
-            ?: return null
-
         // The endpoint calls this a Unix timestamp in seconds. JsonSupport performs a checked
         // seconds-to-milliseconds conversion, avoiding overflow for hostile or malformed JSON.
         val resetAt = resetAt(status, resetNames)
+
+        // Connect JSON omits zero-valued proto3 fields, so a spent window arrives as its reset
+        // stamp alone. A present-but-invalid percentage still drops the row.
+        val remaining = (JsonSupport.double(status, *remainingNames)
+            ?: 0.0.takeIf { JsonSupport.field(status, *remainingNames) == null && resetAt != null })
+            ?.takeIf { it in 0.0..100.0 }
+            ?: return null
 
         return UsageWindow(
             id = id,
