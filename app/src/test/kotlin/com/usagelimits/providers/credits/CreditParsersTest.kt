@@ -42,6 +42,7 @@ class CreditParsersTest {
         // iOS reads every number as text, so a string exponent must parse alike on both.
         assertAmount("100000", CreditJson.decimal(json("""{"a":"1e5"}"""), "a"))
         assertNull(CreditJson.decimal(json("""{"a":"1e"}"""), "a"))
+        assertNull(CreditJson.decimal(json("""{"a":"1e9999999999"}"""), "a"))
     }
 
     // MARK: OpenRouter

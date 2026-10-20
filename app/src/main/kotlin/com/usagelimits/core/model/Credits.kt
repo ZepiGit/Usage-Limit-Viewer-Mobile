@@ -164,7 +164,7 @@ object CreditNumbers {
      * number as text, so "1e5" must parse alike on both). "12abc" and "" are rejected, never zero.
      */
     fun parse(text: String): BigDecimal? =
-        text.trim().takeIf { STRICT.matches(it) }?.let { BigDecimal(it) }
+        text.trim().takeIf { STRICT.matches(it) }?.let { runCatching { BigDecimal(it) }.getOrNull() }
 }
 
 /**
