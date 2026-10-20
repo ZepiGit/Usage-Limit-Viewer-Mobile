@@ -157,11 +157,11 @@ data class CreditEntry(val account: CreditAccount, val snapshot: CreditSnapshot?
 }
 
 object CreditNumbers {
-    private val STRICT = Regex("^[+-]?[0-9]+(\\.[0-9]+)?$")
+    private val STRICT = Regex("^[+-]?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?$")
 
     /**
-     * A strict decimal: digits with an optional sign and fraction. `BigDecimal(String)` alone
-     * accepts exponents; "12abc" throws, and an empty string must not read as zero either.
+     * A strict decimal: digits with an optional sign, fraction and exponent (iOS reads every JSON
+     * number as text, so "1e5" must parse alike on both). "12abc" and "" are rejected, never zero.
      */
     fun parse(text: String): BigDecimal? =
         text.trim().takeIf { STRICT.matches(it) }?.let { BigDecimal(it) }
