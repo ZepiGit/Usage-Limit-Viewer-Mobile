@@ -766,4 +766,52 @@ extension GlanceModelTests {
         XCTAssertEqual(account.representative(at: now.addingTimeInterval(120))?.label, "5h other")
         XCTAssertEqual(account.representative(at: now)?.label, "5h limit")
     }
+
+    private func roundTrip(_ snapshot: GlanceSnapshot) throws -> GlanceSnapshot {
+        GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(snapshot))
+    }
+
+    func testAScopedWindowStandsInOnceEveryGlobalOneHasReset() throws {
+        // Android: windows reset since the fetch drop out first, THEN globals are preferred.
+        let usage = withWindows([
+            UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 100,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(60), exhausted: true),
+            UsageWindow(id: "model", label: "Model", category: .other, usedPercent: 20,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(7_200), exhausted: false, scope: .model)])
+        let export = try roundTrip(GlanceModel.build([usage], now: now, scope: .allAccounts))
+        let account = try XCTUnwrap(export.accounts.first)
+        let later = now.addingTimeInterval(120)
+
+        XCTAssertEqual(account.representative(at: now)?.label, "5h limit")
+        let representative = account.representative(at: later)
+        XCTAssertEqual(representative?.label, "Model")
+        XCTAssertEqual(account.displaySeverity(of: representative, at: later, staleAfter: 3600), .healthy)
+    }
+
+    /// Three globals: 0 % resetting in a minute, 10 % in two, 80 % in two hours.
+    private func threeGlobalsResettingInTurn() -> AccountUsage {
+        withWindows([
+            UsageWindow(id: "a", label: "Spent", category: .fiveHour, usedPercent: 100,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(60), exhausted: true),
+            UsageWindow(id: "b", label: "Low", category: .fiveHour, usedPercent: 90,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(120), exhausted: false),
+            UsageWindow(id: "c", label: "Fine", category: .fiveHour, usedPercent: 20,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(7_200), exhausted: false)])
+    }
+
+    func testEveryCandidateResetIsAPresentationBoundaryOnBothTimelines() throws {
+        let export = try roundTrip(GlanceModel.build([threeGlobalsResettingInTurn()], now: now, scope: .allAccounts))
+        let expected: Set<Date> = [60, 120, 3_600, 7_200].map { now.addingTimeInterval($0) }.reduce(into: []) { $0.insert($1) }
+
+        // Legacy tiles re-select before planning; configured tiles plan from the capture.
+        XCTAssertEqual(Set(export.selecting(scope: .mostCritical, now: now).presentationBoundaries(after: now)), expected)
+        let capture = ConfiguredWidgetCapture(source: .loaded(export), preset: .notRead, scope: .allAccounts,
+            accountID: nil, providerID: nil, transparent: false)
+        XCTAssertEqual(Set(capture.presentationBoundaries(after: now)), expected)
+
+        let account = try XCTUnwrap(export.accounts.first)
+        let afterSecondReset = now.addingTimeInterval(130)
+        XCTAssertEqual(account.representative(at: afterSecondReset)?.label, "Fine")
+        XCTAssertEqual(account.severity(at: afterSecondReset, staleAfter: 3600), .healthy)
+    }
 }
