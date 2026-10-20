@@ -115,8 +115,10 @@ fun StatusPill(severity: Severity, modifier: Modifier = Modifier, label: String?
  * hearing four disconnected fragments per window is unusable once an account has five of them.
  */
 @Composable
-fun UsageWindowRow(window: UsageWindow, nowMs: Long, modifier: Modifier = Modifier) {
+fun UsageWindowRow(window: UsageWindow, nowMs: Long, modifier: Modifier = Modifier, fetchedAt: Long? = null) {
     val remaining = window.remainingPercent
+    // Past its reset since the fetch, the figure is the spent window's: stale treatment, as on widgets.
+    val severity = if (fetchedAt != null && window.resetElapsedAt(fetchedAt, nowMs)) Severity.STALE else window.severity
     val percent = percentLabel(remaining)
     val label = when {
         window.scope != com.usagelimits.core.model.UsageScope.GLOBAL -> window.label
@@ -136,9 +138,9 @@ fun UsageWindowRow(window: UsageWindow, nowMs: Long, modifier: Modifier = Modifi
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                 color = UsageColors.TextSecondary, maxLines = 2)
             Text(percent, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
-                color = SeverityPalette.textColor(window.severity))
+                color = SeverityPalette.textColor(severity))
         }
-        UsageBar(remaining, window.severity, Modifier.fillMaxWidth(), height = 6.dp)
+        UsageBar(remaining, severity, Modifier.fillMaxWidth(), height = 6.dp)
         if (window.hasConflictingAvailability) {
             Text("Provider reports this limit as blocked despite a positive remaining value.",
                 style = MaterialTheme.typography.bodySmall, color = UsageColors.Amber)

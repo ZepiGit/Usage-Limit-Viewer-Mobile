@@ -444,7 +444,7 @@ fun AccountCard(
             Spacer(Modifier.height(10.dp))
             // Ungrouped windows first — they are the account's headline limits.
             windows.filter { it.group == null }.take(4).forEach { window ->
-                UsageWindowRow(window, nowMs)
+                UsageWindowRow(window, nowMs, fetchedAt = snapshot?.fetchedAt)
                 Spacer(Modifier.height(6.dp))
             }
 
@@ -458,7 +458,7 @@ fun AccountCard(
                 )
                 Spacer(Modifier.height(4.dp))
                 groupWindows.forEach { window ->
-                    UsageWindowRow(window, nowMs)
+                    UsageWindowRow(window, nowMs, fetchedAt = snapshot?.fetchedAt)
                     Spacer(Modifier.height(6.dp))
                 }
             }

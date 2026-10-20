@@ -415,6 +415,48 @@ class WidgetDataBuilderTest {
     }
 
     @Test
+    fun `an exhausted window that has since reset neither leads nor reads Out`() {
+        // A spent five-hour window reset a minute ago and no fetch has confirmed it yet. The
+        // compact status tile said "Out" and most-critical kept this account in front.
+        val reset = AccountUsage(
+            account = account("reset", ProviderId.CODEX),
+            snapshot = UsageSnapshot("reset", now - 10 * 60_000, SnapshotStatus.OK, listOf(
+                UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR, 100.0, 18_000, now - 60_000, true),
+                UsageWindow("wk", "Weekly", WindowCategory.WEEKLY, 40.0, 604_800, now + 86_400_000, false),
+            )),
+        )
+        val low = usage("low", ProviderId.CLAUDE, usedPercent = 90.0)
+        val data = WidgetDataBuilder.build(listOf(reset, low), now, WidgetScope.MOST_CRITICAL, null, null)
+
+        assertEquals("low", data.accounts.first().accountId)
+        assertEquals(Severity.HEALTHY, data.accounts.first { it.accountId == "reset" }.severity)
+        assertEquals(Severity.LOW, data.overallSeverity)
+    }
+
+    @Test
+    fun `the ring and the most-critical rank follow the live window, not one that has since reset`() {
+        // The spent 5h window's 0 % ranked the account first among healthy ones and drew its
+        // ring, though its weekly window is the only figure still describing an open window.
+        val reset = AccountUsage(
+            account = account("reset", ProviderId.CODEX),
+            snapshot = UsageSnapshot("reset", now - 10 * 60_000, SnapshotStatus.OK, listOf(
+                UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR, 100.0, 18_000, now - 60_000, true),
+                UsageWindow("wk", "Weekly", WindowCategory.WEEKLY, 40.0, 604_800, now + 86_400_000, false),
+            )),
+        )
+        val other = usage("other", ProviderId.CLAUDE, usedPercent = 45.0)
+        val data = WidgetDataBuilder.build(listOf(reset, other), now, WidgetScope.MOST_CRITICAL, null, null)
+
+        assertEquals("other", data.accounts.first().accountId)
+        assertEquals(60.0, ringLimit(data.accounts.first { it.accountId == "reset" })!!.remainingPercent!!, 0.001)
+
+        // Nothing live left: the elapsed row stays, drawn as "reset due" rather than dropped.
+        val allReset = reset.copy(snapshot = reset.snapshot!!.copy(windows = reset.snapshot!!.windows.take(1)))
+        val ring = ringLimit(WidgetDataBuilder.build(listOf(allReset), now, WidgetScope.ALL_ACCOUNTS, null, null).accounts.single())!!
+        assertTrue(ring.resetElapsed)
+    }
+
+    @Test
     fun `reset elapsed is the same rule at the boundary as the sync decision`() {
         assertFalse(WidgetDataBuilder.resetElapsedAt(resetAt = null, fetchedAt = now - 1, nowMs = now))
         assertFalse(WidgetDataBuilder.resetElapsedAt(resetAt = now + 1, fetchedAt = now - 1, nowMs = now))
