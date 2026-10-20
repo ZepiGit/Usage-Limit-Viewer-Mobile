@@ -25,7 +25,7 @@ import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
-import androidx.glance.appwidget.lazy.items
+import androidx.glance.appwidget.lazy.itemsIndexed
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
@@ -39,6 +39,8 @@ import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
+import androidx.glance.layout.fillMaxHeight
+import androidx.glance.text.FontFamily
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
@@ -66,34 +68,62 @@ internal val LocalWidgetStyle = staticCompositionLocalOf { WidgetStyle() }
  * every launcher grid size. The previous hand-rolled version took a fixed dp width, which was
  * wider than a tile actually gets: the fill was clipped, and anything above roughly half
  * remaining painted as a full bar — a confidently wrong number on the home screen.
+ *
+ * The fill is the data hue, grey when stale; a failed, unknown or exhausted row is the bare track.
  */
 @Composable
-internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier, validity: Severity? = null) {
+internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier, validity: Severity? = null, height: Dp = 4.dp) {
     val style = LocalWidgetStyle.current
-    val fraction = ((row.remainingPercent ?: 0.0) / 100.0).coerceIn(0.0, 1.0).toFloat()
+    val fill = style.bar(row, validity)
+    val fraction = if (fill == null) 0f else ((row.remainingPercent ?: 0.0) / 100.0).coerceIn(0.0, 1.0).toFloat()
 
     LinearProgressIndicator(
         progress = fraction,
-        modifier = modifier.height(6.dp),
-        color = ColorProvider(style.bar(row, validity)),
+        modifier = modifier.height(height),
+        color = ColorProvider(fill ?: style.track),
         backgroundColor = ColorProvider(style.track),
     )
 }
 
 private fun percentText(row: WidgetRow): String = percentLabel(row.remainingPercent)
 
+/** Text on a widget: sizes from the scale (11, 12, 14, 16, 22), figures in the system mono. */
+internal fun widgetText(color: Color, size: Int, weight: FontWeight = FontWeight.Normal, mono: Boolean = false) = TextStyle(
+    color = ColorProvider(color),
+    fontSize = size.sp,
+    fontWeight = weight,
+    fontFamily = if (mono) FontFamily.Monospace else null,
+)
+
+/** The panel's corner: the launcher's own radius where the system states it, 16dp before API 31. */
+internal fun GlanceModifier.panelCorner(): GlanceModifier =
+    if (android.os.Build.VERSION.SDK_INT >= 31) cornerRadius(android.R.dimen.system_app_widget_background_radius)
+    else cornerRadius(16.dp)
+
+/** A 6dp severity dot. */
+@Composable
+internal fun SeverityDot(color: Color, size: Dp = 6.dp) {
+    Box(GlanceModifier.size(size).cornerRadius(size / 2).background(color)) {}
+}
+
+/** A 1dp hairline in the track colour, between tiles. */
+@Composable
+private fun TileDivider(height: Dp = 36.dp) {
+    Box(GlanceModifier.width(1.dp).height(height).background(LocalWidgetStyle.current.track)) {}
+}
+
+/** "As of 14:50", or nothing when the widget has never been fed. */
+private fun asOf(updatedAt: Long?): String? =
+    updatedAt?.let { Countdown.asOfLabel(it, nowMs = System.currentTimeMillis()) }
+
 /**
- * The refresh control both list widgets carry: a touch target around a small chip.
- *
- * One composable rather than the two identical subtrees it replaced, so the action, colours and
- * alignment cannot drift apart. The sizes differ on purpose — the compact widget has no room
- * for a 48dp target beside four tiles, the detailed one has — so they are the parameters.
+ * The refresh control both list widgets carry: a bare glyph in a touch target.
  *
  * The glyph is tinted with the widget's ink rather than shipped white: on a light panel a
  * white arrow is invisible.
  */
 @Composable
-internal fun RefreshChip(touchSize: Dp, chipSize: Dp) {
+internal fun RefreshChip(touchSize: Dp) {
     val style = LocalWidgetStyle.current
     Box(
         modifier = GlanceModifier
@@ -101,25 +131,14 @@ internal fun RefreshChip(touchSize: Dp, chipSize: Dp) {
             .clickable(actionRunCallback<RefreshWidgetAction>()),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = GlanceModifier
-                .size(chipSize)
-                .cornerRadius(chipSize / 2)
-                .background(style.card),
-            contentAlignment = Alignment.Center,
-        ) {
-            Image(
-                ImageProvider(com.usagelimits.R.drawable.ic_refresh),
-                "Refresh usage",
-                modifier = GlanceModifier.size(18.dp),
-                colorFilter = ColorFilter.tint(ColorProvider(style.textPrimary)),
-            )
-        }
+        Image(
+            ImageProvider(com.usagelimits.R.drawable.ic_refresh),
+            "Refresh usage",
+            modifier = GlanceModifier.size(16.dp),
+            colorFilter = ColorFilter.tint(ColorProvider(style.textSecondary)),
+        )
     }
 }
-
-/** A tile or card on the panel; nothing at all when the panel itself is gone. */
-private fun WidgetStyle.cardOrNothing(): Color = if (background.isTransparent) Color.Transparent else card
 
 /**
  * The compact 1×4 widget: a glanceable row of headline numbers.
@@ -152,7 +171,7 @@ class CompactUsageWidget : GlanceAppWidget() {
                 CompositionLocalProvider(LocalWidgetStyle provides style) {
                     val root = GlanceModifier
                         .fillMaxSize()
-                        .cornerRadius(24.dp)
+                        .panelCorner()
                         .background(style.background.color)
                         .padding(10.dp)
                         .clickable(actionStartActivity<MainActivity>())
@@ -179,7 +198,7 @@ class CompactUsageWidget : GlanceAppWidget() {
                 owner = snapshot.accounts.firstOrNull()?.let { it.accountLabel ?: it.title },
                 modifier = GlanceModifier.defaultWeight(),
             )
-            Spacer(GlanceModifier.width(8.dp))
+            TileDivider()
             Tile(
                 // The row already knows what it is. Hardcoding "Weekly" here
                 // labelled a monthly credit bucket as a week: the user paced their
@@ -192,7 +211,7 @@ class CompactUsageWidget : GlanceAppWidget() {
                 validity = snapshot.leadValidity,
                 modifier = GlanceModifier.defaultWeight(),
             )
-            Spacer(GlanceModifier.width(8.dp))
+            TileDivider()
             Tile(
                 // A wall-clock instant rather than a countdown: a widget recomposes
                 // only when its worker runs, so "in 20m" rendered half an hour ago
@@ -205,20 +224,22 @@ class CompactUsageWidget : GlanceAppWidget() {
                     }
                     ?: "—",
                 row = null,
+                // One step down from the percentage tiles so "4:50 PM" stays whole at 420dp.
+                valueSize = 14,
                 modifier = GlanceModifier.defaultWeight(),
             )
-            Spacer(GlanceModifier.width(8.dp))
+            TileDivider()
             Tile(
                 label = snapshot.selectionStatusLabel,
                 value = statusWord(snapshot.overallSeverity),
                 row = null,
                 modifier = GlanceModifier.defaultWeight(),
-                accent = style.textColor(snapshot.overallSeverity),
+                dot = style.accent(snapshot.overallSeverity),
                 warning = if (snapshot.hasPartialUpdate) "Sync issue" else null,
             )
             // No weight: the four tiles share the width and this takes what it
             // needs, rather than a fifth of the row for one glyph.
-            RefreshChip(touchSize = 40.dp, chipSize = 28.dp)
+            RefreshChip(touchSize = 40.dp)
         }
     }
 
@@ -236,16 +257,16 @@ class CompactUsageWidget : GlanceAppWidget() {
                 owner = snapshot.accounts.firstOrNull()?.let { it.accountLabel ?: it.title },
                 modifier = GlanceModifier.defaultWeight(),
             )
-            Spacer(GlanceModifier.width(8.dp))
+            TileDivider()
             Tile(
                 label = snapshot.selectionStatusLabel,
                 value = statusWord(snapshot.overallSeverity),
                 row = null,
                 modifier = GlanceModifier.defaultWeight(),
-                accent = style.textColor(snapshot.overallSeverity),
+                dot = style.accent(snapshot.overallSeverity),
                 warning = if (snapshot.hasPartialUpdate) "Sync issue" else null,
             )
-            RefreshChip(touchSize = 40.dp, chipSize = 28.dp)
+            RefreshChip(touchSize = 40.dp)
         }
     }
 
@@ -258,25 +279,23 @@ class CompactUsageWidget : GlanceAppWidget() {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = lead?.let { it.accountLabel ?: it.title } ?: "Usage Limits",
-                    style = TextStyle(color = ColorProvider(style.textPrimary), fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                    style = widgetText(style.textPrimary, 14, FontWeight.Medium),
                     maxLines = 1,
                     modifier = GlanceModifier.defaultWeight(),
                 )
-                RefreshChip(touchSize = 32.dp, chipSize = 24.dp)
+                RefreshChip(touchSize = 32.dp)
             }
-            Spacer(GlanceModifier.height(3.dp))
             Text(
                 text = row?.label ?: "Remaining",
-                style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 11.sp),
+                style = widgetText(style.textSecondary, 11),
                 maxLines = 1,
             )
+            val value = row?.let(::percentText) ?: "—"
             Text(
-                text = row?.let(::percentText) ?: "—",
-                style = TextStyle(
-                    color = ColorProvider((snapshot.leadValidity ?: row?.validity)?.let(style::textColor) ?: style.textPrimary),
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
-                ),
+                text = value,
+                style = if (value == "—") widgetText(style.textSecondary, 12)
+                else widgetText((snapshot.leadValidity ?: row?.validity)?.let(style::textColor)
+                    ?: row?.severity?.let(style::textColor) ?: style.textPrimary, 22, FontWeight.Medium, mono = true),
                 maxLines = 1,
             )
             Spacer(GlanceModifier.height(4.dp))
@@ -289,74 +308,82 @@ class CompactUsageWidget : GlanceAppWidget() {
                         ?.let { Countdown.absoluteResetLabel(it, System.currentTimeMillis())?.removePrefix("Resets ") },
                     "${snapshot.selectionStatusLabel}: ${statusWord(snapshot.overallSeverity)}",
                 ).joinToString(" · ").ifEmpty { "—" },
-                style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 10.sp),
+                style = widgetText(style.textSecondary, 11),
                 maxLines = 1,
             )
             if (snapshot.hasPartialUpdate) {
-                Text("Sync issue", style = TextStyle(color = ColorProvider(style.textColor(Severity.LIMITED)), fontSize = 10.sp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SeverityDot(WidgetStyle.Amber)
+                    Spacer(GlanceModifier.width(4.dp))
+                    Text("Sync issue", style = widgetText(style.textPrimary, 11))
+                }
             }
         }
     }
 
+    /**
+     * One tile: a quiet label over a figure, with a 3dp bar for a quota row. Every tile reserves
+     * the same owner line and bar slot, so the four figures share a baseline whatever they carry.
+     */
     @Composable
     private fun Tile(
         label: String,
         value: String,
         row: WidgetRow?,
         modifier: GlanceModifier = GlanceModifier,
-        accent: Color? = null,
+        dot: Color? = null,
         validity: Severity? = null,
         showOwner: Boolean = false,
         owner: String? = null,
         warning: String? = null,
+        valueSize: Int = 16,
     ) {
         val style = LocalWidgetStyle.current
         // The account's validity first, then the row's own: a passed reset makes the number
         // as untrustworthy as a stale fetch would.
         val effectiveValidity = validity ?: row?.validity
-        Column(
-            modifier = modifier
-                .cornerRadius(16.dp)
-                .background(style.cardOrNothing())
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-        ) {
+        Column(modifier = modifier.padding(horizontal = 10.dp)) {
             if (showOwner && owner != null) {
                 Text(
                     text = owner,
-                    style = TextStyle(color = ColorProvider(style.textPrimary), fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                    style = widgetText(style.textPrimary, 11, FontWeight.Medium),
                     maxLines = 1,
                 )
-                Spacer(GlanceModifier.height(1.dp))
+            } else {
+                Spacer(GlanceModifier.height(14.dp))
             }
             Text(
                 text = label,
-                style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 11.sp),
+                style = widgetText(style.textSecondary, 11),
                 maxLines = 1,
             )
             Spacer(GlanceModifier.height(2.dp))
-            Text(
-                text = value,
-                style = TextStyle(
+            when {
+                // A word with a dot: the status. Severity is the dot, not a coloured word.
+                dot != null -> Row(GlanceModifier.height(22.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SeverityDot(dot)
+                    Spacer(GlanceModifier.width(6.dp))
+                    Text(value, style = widgetText(style.textPrimary, 12), maxLines = 1)
+                }
+                // A missing value is a quiet dash, not a figure-sized one.
+                value == "—" -> Text(value, style = widgetText(style.textSecondary, 12), maxLines = 1, modifier = GlanceModifier.height(22.dp))
+                else -> Text(
+                    text = value,
                     // Validity outranks decoration here too: the value colour follows the
                     // account's data state, not just the quota severity.
-                    color = ColorProvider(
-                        when {
-                            accent != null -> accent
-                            effectiveValidity != null -> style.textColor(effectiveValidity)
-                            else -> style.textPrimary
-                        },
+                    style = widgetText(
+                        effectiveValidity?.let(style::textColor) ?: row?.let { style.barText(it) } ?: style.textPrimary,
+                        valueSize, FontWeight.Medium, mono = true,
                     ),
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                ),
-                maxLines = 1,
-            )
-            if (row != null) {
-                Spacer(GlanceModifier.height(5.dp))
-                UsageBar(row, GlanceModifier.fillMaxWidth(), validity = effectiveValidity)
+                    maxLines = 1,
+                    modifier = GlanceModifier.height(22.dp),
+                )
             }
+            Spacer(GlanceModifier.height(3.dp))
+            if (row != null) UsageBar(row, GlanceModifier.fillMaxWidth(), validity = effectiveValidity, height = 3.dp)
+            else Spacer(GlanceModifier.height(3.dp))
             if (warning != null) {
-                Text(warning, style = TextStyle(color = ColorProvider(style.textColor(Severity.LIMITED)), fontSize = 10.sp), maxLines = 1)
+                Text(warning, style = widgetText(style.textPrimary, 11), maxLines = 1)
             }
         }
     }
@@ -375,10 +402,10 @@ class CompactUsageWidget : GlanceAppWidget() {
 }
 
 /**
- * The larger 2×4 widget: a header plus one card per account, each with its 5h and weekly bars.
+ * The larger 2×4 widget: a header plus one block per account, each with its 5h and weekly bars.
  *
- * A single selected account fills the widget with no card around it and carries its own
- * refresh control; several scroll, each in a card.
+ * A single selected account fills the widget and carries its own refresh control; several
+ * scroll, split by hairlines.
  */
 class DetailedUsageWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
@@ -393,31 +420,38 @@ class DetailedUsageWidget : GlanceAppWidget() {
             GlanceTheme {
                 CompositionLocalProvider(LocalWidgetStyle provides style) {
                     Column(
-                        GlanceModifier.fillMaxSize().cornerRadius(24.dp)
-                            .background(style.background.color).padding(8.dp)
+                        GlanceModifier.fillMaxSize().panelCorner()
+                            .background(style.background.color).padding(10.dp)
                             .clickable(actionStartActivity<MainActivity>()),
                     ) {
                         if (snapshot.accounts.size != 1) {
                             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Column(GlanceModifier.defaultWeight()) {
-                                    Text("Usage Limits", style = TextStyle(color = ColorProvider(style.textPrimary), fontSize = 15.sp, fontWeight = FontWeight.Bold))
-                                    Text("${snapshot.accountCount} accounts", style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 11.sp))
+                                    Text("Usage Limits", style = widgetText(style.textPrimary, 14, FontWeight.Medium))
+                                    Text(
+                                        listOfNotNull("${snapshot.accountCount} accounts", asOf(snapshot.updatedAt)).joinToString(" · "),
+                                        style = widgetText(style.textSecondary, 11), maxLines = 1,
+                                    )
                                 }
-                                RefreshChip(40.dp, 26.dp)
+                                RefreshChip(40.dp)
                             }
                             Spacer(GlanceModifier.height(6.dp))
                         }
                         if (snapshot.accounts.isEmpty()) {
                             Text(
                                 "No matching accounts. Edit this widget to choose an account.",
-                                style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 12.sp),
+                                style = widgetText(style.textSecondary, 12),
                             )
                         } else {
                             LazyColumn(GlanceModifier.fillMaxSize()) {
-                                items(snapshot.accounts, itemId = { it.accountId.hashCode().toLong() }) { account ->
+                                itemsIndexed(snapshot.accounts, itemId = { _, it -> it.accountId.hashCode().toLong() }) { index, account ->
                                     Column {
-                                        AccountCard(context, account, snapshot.accounts.size == 1)
-                                        Spacer(GlanceModifier.height(6.dp))
+                                        if (index > 0) {
+                                            Spacer(GlanceModifier.height(6.dp))
+                                            Box(GlanceModifier.fillMaxWidth().height(1.dp).background(style.track)) {}
+                                            Spacer(GlanceModifier.height(6.dp))
+                                        }
+                                        AccountBlock(context, account, snapshot.accounts.size == 1)
                                     }
                                 }
                             }
@@ -429,34 +463,34 @@ class DetailedUsageWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun AccountCard(context: Context, account: WidgetAccount, single: Boolean) {
+    private fun AccountBlock(context: Context, account: WidgetAccount, single: Boolean) {
         val style = LocalWidgetStyle.current
         val openAccount = androidx.glance.appwidget.action.actionStartActivity(
             android.content.Intent(context, MainActivity::class.java).putExtra("accountId", account.accountId),
         )
         // The account's data validity — stale, failed or needing reconnection — outranks the
-        // quota decoration on every row this card draws. Without this, a stale account whose
-        // cached reading sat at 100 % kept its reassuring teal under an "out of date" warning.
+        // quota decoration on every row this block draws.
         val validity = account.dataValidity
-        Column(
-            GlanceModifier.fillMaxWidth().cornerRadius(16.dp)
-                .background(if (single) Color.Transparent else style.cardOrNothing())
-                .padding(if (single) 4.dp else 8.dp)
-                .clickable(openAccount),
-        ) {
+        Column(GlanceModifier.fillMaxWidth().clickable(openAccount)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 com.usagelimits.core.model.ProviderId.fromId(account.providerId)?.let { provider ->
-                    Image(ImageProvider(com.usagelimits.ui.providerLogoResource(provider, account.iconChoiceId)), null, GlanceModifier.size(22.dp))
+                    WidgetLogo(provider, account.iconChoiceId, 20.dp)
                     Spacer(GlanceModifier.width(8.dp))
                 }
                 Column(GlanceModifier.defaultWeight()) {
-                    Text(account.title, maxLines = 1, style = TextStyle(color = ColorProvider(style.textPrimary), fontSize = 13.sp, fontWeight = FontWeight.Bold))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(account.title, maxLines = 1, style = widgetText(style.textPrimary, 14, FontWeight.Medium))
+                        if (account.severity != Severity.HEALTHY) {
+                            Spacer(GlanceModifier.width(6.dp))
+                            SeverityDot(style.accent(account.severity))
+                        }
+                    }
                     Text(
                         account.accountLabel ?: account.subtitle.orEmpty(), maxLines = 1,
-                        style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 10.sp),
+                        style = widgetText(style.textSecondary, 11),
                     )
                 }
-                if (single) RefreshChip(36.dp, 26.dp)
+                if (single) RefreshChip(40.dp)
             }
             if (account.requiresReauthentication || account.severity == Severity.ERROR || account.severity == Severity.STALE) {
                 Text(
@@ -465,12 +499,15 @@ class DetailedUsageWidget : GlanceAppWidget() {
                         account.severity == Severity.ERROR -> "Update failed · last known data"
                         else -> "Data is out of date"
                     },
-                    style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 10.sp),
+                    style = widgetText(style.textSecondary, 11),
                 )
             }
             if (account.partialUpdate) {
-                Text("Some limits could not be updated",
-                    style = TextStyle(color = ColorProvider(style.textColor(Severity.LIMITED)), fontSize = 10.sp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SeverityDot(WidgetStyle.Amber)
+                    Spacer(GlanceModifier.width(6.dp))
+                    Text("Some limits could not be updated", style = widgetText(style.textPrimary, 11))
+                }
             }
             AccountLimitRows(context, account.rows, validity)
         }
@@ -480,7 +517,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
     private fun AccountLimitRows(context: Context, rows: List<WidgetRow>, validity: Severity?) {
         val style = LocalWidgetStyle.current
         // Glance truncates a Column after ten direct children. Keep each limit together,
-        // and split larger provider lists so neither the card nor a row group hits that cap.
+        // and split larger provider lists so neither the block nor a row group hits that cap.
         Column(GlanceModifier.fillMaxWidth()) {
             if (rows.size > 10) {
                 val middle = rows.size / 2
@@ -493,17 +530,19 @@ class DetailedUsageWidget : GlanceAppWidget() {
                         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 row.label, GlanceModifier.defaultWeight(), maxLines = 1,
-                                style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 11.sp),
+                                style = widgetText(style.textSecondary, 12),
                             )
-                            Text(percentText(row), style = TextStyle(color = ColorProvider(style.barText(row, validity)), fontSize = 12.sp, fontWeight = FontWeight.Bold))
+                            val percent = percentText(row)
+                            Text(percent, style = if (percent == "—") widgetText(style.textSecondary, 12)
+                                else widgetText(style.barText(row, validity), 12, FontWeight.Medium, mono = true))
                         }
                         Spacer(GlanceModifier.height(3.dp))
                         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             UsageBar(row, GlanceModifier.defaultWeight(), validity = validity)
                             Spacer(GlanceModifier.width(8.dp))
                             Text(
-                                row.resetAt?.let { compactRingReset(context, it) } ?: "—", modifier = GlanceModifier.width(54.dp), maxLines = 1,
-                                style = TextStyle(color = ColorProvider(style.textSecondary), fontSize = 10.sp),
+                                row.resetAt?.let { compactRingReset(context, it) } ?: "—", modifier = GlanceModifier.width(56.dp), maxLines = 1,
+                                style = widgetText(style.textSecondary, 11, mono = true),
                             )
                         }
                     }
@@ -512,6 +551,23 @@ class DetailedUsageWidget : GlanceAppWidget() {
         }
     }
 }
+
+/**
+ * A provider mark. Codex, Grok and Kimi ship white artwork, which vanishes on a light panel, so
+ * on one the mark is drawn in the panel's ink instead.
+ */
+@Composable
+internal fun WidgetLogo(provider: com.usagelimits.core.model.ProviderId, iconChoiceId: String?, size: Dp) {
+    val style = LocalWidgetStyle.current
+    Image(
+        ImageProvider(com.usagelimits.ui.providerLogoResource(provider, iconChoiceId)), null, GlanceModifier.size(size),
+        colorFilter = if (!style.lightInk && provider in WHITE_ARTWORK) ColorFilter.tint(ColorProvider(style.textPrimary)) else null,
+    )
+}
+
+private val WHITE_ARTWORK = setOf(
+    com.usagelimits.core.model.ProviderId.CODEX, com.usagelimits.core.model.ProviderId.XAI, com.usagelimits.core.model.ProviderId.KIMI,
+)
 
 class CompactUsageWidgetReceiver : UsageWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = CompactUsageWidget()

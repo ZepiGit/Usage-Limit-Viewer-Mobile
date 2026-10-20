@@ -56,6 +56,8 @@ data class UsageUiState(
     val diagnostics: SyncDiagnostics = SyncDiagnostics(),
     /** Prepaid balances, kept apart from the usage accounts. */
     val credits: List<CreditEntry> = emptyList(),
+    /** False only before the first repository emission, so an empty list is not read as "no accounts". */
+    val loaded: Boolean = true,
 ) {
     val accountCount: Int get() = accounts.size
 
@@ -173,7 +175,7 @@ class UsageViewModel(
         container.settingsStore.diagnostics,
     ) { (accounts, credits), settings, isRefreshing, message, diagnostics ->
         UsageUiState(accounts, settings, isRefreshing, message, diagnostics, credits)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState(loaded = false))
 
     private val _resetCreditInFlight = MutableStateFlow<String?>(null)
 

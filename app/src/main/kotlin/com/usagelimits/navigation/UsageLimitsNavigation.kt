@@ -28,6 +28,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -143,9 +146,9 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         }
     }
 
-    Row(modifier = Modifier.fillMaxSize().background(UsageColors.Background)) {
+    Row(modifier = Modifier.fillMaxSize().background(UsageColors.Ground)) {
         if (showSideRail) {
-            NavigationRail(containerColor = UsageColors.Surface) {
+            NavigationRail(containerColor = UsageColors.Ground) {
                 TABS.forEach { tab ->
                     val selected = currentRoute?.hierarchy
                         ?.any { it.route == tab.destination.route } == true
@@ -155,11 +158,11 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         icon = { Icon(tab.icon, contentDescription = null) },
                         label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
                         colors = NavigationRailItemDefaults.colors(
-                            selectedIconColor = UsageColors.Terracotta,
-                            selectedTextColor = UsageColors.Terracotta,
-                            indicatorColor = UsageColors.TerracottaSurface,
-                            unselectedIconColor = UsageColors.TextTertiary,
-                            unselectedTextColor = UsageColors.TextTertiary,
+                            selectedIconColor = UsageColors.Ink,
+                            selectedTextColor = UsageColors.Ink,
+                            indicatorColor = UsageColors.Raised,
+                            unselectedIconColor = UsageColors.Faint,
+                            unselectedTextColor = UsageColors.Faint,
                         ),
                     )
                 }
@@ -167,11 +170,18 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         }
 
     Scaffold(
-        containerColor = UsageColors.Background,
+        containerColor = UsageColors.Ground,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar(containerColor = UsageColors.Surface) {
+                NavigationBar(
+                    containerColor = UsageColors.Ground,
+                    tonalElevation = 0.dp,
+                    // A 1px rule on the top edge, not a tone step or a shadow.
+                    modifier = Modifier.drawBehind {
+                        drawLine(UsageColors.Rule, Offset.Zero, Offset(size.width, 0f), strokeWidth = 1.dp.toPx())
+                    },
+                ) {
                     TABS.forEach { tab ->
                         val selected = currentRoute?.hierarchy
                             ?.any { it.route == tab.destination.route } == true
@@ -181,11 +191,11 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                             icon = { Icon(tab.icon, contentDescription = null) },
                             label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
                             colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = UsageColors.Terracotta,
-                                selectedTextColor = UsageColors.Terracotta,
-                                indicatorColor = UsageColors.TerracottaSurface,
-                                unselectedIconColor = UsageColors.TextTertiary,
-                                unselectedTextColor = UsageColors.TextTertiary,
+                                selectedIconColor = UsageColors.Ink,
+                                selectedTextColor = UsageColors.Ink,
+                                indicatorColor = UsageColors.Raised,
+                                unselectedIconColor = UsageColors.Faint,
+                                unselectedTextColor = UsageColors.Faint,
                             ),
                         )
                     }
@@ -206,7 +216,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         ConstrainedContent(
             modifier = Modifier
                 .fillMaxSize()
-                .background(UsageColors.Background)
+                .background(UsageColors.Ground)
                 .padding(padding),
         ) {
             NavHost(navController = navController, startDestination = Destination.Overview.route) {
@@ -229,6 +239,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         nowMs = nowMs,
                         onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
                         onAddAccount = { navController.navigate(Destination.AddAccount.route) },
+                        onRefresh = viewModel::refresh,
                     )
                 }
 

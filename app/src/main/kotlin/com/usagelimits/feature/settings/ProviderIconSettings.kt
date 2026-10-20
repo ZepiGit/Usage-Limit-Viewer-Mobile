@@ -15,6 +15,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.ui.ProviderIconCatalog
+import com.usagelimits.ui.components.RuleDivider
 import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.theme.UsageColors
@@ -22,18 +23,19 @@ import com.usagelimits.ui.theme.UsageColors
 @Composable
 fun ProviderIconSettings(selected: Map<String, String>, onChoose: (ProviderId, String) -> Unit) {
     var editing by remember { mutableStateOf<ProviderId?>(null) }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("Provider icons")
         UsageCard {
-            ProviderId.entries.forEach { provider ->
+            ProviderId.entries.forEachIndexed { index, provider ->
+                if (index > 0) RuleDivider()
                 val icon = ProviderIconCatalog.selected(provider, selected[provider.id])
                 Row(Modifier.fillMaxWidth().clickable { editing = provider }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Image(painterResource(icon.drawable), null, Modifier.size(30.dp))
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                        Text(provider.displayName, style = MaterialTheme.typography.titleMedium, color = UsageColors.TextPrimary)
-                        Text(icon.label, style = MaterialTheme.typography.bodySmall, color = UsageColors.TextSecondary)
+                        Text(provider.displayName, style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
+                        Text(icon.label, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
                     }
-                    Text("Choose", color = UsageColors.Terracotta, style = MaterialTheme.typography.labelLarge)
+                    Text("Choose", color = UsageColors.Muted, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
