@@ -357,9 +357,14 @@ provider's final "Sign in" loads forever until the user returns to the app. Whil
 login waits (Claude, Codex, Antigravity, Devin), `AddAccountViewModel` therefore runs
 `SignInKeepAliveService`, a `shortService` foreground service with a low-importance "Sign-in"
 notification, started just before the browser opens and stopped in the login job's `finally`
-(success, failure or cancel). A short service is capped at three minutes; `onTimeout` stops it
-and the login keeps waiting, with returning to the app as the way out. If the service cannot start
-(no foreground start allowed, notification permission denied) the login proceeds without it.
+(success, failure or cancel), each login holding its own lease so a cancelled login's late
+clean-up cannot stop a newer login's service. A short service is capped at three minutes but a
+redirect wait allows five, so `onTimeout` stops the service and posts a "Return to Usage Limits to
+finish signing in" notification that opens the app (returning thaws it and the listener answers);
+the hint is cleared when the login ends. The login itself keeps waiting. Denying
+`POST_NOTIFICATIONS` does not stop the service from running; it only hides the notification, and
+the hint is skipped. If the service cannot start (no foreground start allowed) the login proceeds
+without it.
 
 That single-accept behaviour is not purely a mitigation, and it is worth stating plainly: a
 local app that connect-polls the port can win the one `accept()` the server performs, after
