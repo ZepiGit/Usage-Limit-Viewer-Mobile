@@ -92,9 +92,8 @@ object MetaQuotaParser {
                 ?.takeIf { it > 0 }
         } ?: if (id == WEEKLY_ID) WEEK_SECONDS else null
 
-        val resetAt = JsonSupport.long(value, "resets_at", "resetsAt")
-            ?.takeIf { it > 0 }
-            ?.let(Instants::fromEpochNumber)
+        // Epoch seconds/millis or ISO-8601; Instants.parse reads both.
+        val resetAt = Instants.parse(JsonSupport.string(value, "resets_at", "resetsAt"))
 
         return UsageWindow(
             id = id,
