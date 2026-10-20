@@ -1,13 +1,10 @@
 package com.usagelimits.feature.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,6 +28,12 @@ import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.sync.BackgroundRestrictions
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UsageUiState
+import com.usagelimits.ui.components.Dot
+import com.usagelimits.ui.components.OutlineButton
+import com.usagelimits.ui.components.RuleDivider
+import com.usagelimits.ui.components.ScreenTitle
+import com.usagelimits.ui.components.Segment
+import com.usagelimits.ui.components.SegmentedRow
 import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
@@ -40,7 +43,6 @@ import com.usagelimits.ui.theme.UsageColors
 private val INTERVAL_CHOICES = listOf(15, 30, 60, 180)
 
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 fun SettingsScreen(
     state: UsageUiState,
     onSyncIntervalChange: (Int) -> Unit,
@@ -61,17 +63,11 @@ fun SettingsScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(UsageColors.Background),
+            .background(UsageColors.Ground),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item {
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.headlineLarge,
-                color = UsageColors.TextPrimary,
-            )
-        }
+        item { ScreenTitle("Settings") }
 
         item { ProviderIconSettings(settings.providerIcons, onProviderIconChange) }
         item { SectionHeader("Sync") }
@@ -80,22 +76,19 @@ fun SettingsScreen(
                 Text(
                     text = "Background refresh interval",
                     style = MaterialTheme.typography.titleMedium,
-                    color = UsageColors.TextPrimary,
+                    color = UsageColors.Ink,
                 )
                 Text(
                     text = "Android may delay background work to save battery, so this is a " +
                         "target rather than a guarantee.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = UsageColors.TextSecondary,
+                    color = UsageColors.Muted,
                 )
                 Spacer(Modifier.height(10.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+                SegmentedRow {
                     INTERVAL_CHOICES.forEach { minutes ->
-                        IntervalChip(
-                            minutes = minutes,
+                        Segment(
+                            label = if (minutes >= 60) "${minutes / 60}h" else "${minutes}m",
                             selected = settings.syncIntervalMinutes == minutes,
                             onClick = { onSyncIntervalChange(minutes) },
                         )
@@ -113,6 +106,7 @@ fun SettingsScreen(
                     checked = settings.showSubscriptionTier,
                     onChange = onShowTier,
                 )
+                RuleDivider()
                 ToggleRow(
                     title = "Show renewal time",
                     subtitle = "When the weekly or monthly allowance starts over, as opposed to " +
@@ -132,24 +126,28 @@ fun SettingsScreen(
                     checked = settings.notifyBelow20Percent,
                     onChange = onNotifyBelow20,
                 )
+                RuleDivider()
                 ToggleRow(
                     title = "Below 10% left",
                     subtitle = "Once more when it gets tight, even after the 20% warning",
                     checked = settings.notifyBelow10Percent,
                     onChange = onNotifyBelow10,
                 )
+                RuleDivider()
                 ToggleRow(
                     title = "Limit exhausted",
                     subtitle = "When a window is fully consumed",
                     checked = settings.notifyOnExhausted,
                     onChange = onNotifyExhausted,
                 )
+                RuleDivider()
                 ToggleRow(
                     title = "Reset credit available",
                     subtitle = "When Codex reports a usable rate-limit reset credit",
                     checked = settings.notifyOnResetCreditAvailable,
                     onChange = onNotifyResetCredit,
                 )
+                RuleDivider()
                 ToggleRow(
                     title = "Reset approaching",
                     subtitle = "About ${settings.resetApproachingMinutes} minutes before a " +
@@ -157,12 +155,14 @@ fun SettingsScreen(
                     checked = settings.notifyOnResetApproaching,
                     onChange = onNotifyResetApproaching,
                 )
+                RuleDivider()
                 ToggleRow(
                     title = "Unused reset credit expires soon",
                     subtitle = "Notify me when an unused Codex reset credit expires within 24 hours. A credit lets you reset an eligible usage limit.",
                     checked = settings.notifyOnResetCreditExpiring,
                     onChange = onNotifyCreditExpiring,
                 )
+                RuleDivider()
                 ToggleRow(
                     title = "Sign-in expired",
                     subtitle = "When an account needs to be reconnected",
@@ -178,17 +178,17 @@ fun SettingsScreen(
                 Text(
                     text = "Status is derived from the percentage still available.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = UsageColors.TextSecondary,
+                    color = UsageColors.Muted,
                 )
                 Spacer(Modifier.height(10.dp))
-                ThresholdRow("Healthy", "above ${Severity.HEALTHY_ABOVE.toInt()}%", UsageColors.Green)
+                ThresholdRow("Healthy", "above ${Severity.HEALTHY_ABOVE.toInt()}%", UsageColors.Positive)
                 ThresholdRow(
                     "Moderate",
                     "${Severity.MEDIUM_ABOVE.toInt()}–${Severity.HEALTHY_ABOVE.toInt()}%",
-                    UsageColors.Amber,
+                    UsageColors.Warning,
                 )
-                ThresholdRow("Low", "1–${Severity.MEDIUM_ABOVE.toInt()}%", UsageColors.Amber)
-                ThresholdRow("Exhausted", "0%", UsageColors.Red)
+                ThresholdRow("Low", "1–${Severity.MEDIUM_ABOVE.toInt()}%", UsageColors.Warning)
+                ThresholdRow("Exhausted", "0%", UsageColors.Negative)
             }
         }
 
@@ -205,8 +205,8 @@ fun SettingsScreen(
                 Text(
                     text = "Diagnostics deliberately exclude tokens, account identifiers and " +
                         "raw provider responses.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = UsageColors.TextTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = UsageColors.Faint,
                 )
             }
         }
@@ -235,13 +235,13 @@ private fun BackgroundRefreshCard() {
         Text(
             text = "Background refresh",
             style = MaterialTheme.typography.titleMedium,
-            color = UsageColors.TextPrimary,
+            color = UsageColors.Ink,
         )
         Text(
             text = "The widgets show what the last background refresh fetched. Android decides " +
                 "how often that runs; these are its current settings for this app.",
             style = MaterialTheme.typography.bodyMedium,
-            color = UsageColors.TextSecondary,
+            color = UsageColors.Muted,
         )
         Spacer(Modifier.height(6.dp))
         InfoRow(
@@ -257,24 +257,18 @@ private fun BackgroundRefreshCard() {
         }
         if (restrictions.severe) {
             Spacer(Modifier.height(6.dp))
-            Text(
-                text = "Background refresh is being held back on this device, so widgets can " +
-                    "fall hours behind. Allowing background use for Usage Limits fixes it.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = UsageColors.Amber,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Dot(UsageColors.Warning, Modifier.padding(top = 7.dp), size = 6.dp)
+                Text(
+                    text = "Background refresh is being held back on this device, so widgets can " +
+                        "fall hours behind. Allowing background use for Usage Limits fixes it.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = UsageColors.Muted,
+                )
+            }
         }
         Spacer(Modifier.height(10.dp))
-        Text(
-            text = "Open battery settings",
-            style = MaterialTheme.typography.labelLarge,
-            color = UsageColors.Background,
-            modifier = Modifier
-                .clip(CircleShape)
-                .background(UsageColors.Terracotta)
-                .clickable { openBatterySettings(context) }
-                .padding(horizontal = 18.dp, vertical = 9.dp),
-        )
+        OutlineButton("Open battery settings", { openBatterySettings(context) })
     }
 }
 
@@ -297,22 +291,6 @@ private fun openBatterySettings(context: android.content.Context) {
 }
 
 @Composable
-private fun IntervalChip(minutes: Int, selected: Boolean, onClick: () -> Unit) {
-    val label = if (minutes >= 60) "${minutes / 60}h" else "${minutes}m"
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelLarge,
-        color = if (selected) UsageColors.Background else UsageColors.TextSecondary,
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(if (selected) UsageColors.Terracotta else UsageColors.SurfaceElevated)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 9.dp),
-    )
-}
-
-
-@Composable
 private fun ThresholdRow(label: String, range: String, color: androidx.compose.ui.graphics.Color) {
     Row(
         modifier = Modifier
@@ -327,9 +305,9 @@ private fun ThresholdRow(label: String, range: String, color: androidx.compose.u
                 .background(color),
         )
         Spacer(Modifier.width(10.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = UsageColors.TextPrimary)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = UsageColors.Ink)
         Spacer(Modifier.weight(1f))
-        Text(range, style = MaterialTheme.typography.bodyMedium, color = UsageColors.TextSecondary)
+        Text(range, style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"), color = UsageColors.Muted)
     }
 }
 
@@ -341,12 +319,12 @@ private fun InfoRow(label: String, value: String) {
             .padding(vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = UsageColors.TextPrimary)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = UsageColors.Ink)
         Spacer(Modifier.weight(1f))
         Text(
             value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = UsageColors.TextSecondary,
+            style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
+            color = UsageColors.Muted,
         )
     }
 }

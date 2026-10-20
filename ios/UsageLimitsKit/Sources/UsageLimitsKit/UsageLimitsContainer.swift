@@ -16,6 +16,9 @@ import WidgetKit
 public actor UsageLimitsContainer {
 
     public let repository: AccountRepository
+    public let creditRepository: CreditRepository
+    private let creditEngine: CreditSyncEngine
+    private let creditProviders: [CreditProviderID: any CreditProvider]
     private let credentials: any CredentialStore
     private let engine: SyncEngine
     private let http: UsageHTTPClient
@@ -60,6 +63,8 @@ public actor UsageLimitsContainer {
             ProviderID.kimi.rawValue: KimiClient(httpClient: http),
             ProviderID.devin.rawValue: DevinClient(httpClient: http, now: now),
             ProviderID.meta.rawValue: MetaClient(httpClient: http, now: now),
+            ProviderID.zai.rawValue: ZaiClient(httpClient: http),
+            ProviderID.opencode.rawValue: OpenCodeClient(httpClient: http),
         ]
         self.providers = providers
 
@@ -75,6 +80,21 @@ public actor UsageLimitsContainer {
             credentials: credentials,
             sink: RepositorySink(repository: repository),
             now: now)
+
+        let creditRepository = CreditRepository(directory: directory)
+        let creditProviders: [CreditProviderID: any CreditProvider] = [
+            .openrouter: OpenRouterCreditClient(httpClient: http),
+            .deepseek: DeepSeekCreditClient(httpClient: http),
+            .moonshot: MoonshotCreditClient(httpClient: http),
+            .xai: XaiCreditClient(httpClient: http),
+            .fal: FalCreditClient(httpClient: http),
+            .novita: NovitaCreditClient(httpClient: http),
+        ]
+        self.creditRepository = creditRepository
+        self.creditProviders = creditProviders
+        self.creditEngine = CreditSyncEngine(
+            providers: creditProviders, credentials: credentials,
+            repository: creditRepository, now: now)
     }
 
     /// Refreshes every connected account and republishes what the widget reads.
@@ -88,8 +108,16 @@ public actor UsageLimitsContainer {
         // An empty account list is not an error and not a reason to skip the publish: the
         // widget must be told the list is empty, or it goes on showing accounts that were
         // removed.
-        if !accounts.isEmpty {
-            _ = try await engine.sync(accounts: accounts)
+        // Credit balances ride the same refresh, so a background run updates them too. Isolated
+        // per account inside the engine; only cancellation escapes.
+        do {
+            if !accounts.isEmpty { _ = try await engine.sync(accounts: accounts) }
+            try await creditEngine.sync()
+        } catch {
+            // Cancellation still leaves the accounts that finished recorded; the widget
+            // must get them too, or it stays a generation behind the app's own cache.
+            await publishCurrent(await repository.usage())
+            throw error
         }
 
         let usage = await repository.usage()
@@ -107,7 +135,13 @@ public actor UsageLimitsContainer {
     ///
     /// Throws `unsupportedOnThisPlatform` only when a provider has no registered flow, carrying
     /// the reason so a caller renders an explanation rather than a control that cannot finish.
-    public func beginLogin(provider: ProviderID) async throws -> DeviceLoginChallenge {
+    public func beginLogin(
+        provider: ProviderID, region: ProviderRegion? = nil
+    ) async throws -> DeviceLoginChallenge {
+        // Kimi's host depends on the region the user picked; the challenge carries it on.
+        if provider == .kimi, let region {
+            return try await KimiDeviceLogin(httpClient: http, now: now, region: region).begin()
+        }
         guard let login = logins[provider] else {
             throw DeviceLoginError.unsupportedOnThisPlatform(
                 DeviceLoginSupport.unsupportedReason(for: provider)
@@ -144,7 +178,9 @@ public actor UsageLimitsContainer {
 
     /// Completes the sign-in that has no flow: a key the user pasted.
     ///
-    /// Kimi Code only, beside its device flow. The key is proved against the usage endpoint BEFORE an account row
+    /// Kimi Code beside its device flow, and the only way in for Z.ai and OpenCode Go. For a
+    /// regional provider `region` (default: the provider's) is stored with the key and decides
+    /// which host proves it. The key is proved against the usage endpoint BEFORE an account row
     /// exists — a key that cannot read usage is not a connected account, and storing it would
     /// leave a permanently failing row the user then has to work out how to remove.
     ///
@@ -153,7 +189,8 @@ public actor UsageLimitsContainer {
     /// account instead of adding a second one beside it.
     public func completePastedKeyLogin(
         provider: ProviderID,
-        key: String
+        key: String,
+        region: ProviderRegion? = nil
     ) async throws -> ProviderAccount {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -164,14 +201,18 @@ public actor UsageLimitsContainer {
                 "This provider cannot be signed into here.")
         }
 
+        // Stored with the key, where a refresh can read it. Only regional providers have one.
+        let regional: [String: String] = ProviderRegion.options(for: provider).isEmpty ? [:]
+            : [ProviderRegion.key: (region ?? ProviderRegion.defaultRegion(for: provider)).rawValue]
         let credentials = OAuthCredentials(
             accessToken: trimmed,
             refreshToken: nil,
             idToken: nil,
-            expiresAt: nil)
+            expiresAt: nil,
+            providerData: regional)
 
         // Throws if the key is not usable, which is the whole point of doing it here.
-        let usage = try await client.fetchUsage(credentials: credentials, attributes: [:])
+        let usage = try await client.fetchUsage(credentials: credentials, attributes: regional)
 
         let profile = ProviderProfile(
             // The provider's own id where the response states one, and a digest of the key only
@@ -183,11 +224,14 @@ public actor UsageLimitsContainer {
             // holding a key that no longer works. The provider's id survives a rotation. Same
             // preference order as the Android provider, so one payload names one account on
             // both platforms.
-            externalAccountID: usage.accountIdentity?.trimmingCharacters(in: .whitespaces)
-                .nilIfEmpty ?? Self.pastedKeyIdentity(trimmed),
+            externalAccountID: ProviderRegion.stored(provider: provider, credentials: credentials).scopedID(
+                usage.accountIdentity?.trimmingCharacters(in: .whitespaces)
+                    .nilIfEmpty ?? Self.pastedKeyIdentity(trimmed),
+                for: provider),
             email: nil,
             displayName: nil,
-            plan: nil)
+            plan: usage.plan,
+            attributes: regional)
         return try await store(profile: profile, credentials: credentials, provider: provider)
     }
 
@@ -338,6 +382,90 @@ public actor UsageLimitsContainer {
                 return "A reset is already being requested for this account."
             }
         }
+    }
+
+    // MARK: - Credits
+
+    public func credits() async -> [CreditEntry] {
+        await creditRepository.entries()
+    }
+
+    /// Proves a pasted key against the provider, then stores the key and the account.
+    ///
+    /// Nothing is saved when the provider refuses the key, so a wrong key leaves no row and no
+    /// keychain item. The key lives only in the keychain; the account file names it by
+    /// reference. Pasting the same key again updates the same account.
+    @discardableResult
+    public func addCreditAccount(
+        provider: CreditProviderID,
+        key: String,
+        label: String? = nil,
+        region: ProviderRegion? = nil,
+        teamID: String? = nil,
+        lowThreshold: Decimal? = nil
+    ) async throws -> CreditAccount {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let client = creditProviders[provider] else { throw CreditError.noKey }
+
+        var attributes: [String: String] = [:]
+        if provider.hasRegion {
+            attributes[CreditAccount.regionKey] = (region ?? .intl).rawValue
+        }
+        if provider.acceptsTeamID {
+            let typed = teamID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            // A team-scoped key names its team; asking the user for it would be a needless step.
+            // Resolving also proves the key, so a rejected one stops here.
+            let resolved: String?
+            if let typed { resolved = typed } else if let xai = client as? XaiCreditClient {
+                resolved = try await xai.resolveTeamID(key: trimmed)
+            } else { resolved = nil }
+            guard let resolved else { throw CreditError.teamIDRequired }
+            attributes[CreditAccount.teamIDKey] = resolved
+        }
+        if let lowThreshold, lowThreshold > 0 {
+            attributes[CreditAccount.lowThresholdKey] = "\(lowThreshold)"
+        }
+
+        // Throws if the key is unusable, which is the point of doing it first.
+        let balances = try await client.fetchBalances(key: trimmed, attributes: attributes)
+
+        let id = "credit-\(provider.rawValue)-\(Self.pastedKeyIdentity(trimmed))"
+        let reference = "credit:\(id)"
+        let existing = await creditRepository.accounts().first { $0.id == id }
+        try await credentials.save(
+            OAuthCredentials(accessToken: trimmed, refreshToken: nil, idToken: nil, expiresAt: nil, providerData: [:]),
+            reference: reference)
+        let account = CreditAccount(
+            id: id, provider: provider,
+            label: label?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? provider.displayName,
+            credentialReference: reference, attributes: attributes, createdAt: existing?.createdAt ?? now())
+        do {
+            try await creditRepository.upsert(
+                account, snapshot: CreditSnapshot(accountID: id, balances: balances, fetchedAt: now()))
+        } catch {
+            if existing == nil { try? await credentials.delete(reference: reference) }
+            throw error
+        }
+        await publishCurrent(await repository.usage())
+        return account
+    }
+
+    /// Renames an account and sets its own low-balance figure (nil restores the default).
+    public func updateCreditAccount(id: String, label: String, lowThreshold: Decimal?) async throws {
+        guard let account = await creditRepository.accounts().first(where: { $0.id == id }) else { return }
+        let name = label.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? account.provider.displayName
+        try await creditRepository.upsert(account.with(label: name, lowThreshold: lowThreshold.flatMap { $0 > 0 ? $0 : nil }))
+        await publishCurrent(await repository.usage())
+    }
+
+    /// Forgets a credit account. The key goes first: a failure leaves the row visible and
+    /// retryable, where the other order could strand a key nothing references.
+    public func removeCreditAccount(id: String) async throws {
+        if let account = await creditRepository.accounts().first(where: { $0.id == id }) {
+            try await credentials.delete(reference: account.credentialReference)
+        }
+        try await creditRepository.remove(id: id)
+        await publishCurrent(await repository.usage())
     }
 
     // MARK: - Settings
@@ -498,7 +626,7 @@ public actor UsageLimitsContainer {
     /// next arrived, so every account would read stale permanently and the tile would lead with
     /// whichever healthy account happened to sort first.
     private func publishCurrent(_ usage: [AccountUsage]) async {
-        publish(usage, settings: await settingsStore.settings())
+        publish(usage, credits: await creditRepository.entries(), settings: await settingsStore.settings())
     }
 
     /// Hands the widget what the app would render.
@@ -506,10 +634,12 @@ public actor UsageLimitsContainer {
     /// Built from the same `GlanceModel` call the app's own screen uses, so the two surfaces
     /// cannot disagree — one derivation, one answer. Best-effort: failing to update a tile must
     /// never fail the refresh the user is watching.
-    private func publish(_ usage: [AccountUsage], settings: AppSettings) {
+    private func publish(_ usage: [AccountUsage], credits: [CreditEntry], settings: AppSettings) {
+        let time = now()
         try? GlanceSnapshotCodec.write(
             GlanceModel.build(
-                usage, now: now(), scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons),
+                usage, now: time, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons)
+                .with(credits: GlanceModel.buildCredits(credits, now: time, staleAfter: settings.staleAfter)),
             toDirectory: containerDirectory)
 
         // Writing the file is only half of it. A widget extension does not watch the container,

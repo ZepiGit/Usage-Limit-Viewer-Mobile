@@ -1,7 +1,7 @@
 package com.usagelimits.feature
 
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performScrollToNode
@@ -256,14 +256,14 @@ class ScreenRenderTest {
         // pushed the row out of it and failed a test about whether the toggle EXISTS. A
         // LazyColumn only composes what is on screen, so anything below the fold has to be
         // scrolled to before it can be found.
-        compose.onNode(hasScrollAction())
+        compose.onNode(hasScrollToNodeAction())
             .performScrollToNode(hasText("Below 20% left", substring = true))
         compose.onAllNodesWithText("Below 20% left", substring = true)
             .fetchSemanticsNodes()
             .let { assertTrue("the 20% toggle should be reachable", it.isNotEmpty()) }
 
         // The two display switches, which decide what the overview shows per account.
-        compose.onNode(hasScrollAction())
+        compose.onNode(hasScrollToNodeAction())
             .performScrollToNode(hasText("Show subscription tier", substring = true))
         compose.onAllNodesWithText("Show subscription tier", substring = true)
             .fetchSemanticsNodes()
@@ -306,9 +306,10 @@ class ScreenRenderTest {
                 snapshot = it.snapshot!!.copy(windows = emptyList(), errorMessage = "No network connection"))
         }
         renderDetail(failed)
-        assertTrue(compose.onAllNodesWithText("Never updated").fetchSemanticsNodes().isNotEmpty())
-        assertTrue(compose.onAllNodesWithText("Updated just now").fetchSemanticsNodes().isEmpty())
-        assertTrue(compose.onAllNodesWithText("Last attempt just now").fetchSemanticsNodes().isNotEmpty())
+        // One stamp line now carries both: "Never updated · Last attempt just now".
+        assertTrue(compose.onAllNodesWithText("Never updated", substring = true).fetchSemanticsNodes().isNotEmpty())
+        assertTrue(compose.onAllNodesWithText("Updated just now", substring = true).fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("Last attempt just now", substring = true).fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test

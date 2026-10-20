@@ -26,6 +26,8 @@ struct AddAccountSheet: View {
         case waiting(ProviderID, DeviceLoginChallenge)
         /// No flow to drive: the user has to fetch a key and paste it.
         case awaitingKey(ProviderID)
+        /// Kimi and Z.ai run a China and an international service; keys do not cross.
+        case choosingRegion(ProviderID)
         case failed(ProviderID, String)
     }
 
@@ -34,6 +36,8 @@ struct AddAccountSheet: View {
     @State private var loopback = LoopbackSignIn()
     @State private var copied = false
     @State private var pastedKey = ""
+    /// The region picked for a regional provider, or nil until the user picks.
+    @State private var region: ProviderRegion?
 
     var body: some View {
         NavigationStack {
@@ -48,6 +52,8 @@ struct AddAccountSheet: View {
                         waiting(provider, challenge)
                     case .awaitingKey(let provider):
                         awaitingKey(provider)
+                    case .choosingRegion(let provider):
+                        choosingRegion(provider)
                     case .failed(let provider, let message):
                         failure(provider, message)
                     }
@@ -59,8 +65,9 @@ struct AddAccountSheet: View {
                 .readableWidth()
             }
             .accessibilityIdentifier("provider-picker-scroll")
-            .background(UsageColors.background)
+            .background(UsageColors.ground)
             .navigationTitle("Add account")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -83,28 +90,60 @@ struct AddAccountSheet: View {
         case .waiting: return 2
         case .awaitingKey: return 3
         case .failed: return 4
+        case .choosingRegion: return 5
         }
     }
 
     // MARK: - Choosing
 
+    /// The providers as ledger rows in one card, 56pt apart.
     private var chooser: some View {
-        ForEach(ProviderID.allCases, id: \.self) { provider in
-            Button { start(provider) } label: {
-                UsageCard {
-                    ProviderBadge(provider: provider)
-                    Text(provider.displayName)
-                        .font(.headline)
-                        .foregroundStyle(UsageColors.terracotta)
-                    // Named before the tap, not after: a user should know what the button is
-                    // about to do with their account before it does it. The two flows feel
-                    // different enough that saying which one is coming is worth a line.
-                    Text(signInHint(for: provider))
-                        .font(.footnote)
-                        .foregroundStyle(UsageColors.textSecondary)
+        UsageCard(padding: 0, spacing: 0) {
+            ForEach(Array(ProviderID.allCases.enumerated()), id: \.offset) { index, provider in
+                if index > 0 { LedgerDivider() }
+                Button { select(provider) } label: {
+                    HStack(spacing: 12) {
+                        ProviderBadge(provider: provider)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(provider.displayName)
+                                .usageFont(.section)
+                                .foregroundStyle(UsageColors.ink)
+                            // Named before the tap, not after: a user should know what the button is
+                            // about to do with their account before it does it. The two flows feel
+                            // different enough that saying which one is coming is worth a line.
+                            Text(signInHint(for: provider))
+                                .usageFont(.body)
+                                .foregroundStyle(UsageColors.muted)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(UsageColors.faint)
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 56)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+        }
+    }
+
+    private func choosingRegion(_ provider: ProviderID) -> some View {
+        UsageCard {
+            Text("\(provider.displayName) region")
+                .usageFont(.section)
+                .foregroundStyle(UsageColors.ink)
+            Text("Keys and sign-ins only work on the service they were issued by. Pick the one your account is on.")
+                .usageFont(.body)
+                .foregroundStyle(UsageColors.muted)
+            ForEach(ProviderRegion.options(for: provider), id: \.self) { option in
+                Button(option.label(for: provider)) {
+                    region = option
+                    start(provider)
+                }
+                .buttonStyle(OutlineButtonStyle(fullWidth: true))
+            }
         }
     }
 
@@ -113,13 +152,13 @@ struct AddAccountSheet: View {
     private func starting(_ provider: ProviderID) -> some View {
         UsageCard {
             Text(provider.displayName)
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+                .usageFont(.section)
+                .foregroundStyle(UsageColors.ink)
             HStack(spacing: 8) {
-                if reduceMotion { Text("...") } else { ProgressView() }
+                if reduceMotion { Text("...") } else { ProgressView().tint(UsageColors.muted).controlSize(.small) }
                 Text("Asking \(provider.displayName) for a code…")
-                    .font(.footnote)
-                    .foregroundStyle(UsageColors.textSecondary)
+                    .usageFont(.body)
+                    .foregroundStyle(UsageColors.muted)
             }
         }
     }
@@ -127,29 +166,31 @@ struct AddAccountSheet: View {
     private func waiting(_ provider: ProviderID, _ challenge: DeviceLoginChallenge) -> some View {
         UsageCard {
             Text("Enter this code")
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+                .usageFont(.section)
+                .foregroundStyle(UsageColors.ink)
 
             // Monospaced digits so the code does not reflow while it is being read aloud or
             // copied character by character, and selectable because typing it on another device
             // is the whole point.
+            // The sheet's one lead figure: a code is a figure, so it is monospaced ink, not a
+            // second brand colour.
             Text(verbatim: challenge.userCode)
-                .font(.system(.largeTitle, design: .monospaced).weight(.semibold))
-                .foregroundStyle(UsageColors.terracotta)
+                .tracking(1.2)
+                .usageFont(.lead)
+                .foregroundStyle(UsageColors.ink)
                 .textSelection(.enabled)
                 .accessibilityLabel(spelledOut(challenge.userCode))
 
             Text(verbatim: challenge.verificationURI)
-                .font(.footnote)
-                .foregroundStyle(UsageColors.textSecondary)
+                .usageFont(.small)
+                .foregroundStyle(UsageColors.muted)
 
             HStack(spacing: 10) {
                 Button(copied ? "Copied" : "Copy code") {
                     UIPasteboard.general.string = challenge.userCode
                     copied = true
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(InkButtonStyle())
 
                 Button("Open sign-in page") {
                     // The pre-filled page when the provider offers one, so the code does not have
@@ -158,20 +199,19 @@ struct AddAccountSheet: View {
                     let target = challenge.verificationURIComplete ?? challenge.verificationURI
                     if let url = URL(string: target) { openURL(url) }
                 }
-                .buttonStyle(.bordered)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(OutlineButtonStyle())
             }
 
             HStack(spacing: 8) {
-                if reduceMotion { Text("...") } else { ProgressView() }
+                if reduceMotion { Text("...") } else { ProgressView().tint(UsageColors.muted).controlSize(.small) }
                 Text("Waiting for you to approve it…")
-                    .font(.footnote)
-                    .foregroundStyle(UsageColors.textSecondary)
+                    .usageFont(.body)
+                    .foregroundStyle(UsageColors.muted)
             }
 
             Text("The browser opens \(provider.displayName)'s own sign-in page. This app never sees your password.")
-                .font(.caption)
-                .foregroundStyle(UsageColors.textTertiary)
+                .usageFont(.small)
+                .foregroundStyle(UsageColors.faint)
 
             if DeviceLoginSupport.acceptsPastedKey(provider) {
                 // The flow is the default because it costs the user nothing; the key is for
@@ -180,8 +220,7 @@ struct AddAccountSheet: View {
                     login?.cancel()
                     stage = .awaitingKey(provider)
                 }
-                .buttonStyle(.bordered)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(TextActionStyle())
             }
         }
         // On the clipboard before either button is pressed: the browser is opened for the user,
@@ -196,57 +235,66 @@ struct AddAccountSheet: View {
     /// The sign-in with nothing to drive: a key from the provider's console.
     ///
     /// Kimi Code's second way in, under its device flow, for the time before Moonshot has
-    /// allowlisted this app's name on the coding API. See docs/providers-kimi.md.
+    /// allowlisted this app's name on the coding API (see docs/providers-kimi.md), and the only
+    /// way in for Z.ai and OpenCode Go.
     private func awaitingKey(_ provider: ProviderID) -> some View {
         UsageCard {
             Text("Paste your \(provider.displayName) key")
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+                .usageFont(.section)
+                .foregroundStyle(UsageColors.ink)
 
             Text("Create a key in your \(provider.displayName) console and paste it here. "
                  + "It is stored on this device only, in the keychain with every other account.")
-                .font(.footnote)
-                .foregroundStyle(UsageColors.textSecondary)
+                .usageFont(.body)
+                .foregroundStyle(UsageColors.muted)
+
+            if let region {
+                Text(region.label(for: provider))
+                    .usageFont(.small)
+                    .foregroundStyle(UsageColors.faint)
+            }
 
             TextField("API key", text: $pastedKey)
-                .textFieldStyle(.roundedBorder)
+                .ledgerField()
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
 
             HStack(spacing: 10) {
                 Button("Connect") { submitKey(provider) }
-                    .buttonStyle(.borderedProminent)
-                    .tint(UsageColors.terracotta)
+                    .buttonStyle(InkButtonStyle())
                     .disabled(pastedKey.trimmingCharacters(in: .whitespaces).isEmpty)
 
                 Button("Open console") {
-                    if let url = URL(string: ProviderEndpoints.Kimi.consoleURL) { openURL(url) }
+                    let target = ProviderEndpoints.consoleURL(
+                        for: provider, region: region ?? ProviderRegion.defaultRegion(for: provider))
+                    if let target, let url = URL(string: target) { openURL(url) }
                 }
-                .buttonStyle(.bordered)
-                .tint(UsageColors.terracotta)
+                .buttonStyle(OutlineButtonStyle())
             }
         }
     }
 
     private func failure(_ provider: ProviderID, _ message: String) -> some View {
         UsageCard {
-            Text("Could not add \(provider.displayName)")
-                .font(.headline)
-                .foregroundStyle(UsageColors.textPrimary)
+            HStack(spacing: 8) {
+                Circle().fill(UsageColors.negative).frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+                Text("Could not add \(provider.displayName)")
+                    .usageFont(.section)
+                    .foregroundStyle(UsageColors.ink)
+            }
             Text(verbatim: message)
-                .font(.footnote)
-                .foregroundStyle(UsageColors.textSecondary)
+                .usageFont(.body)
+                .foregroundStyle(UsageColors.muted)
             HStack(spacing: 10) {
                 Button("Try again") { start(provider) }
-                    .buttonStyle(.bordered)
-                    .tint(UsageColors.terracotta)
+                    .buttonStyle(InkButtonStyle())
                 if DeviceLoginSupport.acceptsPastedKey(provider) {
                     Button("Use an API key") {
                         login?.cancel()
                         stage = .awaitingKey(provider)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(UsageColors.terracotta)
+                    .buttonStyle(OutlineButtonStyle())
                 }
             }
         }
@@ -259,6 +307,16 @@ struct AddAccountSheet: View {
     }
 
     // MARK: - Driving the flow
+
+    /// A regional provider asks for its region first; the rest start straight away.
+    private func select(_ provider: ProviderID) {
+        if ProviderRegion.options(for: provider).isEmpty {
+            region = nil
+            start(provider)
+        } else {
+            stage = .choosingRegion(provider)
+        }
+    }
 
     /// Three styles now, so a binary check would call the pasted-key row a browser sign-in.
     private func signInHint(for provider: ProviderID) -> String {
@@ -280,7 +338,7 @@ struct AddAccountSheet: View {
                 return
             }
             do {
-                _ = try await container.completePastedKeyLogin(provider: provider, key: key)
+                _ = try await container.completePastedKeyLogin(provider: provider, key: key, region: region)
                 await store.load()
                 await store.refresh()
                 dismiss()
@@ -304,7 +362,7 @@ struct AddAccountSheet: View {
             do {
                 switch DeviceLoginSupport.style(for: provider) {
                 case .deviceCode:
-                    let challenge = try await container.beginLogin(provider: provider)
+                    let challenge = try await container.beginLogin(provider: provider, region: region)
                     stage = .waiting(provider, challenge)
                     // Blocks until the user approves, the code expires, or the provider refuses.
                     _ = try await container.completeLogin(

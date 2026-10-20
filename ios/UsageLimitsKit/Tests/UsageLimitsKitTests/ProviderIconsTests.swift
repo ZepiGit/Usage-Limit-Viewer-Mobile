@@ -3,14 +3,19 @@ import XCTest
 
 final class ProviderIconsTests: XCTestCase {
     func testDefaultsAndFamilies() {
-        XCTAssertEqual(ProviderID.allCases.count, 7)
+        XCTAssertEqual(ProviderID.allCases.count, 9)
         XCTAssertEqual(ProviderIconCatalog.selected(for: .claude, id: nil).id, "claudecode-color")
         XCTAssertEqual(ProviderIconCatalog.selected(for: .antigravity, id: nil).id, "gemini-color")
         XCTAssertEqual(ProviderIconCatalog.choices(for: .claude).count, 6)
         XCTAssertEqual(ProviderIconCatalog.choices(for: .antigravity).count, 6)
-        XCTAssertEqual(ProviderID.allCases.reduce(0) { $0 + ProviderIconCatalog.choices(for: $1).count }, 23)
+        XCTAssertEqual(ProviderID.allCases.reduce(0) { $0 + ProviderIconCatalog.choices(for: $1).count }, 25)
         XCTAssertEqual(ProviderIconCatalog.choices(for: .devin).map(\.id), ["devin-color", "devin"])
         XCTAssertEqual(ProviderIconCatalog.choices(for: .meta).map(\.id), ["meta-color", "meta"])
+        XCTAssertEqual(ProviderIconCatalog.choices(for: .zai).map(\.id), ["zai"])
+        XCTAssertEqual(ProviderIconCatalog.choices(for: .opencode).map(\.id), ["opencode"])
+        XCTAssertEqual(ProviderIconCatalog.glyph(forAssetName: "ProviderIconZai"), "Z")
+        XCTAssertEqual(ProviderIconCatalog.glyph(forAssetName: "ProviderIconOpencode"), "O")
+        XCTAssertNil(ProviderIconCatalog.glyph(forAssetName: "ProviderIconKimi"))
         XCTAssertEqual(ProviderIconCatalog.selected(for: .devin, id: nil).id, "devin-color")
         XCTAssertEqual(ProviderIconCatalog.selected(for: .meta, id: nil).id, "meta-color")
     }

@@ -4,12 +4,13 @@ import XCTest
 final class WidgetSelectionContractTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    private func account(_ id: String, used: Double, reset: Date?, connection: ConnectionStatus = .connected) -> AccountUsage {
+    private func account(_ id: String, used: Double?, reset: Date?, connection: ConnectionStatus = .connected,
+        fetchedAt: Date? = nil, status: SnapshotStatus = .ok) -> AccountUsage {
         AccountUsage(account: ProviderAccount(id: id, provider: .codex, externalAccountID: id,
             email: "\(id)@example.com", displayName: id, plan: "Plus", credentialReference: id,
-            createdAt: now, lastSuccessfulSync: now), snapshot: UsageSnapshot(accountID: id, fetchedAt: now,
-            status: .ok, windows: [UsageWindow(id: "short", label: "5h limit", category: .fiveHour,
-                usedPercent: used, periodSeconds: 18_000, resetAt: reset, exhausted: used >= 100)],
+            createdAt: now, lastSuccessfulSync: now), snapshot: UsageSnapshot(accountID: id, fetchedAt: fetchedAt ?? now,
+            status: status, windows: [UsageWindow(id: "short", label: "5h limit", category: .fiveHour,
+                usedPercent: used, periodSeconds: 18_000, resetAt: reset, exhausted: (used ?? 0) >= 100)],
             connectionStatus: connection))
     }
 
@@ -92,5 +93,27 @@ final class WidgetSelectionContractTests: XCTestCase {
         XCTAssertEqual(export.accounts.first?.id, "lead")
         XCTAssertEqual(export.overallSeverity, .exhausted)
         XCTAssertEqual(export.selecting(scope: .allAccounts, now: now).overallSeverity, .exhausted)
+    }
+
+    /// The legacy tiles re-rank a published export at timeline time. An account that was
+    /// exhausted when published but has since aged stale must rank as stale — exactly where a
+    /// fresh `GlanceModel.build` at that instant (and Android's builder) puts it — not keep
+    /// leading on a verdict from write time while a fresh account's real number is pushed down.
+    func testSelectingMostCriticalRanksBySeverityAgedAtSelectionTime() {
+        let published = now
+        let values = [account("aging", used: 100, reset: nil, fetchedAt: published.addingTimeInterval(-50 * 60)),
+            account("fresh", used: 40, reset: nil, fetchedAt: published)]
+        let export = GlanceModel.build(values, now: published, scope: .allAccounts)
+        let later = published.addingTimeInterval(20 * 60)
+
+        XCTAssertEqual(GlanceModel.build(values, now: later, scope: .mostCritical).accounts.map(\.id), ["fresh", "aging"])
+        XCTAssertEqual(export.selecting(scope: .mostCritical, now: later).accounts.map(\.id), ["fresh", "aging"])
+    }
+
+    /// Android's `Severity.urgency` ranks ERROR (5) ahead of UNKNOWN (6); the two platforms
+    /// must lead a most-critical tile with the same account for the same data.
+    func testMostCriticalRanksErrorAheadOfUnknownLikeAndroid() {
+        let values = [account("unknown", used: nil, reset: nil), account("failed", used: 10, reset: nil, status: .failed)]
+        XCTAssertEqual(GlanceModel.build(values, now: now, scope: .mostCritical).accounts.map(\.id), ["failed", "unknown"])
     }
 }

@@ -94,6 +94,39 @@ public enum GlanceSnapshotCodec {
     }
 
     public static func load(fromDirectory directory: URL) -> Load {
+        switch decodeFile(in: directory) {
+        case .missing: return .missing
+        case .unreadable: return .unreadable
+        case .corrupt: return .corrupt
+        case .decoded(let snapshot): return snapshot.accounts.isEmpty ? .empty : .loaded(snapshot)
+        }
+    }
+
+    /// The credits widget's view of the same file. Separate from `Load` because that one calls
+    /// a snapshot with no usage accounts empty, and a user with only credit accounts is not.
+    public enum CreditsLoad: Sendable, Equatable {
+        case loaded(GlanceSnapshot)
+        case empty
+        case missing
+        case unreadable
+        case corrupt
+    }
+
+    public static func loadCredits(fromDirectory directory: URL) -> CreditsLoad {
+        switch decodeFile(in: directory) {
+        case .missing: return .missing
+        case .unreadable: return .unreadable
+        case .corrupt: return .corrupt
+        case .decoded(let snapshot): return snapshot.credits.isEmpty ? .empty : .loaded(snapshot)
+        }
+    }
+
+    private enum FileState {
+        case missing, unreadable, corrupt
+        case decoded(GlanceSnapshot)
+    }
+
+    private static func decodeFile(in directory: URL) -> FileState {
         let url = directory.appendingPathComponent(fileName)
 
         let data: Data
@@ -113,6 +146,6 @@ public enum GlanceSnapshotCodec {
         guard let snapshot = try? decoder.decode(GlanceSnapshot.self, from: data) else {
             return .corrupt
         }
-        return snapshot.accounts.isEmpty ? .empty : .loaded(snapshot)
+        return .decoded(snapshot)
     }
 }

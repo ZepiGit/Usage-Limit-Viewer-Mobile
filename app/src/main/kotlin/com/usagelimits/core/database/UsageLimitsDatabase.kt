@@ -21,8 +21,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         NotificationEventEntity::class,
         NotificationStateEntity::class,
         WidgetConfigEntity::class,
+        CreditAccountEntity::class,
+        CreditSnapshotEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class UsageLimitsDatabase : RoomDatabase() {
@@ -32,6 +34,8 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
     abstract fun widgetConfigDao(): WidgetConfigDao
 
     abstract fun notificationDao(): NotificationDao
+
+    abstract fun creditDao(): CreditDao
 
     companion object {
         private const val DATABASE_NAME = "usage_limits.db"
@@ -169,6 +173,26 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * The Credit Viewer's two tables. Purely additive and empty, so nothing a user already
+         * has can change: no existing table is touched.
+         */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `credit_accounts` (`id` TEXT NOT NULL, `provider` TEXT NOT NULL, " +
+                        "`label` TEXT NOT NULL, `credentialReference` TEXT NOT NULL, `attributesJson` TEXT NOT NULL, " +
+                        "`sortOrder` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `credit_snapshots` (`accountId` TEXT NOT NULL, " +
+                        "`balancesJson` TEXT NOT NULL, `fetchedAt` INTEGER NOT NULL, `lastAttemptAt` INTEGER NOT NULL, " +
+                        "`status` TEXT NOT NULL, `error` TEXT, PRIMARY KEY(`accountId`), " +
+                        "FOREIGN KEY(`accountId`) REFERENCES `credit_accounts`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+                )
+            }
+        }
+
         fun build(context: Context): UsageLimitsDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
@@ -180,6 +204,7 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             MIGRATION_7_8,
             MIGRATION_8_9,
             MIGRATION_9_10,
+            MIGRATION_10_11,
             ).build()
     }
 }

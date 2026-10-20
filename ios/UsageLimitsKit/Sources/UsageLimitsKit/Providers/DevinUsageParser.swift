@@ -72,6 +72,25 @@ public enum DevinUsageParser {
         let planStatus = JSONSupport.object(status, "planStatus", "plan_status") ?? status
         let planInfo = JSONSupport.object(planStatus, "planInfo", "plan_info")
 
+        let dailyResetAt = date(
+            JSONSupport.int64(
+                planStatus,
+                "daily_quota_reset_at", "dailyQuotaResetAt", "daily_quota_reset_at_unix",
+                "dailyQuotaResetAtUnix"),
+            JSONSupport.string(
+                planStatus,
+                "daily_quota_reset_at", "dailyQuotaResetAt", "daily_quota_reset_at_unix",
+                "dailyQuotaResetAtUnix"))
+        let weeklyResetAt = date(
+            JSONSupport.int64(
+                planStatus,
+                "weekly_quota_reset_at", "weeklyQuotaResetAt", "weekly_quota_reset_at_unix",
+                "weeklyQuotaResetAtUnix"),
+            JSONSupport.string(
+                planStatus,
+                "weekly_quota_reset_at", "weeklyQuotaResetAt", "weekly_quota_reset_at_unix",
+                "weeklyQuotaResetAtUnix"))
+
         return DevinUserStatus(
             email: JSONSupport.string(status, "email") ?? JSONSupport.string(payload, "email"),
             userName: JSONSupport.string(status, "user_name", "userName", "name"),
@@ -82,34 +101,16 @@ public enum DevinUsageParser {
             plan: JSONSupport.string(
                 planInfo, "plan_name", "planName", "name")
                 ?? JSONSupport.string(planStatus, "plan_name", "planName", "plan"),
-            dailyRemainingPercent: percent(
-                JSONSupport.double(
-                    planStatus,
-                    "daily_quota_remaining_percent", "dailyQuotaRemainingPercent",
-                    "daily_remaining_percent", "dailyRemainingPercent")),
-            weeklyRemainingPercent: percent(
-                JSONSupport.double(
-                    planStatus,
-                    "weekly_quota_remaining_percent", "weeklyQuotaRemainingPercent",
-                    "weekly_remaining_percent", "weeklyRemainingPercent")),
-            dailyResetAt: date(
-                JSONSupport.int64(
-                    planStatus,
-                    "daily_quota_reset_at", "dailyQuotaResetAt", "daily_quota_reset_at_unix",
-                    "dailyQuotaResetAtUnix"),
-                JSONSupport.string(
-                    planStatus,
-                    "daily_quota_reset_at", "dailyQuotaResetAt", "daily_quota_reset_at_unix",
-                    "dailyQuotaResetAtUnix")),
-            weeklyResetAt: date(
-                JSONSupport.int64(
-                    planStatus,
-                    "weekly_quota_reset_at", "weeklyQuotaResetAt", "weekly_quota_reset_at_unix",
-                    "weeklyQuotaResetAtUnix"),
-                JSONSupport.string(
-                    planStatus,
-                    "weekly_quota_reset_at", "weeklyQuotaResetAt", "weekly_quota_reset_at_unix",
-                    "weeklyQuotaResetAtUnix")),
+            dailyRemainingPercent: remaining(
+                planStatus, dailyResetAt,
+                ["daily_quota_remaining_percent", "dailyQuotaRemainingPercent",
+                 "daily_remaining_percent", "dailyRemainingPercent"]),
+            weeklyRemainingPercent: remaining(
+                planStatus, weeklyResetAt,
+                ["weekly_quota_remaining_percent", "weeklyQuotaRemainingPercent",
+                 "weekly_remaining_percent", "weeklyRemainingPercent"]),
+            dailyResetAt: dailyResetAt,
+            weeklyResetAt: weeklyResetAt,
             planStart: date(
                 JSONSupport.int64(planStatus, "plan_start", "planStart"),
                 JSONSupport.string(planStatus, "plan_start", "planStart")),
@@ -213,19 +214,23 @@ public enum DevinUsageParser {
 
     private static func parsePlanStatus(_ data: [UInt8], into initial: DevinUserStatus) -> DevinUserStatus {
         var status = initial
+        var sentDaily = false, sentWeekly = false
         var reader = ProtoReader(data)
         while let field = try? reader.next() {
             switch (field.number, field.wire) {
             case (1, .bytes): status = parsePlanInfo((try? reader.bytes()) ?? [], into: status)
             case (2, .bytes): status.planStart = timestamp((try? reader.bytes()) ?? [])
             case (3, .bytes): status.planEnd = timestamp((try? reader.bytes()) ?? [])
-            case (14, .varint): status.dailyRemainingPercent = percent(Double((try? reader.varint()) ?? 0))
-            case (15, .varint): status.weeklyRemainingPercent = percent(Double((try? reader.varint()) ?? 0))
+            case (14, .varint): sentDaily = true; status.dailyRemainingPercent = percent(Double((try? reader.varint()) ?? 0))
+            case (15, .varint): sentWeekly = true; status.weeklyRemainingPercent = percent(Double((try? reader.varint()) ?? 0))
             case (17, .varint): status.dailyResetAt = epochDate((try? reader.varint()) ?? 0)
             case (18, .varint): status.weeklyResetAt = epochDate((try? reader.varint()) ?? 0)
             default: try? reader.skip(field.wire)
             }
         }
+        // proto3 omits a zero scalar: a spent window is its reset stamp alone.
+        if !sentDaily, status.dailyResetAt != nil { status.dailyRemainingPercent = 0 }
+        if !sentWeekly, status.weeklyResetAt != nil { status.weeklyRemainingPercent = 0 }
         return status
     }
 
@@ -264,6 +269,15 @@ public enum DevinUsageParser {
         return nil
     }
 
+    /// A percentage left out beside its reset stamp is the zero proto3 JSON omits; one that is
+    /// present but invalid still drops the window.
+    private static func remaining(
+        _ source: [String: Any]?, _ resetAt: Date?, _ names: [String]
+    ) -> Double? {
+        if JSONSupport.field(source, names) == nil { return resetAt == nil ? nil : 0 }
+        return percent(JSONSupport.double(source, in: names))
+    }
+
     private static func percent(_ value: Double?) -> Double? {
         guard let value, value.isFinite, value >= 0, value <= 100 else { return nil }
         return value
@@ -283,7 +297,9 @@ public enum DevinUsageParser {
 
     private enum Wire: UInt8 {
         case varint = 0
+        case fixed64 = 1
         case bytes = 2
+        case fixed32 = 5
     }
 
     private struct Field {
@@ -339,6 +355,13 @@ public enum DevinUsageParser {
             switch wire {
             case .varint: _ = try varint()
             case .bytes: _ = try bytes()
+            // A double or float: skipped, not fatal, or every later field is lost with it.
+            case .fixed64, .fixed32:
+                let width = wire == .fixed64 ? 8 : 4
+                guard data.count - index >= width else {
+                    throw ProviderError.malformedPayload("devin status had a truncated protobuf field")
+                }
+                index += width
             }
         }
     }

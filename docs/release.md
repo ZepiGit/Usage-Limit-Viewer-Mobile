@@ -252,9 +252,10 @@ runtime measurements; APK size is not a substitute.
 
 ## Before public distribution
 
-The seven integrations are Codex, Claude, Antigravity, Grok, Kimi Code, Devin and Meta Muse.
-Google Vertex is deliberately excluded because CliProxyAPI exposes it through API-key/service-account
-authentication rather than OAuth. Vendor permission and terms review remain open, including the use of first-party OAuth
+The nine integrations are Codex, Claude, Antigravity, Grok, Kimi Code (kimi.com and kimi.ai),
+Devin, Meta Muse, Z.ai GLM Coding Plan and OpenCode Go. Google Vertex is deliberately excluded:
+CliProxyAPI exposes it through service-account authentication, and its quotas are per Google Cloud
+project rather than per person (see docs/provider-auth-research.md). Vendor permission and terms review remain open, including the use of first-party OAuth
 registrations and usage endpoints. A working response does not resolve that
 review. Kimi also needs confirmation that the `UsageLimits` identity is allowed
 on its coding API; the pasted-key route does not establish that approval.

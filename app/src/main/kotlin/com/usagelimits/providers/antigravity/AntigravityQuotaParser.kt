@@ -67,8 +67,14 @@ object AntigravityQuotaParser {
     ): UsageWindow? {
         // Keep the named bucket when its measurement is missing or invalid. A scale error
         // must not turn into an apparently full or empty quota.
+        val fractionField = JsonSupport.field(bucket, "remaining_fraction", "remainingFraction")
+        val resetAt = Instants.parse(JsonSupport.string(bucket, "reset_time", "resetTime"))
+        // Google's JSON omits a zero fraction: a spent, enabled bucket arrives with resetTime only.
         val remainingFraction =
-            JsonSupport.double(bucket, "remaining_fraction", "remainingFraction")
+            (JsonSupport.double(bucket, "remaining_fraction", "remainingFraction")
+                ?: 0.0.takeIf {
+                    fractionField == null && resetAt != null && JsonSupport.boolean(bucket, "disabled") != true
+                })
                 ?.takeIf { it.isFinite() && it in 0.0..1.0 }
 
         val window = JsonSupport.string(bucket, "window")
@@ -84,7 +90,7 @@ object AntigravityQuotaParser {
             // The provider reports what is left; the app's model stores what was consumed.
             usedPercent = remainingFraction?.let { (1.0 - it) * 100.0 },
             periodSeconds = periodSeconds,
-            resetAt = Instants.parse(JsonSupport.string(bucket, "reset_time", "resetTime")),
+            resetAt = resetAt,
             exhausted = remainingFraction == 0.0,
             group = groupName,
             scope = UsageScope.MODEL,

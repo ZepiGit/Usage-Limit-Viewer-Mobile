@@ -160,8 +160,8 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(accounts.waitForExistence(timeout: 10))
         accounts.tap()
 
-        let add = app.staticTexts["+ Add account"]
-        XCTAssertTrue(add.waitForExistence(timeout: 10), "the add-account card should be there")
+        let add = app.buttons["+ Add account"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "the add-account button should be there")
         add.tap()
 
         XCTAssertTrue(
@@ -185,7 +185,7 @@ final class AppLaunchUITests: XCTestCase {
         let accounts = tabButton("Accounts", in: app)
         XCTAssertTrue(accounts.waitForExistence(timeout: 10))
         accounts.tap()
-        let add = app.staticTexts["+ Add account"]
+        let add = app.buttons["+ Add account"]
         XCTAssertTrue(scrollTo(add, in: app))
         add.tap()
         XCTAssertTrue(app.navigationBars["Add account"].waitForExistence(timeout: 10))

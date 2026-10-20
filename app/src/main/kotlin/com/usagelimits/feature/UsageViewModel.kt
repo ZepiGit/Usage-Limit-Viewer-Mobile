@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.sync.publishAfterSync
+import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.UsageWindow
@@ -45,6 +46,9 @@ data class UpcomingReset(
     val severity: Severity,
 )
 
+/** The overview lead: [window] of [usage], [stale] when its data is old, failed or past its reset. */
+data class Lead(val usage: AccountUsage, val window: UsageWindow, val stale: Boolean)
+
 /** Everything the screens render. */
 data class UsageUiState(
     val accounts: List<AccountUsage> = emptyList(),
@@ -53,6 +57,10 @@ data class UsageUiState(
     val message: String? = null,
     /** When the background machinery last moved — the Settings diagnostics. */
     val diagnostics: SyncDiagnostics = SyncDiagnostics(),
+    /** Prepaid balances, kept apart from the usage accounts. */
+    val credits: List<CreditEntry> = emptyList(),
+    /** False only before the first repository emission, so an empty list is not read as "no accounts". */
+    val loaded: Boolean = true,
 ) {
     val accountCount: Int get() = accounts.size
 
@@ -126,6 +134,27 @@ data class UsageUiState(
             usage.snapshot?.mostCritical?.let { usage to it }
         }.minByOrNull { if (it.second.exhausted) -1.0 else it.second.remainingPercent ?: Double.MAX_VALUE }
 
+    /**
+     * The window the overview leads with: the tightest among accounts whose data is still valid.
+     *
+     * Validity is the model's own: a failed or old snapshot ([Severity.STALE]/[Severity.ERROR]) and
+     * a window whose reset passed since the fetch do not compete, so cached 80% on a failed account
+     * cannot outrank live numbers. Only when nothing is valid does a cached window lead, flagged
+     * [Lead.stale] so the strip paints it grey rather than blank.
+     */
+    fun leadAt(nowMs: Long): Lead? {
+        val candidates = accounts.mapNotNull { usage ->
+            val snapshot = usage.snapshot ?: return@mapNotNull null
+            val open = snapshot.copy(windows = snapshot.windows.filterNot { it.resetElapsedAt(snapshot.fetchedAt, nowMs) })
+                .mostCritical
+            val trusted = snapshot.severityAt(nowMs, staleAfterMs) !in setOf(Severity.STALE, Severity.ERROR)
+            val window = open ?: snapshot.mostCritical ?: return@mapNotNull null
+            Lead(usage, window, stale = !trusted || open == null)
+        }
+        return (candidates.filterNot { it.stale }.ifEmpty { candidates })
+            .minByOrNull { if (it.window.exhausted) -1.0 else it.window.remainingPercent ?: Double.MAX_VALUE }
+    }
+
     /** Chronological reset timeline; past events are dropped by the screen. */
     fun upcomingResets(nowMs: Long): List<UpcomingReset> =
         accounts.flatMap { usage ->
@@ -161,14 +190,16 @@ class UsageViewModel(
     private val transientMessage = MutableStateFlow<String?>(null)
 
     val state: StateFlow<UsageUiState> = combine(
-        container.repository.observeAccountUsage(),
+        combine(container.repository.observeAccountUsage(), container.creditRepository.observeEntries()) { accounts, credits ->
+            accounts to credits
+        },
         container.settingsStore.settings,
         refreshing,
         transientMessage,
         container.settingsStore.diagnostics,
-    ) { accounts, settings, isRefreshing, message, diagnostics ->
-        UsageUiState(accounts, settings, isRefreshing, message, diagnostics)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState())
+    ) { (accounts, credits), settings, isRefreshing, message, diagnostics ->
+        UsageUiState(accounts, settings, isRefreshing, message, diagnostics, credits)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState(loaded = false))
 
     private val _resetCreditInFlight = MutableStateFlow<String?>(null)
 
@@ -216,7 +247,7 @@ class UsageViewModel(
         viewModelScope.launch {
             refreshing.value = true
             try {
-                val outcomes = container.syncEngine.syncAll()
+                val outcomes = container.syncEngine.syncAll() + container.creditSyncEngine.syncAll()
                 val failures = outcomes.count { !it.success }
                 transientMessage.value = when {
                     outcomes.isEmpty() -> null
@@ -282,6 +313,34 @@ class UsageViewModel(
                 transientMessage.value = "Could not apply the reset"
             } finally {
                 _resetCreditInFlight.value = null
+            }
+        }
+    }
+
+    /** Renames a credit account and sets or clears its own low-balance figure. */
+    fun updateCredit(id: String, label: String, lowThreshold: java.math.BigDecimal?) {
+        viewModelScope.launch {
+            try {
+                container.creditAccounts.update(id, label, lowThreshold)
+                WidgetUpdater.refreshAll(appContext)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                transientMessage.value = "Could not save the changes. Try again."
+            }
+        }
+    }
+
+    /** Deletes the key from this device and the account with it. Not cancellable once begun. */
+    fun removeCredit(id: String) {
+        viewModelScope.launch {
+            withContext(NonCancellable) {
+                try {
+                    container.creditAccounts.remove(id)
+                } catch (_: Exception) {
+                    transientMessage.value = "Could not remove the credit account. Try again."
+                }
+                WidgetUpdater.refreshAll(appContext)
             }
         }
     }

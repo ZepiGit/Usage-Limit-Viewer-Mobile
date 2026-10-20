@@ -15,18 +15,19 @@ struct SettingsScreen: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Refresh") {
+                Section(header: LedgerHeader("Refresh")) {
                     Picker("Every", selection: $store.settings.syncIntervalMinutes) {
                         ForEach(intervals, id: \.self) { minutes in
                             Text(label(for: minutes)).tag(minutes)
                         }
                     }
                     Text(stalenessNote)
-                        .font(.footnote)
-                        .foregroundStyle(UsageColors.textSecondary)
+                        .usageFont(.small)
+                        .foregroundStyle(UsageColors.muted)
                 }
+                .listRowBackground(UsageColors.surface)
 
-                Section("Notifications") {
+                Section(header: LedgerHeader("Notifications")) {
                     Toggle("Below 20% left", isOn: $store.settings.notifications.notifyBelow20Percent)
                     Toggle("Below 10% left", isOn: $store.settings.notifications.notifyBelow10Percent)
                     Toggle("Limit exhausted", isOn: $store.settings.notifications.notifyOnExhausted)
@@ -35,11 +36,12 @@ struct SettingsScreen: View {
                         "Unused reset credit expires soon",
                         isOn: $store.settings.notifications.notifyOnResetCreditExpiring)
                     Text("Notify me when an unused Codex reset credit expires within 24 hours. A credit lets you reset an eligible usage limit.")
-                        .font(.footnote).foregroundStyle(UsageColors.textSecondary)
+                        .usageFont(.small).foregroundStyle(UsageColors.muted)
                     Toggle("Sign-in expired", isOn: $store.settings.notifications.notifyOnAuthExpired)
                 }
+                .listRowBackground(UsageColors.surface)
 
-                Section("Display") {
+                Section(header: LedgerHeader("Display")) {
                     NavigationLink("Provider icons") { ProviderIconsScreen() }
                     NavigationLink("Widget layouts") { WidgetPresetsScreen() }
                     Toggle(
@@ -50,23 +52,27 @@ struct SettingsScreen: View {
                         "The renewal line names when the longest allowance comes back. It is "
                         + "shown on the overview only — a widget has room for the number you "
                         + "are about to run out of, not a second date competing with it.")
-                        .font(.footnote)
-                        .foregroundStyle(UsageColors.textSecondary)
+                        .usageFont(.small)
+                        .foregroundStyle(UsageColors.muted)
                 }
+                .listRowBackground(UsageColors.surface)
 
-                Section("Privacy") {
+                Section(header: LedgerHeader("Privacy")) {
                     Text(
                         "Tokens are stored in the keychain and excluded from backups and device "
                         + "transfer. Moving to a new phone means signing in again.")
-                        .font(.footnote)
-                        .foregroundStyle(UsageColors.textSecondary)
+                        .usageFont(.small)
+                        .foregroundStyle(UsageColors.muted)
                 }
+                .listRowBackground(UsageColors.surface)
             }
             .accessibilityIdentifier("settings-form")
             .readableWidth()
-            .scrollContentBackground(.hidden)
-            .background(UsageColors.background)
+            .usageFont(.body)
+            .foregroundStyle(UsageColors.ink)
+            .ledgerList()
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
         }
     }

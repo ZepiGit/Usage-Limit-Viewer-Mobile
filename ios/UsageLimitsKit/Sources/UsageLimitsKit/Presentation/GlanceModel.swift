@@ -22,18 +22,50 @@ public struct GlanceRow: Sendable, Equatable, Codable {
     public let remainingPercent: Double?
     public let resetAt: Date?
     public let severity: Severity
+    /// Carried so the representative can prefer global windows among those still open at
+    /// render time, as Android's `mostCritical` does, instead of fixing the pool at export.
+    public let scope: UsageScope
 
     public init(
         label: String,
         category: WindowCategory,
         remainingPercent: Double?,
         resetAt: Date?,
-        severity: Severity
+        severity: Severity,
+        scope: UsageScope = .global
     ) {
         self.label = label
         self.category = category
         self.remainingPercent = remainingPercent
         self.resetAt = resetAt
+        self.severity = severity
+        self.scope = scope
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case label, category, remainingPercent, resetAt, severity, scope
+    }
+
+    /// Lenient on `scope`: a row written before it was carried came from the global-or-all
+    /// pool already, so reading it as global keeps its behaviour.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        label = try c.decode(String.self, forKey: .label)
+        category = try c.decode(WindowCategory.self, forKey: .category)
+        remainingPercent = try c.decodeIfPresent(Double.self, forKey: .remainingPercent)
+        resetAt = try c.decodeIfPresent(Date.self, forKey: .resetAt)
+        severity = try c.decode(Severity.self, forKey: .severity)
+        scope = try c.decodeIfPresent(UsageScope.self, forKey: .scope) ?? .global
+    }
+}
+
+/// What the unaged verdict becomes once the windows resetting at `at` have closed.
+public struct GlanceSeverityStep: Sendable, Equatable, Codable {
+    public let at: Date
+    public let severity: Severity
+
+    public init(at: Date, severity: Severity) {
+        self.at = at
         self.severity = severity
     }
 }
@@ -50,6 +82,15 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
 
     /// The severity WITHOUT the staleness judgement — what the numbers themselves say.
     public let baseSeverity: Severity
+
+    /// `baseSeverity` as it becomes at each later reset, ascending. `UsageSnapshot` drops a
+    /// window whose reset passed since the fetch (`UsageWindow.resetElapsed`), so an entry
+    /// rendered after one needs the verdict of the windows still open, not the export-time one.
+    public let baseSeverityAfterResets: [GlanceSeverityStep]
+
+    /// Every window the account reports, scoped ones included, unlike `rows`, which keeps one
+    /// short and one long headline. The representative is chosen among these at render time.
+    public let candidates: [GlanceRow]
 
     /// When the provider was last read, so freshness can be judged again later.
     ///
@@ -76,6 +117,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         rows: [GlanceRow],
         severity: Severity,
         baseSeverity: Severity? = nil,
+        baseSeverityAfterResets: [GlanceSeverityStep] = [],
+        candidates: [GlanceRow]? = nil,
         fetchedAt: Date? = nil,
         providerID: String? = nil,
         connectionStatus: ConnectionStatus = .unknown,
@@ -89,6 +132,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         self.rows = rows
         self.severity = severity
         self.baseSeverity = baseSeverity ?? severity
+        self.baseSeverityAfterResets = baseSeverityAfterResets
+        self.candidates = candidates ?? rows
         self.fetchedAt = fetchedAt
         self.providerID = providerID
         self.iconAssetName = iconAssetName
@@ -98,10 +143,10 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, subtitle, rows, severity, baseSeverity, fetchedAt, providerID, connectionStatus, resetDates, iconAssetName, statusMessage
+        case id, title, subtitle, rows, severity, baseSeverity, baseSeverityAfterResets, candidates, fetchedAt, providerID, connectionStatus, resetDates, iconAssetName, statusMessage
     }
 
-    /// Lenient on the two new keys: a snapshot written before them must still decode, or every
+    /// Lenient on the optional keys: a snapshot written before them must still decode, or every
     /// widget goes blank on the upgrade that introduced them.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -111,6 +156,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         rows = try c.decode([GlanceRow].self, forKey: .rows)
         severity = try c.decode(Severity.self, forKey: .severity)
         baseSeverity = try c.decodeIfPresent(Severity.self, forKey: .baseSeverity) ?? severity
+        baseSeverityAfterResets = try c.decodeIfPresent([GlanceSeverityStep].self, forKey: .baseSeverityAfterResets) ?? []
+        candidates = try c.decodeIfPresent([GlanceRow].self, forKey: .candidates) ?? rows
         fetchedAt = try c.decodeIfPresent(Date.self, forKey: .fetchedAt)
         providerID = try c.decodeIfPresent(String.self, forKey: .providerID)
         iconAssetName = try c.decodeIfPresent(String.self, forKey: .iconAssetName)
@@ -126,12 +173,41 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     public func severity(at now: Date, staleAfter: TimeInterval) -> Severity {
         guard let fetchedAt else { return severity }
         if baseSeverity == .error { return .error }
-        return now.timeIntervalSince(fetchedAt) >= staleAfter ? .stale : baseSeverity
+        return now.timeIntervalSince(fetchedAt) >= staleAfter ? .stale : baseSeverityAfterResets.last { $0.at <= now }?.severity ?? baseSeverity
+    }
+
+    /// The severity a surface colours one shown row with at `date`.
+    ///
+    /// Invalid data (error, stale) outranks everything; then a row whose own reset has passed
+    /// since the fetch reads stale — its number describes the spent window, as Android's
+    /// `WidgetRow.validity` says; otherwise the row speaks with its own quota severity, never the
+    /// account's worst one.
+    public func displaySeverity(of row: GlanceRow?, at date: Date, staleAfter: TimeInterval) -> Severity {
+        let aged = severity(at: date, staleAfter: staleAfter)
+        if aged == .error || aged == .stale { return aged }
+        if row?.resetPending(at: date, fetchedAt: fetchedAt) == true { return .stale }
+        return row?.severity ?? aged
+    }
+
+    /// The one row that stands for the account (ring, ordering): an exhausted row first, then the
+    /// lowest percentage, among global rows whose reset has not passed since the fetch — scoped
+    /// rows stand in only once no open global one is left. When every row has reset they all
+    /// stay candidates, drawn as "reset due". Android's `representative`: windows reset since
+    /// the fetch drop out FIRST, then `mostCritical` prefers globals among what remains.
+    public func representative(at date: Date) -> GlanceRow? {
+        let open = candidates.filter { !$0.resetPending(at: date, fetchedAt: fetchedAt) }
+        let pool = open.isEmpty ? candidates : open
+        let global = pool.filter { $0.scope == .global }
+        return (global.isEmpty ? pool : global).min { Self.rank($0) < Self.rank($1) }
+    }
+
+    private static func rank(_ row: GlanceRow) -> Double {
+        row.severity == .exhausted ? -1 : (row.remainingPercent ?? .greatestFiniteMagnitude)
     }
 
     /// The tightest number this block actually shows. Used only for ordering.
-    var tightestRemaining: Double {
-        rows.compactMap(\.remainingPercent).min() ?? .greatestFiniteMagnitude
+    func tightestRemaining(at date: Date) -> Double {
+        representative(at: date)?.remainingPercent ?? .greatestFiniteMagnitude
     }
 }
 
@@ -155,6 +231,10 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
     /// screen offers — every reading would be stale before the next arrived.
     public let staleAfter: TimeInterval
 
+    /// The prepaid-balance accounts, for the credits widget. Empty in a file written before
+    /// credits existed; nothing else reads it.
+    public let credits: [GlanceCredit]
+
     public init(
         accounts: [GlanceAccount],
         accountCount: Int,
@@ -163,8 +243,10 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         overallSeverity: Severity,
         headlineShort: GlanceRow?,
         headlineLong: GlanceRow?,
-        staleAfter: TimeInterval = Severity.staleAfter
+        staleAfter: TimeInterval = Severity.staleAfter,
+        credits: [GlanceCredit] = []
     ) {
+        self.credits = credits
         self.staleAfter = staleAfter
         self.accounts = accounts
         self.accountCount = accountCount
@@ -177,7 +259,7 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case accounts, accountCount, updatedAt, nextResetAt, overallSeverity
-        case headlineShort, headlineLong, staleAfter
+        case headlineShort, headlineLong, staleAfter, credits
     }
 
     /// Lenient on `staleAfter`, which older files do not have. The synthesised decoder
@@ -195,6 +277,27 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         headlineLong = try c.decodeIfPresent(GlanceRow.self, forKey: .headlineLong)
         staleAfter = try c.decodeIfPresent(TimeInterval.self, forKey: .staleAfter)
             ?? Severity.staleAfter
+        credits = try c.decodeIfPresent([GlanceCredit].self, forKey: .credits) ?? []
+    }
+
+    /// The same snapshot carrying `credits`.
+    public func with(credits: [GlanceCredit]) -> GlanceSnapshot {
+        GlanceSnapshot(
+            accounts: accounts, accountCount: accountCount, updatedAt: updatedAt,
+            nextResetAt: nextResetAt, overallSeverity: overallSeverity,
+            headlineShort: headlineShort, headlineLong: headlineLong,
+            staleAfter: staleAfter, credits: credits)
+    }
+
+    /// The instants after `date` at which this snapshot's presentation changes on its own:
+    /// each account's stale boundary and every reset of every window it reports (`resetDates`,
+    /// which the representative and the severity steps are keyed by) plus the lead's next
+    /// reset. A timeline needs an entry at each, or a throttled widget keeps presenting the
+    /// spent window's number — or a verdict it no longer holds — past the reset.
+    public func presentationBoundaries(after date: Date) -> [Date] {
+        let stale = accounts.compactMap { $0.fetchedAt?.addingTimeInterval(staleAfter) }
+        let resets = accounts.flatMap(\.resetDates) + [nextResetAt].compactMap { $0 }
+        return Array(Set((stale + resets).filter { $0 > date })).sorted()
     }
 
     public static let empty = GlanceSnapshot(
@@ -271,7 +374,7 @@ public enum GlanceModel {
 
         let accounts = selected.map { glanceAccount($0, now: now, staleAfter: staleAfter, providerIcons: providerIcons) }
         let ordered: [GlanceAccount]
-        if scope == .mostCritical { ordered = sortedByUrgency(accounts) }
+        if scope == .mostCritical { ordered = sortedByUrgency(accounts, now: now) }
         else if scope == .closestResets {
             let indexed = accounts.enumerated().map { index, account in
                 let next = selected.first { $0.account.id == account.id }?.snapshot?.windows
@@ -320,13 +423,13 @@ public enum GlanceModel {
     /// screen means the reader re-scans from scratch each time and stops trusting the position
     /// of anything. Within a band the original order holds, so a tile only moves when something
     /// meaningful changed.
-    private static func sortedByUrgency(_ accounts: [GlanceAccount]) -> [GlanceAccount] {
+    private static func sortedByUrgency(_ accounts: [GlanceAccount], now: Date) -> [GlanceAccount] {
         accounts.enumerated()
             .sorted { lhs, rhs in
                 let l = urgency(lhs.element.severity), r = urgency(rhs.element.severity)
                 if l != r { return l < r }
-                let lb = band(lhs.element.tightestRemaining)
-                let rb = band(rhs.element.tightestRemaining)
+                let lb = band(lhs.element.tightestRemaining(at: now))
+                let rb = band(rhs.element.tightestRemaining(at: now))
                 if lb != rb { return lb < rb }
                 return lhs.offset < rhs.offset
             }
@@ -372,8 +475,9 @@ public enum GlanceModel {
         case .low: return 2
         case .medium: return 3
         case .healthy: return 4
-        case .unknown: return 5
-        case .error: return 6
+        // Same order as Android's `Severity.urgency`: ERROR 5, UNKNOWN 6.
+        case .error: return 5
+        case .unknown: return 6
         case .stale: return 7
         }
     }
@@ -445,6 +549,10 @@ public enum GlanceModel {
             headline(windows, .fiveHour),
             longHeadline(windows),
         ].compactMap { $0 }
+        let resets = Set((usage.snapshot?.windows ?? []).compactMap(\.resetAt).filter { $0 > now })
+        let afterResets = resets.sorted().compactMap { at in
+            usage.snapshot.map { GlanceSeverityStep(at: at, severity: $0.severityOfOpenWindows(at: at)) }
+        }
 
         var title = usage.account.provider.displayName
         // `whitespacesAndNewlines`, not `whitespaces`: the latter is space and tab only, so a
@@ -464,7 +572,10 @@ public enum GlanceModel {
             severity: usage.snapshot?.severity(at: now, staleAfter: staleAfter) ?? .stale,
             // The unaged judgement and the instant it was made, so a widget rendering this
             // hours later can age it itself instead of repeating a verdict from write time.
-            baseSeverity: usage.snapshot?.severity ?? .stale,
+            baseSeverity: usage.snapshot?.severityOfOpenWindows(at: now) ?? .stale,
+            baseSeverityAfterResets: afterResets,
+            // Scoped ones too: which pool leads is decided at render time, among windows still open.
+            candidates: allWindows.map(row),
             fetchedAt: usage.snapshot.flatMap { $0.failed && $0.windows.isEmpty ? nil : $0.fetchedAt }, providerID: usage.account.provider.rawValue,
             connectionStatus: usage.snapshot?.connectionStatus ?? .unknown,
             resetDates: usage.snapshot?.windows.compactMap(\.resetAt),
@@ -478,6 +589,7 @@ public enum GlanceModel {
             category: window.category,
             remainingPercent: window.remainingPercent,
             resetAt: window.resetAt,
-            severity: window.severity)
+            severity: window.severity,
+            scope: window.scope)
     }
 }

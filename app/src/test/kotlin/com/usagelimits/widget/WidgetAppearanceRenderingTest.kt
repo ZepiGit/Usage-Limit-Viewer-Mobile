@@ -127,6 +127,9 @@ class WidgetAppearanceRenderingTest {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
             for ((widgetIndex, placed) in WidgetUpdater.allWidgets.withIndex()) {
+                // Credits has no configuration screen, so no saved panel or text tone to survive;
+                // CreditsWidgetRenderingTest composes it at each of its sizes.
+                if (placed.name !in sizes) continue
                 val configs = styles.mapIndexed { styleIndex, style ->
                     WidgetConfigEntity(100 + widgetIndex * 10 + styleIndex, "CUSTOM", null, null, now,
                         customAccountIdsJson = "[\"${account.localId}\"]",
@@ -167,8 +170,11 @@ class WidgetAppearanceRenderingTest {
                                         textViews(view).any { it.text.toString().contains("Sync issue") })
                                 }
                                 if (placed.name == "MiniRingsWidget") {
-                                    assertTrue("$name keeps a visible partial-update badge",
-                                        textViews(view).any { it.text.toString() == "!" })
+                                    // The partial-update mark is a 6dp dot (no text); the ring says it for screen readers.
+                                    assertTrue("$name keeps a partial-update mark",
+                                        imageDescriptions(view).any { "some limits could not be updated" in it })
+                                    assertTrue("$name no longer draws an exclamation badge",
+                                        textViews(view).none { it.text.toString() == "!" })
                                 }
                                 if (placed.name == "DetailedUsageWidget" || placed.name == "MinimalUsageWidget") {
                                     val collections = adapterViews(view)
@@ -202,6 +208,11 @@ class WidgetAppearanceRenderingTest {
     private fun textViews(view: View): List<TextView> = buildList {
         if (view is TextView) add(view)
         if (view is ViewGroup) for (index in 0 until view.childCount) addAll(textViews(view.getChildAt(index)))
+    }
+
+    private fun imageDescriptions(view: View): List<String> = buildList {
+        view.contentDescription?.let { add(it.toString()) }
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(imageDescriptions(view.getChildAt(index)))
     }
 
     private fun adapterViews(view: View): List<AdapterView<*>> = buildList {

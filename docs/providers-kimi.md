@@ -37,7 +37,7 @@ reads `/v1/usages` only.
 ## Auth flow
 
 1. `beginLogin()` POSTs `client_id` as a form to
-   `https://auth.kimi.com/api/oauth/device_authorization`. The response carries `device_code`,
+   `https://auth.kimi.com/api/oauth/device_authorization` (`auth.kimi.ai` for the international region). The response carries `device_code`,
    `user_code`, `verification_uri` (and usually `verification_uri_complete`, which pre-fills the
    code), `expires_in` and `interval`.
 2. The user code is shown and the verification page opened; the device code rides along in the
@@ -70,9 +70,29 @@ throwing, because the sync engine calls it whenever it suspects staleness and fo
 suspicion is never right. A revoked key surfaces as a 401 on the usage call, which is the path
 that already marks an account as needing attention.
 
+## Regions: China and International
+
+Kimi Code runs two services with separate accounts. Tokens and keys are bound to the one that
+issued them, so the user picks the region **before** the device code or key paste, and every
+later call (poll, refresh, usage) uses the same host. The client id and the usage JSON are the
+same on both.
+
+| `region` | Device auth / token | Usage | Console |
+|---|---|---|---|
+| `cn` (default) | `https://auth.kimi.com/api/oauth/{device_authorization,token}` | `https://api.kimi.com/coding/v1/usages` | `https://www.kimi.com/code/console` |
+| `intl` | `https://auth.kimi.ai/api/oauth/{device_authorization,token}` | `https://api.kimi.ai/coding/v1/usages` | `https://www.kimi.ai/code/console` |
+
+The region is stored as `region` in the credential's provider data (`OAuthCredentials.providerData`
+on iOS), because a token refresh sees only credentials, and mirrored in the account attributes.
+The device challenge carries it too, so the poll goes to the host that issued the code. An
+account with no stored region is `cn`, which keeps every account created before the choice
+working unchanged. Whether a `.com` credential is rejected by `.ai` (and the reverse) was not
+tested against a live account; the docs say keys are not interchangeable.
+The `.ai` console URL is the same console reached through the international entry (unverified).
+
 ## Usage endpoint
 
-`GET https://api.kimi.com/coding/v1/usages`, with `Authorization: Bearer <token or key>` and
+`GET https://api.kimi.com/coding/v1/usages` (or `api.kimi.ai`, see Regions), with `Authorization: Bearer <token or key>` and
 the app's identity headers.
 
 ### The field-semantics trap
@@ -96,9 +116,9 @@ Three further rules the parser holds:
   infinity, and a bar drawn from that reads as an exhausted account that is not exhausted.
 - The window's duration is read from the entry, never assumed from its position in the array.
   Classifying by position is how a monthly bucket ends up labelled as a week.
-- `resetTime` is accepted in seconds or milliseconds and normalised by magnitude, since an
-  epoch stamp in either unit is plausible and guessing wrong misplaces the countdown by a
-  factor of a thousand.
+- `resetTime` is ISO-8601 on the live endpoint (Kimi's CLI reads it with `fromisoformat`);
+  epoch seconds or milliseconds are also accepted and normalised by magnitude.
+- A limit's duration comes from `window.duration` × `window.timeUnit` (`TIME_UNIT_MINUTE`, …).
 
 ## Identity
 
@@ -140,3 +160,18 @@ reversible into the key, and the key itself never becomes an account id.
 Both halves are pinned by tests that fail against a digest-only implementation:
 `KimiIdentityTest` on Android, `testAPastedKeyAccountIsNamedByTheProviderNotByTheKey` and
 `testRotatingTheKeyKeepsOneAccount` in the kit.
+
+### Region is part of the identity
+
+China (kimi.com) and International (kimi.ai) are separate user and key spaces, so both can
+return the same user id (or the same key digest). Filed under that alone, connecting
+International would overwrite the China account's credentials and region. So the id is
+namespaced by region, identically on both platforms and on both sign-in paths (device flow and
+pasted key):
+
+- **China** (the default, and what every account saved before the choice existed is): the bare
+  id, unchanged. Existing accounts are neither duplicated nor orphaned.
+- **International**: `intl:<id>`, e.g. `intl:kimi-user-7` or `intl:key-<digest>`.
+
+Pinned by `KimiRegionTest` on Android and `RegionalProvidersTests` in the kit (same id, and
+same key, connected in both regions: two accounts, two credentials).

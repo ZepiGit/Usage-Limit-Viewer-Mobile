@@ -4,6 +4,7 @@ import com.usagelimits.BuildConfig
 import com.usagelimits.core.auth.OAuthCredentials
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.model.planLabel
 import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.JsonSupport
@@ -14,9 +15,9 @@ import com.usagelimits.providers.LoginChallenge
 import com.usagelimits.providers.ProviderProfile
 import com.usagelimits.providers.UsageProvider
 import com.usagelimits.providers.UsageResult
+import com.usagelimits.providers.keyIdentity
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
-import java.security.MessageDigest
 
 /**
  * Kimi Code.
@@ -41,9 +42,11 @@ class KimiProvider(
 
     override val providerId = ProviderId.KIMI
 
-    override suspend fun beginLogin(): LoginChallenge {
+    override suspend fun beginLogin(): LoginChallenge = beginLogin(ProviderRegion.default(ProviderId.KIMI))
+
+    override suspend fun beginLogin(region: ProviderRegion): LoginChallenge {
         val response = http.request(
-            url = Kimi.DEVICE_CODE_URL,
+            url = Kimi.urls(region).deviceCodeUrl,
             method = "POST",
             headers = oauthHeaders(),
             body = HttpClient.formBody(mapOf("client_id" to Kimi.CLIENT_ID)),
@@ -62,9 +65,9 @@ class KimiProvider(
         val interval = JsonSupport.long(payload, "interval") ?: MIN_POLL_SECONDS
 
         return LoginChallenge.DeviceCode(
-            // Only the first segment is ever shown; the device code rides along so
-            // completeLogin stays stateless.
-            userCode = "$userCode$CODE_SEPARATOR$deviceCode",
+            // Only the first segment is ever shown; the device code and the region ride along
+            // so completeLogin stays stateless and polls the host that issued the code.
+            userCode = "$userCode$CODE_SEPARATOR$deviceCode$CODE_SEPARATOR${region.id}",
             verificationUri = verificationUri,
             verificationUriComplete = JsonSupport.string(
                 payload,
@@ -79,18 +82,22 @@ class KimiProvider(
         )
     }
 
-    override fun keyLoginChallenge(): LoginChallenge.ApiKey = LoginChallenge.ApiKey(
-        consoleUrl = Kimi.CONSOLE_URL,
-        hint = "Create a key in your Kimi Code console and paste it here. It is stored on this " +
-            "device only, in the same encrypted store as every other account.",
-    )
+    override fun keyLoginChallenge(region: ProviderRegion?): LoginChallenge.ApiKey {
+        val chosen = region ?: ProviderRegion.default(ProviderId.KIMI)
+        return LoginChallenge.ApiKey(
+            consoleUrl = Kimi.urls(chosen).consoleUrl,
+            hint = "Create a key in your Kimi Code console and paste it here. It is stored on this " +
+                "device only, in the same encrypted store as every other account.",
+            region = chosen,
+        )
+    }
 
     override suspend fun completeLogin(
         challenge: LoginChallenge,
         userInput: String?,
     ): OAuthCredentials = when (challenge) {
         is LoginChallenge.DeviceCode -> pollForTokens(challenge)
-        is LoginChallenge.ApiKey -> connectWithKey(userInput)
+        is LoginChallenge.ApiKey -> connectWithKey(userInput, challenge.region)
         is LoginChallenge.Redirect -> throw ProviderException.Unexpected("Kimi does not redirect")
     }
 
@@ -101,8 +108,11 @@ class KimiProvider(
      * slow_down and temporary transport/server failures continue; a refusal ends the attempt.
      */
     private suspend fun pollForTokens(challenge: LoginChallenge.DeviceCode): OAuthCredentials {
-        val deviceCode = challenge.userCode.substringAfter(CODE_SEPARATOR, "")
+        val packed = challenge.userCode.split(CODE_SEPARATOR)
+        val deviceCode = packed.getOrNull(1).orEmpty()
         if (deviceCode.isEmpty()) throw ProviderException.Unexpected("malformed device challenge")
+        // A challenge without a region predates the choice, and was issued by kimi.com.
+        val region = ProviderRegion.from(packed.getOrNull(2), ProviderId.KIMI)
 
         val fields = mapOf(
             "grant_type" to Kimi.DEVICE_CODE_GRANT_TYPE,
@@ -114,7 +124,7 @@ class KimiProvider(
         while (nowMs() < challenge.expiresAt) {
             val payload = try {
                 val response = http.request(
-                    url = Kimi.TOKEN_URL,
+                    url = Kimi.urls(region).tokenUrl,
                     method = "POST",
                     headers = oauthHeaders(),
                     body = HttpClient.formBody(fields),
@@ -140,7 +150,7 @@ class KimiProvider(
             }
 
             when (val error = JsonSupport.string(payload, "error")) {
-                null -> return toCredentials(payload)
+                null -> return toCredentials(payload, region)
 
                 ERROR_AUTHORIZATION_PENDING -> delay(intervalMs)
 
@@ -161,7 +171,7 @@ class KimiProvider(
     }
 
     /** The other way in: a key from the user's console, proved against the usage endpoint. */
-    private suspend fun connectWithKey(userInput: String?): OAuthCredentials {
+    private suspend fun connectWithKey(userInput: String?, region: ProviderRegion?): OAuthCredentials {
         val key = userInput?.trim()
         if (key.isNullOrEmpty()) throw ProviderException.LoginCancelled("No key was entered")
 
@@ -173,6 +183,10 @@ class KimiProvider(
             refreshToken = null,
             idToken = null,
             expiresAt = null,
+            // Stored with the key, where a refresh can read it.
+            providerData = mapOf(
+                ProviderRegion.KEY to (region ?: ProviderRegion.default(ProviderId.KIMI)).id,
+            ),
         )
         fetchUsagePayload(credentials)
         return credentials
@@ -187,9 +201,11 @@ class KimiProvider(
      */
     override suspend fun refresh(credentials: OAuthCredentials): OAuthCredentials {
         val refreshToken = credentials.refreshToken ?: return credentials
+        val region = ProviderRegion.stored(ProviderId.KIMI, credentials.providerData)
 
         val response = http.request(
-            url = Kimi.TOKEN_URL,
+            // Tokens are region-bound: refresh against the host that issued this one.
+            url = Kimi.urls(region).tokenUrl,
             method = "POST",
             headers = oauthHeaders(),
             body = HttpClient.formBody(
@@ -205,30 +221,43 @@ class KimiProvider(
             oneTimeGrant = true,
         )
 
-        val refreshed = toCredentials(JsonSupport.parseObject(response.body))
-        // A refresh response may omit the refresh token, meaning "keep using the old one".
-        return refreshed.copy(refreshToken = refreshed.refreshToken ?: refreshToken)
+        val refreshed = toCredentials(JsonSupport.parseObject(response.body), region)
+        // A refresh response may omit the refresh token, meaning "keep using the old one"; it
+        // never carries the region, so the stored one stays.
+        return refreshed.copy(
+            refreshToken = refreshed.refreshToken ?: refreshToken,
+            providerData = credentials.providerData,
+        )
     }
 
     override suspend fun fetchProfile(credentials: OAuthCredentials): ProviderProfile {
         val payload = fetchUsagePayload(credentials)
+        val region = ProviderRegion.stored(ProviderId.KIMI, credentials.providerData)
         return ProviderProfile(
-            externalAccountId = identity(payload, credentials.accessToken),
+            externalAccountId = ProviderRegion.scopedId(ProviderId.KIMI, region, identity(payload, credentials.accessToken)),
             email = JsonSupport.string(payload, "email")
                 ?: JsonSupport.string(JsonSupport.obj(payload, "user"), "email"),
             displayName = null,
             plan = tier(payload),
+            attributes = mapOf(ProviderRegion.KEY to region.id),
         )
     }
 
     override suspend fun fetchUsage(
         account: ProviderAccount,
         credentials: OAuthCredentials,
-    ): UsageResult = UsageResult(windows = KimiUsageParser.parse(fetchUsagePayload(credentials)))
+    ): UsageResult = UsageResult(
+        windows = KimiUsageParser.parse(fetchUsagePayload(credentials, account.attributes)),
+    )
 
-    private suspend fun fetchUsagePayload(credentials: OAuthCredentials): JsonObject {
+    private suspend fun fetchUsagePayload(
+        credentials: OAuthCredentials,
+        attributes: Map<String, String> = emptyMap(),
+    ): JsonObject {
+        // Keys and tokens are region-bound: ask the host that issued this one.
+        val region = ProviderRegion.stored(ProviderId.KIMI, credentials.providerData, attributes)
         val response = http.request(
-            url = Kimi.USAGE_ENDPOINT,
+            url = Kimi.urls(region).usageEndpoint,
             headers = Kimi.identityHeaders(version) + mapOf(
                 "Authorization" to "Bearer ${credentials.accessToken}",
                 "Accept" to "application/json",
@@ -240,7 +269,7 @@ class KimiProvider(
     private fun oauthHeaders(): Map<String, String> =
         Kimi.identityHeaders(version) + mapOf("Accept" to "application/json")
 
-    private fun toCredentials(payload: JsonObject): OAuthCredentials {
+    private fun toCredentials(payload: JsonObject, region: ProviderRegion): OAuthCredentials {
         val accessToken = JsonSupport.string(payload, "access_token", "accessToken")
             ?: throw ProviderException.MalformedPayload("token response had no access_token")
         val expiresIn = JsonSupport.long(payload, "expires_in", "expiresIn")
@@ -249,6 +278,7 @@ class KimiProvider(
             refreshToken = JsonSupport.string(payload, "refresh_token", "refreshToken"),
             idToken = JsonSupport.string(payload, "id_token", "idToken"),
             expiresAt = JsonSupport.expiryAfterSeconds(expiresIn, nowMs()),
+            providerData = mapOf(ProviderRegion.KEY to region.id),
         )
     }
 
@@ -282,8 +312,7 @@ class KimiProvider(
             ?.takeIf { it.isNotBlank() }
             ?.let { return it }
 
-        val digest = MessageDigest.getInstance("SHA-256").digest(key.toByteArray())
-        return "key-" + digest.take(8).joinToString("") { "%02x".format(it) }
+        return keyIdentity(key)
     }
 
     companion object {

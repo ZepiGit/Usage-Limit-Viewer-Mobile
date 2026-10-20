@@ -54,6 +54,7 @@ object WidgetUpdater {
         PlacedWidget("DetailedUsageWidget", DetailedUsageWidgetReceiver::class.java) { DetailedUsageWidget() },
         PlacedWidget("MinimalUsageWidget", MinimalUsageWidgetReceiver::class.java) { MinimalUsageWidget() },
         PlacedWidget("MiniRingsWidget", MiniRingsWidgetReceiver::class.java) { MiniRingsWidget() },
+        PlacedWidget("CreditsWidget", CreditsWidgetReceiver::class.java) { CreditsWidget() },
     )
 
     /**
@@ -134,6 +135,18 @@ object WidgetUpdater {
      * something useful.
      */
     suspend fun load(context: Context, glanceId: GlanceId): WidgetView = observe(context, glanceId).first()
+
+    /** The Credits widget's data: every credit account, worst first. Repository reads only. */
+    fun observeCredits(context: Context): kotlinx.coroutines.flow.Flow<CreditWidgetSnapshot> =
+        kotlinx.coroutines.flow.flow {
+            val container = (context.applicationContext as? UsageLimitsApp)?.container ?: return@flow
+            emitAll(kotlinx.coroutines.flow.combine(
+                container.creditRepository.observeEntries(),
+                container.settingsStore.settings,
+            ) { entries, settings ->
+                CreditWidgetBuilder.build(entries, System.currentTimeMillis(), Severity.staleAfterMs(settings.syncIntervalMinutes))
+            })
+        }
 
     fun observe(context: Context, glanceId: GlanceId): kotlinx.coroutines.flow.Flow<WidgetView> =
         kotlinx.coroutines.flow.flow {

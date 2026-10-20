@@ -115,4 +115,22 @@ class MetaQuotaParserTest {
         assertNull(windows[0].usedPercent)
         assertNull(windows[1].usedPercent)
     }
+
+    @Test
+    fun `an ISO-8601 reset stamp keeps its reset time`() {
+        val windows = MetaQuotaParser.parse(
+            JsonSupport.parseObject(
+                """
+                { "subs_usage": {
+                    "window": { "used_percent": 10, "window_duration_mins": 300, "resets_at": "2026-09-17T19:28:40Z" },
+                    "weekly": { "used_percent": 20, "resetsAt": "2026-09-20T00:00:00.123456+00:00" }
+                } }
+                """.trimIndent(),
+            ),
+            now,
+        )
+
+        assertEquals(1_789_673_320_000L, windows[0].resetAt)
+        assertEquals(1_789_862_400_123L, windows[1].resetAt)
+    }
 }

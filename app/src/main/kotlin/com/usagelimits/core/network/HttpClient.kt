@@ -200,7 +200,7 @@ class HttpClient(
                         response.code,
                         "Provider returned ${response.code}",
                     )
-                    else -> throw ProviderException.Unexpected("HTTP ${response.code}")
+                    else -> throw ProviderException.Unexpected("HTTP ${response.code}", statusCode = response.code)
                 }
             }
         } catch (e: IOException) {

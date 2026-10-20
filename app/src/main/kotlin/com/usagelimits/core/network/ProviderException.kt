@@ -36,5 +36,7 @@ sealed class ProviderException(message: String, cause: Throwable? = null) : Exce
     /** The user dismissed or denied the login. */
     class LoginCancelled(message: String = "Login cancelled") : ProviderException(message)
 
-    class Unexpected(message: String, cause: Throwable? = null) : ProviderException(message, cause)
+    /** [statusCode] is set when the surprise was an HTTP status no other case covers (a 404, say). */
+    class Unexpected(message: String, cause: Throwable? = null, val statusCode: Int? = null) :
+        ProviderException(message, cause)
 }

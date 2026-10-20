@@ -31,7 +31,7 @@ data class WidgetBackground(
     val isLightColor: Boolean get() = Color(argb).luminance() > 0.4f
 
     companion object {
-        /** The app's own near-black, `UsageColors.Background`. Signed, as SQLite stores it. */
+        /** The app's own near-black, `UsageColors.Ground`. Signed, as SQLite stores it. */
         const val DEFAULT_ARGB: Int = -15790322 // 0xFF0F0F0E
         const val DEFAULT_OPACITY: Int = 100
     }
@@ -54,8 +54,10 @@ data class WidgetColorChoice(val id: String, val label: String, val argb: Int)
  * from it.
  *
  * The ink is one of two sets. On a dark panel it is the app's own palette; on a light one it
- * is the same hues pulled down until they clear 4.5:1 against near-white. Bars and rings keep
- * the raw accents on both — a filled bar is not text — and only the words switch.
+ * is the same hues pulled down until they clear 4.5:1 against near-white. The data hue (bars
+ * and rings) is Terracotta on dark panels and its deeper form on light ones, and falls back to
+ * the ink when it would measure under 3:1 on the chosen panel. Severity is a dot or one figure,
+ * never a bar fill.
  */
 data class WidgetStyle(
     val background: WidgetBackground = WidgetBackground(),
@@ -79,69 +81,90 @@ data class WidgetStyle(
         }
 
     val textPrimary: Color get() = if (lightInk) Color(0xFFF0EEE6) else Color(0xFF1A1918)
-    val textSecondary: Color get() = if (lightInk) Color(0xFFB4B2A9) else Color(0xFF5C5A53)
 
     /**
-     * A tile or chip on the panel: the ink at low alpha, so it lifts the panel whatever colour
-     * that is and disappears gracefully when the panel does.
+     * The quieter ink for labels and stamps. Falls back to [textPrimary] where it would measure
+     * under 4.5:1 on the panel (the Terracotta panel, 4.29:1), because a word that cannot be read
+     * is worse than one that is not de-emphasised.
      */
-    val card: Color get() = if (lightInk) Color(0x1FFFFFFF) else Color(0x14000000)
+    val textSecondary: Color
+        get() {
+            val quiet = if (lightInk) Color(0xFFB4B2A9) else Color(0xFF5C5A53)
+            return if (contrast(quiet, Color(background.argb)) >= 4.5) quiet else textPrimary
+        }
 
-    /** The empty part of a bar or ring. */
+    /** The empty part of a bar or ring, and the 1dp divider between tiles. */
     val track: Color get() = if (lightInk) Color(0x40FFFFFF) else Color(0x2E000000)
 
+    /** The data hue: usage bars and ring arcs. */
+    val data: Color
+        get() {
+            val hue = if (background.isLightColor) TerracottaOnLight else Terracotta
+            return if (contrast(hue, Color(background.argb)) >= 3.0) hue else textPrimary
+        }
+
+    /** Bars and arcs of a reading that is old or unverified. */
+    val stale: Color get() = if (background.isLightColor) StaleOnLight else Stale
+
+    /** The 6-8dp severity dot. */
     fun accent(severity: Severity): Color = when (severity) {
         Severity.HEALTHY -> Green
         Severity.MEDIUM, Severity.LOW, Severity.LIMITED -> Amber
         Severity.EXHAUSTED, Severity.ERROR -> Red
-        Severity.STALE, Severity.UNKNOWN -> Slate
-    }
-
-    /** [accent] for bars and dots; this for anything drawn as words. */
-    fun textColor(severity: Severity): Color = when (severity) {
-        Severity.HEALTHY -> if (lightInk) Green else Color(0xFF2F7A34)
-        Severity.MEDIUM, Severity.LOW, Severity.LIMITED -> if (lightInk) Amber else Color(0xFF8A5A0A)
-        Severity.EXHAUSTED, Severity.ERROR -> if (lightInk) Color(0xFFE8756B) else Color(0xFFB03A31)
-        Severity.STALE, Severity.UNKNOWN -> if (lightInk) Color(0xFFA29F94) else Color(0xFF6B6960)
+        Severity.STALE, Severity.UNKNOWN -> stale
     }
 
     /**
-     * Bar fill for one row.
-     *
-     * [validity] is the owning account's DATA validity — stale, failed or needing
-     * reconnection — and outranks every quota decoration. The old rule checked the teal
-     * "untouched" state first, so a stale account whose cached reading was still at 100 %
-     * painted a reassuring fresh-looking bar under an "out of date" warning. When the data
-     * itself is not to be trusted, the bar says so.
+     * The colour of a figure or word for a severity: ink until the window is nearly spent,
+     * amber at 20% or less, red only for a real zero or a failure, and the quiet ink for stale
+     * or unknown. Light-panel tones are pulled down to clear 4.5:1.
      */
-    fun bar(row: WidgetRow, validity: Severity? = null): Color = when {
-        // The row's own validity — a reset that has passed since the fetch — ranks with the
-        // account's: the figure describes a window the provider has already closed.
-        (validity ?: row.validity) != null -> accent((validity ?: row.validity)!!)
-        // The full-quota colour is a reward for a healthy row only. A row the provider has
-        // explicitly blocked keeps the block colour whatever percentage it still reports.
-        row.severity == Severity.HEALTHY && row.remainingPercent != null && row.remainingPercent >= 99.5 -> Teal
-        else -> accent(row.severity)
+    fun textColor(severity: Severity): Color = when (severity) {
+        Severity.HEALTHY, Severity.MEDIUM -> textPrimary
+        Severity.LOW, Severity.LIMITED -> readable(if (lightInk) Amber else Color(0xFF8A5A0A))
+        Severity.EXHAUSTED, Severity.ERROR -> readable(if (lightInk) Color(0xFFE8756B) else Color(0xFFB03A31))
+        Severity.STALE, Severity.UNKNOWN -> textSecondary
     }
 
-    /** [bar] for the row's words. */
-    fun barText(row: WidgetRow, validity: Severity? = null): Color = when {
-        (validity ?: row.validity) != null -> textColor((validity ?: row.validity)!!)
-        row.severity == Severity.HEALTHY && row.remainingPercent != null && row.remainingPercent >= 99.5 ->
-            if (lightInk) Teal else Color(0xFF247A69)
-        else -> textColor(row.severity)
+    /** A tone for words, or the primary ink where the tone would measure under 4.5:1 on this panel. */
+    private fun readable(tone: Color): Color = if (contrast(tone, Color(background.argb)) >= 4.5) tone else textPrimary
+
+    /**
+     * Bar fill for one row, or null for the bare track.
+     *
+     * [validity] is the owning account's DATA validity — stale, failed or needing
+     * reconnection — and outranks the row. Stale is grey; a failed or unknown reading and an
+     * exhausted row draw no fill, whatever percentage they still report.
+     */
+    fun bar(row: WidgetRow, validity: Severity? = null): Color? = when ((validity ?: row.validity) ?: row.severity) {
+        Severity.STALE -> stale
+        Severity.ERROR, Severity.UNKNOWN, Severity.EXHAUSTED -> null
+        else -> data
     }
+
+    /** [bar] for the row's figure. */
+    fun barText(row: WidgetRow, validity: Severity? = null): Color =
+        textColor((validity ?: row.validity) ?: row.severity)
 
     val trackArgb: Int get() = track.toArgb()
 
     companion object {
-        // Mirrors UsageColors. Restated because Glance runs in the launcher's process and
-        // cannot read the app's MaterialTheme; kept in one place so the palette is one edit.
-        val Teal = Color(0xFF4FBFA8)
+        // Restated because Glance runs in the launcher's process and cannot read the app's
+        // MaterialTheme; kept in one place so the palette is one edit.
+        val Terracotta = Color(0xFFD97757)
+        val TerracottaOnLight = Color(0xFFB35F42)
         val Green = Color(0xFF6FBF73)
         val Amber = Color(0xFFE0A33E)
         val Red = Color(0xFFD9584F)
-        val Slate = Color(0xFF6B6960)
+        val Stale = Color(0xFF8A887F)
+        val StaleOnLight = Color(0xFF6B6960)
+
+        /** WCAG contrast ratio of two opaque colours. */
+        internal fun contrast(a: Color, b: Color): Double {
+            val x = a.luminance().toDouble()
+            val y = b.luminance().toDouble()
+            return (maxOf(x, y) + 0.05) / (minOf(x, y) + 0.05)
+        }
 
         /** The panel colours the configuration screen offers, default first. */
         val CHOICES: List<WidgetColorChoice> = listOf(

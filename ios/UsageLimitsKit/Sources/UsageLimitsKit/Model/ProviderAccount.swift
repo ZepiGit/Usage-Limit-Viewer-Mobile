@@ -12,6 +12,8 @@ public enum ProviderID: String, CaseIterable, Sendable, Codable {
     case kimi
     case devin
     case meta
+    case zai
+    case opencode
 
     public var displayName: String {
         switch self {
@@ -22,6 +24,8 @@ public enum ProviderID: String, CaseIterable, Sendable, Codable {
         case .kimi: return "Kimi"
         case .devin: return "Devin"
         case .meta: return "Meta Muse"
+        case .zai: return "Z.ai GLM"
+        case .opencode: return "OpenCode Go"
         }
     }
 }
@@ -330,9 +334,21 @@ public struct UsageSnapshot: Sendable, Codable, Equatable {
     ///   the three-hour setting the app offers, a fixed hour marks every account stale
     ///   permanently. The default is only for callers that have no settings to hand.
     public func severity(at now: Date, staleAfter: TimeInterval = Severity.staleAfter) -> Severity {
-        let base = severity
+        let base = severityOfOpenWindows(at: now)
         if base == .error { return base }
         return isStale(at: now, staleAfter: staleAfter) ? .stale : base
+    }
+
+    /// The verdict without windows whose reset passed since the fetch (`UsageWindow.resetElapsed`):
+    /// they describe a closed window, so with none left the answer is unknown, not the old one.
+    public func severityOfOpenWindows(at now: Date) -> Severity {
+        let open = windows.filter { !$0.resetElapsed(fetchedAt: fetchedAt, at: now) }
+        guard open.count != windows.count else { return severity }
+        return UsageSnapshot(
+            accountID: accountID, fetchedAt: fetchedAt, status: status, windows: open,
+            resetCredits: resetCredits, resetCreditCount: resetCreditCount,
+            applicableResetCreditCount: applicableResetCreditCount, errorMessage: errorMessage,
+            connectionStatus: connectionStatus, lastAttemptAt: lastAttemptAt).severity
     }
 
     public func isStale(at now: Date, staleAfter: TimeInterval = Severity.staleAfter) -> Bool {

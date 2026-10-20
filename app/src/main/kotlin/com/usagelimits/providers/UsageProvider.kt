@@ -3,6 +3,7 @@ package com.usagelimits.providers
 import com.usagelimits.core.auth.OAuthCredentials
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.model.ResetCredit
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.SnapshotStatus
@@ -70,6 +71,8 @@ sealed interface LoginChallenge {
     data class ApiKey(
         val consoleUrl: String,
         val hint: String,
+        /** The service the key was asked for, so completing the login proves it on that host. */
+        val region: ProviderRegion? = null,
     ) : LoginChallenge
 }
 
@@ -80,7 +83,10 @@ sealed interface LoginChallenge {
  * user nothing, and the key is for when the flow's account cannot reach the API.
  */
 interface KeyLoginCapable {
-    fun keyLoginChallenge(): LoginChallenge.ApiKey
+    fun keyLoginChallenge(region: ProviderRegion? = null): LoginChallenge.ApiKey
+
+    /** True where a key is the only way in, so there is no flow for it to be an alternative to. */
+    val keyOnly: Boolean get() = false
 }
 
 /**
@@ -113,6 +119,9 @@ interface UsageProvider {
 
     /** Starts a login and returns what the user has to do next. */
     suspend fun beginLogin(): LoginChallenge
+
+    /** As [beginLogin], on the service the user picked. Only Kimi and Z.ai have a choice. */
+    suspend fun beginLogin(region: ProviderRegion): LoginChallenge = beginLogin()
 
     /**
      * Drives the login to completion: polls (device flow) or exchanges the code (redirect).

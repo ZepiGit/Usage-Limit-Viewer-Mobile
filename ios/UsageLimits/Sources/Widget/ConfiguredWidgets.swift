@@ -15,11 +15,11 @@ enum WidgetContentChoice: String, AppEnum {
 
 @available(iOS 17.0, *)
 enum WidgetProviderChoice: String, AppEnum {
-    case codex, claude, antigravity, xai, kimi, devin, meta
+    case codex, claude, antigravity, xai, kimi, devin, meta, zai, opencode
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Provider"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
         .codex: "OpenAI Codex", .claude: "Claude", .antigravity: "Antigravity", .xai: "Grok", .kimi: "Kimi",
-        .devin: "Devin", .meta: "Meta Muse"]
+        .devin: "Devin", .meta: "Meta Muse", .zai: "Z.ai GLM", .opencode: "OpenCode Go"]
 }
 
 @available(iOS 17.0, *)
@@ -114,12 +114,11 @@ struct ConfiguredUsageProvider: AppIntentTimelineProvider {
         if let reset = lead.nextResetAt, reset > now, reset < now.addingTimeInterval(3600) {
             dates.append(reset.addingTimeInterval(2))
         }
-        // A staleness boundary past the hour horizon needs its own entry: the views age each
-        // account's severity at the entry's date, but only where an entry exists to age it.
-        // Drawn from the captured cache — no reload, no network.
-        dates.append(contentsOf: capture.presentationBoundaries(after: now)
-            .filter { $0 > now.addingTimeInterval(3600) })
-        let entries = dates.sorted().map { date in
+        // Staleness and every selected row's reset need their own entries, inside the hour or
+        // past it: the views age each account's severity at the entry's date, but only where
+        // an entry exists to age it. Drawn from the captured cache — no reload, no network.
+        dates.append(contentsOf: capture.presentationBoundaries(after: now))
+        let entries = Set(dates).sorted().map { date in
             Entry(date: date, snapshot: capture.selectedSnapshot(at: date),
                 transparent: configuration.transparent, tone: configuration.tone, outcome: outcome)
         }
@@ -176,10 +175,10 @@ struct ConfiguredUsageWidget: Widget {
                         transparent: entry.transparent,
                         ink: WidgetInk.ink(transparent: entry.transparent, darkTone: entry.tone == .dark))
                 } else {
-                    WidgetEmptyStateView(reason: entry.outcome)
+                    WidgetEmptyStateView(reason: entry.outcome, ink: WidgetInk.ink(transparent: entry.transparent, darkTone: entry.tone == .dark))
                 }
             }
-            .widgetBackground(entry.transparent ? nil : UsageColors.background)
+            .widgetBackground(entry.transparent ? nil : UsageColors.ground)
             .widgetURL(DeepLink.glance)
         }.configurationDisplayName("Usage Bars")
             .description("Your accounts, your order. Choose one account, a provider or a custom layout.")
@@ -215,10 +214,10 @@ private struct ConfiguredRingGrid: View {
             } else {
                 // The rings used to render nothing at all when the selection came up empty —
                 // not even a word. The captured outcome says which nothing it is.
-                WidgetEmptyStateView(reason: entry.outcome)
+                WidgetEmptyStateView(reason: entry.outcome, ink: ink)
             }
         }
-        .containerBackground(for: .widget) { entry.transparent ? Color.clear : UsageColors.background }
+        .containerBackground(for: .widget) { entry.transparent ? Color.clear : UsageColors.ground }
     }
 
     private var grid: some View {
@@ -229,34 +228,50 @@ private struct ConfiguredRingGrid: View {
                 ForEach(entry.snapshot.accounts.prefix(columns * rows)) { account in
                     Link(destination: URL(string: "usagelimits://account/\(account.id)")!) {
                         HStack(spacing: 8) {
-                            let limit = account.rows.min { ($0.remainingPercent ?? .infinity) < ($1.remainingPercent ?? .infinity) }
-                            let severity = account.severity(at: entry.date, staleAfter: entry.snapshot.staleAfter)
+                            let limit = account.representative(at: entry.date)
+                            let severity = account.displaySeverity(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter)
                             ZStack {
                                 // In accented/monochrome renderings the host recolors both
                                 // circles white at full opacity, and a partly filled ring read
                                 // as full. The track drops its own opacity in those modes so
                                 // the arc's geometry carries the amount. (WGT-004)
-                                Circle().stroke(ink.track, lineWidth: 4).opacity(trackOpacity)
-                                Circle().trim(from: 0, to: CGFloat((limit?.remainingPercent ?? 0) / 100))
-                                    .stroke(SeverityPalette.text(severity), style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                                    .rotationEffect(.degrees(-90))
-                                if let provider = ProviderID(rawValue: account.providerID ?? "") {
-                                    Image(account.iconAssetName ?? provider.assetName).resizable().scaledToFit().frame(width: 20, height: 20)
+                                Circle().stroke(ink.track, lineWidth: mini ? 4 : 5).opacity(trackOpacity)
+                                if let arc = ink.bar(severity) {
+                                    Circle().trim(from: 0, to: CGFloat((limit?.remainingPercent ?? 0) / 100))
+                                        .stroke(arc, style: StrokeStyle(lineWidth: mini ? 4 : 5, lineCap: .round))
+                                        .rotationEffect(.degrees(-90))
                                 }
-                            }.frame(width: 38, height: 38)
+                                if mini {
+                                    // Only room for the logo: the figure is the arc.
+                                    logo(for: account).frame(width: 20, height: 20)
+                                } else {
+                                    // A ring this size reads best with its number inside; the
+                                    // logo goes beside the name instead.
+                                    Text(verbatim: QuotaFormatting.percentText(limit?.remainingPercent))
+                                        .usageFont(limit?.remainingPercent == nil ? .small : .smallStrong)
+                                        .foregroundStyle(ink.figure(severity))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.85)
+                                        .monospaced()
+                                }
+                            }.frame(width: mini ? 38 : 46, height: mini ? 38 : 46)
                             if mini && account.statusMessage != nil {
-                                Image(systemName: "exclamationmark.circle").font(.caption2).foregroundStyle(ink.primary)
+                                // Partial update: a dot, not a badge.
+                                Circle().fill(ink.warning).frame(width: 6, height: 6)
                             }
                             if !mini {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(account.title).font(.caption).lineLimit(1)
-                                    if account.connectionStatus == .reconnectRequired { Text("Reconnect").font(.caption2) }
-                                    else if let message = account.statusMessage { Text(verbatim: message).font(.caption2).lineLimit(2) }
+                                    HStack(spacing: 6) {
+                                        logo(for: account).frame(width: 16, height: 16)
+                                        Text(account.title).usageFont(.smallStrong).lineLimit(1)
+                                    }
+                                    if account.connectionStatus == .reconnectRequired { Text("Reconnect").usageFont(.micro) }
+                                    else if let message = account.statusMessage { Text(verbatim: message).usageFont(.micro).lineLimit(2) }
                                     // Overdue-aware and date-aware: a passed reset says so, a
                                     // reset days out carries its date, not a bare clock time
                                     // that could mean any day. (WGT-007)
                                     else if let reset = GlanceText.resetLine(resetAt: limit?.resetAt, now: entry.date) {
-                                        Text(verbatim: reset).font(.caption2).lineLimit(1)
+                                        Text(verbatim: reset).usageFont(.micro).lineLimit(1)
                                     }
                                 }.foregroundStyle(ink.primary)
                             }
@@ -264,6 +279,17 @@ private struct ConfiguredRingGrid: View {
                     }
                 }
             }
+        }
+    }
+
+    /// The provider's mark, drawn in the ink's own colour when the tile sits on a light
+    /// wallpaper, where the white artwork would vanish.
+    @ViewBuilder
+    private func logo(for account: GlanceAccount) -> some View {
+        if let provider = ProviderID(rawValue: account.providerID ?? "") {
+            ProviderMark(
+                assetName: account.iconAssetName ?? provider.assetName,
+                tint: ink.tintsLogos ? ink.primary : nil)
         }
     }
 

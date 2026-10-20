@@ -663,4 +663,155 @@ extension GlanceModelTests {
         XCTAssertNil(glance.accounts.first?.fetchedAt)
         XCTAssertEqual(glance.accounts.first?.severity, .error)
     }
+
+    // MARK: - Windows that have reset since the fetch
+
+    /// Fetched ten minutes ago; the five-hour window (exhausted) reset a minute ago, the weekly
+    /// one is open at 60 % left. Mirrors Android WidgetDataBuilderTest.
+    private func resetSinceFetch() -> AccountUsage {
+        AccountUsage(
+            account: account("reset", .codex),
+            snapshot: UsageSnapshot(
+                accountID: "reset", fetchedAt: now.addingTimeInterval(-600), status: .ok,
+                windows: [
+                    UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 100,
+                                periodSeconds: 18_000, resetAt: now.addingTimeInterval(-60), exhausted: true),
+                    UsageWindow(id: "wk", label: "Weekly", category: .weekly, usedPercent: 40,
+                                periodSeconds: 604_800, resetAt: now.addingTimeInterval(86_400), exhausted: false),
+                ]))
+    }
+
+    func testAnExhaustedWindowThatHasSinceResetNeitherLeadsNorReadsOut() {
+        let low = usage("low", .claude, usedPercent: 90)
+        let glance = GlanceModel.build([resetSinceFetch(), low], now: now, scope: .mostCritical)
+
+        XCTAssertEqual(glance.accounts.first?.id, "low")
+        XCTAssertEqual(glance.accounts.first { $0.id == "reset" }?.severity, .healthy)
+        XCTAssertEqual(glance.overallSeverity, .low)
+    }
+
+    func testTheMostCriticalRankFollowsTheLiveWindowNotOneThatHasSinceReset() {
+        // The spent 5h window's 0 % ranked the account first among healthy ones.
+        let other = usage("other", .claude, usedPercent: 45)
+        let glance = GlanceModel.build([resetSinceFetch(), other], now: now, scope: .mostCritical)
+        XCTAssertEqual(glance.accounts.first?.id, "other")
+
+        let reselected = glance.selecting(scope: .mostCritical, now: now)
+        XCTAssertEqual(reselected.accounts.first?.id, "other")
+    }
+
+    func testTheRepresentativeRowPrefersOpenWindowsThenExhaustedThenTheLowestPercent() throws {
+        let reset = try XCTUnwrap(GlanceModel.build([resetSinceFetch()], now: now, scope: .allAccounts).accounts.first)
+        XCTAssertEqual(reset.representative(at: now)?.label, "Weekly")
+
+        // Nothing open left: the elapsed row is still the answer ("reset due"), not nil.
+        let onlySpent = AccountUsage(
+            account: account("spent", .codex),
+            snapshot: UsageSnapshot(accountID: "spent", fetchedAt: now.addingTimeInterval(-600), status: .ok,
+                windows: [UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 100,
+                    periodSeconds: 18_000, resetAt: now.addingTimeInterval(-60), exhausted: true)]))
+        let spent = try XCTUnwrap(GlanceModel.build([onlySpent], now: now, scope: .allAccounts).accounts.first)
+        XCTAssertEqual(spent.representative(at: now)?.label, "5h limit")
+
+        // Exhausted without a figure outranks a 30 %-left neighbour.
+        let blocked = withWindows([
+            UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 70,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(3_600), exhausted: false),
+            UsageWindow(id: "wk", label: "Blocked", category: .weekly, usedPercent: nil,
+                        periodSeconds: 604_800, resetAt: now.addingTimeInterval(86_400), exhausted: true)])
+        let account = try XCTUnwrap(GlanceModel.build([blocked], now: now, scope: .allAccounts).accounts.first)
+        XCTAssertEqual(account.representative(at: now)?.label, "Blocked")
+    }
+
+    // MARK: - Exported before a reset, rendered after it
+
+    /// Exported at `now`: the 5h window (0 % left, exhausted) resets in a minute, weekly is open at 80 % left.
+    private func exhaustedShortUntilReset() -> AccountUsage {
+        withWindows([
+            UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 100,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(60), exhausted: true),
+            UsageWindow(id: "wk", label: "Weekly", category: .weekly, usedPercent: 20,
+                        periodSeconds: 604_800, resetAt: now.addingTimeInterval(86_400), exhausted: false)])
+    }
+
+    func testAnEntryAfterAResetRecomputesTheVerdictRankingAndColourFromTheExport() throws {
+        let later = now.addingTimeInterval(120)
+        let other = usage("other", .claude, usedPercent: 45)
+        let export = GlanceModel.build([exhaustedShortUntilReset(), other], now: now, scope: .allAccounts)
+        let exhausted = try XCTUnwrap(export.accounts.first { $0.id == "a" })
+        XCTAssertEqual(exhausted.severity(at: now, staleAfter: 3600), .exhausted)
+
+        XCTAssertEqual(exhausted.severity(at: later, staleAfter: 3600), .healthy)
+        XCTAssertEqual(export.selecting(scope: .mostCritical, now: later).accounts.first?.id, "other")
+        let representative = exhausted.representative(at: later)
+        XCTAssertEqual(representative?.label, "Weekly")
+        XCTAssertEqual(exhausted.displaySeverity(of: representative, at: later, staleAfter: 3600), .healthy)
+        XCTAssertEqual(
+            export.selecting(scope: .mostCritical, now: now).accounts.first?.id, "a",
+            "before the reset the exhausted account still leads")
+    }
+
+    func testTheRepresentativeSurvivesTheExportOfOnlyTwoHeadlines() throws {
+        // Two short windows: 0 % (resets in a minute) and 10 % (open). The export keeps one
+        // short headline, so choosing among its rows after the reset picked the 80 % weekly.
+        let usage = withWindows([
+            UsageWindow(id: "5h-a", label: "5h limit", category: .fiveHour, usedPercent: 100,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(60), exhausted: true),
+            UsageWindow(id: "5h-b", label: "5h other", category: .fiveHour, usedPercent: 90,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(3_600), exhausted: false),
+            UsageWindow(id: "wk", label: "Weekly", category: .weekly, usedPercent: 20,
+                        periodSeconds: 604_800, resetAt: now.addingTimeInterval(86_400), exhausted: false)])
+        let account = try XCTUnwrap(GlanceModel.build([usage], now: now, scope: .allAccounts).accounts.first)
+
+        XCTAssertEqual(account.representative(at: now.addingTimeInterval(120))?.label, "5h other")
+        XCTAssertEqual(account.representative(at: now)?.label, "5h limit")
+    }
+
+    private func roundTrip(_ snapshot: GlanceSnapshot) throws -> GlanceSnapshot {
+        GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(snapshot))
+    }
+
+    func testAScopedWindowStandsInOnceEveryGlobalOneHasReset() throws {
+        // Android: windows reset since the fetch drop out first, THEN globals are preferred.
+        let usage = withWindows([
+            UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 100,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(60), exhausted: true),
+            UsageWindow(id: "model", label: "Model", category: .other, usedPercent: 20,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(7_200), exhausted: false, scope: .model)])
+        let export = try roundTrip(GlanceModel.build([usage], now: now, scope: .allAccounts))
+        let account = try XCTUnwrap(export.accounts.first)
+        let later = now.addingTimeInterval(120)
+
+        XCTAssertEqual(account.representative(at: now)?.label, "5h limit")
+        let representative = account.representative(at: later)
+        XCTAssertEqual(representative?.label, "Model")
+        XCTAssertEqual(account.displaySeverity(of: representative, at: later, staleAfter: 3600), .healthy)
+    }
+
+    /// Three globals: 0 % resetting in a minute, 10 % in two, 80 % in two hours.
+    private func threeGlobalsResettingInTurn() -> AccountUsage {
+        withWindows([
+            UsageWindow(id: "a", label: "Spent", category: .fiveHour, usedPercent: 100,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(60), exhausted: true),
+            UsageWindow(id: "b", label: "Low", category: .fiveHour, usedPercent: 90,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(120), exhausted: false),
+            UsageWindow(id: "c", label: "Fine", category: .fiveHour, usedPercent: 20,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(7_200), exhausted: false)])
+    }
+
+    func testEveryCandidateResetIsAPresentationBoundaryOnBothTimelines() throws {
+        let export = try roundTrip(GlanceModel.build([threeGlobalsResettingInTurn()], now: now, scope: .allAccounts))
+        let expected: Set<Date> = [60, 120, 3_600, 7_200].map { now.addingTimeInterval($0) }.reduce(into: []) { $0.insert($1) }
+
+        // Legacy tiles re-select before planning; configured tiles plan from the capture.
+        XCTAssertEqual(Set(export.selecting(scope: .mostCritical, now: now).presentationBoundaries(after: now)), expected)
+        let capture = ConfiguredWidgetCapture(source: .loaded(export), preset: .notRead, scope: .allAccounts,
+            accountID: nil, providerID: nil, transparent: false)
+        XCTAssertEqual(Set(capture.presentationBoundaries(after: now)), expected)
+
+        let account = try XCTUnwrap(export.accounts.first)
+        let afterSecondReset = now.addingTimeInterval(130)
+        XCTAssertEqual(account.representative(at: afterSecondReset)?.label, "Fine")
+        XCTAssertEqual(account.severity(at: afterSecondReset, staleAfter: 3600), .healthy)
+    }
 }

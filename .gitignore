@@ -47,3 +47,7 @@ ios/Tools/AppleShims/.build/
 # Local security-scanner hook state. Session baselines and continue markers churn on every
 # agent run and kept leaking into commits; they are machine-local tool state, like .gradle/.
 .mimosa/
+
+# Local agent tool state (research notes, design drafts). Machine-local, like .mimosa/.
+.omc/
+.taste-skill/

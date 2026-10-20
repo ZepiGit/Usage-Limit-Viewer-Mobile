@@ -78,7 +78,7 @@ extension View {
                 ToolbarItem(placement: .topBarLeading) {
                     Text("Demo data")
                         .font(.caption)
-                        .foregroundStyle(UsageColors.textSecondary)
+                        .foregroundStyle(UsageColors.muted)
                         .accessibilityIdentifier("marketing-demo-label")
                 }
             }

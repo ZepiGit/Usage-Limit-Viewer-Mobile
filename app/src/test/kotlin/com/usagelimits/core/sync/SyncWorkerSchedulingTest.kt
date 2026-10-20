@@ -9,6 +9,7 @@ import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -64,5 +65,16 @@ class SyncWorkerSchedulingTest {
         SyncWorker.syncNow(context)
 
         assertEquals(1, oneShots().size)
+    }
+
+    @Test
+    fun `a tap after a tick is not swallowed by the conditional sync`() {
+        // The tick's pass may skip the fetch; the user's tap must not inherit that skip.
+        SyncWorker.syncIfCacheAged(context)
+        SyncWorker.syncNow(context)
+
+        val pending = oneShots().filterNot { it.state.isFinished }
+        assertEquals(1, pending.size)
+        assertFalse(SyncWorker.AGED_TAG in pending.single().tags)
     }
 }
