@@ -34,7 +34,7 @@ SyncWorker.doWork()                       (WorkManager, periodisch >= 15 min, Ne
                       -> SessionManager.startSession()
                            -> WorkManager.enqueueUniqueWork("appWidget-<id>", REPLACE, SessionWorker)
                                 -> SessionWorker.doWork(): provideGlance() -> RemoteViews -> updateAppWidget()
-  -> WidgetPresentationWorker.scheduleNext()   (cache-only Repaint an Stale-/Reset-Grenze, ebenfalls WorkManager)
+       -> WidgetPresentationWorker.scheduleNext()   (cache-only Repaint an Stale-/Reset-Grenze, ebenfalls WorkManager)
 ```
 
 Weitere Aufrufer von `refreshAll`: `UsageViewModel` (Refresh-Button, Account-Refresh, Reorder,

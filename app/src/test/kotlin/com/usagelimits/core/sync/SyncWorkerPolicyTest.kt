@@ -8,6 +8,11 @@ import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -133,5 +138,21 @@ class SyncWorkerPolicyTest {
         // A stored 1-minute interval would otherwise make every tick a fetch.
         val recent = listOf(usage("a", fetchedAt = now - 10 * 60_000))
         assertFalse(SyncWorker.cacheNeedsSync(recent, syncIntervalMinutes = 1, nowMs = now))
+    }
+
+    @Test
+    fun `a pass cancelled part-way still publishes the accounts it saved`() = runBlocking {
+        var published = false
+        val pass = launch {
+            SyncWorker.publishingEvenIfCancelled(
+                sync = { awaitCancellation() },
+                // Suspends, as the real publish does, so it must run outside the cancelled job.
+                publish = { yield(); published = true },
+            )
+        }
+        yield()
+        pass.cancelAndJoin()
+
+        assertTrue(published)
     }
 }
