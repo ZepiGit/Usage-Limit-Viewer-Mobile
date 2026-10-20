@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lettered ring for a provider with no bundled artwork; terracotta like the iOS ProviderMark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <path
+        android:pathData="M48,6a42,42 0,1 1,0 84a42,42 0,1 1,0 -84z"
+        android:strokeColor="#D97757"
+        android:strokeWidth="6" />
+    <path
+        android:pathData="M48,28a14,20 0,1 1,0 40a14,20 0,1 1,0 -40z"
+        android:strokeColor="#D97757"
+        android:strokeWidth="8" />
+</vector>

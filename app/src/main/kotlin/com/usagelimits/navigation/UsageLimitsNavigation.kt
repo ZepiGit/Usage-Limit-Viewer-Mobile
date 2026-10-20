@@ -256,6 +256,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         onStart = { addViewModel.startLogin(context, it) },
                         onStartWithKey = { addViewModel.startLogin(context, it, withKey = true) },
                         onStartWithDeviceCode = { addViewModel.startLogin(context, it, withDeviceCode = true) },
+                        onChooseRegion = { provider, region -> addViewModel.chooseRegion(context, provider, region) },
                         onSubmitApiKey = addViewModel::submitApiKey,
                         onCancel = {
                             addViewModel.cancel()

@@ -69,7 +69,7 @@ class KimiLoginTest {
         val challenge = provider(scripted(200 to deviceJson, seen = seen)).beginLogin()
 
         val request = seen.single().request
-        assertEquals(Kimi.DEVICE_CODE_URL, request.url.toString())
+        assertEquals(Kimi.CHINA.deviceCodeUrl, request.url.toString())
         assertEquals("UsageLimits", request.header("X-Msh-Platform"))
         assertEquals("9.9.9", request.header("X-Msh-Version"))
         assertEquals("UsageLimits/9.9.9 (Android)", request.header("User-Agent"))
@@ -184,13 +184,13 @@ class KimiLoginTest {
         val subject = provider(scripted(200 to usageJson, seen = seen))
 
         val challenge = subject.keyLoginChallenge()
-        assertEquals(Kimi.CONSOLE_URL, challenge.consoleUrl)
+        assertEquals(Kimi.CHINA.consoleUrl, challenge.consoleUrl)
         val credentials = subject.completeLogin(challenge, " sk-synthetic-1 ")
 
         assertEquals("sk-synthetic-1", credentials.accessToken)
         assertNull(credentials.refreshToken)
         val request = seen.single().request
-        assertEquals(Kimi.USAGE_ENDPOINT, request.url.toString())
+        assertEquals(Kimi.CHINA.usageEndpoint, request.url.toString())
         assertEquals("Bearer sk-synthetic-1", request.header("Authorization"))
         assertEquals("UsageLimits", request.header("X-Msh-Platform"))
 

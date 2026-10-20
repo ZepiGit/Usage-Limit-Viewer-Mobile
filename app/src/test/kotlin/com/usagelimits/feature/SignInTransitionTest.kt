@@ -36,6 +36,22 @@ class SignInTransitionTest {
         compose.onNodeWithText("Sign in in your browser").assertExists()
     }
 
+    @Test fun `the region step lists the provider's regions and reports the pick`() {
+        var picked: Pair<ProviderId, com.usagelimits.core.model.ProviderRegion>? = null
+        compose.setContent {
+            UsageLimitsTheme {
+                AddAccountScreen(
+                    state = AddAccountState.ChoosingRegion(ProviderId.ZAI), providers = listOf(ProviderId.ZAI),
+                    onStart = {}, onCancel = {}, onDone = {}, onSubmitApiKey = {},
+                    onChooseRegion = { provider, region -> picked = provider to region },
+                )
+            }
+        }
+        compose.onNodeWithText("China (bigmodel.cn)").assertExists()
+        compose.onNodeWithText("International (z.ai)").assertExists().performClick()
+        compose.runOnIdle { assertEquals(ProviderId.ZAI to com.usagelimits.core.model.ProviderRegion.INTL, picked) }
+    }
+
     @Test fun `the browser wait offers the device code and a failed code attempt retries the code`() {
         val state = mutableStateOf<AddAccountState>(
             AddAccountState.AwaitingBrowser(ProviderId.CODEX, deviceCodeAlternative = true, authorizationUrl = "https://example.test/auth"),
