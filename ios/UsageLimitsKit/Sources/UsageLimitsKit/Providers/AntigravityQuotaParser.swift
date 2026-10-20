@@ -54,7 +54,11 @@ public enum AntigravityQuotaParser: Sendable {
         groupSlug: String,
         bucketIndex: Int
     ) -> UsageWindow? {
+        let resetAt = JSONSupport.date(JSONSupport.string(bucket, "reset_time", "resetTime"))
+        // Google's JSON omits a zero fraction: a spent, enabled bucket arrives with resetTime only.
         let fraction = JSONSupport.double(bucket, "remaining_fraction", "remainingFraction")
+            ?? (JSONSupport.field(bucket, ["remaining_fraction", "remainingFraction"]) == nil
+                && resetAt != nil && JSONSupport.bool(bucket, "disabled") != true ? 0 : nil)
         let remaining = fraction.flatMap { $0.isFinite && (0...1).contains($0) ? $0 : nil }
         let window = JSONSupport.string(bucket, "window")
         let (category, periodSeconds) = classify(window)
@@ -68,9 +72,7 @@ public enum AntigravityQuotaParser: Sendable {
             // The provider reports the fraction remaining; the model stores percent consumed.
             usedPercent: remaining.map { (1.0 - $0) * 100.0 },
             periodSeconds: periodSeconds,
-            resetAt: JSONSupport.date(
-                JSONSupport.string(bucket, "reset_time", "resetTime")
-            ),
+            resetAt: resetAt,
             exhausted: remaining == 0,
             group: groupName,
             scope: .model

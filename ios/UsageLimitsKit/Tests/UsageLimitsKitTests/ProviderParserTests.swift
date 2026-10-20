@@ -445,6 +445,32 @@ final class AntigravityQuotaParserTests: XCTestCase {
         XCTAssertNotNil(windows[0].resetAt)
     }
 
+    func testABucketWithAResetButNoFractionIsExhaustedTheZeroProtobufJSONOmits() {
+        // Google's JSON drops a zero remainingFraction: a spent, enabled bucket arrives with
+        // resetTime only. A disabled bucket, an invalid fraction and a bucket with no reset
+        // stay unknown.
+        let windows = AntigravityQuotaParser.parse(payload("""
+        {
+          "groups": [
+            { "displayName": "G",
+              "buckets": [
+                { "bucketId": "spent", "window": "5h", "resetTime": "2026-09-09T17:30:00Z" },
+                { "bucketId": "off", "window": "5h", "disabled": true, "resetTime": "2026-09-09T17:30:00Z" },
+                { "bucketId": "bad", "window": "5h", "remainingFraction": 7, "resetTime": "2026-09-09T17:30:00Z" },
+                { "bucketId": "none", "window": "5h" }
+              ] }
+          ]
+        }
+        """), now: now)
+
+        let byID = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
+        XCTAssertEqual(byID["spent"]?.remainingPercent, 0)
+        XCTAssertEqual(byID["spent"]?.exhausted, true)
+        XCTAssertNil(byID["off"]?.remainingPercent)
+        XCTAssertNil(byID["bad"]?.remainingPercent)
+        XCTAssertNil(byID["none"]?.remainingPercent)
+    }
+
     func testBucketWithoutRemainingFractionRemainsUnknown() {
         let windows = AntigravityQuotaParser.parse(payload("""
         {

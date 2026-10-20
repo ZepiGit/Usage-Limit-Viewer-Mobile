@@ -228,7 +228,7 @@ private struct ConfiguredRingGrid: View {
                 ForEach(entry.snapshot.accounts.prefix(columns * rows)) { account in
                     Link(destination: URL(string: "usagelimits://account/\(account.id)")!) {
                         HStack(spacing: 8) {
-                            let limit = account.rows.min { ($0.remainingPercent ?? .infinity) < ($1.remainingPercent ?? .infinity) }
+                            let limit = account.representative(at: entry.date)
                             let severity = account.displaySeverity(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter)
                             ZStack {
                                 // In accented/monochrome renderings the host recolors both

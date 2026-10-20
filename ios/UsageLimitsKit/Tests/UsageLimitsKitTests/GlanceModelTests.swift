@@ -663,4 +663,63 @@ extension GlanceModelTests {
         XCTAssertNil(glance.accounts.first?.fetchedAt)
         XCTAssertEqual(glance.accounts.first?.severity, .error)
     }
+
+    // MARK: - Windows that have reset since the fetch
+
+    /// Fetched ten minutes ago; the five-hour window (exhausted) reset a minute ago, the weekly
+    /// one is open at 60 % left. Mirrors Android WidgetDataBuilderTest.
+    private func resetSinceFetch() -> AccountUsage {
+        AccountUsage(
+            account: account("reset", .codex),
+            snapshot: UsageSnapshot(
+                accountID: "reset", fetchedAt: now.addingTimeInterval(-600), status: .ok,
+                windows: [
+                    UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 100,
+                                periodSeconds: 18_000, resetAt: now.addingTimeInterval(-60), exhausted: true),
+                    UsageWindow(id: "wk", label: "Weekly", category: .weekly, usedPercent: 40,
+                                periodSeconds: 604_800, resetAt: now.addingTimeInterval(86_400), exhausted: false),
+                ]))
+    }
+
+    func testAnExhaustedWindowThatHasSinceResetNeitherLeadsNorReadsOut() {
+        let low = usage("low", .claude, usedPercent: 90)
+        let glance = GlanceModel.build([resetSinceFetch(), low], now: now, scope: .mostCritical)
+
+        XCTAssertEqual(glance.accounts.first?.id, "low")
+        XCTAssertEqual(glance.accounts.first { $0.id == "reset" }?.severity, .healthy)
+        XCTAssertEqual(glance.overallSeverity, .low)
+    }
+
+    func testTheMostCriticalRankFollowsTheLiveWindowNotOneThatHasSinceReset() {
+        // The spent 5h window's 0 % ranked the account first among healthy ones.
+        let other = usage("other", .claude, usedPercent: 45)
+        let glance = GlanceModel.build([resetSinceFetch(), other], now: now, scope: .mostCritical)
+        XCTAssertEqual(glance.accounts.first?.id, "other")
+
+        let reselected = glance.selecting(scope: .mostCritical, now: now)
+        XCTAssertEqual(reselected.accounts.first?.id, "other")
+    }
+
+    func testTheRepresentativeRowPrefersOpenWindowsThenExhaustedThenTheLowestPercent() throws {
+        let reset = try XCTUnwrap(GlanceModel.build([resetSinceFetch()], now: now, scope: .allAccounts).accounts.first)
+        XCTAssertEqual(reset.representative(at: now)?.label, "Weekly")
+
+        // Nothing open left: the elapsed row is still the answer ("reset due"), not nil.
+        let onlySpent = AccountUsage(
+            account: account("spent", .codex),
+            snapshot: UsageSnapshot(accountID: "spent", fetchedAt: now.addingTimeInterval(-600), status: .ok,
+                windows: [UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 100,
+                    periodSeconds: 18_000, resetAt: now.addingTimeInterval(-60), exhausted: true)]))
+        let spent = try XCTUnwrap(GlanceModel.build([onlySpent], now: now, scope: .allAccounts).accounts.first)
+        XCTAssertEqual(spent.representative(at: now)?.label, "5h limit")
+
+        // Exhausted without a figure outranks a 30 %-left neighbour.
+        let blocked = withWindows([
+            UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 70,
+                        periodSeconds: 18_000, resetAt: now.addingTimeInterval(3_600), exhausted: false),
+            UsageWindow(id: "wk", label: "Blocked", category: .weekly, usedPercent: nil,
+                        periodSeconds: 604_800, resetAt: now.addingTimeInterval(86_400), exhausted: true)])
+        let account = try XCTUnwrap(GlanceModel.build([blocked], now: now, scope: .allAccounts).accounts.first)
+        XCTAssertEqual(account.representative(at: now)?.label, "Blocked")
+    }
 }

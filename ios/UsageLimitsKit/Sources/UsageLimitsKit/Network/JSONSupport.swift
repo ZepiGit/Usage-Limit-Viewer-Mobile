@@ -28,6 +28,11 @@ public enum JSONSupport {
         return nil
     }
 
+    /// The raw value under the first present name, for callers that only need to know a field was sent.
+    public static func field(_ source: [String: Any]?, _ names: [String]) -> Any? {
+        first(source, names)
+    }
+
     public static func object(_ source: [String: Any]?, _ names: String...) -> [String: Any]? {
         first(source, names) as? [String: Any]
     }
@@ -67,6 +72,10 @@ public enum JSONSupport {
 
     /// Accepts a JSON number or a numeric string — providers mix the two for the same field.
     public static func double(_ source: [String: Any]?, _ names: String...) -> Double? {
+        double(source, in: names)
+    }
+
+    static func double(_ source: [String: Any]?, in names: [String]) -> Double? {
         guard let value = first(source, names) else { return nil }
         if isBooleanLiteral(value) { return nil }
         if let number = value as? NSNumber {

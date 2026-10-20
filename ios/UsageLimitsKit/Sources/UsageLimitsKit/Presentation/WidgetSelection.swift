@@ -30,8 +30,8 @@ extension GlanceSnapshot {
                 let left = GlanceModel.urgency(lhs.element.severity(at: now, staleAfter: staleAfter))
                 let right = GlanceModel.urgency(rhs.element.severity(at: now, staleAfter: staleAfter))
                 if left != right { return left < right }
-                let leftBand = GlanceModel.band(lhs.element.tightestRemaining)
-                let rightBand = GlanceModel.band(rhs.element.tightestRemaining)
+                let leftBand = GlanceModel.band(lhs.element.tightestRemaining(at: now))
+                let rightBand = GlanceModel.band(rhs.element.tightestRemaining(at: now))
                 if leftBand != rightBand { return leftBand < rightBand }
                 return lhs.offset < rhs.offset
             }.map(\.element)

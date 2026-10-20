@@ -110,6 +110,48 @@ final class MetaDevinUsageParserTests: XCTestCase {
         XCTAssertEqual(status.weeklyRemainingPercent, 50)
     }
 
+    func testDevinReadsAnOmittedZeroPercentWithAResetStampAsExhausted() throws {
+        // proto3 omits a zero scalar: a spent daily window arrives as its reset stamp alone.
+        var planStatus: [UInt8] = []
+        appendVarintField(&planStatus, field: 15, value: 50)
+        appendVarintField(&planStatus, field: 17, value: 1_800_000_000)
+        var userStatus: [UInt8] = []
+        appendBytes(&userStatus, field: 13, value: planStatus)
+        var outer: [UInt8] = []
+        appendBytes(&outer, field: 1, value: userStatus)
+
+        let daily = try XCTUnwrap(DevinUsageParser.windows(from: DevinUsageParser.parseProto(outer))
+            .first { $0.id == "devin-daily" })
+        XCTAssertEqual(daily.remainingPercent, 0)
+        XCTAssertTrue(daily.exhausted)
+
+        // No reset stamp, nothing to infer from: the weekly stays as stated, daily stays absent.
+        var bare: [UInt8] = []
+        appendVarintField(&bare, field: 15, value: 50)
+        var bareUser: [UInt8] = []
+        appendBytes(&bareUser, field: 13, value: bare)
+        var bareOuter: [UInt8] = []
+        appendBytes(&bareOuter, field: 1, value: bareUser)
+        XCTAssertEqual(DevinUsageParser.windows(from: try DevinUsageParser.parseProto(bareOuter)).map(\.id),
+                       ["devin-weekly"])
+    }
+
+    func testDevinJSONOmittedPercentWithResetIsExhaustedButAnInvalidOneStaysDropped() {
+        let omitted = DevinUsageParser.parse([
+            "planStatus": ["dailyQuotaResetAt": 1_800_000_000, "weeklyQuotaRemainingPercent": 40]])
+        XCTAssertEqual(omitted.dailyRemainingPercent, 0)
+        let invalid = DevinUsageParser.parse([
+            "planStatus": ["dailyQuotaRemainingPercent": 150, "dailyQuotaResetAt": 1_800_000_000]])
+        XCTAssertNil(invalid.dailyRemainingPercent)
+    }
+
+    func testMetaIgnoresAPercentKeyAndReadsOnlyUsedPercent() {
+        // Android reads used_percent alone; `percent` was an iOS-only remaining guess.
+        let windows = MetaUsageParser.parse([
+            "subs_usage": ["window": ["percent": 30.0, "resets_at": "2026-09-22T12:00:00Z"]]])
+        XCTAssertTrue(windows.allSatisfy { $0.remainingPercent == nil })
+    }
+
     private func appendString(_ bytes: inout [UInt8], field: Int, value: String) {
         appendBytes(&bytes, field: field, value: Array(value.utf8))
     }
