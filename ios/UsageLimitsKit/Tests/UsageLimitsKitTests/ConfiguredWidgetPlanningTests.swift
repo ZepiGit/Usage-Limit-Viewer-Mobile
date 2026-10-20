@@ -140,6 +140,13 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
         let healthy = GlanceAccount(id: "h", title: "Codex", subtitle: nil, rows: [lowRow],
             severity: .healthy, fetchedAt: now)
         XCTAssertEqual(healthy.displaySeverity(of: lowRow, at: now, staleAfter: 3600), .low)
+        // Each row keeps its own quota severity: a blocked weekly window does not recolour 5h.
+        let fiveHour = GlanceRow(label: "5h limit", category: .fiveHour, remainingPercent: 80, resetAt: nil, severity: .healthy)
+        let weekly = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 0, resetAt: nil, severity: .exhausted)
+        let mixed = GlanceAccount(id: "m", title: "Codex", subtitle: nil, rows: [fiveHour, weekly],
+            severity: .exhausted, fetchedAt: now)
+        XCTAssertEqual(mixed.displaySeverity(of: fiveHour, at: now, staleAfter: 3600), .healthy)
+        XCTAssertEqual(mixed.displaySeverity(of: weekly, at: now, staleAfter: 3600), .exhausted)
     }
 
     // A shown row's reset is a presentation boundary wherever it falls, not only the lead's

@@ -115,9 +115,9 @@ private struct CreditBar: View {
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
                 Capsule().fill(ink.track)
-                if let remainingPercent {
+                if let remainingPercent, let fill = ink.bar(severity) {
                     Capsule()
-                        .fill(ink.bar(severity))
+                        .fill(fill)
                         .frame(width: proxy.size.width * QuotaFormatting.fraction(remainingPercent))
                 }
             }

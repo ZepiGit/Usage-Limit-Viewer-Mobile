@@ -84,17 +84,19 @@ enum SeverityPalette {
         }
     }
 
-    /// Whether a bar draws in the stale grey rather than the data hue.
+    /// Bar or arc fill for a severity, mirroring Android's `SeverityPalette.barFill`: the data hue,
+    /// the stale grey for an aged reading, and nil (the bare track) for an unknown, failed or
+    /// exhausted one, whatever percentage it still reports.
     ///
     /// The callers pass the account's AGED severity, so a stale or failed account whose cached
     /// reading still sat at 100 % cannot paint a fresh-looking bar under an out-of-date verdict.
     /// Quota severity stays per row and never recolours a bar: the figure and the dot say it.
-    static func isStaleFill(_ severity: Severity) -> Bool {
-        severity == .stale || severity == .unknown || severity == .error
-    }
-
-    static func barFill(_ severity: Severity) -> Color {
-        isStaleFill(severity) ? UsageColors.staleMark : UsageColors.data
+    static func barFill(_ severity: Severity) -> Color? {
+        switch severity {
+        case .stale: return UsageColors.staleMark
+        case .unknown, .error, .exhausted: return nil
+        default: return UsageColors.data
+        }
     }
 
     static func label(_ severity: Severity) -> String {
@@ -496,13 +498,15 @@ struct UsageBar: View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: height / 2, style: .continuous).fill(UsageColors.dataTrack)
-                RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                    .fill(SeverityPalette.barFill(severity))
-                    // An unknown percentage draws nothing rather than a full or empty bar:
-                    // either would state a fact the provider did not report.
-                    .frame(width: geometry.size.width * fraction)
-                    // The fraction animates; the colour does not, since there is one fill.
-                    .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: remainingPercent)
+                if let fill = SeverityPalette.barFill(severity) {
+                    RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                        .fill(fill)
+                        // An unknown percentage draws nothing rather than a full or empty bar:
+                        // either would state a fact the provider did not report.
+                        .frame(width: geometry.size.width * fraction)
+                        // The fraction animates; the colour does not, since there is one fill.
+                        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: remainingPercent)
+                }
             }
         }
         .frame(height: height)
