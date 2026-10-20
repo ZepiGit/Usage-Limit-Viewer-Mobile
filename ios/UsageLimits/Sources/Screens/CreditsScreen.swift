@@ -360,18 +360,6 @@ struct AddCreditSheet: View {
     }
 }
 
-/// An empty field means "use the default"; anything else must be a positive number.
-enum CreditThresholdField {
-    struct Parsed { let value: Decimal? }
-
-    static func parse(_ text: String) -> Parsed? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return Parsed(value: nil) }
-        guard let value = Decimal(string: trimmed, locale: Locale.current), value > 0 else { return nil }
-        return Parsed(value: value)
-    }
-}
-
 // MARK: - Edit
 
 struct EditCreditSheet: View {
@@ -387,7 +375,7 @@ struct EditCreditSheet: View {
     init(entry: CreditEntry) {
         self.entry = entry
         _label = State(initialValue: entry.account.label)
-        _threshold = State(initialValue: entry.account.attributes[CreditAccount.lowThresholdKey] ?? "")
+        _threshold = State(initialValue: CreditThresholdField.display(entry.account.attributes[CreditAccount.lowThresholdKey]))
     }
 
     var body: some View {

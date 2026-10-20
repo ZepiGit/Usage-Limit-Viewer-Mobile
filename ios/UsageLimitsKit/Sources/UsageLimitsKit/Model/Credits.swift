@@ -115,7 +115,11 @@ public struct CreditBalance: Sendable, Equatable, Codable {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         currency = try c.decode(String.self, forKey: .currency)
-        amount = try Self.decimal(c, .amount) ?? 0
+        // A balance with no readable amount is a corrupt file, not $0.
+        guard let amount = try Self.decimal(c, .amount) else {
+            throw DecodingError.dataCorruptedError(forKey: .amount, in: c, debugDescription: "missing or invalid amount")
+        }
+        self.amount = amount
         total = try Self.decimal(c, .total)
         label = try c.decodeIfPresent(String.self, forKey: .label)
         unlimited = try c.decodeIfPresent(Bool.self, forKey: .unlimited) ?? false
@@ -133,7 +137,7 @@ public struct CreditBalance: Sendable, Equatable, Codable {
     /// A decimal string, or a bare JSON number from a hand-edited file.
     private static func decimal(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) throws -> Decimal? {
         if let text = try? c.decodeIfPresent(String.self, forKey: key) {
-            return Decimal(string: text, locale: Locale(identifier: "en_US_POSIX"))
+            return CreditJSON.decimal(text: text)
         }
         return try? c.decodeIfPresent(Decimal.self, forKey: key)
     }

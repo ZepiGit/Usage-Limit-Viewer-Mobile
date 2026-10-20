@@ -68,15 +68,19 @@ class CreditAccountService(
             attributes = attributes,
             createdAt = now,
         )
-        credentials.save(reference, OAuthCredentials(accessToken = secret, refreshToken = null, idToken = null, expiresAt = null))
-        try {
-            repository.upsert(account, CreditSnapshot(id, balances, fetchedAt = now))
-        } catch (e: Exception) {
-            // No account names this key now; do not leave it behind. An existing account keeps it.
-            if (!existed) withContext(NonCancellable) { credentials.delete(reference) }
-            throw e
+        // The key and the account commit together or not at all, whatever the caller does: a Back
+        // press between the two would otherwise leave a key no account names.
+        return withContext(NonCancellable) {
+            try {
+                credentials.save(reference, OAuthCredentials(accessToken = secret, refreshToken = null, idToken = null, expiresAt = null))
+                repository.upsert(account, CreditSnapshot(id, balances, fetchedAt = now))
+            } catch (e: Exception) {
+                // No account names this key now; do not leave it behind. An existing account keeps it.
+                if (!existed) credentials.delete(reference)
+                throw e
+            }
+            repository.account(id) ?: account
         }
-        return repository.account(id) ?: account
     }
 
     suspend fun update(id: String, label: String, lowThreshold: BigDecimal?) {

@@ -4,6 +4,7 @@ import com.usagelimits.core.model.CreditBalance
 import com.usagelimits.core.model.CreditNumbers
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.network.JsonSupport
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -68,13 +69,13 @@ object OpenRouterCreditParser {
         CreditJson.decimal(budget, "remaining_usd")?.let { remaining ->
             return listOf(CreditBalance("USD", remaining, CreditJson.decimal(budget, "limit_usd"), "Key limit"))
         }
-        if (JsonSupport.field(data, "limit") == null) {
-            return listOf(
-                CreditBalance(
-                    "USD", CreditJson.decimal(data, "usage_monthly") ?: BigDecimal.ZERO,
-                    label = "No limit", unlimited = true,
-                ),
-            )
+        // `limit` must be SENT: an explicit null is an uncapped key, an absent one is a payload
+        // that is not what this app expects, and must not read as a healthy $0.
+        val limit = data["limit"] ?: throw CreditError.Malformed("openrouter key has no limit field")
+        if (limit is JsonNull) {
+            val spent = CreditJson.decimal(data, "usage_monthly")
+                ?: throw CreditError.Malformed("openrouter key has no limit and no monthly usage")
+            return listOf(CreditBalance("USD", spent, label = "No limit", unlimited = true))
         }
         val remaining = CreditJson.decimal(data, "limit_remaining")
             ?: throw CreditError.Malformed("openrouter key has a limit but no remainder")

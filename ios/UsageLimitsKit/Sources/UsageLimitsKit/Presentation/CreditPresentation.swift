@@ -57,6 +57,29 @@ public enum CreditFormat {
     }
 }
 
+/// The low-balance field. Shown and read with ONE locale, so what the user sees is what is
+/// parsed: "5,5" in de_DE is 5.5, and "5.5" there is rejected rather than read as 5.
+/// An empty field means "use the default"; anything else must be a wholly numeric, positive figure.
+public enum CreditThresholdField {
+    public struct Parsed: Equatable { public let value: Decimal? }
+
+    /// A stored figure ("5.5", always POSIX) as the locale writes it.
+    public static func display(_ stored: String?, locale: Locale = .current) -> String {
+        guard let stored else { return "" }
+        return stored.replacingOccurrences(of: ".", with: locale.decimalSeparator ?? ".")
+    }
+
+    public static func parse(_ text: String, locale: Locale = .current) -> Parsed? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return Parsed(value: nil) }
+        let separator = locale.decimalSeparator ?? "."
+        let parts = trimmed.components(separatedBy: separator)
+        guard parts.count <= 2, parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isASCII && $0.isNumber } }),
+              let value = CreditJSON.decimal(text: parts.joined(separator: ".")), value > 0 else { return nil }
+        return Parsed(value: value)
+    }
+}
+
 /// One credit account as the widget draws it. Raw balances travel, not text: the widget formats
 /// in its own locale, and ages `baseSeverity` itself at each timeline date.
 public struct GlanceCredit: Sendable, Equatable, Identifiable, Codable {

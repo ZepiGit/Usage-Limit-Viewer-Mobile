@@ -8,7 +8,9 @@ import com.usagelimits.core.model.CreditSnapshot
 import com.usagelimits.core.model.CreditStatus
 import com.usagelimits.core.model.Severity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.math.BigDecimal
 
@@ -58,6 +60,22 @@ class CreditWidgetBuilderTest {
         assertEquals(Severity.ERROR, row.severity)
         assertEquals("Error", amountText(row))
         assertEquals("rejected", statusText(row))
+    }
+
+    @Test fun `a failed refresh with a cached balance keeps its colour and still says it failed`() {
+        val failedWithBalance = CreditEntry(
+            entry("a", 1).account,
+            CreditSnapshot("a", listOf(CreditBalance("USD", BigDecimal(100))), now, status = CreditStatus.FAILED, error = "rejected"),
+        )
+        val row = CreditWidgetBuilder.build(listOf(failedWithBalance), now, stale).rows.single()
+        assertEquals(Severity.HEALTHY, row.severity)
+        assertTrue(amountText(row), amountText(row).contains("100"))
+        assertTrue(refreshFailed(row))
+        assertTrue(statusText(row), statusText(row).startsWith("Refresh failed: rejected"))
+
+        val fine = CreditWidgetBuilder.build(listOf(entry("b", 100)), now, stale).rows.single()
+        assertFalse(refreshFailed(fine))
+        assertTrue(statusText(fine), fine.providerName in statusText(fine))
     }
 
     @Test fun `the figure shown is the worst balance`() {
