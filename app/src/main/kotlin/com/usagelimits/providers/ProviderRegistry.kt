@@ -18,19 +18,21 @@ import com.usagelimits.providers.zai.ZaiProvider
  * The rest of the app only ever asks for a provider by id, so adding a provider means adding
  * one entry here and nothing else — no screen, widget, or sync code changes.
  */
-class ProviderRegistry(http: HttpClient) {
+class ProviderRegistry(private val providers: Map<ProviderId, UsageProvider>) {
 
-    private val providers: Map<ProviderId, UsageProvider> = buildMap {
-        put(ProviderId.CODEX, CodexProvider(http))
-        put(ProviderId.CLAUDE, ClaudeProvider(http))
-        put(ProviderId.ANTIGRAVITY, AntigravityProvider(http))
-        put(ProviderId.XAI, XaiProvider(http))
-        put(ProviderId.KIMI, KimiProvider(http))
-        put(ProviderId.DEVIN, DevinProvider(http))
-        put(ProviderId.META, MetaProvider(http))
-        put(ProviderId.ZAI, ZaiProvider(http))
-        put(ProviderId.OPENCODE, OpenCodeProvider(http))
-    }
+    constructor(http: HttpClient) : this(
+        buildMap {
+            put(ProviderId.CODEX, CodexProvider(http))
+            put(ProviderId.CLAUDE, ClaudeProvider(http))
+            put(ProviderId.ANTIGRAVITY, AntigravityProvider(http))
+            put(ProviderId.XAI, XaiProvider(http))
+            put(ProviderId.KIMI, KimiProvider(http))
+            put(ProviderId.DEVIN, DevinProvider(http))
+            put(ProviderId.META, MetaProvider(http))
+            put(ProviderId.ZAI, ZaiProvider(http))
+            put(ProviderId.OPENCODE, OpenCodeProvider(http))
+        },
+    )
 
     fun forId(id: ProviderId): UsageProvider? = providers[id]
 

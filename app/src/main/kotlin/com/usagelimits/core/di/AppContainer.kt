@@ -26,7 +26,7 @@ import com.usagelimits.providers.ProviderRegistry
  *
  * Revisit this if the graph grows scoped or variant-specific bindings.
  */
-class AppContainer(context: Context) {
+open class AppContainer(context: Context) {
 
     private val appContext = context.applicationContext
 
@@ -51,7 +51,7 @@ class AppContainer(context: Context) {
 
     val notificationDao by lazy { database.notificationDao() }
 
-    val providerRegistry: ProviderRegistry by lazy { ProviderRegistry(httpClient) }
+    open val providerRegistry: ProviderRegistry by lazy { ProviderRegistry(httpClient) }
 
     val settingsStore: SettingsStore by lazy { SettingsStore(appContext) }
 
