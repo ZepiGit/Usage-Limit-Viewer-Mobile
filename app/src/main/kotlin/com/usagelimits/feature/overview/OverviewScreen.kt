@@ -109,6 +109,8 @@ fun OverviewScreen(
     onAddAccount: () -> Unit,
     onReorder: (List<String>) -> Unit,
     modifier: Modifier = Modifier,
+    onCreditClick: (String) -> Unit = {},
+    onAddCredit: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
 
@@ -178,6 +180,17 @@ fun OverviewScreen(
         }
 
         item { AddAccountCard(onAddAccount) }
+
+        // Prepaid balances sit below the usage accounts: a different kind of number (money left,
+        // no windows, no reset), so they are not mixed into the ranked list above.
+        item { SectionHeader(title = "Credits") }
+        items(items = state.credits, key = { "credit-${it.id}" }) { entry ->
+            com.usagelimits.feature.credits.CreditCard(
+                entry = entry, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
+                onClick = { onCreditClick(entry.id) },
+            )
+        }
+        item { com.usagelimits.feature.credits.AddCreditCard(onAddCredit) }
     }
 }
 

@@ -347,4 +347,30 @@ object ProviderEndpoints {
         const val USER_AGENT = "muse-code/1.0.2"
         const val API_VERSION = "1.0.0"
     }
+
+    /**
+     * Prepaid balance endpoints (the Credit Viewer). Documented where the provider documents
+     * them; none is reverse-engineered. See docs/credits.md.
+     */
+    object Credits {
+        const val OPENROUTER_CREDITS = "https://openrouter.ai/api/v1/credits"
+        const val OPENROUTER_KEY = "https://openrouter.ai/api/v1/key"
+        const val DEEPSEEK_BALANCE = "https://api.deepseek.com/user/balance"
+
+        /** A key from one host answers 401 on the other, so the region picks the host. */
+        fun moonshotBalance(region: ProviderRegion): String =
+            (if (region == ProviderRegion.CN) "https://api.moonshot.cn" else "https://api.moonshot.ai") +
+                "/v1/users/me/balance"
+
+        const val XAI_VALIDATION = "https://management-api.x.ai/auth/management-keys/validation"
+
+        fun xaiBalance(teamId: String): String {
+            // Typed by the user, so it cannot be trusted to be a path segment.
+            val segment = java.net.URLEncoder.encode(teamId, "UTF-8").replace("+", "%20").replace("*", "%2A")
+            return "https://management-api.x.ai/v1/billing/teams/$segment/prepaid/balance"
+        }
+
+        const val FAL_BILLING = "https://api.fal.ai/v1/account/billing?expand=credits"
+        const val NOVITA_BALANCE = "https://api.novita.ai/openapi/v1/billing/balance/detail"
+    }
 }

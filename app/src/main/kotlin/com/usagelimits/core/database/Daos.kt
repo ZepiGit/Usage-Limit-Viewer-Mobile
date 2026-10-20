@@ -132,3 +132,40 @@ interface NotificationDao {
     @Query("DELETE FROM notification_events WHERE consumedAt < :cutoff")
     suspend fun pruneEventsBefore(cutoff: Long)
 }
+
+@Dao
+interface CreditDao {
+
+    @Query("SELECT * FROM credit_accounts ORDER BY sortOrder ASC, createdAt ASC, id ASC")
+    fun observeAccounts(): Flow<List<CreditAccountEntity>>
+
+    @Query("SELECT * FROM credit_accounts ORDER BY sortOrder ASC, createdAt ASC, id ASC")
+    suspend fun getAccounts(): List<CreditAccountEntity>
+
+    @Query("SELECT * FROM credit_accounts WHERE id = :id")
+    suspend fun getAccount(id: String): CreditAccountEntity?
+
+    @Query("SELECT * FROM credit_snapshots")
+    fun observeSnapshots(): Flow<List<CreditSnapshotEntity>>
+
+    @Query("SELECT * FROM credit_snapshots")
+    suspend fun getSnapshots(): List<CreditSnapshotEntity>
+
+    @Query("SELECT * FROM credit_snapshots WHERE accountId = :accountId")
+    suspend fun getSnapshot(accountId: String): CreditSnapshotEntity?
+
+    @Upsert
+    suspend fun upsertAccount(account: CreditAccountEntity)
+
+    @Upsert
+    suspend fun upsertSnapshot(snapshot: CreditSnapshotEntity)
+
+    @Query("DELETE FROM credit_snapshots WHERE accountId = :id")
+    suspend fun deleteSnapshot(id: String)
+
+    @Query("DELETE FROM credit_accounts WHERE id = :id")
+    suspend fun deleteAccount(id: String)
+
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) + 1 FROM credit_accounts")
+    suspend fun nextSortOrder(): Int
+}

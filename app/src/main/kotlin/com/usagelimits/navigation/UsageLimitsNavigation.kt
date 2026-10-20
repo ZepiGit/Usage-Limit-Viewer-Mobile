@@ -39,6 +39,9 @@ import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.delay
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.feature.UsageViewModel
+import com.usagelimits.feature.credits.AddCreditScreen
+import com.usagelimits.feature.credits.AddCreditViewModel
+import com.usagelimits.feature.credits.CreditDetailScreen
 import com.usagelimits.feature.accounts.AccountDetailScreen
 import com.usagelimits.feature.accounts.AccountsScreen
 import com.usagelimits.feature.accounts.AddAccountScreen
@@ -66,6 +69,10 @@ private sealed class Destination(val route: String) {
     data object Resets : Destination("resets")
     data object Settings : Destination("settings")
     data object AddAccount : Destination("add-account")
+    data object AddCredit : Destination("add-credit")
+    data object CreditDetail : Destination("credit/{creditId}") {
+        fun of(creditId: String) = "credit/$creditId"
+    }
     data object AccountDetail : Destination("account/{accountId}") {
         fun of(accountId: String) = "account/$accountId"
     }
@@ -211,6 +218,8 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
                         onAddAccount = { navController.navigate(Destination.AddAccount.route) },
                         onReorder = viewModel::reorderAccounts,
+                        onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
+                        onAddCredit = { navController.navigate(Destination.AddCredit.route) },
                     )
                 }
 
@@ -264,6 +273,42 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         },
                         onDone = {
                             addViewModel.reset()
+                            navController.popBackStack()
+                        },
+                    )
+                }
+
+                composable(Destination.AddCredit.route) {
+                    val addViewModel: AddCreditViewModel =
+                        viewModel(factory = AddCreditViewModel.Factory(container, appContext))
+                    val addState by addViewModel.state.collectAsState()
+                    AddCreditScreen(
+                        state = addState,
+                        onSubmit = addViewModel::submit,
+                        onCancel = {
+                            addViewModel.reset()
+                            navController.popBackStack()
+                        },
+                        onDone = {
+                            addViewModel.reset()
+                            navController.popBackStack()
+                        },
+                    )
+                }
+
+                composable(Destination.CreditDetail.route) { entry ->
+                    val creditId = entry.arguments?.getString("creditId")
+                    CreditDetailScreen(
+                        entry = state.credits.firstOrNull { it.id == creditId },
+                        nowMs = nowMs,
+                        staleAfterMs = state.staleAfterMs,
+                        onSave = { label, threshold ->
+                            creditId?.let { viewModel.updateCredit(it, label, threshold) }
+                            navController.popBackStack()
+                        },
+                        onRefresh = viewModel::refresh,
+                        onRemove = {
+                            creditId?.let(viewModel::removeCredit)
                             navController.popBackStack()
                         },
                     )

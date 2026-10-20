@@ -80,7 +80,8 @@ class WidgetPresentationWorker(
             val staleAfter = Severity.staleAfterMs(settings.syncIntervalMinutes)
 
             val boundary = nextPresentationBoundary(
-                fetchedAtMs = accounts.mapNotNull { it.snapshot?.fetchedAt },
+                fetchedAtMs = accounts.mapNotNull { it.snapshot?.fetchedAt } +
+                    container.creditRepository.entriesOnce().mapNotNull { it.snapshot?.fetchedAt },
                 resetAtMs = accounts.flatMap { it.snapshot?.windows.orEmpty().mapNotNull { w -> w.resetAt } },
                 staleAfterMs = staleAfter,
                 nowMs = now,

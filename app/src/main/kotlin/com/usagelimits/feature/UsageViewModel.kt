@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.sync.publishAfterSync
+import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.UsageWindow
@@ -53,6 +54,8 @@ data class UsageUiState(
     val message: String? = null,
     /** When the background machinery last moved — the Settings diagnostics. */
     val diagnostics: SyncDiagnostics = SyncDiagnostics(),
+    /** Prepaid balances, kept apart from the usage accounts. */
+    val credits: List<CreditEntry> = emptyList(),
 ) {
     val accountCount: Int get() = accounts.size
 
@@ -161,13 +164,15 @@ class UsageViewModel(
     private val transientMessage = MutableStateFlow<String?>(null)
 
     val state: StateFlow<UsageUiState> = combine(
-        container.repository.observeAccountUsage(),
+        combine(container.repository.observeAccountUsage(), container.creditRepository.observeEntries()) { accounts, credits ->
+            accounts to credits
+        },
         container.settingsStore.settings,
         refreshing,
         transientMessage,
         container.settingsStore.diagnostics,
-    ) { accounts, settings, isRefreshing, message, diagnostics ->
-        UsageUiState(accounts, settings, isRefreshing, message, diagnostics)
+    ) { (accounts, credits), settings, isRefreshing, message, diagnostics ->
+        UsageUiState(accounts, settings, isRefreshing, message, diagnostics, credits)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState())
 
     private val _resetCreditInFlight = MutableStateFlow<String?>(null)
@@ -216,7 +221,7 @@ class UsageViewModel(
         viewModelScope.launch {
             refreshing.value = true
             try {
-                val outcomes = container.syncEngine.syncAll()
+                val outcomes = container.syncEngine.syncAll() + container.creditSyncEngine.syncAll()
                 val failures = outcomes.count { !it.success }
                 transientMessage.value = when {
                     outcomes.isEmpty() -> null
@@ -282,6 +287,34 @@ class UsageViewModel(
                 transientMessage.value = "Could not apply the reset"
             } finally {
                 _resetCreditInFlight.value = null
+            }
+        }
+    }
+
+    /** Renames a credit account and sets or clears its own low-balance figure. */
+    fun updateCredit(id: String, label: String, lowThreshold: java.math.BigDecimal?) {
+        viewModelScope.launch {
+            try {
+                container.creditAccounts.update(id, label, lowThreshold)
+                WidgetUpdater.refreshAll(appContext)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                transientMessage.value = "Could not save the changes. Try again."
+            }
+        }
+    }
+
+    /** Deletes the key from this device and the account with it. Not cancellable once begun. */
+    fun removeCredit(id: String) {
+        viewModelScope.launch {
+            withContext(NonCancellable) {
+                try {
+                    container.creditAccounts.remove(id)
+                } catch (_: Exception) {
+                    transientMessage.value = "Could not remove the credit account. Try again."
+                }
+                WidgetUpdater.refreshAll(appContext)
             }
         }
     }

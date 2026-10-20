@@ -4,4 +4,5 @@
     <string name="widget_compact_description">Compact quota row: 5h, weekly, next reset and status</string>
     <string name="widget_detailed_description">Usage bars and reset times for your chosen accounts</string>
     <string name="widget_minimal_description">Usage rings with account names and reset times</string>
+    <string name="widget_credits_description">Prepaid API balances, lowest first</string>
 </resources>

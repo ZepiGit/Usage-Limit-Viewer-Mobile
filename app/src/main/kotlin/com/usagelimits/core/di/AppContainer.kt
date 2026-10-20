@@ -8,7 +8,11 @@ import com.usagelimits.core.database.RoomTransactionRunner
 import com.usagelimits.core.database.UsageRepository
 import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.settings.SettingsStore
+import com.usagelimits.core.credits.CreditAccountService
+import com.usagelimits.core.database.CreditRepository
+import com.usagelimits.core.sync.CreditSyncEngine
 import com.usagelimits.core.sync.SyncEngine
+import com.usagelimits.providers.credits.CreditRegistry
 import com.usagelimits.providers.ProviderRegistry
 
 /**
@@ -53,5 +57,19 @@ class AppContainer(context: Context) {
 
     val syncEngine: SyncEngine by lazy {
         SyncEngine(repository, credentialStore, providerRegistry)
+    }
+
+    val creditRepository: CreditRepository by lazy {
+        CreditRepository(database.creditDao(), transactions = transactions)
+    }
+
+    val creditRegistry: CreditRegistry by lazy { CreditRegistry(httpClient) }
+
+    val creditSyncEngine: CreditSyncEngine by lazy {
+        CreditSyncEngine(creditRepository, credentialStore, creditRegistry)
+    }
+
+    val creditAccounts: CreditAccountService by lazy {
+        CreditAccountService(creditRepository, credentialStore, creditRegistry)
     }
 }
