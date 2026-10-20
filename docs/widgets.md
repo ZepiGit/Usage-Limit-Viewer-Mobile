@@ -195,6 +195,7 @@ Three update paths serve different triggers; Android can defer background delive
 3. **At a presentation boundary** (`WidgetPresentationWorker`): a cache-only repaint when a
    snapshot crosses its staleness threshold or a reset instant arrives, plus the same
    conditional fetch, because a reset is the one boundary a repaint cannot get right on its own.
+   `publishAfterSync` reschedules it after every sync, worker or foreground.
 
 Before the second path existed, the ring widgets showed the numbers from the moment they were
 placed for as long as the app's periodic sync was deferred — including after every limit had

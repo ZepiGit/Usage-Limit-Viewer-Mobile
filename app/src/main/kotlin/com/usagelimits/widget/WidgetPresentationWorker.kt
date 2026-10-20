@@ -46,7 +46,7 @@ class WidgetPresentationWorker(
     }
 
     companion object {
-        private const val WORK_NAME = "widget_presentation_boundary"
+        internal const val WORK_NAME = "widget_presentation_boundary"
 
         /** Never wake the device more often than this for a presentation boundary. */
         private const val MIN_DELAY_MS = 60_000L
