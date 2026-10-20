@@ -41,12 +41,7 @@ class SignInKeepAliveService : Service() {
                 .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle("Signing in")
                 .setContentText("Finishing sign-in… Return to Usage Limits if the browser stalls.")
-                .setContentIntent(
-                    PendingIntent.getActivity(
-                        this, 0, Intent(this, MainActivity::class.java),
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                    ),
-                )
+                .setContentIntent(openApp())
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build()
@@ -73,15 +68,40 @@ class SignInKeepAliveService : Service() {
         foreground = false
     }
 
+    private fun openApp() = PendingIntent.getActivity(
+        this, 0, Intent(this, MainActivity::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    /**
+     * The three minutes are up but a redirect wait allows five: the service ends, the login does
+     * not. Once the app is cached again the listener freezes, so say how to thaw it. Skipped
+     * silently where notifications are off.
+     */
+    private fun timedOut() {
+        getSystemService(NotificationManager::class.java)?.takeIf { it.areNotificationsEnabled() }?.notify(
+            HINT_ID,
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Signing in")
+                .setContentText("Return to Usage Limits to finish signing in")
+                .setContentIntent(openApp())
+                .setAutoCancel(true)
+                .build(),
+        )
+        stopSelf()
+    }
+
     @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-    override fun onTimeout(startId: Int) = stopSelf()
+    override fun onTimeout(startId: Int) = timedOut()
 
     @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
-    override fun onTimeout(startId: Int, fgsType: Int) = stopSelf()
+    override fun onTimeout(startId: Int, fgsType: Int) = timedOut()
 
     companion object {
         private const val CHANNEL_ID = "sign_in"
         private const val NOTIFICATION_ID = 7101
+        private const val HINT_ID = 7102
 
         /**
          * Stopping a service that startForegroundService() began before it calls startForeground()
@@ -89,22 +109,32 @@ class SignInKeepAliveService : Service() {
          * calls stopService once the service is foreground; otherwise it leaves [stopRequested]
          * for onStartCommand, which calls startForeground first and then stops itself. Each side
          * writes its flag before reading the other's, so at least one of them sees both.
+         *
+         * Every start() takes a new lease; only the current lease's stop() counts, so a cancelled
+         * login's late clean-up cannot stop the service a newer login is relying on.
          */
         @Volatile private var foreground = false
         @Volatile private var stopRequested = false
+        private var lease = 0L
 
         /** Best effort: a login that cannot get the service still works, it just may stall. */
-        fun start(context: Context) {
+        @Synchronized
+        fun start(context: Context): Long {
             stopRequested = false
             try {
                 ContextCompat.startForegroundService(context, Intent(context, SignInKeepAliveService::class.java))
             } catch (e: RuntimeException) {
                 // ForegroundServiceStartNotAllowedException (an IllegalStateException) and friends.
             }
+            return ++lease
         }
 
-        fun stop(context: Context) {
+        /** Ends the lease [start] returned; a no-op once a newer login has taken over. */
+        @Synchronized
+        fun stop(context: Context, token: Long) {
+            if (token != lease) return
             stopRequested = true
+            context.getSystemService(NotificationManager::class.java)?.cancel(HINT_ID)
             if (foreground) context.stopService(Intent(context, SignInKeepAliveService::class.java))
         }
     }

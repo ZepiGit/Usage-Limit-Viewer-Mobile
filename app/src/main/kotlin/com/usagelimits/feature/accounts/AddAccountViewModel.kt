@@ -154,6 +154,7 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
             // a failure — or had its freshly stored PKCE pair wiped by the old attempt's
             // clean-up. Waiting here makes the retry start from a clean provider.
             previous?.join()
+            var keepAlive: Long? = null
             try {
                 val provider = container.providerRegistry.forId(providerId)
                     ?: throw ProviderException.Unexpected("Provider unavailable")
@@ -196,7 +197,7 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                         )
                         // The redirect lands on a socket in this process, which the cached-apps
                         // freezer would freeze while the browser is in front.
-                        SignInKeepAliveService.start(context.applicationContext)
+                        keepAlive = SignInKeepAliveService.start(context.applicationContext)
                         openUrl(context, challenge.authorizationUrl)
                     }
 
@@ -252,7 +253,7 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                     providerId, "Sign-in failed", keyAlternative, deviceCodeAlternative, withDeviceCode,
                 )
             } finally {
-                SignInKeepAliveService.stop(context.applicationContext)
+                keepAlive?.let { SignInKeepAliveService.stop(context.applicationContext, it) }
             }
         }
     }

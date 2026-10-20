@@ -1,6 +1,8 @@
 package com.usagelimits.feature.accounts
 
 import android.app.Application
+import android.app.Notification
+import android.app.NotificationManager
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.core.auth.OAuthCredentials
@@ -138,14 +140,58 @@ class SignInKeepAliveTest {
 
     @Test
     fun `a stop that beats the service to the foreground waits for startForeground`() {
-        SignInKeepAliveService.start(app)
-        SignInKeepAliveService.stop(app)
+        SignInKeepAliveService.stop(app, SignInKeepAliveService.start(app))
 
         // No stopService before the service is foreground: that is the crash.
         assertNull(shadowOf(app).nextStoppedService)
 
         val controller = runService()
         assertNotNull(shadowOf(controller.get()).lastForegroundNotification)
+        assertEquals(true, shadowOf(controller.get()).isStoppedBySelf)
+        controller.destroy()
+    }
+
+    @Test
+    fun `a stale lease cannot stop a newer login's service`() {
+        val a = SignInKeepAliveService.start(app)
+        val b = SignInKeepAliveService.start(app)
+        val controller = runService()
+
+        SignInKeepAliveService.stop(app, a)
+        assertNull(shadowOf(app).nextStoppedService)
+
+        SignInKeepAliveService.stop(app, b)
+        assertEquals(SignInKeepAliveService::class.java.name, shadowOf(app).nextStoppedService?.component?.className)
+        controller.destroy()
+    }
+
+    private fun hints() = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications
+        .filter { it.extras.getString(Notification.EXTRA_TEXT) == "Return to Usage Limits to finish signing in" }
+
+    @Test
+    fun `the three-minute timeout leaves a hint to return to the app and ending the login clears it`() {
+        val token = SignInKeepAliveService.start(app)
+        val controller = runService()
+
+        controller.get().onTimeout(1)
+
+        assertEquals(1, hints().size)
+        assertNotNull(hints().single().contentIntent)
+        assertEquals(true, shadowOf(controller.get()).isStoppedBySelf)
+
+        SignInKeepAliveService.stop(app, token)
+        assertEquals(0, hints().size)
+        controller.destroy()
+    }
+
+    @Test
+    fun `the timeout hint is skipped quietly when notifications are off`() {
+        shadowOf(app.getSystemService(NotificationManager::class.java)).setNotificationsEnabled(false)
+        val controller = runService()
+
+        controller.get().onTimeout(1)
+
+        assertEquals(0, hints().size)
         assertEquals(true, shadowOf(controller.get()).isStoppedBySelf)
         controller.destroy()
     }
