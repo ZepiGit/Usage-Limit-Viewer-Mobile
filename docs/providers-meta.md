@@ -35,6 +35,8 @@ quota fields:
 - `subs_usage.window.used_percent`, `window_duration_mins`, `resets_at`
 - `subs_usage.weekly.used_percent`, `resets_at`
 
+`resets_at` is accepted as epoch seconds/millis or an ISO-8601 string.
+
 `used_percent` is converted to the app's remaining-percent display. Missing usage blocks remain
 unknown; the response is never treated as zero usage. Other response fields, including the
 minted key and personal data, are discarded after parsing.
