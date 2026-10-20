@@ -56,6 +56,22 @@ class StalenessTest {
     }
 
     @Test
+    fun `a window whose reset passed since the fetch no longer decides the verdict`() {
+        // Exhausted at the fetch, reset since: "Out" would present the spent window as current.
+        val spent = UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR, 100.0, 18_000,
+            resetAt = fetchedAt + 60_000, exhausted = true)
+        val weekly = UsageWindow("wk", "Weekly", WindowCategory.WEEKLY, 30.0, 604_800,
+            resetAt = fetchedAt + 86_400_000, exhausted = false)
+        val snapshot = UsageSnapshot("acct", fetchedAt, SnapshotStatus.OK, listOf(spent, weekly))
+
+        assertEquals(Severity.EXHAUSTED, snapshot.severityAt(fetchedAt + 30_000))
+        assertEquals(Severity.HEALTHY, snapshot.severityAt(fetchedAt + 120_000))
+        // Nothing left that has not reset: unknown until a fetch, never the old verdict.
+        assertEquals(Severity.UNKNOWN,
+            snapshot.copy(windows = listOf(spent)).severityAt(fetchedAt + 120_000))
+    }
+
+    @Test
     fun `error outranks staleness`() {
         // A failed refresh is more actionable than "possibly old", so it is not masked.
         val failed = UsageSnapshot(

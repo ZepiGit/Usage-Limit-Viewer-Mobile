@@ -175,7 +175,7 @@ fun AccountDetailScreen(
                 item {
                     UsageCard {
                         ungrouped.forEach { window ->
-                            UsageWindowRow(window, nowMs)
+                            UsageWindowRow(window, nowMs, fetchedAt = snapshot?.fetchedAt)
                             Spacer(Modifier.height(8.dp))
                         }
                     }
@@ -191,7 +191,7 @@ fun AccountDetailScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         rows.forEach { window ->
-                            UsageWindowRow(window, nowMs)
+                            UsageWindowRow(window, nowMs, fetchedAt = snapshot?.fetchedAt)
                             Spacer(Modifier.height(8.dp))
                         }
                     }
