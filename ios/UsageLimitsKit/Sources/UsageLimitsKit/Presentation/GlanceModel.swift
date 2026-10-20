@@ -179,6 +179,10 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
     /// screen offers — every reading would be stale before the next arrived.
     public let staleAfter: TimeInterval
 
+    /// The prepaid-balance accounts, for the credits widget. Empty in a file written before
+    /// credits existed; nothing else reads it.
+    public let credits: [GlanceCredit]
+
     public init(
         accounts: [GlanceAccount],
         accountCount: Int,
@@ -187,8 +191,10 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         overallSeverity: Severity,
         headlineShort: GlanceRow?,
         headlineLong: GlanceRow?,
-        staleAfter: TimeInterval = Severity.staleAfter
+        staleAfter: TimeInterval = Severity.staleAfter,
+        credits: [GlanceCredit] = []
     ) {
+        self.credits = credits
         self.staleAfter = staleAfter
         self.accounts = accounts
         self.accountCount = accountCount
@@ -201,7 +207,7 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case accounts, accountCount, updatedAt, nextResetAt, overallSeverity
-        case headlineShort, headlineLong, staleAfter
+        case headlineShort, headlineLong, staleAfter, credits
     }
 
     /// Lenient on `staleAfter`, which older files do not have. The synthesised decoder
@@ -219,6 +225,16 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         headlineLong = try c.decodeIfPresent(GlanceRow.self, forKey: .headlineLong)
         staleAfter = try c.decodeIfPresent(TimeInterval.self, forKey: .staleAfter)
             ?? Severity.staleAfter
+        credits = try c.decodeIfPresent([GlanceCredit].self, forKey: .credits) ?? []
+    }
+
+    /// The same snapshot carrying `credits`.
+    public func with(credits: [GlanceCredit]) -> GlanceSnapshot {
+        GlanceSnapshot(
+            accounts: accounts, accountCount: accountCount, updatedAt: updatedAt,
+            nextResetAt: nextResetAt, overallSeverity: overallSeverity,
+            headlineShort: headlineShort, headlineLong: headlineLong,
+            staleAfter: staleAfter, credits: credits)
     }
 
     /// The instants after `date` at which this snapshot's presentation changes on its own:

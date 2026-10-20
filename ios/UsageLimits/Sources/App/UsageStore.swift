@@ -12,6 +12,8 @@ import UsageLimitsKit
 final class UsageStore: ObservableObject {
 
     @Published private(set) var accounts: [AccountUsage] = []
+    /// Prepaid balances, kept apart from the usage accounts: no windows, no resets.
+    @Published private(set) var credits: [CreditEntry] = []
     @Published private var pendingAccountOrder: [String]?
     @Published var focusedAccountID: String?
     private var orderWrite: Task<Void, Never>?
@@ -240,6 +242,7 @@ final class UsageStore: ObservableObject {
 
         applyLoaded(await container.settings())
 
+        credits = await container.credits()
         let cached = await container.usage()
         // A refresh that started while this was reading has newer accounts than the cache does,
         // and its result must not be overwritten by one that merely finished later.
@@ -277,6 +280,7 @@ final class UsageStore: ObservableObject {
             // The container returns the usage as it stands after the sync, rather than leaving
             // this to re-read it: re-reading races the write that just happened.
             accounts = try await container.refresh()
+            credits = await container.credits()
             lastError = nil
 
             // Posted from the foreground too, not only from the background task. A user who
@@ -290,6 +294,7 @@ final class UsageStore: ObservableObject {
             // Per-account failures never reach here — the engine records those on the accounts
             // themselves, which is where a user can act on them. This is the whole run failing.
             accounts = await container.usage()
+            credits = await container.credits()
             lastError = error.localizedDescription
         }
 
@@ -349,6 +354,46 @@ final class UsageStore: ObservableObject {
             // Deliberately not optimistic: the row stays until the removal actually succeeded,
             // because a list that drops an account whose credentials are still on the device
             // tells the user something untrue.
+            lastError = error.localizedDescription
+        }
+    }
+
+    // MARK: - Credits
+
+    /// The credit accounts as the widget draws them, aged at the store's clock.
+    var creditGlance: [GlanceCredit] {
+        GlanceModel.buildCredits(credits, now: now, staleAfter: settings.staleAfter)
+    }
+
+    /// Proves the key, then stores it. Throws so the sheet can show why it was refused.
+    func addCreditAccount(
+        provider: CreditProviderID, key: String, label: String, region: ProviderRegion?,
+        teamID: String?, lowThreshold: Decimal?
+    ) async throws {
+        guard let container else { throw CreditError.unavailable("shared storage is missing") }
+        try await container.addCreditAccount(
+            provider: provider, key: key, label: label, region: region, teamID: teamID, lowThreshold: lowThreshold)
+        credits = await container.credits()
+        BackgroundRefresh.schedule(after: settings.syncIntervalMinutes)
+    }
+
+    func updateCreditAccount(id: String, label: String, lowThreshold: Decimal?) async {
+        guard let container else { return }
+        do {
+            try await container.updateCreditAccount(id: id, label: label, lowThreshold: lowThreshold)
+            credits = await container.credits()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func removeCreditAccount(id: String) async {
+        guard let container else { return }
+        do {
+            try await container.removeCreditAccount(id: id)
+            credits = await container.credits()
+        } catch {
+            // The row stays: the key is deleted first, so a failure leaves it retryable.
             lastError = error.localizedDescription
         }
     }

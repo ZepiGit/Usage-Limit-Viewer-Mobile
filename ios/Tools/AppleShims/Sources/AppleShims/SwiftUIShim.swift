@@ -195,6 +195,7 @@ extension View {
     public func labelsHidden() -> Self { self }
     public func textFieldStyle(_ value: TextFieldStyleShim) -> Self { self }
     public func autocorrectionDisabled(_ disabled: Bool = true) -> Self { self }
+    public func keyboardType(_ value: KeyboardTypeShim) -> Self { self }
     public func textInputAutocapitalization(
         _ value: TextInputAutocapitalizationShim?
     ) -> Self { self }

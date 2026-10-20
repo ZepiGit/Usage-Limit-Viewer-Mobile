@@ -313,6 +313,28 @@ public enum ProviderEndpoints {
         public static let apiVersion = "1.0.0"
     }
 
+    /// Prepaid balance endpoints (the Credit Viewer). Documented where the provider documents
+    /// them; none is reverse-engineered. See docs/credits.md.
+    public enum Credits {
+        public static let openRouterCredits = "https://openrouter.ai/api/v1/credits"
+        public static let openRouterKey = "https://openrouter.ai/api/v1/key"
+        public static let deepSeekBalance = "https://api.deepseek.com/user/balance"
+        /// A key from one host answers 401 on the other, so the region picks the host.
+        public static func moonshotBalance(_ region: ProviderRegion) -> String {
+            (region == .cn ? "https://api.moonshot.cn" : "https://api.moonshot.ai") + "/v1/users/me/balance"
+        }
+        public static let xaiValidation = "https://management-api.x.ai/auth/management-keys/validation"
+        public static func xaiBalance(teamID: String) -> String {
+            // Typed by the user, so it cannot be trusted to be a path segment.
+            var allowed = CharacterSet.alphanumerics
+            allowed.insert(charactersIn: "-_.")
+            let segment = teamID.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+            return "https://management-api.x.ai/v1/billing/teams/\(segment)/prepaid/balance"
+        }
+        public static let falBilling = "https://api.fal.ai/v1/account/billing?expand=credits"
+        public static let novitaBalance = "https://api.novita.ai/openapi/v1/billing/balance/detail"
+    }
+
     /// Where the user creates the key or signs in for a provider, or nil if it has no console.
     public static func consoleURL(for provider: ProviderID, region: ProviderRegion) -> String? {
         switch provider {

@@ -640,6 +640,17 @@ public struct TextField: View {
     public var body: some View { ShimLeaf() }
 }
 
+/// Hidden text entry, for keys.
+public struct SecureField: View {
+    public init(_ title: String, text: Binding<String>) {}
+    public var body: some View { ShimLeaf() }
+}
+
+public struct KeyboardTypeShim {
+    public static let decimalPad = KeyboardTypeShim()
+    public static let `default` = KeyboardTypeShim()
+}
+
 public struct TextFieldStyleShim {
     public static let roundedBorder = TextFieldStyleShim()
     public static let plain = TextFieldStyleShim()
