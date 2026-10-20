@@ -129,7 +129,7 @@ class AntigravityQuotaParserTest {
     }
 
     @Test
-    fun `a bucket without a remaining fraction stays unknown alongside its siblings`() {
+    fun `a bucket without a remaining fraction keeps its siblings and reads as the omitted zero`() {
         val payload = """
             {
               "groups": [
@@ -150,7 +150,8 @@ class AntigravityQuotaParserTest {
 
         assertEquals(listOf("gemini-5h", "gemini-weekly"), windows.map { it.id })
         assertEquals(60.0, windows.first().usedPercent!!, 1e-9)
-        assertNull(windows.last().remainingPercent)
+        // Has a resetTime, so the missing fraction is protobuf JSON's omitted zero.
+        assertEquals(0.0, windows.last().remainingPercent!!, 1e-9)
     }
 
     @Test
@@ -175,6 +176,27 @@ class AntigravityQuotaParserTest {
         assertEquals(3, windows.size)
         assertEquals("Gemini Pro", windows.last().group)
         assertTrue(windows.filter { it.group == "Unavailable" }.all { it.remainingPercent == null })
+    }
+
+    @Test
+    fun `a bucket with a reset but no fraction is exhausted, the zero protobuf JSON omits`() {
+        // Google's JSON drops a zero remainingFraction, so a spent bucket arrives with only its
+        // resetTime. Reading that as unknown hid the exhausted pool and its alert.
+        val payload = """
+            { "groups": [ { "displayName": "Gemini Pro", "buckets": [
+                { "bucketId": "gemini-5h", "window": "5h", "resetTime": "2026-09-10T01:26:47Z" },
+                { "bucketId": "gemini-weekly", "window": "weekly", "resetTime": "2026-09-14T00:00:00Z",
+                  "disabled": true }
+            ] } ] }
+        """.trimIndent()
+
+        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(payload), now)
+
+        assertEquals(100.0, windows[0].usedPercent!!, 1e-9)
+        assertTrue(windows[0].exhausted)
+        // A disabled bucket is not a spent one.
+        assertNull(windows[1].usedPercent)
+        assertFalse(windows[1].exhausted)
     }
 
     @Test
