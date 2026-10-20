@@ -45,6 +45,15 @@ enum class ProviderRegion(val id: String) {
         ): ProviderRegion =
             from(providerData[KEY] ?: attributes[KEY], provider)
 
+        /**
+         * The id an account is filed under. The two regions are separate user and key spaces, so
+         * the same id (or key digest) can come back from both; the non-default region is
+         * prefixed so it cannot overwrite the other's account. The default stays bare, which
+         * keeps every account stored before the choice existed where it is.
+         */
+        fun scopedId(provider: ProviderId, region: ProviderRegion, externalId: String): String =
+            if (region == default(provider)) externalId else "${region.id}:$externalId"
+
         /** A persisted [id], or the provider's default for a missing or unknown one. */
         fun from(raw: String?, provider: ProviderId): ProviderRegion =
             entries.firstOrNull { it.id == raw } ?: default(provider)

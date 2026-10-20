@@ -160,3 +160,18 @@ reversible into the key, and the key itself never becomes an account id.
 Both halves are pinned by tests that fail against a digest-only implementation:
 `KimiIdentityTest` on Android, `testAPastedKeyAccountIsNamedByTheProviderNotByTheKey` and
 `testRotatingTheKeyKeepsOneAccount` in the kit.
+
+### Region is part of the identity
+
+China (kimi.com) and International (kimi.ai) are separate user and key spaces, so both can
+return the same user id (or the same key digest). Filed under that alone, connecting
+International would overwrite the China account's credentials and region. So the id is
+namespaced by region, identically on both platforms and on both sign-in paths (device flow and
+pasted key):
+
+- **China** (the default, and what every account saved before the choice existed is): the bare
+  id, unchanged. Existing accounts are neither duplicated nor orphaned.
+- **International**: `intl:<id>`, e.g. `intl:kimi-user-7` or `intl:key-<digest>`.
+
+Pinned by `KimiRegionTest` on Android and `RegionalProvidersTests` in the kit (same id, and
+same key, connected in both regions: two accounts, two credentials).

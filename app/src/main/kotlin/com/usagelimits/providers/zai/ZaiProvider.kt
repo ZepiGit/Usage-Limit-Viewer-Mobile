@@ -66,7 +66,7 @@ class ZaiProvider(private val http: HttpClient) : UsageProvider, KeyLoginCapable
     override suspend fun fetchProfile(credentials: OAuthCredentials): ProviderProfile {
         val payload = fetchPayload(credentials)
         return ProviderProfile(
-            externalAccountId = keyIdentity(credentials.accessToken),
+            externalAccountId = ProviderRegion.scopedId(ProviderId.ZAI, region(credentials), keyIdentity(credentials.accessToken)),
             email = null,
             displayName = null,
             plan = ZaiUsageParser.plan(payload),

@@ -100,7 +100,10 @@ class ZaiProviderTest {
 
         assertEquals(12.0, usage.windows.single().usedPercent!!, 0.0)
         assertEquals(listOf("open.bigmodel.cn", "open.bigmodel.cn", "open.bigmodel.cn"), seen.map { it.request.url.host })
-        assertEquals(keyIdentity("zk-synthetic"), profile.externalAccountId)
+        // International is the default region and keeps the bare digest; China is namespaced.
+        assertEquals("cn:" + keyIdentity("zk-synthetic"), profile.externalAccountId)
+        assertEquals(keyIdentity("zk-synthetic"), subject.fetchProfile(key("intl")).externalAccountId)
+        assertEquals(keyIdentity("zk-synthetic"), subject.fetchProfile(key()).externalAccountId)
         assertFalse(profile.externalAccountId.contains("zk-synthetic"))
         assertEquals("Max", profile.plan)
         assertEquals(mapOf("region" to "cn"), profile.attributes)

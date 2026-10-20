@@ -570,14 +570,15 @@ public struct KimiDeviceLogin: DeviceLoginProvider {
         let usage = try await KimiClient(httpClient: httpClient)
             .fetchUsage(credentials: credentials, attributes: [:])
         let named = usage.accountIdentity?.trimmingCharacters(in: .whitespaces) ?? ""
+        let region = ProviderRegion.stored(provider: .kimi, credentials: credentials)
         return ProviderProfile(
-            externalAccountID: named.isEmpty
-                ? UsageLimitsContainer.pastedKeyIdentity(credentials.accessToken)
-                : named,
+            externalAccountID: region.scopedID(
+                named.isEmpty ? UsageLimitsContainer.pastedKeyIdentity(credentials.accessToken) : named,
+                for: .kimi),
             email: nil,
             displayName: nil,
             plan: nil,
-            attributes: [ProviderRegion.key: ProviderRegion.stored(provider: .kimi, credentials: credentials).rawValue])
+            attributes: [ProviderRegion.key: region.rawValue])
     }
 }
 

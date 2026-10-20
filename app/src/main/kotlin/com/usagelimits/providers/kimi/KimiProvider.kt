@@ -232,13 +232,14 @@ class KimiProvider(
 
     override suspend fun fetchProfile(credentials: OAuthCredentials): ProviderProfile {
         val payload = fetchUsagePayload(credentials)
+        val region = ProviderRegion.stored(ProviderId.KIMI, credentials.providerData)
         return ProviderProfile(
-            externalAccountId = identity(payload, credentials.accessToken),
+            externalAccountId = ProviderRegion.scopedId(ProviderId.KIMI, region, identity(payload, credentials.accessToken)),
             email = JsonSupport.string(payload, "email")
                 ?: JsonSupport.string(JsonSupport.obj(payload, "user"), "email"),
             displayName = null,
             plan = tier(payload),
-            attributes = mapOf(ProviderRegion.KEY to ProviderRegion.stored(ProviderId.KIMI, credentials.providerData).id),
+            attributes = mapOf(ProviderRegion.KEY to region.id),
         )
     }
 
