@@ -284,7 +284,8 @@ final class RegionalProvidersTests: XCTestCase {
         let account = try await subject.completePastedKeyLogin(provider: .zai, key: " zk-synthetic ", region: .cn)
 
         XCTAssertEqual(account.provider, .zai)
-        XCTAssertEqual(account.externalAccountID, UsageLimitsContainer.pastedKeyIdentity("zk-synthetic"))
+        // International is Z.ai's default region and keeps the bare digest; China is namespaced.
+        XCTAssertEqual(account.externalAccountID, "cn:" + UsageLimitsContainer.pastedKeyIdentity("zk-synthetic"))
         XCTAssertFalse(account.externalAccountID.contains("zk-synthetic"))
         XCTAssertEqual(account.attributes["region"], "cn")
         XCTAssertEqual(account.plan, "Lite")
@@ -310,6 +311,63 @@ final class RegionalProvidersTests: XCTestCase {
         let account = try await subject.completePastedKeyLogin(provider: .opencode, key: "ock-synthetic")
         XCTAssertNil(account.attributes["region"])
         XCTAssertEqual(account.externalAccountID, UsageLimitsContainer.pastedKeyIdentity("ock-synthetic"))
+    }
+
+    func testTheSameKimiIdInBothRegionsKeepsBothAccountsAndCredentials() async throws {
+        let usage = #"{"user_id":"u1","usage":{"limit":100,"used":1}}"#
+        let (subject, store) = container([(200, usage)])
+        let china = try await subject.completePastedKeyLogin(provider: .kimi, key: "sk-cn", region: .cn)
+        let abroad = try await subject.completePastedKeyLogin(provider: .kimi, key: "sk-intl", region: .intl)
+
+        // China keeps the id it always had; International is namespaced.
+        XCTAssertEqual(china.externalAccountID, "u1")
+        XCTAssertEqual(abroad.externalAccountID, "intl:u1")
+        let accounts = await subject.usage()
+        XCTAssertEqual(accounts.count, 2)
+        let savedChina = try await store.load(reference: china.credentialReference)
+        let savedAbroad = try await store.load(reference: abroad.credentialReference)
+        XCTAssertEqual(savedChina?.accessToken, "sk-cn")
+        XCTAssertEqual(savedChina?.providerData["region"], "cn")
+        XCTAssertEqual(savedAbroad?.accessToken, "sk-intl")
+        XCTAssertEqual(savedAbroad?.providerData["region"], "intl")
+    }
+
+    func testTheSameKeyInBothRegionsKeepsBothAccounts() async throws {
+        let (subject, store) = container([(200, #"{"usage":{"limit":100,"used":1}}"#)])
+        let kimiCN = try await subject.completePastedKeyLogin(provider: .kimi, key: "sk-same", region: .cn)
+        let kimiIntl = try await subject.completePastedKeyLogin(provider: .kimi, key: "sk-same", region: .intl)
+        let digest = UsageLimitsContainer.pastedKeyIdentity("sk-same")
+        XCTAssertEqual(kimiCN.externalAccountID, digest)
+        XCTAssertEqual(kimiIntl.externalAccountID, "intl:" + digest)
+
+        let accounts = await subject.usage()
+        XCTAssertEqual(accounts.count, 2)
+        let references = try await store.allReferences()
+        XCTAssertEqual(references.count, 2)
+    }
+
+    func testTheSameZaiKeyInBothRegionsKeepsBothAccounts() async throws {
+        let (zaiSubject, _) = container([(200, Self.zaiLite)])
+        let zaiIntl = try await zaiSubject.completePastedKeyLogin(provider: .zai, key: "zk-same", region: .intl)
+        let zaiCN = try await zaiSubject.completePastedKeyLogin(provider: .zai, key: "zk-same", region: .cn)
+        let zaiDigest = UsageLimitsContainer.pastedKeyIdentity("zk-same")
+        XCTAssertEqual(zaiIntl.externalAccountID, zaiDigest)
+        XCTAssertEqual(zaiCN.externalAccountID, "cn:" + zaiDigest)
+        let zaiAccounts = await zaiSubject.usage()
+        XCTAssertEqual(zaiAccounts.count, 2)
+    }
+
+    func testKimiDeviceLoginNamespacesInternationalAndKeepsLegacyChina() async throws {
+        let usage = #"{"user_id":"u1","usage":{"limit":100,"used":1}}"#
+        let (http, _) = client([(200, usage)])
+        let login = KimiDeviceLogin(httpClient: http, now: { [now] in now })
+
+        let china = try await login.profile(OAuthCredentials(accessToken: "a", providerData: ["region": "cn"]))
+        let legacy = try await login.profile(OAuthCredentials(accessToken: "a"))
+        let abroad = try await login.profile(intl("a"))
+        XCTAssertEqual(china.externalAccountID, "u1")
+        XCTAssertEqual(legacy.externalAccountID, "u1")
+        XCTAssertEqual(abroad.externalAccountID, "intl:u1")
     }
 
     func testKimiKeyDefaultsToChinaAndCanBeInternational() async throws {

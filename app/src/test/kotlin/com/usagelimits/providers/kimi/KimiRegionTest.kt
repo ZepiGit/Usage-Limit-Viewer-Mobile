@@ -10,6 +10,7 @@ import com.usagelimits.providers.RecordedRequest
 import com.usagelimits.providers.formFields
 import com.usagelimits.providers.scriptedHttp
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -123,6 +124,29 @@ class KimiRegionTest {
         assertEquals("api.kimi.ai", seen.single().request.url.host)
         assertEquals("intl", credentials.providerData["region"])
         assertEquals(mapOf("region" to "intl"), kimi.fetchProfile(credentials).attributes)
+    }
+
+    @Test
+    fun `the same user id in both regions files two accounts, and the China id stays as it was`() = runBlocking {
+        val kimi = subject(200 to usageJson, seen = mutableListOf())
+        val china = OAuthCredentials("tok-cn", "ref", null, 0, providerData = mapOf("region" to "cn"))
+        val intl = OAuthCredentials("tok-intl", "ref", null, 0, providerData = mapOf("region" to "intl"))
+        val legacy = OAuthCredentials("tok-old", "ref", null, 0)
+
+        assertEquals("kimi-user-7", kimi.fetchProfile(china).externalAccountId)
+        assertEquals("kimi-user-7", kimi.fetchProfile(legacy).externalAccountId)
+        assertEquals("intl:kimi-user-7", kimi.fetchProfile(intl).externalAccountId)
+    }
+
+    @Test
+    fun `the same key in both regions files two accounts`() = runBlocking {
+        val kimi = subject(200 to """{"usage":{"limit":100,"used":10}}""", seen = mutableListOf())
+        val cn = kimi.completeLogin(kimi.keyLoginChallenge(ProviderRegion.CN), "sk-synthetic")
+        val intl = kimi.completeLogin(kimi.keyLoginChallenge(ProviderRegion.INTL), "sk-synthetic")
+
+        val china = kimi.fetchProfile(cn).externalAccountId
+        assertEquals(kimi.identity(JsonObject(emptyMap()), "sk-synthetic"), china)
+        assertEquals("intl:$china", kimi.fetchProfile(intl).externalAccountId)
     }
 
     @Test

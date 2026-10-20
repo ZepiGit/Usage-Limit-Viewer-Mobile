@@ -28,6 +28,14 @@ public enum ProviderRegion: String, CaseIterable, Sendable, Codable {
         provider == .zai ? .intl : .cn
     }
 
+    /// The id an account is filed under. The two regions are separate user and key spaces, so the
+    /// same id (or key digest) can come back from both; the non-default region is prefixed so it
+    /// cannot overwrite the other's account. The default stays bare, which keeps every account
+    /// stored before the choice existed where it is. Same format as Android.
+    func scopedID(_ externalID: String, for provider: ProviderID) -> String {
+        self == Self.defaultRegion(for: provider) ? externalID : "\(rawValue):\(externalID)"
+    }
+
     public func label(for provider: ProviderID) -> String {
         switch (provider, self) {
         case (.kimi, .cn): return "China (kimi.com)"

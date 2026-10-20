@@ -53,6 +53,11 @@ The response names no user, so the account is filed under a stable, one-way dige
 (`pastedKeyIdentity`, the same fallback Kimi uses). Pasting the same key again updates the
 account; a rotated key is a new account, because nothing in the response survives a rotation.
 
+The region is part of the identity, because the same key digest could otherwise be filed twice
+over from both regions and the second connect would overwrite the first. International is the
+default and keeps the bare digest (`key-<digest>`); China is namespaced as `cn:key-<digest>`,
+identically on Android and iOS. Z.ai is new, so no stored account needs migrating.
+
 ## Not covered
 
 Per-model breakdowns, MCP tool-call counters beyond the generic windows, and the pay-as-you-go

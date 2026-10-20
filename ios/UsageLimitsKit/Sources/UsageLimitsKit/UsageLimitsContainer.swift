@@ -224,8 +224,10 @@ public actor UsageLimitsContainer {
             // holding a key that no longer works. The provider's id survives a rotation. Same
             // preference order as the Android provider, so one payload names one account on
             // both platforms.
-            externalAccountID: usage.accountIdentity?.trimmingCharacters(in: .whitespaces)
-                .nilIfEmpty ?? Self.pastedKeyIdentity(trimmed),
+            externalAccountID: ProviderRegion.stored(provider: provider, credentials: credentials).scopedID(
+                usage.accountIdentity?.trimmingCharacters(in: .whitespaces)
+                    .nilIfEmpty ?? Self.pastedKeyIdentity(trimmed),
+                for: provider),
             email: nil,
             displayName: nil,
             plan: usage.plan,
