@@ -38,6 +38,17 @@ public struct GlanceRow: Sendable, Equatable, Codable {
     }
 }
 
+/// What the unaged verdict becomes once the windows resetting at `at` have closed.
+public struct GlanceSeverityStep: Sendable, Equatable, Codable {
+    public let at: Date
+    public let severity: Severity
+
+    public init(at: Date, severity: Severity) {
+        self.at = at
+        self.severity = severity
+    }
+}
+
 /// One account block.
 public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     public let id: String
@@ -50,6 +61,15 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
 
     /// The severity WITHOUT the staleness judgement — what the numbers themselves say.
     public let baseSeverity: Severity
+
+    /// `baseSeverity` as it becomes at each later reset, ascending. `UsageSnapshot` drops a
+    /// window whose reset passed since the fetch (`UsageWindow.resetElapsed`), so an entry
+    /// rendered after one needs the verdict of the windows still open, not the export-time one.
+    public let baseSeverityAfterResets: [GlanceSeverityStep]
+
+    /// Every window the account reports (global ones when it has any), unlike `rows`, which keeps
+    /// one short and one long headline. The representative is chosen among these at render time.
+    public let candidates: [GlanceRow]
 
     /// When the provider was last read, so freshness can be judged again later.
     ///
@@ -76,6 +96,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         rows: [GlanceRow],
         severity: Severity,
         baseSeverity: Severity? = nil,
+        baseSeverityAfterResets: [GlanceSeverityStep] = [],
+        candidates: [GlanceRow]? = nil,
         fetchedAt: Date? = nil,
         providerID: String? = nil,
         connectionStatus: ConnectionStatus = .unknown,
@@ -89,6 +111,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         self.rows = rows
         self.severity = severity
         self.baseSeverity = baseSeverity ?? severity
+        self.baseSeverityAfterResets = baseSeverityAfterResets
+        self.candidates = candidates ?? rows
         self.fetchedAt = fetchedAt
         self.providerID = providerID
         self.iconAssetName = iconAssetName
@@ -98,10 +122,10 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, subtitle, rows, severity, baseSeverity, fetchedAt, providerID, connectionStatus, resetDates, iconAssetName, statusMessage
+        case id, title, subtitle, rows, severity, baseSeverity, baseSeverityAfterResets, candidates, fetchedAt, providerID, connectionStatus, resetDates, iconAssetName, statusMessage
     }
 
-    /// Lenient on the two new keys: a snapshot written before them must still decode, or every
+    /// Lenient on the optional keys: a snapshot written before them must still decode, or every
     /// widget goes blank on the upgrade that introduced them.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -111,6 +135,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         rows = try c.decode([GlanceRow].self, forKey: .rows)
         severity = try c.decode(Severity.self, forKey: .severity)
         baseSeverity = try c.decodeIfPresent(Severity.self, forKey: .baseSeverity) ?? severity
+        baseSeverityAfterResets = try c.decodeIfPresent([GlanceSeverityStep].self, forKey: .baseSeverityAfterResets) ?? []
+        candidates = try c.decodeIfPresent([GlanceRow].self, forKey: .candidates) ?? rows
         fetchedAt = try c.decodeIfPresent(Date.self, forKey: .fetchedAt)
         providerID = try c.decodeIfPresent(String.self, forKey: .providerID)
         iconAssetName = try c.decodeIfPresent(String.self, forKey: .iconAssetName)
@@ -126,7 +152,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     public func severity(at now: Date, staleAfter: TimeInterval) -> Severity {
         guard let fetchedAt else { return severity }
         if baseSeverity == .error { return .error }
-        return now.timeIntervalSince(fetchedAt) >= staleAfter ? .stale : baseSeverity
+        return now.timeIntervalSince(fetchedAt) >= staleAfter ? .stale : baseSeverityAfterResets.last { $0.at <= now }?.severity ?? baseSeverity
     }
 
     /// The severity a surface colours one shown row with at `date`.
@@ -145,8 +171,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     /// lowest percentage, among rows whose reset has not passed since the fetch. When every row
     /// has reset they all stay candidates, drawn as "reset due". Android's `representative`.
     public func representative(at date: Date) -> GlanceRow? {
-        let open = rows.filter { !$0.resetPending(at: date, fetchedAt: fetchedAt) }
-        return (open.isEmpty ? rows : open).min { Self.rank($0) < Self.rank($1) }
+        let open = candidates.filter { !$0.resetPending(at: date, fetchedAt: fetchedAt) }
+        return (open.isEmpty ? candidates : open).min { Self.rank($0) < Self.rank($1) }
     }
 
     private static func rank(_ row: GlanceRow) -> Double {
@@ -496,6 +522,10 @@ public enum GlanceModel {
             headline(windows, .fiveHour),
             longHeadline(windows),
         ].compactMap { $0 }
+        let resets = Set((usage.snapshot?.windows ?? []).compactMap(\.resetAt).filter { $0 > now })
+        let afterResets = resets.sorted().compactMap { at in
+            usage.snapshot.map { GlanceSeverityStep(at: at, severity: $0.severityOfOpenWindows(at: at)) }
+        }
 
         var title = usage.account.provider.displayName
         // `whitespacesAndNewlines`, not `whitespaces`: the latter is space and tab only, so a
@@ -516,6 +546,8 @@ public enum GlanceModel {
             // The unaged judgement and the instant it was made, so a widget rendering this
             // hours later can age it itself instead of repeating a verdict from write time.
             baseSeverity: usage.snapshot?.severityOfOpenWindows(at: now) ?? .stale,
+            baseSeverityAfterResets: afterResets,
+            candidates: windows.map(row),
             fetchedAt: usage.snapshot.flatMap { $0.failed && $0.windows.isEmpty ? nil : $0.fetchedAt }, providerID: usage.account.provider.rawValue,
             connectionStatus: usage.snapshot?.connectionStatus ?? .unknown,
             resetDates: usage.snapshot?.windows.compactMap(\.resetAt),

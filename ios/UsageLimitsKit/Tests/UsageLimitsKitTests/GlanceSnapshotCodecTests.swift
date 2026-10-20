@@ -59,6 +59,21 @@ final class GlanceSnapshotCodecTests: XCTestCase {
         XCTAssertEqual(decoded.accounts.first?.severity, Severity.low)
     }
 
+    func testAnAccountWrittenBeforeCandidatesAndTheSeverityTimelineStillDecodes() throws {
+        let legacy = Data("""
+        {"id":"a","title":"Codex","rows":[{"label":"Weekly","category":"weekly","remainingPercent":40,\
+        "resetAt":null,"severity":1}],"severity":1}
+        """.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let account = try decoder.decode(GlanceAccount.self, from: legacy)
+
+        XCTAssertEqual(account.candidates, account.rows)
+        XCTAssertEqual(account.representative(at: now)?.label, "Weekly")
+        XCTAssertEqual(account.severity(at: now, staleAfter: 3600), .medium)
+    }
+
     func testAMissingFileIsEmptyRatherThanAnAllClear() {
         // A widget cannot ask for a retry, so every failure has the same available outcome. It
         // must be the pessimistic one: empty renders as stale, never as "everything is fine".
