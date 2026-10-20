@@ -98,4 +98,28 @@ final class KimiUsageParserTests: XCTestCase {
         XCTAssertTrue(KimiUsageParser.parse(payload("{}")).isEmpty)
         XCTAssertTrue(KimiUsageParser.parse(payload(#"{ "limits": [] }"#)).isEmpty)
     }
+
+    func testAnISOResetStampTheFormTheLiveEndpointSendsKeepsItsResetTime() {
+        // Kimi's own CLI parses resetTime with fromisoformat; numbers arrive as strings.
+        let windows = KimiUsageParser.parse(payload(#"""
+        { "usage": { "limit": "100", "used": "3", "resetTime": "2026-10-27T00:00:00.000Z" },
+          "limits": [ { "window": { "duration": 300, "timeUnit": "TIME_UNIT_MINUTE" },
+                        "detail": { "limit": "100", "remaining": "40", "resetTime": "2026-10-20T15:00:00Z" } } ] }
+        """#))
+        XCTAssertEqual(windows[0].resetAt, Date(timeIntervalSince1970: 1_793_059_200))
+        XCTAssertEqual(windows[1].resetAt, Date(timeIntervalSince1970: 1_792_508_400))
+        XCTAssertEqual(windows[1].usedPercent ?? -1, 60, accuracy: 0.001)
+    }
+
+    func testTheLiveWindowDurationAndTimeUnitDecideTheCategoryNotAFiveHourDefault() {
+        // kimi-cli reads limits[].window.{duration,timeUnit}; a one-hour limit is not the 5h headline.
+        let windows = KimiUsageParser.parse(payload(#"""
+        { "limits": [
+            { "window": { "duration": 60, "timeUnit": "TIME_UNIT_MINUTE" }, "detail": { "limit": "10", "remaining": "5" } },
+            { "window": { "duration": 5, "timeUnit": "TIME_UNIT_HOUR" }, "detail": { "limit": "10", "remaining": "5" } },
+            { "window": { "duration": 7, "timeUnit": "TIME_UNIT_DAY" }, "detail": { "limit": "10", "remaining": "5" } } ] }
+        """#))
+        XCTAssertEqual(windows.map(\.periodSeconds), [3_600, 18_000, 604_800])
+        XCTAssertEqual(windows.map(\.category), [.other, .fiveHour, .weekly])
+    }
 }

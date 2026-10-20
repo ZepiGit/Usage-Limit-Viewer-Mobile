@@ -96,9 +96,9 @@ Three further rules the parser holds:
   infinity, and a bar drawn from that reads as an exhausted account that is not exhausted.
 - The window's duration is read from the entry, never assumed from its position in the array.
   Classifying by position is how a monthly bucket ends up labelled as a week.
-- `resetTime` is accepted in seconds or milliseconds and normalised by magnitude, since an
-  epoch stamp in either unit is plausible and guessing wrong misplaces the countdown by a
-  factor of a thousand.
+- `resetTime` is ISO-8601 on the live endpoint (Kimi's CLI reads it with `fromisoformat`);
+  epoch seconds or milliseconds are also accepted and normalised by magnitude.
+- A limit's duration comes from `window.duration` × `window.timeUnit` (`TIME_UNIT_MINUTE`, …).
 
 ## Identity
 

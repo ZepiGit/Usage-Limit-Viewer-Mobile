@@ -124,6 +124,42 @@ class KimiUsageParserTest {
     }
 
     @Test
+    fun `an ISO reset stamp, the form the live endpoint sends, keeps its reset time`() {
+        // Kimi's own CLI parses resetTime with fromisoformat; numbers arrive as strings.
+        val windows = KimiUsageParser.parse(
+            payload(
+                """
+                { "usage": { "limit": "100", "used": "3", "resetTime": "2026-10-27T00:00:00.000Z" },
+                  "limits": [ { "window": { "duration": 300, "timeUnit": "TIME_UNIT_MINUTE" },
+                                "detail": { "limit": "100", "remaining": "40", "resetTime": "2026-10-20T15:00:00Z" } } ] }
+                """,
+            ),
+        )
+        assertEquals(java.time.Instant.parse("2026-10-27T00:00:00Z").toEpochMilli(), windows[0].resetAt)
+        assertEquals(java.time.Instant.parse("2026-10-20T15:00:00Z").toEpochMilli(), windows[1].resetAt)
+        assertEquals(60.0, windows[1].usedPercent!!, 0.001)
+    }
+
+    @Test
+    fun `the live window duration and time unit decide the category, not a five-hour default`() {
+        // kimi-cli reads limits[].window.{duration,timeUnit}; a one-hour limit is not the 5h headline.
+        val windows = KimiUsageParser.parse(
+            payload(
+                """
+                { "limits": [
+                    { "window": { "duration": 60, "timeUnit": "TIME_UNIT_MINUTE" }, "detail": { "limit": "10", "remaining": "5" } },
+                    { "window": { "duration": 5, "timeUnit": "TIME_UNIT_HOUR" }, "detail": { "limit": "10", "remaining": "5" } },
+                    { "window": { "duration": 7, "timeUnit": "TIME_UNIT_DAY" }, "detail": { "limit": "10", "remaining": "5" } } ] }
+                """,
+            ),
+        )
+        assertEquals(listOf(3_600L, 18_000L, 604_800L), windows.map { it.periodSeconds })
+        assertEquals(WindowCategory.OTHER, windows[0].category)
+        assertEquals(WindowCategory.FIVE_HOUR, windows[1].category)
+        assertEquals(WindowCategory.WEEKLY, windows[2].category)
+    }
+
+    @Test
     fun `a reset stamp in seconds and one in milliseconds mean the same instant`() {
         val seconds = KimiUsageParser.parse(
             payload("""{ "usage": { "limit": 10, "used": 1, "resetTime": 1800000000 } }"""),
