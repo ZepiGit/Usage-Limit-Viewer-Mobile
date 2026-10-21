@@ -65,6 +65,10 @@ struct SettingsScreen: View {
                         .foregroundStyle(UsageColors.muted)
                 }
                 .listRowBackground(UsageColors.surface)
+                Section {
+                    Link("GitHub · ZepiGit", destination: URL(string: "https://github.com/ZepiGit")!)
+                }
+                .listRowBackground(UsageColors.surface)
             }
             .accessibilityIdentifier("settings-form")
             .readableWidth()
