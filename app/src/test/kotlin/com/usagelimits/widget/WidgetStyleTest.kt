@@ -151,6 +151,22 @@ class WidgetStyleTest {
     }
 
     @Test
+    fun `a chosen panel colour is painted as chosen, never as its ink`() {
+        // White stays white and black stays black from the swatch, through the stored row,
+        // to the colour the widget paints; only the ink flips between them.
+        val white = WidgetStyle.CHOICES.first { it.id == "white" }
+        val black = WidgetStyle.CHOICES.first { it.id == "black" }
+        val whiteStyle = WidgetStyle.fromStored(white.argb, 100, transparent = false, textTone = "AUTO")
+        val blackStyle = WidgetStyle.fromStored(black.argb, 100, transparent = false, textTone = "AUTO")
+        assertEquals(Color.White, whiteStyle.background.color)
+        assertEquals(Color.Black, blackStyle.background.color)
+        assertFalse(whiteStyle.lightInk)
+        assertTrue(blackStyle.lightInk)
+        assertEquals(Color(0xFF1A1918), whiteStyle.textPrimary)
+        assertEquals(Color(0xFFF0EEE6), blackStyle.textPrimary)
+    }
+
+    @Test
     fun `the widget view derives transparency from its style`() {
         val view = WidgetUpdater.WidgetView(WidgetSnapshot.Empty, WidgetStyle(WidgetBackground(0, 0)))
         assertTrue(view.transparent)
