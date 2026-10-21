@@ -170,7 +170,7 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
         customAccountIds = currentOrder.filter { it in selected })
     val valid = when (scope) {
         WidgetScope.ACCOUNT -> accounts.any { it.account.localId == accountId }
-        WidgetScope.PROVIDER -> accounts.any { it.account.provider.id == providerId }
+        WidgetScope.PROVIDER -> ProviderId.fromId(providerId) != null
         WidgetScope.CUSTOM -> preview.accounts.isNotEmpty()
         else -> true
     }
@@ -214,7 +214,8 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
             item { SectionHeader("One provider") }
             item {
                 ChoiceCard {
-                    accounts.map { it.account.provider }.distinct().forEachIndexed { index, provider ->
+                    // Every provider, connected or not: a provider with no account gives the widget's empty state.
+                    ProviderId.entries.forEachIndexed { index, provider ->
                         if (index > 0) RuleDivider(Modifier.padding(horizontal = 16.dp))
                         ScopeChoice(provider.displayName, "All ${provider.displayName} accounts", scope == WidgetScope.PROVIDER && providerId == provider.id, provider) {
                             providerId = provider.id; scopeName = WidgetScope.PROVIDER.name

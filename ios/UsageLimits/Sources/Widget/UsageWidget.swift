@@ -916,7 +916,7 @@ struct UsageRingWidgetView: View {
                     lineWidth: 9,
                     ink: ink)
                 VStack(spacing: 1) {
-                    WidgetFigure(remainingPercent: focus.row?.remainingPercent, font: .figureLarge, ink: ink, severity: severity)
+                    WidgetFigure(remainingPercent: focus.row?.remainingPercent, font: .ringFigure, ink: ink, severity: severity)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                     if let row = focus.row {
