@@ -623,5 +623,22 @@ final class CreditsTests: XCTestCase {
         XCTAssertEqual(ProviderEndpoints.Credits.novitaBalance, "https://api.novita.ai/openapi/v1/billing/balance/detail")
         XCTAssertEqual(CreditProviderID.allCases.map(\.rawValue), ["openrouter", "deepseek", "moonshot", "xai", "fal", "novita"])
         XCTAssertEqual(CreditProviderID.notPossible.map(\.id), ["anthropic", "openai"])
+        XCTAssertEqual(CreditProviderID.xai.consoleURL, "https://console.x.ai/team/default/api-keys")
+    }
+
+    func testEveryCreditProviderHasItsOwnBundledIcon() throws {
+        let assets = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("UsageLimits/Sources/Assets.xcassets")
+        XCTAssertEqual(Set(CreditProviderID.allCases.map(\.iconAssetName)).count, 6)
+        for provider in CreditProviderID.allCases {
+            XCTAssertFalse(provider.iconAssetName.isEmpty)
+            let directory = assets.appendingPathComponent("\(provider.iconAssetName).imageset")
+            let contents = try XCTUnwrap(JSONSerialization.jsonObject(
+                with: Data(contentsOf: directory.appendingPathComponent("Contents.json"))) as? [String: Any])
+            let images = try XCTUnwrap(contents["images"] as? [[String: String]])
+            let filename = try XCTUnwrap(images.first?["filename"])
+            XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent(filename).path))
+        }
     }
 }
