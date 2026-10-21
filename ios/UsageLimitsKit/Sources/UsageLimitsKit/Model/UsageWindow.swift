@@ -51,7 +51,7 @@ public struct UsageSegment: Codable, Sendable, Equatable {
 /// consumption while the UI reads "82 % remaining", and conflating the two is the single
 /// easiest way to render a confidently inverted number.
 public struct UsageWindow: Sendable, Codable, Equatable {
-    public let id: String
+    public private(set) var id: String
     public let label: String
     public let category: WindowCategory
     public let usedPercent: Double?
@@ -85,6 +85,12 @@ public struct UsageWindow: Sendable, Codable, Equatable {
         self.group = group
         self.scope = scope
         self.segments = segments
+    }
+
+    public func with(id: String) -> UsageWindow {
+        var copy = self
+        copy.id = id
+        return copy
     }
 
     public init(from decoder: Decoder) throws {
