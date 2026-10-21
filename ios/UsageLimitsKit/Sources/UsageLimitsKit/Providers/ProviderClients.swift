@@ -426,6 +426,7 @@ public struct AntigravityClient: SyncProvider, Sendable {
             "Authorization": "Bearer \(credentials.accessToken)",
             "Accept": "application/json",
             "Content-Type": "application/json",
+            "User-Agent": ProviderEndpoints.Antigravity.userAgent,
         ]
         // Serialised rather than interpolated so a project id containing quotes or braces
         // cannot quietly turn into a different request.
