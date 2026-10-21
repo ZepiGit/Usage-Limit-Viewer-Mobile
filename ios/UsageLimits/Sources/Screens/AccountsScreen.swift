@@ -25,10 +25,11 @@ struct AccountsScreen: View {
     private var filterOptions: [SegmentOption] {
         var options = [
             option("All", selected: providerFilter == nil && !attentionOnly) { providerFilter = nil; attentionOnly = false },
-            option("Needs attention", selected: attentionOnly) { attentionOnly.toggle() },
+            option("Needs attention", selected: attentionOnly) { providerFilter = nil; attentionOnly.toggle() },
         ]
         for provider in ProviderID.allCases where store.accounts.contains(where: { $0.account.provider == provider }) {
             options.append(option(provider.displayName, selected: providerFilter == provider) {
+                attentionOnly = false
                 providerFilter = providerFilter == provider ? nil : provider
             })
         }
