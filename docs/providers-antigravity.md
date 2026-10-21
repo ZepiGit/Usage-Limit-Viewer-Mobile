@@ -120,10 +120,10 @@ the account after a single hour-long access token expired.
 | `POST https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist` | Resolve the GCP project | `Authorization`, `Content-Type: application/json`, `User-Agent` | Internal endpoint observed in the first-party CLI — NOT a stable public API (`v1internal` is upstream's own naming) |
 | `POST …/v1internal:retrieveUserQuotaSummary` on `daily-cloudcode-pa.googleapis.com`, then `daily-cloudcode-pa.sandbox.googleapis.com`, then `cloudcode-pa.googleapis.com` | Quota summary | `Authorization`, `Content-Type: application/json`, `User-Agent` | Internal endpoint observed in the first-party CLI — NOT a stable public API |
 
-The three quota hosts are tried **in order until one answers**, because the daily and sandbox
-hosts are rolled out ahead of the stable one and which host serves a given account varies.
-Only the last failure is reported, so a user whose account lives on the stable host does not
-see two spurious errors from hosts that were never going to answer.
+The three quota hosts are queried **in order and their windows are merged by bucket id**,
+with the first measurement winning when hosts overlap. A non-empty union succeeds even if
+other hosts fail, so a partial summary cannot hide a group returned by a later host. When
+no host provides windows, each platform retains its existing error and empty-response handling.
 
 `User-Agent: antigravity/cli/1.0.13 (aidev_client; os_type=…; arch=…)` is a compatibility
 marker — the internal endpoints vary their response by client. The version is centralised in

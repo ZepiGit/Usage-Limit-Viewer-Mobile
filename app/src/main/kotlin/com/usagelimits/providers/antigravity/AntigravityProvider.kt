@@ -3,6 +3,7 @@ package com.usagelimits.providers.antigravity
 import com.usagelimits.core.auth.OAuthCredentials
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.network.ProviderEndpoints.Antigravity
@@ -316,10 +317,11 @@ class AntigravityProvider(
             ),
         )
 
-        // The quota hosts are rolled out at different speeds and which one serves a given
-        // account varies, so they are tried in order and only the last failure is reported.
+        // Hosts can carry different quota groups, so their union preserves every shared pool.
         var lastError: ProviderException? = null
+        var transientFailure = false
         var emptyHosts = 0
+        val allRows = mutableListOf<AntigravityQuotaParser.Row>()
         for (url in Antigravity.QUOTA_URLS) {
             try {
                 val response = http.request(
@@ -329,21 +331,25 @@ class AntigravityProvider(
                     body = body,
                 )
                 val payload = JsonSupport.parseObject(response.body)
-                val windows = AntigravityQuotaParser.parse(payload, nowMs())
-
-                // An empty 2xx means this host does not serve the account, not that the
-                // account has no quota — the daily hosts answer for everyone but only carry
-                // data for some. Returning here would render zero windows, which the model
-                // reads as ERROR: the same failure shape as an outage, from a successful call.
-                // Upstream continues to the next host on both a missing and an empty `groups`.
-                if (windows.isNotEmpty()) {
-                    return UsageResult(windows = windows)
-                }
-                emptyHosts++
+                val rows = AntigravityQuotaParser.parseRows(payload)
+                allRows += rows
+                if (rows.isEmpty()) emptyHosts++
             } catch (e: ProviderException) {
                 lastError = e
+                if (e is ProviderException.Offline || e is ProviderException.ServerError || e is ProviderException.RateLimited) {
+                    transientFailure = true
+                }
             }
         }
+
+        val groupsWithWindows = allRows.filterNot { it.isPlaceholder }.mapNotNull { it.window.group }.toSet()
+        val windows = allRows.filterNot { it.isPlaceholder && it.window.group in groupsWithWindows }
+            .map { it.window }.distinctBy { it.id }
+        if (windows.isNotEmpty()) return UsageResult(
+            windows = windows,
+            status = if (transientFailure) SnapshotStatus.PARTIAL else SnapshotStatus.OK,
+            errorMessage = if (transientFailure) "Some quota hosts could not be read; available usage is shown." else null,
+        )
 
         // Every host answered, none had data: report it as a payload problem rather than
         // silently showing an account with no limits.

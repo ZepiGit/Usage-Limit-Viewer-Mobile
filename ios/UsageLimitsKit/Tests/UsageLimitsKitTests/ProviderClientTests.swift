@@ -170,7 +170,7 @@ final class ProviderClientTests: XCTestCase {
 
         XCTAssertEqual(result.windows.count, 1)
         let attempts = await transport.requests.count
-        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(attempts, 3)
     }
 
     func testEveryHostAnsweringEmptyIsReportedRatherThanShownAsNoQuota() async {
