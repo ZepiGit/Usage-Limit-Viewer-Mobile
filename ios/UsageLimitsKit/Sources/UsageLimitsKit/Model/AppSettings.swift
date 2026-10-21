@@ -72,12 +72,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
             providerIcons: try container.decodeIfPresent([String: String].self, forKey: .providerIcons) ?? [:])
     }
 
-    /// This value with every rule the initialiser enforces applied to it.
-    ///
-    /// The store used to normalise by calling the initialiser with the fields it knew about,
-    /// which silently DROPPED every field added afterwards: a value arriving with the tier
-    /// switched off was written back with it on. Copying and adjusting means a new preference
-    /// is carried by default and only a rule written here can change it.
+    /// Apply initializer rules to a copy so normalization preserves every other preference.
     public func normalised() -> AppSettings {
         var copy = self
         copy.syncIntervalMinutes = max(syncIntervalMinutes, AppSettings.minimumSyncIntervalMinutes)

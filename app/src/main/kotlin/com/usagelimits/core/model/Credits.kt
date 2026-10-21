@@ -29,7 +29,7 @@ enum class CreditProviderId(val id: String, val displayName: String, val keyHint
     XAI(
         "xai", "xAI (prepaid)",
         "xAI management key (console.x.ai, Settings, Management Keys), not an inference key.",
-        "https://console.x.ai",
+        "https://console.x.ai/team/default/api-keys",
     ),
     FAL(
         "fal", "fal.ai", "fal key with the billing:usage:read scope (the BILLING preset), not an inference key.",

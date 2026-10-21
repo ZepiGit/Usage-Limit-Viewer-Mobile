@@ -92,8 +92,7 @@ fun ResetsScreen(
                         color = UsageColors.Muted,
                     )
                 }
-                // Rows share one card, so a duplicate window id can no longer collide as a
-                // LazyColumn key; the day is the item.
+                // The day is the LazyColumn item; duplicate window IDs inside its card are safe.
                 item(key = "day-$date") {
                     UsageCard(contentPadding = PaddingValues(0.dp)) {
                         dayResets.forEachIndexed { index, reset ->

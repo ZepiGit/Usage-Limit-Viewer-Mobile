@@ -52,6 +52,15 @@ public enum XaiBillingParser: Sendable {
             }
         }
 
+        let segments = (firstValue(body, ["productUsage", "product_usage"]) as? [Any] ?? [])
+            .compactMap { entry -> UsageSegment? in
+                guard let product = entry as? [String: Any],
+                      let name = product["product"] as? String,
+                      !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      let percent = percentage(firstValue(product, ["usagePercent", "usage_percent"])),
+                      percent > 0 else { return nil }
+                return UsageSegment(label: name.trimmingCharacters(in: .whitespacesAndNewlines), usedPercent: percent)
+            }.sorted { $0.usedPercent > $1.usedPercent }
         let category = WindowCategory.from(periodSeconds: periodSeconds)
         let label: String
         switch category {
@@ -71,7 +80,8 @@ public enum XaiBillingParser: Sendable {
                 usedPercent: usedPercent,
                 periodSeconds: periodSeconds,
                 resetAt: end,
-                exhausted: isExhausted(usedPercent)
+                exhausted: isExhausted(usedPercent),
+                segments: segments
             )
         ]
     }
@@ -185,7 +195,7 @@ public enum XaiBillingParser: Sendable {
                 id: window.id, label: window.label, category: window.category,
                 usedPercent: window.usedPercent, periodSeconds: window.periodSeconds,
                 resetAt: window.resetAt, exhausted: window.exhausted, group: window.group,
-                scope: .model)
+                scope: .model, segments: window.segments)
         }
     }
 

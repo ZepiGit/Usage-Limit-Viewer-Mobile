@@ -152,11 +152,8 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
         }
 
         /**
-         * A placed widget chooses its panel colour and opacity, and can override its ink.
-         *
-         * The defaults are the app's own dark panel at full opacity, so nothing already on a
-         * home screen changes; a widget saved transparent under the old flag becomes 0 %,
-         * which is the same look under the new name.
+         * A placed widget chooses its panel colour, opacity and ink.
+         * Defaults preserve opaque panels; the legacy transparent flag maps to 0 % opacity.
          */
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {

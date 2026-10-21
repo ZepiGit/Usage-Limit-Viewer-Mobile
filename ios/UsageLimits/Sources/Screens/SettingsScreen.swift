@@ -43,6 +43,7 @@ struct SettingsScreen: View {
 
                 Section(header: LedgerHeader("Display")) {
                     NavigationLink("Provider icons") { ProviderIconsScreen() }
+                    NavigationLink("App icon") { AppIconScreen() }
                     NavigationLink("Widget layouts") { WidgetPresetsScreen() }
                     Toggle(
                         "Show subscription tier",
@@ -63,6 +64,10 @@ struct SettingsScreen: View {
                         + "transfer. Moving to a new phone means signing in again.")
                         .usageFont(.small)
                         .foregroundStyle(UsageColors.muted)
+                }
+                .listRowBackground(UsageColors.surface)
+                Section {
+                    Link("GitHub · ZepiGit", destination: URL(string: "https://github.com/ZepiGit")!)
                 }
                 .listRowBackground(UsageColors.surface)
             }

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security policy and private reporting
+    url: https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/security/policy
+    about: Read the policy and follow its link to report a vulnerability privately.

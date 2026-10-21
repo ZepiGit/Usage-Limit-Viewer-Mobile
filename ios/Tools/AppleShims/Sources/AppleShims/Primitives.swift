@@ -215,6 +215,19 @@ public struct LazyVStack: View {
     public var body: some View { ShimLeaf() }
 }
 
+public struct GridItem {
+    public enum Size {
+        case flexible(minimum: CGFloat = 10, maximum: CGFloat = .infinity)
+    }
+    public init(_ size: Size, spacing: CGFloat? = nil, alignment: Alignment? = nil) {}
+}
+
+public struct LazyVGrid: View {
+    public init(columns: [GridItem], alignment: HorizontalAlignment? = nil, spacing: CGFloat? = nil,
+                @ViewBuilder content: () -> any View) {}
+    public var body: some View { ShimLeaf() }
+}
+
 public struct Group: View {
     public init(@ViewBuilder content: () -> any View) {}
     public var body: some View { ShimLeaf() }

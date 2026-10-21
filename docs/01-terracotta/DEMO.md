@@ -1,32 +1,9 @@
-# Klickbare Screenshot-Tour
+# App tour
 
-Die Tour zeigt vier **unveränderte native iPhone-Simulator-Aufnahmen** mit anklickbarer
-Tab-Navigation. Die separate Widget-Galerie zeigt quellcodebasierte Illustrationen mit zwei
-Codex- und zwei Claude-Demo-Accounts. Sie ist keine Web-Portierung der nativen App.
+Open [demo.html](demo.html) locally in your browser, or open `App-Tour.html` from the distributed package. The file is self-contained, with embedded images. On GitHub, use **Download raw file** first.
 
-## Lokal öffnen
+Choose Overview, Accounts, Resets or Settings using the phone tabs. The Widgets section has a separate illustration gallery. Keys 1–5 and the arrow keys also switch sections. Controls inside the screenshots are not interactive.
 
-Öffne `demo.html` in diesem Ordner in deinem Browser. Die Datei ist eigenständig: alle Bilder
-sind eingebettet. Alternativ öffne `App-Tour.html` aus dem bereitgestellten Paket.
+The tour uses unchanged iPhone simulator screenshots and source-based widget illustrations with demo accounts. It handles no credentials and contacts no providers. See [Image sources](ASSET-SOURCES.md).
 
-Im GitHub-Dateibrowser zuerst [demo.html](demo.html) öffnen, die Datei über „Download raw
-file“ speichern und lokal im Browser öffnen. Das Anklicken des Repository-Dateilinks allein
-führt zum Quelltext, nicht zu einer laufenden Demo.
-
-## Im Web veröffentlichen
-
-Die Datei kann auf einem statischen Webhost liegen, zum Beispiel GitHub Pages. Nach der
-Veröffentlichung den Link der Tour-Kachel in der README auf die tatsächlich erreichbare
-HTTPS-Adresse ändern. In diesem Paket ist **keine Bereitstellung erfolgt**, und es wird kein
-bereits funktionierender öffentlicher Demo-Link behauptet.
-
-[GitHub Pages: Funktionsweise](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
-
-## Bedienung und Grenzen
-
-Mit den unteren iPhone-Tabs oder den Reitern zwischen Overview, Accounts, Resets und Settings
-wechseln. Unter Widgets den Darstellungstyp wählen. Die Tasten 1–5 und die Pfeiltasten
-wechseln ebenfalls die Bereiche. Es werden keine Provider kontaktiert und keine Anmeldedaten
-verarbeitet. Regler, Filter und Aktionen innerhalb der Originalbilder sind nicht bedienbar.
-
-[Herkunft der Aufnahmen und Illustrationen](ASSET-SOURCES.md)
+For web hosting, upload the file to a static host and update the README's tour link to that HTTPS address.

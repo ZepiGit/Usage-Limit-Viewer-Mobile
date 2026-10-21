@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Ported from the Android `ProviderEndpoints.kt`, value for value. These are reverse-engineered
 /// from the first-party CLI and desktop clients by way of CLIProxyAPI and its Management Center
-/// (see `docs/provider-auth-research.md` for the exact source files and commits). They are
+/// (see the `docs/providers-*.md` provider guides and `docs/security.md`). They are
 /// **not** a documented third-party API and can change without notice, which is why they are
 /// centralised: an upstream change should be a one-file edit on each platform, never a hunt
 /// through parsers.
@@ -152,8 +152,9 @@ public enum ProviderEndpoints {
             "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
         ]
 
-        public static let cliVersion = "1.0.13"
-        public static let userAgent = "antigravity/cli/\(cliVersion) (aidev_client; os_type=darwin; arch=arm64)"
+        // Cloud Code gates newer models on the Hub version reported by the public updater manifest.
+        public static let hubVersion = "2.25.0"
+        public static let userAgent = "antigravity/hub/\(hubVersion) (aidev_client; os_type=darwin; arch=arm64)"
 
         /// `ideType` selects which product's onboarding record Cloud Code returns.
         /// `IDE_UNSPECIFIED` is the *Gemini Code Assist* value and yields a project carrying

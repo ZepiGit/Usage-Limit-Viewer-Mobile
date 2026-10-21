@@ -34,7 +34,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import com.usagelimits.MainActivity
+import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.CreditFormat
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
@@ -69,14 +69,14 @@ class CreditsWidget : GlanceAppWidget() {
                 CompositionLocalProvider(LocalWidgetStyle provides style) {
                     Column(
                         GlanceModifier.fillMaxSize().panelCorner().background(style.background.color).padding(10.dp)
-                            .clickable(actionStartActivity<MainActivity>()),
+                            .clickable(actionStartActivity<UsageLimitsActivity>()),
                     ) {
                         when {
                             snapshot.rows.isEmpty() -> Text(
                                 "No credit balances. Add one in the app.",
                                 style = widgetText(style.textSecondary, 12),
                             )
-                            shown.size == 1 -> Single(shown.first(), style)
+                            shown.size == 1 -> Single(shown.first(), style, centered = size.width < MEDIUM.width)
                             else -> {
                                 Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
@@ -103,26 +103,33 @@ class CreditsWidget : GlanceAppWidget() {
 
     /** The 2x2 tile: one account, its amount large, and as of when. */
     @Composable
-    private fun Single(row: CreditWidgetRow, style: WidgetStyle) {
-        Text(
-            row.title, maxLines = 1,
-            style = widgetText(style.textSecondary, 12, FontWeight.Medium),
-        )
-        Spacer(GlanceModifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    private fun Single(row: CreditWidgetRow, style: WidgetStyle, centered: Boolean) {
+        // Centred as a block on the small tile, where a start-aligned lone row reads as left-heavy.
+        Column(
+            GlanceModifier.fillMaxSize(),
+            verticalAlignment = if (centered) Alignment.CenterVertically else Alignment.Top,
+            horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
+        ) {
             Text(
-                amountText(row), maxLines = 1,
-                style = widgetText(style.textPrimary, 22, FontWeight.Bold, mono = true),
+                row.title, maxLines = 1,
+                style = widgetText(style.textSecondary, 12, FontWeight.Medium),
             )
-            if (row.severity != Severity.HEALTHY) {
-                Spacer(GlanceModifier.width(6.dp))
-                SeverityDot(style.accent(row.severity))
+            Spacer(GlanceModifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    amountText(row), maxLines = 1,
+                    style = widgetText(style.textPrimary, 22, FontWeight.Bold, mono = true),
+                )
+                if (row.severity != Severity.HEALTHY) {
+                    Spacer(GlanceModifier.width(6.dp))
+                    SeverityDot(style.accent(row.severity))
+                }
             }
+            Text(
+                statusText(row), maxLines = 1,
+                style = widgetText(if (refreshFailed(row)) style.textPrimary else style.textSecondary, 11),
+            )
         }
-        Text(
-            statusText(row), maxLines = 1,
-            style = widgetText(if (refreshFailed(row)) style.textPrimary else style.textSecondary, 11),
-        )
     }
 
     @Composable

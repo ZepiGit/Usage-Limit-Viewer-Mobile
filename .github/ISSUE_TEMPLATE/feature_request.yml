@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest an improvement to Usage Limits Mobile.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public. Do not include API keys, OAuth tokens, or personal account data.
+        For vulnerabilities, use the [security policy and private reporting link](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/security/policy).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in your way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed improvement
+      description: Describe the behavior you would like, including the platform if relevant.
+    validations:
+      required: true

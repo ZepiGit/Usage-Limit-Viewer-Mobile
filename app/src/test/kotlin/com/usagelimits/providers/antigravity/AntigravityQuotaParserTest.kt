@@ -45,8 +45,61 @@ class AntigravityQuotaParserTest {
     """.trimIndent()
 
     @Test
+    fun `quota group and bucket aliases retain Gemini limits`() {
+        for (groupKey in listOf("groups", "quotaGroups", "quota_groups")) {
+            for (bucketKey in listOf("buckets", "quotaBuckets", "quota_buckets")) {
+                val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject("""
+                    { "$groupKey": [{ "displayName": "Gemini Models", "$bucketKey": [
+                        { "bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.5 },
+                        { "bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 0.8 }
+                    ] }] }
+                """)).map { it.window }
+                assertEquals(listOf("gemini-5h", "gemini-weekly"), windows.map { it.id })
+                assertEquals(50.0, windows.first().usedPercent!!, 1e-9)
+                assertEquals(WindowCategory.WEEKLY, windows.last().category)
+            }
+        }
+    }
+
+    @Test
+    fun `a group carrying quota fields is a single bucket`() {
+        val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject("""
+            { "groups": [{ "displayName": "Gemini Models", "window": "weekly",
+                "remainingFraction": 0.25 }] }
+        """)).map { it.window }
+        assertEquals("gemini-models-weekly", windows.single().id)
+        assertEquals(WindowCategory.WEEKLY, windows.single().category)
+        assertEquals(75.0, windows.single().usedPercent!!, 1e-9)
+    }
+
+    @Test
+    fun `named groups without a bucket schema remain unknown`() {
+        val window = AntigravityQuotaParser.parseRows(JsonSupport.parseObject("""
+            { "groups": [{ "displayName": "Gemini Models" }] }
+        """)).map { it.window }.single()
+        assertEquals("gemini-models-unknown", window.id)
+        assertEquals("Gemini Models", window.label)
+        assertEquals("Gemini Models", window.group)
+        assertEquals(WindowCategory.OTHER, window.category)
+        assertNull(window.usedPercent)
+        assertFalse(window.exhausted)
+    }
+
+    @Test
+    fun `explicit empty or unusable buckets do not invent unknown groups`() {
+        for (key in listOf("buckets", "quotaBuckets", "quota_buckets")) {
+            for (buckets in listOf("[]", "[null, 42]", "null", "{}")) {
+                val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject("""
+                    { "groups": [{ "displayName": "Gemini Models", "$key": $buckets }] }
+                """)).map { it.window }
+                assertTrue(windows.isEmpty())
+            }
+        }
+    }
+
+    @Test
     fun `parses both groups and converts remaining fraction to consumed percent`() {
-        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(twoGroups), now)
+        val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject(twoGroups)).map { it.window }
 
         assertEquals(4, windows.size)
         assertEquals(
@@ -72,7 +125,7 @@ class AntigravityQuotaParserTest {
 
     @Test
     fun `a fully drained bucket is exhausted and an untouched one is not`() {
-        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(twoGroups), now)
+        val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject(twoGroups)).map { it.window }
             .associateBy { it.id }
 
         assertEquals(0.0, windows.getValue("ultra-5h").usedPercent!!, 1e-9)
@@ -84,7 +137,7 @@ class AntigravityQuotaParserTest {
 
     @Test
     fun `every window carries its group display name`() {
-        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(twoGroups), now)
+        val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject(twoGroups)).map { it.window }
 
         assertTrue(windows.all { it.group != null })
         assertEquals(
@@ -123,8 +176,8 @@ class AntigravityQuotaParserTest {
         """.trimIndent()
 
         assertEquals(
-            AntigravityQuotaParser.parse(JsonSupport.parseObject(twoGroups), now),
-            AntigravityQuotaParser.parse(JsonSupport.parseObject(snake), now),
+            AntigravityQuotaParser.parseRows(JsonSupport.parseObject(twoGroups)).map { it.window },
+            AntigravityQuotaParser.parseRows(JsonSupport.parseObject(snake)).map { it.window },
         )
     }
 
@@ -146,7 +199,7 @@ class AntigravityQuotaParserTest {
             }
         """.trimIndent()
 
-        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(payload), now)
+        val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject(payload)).map { it.window }
 
         assertEquals(listOf("gemini-5h", "gemini-weekly"), windows.map { it.id })
         assertEquals(60.0, windows.first().usedPercent!!, 1e-9)
@@ -171,7 +224,7 @@ class AntigravityQuotaParserTest {
             }
         """.trimIndent()
 
-        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(payload), now)
+        val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject(payload)).map { it.window }
 
         assertEquals(3, windows.size)
         assertEquals("Gemini Pro", windows.last().group)
@@ -190,7 +243,7 @@ class AntigravityQuotaParserTest {
             ] } ] }
         """.trimIndent()
 
-        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(payload), now)
+        val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject(payload)).map { it.window }
 
         assertEquals(100.0, windows[0].usedPercent!!, 1e-9)
         assertTrue(windows[0].exhausted)
@@ -221,7 +274,7 @@ class AntigravityQuotaParserTest {
             }
         """.trimIndent()
 
-        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(payload), now)
+        val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject(payload)).map { it.window }
 
         assertEquals(listOf("short", "weekly", "alpha", "zulu"), windows.map { it.id })
         // "FIVE_HOUR" and "week" are aliases; matching is case-insensitive after trimming.
@@ -250,7 +303,7 @@ class AntigravityQuotaParserTest {
             }
         """.trimIndent()
 
-        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(payload), now)
+        val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject(payload)).map { it.window }
             .associateBy { it.id }
 
         assertNull(windows.getValue("over").usedPercent)
@@ -273,7 +326,7 @@ class AntigravityQuotaParserTest {
             }
         """.trimIndent()
 
-        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(payload), now)
+        val windows = AntigravityQuotaParser.parseRows(JsonSupport.parseObject(payload)).map { it.window }
 
         assertEquals(listOf("gemini-pro-flash-5h", "gemini-pro-flash-1"), windows.map { it.id })
         // With no display name the id doubles as the label so the row is still identifiable.
@@ -282,12 +335,10 @@ class AntigravityQuotaParserTest {
 
     @Test
     fun `an empty or unrecognised payload yields no windows`() {
-        assertTrue(AntigravityQuotaParser.parse(JsonSupport.parseObject("{}"), now).isEmpty())
+        assertTrue(AntigravityQuotaParser.parseRows(JsonSupport.parseObject("{}")).map { it.window }.isEmpty())
         assertTrue(
-            AntigravityQuotaParser.parse(
-                JsonSupport.parseObject("""{ "groups": "unexpected" }"""),
-                now,
-            ).isEmpty(),
+            AntigravityQuotaParser.parseRows(
+                JsonSupport.parseObject("""{ "groups": "unexpected" }""")).map { it.window }.isEmpty(),
         )
     }
 
@@ -317,7 +368,7 @@ class AntigravityQuotaParserTest {
             """.trimIndent()
         )
 
-        val windows = AntigravityQuotaParser.parse(payload, now)
+        val windows = AntigravityQuotaParser.parseRows(payload).map { it.window }
 
         assertEquals(4, windows.size)
         assertEquals(

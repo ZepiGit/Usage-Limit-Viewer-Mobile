@@ -32,13 +32,8 @@ final class UsageStore: ObservableObject {
             // no hop of its own.
             Task { [weak self, container] in
                 guard let container else { return }
-                // The stored value can differ from the one written — the sync interval is
-                // floored at what the platform will honour — so the screen is corrected to
-                // what will actually happen rather than left showing what was asked for.
-                // Applied only if no NEWER edit has landed meanwhile. Two toggles in quick
-                // succession are two saves in flight; the first's acknowledgement arriving
-                // second used to reinstall its older value over the second toggle — and the next
-                // edit then copied that reverted value forward, so the loss became permanent.
+                // Reflect the persisted value, which may clamp the sync interval, only if no newer
+                // edit has landed. An out-of-order save acknowledgement must not revert later edits.
                 if let stored = try? await container.save(settings: value), self?.settings == value {
                     self?.applyLoaded(stored)
                 }

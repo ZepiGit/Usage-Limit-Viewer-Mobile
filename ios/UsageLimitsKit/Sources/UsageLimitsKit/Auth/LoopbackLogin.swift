@@ -344,6 +344,7 @@ public struct LoopbackLogin: Sendable {
             "Authorization": "Bearer \(credentials.accessToken)",
             "Accept": "application/json",
             "Content-Type": "application/json",
+            "User-Agent": ProviderEndpoints.Antigravity.userAgent,
         ]
         var lastError: Error?
 

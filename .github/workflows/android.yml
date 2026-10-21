@@ -1,12 +1,6 @@
 name: Android
 
-# The Android app had no CI at all, which on this project is the wrong way round: it is the
-# primary deliverable, its parsers are where every real defect has been found, and it is the
-# half that can actually be built on a free Linux runner. The iOS workflow existed first only
-# because the shared Swift package happens to compile on Linux too.
-#
-# `test` checks logic, `assemble` packages the APK, and `runtime` installs that same signed,
-# minified artifact over the previous release and navigates it on a real Android emulator.
+# Runtime smoke upgrades the previous release with this run's minified APK.
 
 on:
   push:
@@ -15,6 +9,9 @@ on:
       - 'gradle/**'
       - '*.gradle.kts'
       - 'gradle.properties'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
       - 'tools/android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
       - '.github/workflows/android.yml'
@@ -24,10 +21,16 @@ on:
       - 'gradle/**'
       - '*.gradle.kts'
       - 'gradle.properties'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
       - 'tools/android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
       - '.github/workflows/android.yml'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: android-${{ github.ref }}
@@ -37,9 +40,6 @@ jobs:
   test:
     name: Unit tests
     runs-on: ubuntu-latest
-    # Bounded so a hung step cannot run to the six-hour default. A UI test that waits
-    # on a simulator alert nobody can dismiss looks exactly like a slow one, and on a
-    # macOS runner that mistake is billed at ten times the rate.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -55,9 +55,6 @@ jobs:
       - name: Test
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug
 
-      # Uploaded on failure only, and always: a red unit test is unreadable from the console
-      # output alone, and the HTML report is the thing that says which assertion and with what
-      # values.
       - name: Upload the test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -81,14 +78,9 @@ jobs:
   assemble:
     name: Debug APK
     runs-on: ubuntu-latest
-    # Bounded so a hung step cannot run to the six-hour default. A UI test that waits
-    # on a simulator alert nobody can dismiss looks exactly like a slow one, and on a
-    # macOS runner that mistake is billed at ten times the rate.
     timeout-minutes: 30
     steps:
-      # The full history, because the version code is the commit count: it has to rise from
-      # one build to the next or the installer treats the newer APK as a re-install rather
-      # than an update. A shallow clone would count 1 every time.
+      # versionCode is the full Git commit count.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -100,11 +92,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # Both APKs are signed with the debug key checked in at app/debug.keystore — the same
-      # key on every run, so a phone that has the previous build installed updates in place
-      # and keeps its accounts, credentials and widgets. Before this, each runner minted its
-      # own debug key and every download meant uninstalling first. The release key is used
-      # instead when the repository's signing secrets are present.
+      # Debug APKs use the repository debug key; minified APKs use the release key when configured.
       - name: Decode the release signing key when configured
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -140,12 +128,12 @@ jobs:
           sha256sum "$apk" > app/build/reports/apk-sha256.txt
           if [ -n "${ANDROID_KEYSTORE_PATH:-}" ]; then
             mkdir -p "$RUNNER_TEMP/previous-release"
-            gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
-              --pattern 'UsageLimits-0.2.0.apk' --dir "$RUNNER_TEMP/previous-release"
-            "$build_tools/aapt" dump badging \
-              "$RUNNER_TEMP/previous-release/UsageLimits-0.2.0.apk" > app/build/reports/apk-previous-metadata.txt
-            "$build_tools/apksigner" verify --print-certs \
-              "$RUNNER_TEMP/previous-release/UsageLimits-0.2.0.apk" > "$RUNNER_TEMP/previous-signature.txt"
+            # The latest published release is the baseline; a pinned tag goes stale once it is deleted.
+            gh release download --repo "$GITHUB_REPOSITORY" \
+              --pattern 'UsageLimits-*.apk' --dir "$RUNNER_TEMP/previous-release"
+            previous_apk=$(ls "$RUNNER_TEMP"/previous-release/UsageLimits-*.apk)
+            "$build_tools/aapt" dump badging "$previous_apk" > app/build/reports/apk-previous-metadata.txt
+            "$build_tools/apksigner" verify --print-certs "$previous_apk" > "$RUNNER_TEMP/previous-signature.txt"
             # apksigner uses either "Signer #1" or a scheme prefix such as "V2 Signer:".
             # A certificate repeated across schemes is one signer; distinct digests are ambiguous.
             certificate_pattern='s/^(Signer #[0-9]+|V[0-9]+(\.[0-9]+)* Signer:) certificate SHA-256 digest: (.*)$/\3/p'
@@ -156,7 +144,7 @@ jobs:
               exit 1
             fi
             if [ "$previous" != "$current" ]; then
-              echo '::error::Release signing certificate differs from v0.2.0.' >&2
+              echo '::error::Release signing certificate differs from the latest release.' >&2
               exit 1
             fi
             previous_package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" app/build/reports/apk-previous-metadata.txt)
@@ -184,7 +172,7 @@ jobs:
             {
               printf 'Previous APK: package=%s versionName=%s versionCode=%s\n' "$previous_package" "$previous_version" "$previous_code"
               printf 'Current APK: package=%s versionName=%s versionCode=%s\n' "$current_package" "$current_version" "$current_code"
-              echo 'Package matches, versionCode increased, and signing certificate matches v0.2.0.'
+              echo 'Package matches, versionCode increased, and signing certificate matches the latest release.'
             } > app/build/reports/apk-upgrade.txt
           else
             echo 'Verification build only; release signing is unavailable.' > app/build/reports/apk-upgrade.txt
@@ -202,8 +190,6 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
 
-      # The point of the job: something a maintainer can install on a phone and look at, from a
-      # build nobody ran by hand. Debug-signed, so it is for testing rather than distribution.
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:
@@ -220,7 +206,7 @@ jobs:
   runtime:
     name: API 36 release upgrade smoke
     needs: assemble
-    # Fork PRs cannot access release signing. A debug-signed build cannot update v0.2.0.
+    # Fork PRs cannot access release signing. A debug-signed build cannot update the published release.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     # Eight rounds revisit all four widget configurations, plus placement and geometry checks.
@@ -250,8 +236,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p runtime/previous
-          gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
-            --pattern 'UsageLimits-0.2.0.apk' --dir runtime/previous
+          gh release download --repo "$GITHUB_REPOSITORY" \
+            --pattern 'UsageLimits-*.apk' --dir runtime/previous
 
       # setup-android adds SDK command-line tools (including sdkmanager) to PATH.
       - name: Set up Android SDK tools
@@ -277,7 +263,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Upgrade and navigate the release APK
-        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-0.2.0.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-*.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
 
       - name: Upload runtime evidence
         if: always()

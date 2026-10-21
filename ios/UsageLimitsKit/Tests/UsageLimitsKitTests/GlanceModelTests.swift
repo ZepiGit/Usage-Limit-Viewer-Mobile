@@ -59,6 +59,98 @@ final class GlanceModelTests: XCTestCase {
         ]
     }
 
+    func testNextResettingRowUsesAllCandidatesAndSkipsPastAndMissingDates() {
+        let weekly = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 2,
+            resetAt: now.addingTimeInterval(26 * 3_600), severity: .low)
+        let next = GlanceRow(label: "Model", category: .fiveHour, remainingPercent: 80,
+            resetAt: now.addingTimeInterval(2 * 3_600), severity: .healthy, scope: .model)
+        let past = GlanceRow(label: "Past", category: .fiveHour, remainingPercent: 0,
+            resetAt: now.addingTimeInterval(-60), severity: .exhausted)
+        let due = GlanceRow(label: "Due", category: .fiveHour, remainingPercent: 0,
+            resetAt: now, severity: .exhausted)
+        let unknown = GlanceRow(label: "Unknown", category: .monthly, remainingPercent: nil,
+            resetAt: nil, severity: .unknown)
+        let account = GlanceAccount(id: "a", title: "A", subtitle: nil, rows: [weekly],
+            severity: .low, candidates: [unknown, past, due, weekly, next])
+
+        XCTAssertEqual(account.nextResettingRow(at: now), next)
+        XCTAssertEqual(account.nextResettingRow(at: next.resetAt!), weekly)
+        XCTAssertNil(account.nextResettingRow(at: weekly.resetAt!))
+    }
+
+    func testResetWithUnknownUsageNeverDisplacesMeasuredWindow() {
+        let unknownRow = GlanceRow(label: "Unknown", category: .fiveHour, remainingPercent: nil,
+            resetAt: now.addingTimeInterval(60), severity: .unknown)
+        let measuredRow = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 80,
+            resetAt: now.addingTimeInterval(3_600), severity: .healthy)
+        let mixed = GlanceAccount(id: "measured", title: "Measured", subtitle: nil,
+            rows: [unknownRow, measuredRow], severity: .healthy, fetchedAt: now)
+        let unknown = GlanceAccount(id: "unknown", title: "Unknown", subtitle: nil,
+            rows: [unknownRow], severity: .unknown, fetchedAt: now)
+        XCTAssertEqual(mixed.nextResettingRow(at: now), measuredRow)
+        XCTAssertNil(unknown.nextResettingRow(at: now))
+        let snapshot = GlanceSnapshot(accounts: [unknown, mixed], accountCount: 2, updatedAt: now,
+            nextResetAt: nil, overallSeverity: .healthy, headlineShort: nil, headlineLong: nil)
+        XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "measured")
+    }
+
+    func testExhaustedRowWithUnknownUsageLeadsWhenItsResetComesFirst() {
+        let blockedRow = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: nil,
+            resetAt: now.addingTimeInterval(3 * 3_600), severity: .exhausted)
+        let nearlyUsedRow = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 10,
+            resetAt: now.addingTimeInterval(5 * 3_600), severity: .low)
+        let blocked = GlanceAccount(id: "blocked", title: "Blocked", subtitle: nil,
+            rows: [blockedRow], severity: .exhausted, fetchedAt: now)
+        let nearlyUsed = GlanceAccount(id: "nearly-used", title: "Nearly used", subtitle: nil,
+            rows: [nearlyUsedRow], severity: .low, fetchedAt: now)
+        XCTAssertEqual(blocked.nextResettingRow(at: now), blockedRow)
+        let snapshot = GlanceSnapshot(accounts: [nearlyUsed, blocked], accountCount: 2, updatedAt: now,
+            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil)
+        XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "blocked")
+    }
+
+    func testTrustedAccountWithoutResetOutranksCachedFutureResets() {
+        let live = AccountUsage(account: account("live", .codex), snapshot: UsageSnapshot(
+            accountID: "live", fetchedAt: now, status: .ok,
+            windows: [UsageWindow(id: "live", label: "Weekly", category: .weekly,
+                usedPercent: 98, periodSeconds: 604_800, resetAt: nil, exhausted: false)]))
+        for cached in [
+            usage("cached", .claude, usedPercent: 20, status: .failed),
+            usage("cached", .claude, usedPercent: 20, fetchedAt: now.addingTimeInterval(-48 * 3_600)),
+        ] {
+            let snapshot = GlanceModel.build([cached, live], now: now, scope: .allAccounts)
+            XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "live")
+        }
+    }
+
+    func testOverviewUsesNextResetWithinTrustedAccountsAndTightestWithoutResets() {
+        let tight = GlanceAccount(id: "tight", title: "Tight", subtitle: nil,
+            rows: [GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 2,
+                resetAt: now.addingTimeInterval(26 * 3_600), severity: .low)],
+            severity: .low, fetchedAt: now)
+        let soon = GlanceAccount(id: "soon", title: "Soon", subtitle: nil,
+            rows: [GlanceRow(label: "5h", category: .fiveHour, remainingPercent: 80,
+                resetAt: now.addingTimeInterval(2 * 3_600), severity: .healthy)],
+            severity: .healthy, fetchedAt: now)
+        let snapshot = GlanceSnapshot(accounts: [tight, soon], accountCount: 2, updatedAt: now,
+            nextResetAt: nil, overallSeverity: .low, headlineShort: nil, headlineLong: nil)
+        XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "soon")
+        XCTAssertEqual(snapshot.nextResettingAccount(at: now.addingTimeInterval(27 * 3_600))?.id, "tight")
+        XCTAssertNil(GlanceSnapshot.empty.nextResettingAccount(at: now))
+    }
+
+    func testNoResetFallbackRanksExhaustedWithoutPercentFirst() {
+        let measured = GlanceAccount(id: "measured", title: "Measured", subtitle: nil,
+            rows: [GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 2,
+                resetAt: nil, severity: .low)], severity: .low, fetchedAt: now)
+        let exhausted = GlanceAccount(id: "exhausted", title: "Exhausted", subtitle: nil,
+            rows: [GlanceRow(label: "Weekly", category: .weekly, remainingPercent: nil,
+                resetAt: nil, severity: .exhausted)], severity: .exhausted, fetchedAt: now)
+        let snapshot = GlanceSnapshot(accounts: [measured, exhausted], accountCount: 2, updatedAt: now,
+            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil)
+        XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "exhausted")
+    }
+
     // MARK: - Scope selection
 
     func testAccountScopeSelectsExactlyOneAccount() {
@@ -107,8 +199,7 @@ final class GlanceModelTests: XCTestCase {
 
         let snapshot = GlanceModel.build(mixed, now: now, scope: .mostCritical)
 
-        // Ranking by the Severity case order put error, then stale, then exhausted — so this
-        // used to lead with an account whose quota may be perfectly fine.
+        // Known exhaustion outranks error and stale readings whose quota may be healthy.
         XCTAssertEqual(snapshot.accounts.first?.id, "out")
     }
 
@@ -520,11 +611,8 @@ extension GlanceModelTests {
     // MARK: - Freshness that ages with the timeline
 
     func testAnAccountGoesStaleAsTheTimelineAdvances() {
-        // A widget renders several timeline entries at different dates from ONE snapshot, and
-        // every entry used to carry the severity computed when the app wrote it. An account
-        // healthy at T0 therefore still read healthy at T0 plus a day when no background
-        // refresh had run — the tile aged without ever saying so, which is the one thing a
-        // quota display must not do.
+        // Each timeline entry must evaluate cached severity at its own date, even without
+        // an intervening background refresh.
         let snapshot = GlanceModel.build(
             [usage("a", .codex, usedPercent: 10)], now: now, scope: .allAccounts, accountID: nil)
         let account = snapshot.accounts[0]

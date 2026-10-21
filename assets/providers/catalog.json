@@ -104,5 +104,29 @@
       "meta",
       "Meta Muse · Monochrome"
     ]
+  ],
+  "zai": [
+    [
+      "zai",
+      "Z.ai · Monochrome"
+    ],
+    [
+      "zai-text",
+      "Z.ai · Wordmark"
+    ],
+    [
+      "chatglm-color",
+      "ChatGLM · Color"
+    ]
+  ],
+  "opencode": [
+    [
+      "opencode",
+      "OpenCode · Monochrome"
+    ],
+    [
+      "opencode-text",
+      "OpenCode · Wordmark"
+    ]
   ]
 }

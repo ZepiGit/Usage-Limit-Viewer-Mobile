@@ -1,15 +1,8 @@
 import XCTest
 @testable import UsageLimitsKit
 
-/// The subscription tier, spelled the same way whichever provider supplied it — and the same
-/// way its Kotlin twin spells it.
-///
-/// Anthropic hands back `default_claude_max_5x` and OpenAI hands back a bare `plus`. The Codex
-/// path used to pass its value straight through, so one account read "OpenAI Codex plus" while
-/// the Claude beside it read "Claude Max 5×".
-///
-/// Every case here is mirrored in `PlanLabelTest.kt`. Two apps that disagree about how to
-/// spell a plan is the failure this pins.
+/// Subscription tiers use the same display conventions across providers and platforms.
+/// Cases mirror PlanLabelTest.kt, including default_claude_max_5x and plus.
 final class PlanLabelTests: XCTestCase {
 
     func testABareLowercaseTierIsCapitalised() {

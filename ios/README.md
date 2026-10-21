@@ -28,14 +28,13 @@ may intercept the callback, while the listener provides another way to receive
 it. Codex also has a device-code fallback when the port cannot be used. Grok and
 Kimi use device codes; Meta Muse uses the Meta device grant, and Kimi additionally accepts a key from the user's console.
 These code paths are implemented, but live account sign-in has not been verified
-in the current audit.
+by synthetic tests alone.
 
 ## Building and checking
 
 For the portable package, from the repository root:
 
 ```sh
-swift build --package-path ios/UsageLimitsKit
 swift test --package-path ios/UsageLimitsKit
 ```
 
@@ -49,21 +48,20 @@ xcodebuild build -scheme UsageLimits -destination 'generic/platform=iOS Simulato
 
 The iOS workflow is configured to test the package on Linux and macOS, build the
 app with the real SDK, check the embedded widget and run simulator UI tests.
+The real SDK job starts only after the Linux checks pass; macOS package tests run
+independently to cover Darwin-specific code.
 The Linux `ios/Tools/typecheck-app.sh` script provides an additional check with
 framework shims; a pass there does not establish an Xcode build or UI behavior.
-The final local audit passed 456 package tests and the app/widget shim type check.
-Real-SDK, iPhone/iPad, landscape and large-text CI results remain pending.
 
-See [verification.md](../docs/verification.md) for the observed local results and
-remaining device checks, and [release.md](../docs/release.md) for unsigned archives,
-distribution signing and release requirements.
+See the [release guide](../docs/release.md) for unsigned archives, distribution signing
+and the [device checklist](../docs/release.md#device-checklist).
 
 ## Marketing screenshots
 
 Run the manual **Marketing screenshots** workflow to capture the actual SwiftUI app on an
-iPhone and an iPad simulator. The `ios-marketing-screenshots` artifact contains five PNGs and
+iPhone and an iPad simulator. The `ios-marketing-screenshots` artifact contains seven PNGs and
 `CAPTURE.txt` with the source commit and simulator models. The phone captures Overview,
-Accounts, Resets and Settings; the iPad captures Overview.
+Accounts, Resets, Settings, and the custom layout before and after restoration; the iPad captures Overview.
 
 The separate `UsageLimitsScreenshots` test scheme launches a Debug build with
 `-marketing-demo`. This uses five synthetic accounts in memory, a fixed clock and a visible

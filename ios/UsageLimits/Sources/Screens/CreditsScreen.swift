@@ -86,6 +86,9 @@ struct CreditCard: View {
     var body: some View {
         UsageCard {
             HStack(spacing: 10) {
+                ProviderMark(assetName: entry.account.provider.iconAssetName)
+                    .frame(width: 30, height: 30)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: entry.account.label)
                         .usageFont(.section)
@@ -216,26 +219,32 @@ struct AddCreditSheet: View {
         UsageCard(padding: 0, spacing: 0) {
             ForEach(Array(CreditProviderID.allCases.enumerated()), id: \.offset) { index, option in
                 if index > 0 { LedgerDivider() }
-                Button { provider = option } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(verbatim: option.displayName)
-                                .usageFont(.section)
-                                .foregroundStyle(UsageColors.ink)
-                            Text(verbatim: option.keyHint)
-                                .usageFont(.small)
-                                .foregroundStyle(UsageColors.muted)
+                HStack(spacing: 12) {
+                    Button { provider = option } label: {
+                        HStack(spacing: 12) {
+                            ProviderMark(assetName: option.iconAssetName)
+                                .frame(width: 30, height: 30)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(verbatim: option.displayName)
+                                    .usageFont(.section)
+                                    .foregroundStyle(UsageColors.ink)
+                                Text(verbatim: option.keyHint)
+                                    .usageFont(.small)
+                                    .foregroundStyle(UsageColors.muted)
+                            }
+                            Spacer()
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(UsageColors.faint)
-                            .accessibilityHidden(true)
+                        .frame(minHeight: 56)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 56)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    Button("Open") { openURL(URL(string: option.consoleURL)!) }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Open \(option.displayName) key page")
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 56)
             }
             ForEach(CreditProviderID.notPossible) { option in
                 LedgerDivider()

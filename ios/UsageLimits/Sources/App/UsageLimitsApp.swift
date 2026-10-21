@@ -63,9 +63,7 @@ struct UsageLimitsApp: App {
                 } message: {
                     Text(verbatim: store.lastError ?? "")
                 }
-                // The widget's links. The scheme is declared in `CFBundleURLTypes`; without
-                // that declaration the system cannot route these at all and every tap on a
-                // tile does nothing, which is what it did before this existed.
+                // Widget links require the usagelimits scheme in CFBundleURLTypes for system routing.
                 .onOpenURL { url in
                     Task { await handle(url) }
                 }

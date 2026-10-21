@@ -10,13 +10,19 @@ import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.network.ProviderException
+import androidx.work.WorkManager
+import com.usagelimits.UsageLimitsActivity
+import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.oauth.SignInKeepAliveService
+import com.usagelimits.feature.settings.AppIcon
 import com.usagelimits.providers.LoginChallenge
 import com.usagelimits.providers.ProviderProfile
 import com.usagelimits.providers.ProviderRegistry
 import com.usagelimits.providers.UsageProvider
 import com.usagelimits.providers.UsageResult
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -26,6 +32,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
 
 /**
  * A browser redirect lands on a socket in this process, which the cached-apps freezer would
@@ -118,6 +125,41 @@ class SignInKeepAliveTest {
             vm.cancel()
             idle()
         }
+    }
+
+    /** The activity needs the real application; its start-up work must not outlive the test. */
+    @After
+    fun drainStartupWork() {
+        val realApp = app as? UsageLimitsApp ?: return
+        ShadowLooper.idleMainLooper()
+        runBlocking { realApp.startupJob?.join() }
+        ShadowLooper.idleMainLooper()
+        WorkManager.getInstance(realApp).cancelAllWork().result.get()
+    }
+
+    @Test
+    @Config(application = UsageLimitsApp::class)
+    fun `a device code login holds the pending icon switch until it ends`() {
+        AppIcon.select(AppIcon.GAUGE_COIN)
+        val vm = viewModelFor(FakeProvider(LoginChallenge.DeviceCode("ABCD|x", "https://example.test/d", null, 0L, 5000L)))
+        vm.startLogin(app, ProviderId.CLAUDE)
+        idle()
+        assertEquals(true, SignInKeepAliveService.signingIn)
+
+        val activity = Robolectric.buildActivity(UsageLimitsActivity::class.java).create().start().resume()
+        activity.pause().stop()
+        assertEquals(AppIcon.CURRENT, AppIcon.current(app))
+        assertEquals(AppIcon.GAUGE_COIN, AppIcon.pending)
+
+        vm.cancel()
+        idle()
+        assertEquals(false, SignInKeepAliveService.signingIn)
+        activity.restart().resume().pause().stop()
+        assertEquals(AppIcon.GAUGE_COIN, AppIcon.current(app))
+        assertNull(AppIcon.pending)
+        activity.destroy()
+        AppIcon.select(AppIcon.CURRENT)
+        AppIcon.applyPending(app)
     }
 
     @Test

@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
@@ -35,6 +36,7 @@ import com.usagelimits.ui.components.ScreenTitle
 import com.usagelimits.ui.components.Segment
 import com.usagelimits.ui.components.SegmentedRow
 import com.usagelimits.ui.components.SectionHeader
+import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.theme.UsageColors
@@ -59,6 +61,7 @@ fun SettingsScreen(
     onProviderIconChange: (com.usagelimits.core.model.ProviderId, String) -> Unit = { _, _ -> },
 ) {
     val settings = state.settings
+    val uriHandler = LocalUriHandler.current
 
     LazyColumn(
         modifier = modifier
@@ -70,6 +73,7 @@ fun SettingsScreen(
         item { ScreenTitle("Settings") }
 
         item { ProviderIconSettings(settings.providerIcons, onProviderIconChange) }
+        item { AppIconSettings() }
         item { SectionHeader("Sync") }
         item {
             UsageCard {
@@ -211,6 +215,7 @@ fun SettingsScreen(
             }
         }
         item { BackgroundRefreshCard() }
+        item { TextAction("GitHub · ZepiGit", { uriHandler.openUri("https://github.com/ZepiGit") }, color = UsageColors.Muted) }
     }
 }
 

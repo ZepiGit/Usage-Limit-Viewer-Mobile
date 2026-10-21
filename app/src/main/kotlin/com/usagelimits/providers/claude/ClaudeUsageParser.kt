@@ -79,15 +79,18 @@ object ClaudeUsageParser {
         val primary = parseLimits(payload)
         val supplemental = parseFlatWindows(payload) + discoverUnknownWindows(payload)
         // Equal reset times do not establish equal identity or model scope.
-        val byId = linkedMapOf<String, UsageWindow>()
-        for (window in primary + supplemental) {
-            val previous = byId[window.id]
+        val byId = primary.associateByTo(linkedMapOf()) { it.id }
+        for (window in supplemental) {
+            // Flat codenames and scoped limits can name the same pool with different IDs.
+            val id = if (window.id in byId) window.id else primary.firstOrNull {
+                it.label.trim().equals(window.label.trim(), ignoreCase = true)
+            }?.id ?: window.id
+            val previous = byId[id]
             if (previous == null || (previous.remainingPercent == null && window.remainingPercent != null)) {
-                byId[window.id] = window
+                byId[id] = window.copy(id = id)
             }
         }
         return byId.values.toList()
-
     }
 
     /** Distinguishes malformed explicit measurements from legitimately missing values. */

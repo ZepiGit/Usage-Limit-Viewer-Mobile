@@ -64,19 +64,9 @@ public actor AccountRepository {
         self.fileURL = directory.appendingPathComponent(fileName)
     }
 
-    /// Loads once, and treats "could not read" as unfinished rather than as done.
-    ///
-    /// This used to set `isLoaded = true` before knowing the outcome, while `load` turned every
-    /// failure into an empty dictionary. One transient read error therefore emptied the list for
-    /// the lifetime of the process and never tried again — and the file is not merely a usage
-    /// cache that a sync could rebuild. It is the ACCOUNT REGISTER: it names the credential
-    /// reference for each account, so losing it strands keychain entries no row points at any
-    /// more. Worse, the next `upsert` would then persist a candidate built on an empty base and
-    /// overwrite the real register with one account.
-    ///
-    /// A missing file is a genuine empty state and completes the load. A file that exists and
-    /// will not read, or will not decode, leaves this unloaded so the next call retries, and
-    /// arms the guard that stops a write from destroying what could not be read.
+    /// Load the account register once successfully; retry unreadable or corrupt files.
+    /// Only a missing file is an empty register. A failed read must block writes, since
+    /// overwriting an unread register can strand the credentials its accounts reference.
     private func ensureLoaded() {
         guard !isLoaded else { return }
         switch Self.load(from: fileURL) {

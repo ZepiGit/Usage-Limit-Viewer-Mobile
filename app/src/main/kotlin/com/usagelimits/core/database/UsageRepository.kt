@@ -6,6 +6,7 @@ import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ResetCredit
 import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
+import com.usagelimits.core.model.UsageSegment
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
@@ -82,7 +83,11 @@ class UsageRepository(
         val exhausted: Boolean = false,
         val group: String? = null,
         val scope: String? = null,
+        val segments: List<StoredSegment> = emptyList(),
     )
+
+    @Serializable
+    private data class StoredSegment(val label: String, val usedPercent: Double)
 
     @Serializable
     private data class StoredCredit(
@@ -271,12 +276,8 @@ class UsageRepository(
         }
 
     /**
-     * Null for a provider this build does not know.
-     *
-     * It used to substitute Codex, which handed the account Codex's label, Codex's reset-credit
-     * button, and — worse — routed its credentials to the Codex implementation on the next
-     * sync. A row this build cannot interpret is left out of every list until a build that
-     * can read it comes along; it is never relabelled as something it is not.
+     * Null for an unsupported provider: routing its credentials to another provider is unsafe.
+     * The account stays hidden until a build can interpret its provider.
      */
     private fun AccountEntity.toDomain(): ProviderAccount? {
         val providerId = ProviderId.fromId(provider) ?: return null
@@ -340,9 +341,11 @@ class UsageRepository(
         exhausted = exhausted,
         group = group,
         scope = scope.name,
+        segments = segments.map { StoredSegment(it.label, it.usedPercent) },
     )
 
     private fun StoredWindow.toDomain(provider: ProviderId?, hasLegacyXaiOnDemand: Boolean) = UsageWindow(
+        segments = segments.map { UsageSegment(it.label, it.usedPercent) },
         id = id,
         label = label,
         category = runCatching { WindowCategory.valueOf(category) }
