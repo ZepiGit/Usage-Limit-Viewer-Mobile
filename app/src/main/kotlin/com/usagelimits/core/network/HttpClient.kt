@@ -112,9 +112,7 @@ class HttpClient(
             }
             attempt++
         }
-        // Unreachable: every catch above throws on the final attempt, so the loop cannot
-        // exit normally. Kept because the compiler needs the function to end in a value or a
-        // throw; the variable that used to be carried here was only ever written.
+        // Every final attempt throws; the compiler still requires a terminal expression.
         throw ProviderException.Unexpected("request failed")
     }
 
@@ -130,25 +128,12 @@ class HttpClient(
         val builder = Request.Builder().url(url)
         headers.forEach { (k, v) -> builder.header(k, v) }
 
-        // OkHttp recovers from connection trouble on its own, below the loop above, and that
-        // recovery has two halves which must be told apart for a grant the server accepts
-        // once. Route fallback happens BEFORE any request byte leaves the device: the host
-        // resolved to several addresses and the first would not connect, or a pooled socket
-        // refused to open a stream. Switching it off along with the dangerous half — as the
-        // first version of this did — turned every token exchange on a phone whose first,
-        // usually IPv6, route is dead into "No network connection": the exchange that used to
-        // move on to the next address now died on the first. The dangerous half is the resend
-        // AFTER the request was written and its reply lost; delivery is unknown then, and a
-        // second presentation of a spent grant can cost the account. OkHttp draws exactly that
-        // line for a body that declares itself one-shot: route failures still fall through to
-        // the next route, and a failure after the send is final.
+        // One-shot bodies allow route fallback before transmission, but prevent replay after
+        // transmission when delivery is unknown and a second presentation can spend the grant twice.
         builder.method(method, if (oneTimeGrant && body != null) OneShotBody(body) else body)
 
-        // The grant also gets a connection of its own rather than one from the pool. A pooled
-        // socket the far end has silently dropped — a NAT mapping expiring while the user was
-        // in the browser — fails only after the request is written, which is the one case
-        // that can no longer be retried. A fresh connection cannot be stale, and the pool it
-        // comes from evicts it as soon as the reply is read. `newBuilder` keeps the dispatcher.
+        // A dedicated connection avoids stale pooled sockets failing after a one-time grant is sent.
+        // The pool evicts it after the reply; newBuilder preserves the dispatcher.
         var exchangeStarted = false
         var connectionFailure: IOException? = null
         val call = if (oneTimeGrant) {
@@ -218,13 +203,8 @@ class HttpClient(
             !(e is SSLHandshakeException && e.cause is CertificateException)
 
     /**
-     * Says WHERE a request died and HOW, without any of the exception's own text: OkHttp's
-     * messages carry the URL, and a token URL belongs on neither a screen nor a log.
-     *
-     * "No network connection" used to be the one answer for every transport failure, which
-     * sent a user whose connection was fine off to check their Wi-Fi while the real cause —
-     * a resolver that blocks the host, a handshake the edge refused, a reply that never came
-     * — stayed invisible. The host is safe to name; nothing else from the wire is.
+     * Describes the failing host and transport stage without exception text.
+     * OkHttp messages may contain sensitive URLs; only the host is safe to display.
      */
     private fun describeTransportFailure(url: String, e: IOException): String {
         val host = runCatching { java.net.URI(url).host }.getOrNull() ?: "the provider"
@@ -298,6 +278,8 @@ class HttpClient(
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            // Keep route fallback on: with it off, a dead first (usually IPv6) route fails every
+            // token exchange as "No network connection". OneShotBody still blocks replay after send.
             .retryOnConnectionFailure(true)
             .build()
     }

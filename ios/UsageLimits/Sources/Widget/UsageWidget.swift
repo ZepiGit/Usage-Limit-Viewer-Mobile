@@ -187,15 +187,8 @@ struct UsageProvider: TimelineProvider {
 }
 // MARK: - Snapshot cache
 
-/// Reads the snapshot the main app writes into the shared App Group container.
-///
-/// The decoding itself lives in `UsageLimitsKit`, not here. A private wire format beside its
-/// only reader looks tidier, and the first version of this file had one — but it recomputed the
-/// snapshot's derived members on read, using rules that had drifted from the ones the app
-/// applies. The same data then produced one verdict in the app and another on the home screen,
-/// and the headline rows could not be shown at all because the format did not carry them.
-///
-/// The snapshot is already the reduced, decided view. It travels whole.
+/// Read the app's complete reduced snapshot from the App Group container through the
+/// shared kit codec. Recomputing derived values here could disagree with the app.
 enum SnapshotCache {
 
     /// The App Group identifier shared by the app and this extension. One named constant, so
@@ -225,14 +218,8 @@ enum SnapshotCache {
 
 // MARK: - Snapshot lead
 
-/// The account and row the small tiles talk about — chosen by the kit, not here.
-///
-/// The widget used to re-rank accounts with a private urgency scale that disagreed with
-/// `GlanceModel.urgency` (it put error and stale above healthy; the kit puts them below), and
-/// then printed `snapshot.nextResetAt` — which the kit computed for ITS first account — next
-/// to whichever account the local ranking had promoted. The medium tile read "Resets 14:05"
-/// beside a Claude row when 14:05 was Codex's clock. One ranking, one owner: the lead is
-/// `accounts.first`, and its headline rows and reset are the ones the kit paired with it.
+/// Use the kit's leading account, headline rows and reset together so the reading
+/// and its reset always belong to the same account.
 private struct WidgetFocus {
     let account: GlanceAccount
     /// The kit's headline for the lead: the five-hour row when it has one, else the longer.
@@ -416,12 +403,8 @@ enum DeepLink {
 
 // MARK: - Shared views
 
-/// Yields the track's opacity in accented and monochrome host renderings (WGT-004).
-///
-/// `widgetRenderingMode` exists only on iOS 17 while these views ship as far back as iOS 16,
-/// so the environment read lives inside an availability-gated modifier — the same shape as
-/// `widgetBackground` below. A pre-17 host never offered accented rendering and keeps the
-/// full-opacity track it always had.
+/// Track opacity for accented and monochrome host renderings.
+/// The environment read is availability-gated for iOS 17; iOS 16 keeps full-opacity tracks.
 private struct AccentedTrackYield: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {

@@ -11,15 +11,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * The Resets list keys its rows by identity, not by display text.
- *
- * Window labels are provider strings and repeat freely — Antigravity names one bucket
- * "Weekly" per quota group, so a single account routinely reports two of them. When two such
- * windows also share a reset instant (a plan-anchored weekly boundary shared across model
- * families), the old `accountId-label-resetAt` key collided and Compose's
- * SaveableStateHolder threw "Key ... was used multiple times", crashing the whole tab on open
- * and on every reopen until the payload changed. `UsageWindow.id` is unique per account, so
- * carrying it through is what makes the key safe.
+ * Resets list keys use window identity because provider labels and reset instants
+ * can repeat within one account. UsageWindow.id distinguishes those windows.
  */
 class UpcomingResetKeyTest {
 

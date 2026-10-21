@@ -212,8 +212,7 @@ private struct ConfiguredRingGrid: View {
             if entry.outcome == .ready {
                 grid
             } else {
-                // The rings used to render nothing at all when the selection came up empty —
-                // not even a word. The captured outcome says which nothing it is.
+                // Render the captured empty-selection outcome so its cause remains visible.
                 WidgetEmptyStateView(reason: entry.outcome, ink: ink)
             }
         }
@@ -231,10 +230,8 @@ private struct ConfiguredRingGrid: View {
                             let limit = account.representative(at: entry.date)
                             let severity = account.displaySeverity(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter)
                             ZStack {
-                                // In accented/monochrome renderings the host recolors both
-                                // circles white at full opacity, and a partly filled ring read
-                                // as full. The track drops its own opacity in those modes so
-                                // the arc's geometry carries the amount. (WGT-004)
+                                // Reduce track opacity in accented/monochrome modes: the host can recolor both
+                                // circles white, so opacity must distinguish the track from the amount.
                                 Circle().stroke(ink.track, lineWidth: mini ? 4 : 5).opacity(trackOpacity)
                                 if let arc = ink.bar(severity) {
                                     Circle().trim(from: 0, to: CGFloat((limit?.remainingPercent ?? 0) / 100))
@@ -267,9 +264,7 @@ private struct ConfiguredRingGrid: View {
                                     }
                                     if account.connectionStatus == .reconnectRequired { Text("Reconnect").usageFont(.micro) }
                                     else if let message = account.statusMessage { Text(verbatim: message).usageFont(.micro).lineLimit(2) }
-                                    // Overdue-aware and date-aware: a passed reset says so, a
-                                    // reset days out carries its date, not a bare clock time
-                                    // that could mean any day. (WGT-007)
+                                    // Passed resets need an overdue label; future-day resets need a date, not only a time.
                                     else if let reset = GlanceText.resetLine(resetAt: limit?.resetAt, now: entry.date) {
                                         Text(verbatim: reset).usageFont(.micro).lineLimit(1)
                                     }

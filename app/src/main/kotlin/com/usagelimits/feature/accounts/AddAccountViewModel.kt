@@ -147,12 +147,8 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
         val deviceCodeAlternative = container.providerRegistry.forId(providerId) is DeviceCodeLoginCapable
         loginJob = viewModelScope.launch {
             _state.value = AddAccountState.Starting(providerId)
-            // The previous attempt has to be GONE, not merely told to go. Its listener is
-            // closed in a `finally` that runs on another thread some time after `cancel()`
-            // returns, and a retry that raced it found the pinned port still bound — which
-            // Codex answers by quietly switching to the device flow, and Claude answers with
-            // a failure — or had its freshly stored PKCE pair wiped by the old attempt's
-            // clean-up. Waiting here makes the retry start from a clean provider.
+            // Wait for cancellation cleanup before retrying: the listener must release its pinned
+            // port and finish clearing PKCE state before a new attempt creates either.
             previous?.join()
             var keepAlive: Long? = null
             try {

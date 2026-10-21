@@ -123,7 +123,7 @@ final class NotificationEvaluatorTests: XCTestCase {
     }
 
     func testStateWrittenBeforePerWindowEpisodesStillLoads() throws {
-        // A ledger from before this change has no `windows` key. It must decode, not wipe.
+        // A legacy ledger without the windows key must decode without losing state.
         let legacy = Data(#"{"accountId":"a","lowQuotaEpisode":3,"lowQuotaActive":true}"#.utf8)
         let state = try JSONDecoder().decode(NotificationEvaluator.AccountState.self, from: legacy)
         XCTAssertEqual(state.lowQuotaEpisode, 3)
@@ -207,9 +207,7 @@ final class NotificationEvaluatorTests: XCTestCase {
     }
 
     func testACrashPastTenIsHeardByAUserWithOnlyTheTwentyTier() {
-        // The urgent case used to be the silent one: the warning line was blanked whenever the
-        // critical tier was reached, and the critical line was withheld because its own setting
-        // was off, so a drop from 40 % to 8 % produced nothing at all.
+        // The enabled warning tier must still alert at critical usage when the critical tier is off.
         var onlyWarning = settings
         onlyWarning.notifyBelow10Percent = false
 
@@ -580,14 +578,8 @@ final class NotificationEvaluatorTests: XCTestCase {
             "the silenced one still has its keys claimed")
     }
 
-    /// Unmuting resumes; it does not replay — and it does not restate either.
-    ///
-    /// A mute is a disabled setting scoped to one account, and it follows the rule every
-    /// disabled setting here follows: the keys are claimed, blank, while it is off. So the
-    /// thresholds crossed during the mute are spent, and lifting it announces only what
-    /// happens NEXT. The first version of this test expected the current tier to be restated
-    /// once on unmute; that was the "drop the events" implementation describing itself, and
-    /// it contradicted the rule the rest of the evaluator is built on.
+    /// Muted accounts claim crossed thresholds without posting. Unmuting announces only
+    /// future threshold crossings, rather than replaying or restating current usage.
     func testUnmutingDoesNotAnnounceAThresholdCrossedWhileMuted() {
         var muted = settings
         muted.mutedAccountIDs = ["acct"]

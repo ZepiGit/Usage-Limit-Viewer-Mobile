@@ -560,12 +560,7 @@ public enum NotificationEvaluator {
             let minutes = Int(ceil(remaining / 60))
             events.append(Event(
                 accountId: accountId,
-                // Milliseconds as an integer, which is what Kotlin's `resetAt.toString()`
-                // spells — its resetAt is already a Long of epoch milliseconds. This used to
-                // interpolate a `TimeInterval`, so the same reset produced
-                // "…|1757003600.0" here and "…|1757003600000" there. The keys are per
-                // platform, so that divergence notified nobody twice; it did mean the two
-                // ledgers could never be compared, and a shared fixture could not pin either.
+                // Use integer epoch milliseconds to match Kotlin resetAt and keep ledger keys comparable.
                 key: "\(accountId)|\(keys[window.id] ?? "")"
                     + "|reset-approaching|\(Int((resetAt.timeIntervalSince1970 * 1000).rounded()))",
                 line: settings.notifyOnResetApproaching

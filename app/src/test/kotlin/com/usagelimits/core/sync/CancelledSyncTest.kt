@@ -20,16 +20,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * A cancelled sync must leave no trace, and it used to leave error cards.
- *
- * `CancellationException` is an ordinary `Exception` on the JVM, so `syncAccount`'s catch-all
- * swallowed it and persisted "Unexpected error while refreshing" for every account still in
- * flight. WorkManager cancels periodic work routinely — a constraint lost, doze, the system
- * reclaiming the worker — so the user would open the app to failed accounts that had never
- * actually failed. Nothing here was broken except the record of it.
- *
- * `recordFailure` already rethrew cancellation for precisely this reason, which is what makes
- * the omission one level up an oversight rather than a decision.
+ * Cancellation must not persist account failures. CancellationException is an Exception
+ * on the JVM, so catch-all handling must distinguish routine worker cancellation.
  */
 class CancelledSyncTest {
 

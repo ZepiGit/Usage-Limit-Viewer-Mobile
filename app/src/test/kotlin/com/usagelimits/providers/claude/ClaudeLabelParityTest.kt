@@ -41,11 +41,7 @@ class ClaudeLabelParityTest {
 
     @Test
     fun `a label is cut by grapheme, exactly where the iOS twin cuts it`() {
-        // The previous version of this test pinned the WRONG answer: it expected 47 with the
-        // emoji dropped, because `take` counted UTF-16 units and the fix then discarded the
-        // stranded half. Swift's `prefix` counts grapheme clusters and keeps the emoji as the
-        // 48th character — and the parser's own comment said Swift was right. Now it is
-        // counted the same way, and the emoji at the boundary survives whole.
+        // Match Swift prefix by counting grapheme clusters, keeping the boundary emoji whole.
         val key = "a".repeat(47) + "😀" + "tail"
         val windows = ClaudeUsageParser.parse(
             payload("""{"$key":{"utilization":40,"resets_at":"2026-09-10T12:00:00Z"}}"""),

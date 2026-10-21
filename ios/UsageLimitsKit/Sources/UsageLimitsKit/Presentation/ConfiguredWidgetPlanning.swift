@@ -1,12 +1,8 @@
 import Foundation
 
-/// Why a configured widget has nothing (or the wrong thing) to show.
-///
-/// Selection used to collapse every failure to "empty", and the empty state then guessed: a
-/// widget whose selected account no longer exists rendered "No accounts yet" beside an app
-/// holding five healthy accounts. A widget whose preset file could not be read did the same.
-/// The outcome is decided ONCE, where the inputs are resolved, and travels with the entry —
-/// the views render this value instead of re-reading the snapshot file while being archived.
+/// The configured widget's display outcome, including why a selection is empty.
+/// Resolve it once with the inputs and carry it with the entry; views must not reread
+/// files while being archived or guess the cause of missing content.
 public enum ConfiguredSelectionOutcome: Sendable, Equatable {
     /// The selection resolved against a loaded snapshot.
     case ready
@@ -24,14 +20,9 @@ public enum ConfiguredSelectionOutcome: Sendable, Equatable {
     case corruptSource
 }
 
-/// Everything one configured-widget timeline request needs, captured once.
-///
-/// The provider used to reload the snapshot file and the preset file for EVERY entry it built
-/// — six or seven reads per timeline — and each completed read was a fresh generation. If the
-/// app published between two of them, one timeline mixed generations and could replay an
-/// unintended transition at an arbitrary scheduled date. A request now captures its inputs
-/// exactly once and derives every entry from that capture; the NEXT request, not an arbitrary
-/// future entry, adopts new input generations.
+/// Capture snapshot and preset inputs once per configured timeline request.
+/// Every entry uses this generation; a later request adopts new publications so a
+/// single timeline cannot mix source generations.
 public struct ConfiguredWidgetCapture: Sendable, Equatable {
 
     /// What the preset resolution did. `notRead` for selections that never consult the store;

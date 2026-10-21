@@ -58,18 +58,8 @@ object WidgetUpdater {
     )
 
     /**
-     * Rebuilds every placed widget. Called after a sync pass moves the cache.
-     *
-     * Each widget on its own: one `runCatching` around all of them meant a failure in the
-     * compact widget skipped the detailed one, which then kept showing whatever it had — an
-     * account the user had just deleted, say — with nothing to say it was old.
-     *
-     * Failures are logged, not swallowed. This used to be a bare `runCatching`, so a widget
-     * that could not be refreshed for the life of an install left no trace anywhere; the
-     * symptom was a home screen frozen on the day the widget was placed and a log with nothing
-     * in it. Cancellation is not a failure and is rethrown: the calling worker is being
-     * stopped, and carrying on with a cancelled scope would only fail every remaining widget
-     * in turn.
+     * Refresh each widget independently so a failure cannot skip sibling widgets.
+     * Log failures for diagnosis; rethrow cancellation because the calling worker is stopping.
      */
     suspend fun refreshAll(context: Context) {
         for (placed in allWidgets) {

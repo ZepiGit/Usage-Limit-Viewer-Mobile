@@ -52,15 +52,8 @@ class SyncEngine(
     private val mutexGuard = Mutex()
 
     /**
-     * One fetch-through-save at a time per account.
-     *
-     * Two passes over one account — the periodic worker and a pull-to-refresh, say — used to
-     * race from fetch to save with nothing between them. A fetch that returned 80 % and was
-     * slow to complete could land AFTER a later fetch that returned 5 %, and because
-     * `fetchedAt` is stamped at completion the older figure arrived wearing the newer time:
-     * the account rose from 5 % to 80 % with a reassuring fresh timestamp. Wall-clock
-     * completion time is not an ordering. Holding this lock from fetch to save makes the
-     * order of starts the order of writes, so the later attempt's figures are the ones kept.
+     * Serialize fetch through save per account: completion timestamps cannot order overlapping
+     * requests, and a slow earlier fetch must not overwrite a later result.
      */
     private val accountLocks = mutableMapOf<String, Mutex>()
 
@@ -122,17 +115,8 @@ class SyncEngine(
             )
             SyncOutcome(account.localId, success = result.status != SnapshotStatus.FAILED, message = result.errorMessage)
         } catch (e: CancellationException) {
-            // Cancellation is not a sync failure and must never be recorded as one.
-            //
-            // `CancellationException` IS an `Exception` on the JVM, so the catch below used to
-            // swallow it: WorkManager stopping a periodic pass — a constraint lost, doze, the
-            // system reclaiming the worker — wrote "Unexpected error while refreshing" onto
-            // every account still in flight. Accounts that were perfectly healthy came back as
-            // error cards, and swallowing it also breaks structured concurrency, since the
-            // coroutine carries on after its scope has been cancelled.
-            //
-            // `recordFailure` already rethrew it for exactly this reason; this is the same
-            // hazard one level up.
+            // Rethrow cancellation before the Exception handler: stopping work is not an account
+            // failure and must preserve structured concurrency.
             throw e
         } catch (e: ProviderException) {
             // A cancelled call reaches here too, wearing the wrong clothes: OkHttp answers
@@ -169,26 +153,6 @@ class SyncEngine(
     }
 
     /**
-     * Returns usable credentials, refreshing first if the access token is at or near expiry.
-     *
-     * The refresh is guarded by a per-account mutex and the expiry is re-checked inside the
-     * lock, so a caller that queued behind another refresh uses that result instead of
-     * spending the (now-rotated) refresh token a second time.
-     *
-     * [rejectedAccessToken] is the access token a request actually presented and the provider
-     * actually refused. It is stronger evidence than any clock, and it is the only thing that
-     * rescues an account whose provider never states an expiry: `needsRefresh` is false when
-     * `expiresAt` is null, so for such an account the proactive branch can never fire, and
-     * before this every usage call 401'd for ever with no attempt to renew. A stored expiry
-     * set too far in the future produced the same silence until that date.
-     *
-     * It is passed as the token itself rather than as a `force` flag on purpose. A concurrent
-     * pass may already have saved a DIFFERENT token, which this request never presented and
-     * nothing has refused — so it is offered first, and only the refused token costs a
-     * rotation. Presenting an already-spent refresh token is how a provider revokes the whole
-     * grant, so the difference is not academic. iOS decides it the same way.
-     */
-    /**
      * Runs [block] holding the per-reference credential lock.
      *
      * Sign-out has to take this too, and did not. `validCredentials` checks that the reference
@@ -206,6 +170,14 @@ class SyncEngine(
         return mutex.withLock { block() }
     }
 
+    /**
+     * Returns usable credentials with renewal serialized per credential reference.
+     * Reread credentials and recheck expiry inside the lock to avoid duplicate rotations.
+     * A rejected access token permits reactive renewal when expiry is missing or inaccurate;
+     * a concurrently saved different token gets one attempt before another rotation.
+     * Presenting an already-spent refresh token makes the provider revoke the whole grant,
+     * so the rejected token itself is passed rather than a force flag.
+     */
     suspend fun validCredentials(
         account: ProviderAccount,
         rejectedAccessToken: String? = null,

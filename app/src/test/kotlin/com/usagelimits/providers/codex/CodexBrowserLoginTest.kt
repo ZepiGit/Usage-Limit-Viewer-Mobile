@@ -124,8 +124,7 @@ class CodexBrowserLoginTest {
 
     @Test
     fun `unrelated callbacks are ignored until the matching redirect arrives`() = runBlocking {
-        // Deliberately replaces the old fail-on-mismatch contract: strangers must neither
-        // exchange a code nor terminate a login that the real browser can still complete.
+        // Unrelated callbacks must neither exchange a code nor terminate the pending login.
         val bodies = mutableListOf<String>()
         val provider = CodexProvider(answering(tokenJson, bodies))
         val challenge = provider.beginLogin() as LoginChallenge.Redirect

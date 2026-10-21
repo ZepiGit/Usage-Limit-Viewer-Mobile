@@ -114,13 +114,8 @@ data class UsageUiState(
 
     /** The single most-depleted window anywhere — what the summary card leads with. */
     /**
-     * The soonest rollover still ahead for ONE account — the one the summary card leads with.
-     *
-     * The card puts "Next reset" beside the most-depleted window, separated by a hairline, and
-     * a fleet-wide minimum there read "Next reset 12m | 0% Weekly left": an invitation to
-     * believe the exhausted weekly limit returns in twelve minutes, when the twelve minutes
-     * belonged to a healthy account's five-hour window. The widget fixed exactly this pairing
-     * by scoping its reset to the leading account; the card now does the same.
+     * The leading account owns the summary reset time. A fleet-wide reset could imply
+     * that an exhausted limit resets when an unrelated healthy account does.
      */
     fun nextResetAt(nowMs: Long, accountId: String): Long? =
         accounts.firstOrNull { it.account.localId == accountId }
@@ -379,13 +374,10 @@ class UsageViewModel(
     fun setSyncInterval(minutes: Int) {
         viewModelScope.launch {
             container.settingsStore.setSyncInterval(minutes)
-            // Writing the preference alone changed nothing: schedulePeriodic is otherwise
-            // called once at process start, so a new interval only took effect after the app
-            // was killed. UPDATE keeps the existing schedule rather than firing immediately.
+            // Apply interval changes immediately. UPDATE preserves the existing schedule
+            // rather than starting an immediate pass.
             SyncWorker.schedulePeriodic(appContext, minutes)
-            // Staleness is derived from this interval at render time, so a widget composed
-            // under the old interval kept calling a 45-minute-old snapshot stale for hours
-            // after the app's own screen had turned it green.
+            // Staleness uses this interval at render time, so repaint widgets when it changes.
             WidgetUpdater.refreshAll(appContext)
         }
     }

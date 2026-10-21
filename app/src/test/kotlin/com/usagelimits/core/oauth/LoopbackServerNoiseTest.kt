@@ -14,14 +14,8 @@ import java.net.Socket
 import java.net.SocketException
 
 /**
- * Every process on the device can reach 127.0.0.1, so the listener has to survive strangers.
- *
- * It used to treat the first connection as the answer. Since the caller throws "state mismatch"
- * on a response carrying no state, a single `curl http://127.0.0.1:PORT/` from any app on the
- * phone ended a sign-in in progress — and no malice was required, because a browser opens more
- * than one connection to a page and a favicon fetch does the same thing by accident.
- *
- * The iOS twin was written this way from the start; this is the Android side catching up.
+ * Other apps and browser favicon requests can reach the loopback port.
+ * Unrelated requests must not terminate a pending login.
  */
 class LoopbackServerNoiseTest {
 

@@ -5,11 +5,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * The subscription tier, spelled the same way whichever provider supplied it.
- *
- * Anthropic hands back `default_claude_max_5x` and OpenAI hands back a bare `plus`. The Codex
- * path used to pass its value straight through, so one account read "OpenAI Codex plus" while
- * the Claude beside it read "Claude Max 5×" — same screen, same row, different conventions.
+ * Provider tier names use the same display conventions across accounts, including
+ * Anthropic's default_claude_max_5x and OpenAI's plus.
  */
 class PlanLabelTest {
 

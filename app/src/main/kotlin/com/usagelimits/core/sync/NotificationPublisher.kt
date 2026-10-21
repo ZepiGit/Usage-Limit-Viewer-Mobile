@@ -132,25 +132,16 @@ class NotificationPublisher(
         val standingPrefs = context.getSharedPreferences(STANDING_PREFS, Context.MODE_PRIVATE)
         val lastStanding = standingPrefs.getString(STANDING_FINGERPRINT, null)
         val standingNow = fingerprint(outcome.standingFindings)
-        // The fingerprint records what is TRUE, and is updated whether or not anything posts.
-        // It used to be written only after the post decision, so a refresh that found the
-        // condition gone — credits spent, nothing to say — returned early and left the old
-        // fingerprint behind. When the condition came back unchanged it matched that stale
-        // fingerprint, read as "already posted", and was never posted again. Nothing is
-        // cancelled here: a cleared condition takes nothing out of the shade, it only stops
-        // pretending the shade still shows it.
+        // Update the fingerprint even when nothing posts, so a cleared condition can alert again
+        // if it returns. Clearing a condition does not dismiss an existing notification.
         if (standingNow != lastStanding) {
             standingPrefs.edit().putString(STANDING_FINGERPRINT, standingNow).apply()
         }
         if (!shouldPost(alerts, outcome.standingFindings, lastStanding)) return
 
         if (findings.isEmpty()) {
-            // Nothing new to say, and NOTHING is taken down. This used to cancel the
-            // notification, which deleted an alert the user had not yet seen: an
-            // edge-triggered "Weekly exhausted" was posted at one sync and cancelled by the
-            // next, thirty minutes later, phone face-down in a pocket — and because its key
-            // was already claimed it could never be posted again. The alert lives until the
-            // user dismisses it or a later refresh has something to replace it with.
+            // Retain alerts until the user dismisses them or a later refresh replaces them;
+            // a sync with no new findings must not erase an unread alert.
             return
         }
 

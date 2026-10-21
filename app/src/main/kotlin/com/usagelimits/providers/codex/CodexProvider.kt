@@ -367,13 +367,9 @@ class CodexProvider(
         }
         val credits = dedicated ?: creditsFrom(embedded)
 
-        // The two sources are not the same payload with the same fields, which is easy to miss
-        // and was wrong here until a live account was checked. The dedicated endpoint returns
-        // `credits`, `available_count`, `total_earned_count` and no applicable count at all;
-        // the embedded copy returns `available_count` and `applicable_available_count` and no
-        // `credits` array. Reading the applicable count off whichever source answered meant it
-        // was only ever available on the FALLBACK path — the button lost its gate precisely
-        // when the authoritative call succeeded.
+        // The dedicated endpoint has credits and held counts; the embedded copy has
+        // applicable_available_count but no credits array. Merge their distinct fields
+        // so a successful dedicated read still retains the redemption gate.
         val applicable = CodexUsageParser.applicableCreditCount(embedded)
 
         // A failed optional call with no embedded copy leaves the credit count unknown. That is

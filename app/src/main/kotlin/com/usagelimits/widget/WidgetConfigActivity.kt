@@ -289,11 +289,9 @@ private fun ScopeChoice(title: String, subtitle: String, selected: Boolean, prov
 }
 
 /**
- * The panel controls: a colour, how much of it, and which ink to write on it.
- *
- * Opacity is a slider rather than the old on/off switch because "a little wallpaper through"
- * is what most people actually want, and a switch cannot say it. The ink follows the colour
- * on its own; the override is for a see-through widget on a wallpaper the guess gets wrong.
+ * The panel controls: colour, opacity and ink.
+ * A slider allows partial transparency; explicit ink overrides handle wallpapers
+ * whose contrast differs from the selected panel colour.
  */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)

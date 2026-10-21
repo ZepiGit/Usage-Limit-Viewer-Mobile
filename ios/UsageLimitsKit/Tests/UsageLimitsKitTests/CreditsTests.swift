@@ -403,7 +403,7 @@ final class CreditsTests: XCTestCase {
         XCTAssertEqual(CreditThresholdField.parse("5.5", locale: usEnglish)?.value, dec("5.5"))
         // The display of a stored figure parses back to it.
         XCTAssertEqual(CreditThresholdField.parse(CreditThresholdField.display("12.25", locale: german), locale: german)?.value, dec("12.25"))
-        // "5.5" under de_DE used to read as 5; now it is rejected, as is anything not wholly numeric.
+        // Reject partially parsed or nonnumeric input, including 5.5 under de_DE.
         for text in ["5.5", "5,5x", "abc", "0", "-1", "1,2,3"] {
             XCTAssertNil(CreditThresholdField.parse(text, locale: german), text)
         }

@@ -24,20 +24,10 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 /**
- * Background usage refresh.
- *
- * Runs the same [SyncEngine] the UI uses, then pushes the refreshed cache into the widgets.
- * A pass where *some* accounts succeeded returns success — [SyncEngine] already recorded each
- * per-account error, and asking WorkManager to retry would double the request rate against a
- * provider that is already failing. A periodic pass where *every* account failed returns retry,
- * since that points at a shared cause (offline, or the device asleep) worth backing off and
- * retrying sooner than the next period.
- *
- * A one-shot pass never asks for a retry. It is enqueued under one unique name with
- * [ExistingWorkPolicy.KEEP], so a retrying one-shot sitting in WorkManager's backoff queue
- * swallowed every later trigger — app start, `onResume`, the widget's refresh button — for as
- * long as the backoff lasted. The user tapped refresh and nothing happened. The failure is
- * already recorded against each account; the next trigger should simply run.
+ * Background sync shares SyncEngine with the UI and publishes the refreshed cache.
+ * Partial success returns success; an all-failed periodic pass may retry.
+ * One-shots finish without retry so KEEP cannot block later user triggers during backoff.
+ * Each failure is already recorded per account.
  */
 class SyncWorker(
     context: Context,

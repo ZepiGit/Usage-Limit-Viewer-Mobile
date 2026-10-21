@@ -262,8 +262,7 @@ final class AccountRepositoryTests: XCTestCase {
     }
 
     func testAReadIsRetriedAfterItFails() async throws {
-        // `isLoaded` used to be set before the outcome was known, so one transient failure
-        // emptied the list for the life of the process and never tried again.
+        // A transient register-read failure must leave loading retryable.
         try Data("not json".utf8).write(to: accountsFile)
         let repository = AccountRepository(directory: directory)
         let duringFailure = await repository.accounts()

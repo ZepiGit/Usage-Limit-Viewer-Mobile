@@ -228,22 +228,9 @@ object WidgetDataBuilder {
             ?.toRow(fetchedAt, nowMs)
 
     /**
-     * The one long-horizon row, chosen by how much it needs attention rather than by category.
-     *
-     * This used to be `WEEKLY ?: MONTHLY ?: OTHER`, which reads as a sensible preference and is
-     * not one: the elvis short-circuits on the mere EXISTENCE of a weekly window, so an account
-     * reporting a healthy weekly limit and an exhausted monthly one showed the weekly. The
-     * monthly window was never evaluated. A user whose monthly quota had run out saw a full bar
-     * on the home screen, which is the single worst thing this app can show — and the widget is
-     * where they were most likely to look.
-     *
-     * [Severity.urgency] is the ranking, because the file that defines it says it is the one
-     * answer the overview list and the widget both use, so they cannot disagree. It also settles
-     * what an unreadable window is worth here: ERROR sits BELOW exhausted, so a window whose
-     * percentage could not be read does not displace one known to be empty. Ties go to the lower
-     * remaining percentage, and then to the better-understood category — which is what keeps
-     * OTHER, whose duration no provider documents, a last resort among equals rather than a
-     * category that can never appear.
+     * Choose the long-horizon row by urgency, then remaining percentage and category.
+     * An exhausted monthly limit must outrank a healthy weekly one; unreadable limits
+     * must not displace known exhaustion. OTHER is a last resort among equal readings.
      */
     private fun longHeadline(windows: List<UsageWindow>, fetchedAt: Long, nowMs: Long): WidgetRow? =
         windows.filter { it.category != WindowCategory.FIVE_HOUR }
