@@ -164,6 +164,7 @@ The monthly spend view, in which **every amount is an integer number of cents**:
 | Payload field | Maps to | Direction and units |
 |---|---|---|
 | `creditUsagePercent` / `credit_usage_percent` | `usedPercent` of the `xai-credits` window | **Percent CONSUMED**, 0–100, used unchanged. `34.0` renders as "66 % remaining". Absent/null → unknown; period metadata can identify a row but never supplies its percentage. |
+| `config.productUsage[]` / `product_usage[]`, each with `product` and `usagePercent` / `usage_percent` | `segments` of the `xai-credits` window | **Percent CONSUMED per product.** An entry is kept only with a non-empty product name and `0 < p ≤ 100`; the kept entries are sorted descending. The UI clamps their running sum to the window's total, so the segments never overshoot the bar. |
 | `currentPeriod.start` and `.end`, or the flat `usagePeriodStart` / `usagePeriodEnd` | `periodSeconds` (derived) and `resetAt` | Both absolute instants. The span is **measured** as `end − start`, not assumed from the `"weekly"` label; `resetAt` is `end`. An absent, unusable or inverted pair leaves the period null → `OTHER`, still rendered but not claimed to be weekly. |
 | `currentPeriod.type`, or the flat `usagePeriodType` | category when no span can be measured | `USAGE_PERIOD_TYPE_WEEKLY` in production; matched by substring (`week`, `month`), never by the exact literal. |
 | `monthlyLimit` / `monthly_limit` | denominator of the `xai-monthly` window | **Integer cents.** |

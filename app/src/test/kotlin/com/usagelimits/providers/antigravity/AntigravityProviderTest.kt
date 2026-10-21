@@ -171,6 +171,17 @@ class AntigravityProviderTest {
     }
 
     @Test
+    fun `an empty union without auth rejections reports the first host's failure`() = runBlocking {
+        try {
+            provider(listOf(404 to "{}", 503 to "{}", 0 to "{}"), mutableListOf())
+                .fetchUsage(account, credentials)
+            fail("expected the first host's failure")
+        } catch (error: ProviderException.Unexpected) {
+            assertEquals(404, error.statusCode)
+        }
+    }
+
+    @Test
     fun `all empty hosts retain the malformed payload error`() = runBlocking {
         try {
             provider(List(3) { 200 to """{"groups":[{"displayName":"Gemini Models","buckets":[]}]}""" }, mutableListOf())

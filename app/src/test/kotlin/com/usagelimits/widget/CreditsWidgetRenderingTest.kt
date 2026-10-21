@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -50,6 +51,8 @@ class CreditsWidgetRenderingTest {
         }
     }
 
+    private fun texts(view: View, text: String) = arrayListOf<View>().also { view.findViewsWithText(it, text, View.FIND_VIEWS_WITH_TEXT) }
+
     @Test fun `composes empty and with accounts at every size`() = runTest {
         val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
@@ -59,12 +62,14 @@ class CreditsWidgetRenderingTest {
             seed(app, 1)
             for (size in sizes) {
                 val view = CreditsWidget().compose(app, size = size).apply(app, FrameLayout(app))
-                val headers = arrayListOf<View>()
-                view.findViewsWithText(headers, "Credits", View.FIND_VIEWS_WITH_TEXT)
-                assertTrue("single account retains the large tile at $size", headers.isEmpty())
+                assertTrue("single account retains the large tile at $size", texts(view, "Credits").isEmpty())
+                assertTrue("single account is named at $size", texts(view, "Account 0").isNotEmpty())
             }
             seed(app, 8)
-            for (size in sizes) CreditsWidget().compose(app, size = size).apply(app, FrameLayout(app))
+            for (size in sizes) {
+                val view = CreditsWidget().compose(app, size = size).apply(app, FrameLayout(app))
+                assertEquals("list header only above the small tile at $size", size.width >= 250.dp, texts(view, "Credits").isNotEmpty())
+            }
         } finally {
             Dispatchers.resetMain()
         }

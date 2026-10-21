@@ -71,7 +71,8 @@ reset time/date. The headline horizons lead, then independently scoped and optio
 remain available in the detail. Reconnection, failed/stale data and partial updates have
 explicit warnings. `AccountLimitRows` groups and recursively splits rows to stay within
 Glance's ten-direct-child limit; a third or later limit must not disappear. The empty state
-reads "No matching accounts. Edit this widget to choose an account."
+reads "No matching accounts. Edit this widget to choose an account."; a provider-scoped
+widget whose provider has no account reads "No <Provider> account connected. Add one in the app."
 
 All four widgets use `SizeMode.Exact`. They consume the host's actual dimensions rather than
 three predefined responsive buckets. `WidgetLayout` handles Summary width/font-scale choices

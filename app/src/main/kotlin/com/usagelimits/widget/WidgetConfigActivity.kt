@@ -362,7 +362,7 @@ private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widget
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("Preview · ${snapshot.accountCount} selected", style = MaterialTheme.typography.labelMedium, color = style.textSecondary)
-            if (snapshot.accounts.isEmpty()) Text("Select accounts to see your widget", color = style.textSecondary)
+            if (snapshot.accounts.isEmpty()) Text(snapshot.emptyMessage ?: "Select accounts to see your widget", color = style.textSecondary)
             else if (kind.contains("Rings")) Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 snapshot.accounts.take(4).forEach { account ->
                     val row = ringLimit(account)

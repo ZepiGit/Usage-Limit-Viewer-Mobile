@@ -76,7 +76,7 @@ class CreditsWidget : GlanceAppWidget() {
                                 "No credit balances. Add one in the app.",
                                 style = widgetText(style.textSecondary, 12),
                             )
-                            size.width < MEDIUM.width || shown.size == 1 -> Single(shown.first(), style, size.width < MEDIUM.width)
+                            shown.size == 1 -> Single(shown.first(), style, centered = size.width < MEDIUM.width)
                             else -> {
                                 Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text(

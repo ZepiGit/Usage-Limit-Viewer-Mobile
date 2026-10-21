@@ -135,7 +135,9 @@ environment, APK hashes, screenshots, and both APKs' `aapt` metadata and
 `apksigner` verification reports. Packaging requires this runtime job to pass;
 a branch workflow's APK result does not substitute for this release-artifact
 check. Review the evidence's stated scope for device, widget and live-provider
-coverage.
+coverage. Re-running the release workflow after the release is published fails
+this upgrade check, because the baseline is then that release and its version
+code is not larger; bump the version instead of re-running.
 
 The workflow uses the full Git commit count as the Android version code and the
 validated manual input or tag name as the version name. The iOS archive receives

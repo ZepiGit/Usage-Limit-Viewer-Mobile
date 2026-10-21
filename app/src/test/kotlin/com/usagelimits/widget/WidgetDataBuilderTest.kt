@@ -161,6 +161,16 @@ class WidgetDataBuilderTest {
     }
 
     @Test
+    fun `provider scope with no account of that provider names the missing sign-in`() {
+        val otherProviders = all.filter { it.account.provider != ProviderId.CLAUDE }
+        val snapshot = WidgetDataBuilder.build(otherProviders, now, WidgetScope.PROVIDER, null, "claude")
+        assertEquals(0, snapshot.accountCount)
+        assertEquals("No Claude account connected. Add one in the app.", snapshot.emptyMessage)
+        assertEquals(Severity.UNKNOWN, snapshot.overallSeverity)
+        assertEquals(null, WidgetDataBuilder.build(all, now, WidgetScope.ACCOUNT, "missing", null).emptyMessage)
+    }
+
+    @Test
     fun `most critical scope leads with the worst account`() {
         val snapshot = WidgetDataBuilder.build(all, now, WidgetScope.MOST_CRITICAL, null, null)
         // "b" is at 10% remaining — the one worth showing first.

@@ -2,6 +2,7 @@ package com.usagelimits.widget
 
 import com.usagelimits.core.model.title
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WidgetScope
@@ -84,6 +85,8 @@ data class WidgetSnapshot(
      * must answer to. Null while the lead's data is trustworthy.
      */
     val leadValidity: Severity? = null,
+    /** What an empty selection means, when the widget knows; null leaves the generic hint. */
+    val emptyMessage: String? = null,
 ) {
     val selectionStatusLabel: String get() = if (accountCount > 1) "$accountCount accounts" else "Account"
     val hasPartialUpdate: Boolean get() = accounts.any { it.partialUpdate }
@@ -133,7 +136,15 @@ object WidgetDataBuilder {
             WidgetScope.ALL_ACCOUNTS, WidgetScope.MOST_CRITICAL, WidgetScope.CLOSEST_RESETS -> all
         }
 
-        if (selected.isEmpty()) return WidgetSnapshot.Empty
+        if (selected.isEmpty()) {
+            // A provider widget with nothing to match is a missing sign-in, not stale data.
+            val provider = ProviderId.fromId(providerId)?.takeIf { scope == WidgetScope.PROVIDER }
+                ?: return WidgetSnapshot.Empty
+            return WidgetSnapshot.Empty.copy(
+                overallSeverity = Severity.UNKNOWN,
+                emptyMessage = "No ${provider.displayName} account connected. Add one in the app.",
+            )
+        }
 
         val accounts = selected.map { it.toWidgetAccount(nowMs, staleAfterMs, providerIcons) }
 

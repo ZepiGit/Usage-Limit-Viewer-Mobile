@@ -188,6 +188,70 @@ final class ProviderClientTests: XCTestCase {
         }
     }
 
+    /// A quota group as the service shapes it: two buckets, ids derived from `id`.
+    private func antigravityGroup(_ id: String, _ name: String, fraction: Double = 0.5) -> String {
+        """
+        { "displayName": "\(name)", "buckets": [
+            { "bucketId": "\(id)-5h", "window": "5h", "remainingFraction": \(fraction) },
+            { "bucketId": "\(id)-weekly", "window": "weekly", "remainingFraction": \(fraction) } ] }
+        """
+    }
+
+    private func antigravityWindows(_ replies: [(status: Int, body: String)]) async throws -> [UsageWindow] {
+        let (http, _) = client(replies)
+        return try await AntigravityClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: ["project_id": "p"]).windows
+    }
+
+    /// A retry budget spent on a shard that does not serve the account only delays the one
+    /// that does: the fallbacks are asked once, whatever the client's budget.
+    func testSecondaryHostsAreAskedOnceWhateverTheRetryBudget() async throws {
+        let transport = Transport([
+            (200, #"{"groups":[\#(antigravityGroup("gemini", "Gemini Models"))]}"#), (503, ""), (429, ""),
+        ])
+        let http = UsageHTTPClient(transport: transport, maxRetries: 2, now: { [now] in now })
+
+        let result = try await AntigravityClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: ["project_id": "p"])
+
+        XCTAssertEqual(result.windows.map(\.id), ["gemini-5h", "gemini-weekly"])
+        let urls = await transport.requests.compactMap { $0.url?.absoluteString }
+        XCTAssertEqual(urls, ProviderEndpoints.Antigravity.quotaURLs)
+    }
+
+    func testEveryHostContributesWindowsAndTheFirstMeasurementWinsForDuplicateIDs() async throws {
+        let windows = try await antigravityWindows([
+            (200, #"{"groups":[\#(antigravityGroup("3p", "Claude and GPT models"))]}"#),
+            (200, #"{"groups":[]}"#),
+            (200, #"{"groups":[\#(antigravityGroup("gemini", "Gemini Models")),\#(antigravityGroup("3p", "Claude and GPT models", fraction: 0.9))]}"#),
+        ])
+
+        XCTAssertEqual(windows.map(\.id), ["3p-5h", "3p-weekly", "gemini-5h", "gemini-weekly"])
+        XCTAssertEqual(windows.first?.usedPercent, 50)
+    }
+
+    func testARealGroupFromAnotherHostReplacesThePlaceholderInEitherOrder() async throws {
+        let placeholder = #"{"groups":[{"displayName":"Gemini Models"}]}"#
+        let real = #"{"groups":[\#(antigravityGroup("gemini", "Gemini Models"))]}"#
+        for bodies in [[placeholder, real, "{}"], [real, placeholder, "{}"]] {
+            let windows = try await antigravityWindows(bodies.map { (status: 200, body: $0) })
+            XCTAssertEqual(windows.map(\.id), ["gemini-5h", "gemini-weekly"])
+        }
+    }
+
+    func testLaterHostFailuresDoNotDiscardAnEarlierSuccess() async throws {
+        let real = (status: 200, body: #"{"groups":[\#(antigravityGroup("gemini", "Gemini Models"))]}"#)
+        let later: [[(status: Int, body: String)]] = [[real, (503, ""), (401, "")], [real, (403, ""), (404, "")]]
+        for replies in later {
+            let (http, _) = client(replies)
+            let result = try await AntigravityClient(httpClient: http)
+                .fetchUsage(credentials: credentials, attributes: ["project_id": "p"])
+            XCTAssertEqual(result.windows.count, 2)
+            XCTAssertEqual(result.status, .ok)
+            XCTAssertNil(result.errorMessage)
+        }
+    }
+
     func testAMissingProjectIsAnErrorRatherThanARequestForNothing() async {
         let (http, _) = client([])
 
