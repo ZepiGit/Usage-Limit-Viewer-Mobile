@@ -62,6 +62,38 @@ class ClaudeUsageParserTest {
     // region limits is the primary source
 
     @Test
+    fun `scoped Fable and Opus limits replace their flat twins by label`() {
+        for ((flatKey, modelId, modelName) in listOf(
+            Triple("iguana_necktie", "fable", "Fable"),
+            Triple("seven_day_opus", "claude-opus-4", "Opus"),
+        )) {
+            val windows = ClaudeUsageParser.parse(JsonSupport.parseObject("""
+                { "$flatKey": { "utilization": 80, "resets_at": "2026-09-16T20:00:00Z" },
+                  "limits": [{ "kind": "weekly_scoped", "group": "weekly", "percent": 25,
+                    "scope": { "model": { "id": "$modelId", "display_name": "$modelName" } } }] }
+            """), now)
+            assertEquals(1, windows.size)
+            assertEquals("Weekly ($modelName)", windows.single().label)
+            assertEquals("seven-day-$modelId", windows.single().id)
+            assertEquals(25.0, windows.single().usedPercent!!, 0.0)
+        }
+    }
+
+    @Test
+    fun `flat measurement fills unknown primary by case insensitive label preserving id and order`() {
+        val windows = ClaudeUsageParser.parse(JsonSupport.parseObject("""
+            { "iguana_necktie": { "utilization": 42 },
+              "limits": [
+                { "kind": "session", "percent": 12 },
+                { "kind": "weekly_scoped", "percent": null,
+                  "scope": { "model": { "id": "fable-v2", "display_name": "fAbLe" } } }
+              ] }
+        """), now)
+        assertEquals(listOf("five-hour", "seven-day-fable-v2"), windows.map { it.id })
+        assertEquals(42.0, windows.last().usedPercent!!, 0.0)
+    }
+
+    @Test
     fun `limits win over the flat twins rather than duplicating them`() {
         // The flat keys describe the same quotas, so they dedupe away by id. A duplicated
         // weekly row is indistinguishable from a second real limit.
@@ -189,9 +221,7 @@ class ClaudeUsageParserTest {
     }
 
     @Test
-    fun `an unreadable scoped limit remains unknown beside a valid flat window`() {
-        // An array that yields nothing is no better than an absent one, and silently rendering
-        // an empty screen would be the worst of the three outcomes.
+    fun `an unreadable scoped limit uses the valid flat measurement without duplicating the row`() {
         val payload = JsonSupport.parseObject(
             """
             {
@@ -203,9 +233,8 @@ class ClaudeUsageParserTest {
         )
 
         val windows = ClaudeUsageParser.parse(payload, now)
-        assertNull(windows.single { it.id == "seven-day-fable" }.remainingPercent)
-        val window = windows.single { it.id == "iguana-necktie" }
-        assertEquals("iguana-necktie", window.id)
+        val window = windows.single()
+        assertEquals("seven-day-fable", window.id)
         assertEquals(5.0, window.usedPercent!!, 0.0001)
     }
 
