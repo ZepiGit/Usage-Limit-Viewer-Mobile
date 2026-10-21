@@ -73,6 +73,7 @@ fun SettingsScreen(
         item { ScreenTitle("Settings") }
 
         item { ProviderIconSettings(settings.providerIcons, onProviderIconChange) }
+        item { AppIconSettings() }
         item { SectionHeader("Sync") }
         item {
             UsageCard {

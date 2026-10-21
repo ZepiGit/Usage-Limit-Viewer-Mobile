@@ -260,10 +260,11 @@ registrations and usage endpoints. A working response does not resolve that
 review. Kimi also needs confirmation that the `UsageLimits` identity is allowed
 on its coding API; the pasted-key route does not establish that approval.
 
-Both platforms use the quota-cell and return-arrow mark in terracotta and cream. Android includes
-an adaptive icon and a monochrome variant for themed launchers; iOS builds the
-`AppIcon` asset catalog. `tools/generate_app_icons.py` regenerates its opaque PNGs
-with Pillow, a development tool that is not included in either app.
+Both platforms offer six app icons in Settings. Android includes transparent adaptive icons
+and monochrome variants for themed launchers; iOS keeps the primary app icon opaque.
+The primary iOS master is `AppIcon.appiconset/icon-1024.png`;
+`tools/generate_app_icons.py` derives its other sizes with Pillow, a development tool
+that is not included in either app.
 
 Release-key custody, live account approval, legal and store copy, and publication
 are human responsibilities outside this audit. See
