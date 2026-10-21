@@ -13,7 +13,7 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.usagelimits.MainActivity
+import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.R
 
 /**
@@ -69,7 +69,7 @@ class SignInKeepAliveService : Service() {
     }
 
     private fun openApp() = PendingIntent.getActivity(
-        this, 0, Intent(this, MainActivity::class.java),
+        this, 0, Intent(this, UsageLimitsActivity::class.java),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
@@ -117,10 +117,15 @@ class SignInKeepAliveService : Service() {
         @Volatile private var stopRequested = false
         private var lease = 0L
 
+        /** A browser login is waiting for its redirect, service or no service. */
+        @Volatile var signingIn = false
+            internal set
+
         /** Best effort: a login that cannot get the service still works, it just may stall. */
         @Synchronized
         fun start(context: Context): Long {
             stopRequested = false
+            signingIn = true
             try {
                 ContextCompat.startForegroundService(context, Intent(context, SignInKeepAliveService::class.java))
             } catch (e: RuntimeException) {
@@ -134,6 +139,7 @@ class SignInKeepAliveService : Service() {
         fun stop(context: Context, token: Long) {
             if (token != lease) return
             stopRequested = true
+            signingIn = false
             context.getSystemService(NotificationManager::class.java)?.cancel(HINT_ID)
             if (foreground) context.stopService(Intent(context, SignInKeepAliveService::class.java))
         }

@@ -20,7 +20,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.text.FontWeight
 import androidx.glance.unit.ColorProvider
-import com.usagelimits.MainActivity
+import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
 import kotlinx.coroutines.flow.first
@@ -69,7 +69,7 @@ private fun RingAccountRow(context: Context, group: List<WidgetAccount>, columns
     val style = LocalWidgetStyle.current
     Row(GlanceModifier.fillMaxWidth().height(rowHeight), verticalAlignment = Alignment.CenterVertically) {
         group.forEach { account ->
-            val action = actionStartActivity(Intent(context, MainActivity::class.java).putExtra("accountId", account.accountId))
+            val action = actionStartActivity(Intent(context, UsageLimitsActivity::class.java).putExtra("accountId", account.accountId))
             if (mini) Box(GlanceModifier.defaultWeight().fillMaxHeight().padding(2.dp).clickable(action), contentAlignment = Alignment.Center) {
                 RingMark(account, ringSize, mini = true)
             } else Row(GlanceModifier.defaultWeight().fillMaxHeight().padding(2.dp).clickable(action), verticalAlignment = Alignment.CenterVertically) {

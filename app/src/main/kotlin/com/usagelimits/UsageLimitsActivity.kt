@@ -12,11 +12,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import com.usagelimits.feature.settings.AppIcon
+import com.usagelimits.core.oauth.SignInKeepAliveService
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.navigation.UsageLimitsNavigation
 import com.usagelimits.ui.theme.UsageLimitsTheme
 
-class MainActivity : ComponentActivity() {
+class UsageLimitsActivity : ComponentActivity() {
     private val requestedAccount = androidx.compose.runtime.mutableStateOf<String?>(null)
 
 
@@ -55,6 +57,12 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Coming back to the app is a strong signal the user wants current numbers.
         SyncWorker.syncNow(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Disabling the launcher alias mid sign-in can drop the task under the browser tab.
+        if (!isChangingConfigurations && !SignInKeepAliveService.signingIn) AppIcon.applyPending(this)
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

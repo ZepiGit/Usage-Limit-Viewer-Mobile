@@ -32,4 +32,4 @@ Android uses `ProviderIconCatalog`, DataStore preferences and `drawable-nodpi/ic
 
 The packaged PNGs preserve transparency, proportions and source colors. Monochrome SVG `currentColor` paths are rendered white for the existing dark interface. Vector sources remain available for future theme-specific exports. No opaque badge is baked into the artwork.
 
-All 28 Android exports and all 28 iOS exports were checked for an alpha channel and transparent pixels. Visual checks covered the default marks, alternate Claude artwork, the settings picker, account lists and Android home-screen widgets.
+All 28 provider marks and 6 credit marks on each platform were checked for an alpha channel and transparent pixels. Visual checks covered the default marks, alternate Claude artwork, the settings picker, account lists and Android home-screen widgets.

@@ -45,7 +45,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import com.usagelimits.MainActivity
+import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.percentLabel
 import com.usagelimits.core.time.Countdown
@@ -174,7 +174,7 @@ class CompactUsageWidget : GlanceAppWidget() {
                         .panelCorner()
                         .background(style.background.color)
                         .padding(10.dp)
-                        .clickable(actionStartActivity<MainActivity>())
+                        .clickable(actionStartActivity<UsageLimitsActivity>())
                     when (WidgetLayout.compactLayout(width, fontScale)) {
                         WidgetLayout.CompactLayout.FOUR_TILES -> FourTileRow(root, snapshot, style)
                         WidgetLayout.CompactLayout.SUMMARY -> TwoMetricRow(root, snapshot, style)
@@ -422,7 +422,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
                     Column(
                         GlanceModifier.fillMaxSize().panelCorner()
                             .background(style.background.color).padding(10.dp)
-                            .clickable(actionStartActivity<MainActivity>()),
+                            .clickable(actionStartActivity<UsageLimitsActivity>()),
                     ) {
                         if (snapshot.accounts.size != 1) {
                             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -466,7 +466,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
     private fun AccountBlock(context: Context, account: WidgetAccount, single: Boolean) {
         val style = LocalWidgetStyle.current
         val openAccount = androidx.glance.appwidget.action.actionStartActivity(
-            android.content.Intent(context, MainActivity::class.java).putExtra("accountId", account.accountId),
+            android.content.Intent(context, UsageLimitsActivity::class.java).putExtra("accountId", account.accountId),
         )
         // The account's data validity — stale, failed or needing reconnection — outranks the
         // quota decoration on every row this block draws.
