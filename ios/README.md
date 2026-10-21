@@ -53,9 +53,8 @@ independently to cover Darwin-specific code.
 The Linux `ios/Tools/typecheck-app.sh` script provides an additional check with
 framework shims; a pass there does not establish an Xcode build or UI behavior.
 
-See [verification.md](../docs/verification.md) for execution-evidence requirements and
-remaining device checks, and [release.md](../docs/release.md) for unsigned archives,
-distribution signing and release requirements.
+See the [release guide](../docs/release.md) for unsigned archives, distribution signing
+and the [device checklist](../docs/release.md#device-checklist).
 
 ## Marketing screenshots
 
