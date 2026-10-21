@@ -44,6 +44,8 @@ enum class WindowCategory {
 /** Whether exhausting this window blocks the entire account or only a model/pool. */
 enum class UsageScope { GLOBAL, MODEL, UNKNOWN }
 
+data class UsageSegment(val label: String, val usedPercent: Double)
+
 data class UsageWindow(
     val id: String,
     val label: String,
@@ -56,6 +58,7 @@ data class UsageWindow(
     /** Optional grouping key, e.g. an Antigravity quota group or Codex "code review". */
     val group: String? = null,
     val scope: UsageScope = UsageScope.GLOBAL,
+    val segments: List<UsageSegment> = emptyList(),
 ) {
     val remainingPercent: Double?
         get() {

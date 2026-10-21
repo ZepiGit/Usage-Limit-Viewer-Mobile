@@ -342,6 +342,7 @@ struct WindowRow: View {
     var severity: Severity? = nil
 
     private var shown: Severity { severity ?? row.severity }
+    private let segmentColors = [UsageColors.data, UsageColors.ink, UsageColors.warning, UsageColors.muted]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -361,8 +362,40 @@ struct WindowRow: View {
                 }
             }
 
-            UsageBar(remainingPercent: row.remainingPercent, severity: shown)
+            if row.segments.isEmpty {
+                UsageBar(remainingPercent: row.remainingPercent, severity: shown)
+                    .accessibilityLabel("\(row.label): \(remainingText) remaining")
+            } else {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(UsageColors.rule)
+                        ForEach(row.segments.indices, id: \.self) { index in
+                            let start = min(row.segments.prefix(index).reduce(0) { $0 + $1.usedPercent }, totalUsed)
+                            let end = min(start + row.segments[index].usedPercent, totalUsed)
+                            Rectangle().fill(segmentColors[index % segmentColors.count])
+                                .frame(width: geometry.size.width * CGFloat((end - start) / 100))
+                                .offset(x: geometry.size.width * CGFloat(start / 100))
+                        }
+                        if totalUsed - segmentTotal >= 0.5 {
+                            Rectangle().fill(UsageColors.faint)
+                                .frame(width: geometry.size.width * CGFloat((totalUsed - segmentTotal) / 100))
+                                .offset(x: geometry.size.width * CGFloat(segmentTotal / 100))
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+                .frame(height: 6)
                 .accessibilityLabel("\(row.label): \(remainingText) remaining")
+                Text("Usage breakdown").usageFont(.small).foregroundStyle(UsageColors.muted)
+                ForEach(row.segments.indices, id: \.self) { index in
+                    HStack(spacing: 6) {
+                        Circle().fill(segmentColors[index % segmentColors.count]).frame(width: 6, height: 6)
+                            .accessibilityHidden(true)
+                        Text("\(row.segments[index].label) usage: \(UsageWindow.percentLabel(row.segments[index].usedPercent))")
+                            .usageFont(.small).foregroundStyle(UsageColors.muted)
+                    }
+                }
+            }
 
             if let resetAt = row.resetAt {
                 Text("Resets in \(Countdown.format(until: resetAt, from: now))")
@@ -371,6 +404,9 @@ struct WindowRow: View {
             }
         }
     }
+
+    private var totalUsed: Double { min(row.remainingPercent.map { 100 - $0 } ?? row.segments.reduce(0) { $0 + $1.usedPercent }, 100) }
+    private var segmentTotal: Double { min(row.segments.reduce(0) { $0 + $1.usedPercent }, totalUsed) }
 
     /// An em dash, never a zero.
     ///

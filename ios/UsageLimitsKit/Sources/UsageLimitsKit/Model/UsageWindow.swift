@@ -35,6 +35,16 @@ public enum UsageScope: String, Sendable, Codable {
     case global, model, unknown
 }
 
+public struct UsageSegment: Codable, Sendable, Equatable {
+    public let label: String
+    public let usedPercent: Double
+
+    public init(label: String, usedPercent: Double) {
+        self.label = label
+        self.usedPercent = usedPercent
+    }
+}
+
 /// One quota bar, normalised from whatever shape the provider used.
 ///
 /// `usedPercent` is 0…100 **consumed**; `remainingPercent` is derived. Every provider reports
@@ -51,6 +61,7 @@ public struct UsageWindow: Sendable, Codable, Equatable {
     /// Optional grouping key — an Antigravity quota group, or Codex "code review".
     public let group: String?
     public let scope: UsageScope
+    public let segments: [UsageSegment]
 
     public init(
         id: String,
@@ -61,7 +72,8 @@ public struct UsageWindow: Sendable, Codable, Equatable {
         resetAt: Date?,
         exhausted: Bool,
         group: String? = nil,
-        scope: UsageScope = .global
+        scope: UsageScope = .global,
+        segments: [UsageSegment] = []
     ) {
         self.id = id
         self.label = label
@@ -72,6 +84,7 @@ public struct UsageWindow: Sendable, Codable, Equatable {
         self.exhausted = exhausted
         self.group = group
         self.scope = scope
+        self.segments = segments
     }
 
     public init(from decoder: Decoder) throws {
@@ -96,7 +109,8 @@ public struct UsageWindow: Sendable, Codable, Equatable {
             periodSeconds: try c.decodeIfPresent(Int64.self, forKey: .periodSeconds),
             resetAt: try c.decodeIfPresent(Date.self, forKey: .resetAt),
             exhausted: try c.decode(Bool.self, forKey: .exhausted), group: group,
-            scope: try c.decodeIfPresent(UsageScope.self, forKey: .scope) ?? legacyScope)
+            scope: try c.decodeIfPresent(UsageScope.self, forKey: .scope) ?? legacyScope,
+            segments: try c.decodeIfPresent([UsageSegment].self, forKey: .segments) ?? [])
     }
 
     /// Round only for display; boundary labels must not imply exhausted or full.

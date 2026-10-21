@@ -1,5 +1,6 @@
 package com.usagelimits.providers.xai
 
+import com.usagelimits.core.model.UsageSegment
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
@@ -8,6 +9,7 @@ import com.usagelimits.core.time.Instants
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** Normalizes the independent credit and billing responses without inventing missing usage. */
 object XaiBillingParser {
@@ -74,6 +76,14 @@ object XaiBillingParser {
             periodType?.contains("month", ignoreCase = true) == true -> BILLING_PERIOD_SECONDS
             else -> null
         }
+        val segments = JsonSupport.array(source, "productUsage", "product_usage").mapNotNull { entry ->
+            val product = entry as? JsonObject ?: return@mapNotNull null
+            val name = (product["product"] as? JsonPrimitive)?.takeIf { it.isString }
+                ?.content?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val percent = number(field(product, arrayOf("usagePercent", "usage_percent")))
+                ?.takeIf { it > 0.0 && it <= 100.0 } ?: return@mapNotNull null
+            UsageSegment(name, percent)
+        }.sortedByDescending { it.usedPercent }
         val category = WindowCategory.fromPeriodSeconds(seconds)
         return listOf(UsageWindow(
             id = CREDITS_WINDOW_ID,
@@ -87,6 +97,7 @@ object XaiBillingParser {
             periodSeconds = seconds,
             resetAt = endMs,
             exhausted = used == 100.0,
+            segments = segments,
         ))
     }
 

@@ -2,6 +2,7 @@ package com.usagelimits.providers.xai
 
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageSegment
 import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.WindowCategory
@@ -21,6 +22,40 @@ import java.time.Instant
  * credential material of any kind. Amounts are integer cents, as the endpoint reports them.
  */
 class XaiBillingParserTest {
+
+    @Test
+    fun `product shares keep one total window and sort descending`() {
+        val windows = credits("""{"config":{"creditUsagePercent":98,"usagePeriodType":"weekly",
+            "productUsage":[{"product":"GrokChat","usagePercent":7},
+                {"product":"GrokImagine","usagePercent":1},{"product":"GrokBuild","usagePercent":90}]}}""")
+        assertEquals(1, windows.size)
+        assertEquals(2.0, windows.single().remainingPercent!!, 0.0)
+        assertEquals(listOf(UsageSegment("GrokBuild", 90.0), UsageSegment("GrokChat", 7.0),
+            UsageSegment("GrokImagine", 1.0)), windows.single().segments)
+        val merged = XaiBillingParser.merge(windows, billing(billingPayload))
+        assertEquals(UsageScope.MODEL, merged.first().scope)
+        assertEquals(windows.single().segments, merged.first().segments)
+    }
+
+    @Test
+    fun `product aliases retain unknown names and drop missing or invalid shares`() {
+        val windows = credits("""{"config":{"credit_usage_percent":64,"product_usage":[
+            {"product":"FutureProduct","usage_percent":56},{"product":"GrokVoice"},
+            {"product":"Zero","usage_percent":0},{"product":"Negative","usage_percent":-1},
+            {"product":"TooLarge","usage_percent":101},{"product":"NaN","usage_percent":"NaN"},
+            {"product":"Infinite","usage_percent":"Infinity"},{"product":"Null","usage_percent":null},
+            {"product":12,"usage_percent":2},{"usage_percent":3},false,
+            {"product":" ","usage_percent":4},{"product":"Broken","usage_percent":{}}]}}""")
+        assertEquals(listOf(UsageSegment("FutureProduct", 56.0)), windows.single().segments)
+    }
+
+    @Test
+    fun `missing product shares keep legacy credit windows`() {
+        assertTrue(credits(creditsPayload).single().segments.isEmpty())
+        val fromBilling = billing("""{"creditUsagePercent":25,"productUsage":[
+            {"product":"GrokBuild","usagePercent":25}]}""")
+        assertEquals(listOf(UsageSegment("GrokBuild", 25.0)), fromBilling.single().segments)
+    }
 
     private val now = 1_757_400_000_000L
 
@@ -254,7 +289,7 @@ class XaiBillingParserTest {
         // the type is USAGE_PERIOD_TYPE_WEEKLY, never bare "weekly"; matching that literal exactly
         // misclassifies it. The timestamp-free variant prevents a measured span from rescuing that defect.
         // These real production shapes also pin mishandled cent objects, spurious zero-cap windows
-        // and rejection of the unknown history and productUsage arrays.
+        // and rejection of the unknown history array.
         val creditsPayload = JsonSupport.parseObject(
             """
             { "config": {
@@ -295,6 +330,7 @@ class XaiBillingParserTest {
         val creditsWindows = XaiBillingParser.parseCredits(creditsPayload, now)
         assertEquals(1, creditsWindows.size)
         assertEquals(64.0, creditsWindows.single().usedPercent!!, 0.001)
+        assertEquals(listOf(UsageSegment("GrokBuild", 56.0)), creditsWindows.single().segments)
         assertEquals(WindowCategory.WEEKLY, creditsWindows.single().category)
         assertFalse(creditsWindows.any { it.id == "xai-on-demand" })
 
