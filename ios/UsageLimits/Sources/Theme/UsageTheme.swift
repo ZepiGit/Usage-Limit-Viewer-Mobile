@@ -532,7 +532,7 @@ struct ProviderBadge: View {
 
 }
 
-/// A provider's bundled artwork, or a plain letter for a provider that has none.
+/// A provider's bundled artwork.
 ///
 /// `tint` renders the artwork as a single-colour silhouette: the white logos vanish on a light
 /// wallpaper, so a widget on one asks for its ink.
@@ -541,13 +541,7 @@ struct ProviderMark: View {
     var tint: Color? = nil
 
     var body: some View {
-        if let glyph = ProviderIconCatalog.glyph(forAssetName: assetName) {
-            Text(verbatim: glyph)
-                .usageFont(.bodyStrong)
-                .minimumScaleFactor(0.5)
-                .foregroundStyle(tint ?? UsageColors.muted)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let tint {
+        if let tint {
             Image(assetName).resizable().renderingMode(.template).scaledToFit().foregroundStyle(tint)
         } else {
             Image(assetName).resizable().scaledToFit()
