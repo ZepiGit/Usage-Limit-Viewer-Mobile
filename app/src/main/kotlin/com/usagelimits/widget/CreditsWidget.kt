@@ -34,7 +34,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import com.usagelimits.MainActivity
+import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.CreditFormat
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
@@ -69,14 +69,14 @@ class CreditsWidget : GlanceAppWidget() {
                 CompositionLocalProvider(LocalWidgetStyle provides style) {
                     Column(
                         GlanceModifier.fillMaxSize().panelCorner().background(style.background.color).padding(10.dp)
-                            .clickable(actionStartActivity<MainActivity>()),
+                            .clickable(actionStartActivity<UsageLimitsActivity>()),
                     ) {
                         when {
                             snapshot.rows.isEmpty() -> Text(
                                 "No credit balances. Add one in the app.",
                                 style = widgetText(style.textSecondary, 12),
                             )
-                            size.width < MEDIUM.width -> Single(shown.first(), style)
+                            size.width < MEDIUM.width || shown.size == 1 -> Single(shown.first(), style, size.width < MEDIUM.width)
                             else -> {
                                 Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
@@ -103,12 +103,12 @@ class CreditsWidget : GlanceAppWidget() {
 
     /** The 2x2 tile: one account, its amount large, and as of when. */
     @Composable
-    private fun Single(row: CreditWidgetRow, style: WidgetStyle) {
-        // Centred as a block: the root column is start-aligned, so without this the tile reads as left-heavy.
+    private fun Single(row: CreditWidgetRow, style: WidgetStyle, centered: Boolean) {
+        // Centred as a block on the small tile, where a start-aligned lone row reads as left-heavy.
         Column(
             GlanceModifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalAlignment = if (centered) Alignment.CenterVertically else Alignment.Top,
+            horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
         ) {
             Text(
                 row.title, maxLines = 1,

@@ -342,7 +342,7 @@ struct WindowRow: View {
     var severity: Severity? = nil
 
     private var shown: Severity { severity ?? row.severity }
-    private let segmentColors = [UsageColors.data, UsageColors.ink, UsageColors.warning, UsageColors.muted]
+    private let segmentColors = [UsageColors.data, UsageColors.ink, UsageColors.faint, UsageColors.muted]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

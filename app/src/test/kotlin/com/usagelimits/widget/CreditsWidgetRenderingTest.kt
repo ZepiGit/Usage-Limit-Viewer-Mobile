@@ -1,5 +1,6 @@
 package com.usagelimits.widget
 
+import android.view.View
 import android.widget.FrameLayout
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -19,6 +20,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,6 +56,13 @@ class CreditsWidgetRenderingTest {
         try {
             val sizes = listOf(DpSize(110.dp, 110.dp), DpSize(250.dp, 110.dp), DpSize(250.dp, 250.dp))
             for (size in sizes) CreditsWidget().compose(app, size = size).apply(app, FrameLayout(app))
+            seed(app, 1)
+            for (size in sizes) {
+                val view = CreditsWidget().compose(app, size = size).apply(app, FrameLayout(app))
+                val headers = arrayListOf<View>()
+                view.findViewsWithText(headers, "Credits", View.FIND_VIEWS_WITH_TEXT)
+                assertTrue("single account retains the large tile at $size", headers.isEmpty())
+            }
             seed(app, 8)
             for (size in sizes) CreditsWidget().compose(app, size = size).apply(app, FrameLayout(app))
         } finally {
