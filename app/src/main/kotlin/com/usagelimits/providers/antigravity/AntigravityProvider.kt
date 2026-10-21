@@ -317,7 +317,8 @@ class AntigravityProvider(
         )
 
         // Hosts can carry different quota groups, so their union preserves every shared pool.
-        var lastError: ProviderException? = null
+        // The primary host's failure is the one worth reporting; the fallbacks mostly 404.
+        var firstError: ProviderException? = null
         var authRejection: ProviderException? = null
         var emptyHosts = 0
         val allRows = mutableListOf<AntigravityQuotaParser.Row>()
@@ -335,7 +336,7 @@ class AntigravityProvider(
                 allRows += rows
                 if (rows.isEmpty()) emptyHosts++
             } catch (e: ProviderException) {
-                lastError = e
+                firstError = firstError ?: e
                 if (e is ProviderException.Unauthorized || e is ProviderException.Forbidden) {
                     authRejection = authRejection ?: e
                 }
@@ -350,7 +351,7 @@ class AntigravityProvider(
         // Every host answered, none had data: report it as a payload problem rather than
         // silently showing an account with no limits.
         authRejection?.let { throw it }
-        lastError?.let { throw it }
+        firstError?.let { throw it }
         throw ProviderException.MalformedPayload(
             if (emptyHosts > 0) {
                 "Antigravity returned no quota groups for this project"

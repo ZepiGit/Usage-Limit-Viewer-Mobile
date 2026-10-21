@@ -222,9 +222,8 @@ inventing information.
   likeliest real-world cause. This is the most severe single failure mode for this provider.
 - **All three quota hosts fail.** Cost: this account's refresh fails and it keeps its previous
   numbers with an error attached. `SyncEngine` catches per account, so other accounts and
-  providers are untouched. Only the last host's error is reported, which is a small
-  diagnostic loss — if the daily host returns something interesting and the stable host
-  returns a plain 404, the interesting error is discarded.
+  providers are untouched. An authorisation rejection is reported first, otherwise the first
+  host's error, since the fallback hosts mostly answer a plain 404 that says nothing.
 - **A host is added or removed upstream.** One-line edit to
   `ProviderEndpoints.Antigravity.QUOTA_URLS`; the order of that list is the fallback order.
 - **`remainingFraction` renamed.** Cost: **every bucket disappears** — the field is the one

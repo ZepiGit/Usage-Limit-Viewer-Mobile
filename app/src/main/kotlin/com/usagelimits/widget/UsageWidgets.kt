@@ -175,7 +175,11 @@ class CompactUsageWidget : GlanceAppWidget() {
                         .background(style.background.color)
                         .padding(10.dp)
                         .clickable(actionStartActivity<UsageLimitsActivity>())
-                    when (WidgetLayout.compactLayout(width, fontScale)) {
+                    if (snapshot.emptyMessage != null) {
+                        Column(root) {
+                            Text(snapshot.emptyMessage, style = widgetText(style.textSecondary, 12))
+                        }
+                    } else when (WidgetLayout.compactLayout(width, fontScale)) {
                         WidgetLayout.CompactLayout.FOUR_TILES -> FourTileRow(root, snapshot, style)
                         WidgetLayout.CompactLayout.SUMMARY -> TwoMetricRow(root, snapshot, style)
                         WidgetLayout.CompactLayout.FOCUS -> FocusReadout(root, snapshot, style)
@@ -439,7 +443,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
                         }
                         if (snapshot.accounts.isEmpty()) {
                             Text(
-                                "No matching accounts. Edit this widget to choose an account.",
+                                snapshot.emptyMessage ?: "No matching accounts. Edit this widget to choose an account.",
                                 style = widgetText(style.textSecondary, 12),
                             )
                         } else {

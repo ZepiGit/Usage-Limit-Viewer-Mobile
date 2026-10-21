@@ -15,6 +15,8 @@ def main() -> None:
         assert source.convert("RGBA").getchannel("A").getextrema() == (255, 255)
         master = source.convert("RGB")
     for entry in json.loads((iconset / "Contents.json").read_text())["images"]:
+        if entry["filename"] == "icon-1024.png":
+            continue
         pixels = int(float(entry["size"].split("x")[0]) * float(entry["scale"][:-1]))
         output = master.resize((pixels, pixels), Image.Resampling.LANCZOS)
         assert output.mode == "RGB"

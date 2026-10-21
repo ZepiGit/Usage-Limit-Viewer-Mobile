@@ -182,6 +182,9 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                                 ?: challenge.verificationUri,
                             keyAlternative = keyAlternative,
                         )
+                        // The code is typed in a browser tab too, so a deferred icon switch
+                        // would drop the task under it just as it would for a redirect.
+                        SignInKeepAliveService.signingIn = true
                         openUrl(context, challenge.verificationUriComplete ?: challenge.verificationUri)
                     }
 
@@ -249,7 +252,9 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                     providerId, "Sign-in failed", keyAlternative, deviceCodeAlternative, withDeviceCode,
                 )
             } finally {
-                keepAlive?.let { SignInKeepAliveService.stop(context.applicationContext, it) }
+                val lease = keepAlive
+                if (lease != null) SignInKeepAliveService.stop(context.applicationContext, lease)
+                else SignInKeepAliveService.signingIn = false
             }
         }
     }

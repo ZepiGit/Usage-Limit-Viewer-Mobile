@@ -47,7 +47,7 @@ open class AccountRingsWidget(private val mini: Boolean) : GlanceAppWidget() {
                 Column(GlanceModifier.fillMaxSize().panelCorner()
                     .background(style.background.color)
                     .padding(if (mini) 4.dp else 10.dp)) {
-                    if (groups.isEmpty()) Text("No matching accounts", style = widgetText(style.textSecondary, 12))
+                    if (groups.isEmpty()) Text(view.snapshot.emptyMessage ?: "No matching accounts", style = widgetText(style.textSecondary, 12))
                     else if (mini) {
                         // Fixed visible capacity also avoids sharing a collection adapter between
                         // differently sized portrait and landscape RemoteViews.
