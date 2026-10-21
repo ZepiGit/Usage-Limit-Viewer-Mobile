@@ -4,30 +4,22 @@ import UIKit
 enum AppIconChoice: CaseIterable {
     case current, gaugeCoin, aiGauge, aiHourglass, aiRefreshRing, aiBattery
 
-    private var assetSuffix: String {
-        switch self {
-        case .current: "Current"
-        case .gaugeCoin: "GaugeCoin"
-        case .aiGauge: "AIGauge"
-        case .aiHourglass: "AIHourglass"
-        case .aiRefreshRing: "AIRefreshRing"
-        case .aiBattery: "AIBattery"
-        }
-    }
+    private static let catalog: [(id: AppIconChoice, assetSuffix: String, label: String)] = [
+        (.current, "Current", "Default"),
+        (.gaugeCoin, "GaugeCoin", "Gauge Coin"),
+        (.aiGauge, "AIGauge", "Gauge"),
+        (.aiHourglass, "AIHourglass", "Hourglass"),
+        (.aiRefreshRing, "AIRefreshRing", "Refresh Ring"),
+        (.aiBattery, "AIBattery", "Battery"),
+    ]
 
-    var iconName: String? { self == .current ? nil : "AppIcon-\(assetSuffix)" }
-    var previewAsset: String { "AppIconPreview\(assetSuffix)" }
-
-    var label: String {
-        switch self {
-        case .current: "Default"
-        case .gaugeCoin: "Gauge Coin"
-        case .aiGauge: "Gauge"
-        case .aiHourglass: "Hourglass"
-        case .aiRefreshRing: "Refresh Ring"
-        case .aiBattery: "Battery"
-        }
+    static var allCases: [AppIconChoice] { catalog.map(\.id) }
+    private var metadata: (id: AppIconChoice, assetSuffix: String, label: String) {
+        Self.catalog.first { $0.id == self }!
     }
+    var iconName: String? { self == .current ? nil : "AppIcon-\(metadata.assetSuffix)" }
+    var previewAsset: String { "AppIconPreview\(metadata.assetSuffix)" }
+    var label: String { metadata.label }
 
     @MainActor
     static var active: AppIconChoice {
@@ -46,7 +38,7 @@ struct AppIconScreen: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 20) {
                 ForEach(AppIconChoice.allCases, id: \.self) { choice in
                     Button {
-                        guard UIApplication.shared.supportsAlternateIcons else { return }
+                        guard choice != selected, UIApplication.shared.supportsAlternateIcons else { return }
                         applying = true
                         Task { @MainActor in
                             defer { applying = false }

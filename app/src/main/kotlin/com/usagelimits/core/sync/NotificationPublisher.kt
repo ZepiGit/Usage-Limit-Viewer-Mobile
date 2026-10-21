@@ -10,7 +10,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import com.usagelimits.MainActivity
+import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.database.DirectTransactionRunner
@@ -158,7 +158,7 @@ class NotificationPublisher(
         val intent = android.app.PendingIntent.getActivity(
             context,
             0,
-            Intent(context, MainActivity::class.java)
+            Intent(context, UsageLimitsActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
         )

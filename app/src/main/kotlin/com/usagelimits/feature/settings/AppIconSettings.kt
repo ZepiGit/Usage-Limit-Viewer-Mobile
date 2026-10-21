@@ -24,14 +24,14 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.usagelimits.MainActivity
+import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.R
 import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.theme.UsageColors
 
 enum class AppIcon(val alias: String, val label: String, @DrawableRes val foreground: Int) {
-    CURRENT(".IconCurrent", "Default", R.drawable.ic_launcher_foreground),
+    CURRENT(".MainActivity", "Default", R.drawable.ic_launcher_foreground),
     GAUGE_COIN(".IconGaugeCoin", "Gauge Coin", R.mipmap.ic_launcher_gauge_coin_foreground),
     AI_GAUGE(".IconAiGauge", "Gauge", R.mipmap.ic_launcher_ai_gauge_foreground),
     AI_HOURGLASS(".IconAiHourglass", "Hourglass", R.mipmap.ic_launcher_ai_hourglass_foreground),
@@ -39,17 +39,34 @@ enum class AppIcon(val alias: String, val label: String, @DrawableRes val foregr
     AI_BATTERY(".IconAiBattery", "Battery", R.mipmap.ic_launcher_ai_battery_foreground);
 
     companion object {
+        var pending: AppIcon? = null
+            private set
+
+        fun select(icon: AppIcon) {
+            pending = icon
+        }
+
+        // Launcher alias changes can close the activity, so wait until it leaves the foreground.
+        fun applyPending(context: Context) {
+            val icon = pending ?: return
+            if (icon != current(context)) apply(context, icon)
+            pending = null
+        }
+
+        private fun component(context: Context, icon: AppIcon) =
+            ComponentName(context, UsageLimitsActivity::class.java.name.substringBeforeLast('.') + icon.alias)
+
         fun current(context: Context): AppIcon = entries.firstOrNull {
-            context.packageManager.getComponentEnabledSetting(ComponentName(context, MainActivity::class.java.name.substringBeforeLast('.') + it.alias)) ==
+            context.packageManager.getComponentEnabledSetting(component(context, it)) ==
                 PackageManager.COMPONENT_ENABLED_STATE_ENABLED
         } ?: CURRENT
 
         fun apply(context: Context, icon: AppIcon) {
             val manager = context.packageManager
-            manager.setComponentEnabledSetting(ComponentName(context, MainActivity::class.java.name.substringBeforeLast('.') + icon.alias),
+            manager.setComponentEnabledSetting(component(context, icon),
                 PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
             entries.filterNot { it == icon }.forEach {
-                manager.setComponentEnabledSetting(ComponentName(context, MainActivity::class.java.name.substringBeforeLast('.') + it.alias),
+                manager.setComponentEnabledSetting(component(context, it),
                     PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
             }
         }
@@ -69,7 +86,7 @@ fun AppIconTile(icon: AppIcon, size: Dp = 56.dp) {
 @Composable
 fun AppIconSettings() {
     val context = LocalContext.current
-    var selected by remember { mutableStateOf(AppIcon.current(context)) }
+    var selected by remember { mutableStateOf(AppIcon.pending ?: AppIcon.current(context)) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("App icon")
         UsageCard {
@@ -78,7 +95,7 @@ fun AppIconSettings() {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         row.forEach { icon ->
                             Column(Modifier.weight(1f).selectable(selected == icon, role = Role.RadioButton, onClick = {
-                                AppIcon.apply(context, icon)
+                                AppIcon.select(icon)
                                 selected = icon
                             }), horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(6.dp)) {

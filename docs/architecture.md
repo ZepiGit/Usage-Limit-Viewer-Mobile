@@ -40,7 +40,7 @@ The dependency rule is that arrows point *down* this list, and it holds where it
 - `widget/` has no import of `core.auth` and no import of `providers` — the point of
   §"Two stores" below, and a property you can re-verify with one grep. What it does import is
   `core.model`, `core.time.Countdown`, `core.database` (`AccountUsage`, `WidgetConfigEntity`),
-  `core.sync.SyncWorker` and `ui/`, plus `MainActivity` for the tap target and
+  `core.sync.SyncWorker` and `ui/`, plus `UsageLimitsActivity` for the tap target and
   `providerSymbol`/`providerTint` from `feature/overview` so a tile and a card cannot disagree
   about a provider's glyph or colour — a third upward edge, and the least defensible of them.
 
@@ -226,7 +226,7 @@ out both orderings and why they are deliberately opposite.
 `SyncEngine` is reached two ways, and the distinction is worth knowing.
 
 `SyncWorker` (WorkManager) runs the periodic pass at the user's interval, floored at 15
-minutes, and enqueues a one-shot pass on app start, on `MainActivity.onResume`, and from the
+minutes, and enqueues a one-shot pass on app start, on `UsageLimitsActivity.onResume`, and from the
 widget's refresh button. That work is unique with `ExistingWorkPolicy.KEEP`, so several
 triggers in a row collapse into one pass, and every request carries a
 `NetworkType.CONNECTED` constraint. The one-shot is expedited on Android 12 and later, so a

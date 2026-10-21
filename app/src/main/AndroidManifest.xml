@@ -32,7 +32,7 @@
         android:theme="@style/Theme.UsageLimits">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".UsageLimitsActivity"
             android:exported="false"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
@@ -42,8 +42,8 @@
         </activity>
 
         <activity-alias
-            android:name=".IconCurrent"
-            android:targetActivity=".MainActivity"
+            android:name=".MainActivity"
+            android:targetActivity=".UsageLimitsActivity"
             android:exported="true"
             android:enabled="true"
             android:icon="@mipmap/ic_launcher"
@@ -56,7 +56,7 @@
 
         <activity-alias
             android:name=".IconGaugeCoin"
-            android:targetActivity=".MainActivity"
+            android:targetActivity=".UsageLimitsActivity"
             android:exported="true"
             android:enabled="false"
             android:icon="@mipmap/ic_launcher_gauge_coin"
@@ -69,7 +69,7 @@
 
         <activity-alias
             android:name=".IconAiGauge"
-            android:targetActivity=".MainActivity"
+            android:targetActivity=".UsageLimitsActivity"
             android:exported="true"
             android:enabled="false"
             android:icon="@mipmap/ic_launcher_ai_gauge"
@@ -82,7 +82,7 @@
 
         <activity-alias
             android:name=".IconAiHourglass"
-            android:targetActivity=".MainActivity"
+            android:targetActivity=".UsageLimitsActivity"
             android:exported="true"
             android:enabled="false"
             android:icon="@mipmap/ic_launcher_ai_hourglass"
@@ -95,7 +95,7 @@
 
         <activity-alias
             android:name=".IconAiRefreshRing"
-            android:targetActivity=".MainActivity"
+            android:targetActivity=".UsageLimitsActivity"
             android:exported="true"
             android:enabled="false"
             android:icon="@mipmap/ic_launcher_ai_refresh_ring"
@@ -108,7 +108,7 @@
 
         <activity-alias
             android:name=".IconAiBattery"
-            android:targetActivity=".MainActivity"
+            android:targetActivity=".UsageLimitsActivity"
             android:exported="true"
             android:enabled="false"
             android:icon="@mipmap/ic_launcher_ai_battery"
