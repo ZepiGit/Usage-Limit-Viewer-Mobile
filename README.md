@@ -192,4 +192,10 @@ Then open the generated project in Xcode, set up signing and run it.
 | use the Credits section | [Credits](docs/credits.md) |
 | work on the code | [Architecture](docs/architecture.md), [Verification](docs/verification.md), [Release guide](docs/release.md) |
 
-Found a problem? Please open an [issue](https://github.com/ZepiGit/Usage-Limit-Viewer/issues).
+Found a problem or have a feature request? Please open an [issue](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/issues/new/choose).
+For vulnerabilities, follow the [security policy](SECURITY.md) to report privately.
+
+## License
+
+[MIT](LICENSE), copyright (c) 2026 ZepiGit. Third-party artwork notices and trademark
+rights remain as documented in [Provider artwork](docs/provider-assets.md).

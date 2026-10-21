@@ -1,12 +1,6 @@
 name: Android
 
-# The Android app had no CI at all, which on this project is the wrong way round: it is the
-# primary deliverable, its parsers are where every real defect has been found, and it is the
-# half that can actually be built on a free Linux runner. The iOS workflow existed first only
-# because the shared Swift package happens to compile on Linux too.
-#
-# `test` checks logic, `assemble` packages the APK, and `runtime` installs that same signed,
-# minified artifact over the previous release and navigates it on a real Android emulator.
+# Runtime smoke upgrades the previous release with this run's minified APK.
 
 on:
   push:
@@ -15,6 +9,9 @@ on:
       - 'gradle/**'
       - '*.gradle.kts'
       - 'gradle.properties'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
       - 'tools/android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
       - '.github/workflows/android.yml'
@@ -24,10 +21,16 @@ on:
       - 'gradle/**'
       - '*.gradle.kts'
       - 'gradle.properties'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
       - 'tools/android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
       - '.github/workflows/android.yml'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: android-${{ github.ref }}
@@ -37,9 +40,6 @@ jobs:
   test:
     name: Unit tests
     runs-on: ubuntu-latest
-    # Bounded so a hung step cannot run to the six-hour default. A UI test that waits
-    # on a simulator alert nobody can dismiss looks exactly like a slow one, and on a
-    # macOS runner that mistake is billed at ten times the rate.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -55,9 +55,6 @@ jobs:
       - name: Test
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug
 
-      # Uploaded on failure only, and always: a red unit test is unreadable from the console
-      # output alone, and the HTML report is the thing that says which assertion and with what
-      # values.
       - name: Upload the test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -81,14 +78,9 @@ jobs:
   assemble:
     name: Debug APK
     runs-on: ubuntu-latest
-    # Bounded so a hung step cannot run to the six-hour default. A UI test that waits
-    # on a simulator alert nobody can dismiss looks exactly like a slow one, and on a
-    # macOS runner that mistake is billed at ten times the rate.
     timeout-minutes: 30
     steps:
-      # The full history, because the version code is the commit count: it has to rise from
-      # one build to the next or the installer treats the newer APK as a re-install rather
-      # than an update. A shallow clone would count 1 every time.
+      # versionCode is the full Git commit count.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -100,11 +92,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # Both APKs are signed with the debug key checked in at app/debug.keystore — the same
-      # key on every run, so a phone that has the previous build installed updates in place
-      # and keeps its accounts, credentials and widgets. Before this, each runner minted its
-      # own debug key and every download meant uninstalling first. The release key is used
-      # instead when the repository's signing secrets are present.
+      # Debug APKs use the repository debug key; minified APKs use the release key when configured.
       - name: Decode the release signing key when configured
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -202,8 +190,6 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
 
-      # The point of the job: something a maintainer can install on a phone and look at, from a
-      # build nobody ran by hand. Debug-signed, so it is for testing rather than distribution.
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:
