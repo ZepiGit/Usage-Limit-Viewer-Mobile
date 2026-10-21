@@ -197,7 +197,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     }
 
     public func nextResettingRow(at date: Date) -> GlanceRow? {
-        candidates.filter { ($0.resetAt ?? .distantPast) > date }
+        candidates.filter { ($0.remainingPercent != nil || $0.severity == .exhausted) && ($0.resetAt ?? .distantPast) > date }
             .min { $0.resetAt! < $1.resetAt! }
     }
 

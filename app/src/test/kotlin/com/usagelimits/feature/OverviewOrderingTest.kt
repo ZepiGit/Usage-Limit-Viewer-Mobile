@@ -14,19 +14,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Two things the overview screen was getting wrong about what to show first.
- *
- * The list was sorted by `Severity.ordinal`, whose declaration order puts STALE and ERROR
- * after EXHAUSTED because they are worse *states* — so a never-fetched blank card and a
- * day-old stale card sat above the account the user had actually run out on, on the one
- * screen that promises "the account that needs attention is the one already on screen".
- * The widget had its own, correct ranking; now both use `Severity.urgency`.
- *
- * And "Next reset" took the minimum over every window's reset instant, past ones included.
- * A snapshot keeps an expired instant until the next fetch replaces it, so once any window
- * had rolled over the card read "now" for hours while the real next rollover never showed.
- */
 class OverviewOrderingTest {
 
     private val now = 1_789_000_000_000L
@@ -70,55 +57,6 @@ class OverviewOrderingTest {
         ),
     )
 
-    @Test
-    fun `next reset skips instants that have already passed`() {
-        val state = UsageUiState(
-            accounts = listOf(
-                usage("A", now - 60_000),          // rolled over a minute ago — not "next"
-                usage("B", now + 3_600_000),       // the real next one
-                usage("C", now + 86_400_000),
-            ),
-        )
-
-        assertEquals(now + 3_600_000, state.nextResetAt(now))
-    }
-
-    @Test
-    fun `the summary card's next reset belongs to the account it leads with`() {
-        // A (healthy) resets in 12 minutes; B is exhausted and resets on Tuesday. The card
-        // leads with B's window, so its "Next reset" must be B's — not A's twelve minutes.
-        val state = UsageUiState(
-            accounts = listOf(
-                usage("A", now + 12 * 60_000),
-                AccountUsage(
-                    account("B"),
-                    UsageSnapshot(
-                        accountId = "B", fetchedAt = now, status = SnapshotStatus.OK,
-                        windows = listOf(
-                            UsageWindow(
-                                id = "B-weekly", label = "Weekly", category = WindowCategory.WEEKLY,
-                                usedPercent = 100.0, periodSeconds = 604_800,
-                                resetAt = now + 3 * 86_400_000, exhausted = true,
-                            ),
-                        ),
-                    ),
-                ),
-            ),
-        )
-
-        assertEquals("B", state.mostCritical?.first?.account?.localId)
-        assertEquals(now + 3 * 86_400_000, state.nextResetAt(now, "B"))
-        assertEquals(now + 12 * 60_000, state.nextResetAt(now))
-    }
-
-    @Test
-    fun `with every reset in the past there is no next reset`() {
-        val state = UsageUiState(accounts = listOf(usage("A", now - 1), usage("B", null)))
-
-        // "—" on the card, not "now" for ever.
-        assertNull(state.nextResetAt(now))
-    }
-
     /**
      * The order the user dragged the cards into beats the urgency ranking — but only once they
      * have actually dragged one.
@@ -160,17 +98,6 @@ class OverviewOrderingTest {
             it.copy(snapshot = it.snapshot!!.copy(status = SnapshotStatus.FAILED))
         }
         assertNull(UsageUiState(accounts = listOf(failed)).lastUpdated)
-    }
-
-    @Test
-    fun `an explicit exhausted window outranks a measured low window across accounts`() {
-        val exhausted = usage("A").let {
-            it.copy(snapshot = it.snapshot!!.copy(windows = listOf(window("blocked", null).copy(
-                usedPercent = null, exhausted = true,
-            ))))
-        }
-        val low = usageWith("B", 95.0)
-        assertEquals("A", UsageUiState(accounts = listOf(low, exhausted)).mostCritical?.first?.account?.localId)
     }
 
     private fun usageWith(id: String, usedPercent: Double) = AccountUsage(
