@@ -12,15 +12,12 @@
 | App bytecode target | Java 17 |
 | Packaging JVM | JDK 17 in Android CI; JDK 21 in the release workflow |
 
-Runtime observations below are from the local audit of 12 September 2026 and
-apply to its APKs and emulator environments. They do not verify the current
-release artifact. For PR #15's required checks and execution evidence, see
-[verification.md](verification.md#quota-and-widget-regression-coverage--pr-15).
+Use [verification.md](verification.md#quota-and-widget-regression-coverage) for checks and
+execution-evidence requirements; emulator results do not verify every physical device.
 
 The API 26 floor provides native `java.time` and notification channels. Notification
 permission is requested on API 33 and later; declining it does not block quota
-viewing. The final minified APK was exercised on an API 36 AOSP x86_64 emulator
-with WHPX. Earlier API 35 checks provide additional widget and system-bar evidence.
+viewing.
 
 ## Window sizes and navigation
 
@@ -35,63 +32,37 @@ and resizable windows:
 
 Content is centered and capped at 720 dp. The activities allow resizing and do
 not lock orientation. The provider picker scrolls in short landscape windows;
-its regression test was observed failing before the fix, passing afterwards and
-failing again when scrolling was removed in an isolated copy.
+its regression test checks reachability.
 
 Both Android activities use light system-bar icons over the dark app. Widget
-configuration consumes safe drawing insets. These changes address issues found
-on the API 35 emulator. The manifest has no edge-to-edge opt-out; navigation
-uses AndroidX rather than a custom legacy back-key handler. The final API 36 run
-covered a narrow 320 dp window and simulated effective windows of 960×540 dp
-(landscape), 800×1280 dp (tablet) and 840×720 dp (unfolded size). Wide windows
-used the side rail, and the landscape provider picker scrolled to Kimi;
-physical foldable transitions have not been exercised.
+configuration consumes safe drawing insets. The manifest has no edge-to-edge opt-out;
+navigation uses AndroidX rather than a custom legacy back-key handler. Physical foldable
+transitions require device checks.
 
 iOS content fills narrow windows and is capped at 760 pt on wider ones. The app
-supports iPhone and iPad, including landscape and split view. The CI workflow now
-includes an iPad run and a landscape/large-text provider-picker check. Real SDK
-compilation in the September audit completed at `19fc063`, but three
-scroll-gesture UI checks failed. The corrected run was pending at that audit;
-current iPhone/iPad results belong to PR #15's check runs.
+supports iPhone and iPad, including landscape and split view. CI includes iPhone/iPad
+simulator runs and landscape/large-text provider-picker checks.
 
 ## Widgets, icons and accessibility
 
-Android's compact and ring widgets use Glance responsive sizes and support
-resizing. Both were placed on the API 35 emulator in their empty state. The final
-API 36 APK also passed compact-widget configuration, placement and opening the
-app from the widget. Populated accounts, additional launcher grids and physical
-foldable resizing still need runtime checks. iOS uses WidgetKit and the shared
-App Group snapshot.
+Android's four usage widgets use Glance exact sizes and support resizing; Credits uses
+responsive sizes. Populated accounts, launcher grids and physical foldable resizing require
+runtime checks. iOS uses WidgetKit and the shared App Group snapshot.
 
 Both platforms use the same quota-cell and return-arrow icon. Android supplies
 adaptive and monochrome variants. The iOS AppIcon catalog is wired into the
 XcodeGen build and contains 18 opaque slots.
 
 Status includes text and bar length as well as color. Android exposes grouped
-usage descriptions to screen readers and enables RTL support. At 320 dp and font
-scales 1.3 and 2.0, the final API 36 APK wrapped the sync-interval choices and kept
-the 3 h option visible and selectable. Some bottom-tab labels break mid-word at
-2.0; their touch targets remain accessible. Native keyboard/pointer behavior is
-retained, but those input paths and screen-reader behavior need device checks.
+usage descriptions to screen readers and enables RTL support. Sync-interval choices wrap
+in narrow windows with large text. Some bottom-tab labels can break mid-word at font scale
+2.0; touch targets remain accessible. Keyboard, pointer and screen-reader behavior need
+device checks.
 
 Android observes changes to the system animator scale while the app is open.
-Scale zero removes value interpolation, item movement and sign-in transitions;
-Add-account navigation and Back passed with scale zero on the API 36 emulator.
+Scale zero removes value interpolation, item movement and sign-in transitions.
 iOS reads `accessibilityReduceMotion`. Test large text, screen readers, RTL,
 keyboard navigation and reduced motion on populated screens before distribution.
 
-## Historical local verification — 12 September 2026
-
-The final API 36 build passed 400 Android tests without failures or skips;
-`aapt` confirmed minimum 26, target 36 and compile 36 in the APK. All 456 Swift
-package tests and the Linux app/widget type check passed.
-
-The API 35 emulator covered installation, launch, empty refresh, all four tabs,
-and both widgets. Before/after screenshots confirm the system-bar and widget
-inset fixes. The final API 36 run covered the layouts, large text, reduced-motion
-navigation and compact-widget steps described above; its crash buffer was empty.
-Emulator settings were restored after the checks. Physical-device checks remain open. The PR records the corrected iPhone/iPad
-simulator CI results. Local screenshots,
-UI dumps and runtime logs are under `C:/temp/ulv-audit`.
-See [verification.md](verification.md) for the runbook and
+See [verification.md](verification.md) for the device runbook and
 [release.md](release.md) for distribution requirements.

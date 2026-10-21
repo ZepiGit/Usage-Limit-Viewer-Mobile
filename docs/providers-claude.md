@@ -246,11 +246,10 @@ Behaviour derived from, and re-read at, these commits:
   behaviour this app declines to copy.
 - **CLIProxyAPI Management Center @ `ed5f1c48`** (2026-09-08) — `src/utils/quota/constants.ts`
   for the profile and usage URLs, the `anthropic-beta` value, the flat window key list, and
-  the `iguana_necktie` key that corrects the brief's `seven_day_fable`.
+  the `iguana_necktie` key.
 - **CLIProxyAPI-Quota-Inspector @ `1895bc54`** — *not a source for this provider.* That
   repository covers `codex`, `gemini-cli` and `antigravity` only; it makes no Anthropic call
-  and declares no Claude type. An earlier draft of this document cited it as a cross-check on
-  the usage field names and the `utilization` direction, which was wrong.
+  and declares no Claude type.
 
 **Single-sourced, and worth knowing.** Every Claude usage detail above — the flat window keys,
 the `utilization` direction, `iguana_necktie`, and the `limits[]` shape — rests on the

@@ -108,8 +108,9 @@ providers do — so it is not available today.
 
 Each entry below is a structural property, not a rule someone has to remember.
 
-- **Logs.** There is no `android.util.Log` call, no `println`, and no OkHttp logging
-  interceptor anywhere in `app/src/main` — verifiable with one grep. `OAuthCredentials`
+- **Logs.** Credential reads log exception classes; startup and widget scheduling log
+  infrastructure failures. These paths do not log credentials or provider response bodies.
+  There is no OkHttp logging interceptor. `OAuthCredentials`
   additionally overrides `toString()` to print `accessToken=***`, so even an accidental string
   interpolation of the whole object in some future code cannot leak one.
 - **Room.** No entity has a token column. `AccountEntity` stores a `credentialReference`,
@@ -163,21 +164,18 @@ real login page from a fake one.
 `HttpClient` is the only outbound HTTP path in the app and it refuses to send a plaintext
 request. The exception, and there is exactly one, is a loopback host — the parsed host must be
 exactly `localhost`, `127.0.0.1` or `::1`, which is the OAuth redirect that arrives on the
-app's own listening socket. This started as a `startsWith("http://localhost")` prefix test,
-which would also have accepted `http://localhost.attacker.example/` — an ordinary remote host.
-Comparing the parsed host is the difference between a rule and the appearance of one. That connection never leaves the device and cannot be given a TLS certificate anyone
-would trust, which is why RFC 8252 §7.3 endorses it. Everything else must be `https://` or the
+app's own listening socket. Host equality rejects lookalikes such as
+`http://localhost.attacker.example/`. That connection never leaves the device and cannot be
+given a TLS certificate anyone would trust, which is why RFC 8252 §7.3 endorses it. Everything else must be `https://` or the
 request throws before a byte is sent.
 
 The `LoopbackServer` binds explicitly to `InetAddress.getByName("127.0.0.1")` with a backlog of
-one, so nothing on the network can reach it, serves exactly one request, and is closed in a
+one, so nothing on the network can reach it, accepts one matching callback, and is closed in a
 `finally` block. It parses only the request line.
 
-The page it answers with is **not** static, and an earlier version of this document called it
-that. It interpolates the provider's `error_description`, which is attacker-influenced: any
-local app can open `http://127.0.0.1:54545/?error=<img src=x onerror=…>` while the listener is
-up and get script execution at that origin. Those values are now HTML-escaped. Response
-splitting was never possible, since `Content-Length` is computed from the rendered body.
+The callback page HTML-escapes the provider's attacker-influenced `error_description`.
+Any local app can reach the listener, so interpolating that value without escaping would
+allow script execution at the loopback origin. `Content-Length` uses the rendered body.
 
 xAI is the one provider whose endpoints are discovered rather than hardcoded, via its OIDC
 discovery document. Because that document arrives over the network, both endpoints it names
@@ -228,8 +226,7 @@ send it again: an ambiguous failure ends that exchange rather than retrying it, 
 platforms (`oneTimeGrant = true` on Android, `retries: 0` in the kit's `TokenExchange`). A
 retry here does not recover the lost response; it turns an ambiguous failure into a definite
 "invalid grant" from a provider that treats reuse as theft, and on some of them revokes the
-whole token family. The code exchange shipped without this rule for a while, on both
-platforms, while the refresh path had it; a review caught the asymmetry.
+whole token family.
 
 On Android, confirmed temporary DNS or connection-setup failures before any HTTP exchange
 can use the existing two-retry budget. One-shot bodies prevent replay after transmission;
@@ -264,13 +261,10 @@ what was rejected and why.
 ### 1. The Antigravity client secret is in the APK
 
 `ProviderEndpoints.Antigravity.CLIENT_SECRET` contains a real `GOCSPX-…` string. This
-contradicts a requirement the project owner stated without qualification — *"keine Client
-Secrets in der APK"* — and it is not a slip: the string is present in `classes.dex` of every
-build, which was confirmed by scanning the built artefact rather than assumed from the source.
-
-**Decision.** The owner was shown the conflict and the two real options — keep it, or drop
-Antigravity — and chose to keep it, as a documented exception. What follows is the reasoning
-that was put to them, so the choice can be revisited on its merits rather than rediscovered.
+is an explicit exception to the no-client-secrets policy because Google requires this
+installed-application value for the Antigravity quota flow. The string is present in the app's
+`classes.dex`, confirmed by scanning the built debug artefact rather than assumed from the
+source. It must not be treated as a confidential credential.
 
 It is defensible because this is a Google **installed-application** client secret, a category
 that is explicitly not confidential: RFC 8252 §8.5 states that native app secrets cannot be
@@ -298,10 +292,8 @@ Residual risk: the client id and secret identify the app to Google as the Antigr
 during login. If Google restricts or rotates that client, the provider stops working. That is
 a functionality risk, not a credential-leak risk — no user token is exposed by this value.
 
-The stated rule exists to stop the app carrying anything that could open a user's account.
-That purpose is intact: this value opens nothing on its own. The wording is what it breaches,
-and the breach is recorded here rather than quietly reasoned away. Revisit it if Google ever
-reclassifies this client as confidential — at which point *(d)* above becomes the only option.
+Revisit this exception if Google reclassifies the client as confidential; dropping
+Antigravity support is the alternative to embedding a confidential secret.
 
 ### 2. Codex device flow (the fallback): the PKCE pair is generated server-side
 
@@ -322,11 +314,8 @@ ever travels over the app's own TLS connection to `auth.openai.com`, and the cod
 the device authorization the user approved — but it should not be described as client binding,
 because it is not.
 
-The browser flow was at first rejected for the platform rather than the cryptography — a
-backgrounded process, a port that must be free, a login finished on another device — and
-those concerns turned out to be the ones the loopback listener already carries for the other
-two providers. It is now the default precisely because its PKCE is the real thing; this
-fallback is kept for the port conflict only. `docs/providers-codex.md` has both flows.
+The browser flow provides client-generated PKCE; the device fallback handles a loopback
+port conflict. [providers-codex.md](providers-codex.md) describes both flows.
 
 Residual risk: an attacker who could observe OpenAI's response to the device-token call would
 hold everything needed to redeem the code. That requires breaking TLS to `auth.openai.com`, at
@@ -420,14 +409,14 @@ project. It is entirely possible that Claude support simply does not work from a
 mobile network, and no code change within these rules would fix it. Nothing in this repository
 has been run against Anthropic's edge, so it remains unverified in both directions.
 
-## Release readiness audit (2026-09-11)
+## Polling and removal safeguards
 
-Device polling now interprets Kimi and xAI OAuth errors on HTTP 400/403 as well as 200.
+Device polling interprets Kimi and xAI OAuth errors on HTTP 400/403 as well as 200.
 It never copies an arbitrary error string into a user-visible message. A denial ends the
 attempt; slow_down applies permanently, including when carried by an HTTP error status.
 
 On Android, the credential read inside the refresh lock must still exist. Removing an account
-while refresh waits for the lock now stops before any exchange; the pre-lock copy cannot
+while refresh waits for the lock stops before any exchange; the pre-lock copy cannot
 stand in for a deleted credential. The existing compare-before-save still covers removal
 later in the exchange.
 

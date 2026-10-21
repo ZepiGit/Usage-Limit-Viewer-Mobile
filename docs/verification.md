@@ -1,13 +1,11 @@
 # Verification
 
-## Quota and widget regression coverage — PR #15
+## Quota and widget regression coverage
 
-[PR #15](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/pull/15) adds synthetic
-regressions for scoped quota availability, malformed and absent percentages,
-Claude window identity, current xAI credits versus deprecated monthly totals,
-partial refresh diagnostics, credential races and measurement age. Its check
-runs and downloadable artifacts are the source of execution results. Historical
-results below apply only to their stated commits and environments.
+Synthetic regressions cover scoped quota availability, malformed and absent percentages,
+Claude window identity, current xAI credits versus deprecated monthly totals, partial
+refresh diagnostics, credential races and measurement age. Workflow check runs and their
+downloadable artifacts record execution results for each source revision.
 
 Android CI runs the unit suite and lint, then builds debug and minified release
 APKs. `android-verification-evidence` contains test XML, lint output, generated
@@ -18,15 +16,12 @@ saved colors across day/night and resize, and requires materialized account and
 quota text in collection widgets. A background-only PNG is not sufficient proof.
 These are synthetic Robolectric renders, not physical launcher lifecycle tests.
 
-The resolved release dependencies at `4ec7c53` included WorkManager 2.10.0 and
-DataStore 1.1.1. The patch updates to
 [WorkManager 2.10.5](https://developer.android.com/jetpack/androidx/releases/work#2.10.5)
 and [DataStore 1.1.7](https://developer.android.com/jetpack/androidx/releases/datastore#1.1.7)
-include upstream fixes for incorrect network-constraint evaluation, startup storage
-races, PreferencesDataStore corruption and missing R8/ProGuard rules. These changes
-do not establish the cause of the reported widget color change or a measured
-performance improvement. CI records the resulting dependency graph and runs the
-existing scheduling and persistence tests and the minified APK upgrade path.
+include upstream fixes for network constraints, startup storage races, PreferencesDataStore
+corruption and R8/ProGuard rules. Their presence does not establish the cause of a widget
+color change or a performance improvement. CI records the resolved dependency graph and
+runs scheduling, persistence and minified-APK upgrade checks.
 
 The APK reports record package/version metadata, SHA-256 and signer certificates.
 When the existing release key is configured, CI compares the previous published
@@ -89,162 +84,33 @@ These observations use the same emulator, but do not control
 shared host load, ART profiles or file caches. They do not establish general speed,
 scrolling, battery or background-work improvements.
 
-The spontaneous widget background change reported on Pixel 10a/GrapheneOS remains
-unreproduced. No live provider responses were collected for this change. The original 25-day
-Claude reset is retained; it has not been verified against live source data.
+Widget colour changes are not reproduced on a device. The 25-day Claude reset fixture has
+not been verified against live source data.
 Physical-device lifecycle, populated-account behavior and installation of the
 published artifact remain separate checks. Release publication and verification
 follow [release.md](release.md); a successful CI artifact build is not publication.
 
-Usage Limits reads quota for seven providers: OpenAI Codex, Anthropic Claude,
-Google Antigravity, xAI Grok, Kimi Code, Devin and Meta Muse. Google Vertex is deliberately
+Usage Limits reads quota for the providers listed in the [README](../README.md). Google Vertex is deliberately
 excluded because CliProxyAPI exposes it through API-key/service-account authentication rather
 than OAuth. The main correctness risk is a
 plausible but wrong percentage or reset time. Tests need to check what a number
 means, which account it belongs to, and how old it is.
 
-## Main integration — 13 September 2026
+## Parser and credential regression contracts
 
-On the owner's subsequent commit/merge request, correction commit `a13e5d3` was combined
-with the newly fetched main commit `ab61b98`. The merge was conflict-free; both Codex
-documentation additions were retained. Before completing the merge commit, the combined
-source passed **432 Android tests** (zero failures/errors/skips) and **469 Swift tests**
-(zero failures), using the same JDK/SDK and network-disabled Swift Docker setup below.
-Android again used `:app:testDebugUnitTest --rerun-tasks --console=plain`; Swift used
-`swift test --package-path ios/UsageLimitsKit --scratch-path /build`.
-Logs: `android-merged-main.log` and `swift-merged-main.log` in the evidence directory below.
-No live-provider checks or publication were performed. CodeScene was not configured;
-existing scoped reviews and executed tests provided the available verification.
+Codex parsers retain declared unknown durations as OTHER / "Limit", preserving
+percentages, resets and exhaustion. Known and legacy window assignments retain priority;
+remaining unknowns use available long then short slots. A known 60% remaining stays HEALTHY
+even when its duration maps to OTHER. Device-poll `invalid_client` maps to Unexpected;
+xAI's mapped double-failure outcome is noData.
 
-## Follow-up corrections — 13 September 2026
+Swift cancellation checks prevent publishing failures and starting reactive renewal for
+abandoned work. An exchange already in flight still completes through credential persistence.
+Sink assertions check account identities and outcome kinds, not only call counts. Both
+platforms recognize the evaluator's current reconnect message and the persisted legacy wording.
 
-Source baseline: main at `ba6d2bf3d9ff1eb96418a9f5576e3c67c8cc2db8`, with the local
-PAK-1 through PAK-4 corrections below. No commit, push, CI dispatch or release was made.
-The pre-existing untracked `.mimosa/` directory was not modified by this work.
-
-| Package | Implemented behavior and evidence |
-|---|---|
-| PAK-1 / ULV-001 | Both Codex parsers retain declared unknown durations as OTHER / "Limit", preserving percentages, resets and exhaustion. Known and legacy assignments retain priority; remaining unknowns use free long then short slots. Each family has two inputs, so no third-window product decision is needed. |
-| PAK-2 / ULV-002 | Swift checks cancellation before publishing an error and before starting reactive renewal after a rejection. An already-started exchange still runs through persistence; completed successes still reach the sink. |
-| PAK-3 / ULV-003 | Device-poll and xAI tests require the correct error variants; the sync sink test checks account identities and outcome kinds, not just the number of calls. |
-| PAK-4 / ULV-005 | Kotlin and Swift reconnect inference reference the evaluator-owned current message. The old persisted wording remains an explicit compatibility fallback. |
-| PAK-5 / ULV-004 | Not changed: choosing 5h versus OTHER/null when Kimi omits duration still requires the owner's product decision. |
-
-**Corrections to the supplied analysis.** The ISO timestamp 2026-09-09T18:00:00Z is
-1788976800000 epoch milliseconds, not 1788640800000. A known 60% remaining is HEALTHY,
-not UNKNOWN merely because its duration maps to OTHER. Both device-poll implementations
-map `invalid_client` to `ProviderException.Unexpected`, not LoginCancelled. The existing
-xAI double-failure fixture uses HTTP 503; its public provider error is `ProviderError.noData`,
-not the lower-level HTTPError.status. Tests preserve those existing production contracts.
-
-**Red/green proof.** New Codex assertions were executed against an archived baseline with
-only the test files overlaid: three test cases failed on each platform (one unknown window,
-two unknown windows, and mixed known/legacy precedence). With the parser fixes, all six
-Android position-fallback tests and all 23 Swift Codex tests passed. This was an isolated
-baseline replay, not an assertion that production edits waited for the first red execution.
-The two Swift cancellation tests use a gated synthetic HTTPTransport through the actual
-ClaudeClient and UsageHTTPClient with maxRetries zero. On baseline, URLError(.cancelled)
-produced one persisted failure; a 401 delivered after cancellation started one token exchange
-and changed the stored pair. Both cases still surfaced CancellationError to the caller:
-that fact alone did not protect the sink or credentials. With the guards, both tests pass
-with zero recorded outcomes, zero exchanges and unchanged credentials.
-
-**Assertion sensitivity.** In the disposable baseline copy, changing the Kimi terminal-error
-variant from Unexpected to LoginCancelled failed the new type assertion; changing the xAI
-mapped variant from noData to malformedPayload failed its case assertion; changing the
-failure's account ID to "wrong-account" failed the sink identity assertions while the
-record count remained two. Mutations were restored; the final suites passed.
-
-**Executed final checks:**
-
-- Android: **415 tests, zero failures/errors/skips**, JDK 21.0.12.1, Android SDK 36.
-  The initial full run had one ConnectException in the unchanged silent-peer case of
-  LoopbackServerNoiseTest. The baseline class run then passed, as did the complete final
-  rerun. No root cause was established and no timeout or loopback code was changed.
-- Swift package: **468 tests, zero failures**, Swift 6.0.3 in the existing local Docker image,
-  with networking disabled, source mounted read-only and a separate scratch build directory.
-- A throwaway executable linked against the built Swift package passed direct checks for two
-  retained unknown windows, exhausted daily quota, preserved reset and reconnect inference.
-- Read-only Codex and Swift sync/security reviews found no blocking issues.
-
-The successful Android run invoked the wrapper JAR directly because this harness could not
-launch the batch wrapper correctly (same Gradle tasks, no project configuration change):
-
-```text
-C:/temp/ulv-jdk21/jdk-21.0.12.1+1/bin/java.exe -Xmx64m -Xms64m -jar <repo>/gradle/wrapper/gradle-wrapper.jar :app:testDebugUnitTest --rerun-tasks --console=plain
-```
-
-JAVA_HOME pointed to that JDK; ANDROID_HOME was
-`C:/Users/miche/AppData/Local/ElWeatherTools/android-sdk`.
-The equivalent normal invocation is `gradlew.bat :app:testDebugUnitTest --rerun-tasks`.
-Swift ran `swift test --package-path ios/UsageLimitsKit --scratch-path /build`
-inside `swift:6.0.3` with `--network=none`.
-Local logs are retained under `C:/temp/ulv-followup-20260913` (android-red,
-android-codex-green, android-pak3-mutant, android-final, android-final-rerun,
-swift-red, swift-cancellation-red/green, swift-pak3-mutant, swift-sink-mutant/restored,
-swift-final and smoke logs). Temporary baseline sources and scratch builds were removed.
-
-**Limits:** Gradle reported corruption in the existing user-cache journal file-access.bin,
-including on successful runs. No shared cache was deleted or repaired. The intermittent
-loopback refusal remains an observation, not a confirmed regression or resolved defect.
-No APK packaging, emulator/device UI, Xcode build, Apple URLSession cancellation behavior,
-provider login/refresh, credit redemption or store publication was verified in this follow-up.
-The scripted HTTP tests do not establish what error an Apple URLSession emits on a device.
-
-## Local audit results — 12 September 2026
-
-The completed baseline checks used JDK 17, Android SDK 35 and Swift 6.0.3 in
-Docker. The audit's Android source targeted API 36 with AGP 8.10.1 and Robolectric
-4.16.1; its tests used JDK 21, while app bytecode targeted Java 17. The final local
-build, test and emulator results for that audit are below. The corrected
-iPhone/iPad CI run was pending at that time.
-
-| Check | Result |
-|---|---|
-| Android baseline packaging | Debug APK: 13,702,817 bytes; unsigned release APK: 2,491,175 bytes |
-| Final Android API 36 suite | 400 tests passed; no failures or skips |
-| Final Android packaging | Debug APK: 13,737,666 bytes; debug-signed release APK: 2,481,299 bytes |
-| Final APK SDK metadata | `aapt` confirmed minimum 26, target 36 and compile 36 |
-| Final Swift package suite | 456 tests passed |
-| iOS app and widget sources, Linux framework shims | Final source type-check passed |
-| Android API 35 emulator smoke | Install, launch, empty refresh, all four tabs, compact widget and ring widget exercised |
-| Final minified APK on Android API 36 | Empty refresh, all four tabs, compact-widget configuration/placement/open, narrow and wide layouts, large text and reduced-motion navigation passed; crash buffer empty |
-| Physical Android device | Not verified |
-| Real iOS SDK build and simulator smoke | Compilation completed at `19fc063`; three scroll-gesture UI checks failed. Corrected iPhone/iPad results tracked in PR #9 |
-| Final API 36 runtime samples | Five COLD launches: 621, 612, 632, 627 and 650 ms; median 627 ms. Idle PSS: 25,997 kB; RSS: 154,040 kB |
-| Baseline API 35 runtime samples | Launch: 965, 921, 950, 952 and 973 ms, mixed COLD/WARM; one PSS sample: 27,541 kB |
-| Live login, token refresh or reset-credit redemption | Not attempted in this audit |
-| Distribution signing and store publication | Not performed |
-
-The emulator exposed unreadable system-bar icons and overlapping widget
-configuration content; explicit dark system-bar styling and safe drawing insets
-were added. Before/after screenshots confirm the status-icon correction and the
-widget title moving from y=42 to y=170, below the 128-pixel status bar.
-
-The final run used the API 36 AOSP x86_64 emulator `emulator-5582` with WHPX and
-the 2,481,299-byte minified APK. At 320 dp width and font scales 1.3 and 2.0,
-sync-interval choices wrapped and the 3 h option remained visible and selectable.
-Landscape, tablet and unfolded-size windows used the side rail; scrolling the
-landscape provider picker reached Kimi. Compact-widget configuration, placement
-and opening the app passed. Add-account navigation and Back also worked with
-animator scale zero. Emulator settings were restored after the checks. At font
-scale 2.0, some bottom-tab labels break mid-word; their touch targets remain
-accessible. This is a remaining cosmetic issue.
-
-Each final launch had no prior app PID and Android reported `LaunchState: COLD`.
-The times above are `am start -W` TotalTime values; memory is one idle
-`dumpsys meminfo` sample. The baseline used a different Android version and a
-mixture of cold and warm launches. These observations do not establish a speed
-or memory improvement. Local logs, screenshots and UI dumps are retained under
-`C:/temp/ulv-audit`, including `device/api36-final-startup.txt`,
-`device/api36-final-meminfo.txt` and `device/api36-final-crash.txt`.
-
-The Linux shims catch missing declarations and some type and concurrency errors.
-They do not reproduce the Apple SDK's full behavior, render the SwiftUI screens,
-or prove an Xcode build. The separate real-SDK CI run compiled the source at
-`19fc063`, then failed three provider-picker UI checks involving scroll gestures.
-The corrected iPhone/iPad run, including landscape and large text, was pending
-at the audit; current execution evidence is recorded in PR #15's check runs.
+Linux framework shims catch missing declarations and selected type/concurrency errors;
+real-SDK compilation and simulator runs provide separate evidence for SwiftUI behavior.
 
 ## Login and presentation regression checks
 
@@ -253,7 +119,8 @@ Synthetic HTTP and callback tests cover device-grant denial, expiry and persiste
 lock; and outgoing sign-in clicks. Swift tests also cover browser-dismissal versus
 loopback-bind errors, cancellation, and long device-poll error bodies.
 `HttpClientRetryTest` covers temporary connection failures, retry limits, certificate
-rejection and the prohibition on replaying grants after ambiguous delivery.
+rejection and the prohibition on replaying grants after ambiguous delivery. The silent-peer
+case of `LoopbackServerNoiseTest` can flake with `ConnectException`; its cause is not established.
 
 Widget rendering tests cover Glance composition and host views. Builder, style, receiver
 and scheduling tests cover selections, stale/reset presentation and update requests;
@@ -323,10 +190,9 @@ Repeat the relevant checks on an iOS build made with the real SDK.
 ### Sign-in, with the account holder
 
 Live sign-in and credential checks require the account holder's participation.
-Use a dedicated test account where available. Do not reuse credentials from a
-working gateway: a provider may rotate its refresh token, and a failed persistence
-step can leave that credential unusable. Kimi accounts connected by a pasted key
-have no refresh grant.
+Use a dedicated test account with its own credentials: a provider may rotate its refresh
+token, and a failed persistence step can leave a shared credential unusable. Kimi accounts
+connected by a pasted key have no refresh grant.
 
 3. **Codex:** the default is browser authorization with PKCE and a loopback
    callback on port 1455. The device-code flow is the fallback when the listener
@@ -379,24 +245,26 @@ have no refresh grant.
 Record the expected value, actual value, timestamps, account label without a
 private identifier, and build version. When a payload is needed, retain a
 sanitized copy of its shape and relevant values. Remove tokens, keys, cookies and
-personal identifiers before sharing or committing evidence. Avoid repeated live
-authentication attempts while the cause is unknown.
+personal identifiers before sharing or committing evidence. Diagnose the cause before
+repeating live authentication attempts.
 
 ## Remaining release decisions
 
-This audit has not established end-to-end access to any live account. Historical
-fixtures remain useful regression evidence, but no current provider response was
-captured or re-confirmed here. Physical-device checks, populated-account behavior
-and a controlled performance comparison remain open. The completed API 36
-emulator smoke and cold-launch measurements above belong to the September local
-audit; current Android runtime and iOS simulator results belong to PR #15's
-check runs and their artifacts.
+Synthetic fixtures do not establish live-provider compatibility. Physical-device checks,
+populated-account behavior and controlled performance comparisons require separate evidence.
+Use workflow artifacts for the source revision being evaluated; historical results do not
+verify the current release artifact.
 Both platforms have the shared app-icon assets configured; their presence does
 not establish store acceptance.
 
-Vendor permission and terms review, Kimi allowlisting, signing-key custody, legal
-and store copy, and publication require their respective owners. Ordinary HTTPS
-rejection is a compatibility finding to resolve with the provider; the runbook
+### Owner actions
+
+- Complete provider permission and terms review, including Kimi's `UsageLimits` allowlist entry.
+- Keep signing keys and provisioning credentials outside the repository.
+- Supply the privacy policy and store/legal copy.
+- Decide on store publication; a successful CI artifact build is not publication.
+
+Ordinary HTTPS rejection is a compatibility finding to resolve with the provider; the runbook
 does not include TLS fingerprint mimicry or another client's identity as a
 workaround. Passing automated checks does not settle any of these release
 decisions.

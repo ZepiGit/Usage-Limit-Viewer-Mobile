@@ -1,37 +1,25 @@
-# Provider auth research (Phase 0)
+# Provider auth research
 
-Findings from reading the current reference implementations, and the decisions
-they led to. This is the document the rest of the provider work was built from.
-
-**Sources read, at these exact commits:**
-
-| Repository | Commit | Date |
-|---|---|---|
-| `router-for-me/CLIProxyAPI` | `7fac6b15bcfe5ea55c18c9eaec8e5b7e6457d974` | 2026-09-09 |
-| `router-for-me/Cli-Proxy-API-Management-Center` | `ed5f1c48e11ba7335f1e8f676f228c280196af85` | 2026-09-08 |
-| `AllenReder/CLIProxyAPI-Quota-Inspector` | `1895bc54d0cbdd3b73ac85b3e535b23b7481a1a0` | 2026-04-17 |
+Authentication choices and compatibility constraints derived from the reference clients.
+Source revisions are listed under [Sources](#sources).
 
 ## Feasibility matrix
 
 | Provider | Login method chosen | Mobile-suitable | Refresh | Usage | Known risks |
 |---|---|---|---|---|---|
-| **Codex** | OAuth 2.0 device authorization | **Yes — best fit** | `refresh_token` grant | `GET /backend-api/wham/usage` | PKCE pair is generated *server-side*; internal endpoint; polling uses 403/404 rather than the RFC's `authorization_pending` |
+| **Codex** | Browser PKCE; device fallback on port conflict | Yes | `refresh_token` grant | `GET /backend-api/wham/usage` | Device-fallback PKCE pair is generated *server-side*; internal endpoint; fallback polling uses 403/404 rather than the RFC's `authorization_pending` |
 | **xAI / Grok** | RFC 8628 device flow via OIDC discovery | **Yes — best fit** | `refresh_token` grant | `GET /v1/billing` ×2 | Endpoints discovered at runtime (validated); billing semantics differ per plan |
 | **Claude** | Authorization code + PKCE, loopback redirect | Workable, with a caveat | `refresh_token` grant | `GET /api/oauth/usage` | **Bot detection.** Reference client mimics TLS fingerprints; this app does not — see below |
 | **Antigravity** | Authorization code + PKCE, loopback redirect | Workable | `refresh_token` grant | `POST v1internal:retrieveUserQuotaSummary` | Ships a Google installed-app client secret; fixed loopback port; three candidate hosts |
 | **Devin** | Authorization code + PKCE, ephemeral loopback redirect | Yes | Session token (no refresh grant) | Connect `GetUserStatus` JSON/protobuf | Internal seat-management endpoint; session token is a bearer credential |
 | **Meta Muse** | OAuth 2.0 device authorization | Yes | DCA token (no refresh grant) | `POST /muse-code/key` with DCA bearer | Internal Muse endpoint; API key and DCA token must be stored separately |
 
-None of these flows has been executed against a live account in the environment
-where this was built. They are implemented from the reference implementations and
-are **unverified end-to-end**. Treat the matrix as "designed and implemented",
-not "tested against production".
+Synthetic tests and reference implementations do not establish live-account compatibility.
+Use the [verification runbook](verification.md) for end-to-end checks.
 
 ## The central question: which flow on Android?
 
-The brief asked for both options to be investigated for Codex, and for the best
-secure Android flow elsewhere. The answer differs per provider, and the reason is
-always the redirect.
+Redirect registration and mobile process lifetime constrain each provider's flow.
 
 ### Why device flow wins where it is available
 
@@ -50,21 +38,11 @@ A device flow has none of these. The app holds no listener, keeps no port, and
 polls an HTTPS endpoint it initiates. If the app is killed, the login simply fails
 cleanly rather than hanging on a socket that will never be written to.
 
-**Decision, as first made: Codex and xAI use the device flow.** For Codex this
-was a deliberate divergence from the reference implementation's default, which uses
-`http://localhost:1455/auth/callback`.
-
-**Revised for Codex.** The three liabilities above are real, but they are the same
-three that Claude and Antigravity have always lived with, and `LoopbackServer` has
-answered each of them in practice: the port is bound before the browser opens so a
-conflict is known up front, the listener polls with a short timeout so an abandoned
-sign-in never strands the port, and the process has survived the browser round-trip
-on every device it has been tried on. What the device flow cost, meanwhile, was the
-one thing a user notices on every sign-in: a code to read off this app and type
-into the browser. So Codex now runs the reference client's browser flow by default,
-on the CLI's own registered redirect, and falls back to the device flow only when
-port 1455 is taken. xAI stays on the device flow: its client registers no loopback
-redirect, and the device flow is its native one.
+Codex defaults to browser PKCE on its registered `:1455/auth/callback` redirect, avoiding
+manual code entry. It falls back to device flow when the port cannot bind. The listener
+binds before opening the browser, has bounded waits and closes during cleanup. Android's
+sign-in foreground service keeps redirect-based login active while the browser is open.
+xAI uses device flow because its client has no registered loopback redirect.
 
 ### Where a redirect is unavoidable
 
@@ -73,7 +51,7 @@ loopback redirects (`:54545/callback` and `:51121/oauth-callback`), so a custom
 Android scheme cannot be substituted — the authorization server would reject it.
 
 Both therefore use `LoopbackServer`, which binds `127.0.0.1` only, serves exactly
-one request, and closes in a `finally` block. Both validate `state` with a
+one matching callback, and closes in a `finally` block. Both validate `state` with a
 constant-time comparison before the code is exchanged, and both use PKCE. Codex's
 browser flow is the same code path on `:1455/auth/callback`.
 
@@ -175,19 +153,12 @@ what stops `notx.ai` and `x.ai.example.com` from passing.
 Billing needs two calls with different shapes — a credit/weekly view and a
 monthly view in **integer cents** — merged into one window list.
 
-## Corrections to the original specification
+## Payload and header contracts
 
-Reading the current code rather than trusting the brief changed three things:
-
-| Brief said | Actually true | Consequence |
-|---|---|---|
-| Claude's Fable window key is `seven_day_fable` | It is `iguana_necktie` — a codename | Parsing on the old key would silently drop the window |
-| Codex needs `OpenAI-Beta: codex-1` and `Originator: Codex Desktop` | Only on the **reset-credit** endpoints; `/wham/usage` does not take them | Harmless if over-sent, but the docs were wrong about where they belong |
-| Windows can be read as primary/secondary | Upstream puts a **monthly** window in the secondary slot on team plans | Trusting position labels a month as a week — a materially wrong number |
-
-The third is the one that would have produced a plausible, quietly incorrect UI.
-Windows are classified by `limit_window_seconds` throughout, with payload order
-used only as a legacy fallback when the field is absent.
+Claude's Fable window uses the `iguana_necktie` key. Codex reset-credit endpoints require
+`OpenAI-Beta: codex-1` and `Originator: Codex Desktop`; `/wham/usage` does not. Window
+categories follow `limit_window_seconds`, with positional fallback only when duration is
+absent: a secondary slot can contain a monthly limit.
 
 ## Stability
 
@@ -205,7 +176,7 @@ is why every URL, header and client version lives in a single
 and why the parsers carry the bulk of the test suite. An upstream change should
 cost one row on one card and one edit in one file.
 
-## Additional providers (October 2026)
+## Additional providers
 
 Checked against the providers CLIProxyAPI's console lists (`internal/auth/`: antigravity,
 claude, codex, devin, kimi, meta, vertex, xai) and against usage endpoints that a phone can
@@ -228,3 +199,11 @@ credential can be obtained on a phone without impersonating another program.
 | Qwen (Qwen Code, console) | console form POST | console cookies + `sec_token` | Not feasible | Free OAuth tier ended 2026-04-15; the console needs cookies |
 
 Prepaid credit balances (a separate feature) are covered in `docs/credits.md`.
+
+## Sources
+
+| Repository | Commit | Date |
+|---|---|---|
+| `router-for-me/CLIProxyAPI` | `7fac6b15bcfe5ea55c18c9eaec8e5b7e6457d974` | 2026-09-09 |
+| `router-for-me/Cli-Proxy-API-Management-Center` | `ed5f1c48e11ba7335f1e8f676f228c280196af85` | 2026-09-08 |
+| `AllenReder/CLIProxyAPI-Quota-Inspector` | `1895bc54d0cbdd3b73ac85b3e535b23b7481a1a0` | 2026-04-17 |

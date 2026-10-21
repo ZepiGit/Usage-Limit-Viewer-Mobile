@@ -71,8 +71,8 @@ For Claude, Codex, Antigravity and Devin you sign in on the service's own web pa
 normal browser. The app never sees your password; it only receives the sign-in result.
 
 While that page is open you'll see a small **Sign-in** notification. It keeps the app awake
-so it can catch the result: Android 14 and later otherwise pause apps in the background,
-which used to make the last step load forever. If signing in takes longer than three
+so it can catch the result: Android 14 and later can pause background apps while the
+browser is open. If signing in takes longer than three
 minutes, the notification asks you to come back to the app, and that finishes it.
 
 ## Prepaid credits
