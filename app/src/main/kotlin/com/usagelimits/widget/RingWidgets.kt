@@ -138,7 +138,7 @@ private fun RingMark(account: WidgetAccount, size: androidx.compose.ui.unit.Dp, 
                 WidgetLogo(it, account.iconChoiceId, size * 0.46f)
             }
         } else if (percent != "—") {
-            Text(percent, style = widgetText(style.textPrimary, 12, FontWeight.Medium, mono = true), maxLines = 1)
+            Text(percent, style = widgetText(style.textPrimary, 12, FontWeight.Bold, mono = true), maxLines = 1)
         }
         if (account.partialUpdate) {
             Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {

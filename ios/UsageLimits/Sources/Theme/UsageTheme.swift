@@ -148,7 +148,7 @@ extension Color {
 /// Sizes scale with Dynamic Type relative to the text style named beside each.
 enum UsageFont {
     case title, lead, widgetLead, money, widgetMoney, rowMoney
-    case section, body, bodyStrong, figure, figureLarge
+    case section, body, bodyStrong, figure, figureLarge, ringFigure
     case small, smallStrong, micro
 
     fileprivate var spec: (size: CGFloat, weight: Font.Weight, design: Font.Design, style: Font.TextStyle) {
@@ -164,6 +164,7 @@ enum UsageFont {
         case .bodyStrong: return (14, .medium, .default, .subheadline)
         case .figure: return (14, .medium, .monospaced, .subheadline)
         case .figureLarge: return (16, .medium, .monospaced, .headline)
+        case .ringFigure: return (16, .semibold, .monospaced, .headline)
         case .small: return (12, .regular, .default, .caption)
         case .smallStrong: return (12, .medium, .default, .caption)
         case .micro: return (11, .medium, .default, .caption2)

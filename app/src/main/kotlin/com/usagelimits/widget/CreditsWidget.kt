@@ -76,7 +76,7 @@ class CreditsWidget : GlanceAppWidget() {
                                 "No credit balances. Add one in the app.",
                                 style = widgetText(style.textSecondary, 12),
                             )
-                            shown.size == 1 -> Single(shown.first(), style)
+                            size.width < MEDIUM.width -> Single(shown.first(), style)
                             else -> {
                                 Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
@@ -104,25 +104,32 @@ class CreditsWidget : GlanceAppWidget() {
     /** The 2x2 tile: one account, its amount large, and as of when. */
     @Composable
     private fun Single(row: CreditWidgetRow, style: WidgetStyle) {
-        Text(
-            row.title, maxLines = 1,
-            style = widgetText(style.textSecondary, 12, FontWeight.Medium),
-        )
-        Spacer(GlanceModifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // Centred as a block: the root column is start-aligned, so without this the tile reads as left-heavy.
+        Column(
+            GlanceModifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Text(
-                amountText(row), maxLines = 1,
-                style = widgetText(style.textPrimary, 22, FontWeight.Bold, mono = true),
+                row.title, maxLines = 1,
+                style = widgetText(style.textSecondary, 12, FontWeight.Medium),
             )
-            if (row.severity != Severity.HEALTHY) {
-                Spacer(GlanceModifier.width(6.dp))
-                SeverityDot(style.accent(row.severity))
+            Spacer(GlanceModifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    amountText(row), maxLines = 1,
+                    style = widgetText(style.textPrimary, 22, FontWeight.Bold, mono = true),
+                )
+                if (row.severity != Severity.HEALTHY) {
+                    Spacer(GlanceModifier.width(6.dp))
+                    SeverityDot(style.accent(row.severity))
+                }
             }
+            Text(
+                statusText(row), maxLines = 1,
+                style = widgetText(if (refreshFailed(row)) style.textPrimary else style.textSecondary, 11),
+            )
         }
-        Text(
-            statusText(row), maxLines = 1,
-            style = widgetText(if (refreshFailed(row)) style.textPrimary else style.textSecondary, 11),
-        )
     }
 
     @Composable
