@@ -181,6 +181,11 @@ review, not by the compiler. Making it airtight would mean handing `WidgetUpdate
 read-only interface (`suspend fun accountUsageOnce()` plus the config DAO) instead of the whole
 container; that is the right change if this package ever grows.
 
+Glance compositions use `androidx.glance.LocalContext`, rather than the app Compose
+context. Each `provideGlance` creates its observation flow once per composition session;
+recomposition collects that flow without replacing the subscription. Glance sessions are
+bounded, so these observations do not replace scheduled update requests.
+
 ## How a placed widget gets updated
 
 Three update paths serve different triggers; Android can defer background delivery:
@@ -337,6 +342,17 @@ Three entries appear in the gallery, all fed by one `UsageProvider` and one snap
 | **Usage Limits** | small, medium, large, `accessoryRectangular` | The kit's ranking: one account small, three medium, up to eight large |
 | **Usage Limits (Clear)** | small, medium, large | The same, with the wallpaper showing through |
 | **Usage Ring** | small, `accessoryCircular` | One account as a ring, with its limit and reset inside |
+
+On iOS 17 and later, configurable Bars, Account Rings and Mini Rings also support exact
+account selection and saved custom layouts. Settings edits each layout's selected accounts
+and drag order; widgets referencing the same layout share those saved choices. The iOS 16
+gallery entries remain available.
+
+Configured timeline requests capture the snapshot once and load presets at most once.
+All entries in that timeline use the same captured inputs, evaluated at their entry dates
+for reset and stale boundaries. Missing selections and unreadable snapshots retain distinct
+outcomes, and a single-account reading uses that account's fetch timestamp rather than the
+newest timestamp across unrelated accounts. WidgetKit controls actual delivery timing.
 
 ### Why transparency is a second entry rather than a switch
 

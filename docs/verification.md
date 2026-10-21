@@ -216,13 +216,6 @@ iPhone/iPad CI run was pending at that time.
 | Live login, token refresh or reset-credit redemption | Not attempted in this audit |
 | Distribution signing and store publication | Not performed |
 
-The baseline APKs used AGP 8.7.3 and SDK 35; the final APKs use AGP 8.10.1 and SDK
-36. The final release is debug-signed, while the baseline release was unsigned.
-These are package-size measurements; signing and toolchain differences prevent
-attributing the change to application code or performance improvements. See
-[release.md](release.md) for signing rules and
-[release-readiness.md](release-readiness.md) for regression evidence.
-
 The emulator exposed unreadable system-bar icons and overlapping widget
 configuration content; explicit dark system-bar styling and safe drawing insets
 were added. Before/after screenshots confirm the status-icon correction and the
@@ -252,6 +245,39 @@ or prove an Xcode build. The separate real-SDK CI run compiled the source at
 `19fc063`, then failed three provider-picker UI checks involving scroll gestures.
 The corrected iPhone/iPad run, including landscape and large text, was pending
 at the audit; current execution evidence is recorded in PR #15's check runs.
+
+## Login and presentation regression checks
+
+Synthetic HTTP and callback tests cover device-grant denial, expiry and persistent
+`slow_down`; unrelated Codex callbacks; credential removal while renewal waits for its
+lock; and outgoing sign-in clicks. Swift tests also cover browser-dismissal versus
+loopback-bind errors, cancellation, and long device-poll error bodies.
+`HttpClientRetryTest` covers temporary connection failures, retry limits, certificate
+rejection and the prohibition on replaying grants after ambiguous delivery.
+
+Widget rendering tests cover Glance composition and host views. Builder, style, receiver
+and scheduling tests cover selections, stale/reset presentation and update requests;
+these separate checks do not prove the complete WorkManager-to-launcher repaint chain.
+Use synthetic accounts for boundary and multi-instance checks. Compare each widget before,
+at and after reset/stale boundaries without publishing new data; test save and cancel,
+separate custom layouts and widgets sharing one layout, then repeat after process loss
+and reboot. Validate system appearance, transparency and ink independently per widget.
+
+For Android background-update diagnosis, capture scheduler, widget and standby state:
+
+```sh
+adb shell dumpsys jobscheduler
+adb shell dumpsys appwidget
+adb shell dumpsys deviceidle whitelist
+adb shell am get-standby-bucket com.usagelimits
+adb logcat -s UsageLimitsApp WidgetUpdater GlanceAppWidget SessionWorker WM-WorkerWrapper
+```
+
+Keep captures local and redact personal metadata before sharing. For iOS configuration
+latency, record edit completion, provider callback, returned timeline and first matching
+frame separately; a reload request does not guarantee a display deadline. Record OS,
+launcher or Home Screen appearance, widget kind, selection and layout bounds so a dynamic
+lead-account change can be distinguished from a changed configuration.
 
 ## What the tests establish
 

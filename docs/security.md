@@ -231,6 +231,11 @@ retry here does not recover the lost response; it turns an ambiguous failure int
 whole token family. The code exchange shipped without this rule for a while, on both
 platforms, while the refresh path had it; a review caught the asymmetry.
 
+On Android, confirmed temporary DNS or connection-setup failures before any HTTP exchange
+can use the existing two-retry budget. One-shot bodies prevent replay after transmission;
+lost replies, HTTP 5xx, certificate failures and unknown delivery end the exchange. A
+persistent network failure can require starting a new login.
+
 **Ordering on login and logout is deliberate, and the two orderings are opposite for the same
 reason** — a stored credential must never outlive the account row that names it.
 
@@ -426,8 +431,5 @@ while refresh waits for the lock now stops before any exchange; the pre-lock cop
 stand in for a deleted credential. The existing compare-before-save still covers removal
 later in the exchange.
 
-The historical claim above that Android has no logging calls is obsolete. The credential
-store logs the exception class only; startup scheduling can also log an infrastructure
-exception. Neither changed path logs a credential or a provider response body. This audit adds no logging, storage, provider
-identity headers, scopes or endpoints. Provider permission and live-account checks remain
-open; see `release-readiness.md`.
+Provider permission and live-account checks remain open; see
+[verification.md](verification.md#remaining-release-decisions).
