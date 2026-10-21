@@ -1,11 +1,8 @@
 import XCTest
 @testable import UsageLimitsKit
 
-/// The planning seam the configured providers run through (WGT-008, WGT-010).
-///
-/// A timeline request captures its inputs once and derives every entry from that capture;
-/// the outcome — including WHY a selection came up empty — is decided where the inputs are
-/// resolved, not re-guessed by a view while being archived.
+/// Configured providers capture inputs once for every timeline entry and retain
+/// the empty-selection reason resolved from those inputs.
 final class ConfiguredWidgetPlanningTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -31,7 +28,7 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
             accountID: accountID, providerID: nil, transparent: false)
     }
 
-    // MARK: WGT-008 — one capture drives many entries
+    // MARK: one capture drives many entries
 
     func testEntriesDeriveFromTheOneCapturedGeneration() {
         let request = capture(.loaded(loadedSnapshot()))
@@ -53,7 +50,7 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
         XCTAssertEqual(request.selectedSnapshot(at: now).accounts.map(\.id), ["b"])
     }
 
-    // MARK: WGT-010 — an empty selection keeps its reason
+    // MARK: an empty selection keeps its reason
 
     func testMissingPresetIsNotNoAccounts() {
         // The preset file failed to resolve while other accounts exist. The old behaviour
@@ -73,8 +70,7 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
     }
 
     func testSourceFailureStatesKeepTheirReasons() {
-        // A missing file is "no accounts yet" — the app has not published anything, and it
-        // is NOT a locked device (inferring lock from file presence was the old bug).
+        // A missing snapshot means no publication yet, independently of device-lock state.
         XCTAssertEqual(capture(.missing).outcome(at: now), .noAccounts)
         XCTAssertEqual(capture(.empty).outcome(at: now), .noAccounts)
         // An existing file that cannot be opened is the protected/unreadable case.
@@ -82,7 +78,7 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
         XCTAssertEqual(capture(.corrupt).outcome(at: now), .corruptSource)
     }
 
-    // MARK: WGT-005 — age transitions are planned from the captured cache
+    // MARK: age transitions are planned from the captured cache
 
     func testStalenessBoundaryIsPlannedFromTheCapture() {
         let fetchedEarlier = GlanceModel.build(
@@ -99,7 +95,7 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
         XCTAssertTrue(capture(.loaded(longAgo)).presentationBoundaries(after: now).isEmpty)
     }
 
-    // MARK: WGT-007 — a reading that predates its own reset
+    // MARK: a reading that predates its own reset
 
     func testResetPendingDistinguishesPreResetReadingsFromFreshOnes() {
         let row = GlanceRow(label: "5h limit", category: .fiveHour, remainingPercent: 0,

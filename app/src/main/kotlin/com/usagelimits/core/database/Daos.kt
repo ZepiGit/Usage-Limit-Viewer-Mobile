@@ -43,10 +43,7 @@ interface AccountDao {
     suspend fun setSortOrder(localId: String, order: Int)
 
     /**
-     * Where a newly connected account belongs: after everything already here.
-     *
-     * `sortOrder` used to be 0 for every row, so a manual order made the next account added
-     * jump to the top of it.
+     * Newly connected accounts follow the existing manual order.
      */
     @Query("SELECT COALESCE(MAX(sortOrder), -1) + 1 FROM accounts")
     suspend fun nextSortOrder(): Int

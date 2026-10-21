@@ -10,8 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The ink follows the panel. A light panel with light text is a blank widget, and the old
- * fixed palette produced exactly that the moment a launcher or a user changed the panel.
+ * Ink must contrast with the selected panel colour.
  */
 class WidgetStyleTest {
 
@@ -54,11 +53,8 @@ class WidgetStyleTest {
 
     @Test
     fun `auto tone is continuous as opacity crosses zero`() {
-        // WGT-003. The old rule special-cased full transparency and inverted its guess there,
-        // so a white panel chose dark ink at 1% opacity and light ink at 0% — a deterministic
-        // black/white flip from one nudge of the opacity slider. AUTO now reads the chosen
-        // panel colour at every opacity; a see-through widget whose wallpaper defeats that
-        // assumption is what the explicit LIGHT/DARK overrides are for.
+        // AUTO uses the selected panel colour at every opacity, including zero.
+        // Explicit LIGHT/DARK overrides handle wallpaper that differs from that assumption.
         val white = WidgetBackground(0xFFFFFFFF.toInt(), 100)
         assertFalse(WidgetStyle(white).lightInk)
         assertFalse(WidgetStyle(white.copy(opacityPercent = 5)).lightInk)
@@ -73,7 +69,7 @@ class WidgetStyleTest {
 
     @Test
     fun `a stale full quota is grey, not the data hue`() {
-        // WGT-006. Data validity outranks quota decoration: a stale reading is not one to be trusted.
+        // Data validity outranks quota decoration: stale readings are untrusted.
         val full = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 100.0, null, Severity.HEALTHY)
         val style = WidgetStyle()
         assertEquals(WidgetStyle.Terracotta, style.bar(full))
@@ -103,8 +99,8 @@ class WidgetStyleTest {
 
     @Test
     fun `a healthy short window does not inherit an exhausted long window's treatment`() {
-        // The other direction of WGT-006: validity is DATA validity only. Quota severity stays
-        // per row, so an exhausted monthly window never recolours a healthy five-hour one.
+        // Data validity is account-wide; quota severity stays per row, so an exhausted
+        // monthly limit must not recolor a healthy five-hour limit.
         val short = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 40.0, null, Severity.MEDIUM)
         val style = WidgetStyle()
         assertEquals(WidgetStyle.Terracotta, style.bar(short))

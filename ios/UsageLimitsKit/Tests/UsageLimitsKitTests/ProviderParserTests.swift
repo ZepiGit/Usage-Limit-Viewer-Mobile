@@ -569,11 +569,8 @@ final class AntigravityQuotaParserTests: XCTestCase {
     // MARK: - Tier names the provider might actually send
 
     func testATierThatIsOnlyAMultiplierDoesNotCrash() {
-        // "claude_20x" strips its prefix to "20x", whose only underscore-component is the whole
-        // string. Removing that component PLUS a separator took four characters from three — a
-        // precondition failure, which is to say a crash, from a value the provider chose. It is
-        // a tier NAME, not a multiplier, and now reads as one — the same answer Kotlin gives,
-        // whose regex has always demanded a separator before the digits.
+        // claude_20x is a tier name, not a multiplier: a multiplier suffix requires a separator.
+        // Keep this interpretation aligned with Kotlin and avoid out-of-range prefix removal.
         XCTAssertEqual(
             ClaudeUsageParser.parsePlan(
                 payload(#"{"organization":{"rate_limit_tier":"claude_20x"}}"#)),

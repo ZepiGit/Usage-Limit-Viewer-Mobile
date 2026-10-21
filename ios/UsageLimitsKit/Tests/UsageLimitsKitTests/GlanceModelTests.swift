@@ -168,8 +168,7 @@ final class GlanceModelTests: XCTestCase {
 
         let snapshot = GlanceModel.build(mixed, now: now, scope: .mostCritical)
 
-        // Ranking by the Severity case order put error, then stale, then exhausted — so this
-        // used to lead with an account whose quota may be perfectly fine.
+        // Known exhaustion outranks error and stale readings whose quota may be healthy.
         XCTAssertEqual(snapshot.accounts.first?.id, "out")
     }
 
@@ -581,11 +580,8 @@ extension GlanceModelTests {
     // MARK: - Freshness that ages with the timeline
 
     func testAnAccountGoesStaleAsTheTimelineAdvances() {
-        // A widget renders several timeline entries at different dates from ONE snapshot, and
-        // every entry used to carry the severity computed when the app wrote it. An account
-        // healthy at T0 therefore still read healthy at T0 plus a day when no background
-        // refresh had run — the tile aged without ever saying so, which is the one thing a
-        // quota display must not do.
+        // Each timeline entry must evaluate cached severity at its own date, even without
+        // an intervening background refresh.
         let snapshot = GlanceModel.build(
             [usage("a", .codex, usedPercent: 10)], now: now, scope: .allAccounts, accountID: nil)
         let account = snapshot.accounts[0]

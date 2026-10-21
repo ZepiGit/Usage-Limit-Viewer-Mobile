@@ -11,16 +11,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * What a stored preferences file means, including the ones written by older builds.
- *
- * Untested until a mutation sweep found it: dropping the legacy opt-out fallback, and dropping
- * the muted-account read entirely, both left the whole suite green. Every rule here is an
- * UPGRADE rule — it runs only for a user coming from an earlier version, which is the one path
- * nobody exercises by hand and the one where a mistake silently un-does a choice they made.
- *
- * The key NAMES are spelled out rather than taken from the private `Keys` object. They are the
- * on-disk contract: renaming one does not fail to compile, it just makes every stored value
- * invisible and quietly resets the user to defaults.
+ * Stored preference mapping preserves choices made by earlier builds.
+ * Spell out storage key names independently of Keys so tests detect accidental renames
+ * that would hide persisted values and silently restore defaults.
  */
 class SettingsMappingTest {
 
@@ -40,10 +33,7 @@ class SettingsMappingTest {
 
     @Test
     fun `a pre-split opt-out silences BOTH low-quota tiers, not just one`() {
-        // The old build had a single "notify on low usage" switch. Someone who turned it off
-        // meant "stop telling me about low quota". Reading it for only one of the two tiers
-        // hands them back the 20% alert they had switched off, with no setting having changed
-        // on their side — and nothing on screen to explain why it came back.
+        // The legacy low-quota opt-out must suppress both tiers after upgrade.
         val settings = settingsFrom(booleanPreferencesKey("notify_low_usage") to false)
 
         assertFalse("the 20% tier must inherit the old opt-out", settings.notifyBelow20Percent)

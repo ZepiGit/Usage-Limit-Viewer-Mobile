@@ -96,17 +96,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     /// short and one long headline. The representative is chosen among these at render time.
     public let candidates: [GlanceRow]
 
-    /// When the provider was last read, so freshness can be judged again later.
-    ///
-    /// The widget renders a timeline of several entries at different dates from one snapshot,
-    /// and every one of them used to carry the severity computed at WRITE time. An account
-    /// that was healthy at T0 therefore still read healthy at T0 plus a day if no background
-    /// refresh had run in between: the tile aged without ever saying so, which is the one
-    /// thing a quota display must never do. Carrying the fetch instant lets each entry decide
-    /// for itself.
-    ///
-    /// Optional because a snapshot written by an earlier build has none, and such an account
-    /// keeps exactly its previous behaviour rather than being declared stale on upgrade.
+    /// The fetch instant lets each timeline entry evaluate freshness at its display date.
+    /// Optional for snapshots from builds that omit it; those retain their stored severity.
     public let fetchedAt: Date?
     public let providerID: String?
     public let iconAssetName: String?

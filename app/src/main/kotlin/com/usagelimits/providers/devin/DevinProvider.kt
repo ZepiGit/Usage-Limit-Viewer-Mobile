@@ -79,11 +79,8 @@ class DevinProvider(
             val state = Pkce.generateState()
             val redirectUri = "http://127.0.0.1:$port$CALLBACK_PATH"
 
-            // Publish the listener before publishing the matching PKCE fields. If an earlier
-            // completeLogin is unwinding at this exact point, its identity check will now see a
-            // different listener and leave this attempt's fields alone. Publishing the fields
-            // first created a narrow retry race where the old finally block cleared the new
-            // verifier just before beginLogin returned its challenge.
+            // Publish the listener first so concurrent cleanup sees a different identity and
+            // leaves this attempt's matching PKCE fields intact.
             server = boundServer
             pendingPkce = codes
             pendingState = state

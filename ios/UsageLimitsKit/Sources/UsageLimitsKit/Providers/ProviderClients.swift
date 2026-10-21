@@ -106,9 +106,7 @@ public enum ProviderError: Error, LocalizedError {
         case .malformedPayload(let detail):
             return "The provider answered in a shape this app does not understand (\(detail))."
         case .unauthorised:
-            // The evaluator's sentence, not a second wording of it. See
-            // `NotificationEvaluator.signInExpiredMessage` for the notification this used to
-            // silently disable, and for why the two ends share one constant.
+            // Share the evaluator's sign-in-expired message so reconnect detection and alerts agree.
             return NotificationEvaluator.signInExpiredMessage
         case .noData(let detail):
             return "No usage could be read (\(detail))."

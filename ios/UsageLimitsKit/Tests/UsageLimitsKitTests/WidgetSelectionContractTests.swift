@@ -43,12 +43,10 @@ final class WidgetSelectionContractTests: XCTestCase {
         XCTAssertEqual(ConnectionStatus.legacy(status: .ok, message: nil), .connected)
     }
 
-    // MARK: WGT-002 — the two automatic scopes are different policies
+    // MARK: the two automatic scopes are different policies
 
-    /// Overview order, urgency order and reset order are three different answers. The
-    /// exporter publishes overview order; `selecting(.mostCritical)` must re-rank by URGENCY
-    /// even when reset times disagree with it — selecting used to fall through to reset
-    /// order, which made most-critical and closest-resets indistinguishable.
+    /// Overview, urgency and reset order are distinct. The exporter publishes overview order;
+    /// selecting mostCritical must rerank by urgency even when reset order differs.
     func testSelectingMostCriticalDoesNotUseResetOrder() {
         let values = [account("exhausted-later", used: 100, reset: now.addingTimeInterval(9000)),
             account("healthy-soon", used: 0, reset: now.addingTimeInterval(10)),

@@ -134,10 +134,8 @@ data class UsageSnapshot(
     }
 
     /**
-     * How many credits can actually be spent right now — what the redeem button is gated on.
-     *
-     * Falls back to the held count when the provider does not distinguish, so a provider that
-     * only reports one number keeps working exactly as before.
+     * How many credits can be spent; gates redemption.
+     * Uses the held count when the provider reports no separate applicable count.
      */
     val spendableResetCredits: Int
         get() = spendableResetCreditsAt(System.currentTimeMillis())

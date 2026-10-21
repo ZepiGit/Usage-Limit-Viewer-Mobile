@@ -182,24 +182,14 @@ class SettingsStore(context: Context) {
 }
 
 /**
- * Internal rather than private so the fallback chains can be tested without a Context.
- *
- * They needed it: a mutation that dropped the legacy opt-out and one that stopped reading
- * the muted set both left the whole suite green. Every rule in here is an UPGRADE rule —
- * it only runs for a user coming from an older build, which is exactly the path nobody
- * exercises by hand.
+ * Internal so preference fallback and upgrade rules can be tested without a Context.
  */
 internal fun Preferences.toSettings() = AppSettings(
-    // Floored on the way OUT as well as in. `setSyncInterval` coerces what it writes, which
-    // covers the settings screen and nothing else: a file from a downgraded build, a restored
-    // backup or a hand edit could still hold a value below what WorkManager will honour. The
-    // app then showed "1 minute" and refreshed every fifteen, with no way to tell the two
-    // apart. The Swift twin applies its floor on both paths and always has.
+    // Clamp reads as well as writes: restored or downgraded preferences can contain an
+    // interval below WorkManager's minimum, and the displayed interval must match scheduling.
     syncIntervalMinutes = (this[Keys.SYNC_INTERVAL] ?: AppSettings.DEFAULT_SYNC_INTERVAL_MINUTES)
         .coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES),
-    // The single low-usage switch became two tiers. Someone who turned the old one off
-    // meant "stop telling me about low quota", so their opt-out carries to both rather
-    // than silently re-enabling alerts on upgrade.
+    // The legacy low-quota opt-out applies to both tiers, preserving the choice on upgrade.
     notifyBelow20Percent = this[Keys.NOTIFY_BELOW_20] ?: this[Keys.NOTIFY_LOW] ?: true,
     notifyBelow10Percent = this[Keys.NOTIFY_BELOW_10] ?: this[Keys.NOTIFY_LOW] ?: true,
     notifyOnExhausted = this[Keys.NOTIFY_EXHAUSTED] ?: true,
@@ -225,14 +215,8 @@ internal fun Preferences.toDiagnostics() = SyncDiagnostics(
 )
 
 /**
- * The on-disk key names.
- *
- * File-scoped so the mapping below can be a top-level function and therefore testable without
- * a Context — the upgrade rules in it were entirely untested until a mutation sweep showed
- * that removing them left the whole suite green.
- *
- * These strings are the storage contract. Renaming one does not fail to compile; it makes
- * every stored value invisible and silently resets the user to defaults.
+ * File-scoped storage keys let the preference mapper be tested without a Context.
+ * The names are a storage contract: renaming one hides persisted values and restores defaults.
  */
 private object Keys {
     val PROVIDER_ICONS = stringSetPreferencesKey("provider_icons")

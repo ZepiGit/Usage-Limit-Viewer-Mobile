@@ -25,17 +25,8 @@ import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * A usage 401 must renew the token once and retry.
- *
- * `needsRefresh` returns false when `expiresAt` is null, which is not a corner case — it is
- * every account whose provider does not state an expiry. For those the proactive branch can
- * never fire, so before this the first 401 after the access token died was recorded as
- * "Sign-in expired — reconnect this account" and every later sync did the same, for ever,
- * while a perfectly good refresh token sat in the store unused. An expiry stored too far in
- * the future produced the same silence until that date arrived.
- *
- * iOS already renewed on a rejection and already compared the rejected token; these tests
- * pin the Android half to the same rule.
+ * A usage 401 must renew once and retry, including when expiresAt is absent or inaccurate.
+ * Compare the rejected token so a concurrent renewal does not spend another rotation.
  */
 class ReactiveRefreshTest {
 

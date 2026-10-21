@@ -184,8 +184,7 @@ class WidgetDataBuilderTest {
 
         val snapshot = WidgetDataBuilder.build(mixed, now, WidgetScope.MOST_CRITICAL, null, null)
 
-        // Ranking by Severity.ordinal descending put ERROR, then STALE, then EXHAUSTED — so
-        // this used to lead with "error", an account whose quota may be perfectly fine.
+        // Known exhaustion outranks error or stale readings whose quota may be healthy.
         assertEquals("out", snapshot.accounts.first().accountId)
     }
 
@@ -210,8 +209,7 @@ class WidgetDataBuilderTest {
 
     @Test
     fun `most critical scope orders one severity band by remaining ascending`() {
-        // Both sit at 45% and 30% remaining: MEDIUM either way, so only the number separates
-        // them. The old comparator saw equal keys and left them in cache order.
+        // Both readings are MEDIUM, so remaining percentage must break the tie.
         val band = listOf(
             usage("roomy", ProviderId.CODEX, usedPercent = 55.0),
             usage("tight", ProviderId.CLAUDE, usedPercent = 70.0),
