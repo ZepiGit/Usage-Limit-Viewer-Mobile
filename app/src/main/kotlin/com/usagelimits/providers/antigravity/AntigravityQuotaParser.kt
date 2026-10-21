@@ -5,6 +5,7 @@ import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.time.Instants
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -26,6 +27,7 @@ import kotlinx.serialization.json.JsonObject
  * card per group and therefore shows each shared bucket exactly once.
  */
 object AntigravityQuotaParser {
+    internal data class Row(val window: UsageWindow, val isPlaceholder: Boolean = false)
 
     /**
      * Parses the quota summary.
@@ -34,9 +36,11 @@ object AntigravityQuotaParser {
      * reports absolute `resetTime` stamps only, so nothing here currently needs it.
      */
     @Suppress("UNUSED_PARAMETER")
-    fun parse(payload: JsonObject, nowMs: Long): List<UsageWindow> {
-        val windows = mutableListOf<UsageWindow>()
-        JsonSupport.array(payload, "groups").forEachIndexed { index, element ->
+    fun parse(payload: JsonObject, nowMs: Long): List<UsageWindow> = parseRows(payload).map { it.window }
+
+    internal fun parseRows(payload: JsonObject): List<Row> {
+        val windows = mutableListOf<Row>()
+        JsonSupport.array(payload, "groups", "quotaGroups", "quota_groups").forEachIndexed { index, element ->
             val group = element as? JsonObject ?: return@forEachIndexed
             windows += windowsFor(group, index)
         }
@@ -46,17 +50,31 @@ object AntigravityQuotaParser {
     /**
      * Buckets of one group, ordered with unknown measurements retained.
      */
-    private fun windowsFor(group: JsonObject, groupIndex: Int): List<UsageWindow> {
+    private fun windowsFor(group: JsonObject, groupIndex: Int): List<Row> {
         val groupName = JsonSupport.string(group, "display_name", "displayName")
         // Only used to build fallback ids, so an unnamed group still yields stable, unique ones.
         val groupSlug = slug(groupName ?: "group-$groupIndex")
 
-        return JsonSupport.array(group, "buckets")
+        val hasBucketKey = listOf("buckets", "quotaBuckets", "quota_buckets").any { group.containsKey(it) }
+        val bucketArray = JsonSupport.field(group, "buckets", "quotaBuckets", "quota_buckets") as? JsonArray
+        val hasQuota = listOf("remainingFraction", "remaining_fraction", "resetTime", "reset_time", "window")
+            .any { group.containsKey(it) }
+        val buckets = bucketArray ?: if (hasQuota) listOf(group) else emptyList()
+        val windows = buckets
             .mapIndexedNotNull { bucketIndex, element ->
                 val bucket = element as? JsonObject ?: return@mapIndexedNotNull null
                 toWindow(bucket, groupName, groupSlug, bucketIndex)
             }
             .sortedWith(BUCKET_ORDER)
+        if (windows.isEmpty() && !hasBucketKey && !hasQuota && groupName != null) {
+            // A named pool must stay visible even when its bucket schema is unfamiliar.
+            return listOf(Row(UsageWindow(
+                id = "$groupSlug-unknown", label = groupName, category = classify(null).first,
+                usedPercent = null, periodSeconds = null, resetAt = null, exhausted = false,
+                group = groupName, scope = UsageScope.MODEL,
+            ), isPlaceholder = true))
+        }
+        return windows.map { Row(it) }
     }
 
     private fun toWindow(

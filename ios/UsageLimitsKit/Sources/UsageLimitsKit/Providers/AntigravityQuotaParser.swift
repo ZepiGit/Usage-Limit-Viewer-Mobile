@@ -2,11 +2,20 @@ import Foundation
 
 /// Preserves the server's shared-bucket grouping instead of duplicating limits per model.
 public enum AntigravityQuotaParser: Sendable {
+    struct Row {
+        let window: UsageWindow
+        var isPlaceholder = false
+    }
+
     // The shared parser contract includes `now`, but this provider reports absolute reset times.
     public static func parse(_ payload: [String: Any], now _: Date) -> [UsageWindow] {
-        var windows: [UsageWindow] = []
+        parseRows(payload).map(\.window)
+    }
 
-        for (groupIndex, element) in JSONSupport.array(payload, "groups").enumerated() {
+    static func parseRows(_ payload: [String: Any]) -> [Row] {
+        var windows: [Row] = []
+
+        for (groupIndex, element) in JSONSupport.array(payload, "groups", "quotaGroups", "quota_groups").enumerated() {
             guard let group = element as? [String: Any] else { continue }
             windows.append(contentsOf: windowsFor(group, groupIndex: groupIndex))
         }
@@ -17,12 +26,18 @@ public enum AntigravityQuotaParser: Sendable {
     private static func windowsFor(
         _ group: [String: Any],
         groupIndex: Int
-    ) -> [UsageWindow] {
+    ) -> [Row] {
         let groupName = JSONSupport.string(group, "display_name", "displayName")
         // Preserve source indices so malformed siblings do not change fallback IDs.
         let groupSlug = slug(groupName ?? "group-\(groupIndex)")
 
-        let windows = JSONSupport.array(group, "buckets").enumerated().compactMap {
+        let bucketKeys = ["buckets", "quotaBuckets", "quota_buckets"]
+        let hasBucketKey = bucketKeys.contains { group[$0] != nil }
+        let bucketArray = JSONSupport.field(group, bucketKeys) as? [Any]
+        let hasQuota = ["remainingFraction", "remaining_fraction", "resetTime", "reset_time", "window"]
+            .contains { group[$0] != nil }
+        let buckets: [Any] = bucketArray ?? (hasQuota ? [group] : [])
+        let windows = buckets.enumerated().compactMap {
             bucketIndex, element -> UsageWindow? in
             guard let bucket = element as? [String: Any] else { return nil }
             return toWindow(
@@ -31,6 +46,13 @@ public enum AntigravityQuotaParser: Sendable {
                 groupSlug: groupSlug,
                 bucketIndex: bucketIndex
             )
+        }
+
+        if windows.isEmpty, !hasBucketKey, !hasQuota, let groupName {
+            // A named pool must stay visible even when its bucket schema is unfamiliar.
+            return [Row(window: UsageWindow(id: "\(groupSlug)-unknown", label: groupName,
+                                category: classify(nil).0, usedPercent: nil, periodSeconds: nil,
+                                resetAt: nil, exhausted: false, group: groupName, scope: .model), isPlaceholder: true)]
         }
 
         // Stable sorting preserves provider order for the known windows and equal labels.
@@ -45,7 +67,7 @@ public enum AntigravityQuotaParser: Sendable {
                 return lhs.label.lowercased() < rhs.label.lowercased()
             }
             return false
-        }
+        }.map { Row(window: $0) }
     }
 
     private static func toWindow(

@@ -45,6 +45,59 @@ class AntigravityQuotaParserTest {
     """.trimIndent()
 
     @Test
+    fun `quota group and bucket aliases retain Gemini limits`() {
+        for (groupKey in listOf("groups", "quotaGroups", "quota_groups")) {
+            for (bucketKey in listOf("buckets", "quotaBuckets", "quota_buckets")) {
+                val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject("""
+                    { "$groupKey": [{ "displayName": "Gemini Models", "$bucketKey": [
+                        { "bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.5 },
+                        { "bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 0.8 }
+                    ] }] }
+                """), now)
+                assertEquals(listOf("gemini-5h", "gemini-weekly"), windows.map { it.id })
+                assertEquals(50.0, windows.first().usedPercent!!, 1e-9)
+                assertEquals(WindowCategory.WEEKLY, windows.last().category)
+            }
+        }
+    }
+
+    @Test
+    fun `a group carrying quota fields is a single bucket`() {
+        val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject("""
+            { "groups": [{ "displayName": "Gemini Models", "window": "weekly",
+                "remainingFraction": 0.25 }] }
+        """), now)
+        assertEquals("gemini-models-weekly", windows.single().id)
+        assertEquals(WindowCategory.WEEKLY, windows.single().category)
+        assertEquals(75.0, windows.single().usedPercent!!, 1e-9)
+    }
+
+    @Test
+    fun `named groups without a bucket schema remain unknown`() {
+        val window = AntigravityQuotaParser.parse(JsonSupport.parseObject("""
+            { "groups": [{ "displayName": "Gemini Models" }] }
+        """), now).single()
+        assertEquals("gemini-models-unknown", window.id)
+        assertEquals("Gemini Models", window.label)
+        assertEquals("Gemini Models", window.group)
+        assertEquals(WindowCategory.OTHER, window.category)
+        assertNull(window.usedPercent)
+        assertFalse(window.exhausted)
+    }
+
+    @Test
+    fun `explicit empty or unusable buckets do not invent unknown groups`() {
+        for (key in listOf("buckets", "quotaBuckets", "quota_buckets")) {
+            for (buckets in listOf("[]", "[null, 42]", "null", "{}")) {
+                val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject("""
+                    { "groups": [{ "displayName": "Gemini Models", "$key": $buckets }] }
+                """), now)
+                assertTrue(windows.isEmpty())
+            }
+        }
+    }
+
+    @Test
     fun `parses both groups and converts remaining fraction to consumed percent`() {
         val windows = AntigravityQuotaParser.parse(JsonSupport.parseObject(twoGroups), now)
 
