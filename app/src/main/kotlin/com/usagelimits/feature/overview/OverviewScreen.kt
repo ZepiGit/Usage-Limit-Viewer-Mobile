@@ -33,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -42,6 +43,8 @@ import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UsageUiState
+import com.usagelimits.feature.settings.AppIcon
+import com.usagelimits.feature.settings.AppIconTile
 import com.usagelimits.ui.AppIcons
 import com.usagelimits.ui.components.Dot
 import com.usagelimits.ui.components.EmptyBox
@@ -216,15 +219,14 @@ private fun OverviewHeader(state: UsageUiState, nowMs: Long, onRefresh: () -> Un
 }
 
 /**
- * The answer before the scroll: the tightest window anywhere as the lead figure, then when the
- * next reset lands and how many accounts are connected.
+ * Keep the account, remaining quota and countdown together so the next reset is unambiguous.
  */
 @Composable
 private fun LeadStrip(state: UsageUiState, nowMs: Long) {
     val lead = state.leadAt(nowMs)
     val window = lead?.window
-    // Fleet-wide, as before the redesign: the soonest rollover anywhere, not the lead account's.
-    val nextReset = state.nextResetAt(nowMs)?.let { Countdown.format(it - nowMs) }
+    val context = LocalContext.current
+    val appIcon = remember(context) { AppIcon.current(context) }
     val percent = com.usagelimits.core.model.percentLabel(window?.remainingPercent)
     // A stale lead says how old it is instead of promising a reset the cache cannot vouch for.
     val reset = if (lead?.stale == true) Countdown.freshnessLabel(lead.usage.snapshot?.fetchedAt, nowMs)
@@ -259,9 +261,9 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long) {
         Spacer(Modifier.height(12.dp))
         RuleDivider()
         Spacer(Modifier.height(12.dp))
-        Row {
-            LeadStat("Next reset", nextReset, UsageColors.Data, Modifier.weight(1f))
+        Row(verticalAlignment = Alignment.CenterVertically) {
             LeadStat("Connected accounts", "${state.healthyCountAt(nowMs)}/${state.accountCount}", UsageColors.Ink, Modifier.weight(1f))
+            AppIconTile(appIcon, size = 40.dp)
         }
     }
 }
