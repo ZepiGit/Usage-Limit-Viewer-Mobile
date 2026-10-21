@@ -58,11 +58,21 @@ public enum ClaudeUsageParser {
 
         // Reset instants are not quota identities: independent model pools can reset together.
         let supplemental = parseFlatWindows(payload) + discoverUnknownWindows(payload)
-        var result: [UsageWindow] = []
-        for window in primary + supplemental {
-            if let index = result.firstIndex(where: { $0.id == window.id }) {
+        var result = primary
+        for window in supplemental {
+            // Flat codenames and scoped limits can name the same pool with different IDs.
+            let index = result.firstIndex(where: { $0.id == window.id })
+                ?? primary.firstIndex(where: {
+                    $0.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        == window.label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                })
+            if let index {
                 if result[index].remainingPercent == nil, window.remainingPercent != nil {
-                    result[index] = window
+                    result[index] = UsageWindow(
+                        id: result[index].id, label: window.label, category: window.category,
+                        usedPercent: window.usedPercent, periodSeconds: window.periodSeconds,
+                        resetAt: window.resetAt, exhausted: window.exhausted,
+                        group: window.group, scope: window.scope)
                 }
             } else {
                 result.append(window)

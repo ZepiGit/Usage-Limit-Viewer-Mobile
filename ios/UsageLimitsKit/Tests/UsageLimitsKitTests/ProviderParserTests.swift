@@ -16,6 +16,35 @@ final class ClaudeUsageParserTests: XCTestCase {
         (try! JSONSerialization.jsonObject(with: json.data(using: .utf8)!)) as! [String: Any]
     }
 
+    func testScopedFableAndOpusReplaceFlatTwinsByLabel() {
+        for (flatKey, modelID, name) in [
+            ("iguana_necktie", "fable", "Fable"),
+            ("seven_day_opus", "claude-opus-4", "Opus"),
+        ] {
+            let windows = ClaudeUsageParser.parse(payload("""
+            { "\(flatKey)": { "utilization": 80, "resets_at": "2026-09-16T20:00:00Z" },
+              "limits": [{ "kind": "weekly_scoped", "group": "weekly", "percent": 25,
+                "scope": { "model": { "id": "\(modelID)", "display_name": "\(name)" } } }] }
+            """), now: now)
+            XCTAssertEqual(windows.count, 1)
+            XCTAssertEqual(windows.first?.label, "Weekly (\(name))")
+            XCTAssertEqual(windows.first?.id, "seven-day-\(modelID)")
+            XCTAssertEqual(windows.first?.usedPercent, 25)
+        }
+    }
+
+    func testFlatMeasurementFillsUnknownPrimaryByCaseInsensitiveLabelPreservingIDAndOrder() {
+        let windows = ClaudeUsageParser.parse(payload("""
+        { "iguana_necktie": { "utilization": 42 }, "limits": [
+            { "kind": "session", "percent": 12 },
+            { "kind": "weekly_scoped", "percent": null,
+              "scope": { "model": { "id": "fable-v2", "display_name": "fAbLe" } } }
+        ] }
+        """), now: now)
+        XCTAssertEqual(windows.map(\.id), ["five-hour", "seven-day-fable-v2"])
+        XCTAssertEqual(windows.last?.usedPercent, 42)
+    }
+
     func testFiveHourAndWeeklyKeysClassifyByKeyNotPayload() {
         // Anthropic never states the period, so it is derived from the key: only `five_hour`
         // is a rolling window, everything else it exposes is seven days.
@@ -126,9 +155,7 @@ final class ClaudeUsageParserTests: XCTestCase {
         XCTAssertEqual(windows.map(\.label), ["Weekly (Fable)", "Weekly (Opus)"])
     }
 
-    func testAnUnreadableLimitDoesNotHideOtherReportedWindows() {
-        // An array that yields nothing is no better than an absent one, and silently rendering
-        // an empty screen would be the worst of the three outcomes.
+    func testAnUnreadableScopedLimitUsesTheFlatMeasurementWithoutDuplicatingTheRow() {
         let windows = ClaudeUsageParser.parse(payload("""
         {
           "iguana_necktie": { "utilization": 5.0, "resets_at": "2026-09-14T00:00:00Z" },
@@ -137,9 +164,9 @@ final class ClaudeUsageParserTests: XCTestCase {
         }
         """), now: now)
 
-        XCTAssertEqual(windows.count, 2)
-        XCTAssertNil(windows.first { $0.id == "seven-day-fable" }?.usedPercent)
-        XCTAssertEqual(windows.first { $0.id == "iguana-necktie" }?.usedPercent, 5.0)
+        XCTAssertEqual(windows.count, 1)
+        XCTAssertEqual(windows.first?.id, "seven-day-fable")
+        XCTAssertEqual(windows.first?.usedPercent, 5.0)
     }
 
     func testAnUndocumentedKeyWithRealConsumptionIsSurfaced() {
