@@ -68,7 +68,7 @@ import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageType
 
 private val BarShape = RoundedCornerShape(3.dp)
-private val SegmentColors = listOf(UsageColors.Data, UsageColors.Ink, UsageColors.Warning, UsageColors.Muted)
+private val SegmentColors = listOf(UsageColors.Data, UsageColors.Ink, UsageColors.Faint, UsageColors.Muted)
 
 /**
  * A quota bar.
