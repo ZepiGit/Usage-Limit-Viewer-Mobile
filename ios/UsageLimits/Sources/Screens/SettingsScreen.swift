@@ -43,6 +43,7 @@ struct SettingsScreen: View {
 
                 Section(header: LedgerHeader("Display")) {
                     NavigationLink("Provider icons") { ProviderIconsScreen() }
+                    NavigationLink("App icon") { AppIconScreen() }
                     NavigationLink("Widget layouts") { WidgetPresetsScreen() }
                     Toggle(
                         "Show subscription tier",

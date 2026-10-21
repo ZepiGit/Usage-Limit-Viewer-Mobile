@@ -28,6 +28,9 @@ open class UIWindowScene: UIScene {
 public final class UIApplication {
     public static let shared = UIApplication()
     public var connectedScenes: Set<UIScene> { [] }
+    public var supportsAlternateIcons: Bool { true }
+    public var alternateIconName: String?
+    @MainActor public func setAlternateIconName(_ name: String?) async throws { alternateIconName = name }
 }
 
 /// The clipboard, for the device-code sign-in.
