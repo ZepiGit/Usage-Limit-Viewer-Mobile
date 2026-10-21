@@ -153,6 +153,30 @@ final class ProviderClientTests: XCTestCase {
 
     // MARK: - Antigravity
 
+    func testAntigravitySendsTheSupportedHubIdentityToEveryQuotaHost() async throws {
+        let (http, transport) = client([(200, """
+            {"groups":[{"displayName":"Gemini Models","buckets":[
+                {"bucketId":"gemini-5h","window":"5h","remainingFraction":0.25},
+                {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.6}
+            ]}]}
+            """), (200, "{}"), (200, "{}")])
+        let result = try await AntigravityClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: ["project_id": "p"])
+
+        let requests = await transport.requests
+        XCTAssertEqual(requests.compactMap { $0.url?.absoluteString }, ProviderEndpoints.Antigravity.quotaURLs)
+        for request in requests {
+            XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"),
+                "antigravity/hub/2.25.0 (aidev_client; os_type=darwin; arch=arm64)")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-access")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: String])
+            XCTAssertEqual(body, ["project": "p"])
+        }
+        XCTAssertEqual(result.windows.map(\.id), ["gemini-5h", "gemini-weekly"])
+        XCTAssertEqual(result.windows.map(\.usedPercent), [75, 40])
+    }
+
     func testAnEmptyAnswerFromOneHostTriesTheNext() async throws {
         // An empty 2xx means this host does not serve the account, not that the account has no
         // quota. Returning there would render zero windows, which the model reads as an error.

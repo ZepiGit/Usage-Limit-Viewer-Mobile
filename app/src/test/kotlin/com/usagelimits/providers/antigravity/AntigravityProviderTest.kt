@@ -42,6 +42,40 @@ class AntigravityProviderTest {
     )
 
     @Test
+    fun `project and quota requests identify the supported Hub release`() = runBlocking {
+        val requests = mutableListOf<String>()
+        val subject = AntigravityProvider(HttpClient(OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            val url = request.url.toString()
+            requests += url
+            val body = if (url == Antigravity.USERINFO_ENDPOINT) {
+                """{"id":"synthetic"}"""
+            } else {
+                assertEquals(
+                    "antigravity/hub/2.25.0 (aidev_client; os_type=darwin; arch=arm64)",
+                    request.header("User-Agent"),
+                )
+                assertEquals("Bearer synthetic", request.header("Authorization"))
+                assertEquals("POST", request.method)
+                if (url in Antigravity.LOAD_CODE_ASSIST_URLS) {
+                    """{"cloudaicompanionProject":"synthetic-project"}"""
+                } else {
+                    """{"groups":[${group("gemini", "Gemini Models")}]}"""
+                }
+            }
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1)
+                .code(200).message("synthetic").body(body.toResponseBody(HttpClient.JSON_MEDIA_TYPE)).build()
+        }.build()))
+
+        val profile = subject.fetchProfile(credentials)
+        assertEquals(account.attributes, profile.attributes)
+        val result = subject.fetchUsage(account, credentials)
+        assertEquals(listOf(Antigravity.USERINFO_ENDPOINT, Antigravity.LOAD_CODE_ASSIST_URLS.first()) +
+            Antigravity.QUOTA_URLS, requests)
+        assertEquals(listOf("gemini-5h", "gemini-weekly"), result.windows.map { it.id })
+    }
+
+    @Test
     fun `all hosts contribute windows and first measurement wins for duplicate ids`() = runBlocking {
         val requests = mutableListOf<String>()
         val thirdParty = group("3p", "Claude and GPT models")
