@@ -93,65 +93,29 @@ data class UsageUiState(
     val lastUpdated: Long?
         get() = accounts.mapNotNull { it.measurementAt }.maxOrNull()
 
-    /**
-     * The soonest rollover still ahead.
-     *
-     * Ahead is the point. Taking the minimum over every window's reset instant meant that
-     * once ONE window's reset had passed — and a snapshot keeps that instant until the next
-     * fetch replaces it — the minimum was anchored to the past and the summary card read
-     * "Next reset: now" for hours while the real next rollover was never shown. The Resets
-     * screen already drops passed instants; this now matches it.
-     */
-    fun nextResetAt(nowMs: Long): Long? =
-        accounts.flatMap { it.snapshot?.windows.orEmpty() }
-            .mapNotNull { it.resetAt }
-            .filter { it > nowMs }
-            .minOrNull()
-
     fun overallSeverityAt(nowMs: Long): Severity =
         accounts.mapNotNull { it.snapshot?.severityAt(nowMs, staleAfterMs) }.maxOrNull()
             ?: Severity.STALE
 
-    /** The single most-depleted window anywhere — what the summary card leads with. */
     /**
-     * The soonest rollover still ahead for ONE account — the one the summary card leads with.
-     *
-     * The card puts "Next reset" beside the most-depleted window, separated by a hairline, and
-     * a fleet-wide minimum there read "Next reset 12m | 0% Weekly left": an invitation to
-     * believe the exhausted weekly limit returns in twelve minutes, when the twelve minutes
-     * belonged to a healthy account's five-hour window. The widget fixed exactly this pairing
-     * by scoping its reset to the leading account; the card now does the same.
-     */
-    fun nextResetAt(nowMs: Long, accountId: String): Long? =
-        accounts.firstOrNull { it.account.localId == accountId }
-            ?.snapshot?.windows.orEmpty()
-            .mapNotNull { it.resetAt }
-            .filter { it > nowMs }
-            .minOrNull()
-
-    val mostCritical: Pair<AccountUsage, UsageWindow>?
-        get() = accounts.mapNotNull { usage ->
-            usage.snapshot?.mostCritical?.let { usage to it }
-        }.minByOrNull { if (it.second.exhausted) -1.0 else it.second.remainingPercent ?: Double.MAX_VALUE }
-
-    /**
-     * The window the overview leads with: the tightest among accounts whose data is still valid.
-     *
-     * Validity is the model's own: a failed or old snapshot ([Severity.STALE]/[Severity.ERROR]) and
-     * a window whose reset passed since the fetch do not compete, so cached 80% on a failed account
-     * cannot outrank live numbers. Only when nothing is valid does a cached window lead, flagged
-     * [Lead.stale] so the strip paints it grey rather than blank.
+     * Trusted readings outrank cached ones so a failed account cannot displace live data.
+     * Without any future reset, retain the tightest-window fallback rather than leave a blank.
      */
     fun leadAt(nowMs: Long): Lead? {
         val candidates = accounts.mapNotNull { usage ->
             val snapshot = usage.snapshot ?: return@mapNotNull null
-            val open = snapshot.copy(windows = snapshot.windows.filterNot { it.resetElapsedAt(snapshot.fetchedAt, nowMs) })
+            val next = snapshot.windows.filter { (it.remainingPercent != null || it.exhausted) && (it.resetAt ?: Long.MIN_VALUE) > nowMs }
+                .minByOrNull { it.resetAt!! }
+            val open = next ?: snapshot.copy(windows = snapshot.windows.filterNot { it.resetElapsedAt(snapshot.fetchedAt, nowMs) })
                 .mostCritical
             val trusted = snapshot.severityAt(nowMs, staleAfterMs) !in setOf(Severity.STALE, Severity.ERROR)
             val window = open ?: snapshot.mostCritical ?: return@mapNotNull null
             Lead(usage, window, stale = !trusted || open == null)
         }
-        return (candidates.filterNot { it.stale }.ifEmpty { candidates })
+        val pool = candidates.filterNot { it.stale }.ifEmpty { candidates }
+        val upcoming = pool.filter { (it.window.remainingPercent != null || it.window.exhausted) && (it.window.resetAt ?: Long.MIN_VALUE) > nowMs }
+        if (upcoming.isNotEmpty()) return upcoming.minByOrNull { it.window.resetAt!! }
+        return pool
             .minByOrNull { if (it.window.exhausted) -1.0 else it.window.remainingPercent ?: Double.MAX_VALUE }
     }
 
@@ -378,13 +342,10 @@ class UsageViewModel(
     fun setSyncInterval(minutes: Int) {
         viewModelScope.launch {
             container.settingsStore.setSyncInterval(minutes)
-            // Writing the preference alone changed nothing: schedulePeriodic is otherwise
-            // called once at process start, so a new interval only took effect after the app
-            // was killed. UPDATE keeps the existing schedule rather than firing immediately.
+            // Apply interval changes immediately. UPDATE preserves the existing schedule
+            // rather than starting an immediate pass.
             SyncWorker.schedulePeriodic(appContext, minutes)
-            // Staleness is derived from this interval at render time, so a widget composed
-            // under the old interval kept calling a 45-minute-old snapshot stale for hours
-            // after the app's own screen had turned it green.
+            // Staleness uses this interval at render time, so repaint widgets when it changes.
             WidgetUpdater.refreshAll(appContext)
         }
     }

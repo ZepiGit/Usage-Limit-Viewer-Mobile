@@ -36,8 +36,7 @@ class WidgetSelectionContractTest {
         val result = WidgetDataBuilder.build(accounts, now, WidgetScope.CLOSEST_RESETS, null, null)
         assertEquals(listOf("full-soon", "empty-later", "past", "unknown"), result.accounts.map { it.accountId })
         assertEquals(now + 1000, result.nextResetAt)
-        // WGT-001: the persisted name used to be aliased to CLOSEST_RESETS, so a saved policy
-        // changed meaning without any configuration write. A stored name keeps its meaning.
+        // A persisted scope name keeps its selection and ordering semantics.
         assertEquals(WidgetScope.MOST_CRITICAL, WidgetScope.fromName("MOST_CRITICAL"))
     }
 

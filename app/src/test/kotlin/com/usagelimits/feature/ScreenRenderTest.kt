@@ -251,11 +251,7 @@ class ScreenRenderTest {
             )
         }
 
-        // Scrolled to rather than assumed visible. This assertion used to pass because the
-        // notification rows happened to fall inside the viewport; adding a section above them
-        // pushed the row out of it and failed a test about whether the toggle EXISTS. A
-        // LazyColumn only composes what is on screen, so anything below the fold has to be
-        // scrolled to before it can be found.
+        // LazyColumn only composes visible rows; scroll before looking for a toggle below the fold.
         compose.onNode(hasScrollToNodeAction())
             .performScrollToNode(hasText("Below 20% left", substring = true))
         compose.onAllNodesWithText("Below 20% left", substring = true)
@@ -272,7 +268,7 @@ class ScreenRenderTest {
             .fetchSemanticsNodes()
             .let { assertTrue("the renewal switch should be reachable", it.isNotEmpty()) }
 
-        // And the section that used to sit between them and Diagnostics is gone.
+        // Credential storage details are absent from Settings.
         compose.onAllNodesWithText("Credential storage", substring = true)
             .fetchSemanticsNodes()
             .let { assertTrue("the Security section should be gone", it.isEmpty()) }

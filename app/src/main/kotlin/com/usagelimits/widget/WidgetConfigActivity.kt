@@ -170,7 +170,7 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
         customAccountIds = currentOrder.filter { it in selected })
     val valid = when (scope) {
         WidgetScope.ACCOUNT -> accounts.any { it.account.localId == accountId }
-        WidgetScope.PROVIDER -> accounts.any { it.account.provider.id == providerId }
+        WidgetScope.PROVIDER -> ProviderId.fromId(providerId) != null
         WidgetScope.CUSTOM -> preview.accounts.isNotEmpty()
         else -> true
     }
@@ -214,7 +214,8 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
             item { SectionHeader("One provider") }
             item {
                 ChoiceCard {
-                    accounts.map { it.account.provider }.distinct().forEachIndexed { index, provider ->
+                    // Every provider, connected or not: a provider with no account gives the widget's empty state.
+                    ProviderId.entries.forEachIndexed { index, provider ->
                         if (index > 0) RuleDivider(Modifier.padding(horizontal = 16.dp))
                         ScopeChoice(provider.displayName, "All ${provider.displayName} accounts", scope == WidgetScope.PROVIDER && providerId == provider.id, provider) {
                             providerId = provider.id; scopeName = WidgetScope.PROVIDER.name
@@ -288,11 +289,9 @@ private fun ScopeChoice(title: String, subtitle: String, selected: Boolean, prov
 }
 
 /**
- * The panel controls: a colour, how much of it, and which ink to write on it.
- *
- * Opacity is a slider rather than the old on/off switch because "a little wallpaper through"
- * is what most people actually want, and a switch cannot say it. The ink follows the colour
- * on its own; the override is for a see-through widget on a wallpaper the guess gets wrong.
+ * The panel controls: colour, opacity and ink.
+ * A slider allows partial transparency; explicit ink overrides handle wallpapers
+ * whose contrast differs from the selected panel colour.
  */
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
@@ -363,7 +362,7 @@ private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widget
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("Preview · ${snapshot.accountCount} selected", style = MaterialTheme.typography.labelMedium, color = style.textSecondary)
-            if (snapshot.accounts.isEmpty()) Text("Select accounts to see your widget", color = style.textSecondary)
+            if (snapshot.accounts.isEmpty()) Text(snapshot.emptyMessage ?: "Select accounts to see your widget", color = style.textSecondary)
             else if (kind.contains("Rings")) Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 snapshot.accounts.take(4).forEach { account ->
                     val row = ringLimit(account)

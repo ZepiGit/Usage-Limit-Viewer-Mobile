@@ -1,21 +1,6 @@
-// A stand-in for the Apple frameworks the app imports, so the app and widget TARGETS can be
-// type-checked on a machine with no Apple SDK.
-//
-// Why this exists: those targets need Xcode, so on Linux nothing compiles them. It was
-// written while the one job that could was unable to start — a commit had deleted five
-// declarations from a widget file and left every call site, and it sat in the tree for five
-// commits because the only build that would have failed was unavailable. Grep-level checks
-// caught that particular shape and nothing else. The macOS job runs now; this stays as the
-// check that fails first and cheapest.
-//
-// What it is and is not. It is permissive on purpose: every modifier returns `Self`, and
-// arguments are widely typed, so this does NOT reproduce SwiftUI's overload resolution and
-// passing it is not a claim that Xcode would compile the same sources. What it does catch is
-// the class of failure that actually happens here — a name that does not exist, a member that
-// was renamed, a call whose labels or arity no longer match, a `some View` body that returns
-// something which is not a view — across OUR code and the kit's real API.
-//
-// Anything it reports is worth reading. Anything it misses, the macOS job still owns.
+// Framework stand-ins let Linux type-check app/widget declarations and call sites.
+// Permissive argument types and Self-returning modifiers do not reproduce SwiftUI
+// overload resolution; real-SDK macOS builds remain authoritative.
 import Foundation
 
 // MARK: - View

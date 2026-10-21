@@ -106,9 +106,7 @@ public enum ProviderError: Error, LocalizedError {
         case .malformedPayload(let detail):
             return "The provider answered in a shape this app does not understand (\(detail))."
         case .unauthorised:
-            // The evaluator's sentence, not a second wording of it. See
-            // `NotificationEvaluator.signInExpiredMessage` for the notification this used to
-            // silently disable, and for why the two ends share one constant.
+            // Share the evaluator's sign-in-expired message so reconnect detection and alerts agree.
             return NotificationEvaluator.signInExpiredMessage
         case .noData(let detail):
             return "No usage could be read (\(detail))."
@@ -394,9 +392,7 @@ public struct ClaudeClient: SyncProvider, Sendable {
 
 /// Reads Antigravity quota summaries from the quota service's sharded hosts.
 ///
-/// Google routes each account to exactly one shard but publishes no way of asking which, so
-/// the known hosts are polled in order and an empty acknowledgement from one simply passes
-/// the baton to the next.
+/// Hosts can carry different quota groups, so their union preserves every shared pool.
 public struct AntigravityClient: SyncProvider, Sendable {
     public let providerID = "antigravity"
 
@@ -430,6 +426,7 @@ public struct AntigravityClient: SyncProvider, Sendable {
             "Authorization": "Bearer \(credentials.accessToken)",
             "Accept": "application/json",
             "Content-Type": "application/json",
+            "User-Agent": ProviderEndpoints.Antigravity.userAgent,
         ]
         // Serialised rather than interpolated so a project id containing quotes or braces
         // cannot quietly turn into a different request.
@@ -437,52 +434,39 @@ public struct AntigravityClient: SyncProvider, Sendable {
 
         var authRejection: ProviderError?
         var firstFailure: Error?
+        var allRows: [AntigravityQuotaParser.Row] = []
 
-        for url in Self.quotaHosts {
+        for (index, url) in Self.quotaHosts.enumerated() {
             let response: HTTPResponse
             do {
-                response = try await ProviderHTTP.request(
-                    httpClient,
-                    url: url,
-                    method: "POST",
-                    headers: headers,
-                    body: requestBody,
-                    endpoint: "antigravity quota"
-                )
+                response = try await httpClient.request(
+                    url: url, method: "POST", headers: headers, body: requestBody,
+                    retries: index == 0 ? nil : 0)
             } catch let error as CancellationError {
                 throw error
-            } catch ProviderError.unauthorised {
-                // Recorded rather than thrown at once: a stale credential is the usual
-                // cause, but a retired shard also rejects perfectly good tokens, and the
-                // remaining hosts are the cheapest way to tell the two apart.
-                //
-                // Caught HERE, because `ProviderHTTP.request` has already translated the 401
-                // into this error and thrown it — the status check that used to follow the
-                // call was unreachable, so the rejection fell into the generic catch below as
-                // "first failure" and an earlier shard's 503 outranked it. The policy this
-                // adapter documents, prefer a credential rejection over an unrelated shard
-                // failure, was never actually applied.
-                if authRejection == nil { authRejection = .unauthorised }
+            } catch let error as HTTPError {
+                let failure: ProviderError
+                switch error {
+                case .status(let code, _) where code == 401 || code == 403:
+                    if authRejection == nil { authRejection = .unauthorised }
+                    continue
+                case .status(let code, _):
+                    failure = .noData("antigravity quota answered HTTP \(code)")
+                case .rateLimited:
+                    failure = .noData("antigravity quota is rate limiting this account")
+                case .transport:
+                    failure = .noData("antigravity quota could not be reached")
+                default:
+                    failure = .noData("antigravity quota could not be reached")
+                }
+                if firstFailure == nil { firstFailure = failure }
                 continue
             } catch {
-                // A shard being unreachable or misbehaving reflects on the shard; the next
-                // one may answer perfectly well.
                 if firstFailure == nil { firstFailure = error }
                 continue
             }
-            guard (200...299).contains(response.status) else {
-                if firstFailure == nil {
-                    firstFailure = ProviderError.noData("quota host answered HTTP \(response.status)")
-                }
-                continue
-            }
 
-            // An empty 2xx from a host means "this account is not routed here", NOT "this
-            // account has no quota": every account lives on exactly one shard while the
-            // others acknowledge politely with an empty summary. Declaring the account
-            // quota-less on the first empty answer would misreport healthy accounts, so the
-            // remaining hosts are tried and the account is only reported unserved once all
-            // of them have come back empty.
+            // Empty summaries do not establish that the other hosts have no quota groups.
             let summary = response.body.trimmingCharacters(in: .whitespacesAndNewlines)
             if summary.isEmpty {
                 continue
@@ -490,19 +474,22 @@ public struct AntigravityClient: SyncProvider, Sendable {
 
             do {
                 let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "quota summary")
-                let windows = AntigravityQuotaParser.parse(payload, now: now())
-                if windows.isEmpty {
-                    // A well-formed summary carrying no windows is the same "not routed
-                    // here" signal as an empty body, so it counts as empty too.
-                    continue
-                }
-                return UsageResult(windows: windows)
+                allRows.append(contentsOf: AntigravityQuotaParser.parseRows(payload))
             } catch let error as CancellationError {
                 throw error
             } catch {
                 if firstFailure == nil { firstFailure = error }
                 continue
             }
+        }
+
+        let groupsWithWindows = Set(allRows.filter { !$0.isPlaceholder }.compactMap { $0.window.group })
+        var seenIDs: Set<String> = []
+        let allWindows = allRows.filter {
+            !($0.isPlaceholder && $0.window.group.map(groupsWithWindows.contains) == true)
+        }.map(\.window).filter { seenIDs.insert($0.id).inserted }
+        if !allWindows.isEmpty {
+            return UsageResult(windows: allWindows)
         }
 
         // An authorisation rejection outranks the other failures because it is the only one

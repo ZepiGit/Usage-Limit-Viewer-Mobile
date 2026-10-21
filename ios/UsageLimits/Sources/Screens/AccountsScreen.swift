@@ -25,10 +25,11 @@ struct AccountsScreen: View {
     private var filterOptions: [SegmentOption] {
         var options = [
             option("All", selected: providerFilter == nil && !attentionOnly) { providerFilter = nil; attentionOnly = false },
-            option("Needs attention", selected: attentionOnly) { attentionOnly.toggle() },
+            option("Needs attention", selected: attentionOnly) { providerFilter = nil; attentionOnly.toggle() },
         ]
         for provider in ProviderID.allCases where store.accounts.contains(where: { $0.account.provider == provider }) {
             options.append(option(provider.displayName, selected: providerFilter == provider) {
+                attentionOnly = false
                 providerFilter = providerFilter == provider ? nil : provider
             })
         }
@@ -192,7 +193,7 @@ private struct AccountSummaryCard: View {
                         category: window.category,
                         remainingPercent: window.remainingPercent,
                         resetAt: window.resetAt,
-                        severity: window.severity),
+                        severity: window.severity, segments: window.segments),
                     now: now,
                     // The account's aged verdict outranks a row's own: a stale or failed account
                     // keeps its last numbers, but they stop looking fresh.

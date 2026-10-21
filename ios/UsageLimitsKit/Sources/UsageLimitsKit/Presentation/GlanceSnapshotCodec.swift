@@ -1,16 +1,8 @@
 import Foundation
 
-/// The file the app writes and the widget reads.
-///
-/// A widget extension is a separate process with no access to the app's database, so what it
-/// renders is whatever the app last left in the shared container. That makes the encoding a
-/// contract between two binaries, and it lives here — in the layer both of them link — for a
-/// specific reason: the first version of it was a private wire format inside the widget, which
-/// re-derived `overallSeverity` from the accounts it had decoded. It derived it differently
-/// from `GlanceModel`, so the same data produced one verdict in the app and another on the home
-/// screen. A second copy of a rule is a second answer to the same question.
-///
-/// So the snapshot is encoded whole and decoded whole. Nothing is recomputed on the way in.
+/// The app and widget share this wire contract across separate processes.
+/// Encode and decode the complete reduced snapshot without recomputing its derived
+/// values so the app and home screen retain the same verdict.
 public enum GlanceSnapshotCodec {
 
     /// The file name inside the shared container, so neither side hard-codes it twice.

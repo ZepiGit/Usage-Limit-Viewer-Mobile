@@ -26,6 +26,17 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         }
     }
 
+    public var iconAssetName: String {
+        switch self {
+        case .openrouter: return "CreditIconOpenrouter"
+        case .deepseek: return "CreditIconDeepseek"
+        case .moonshot: return "CreditIconMoonshot"
+        case .xai: return "CreditIconXai"
+        case .fal: return "CreditIconFal"
+        case .novita: return "CreditIconNovita"
+        }
+    }
+
     /// What the user has to paste, in the words the add sheet shows.
     public var keyHint: String {
         switch self {
@@ -49,7 +60,7 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         case .openrouter: return "https://openrouter.ai/settings/keys"
         case .deepseek: return "https://platform.deepseek.com/api_keys"
         case .moonshot: return "https://platform.moonshot.ai/console/api-keys"
-        case .xai: return "https://console.x.ai"
+        case .xai: return "https://console.x.ai/team/default/api-keys"
         case .fal: return "https://fal.ai/dashboard/keys"
         case .novita: return "https://novita.ai/settings/key-management"
         }

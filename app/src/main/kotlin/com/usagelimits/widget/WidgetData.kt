@@ -2,6 +2,7 @@ package com.usagelimits.widget
 
 import com.usagelimits.core.model.title
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WidgetScope
@@ -84,6 +85,8 @@ data class WidgetSnapshot(
      * must answer to. Null while the lead's data is trustworthy.
      */
     val leadValidity: Severity? = null,
+    /** What an empty selection means, when the widget knows; null leaves the generic hint. */
+    val emptyMessage: String? = null,
 ) {
     val selectionStatusLabel: String get() = if (accountCount > 1) "$accountCount accounts" else "Account"
     val hasPartialUpdate: Boolean get() = accounts.any { it.partialUpdate }
@@ -133,7 +136,15 @@ object WidgetDataBuilder {
             WidgetScope.ALL_ACCOUNTS, WidgetScope.MOST_CRITICAL, WidgetScope.CLOSEST_RESETS -> all
         }
 
-        if (selected.isEmpty()) return WidgetSnapshot.Empty
+        if (selected.isEmpty()) {
+            // A provider widget with nothing to match is a missing sign-in, not stale data.
+            val provider = ProviderId.fromId(providerId)?.takeIf { scope == WidgetScope.PROVIDER }
+                ?: return WidgetSnapshot.Empty
+            return WidgetSnapshot.Empty.copy(
+                overallSeverity = Severity.UNKNOWN,
+                emptyMessage = "No ${provider.displayName} account connected. Add one in the app.",
+            )
+        }
 
         val accounts = selected.map { it.toWidgetAccount(nowMs, staleAfterMs, providerIcons) }
 
@@ -228,22 +239,9 @@ object WidgetDataBuilder {
             ?.toRow(fetchedAt, nowMs)
 
     /**
-     * The one long-horizon row, chosen by how much it needs attention rather than by category.
-     *
-     * This used to be `WEEKLY ?: MONTHLY ?: OTHER`, which reads as a sensible preference and is
-     * not one: the elvis short-circuits on the mere EXISTENCE of a weekly window, so an account
-     * reporting a healthy weekly limit and an exhausted monthly one showed the weekly. The
-     * monthly window was never evaluated. A user whose monthly quota had run out saw a full bar
-     * on the home screen, which is the single worst thing this app can show — and the widget is
-     * where they were most likely to look.
-     *
-     * [Severity.urgency] is the ranking, because the file that defines it says it is the one
-     * answer the overview list and the widget both use, so they cannot disagree. It also settles
-     * what an unreadable window is worth here: ERROR sits BELOW exhausted, so a window whose
-     * percentage could not be read does not displace one known to be empty. Ties go to the lower
-     * remaining percentage, and then to the better-understood category — which is what keeps
-     * OTHER, whose duration no provider documents, a last resort among equals rather than a
-     * category that can never appear.
+     * Choose the long-horizon row by urgency, then remaining percentage and category.
+     * An exhausted monthly limit must outrank a healthy weekly one; unreadable limits
+     * must not displace known exhaustion. OTHER is a last resort among equal readings.
      */
     private fun longHeadline(windows: List<UsageWindow>, fetchedAt: Long, nowMs: Long): WidgetRow? =
         windows.filter { it.category != WindowCategory.FIVE_HOUR }

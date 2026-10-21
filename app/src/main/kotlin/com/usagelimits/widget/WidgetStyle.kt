@@ -63,20 +63,13 @@ data class WidgetStyle(
     val background: WidgetBackground = WidgetBackground(),
     val textTone: WidgetTextTone = WidgetTextTone.AUTO,
 ) {
-    /** True when the ink should be dark, i.e. the panel — or the override — is light. */
+    /** True when the ink is the light set, i.e. the panel — or the override — is dark. */
     val lightInk: Boolean
         get() = when (textTone) {
             WidgetTextTone.LIGHT -> true
             WidgetTextTone.DARK -> false
-            // AUTO reads the CHOSEN PANEL COLOUR at every opacity, including zero, so the ink
-            // never flips as the opacity slider crosses a value. The old rule special-cased
-            // full transparency and inverted the guess there: a white panel therefore chose
-            // dark ink at 1 % and light ink at 0 % — a deterministic black/white flip on a
-            // setting the user had merely nudged. A fully transparent panel has no true
-            // backdrop (the wallpaper is unknowable to this process and must not be sampled),
-            // so AUTO's assumption is "the panel colour is what I contrast against", stated
-            // continuously; a see-through widget on a wallpaper that assumption gets wrong is
-            // exactly what the LIGHT/DARK overrides are for.
+            // AUTO contrasts against the chosen panel colour at every opacity, including zero.
+            // Wallpaper is unavailable to this process; LIGHT/DARK override that assumption.
             WidgetTextTone.AUTO -> !background.isLightColor
         }
 

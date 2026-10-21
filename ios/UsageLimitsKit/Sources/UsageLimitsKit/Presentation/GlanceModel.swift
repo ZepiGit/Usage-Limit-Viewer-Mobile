@@ -25,6 +25,7 @@ public struct GlanceRow: Sendable, Equatable, Codable {
     /// Carried so the representative can prefer global windows among those still open at
     /// render time, as Android's `mostCritical` does, instead of fixing the pool at export.
     public let scope: UsageScope
+    public let segments: [UsageSegment]
 
     public init(
         label: String,
@@ -32,7 +33,8 @@ public struct GlanceRow: Sendable, Equatable, Codable {
         remainingPercent: Double?,
         resetAt: Date?,
         severity: Severity,
-        scope: UsageScope = .global
+        scope: UsageScope = .global,
+        segments: [UsageSegment] = []
     ) {
         self.label = label
         self.category = category
@@ -40,10 +42,11 @@ public struct GlanceRow: Sendable, Equatable, Codable {
         self.resetAt = resetAt
         self.severity = severity
         self.scope = scope
+        self.segments = segments
     }
 
     private enum CodingKeys: String, CodingKey {
-        case label, category, remainingPercent, resetAt, severity, scope
+        case label, category, remainingPercent, resetAt, severity, scope, segments
     }
 
     /// Lenient on `scope`: a row written before it was carried came from the global-or-all
@@ -56,6 +59,7 @@ public struct GlanceRow: Sendable, Equatable, Codable {
         resetAt = try c.decodeIfPresent(Date.self, forKey: .resetAt)
         severity = try c.decode(Severity.self, forKey: .severity)
         scope = try c.decodeIfPresent(UsageScope.self, forKey: .scope) ?? .global
+        segments = try c.decodeIfPresent([UsageSegment].self, forKey: .segments) ?? []
     }
 }
 
@@ -92,17 +96,8 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     /// short and one long headline. The representative is chosen among these at render time.
     public let candidates: [GlanceRow]
 
-    /// When the provider was last read, so freshness can be judged again later.
-    ///
-    /// The widget renders a timeline of several entries at different dates from one snapshot,
-    /// and every one of them used to carry the severity computed at WRITE time. An account
-    /// that was healthy at T0 therefore still read healthy at T0 plus a day if no background
-    /// refresh had run in between: the tile aged without ever saying so, which is the one
-    /// thing a quota display must never do. Carrying the fetch instant lets each entry decide
-    /// for itself.
-    ///
-    /// Optional because a snapshot written by an earlier build has none, and such an account
-    /// keeps exactly its previous behaviour rather than being declared stale on upgrade.
+    /// The fetch instant lets each timeline entry evaluate freshness at its display date.
+    /// Optional for snapshots from builds that omit it; those retain their stored severity.
     public let fetchedAt: Date?
     public let providerID: String?
     public let iconAssetName: String?
@@ -201,13 +196,18 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         return (global.isEmpty ? pool : global).min { Self.rank($0) < Self.rank($1) }
     }
 
+    public func nextResettingRow(at date: Date) -> GlanceRow? {
+        candidates.filter { ($0.remainingPercent != nil || $0.severity == .exhausted) && ($0.resetAt ?? .distantPast) > date }
+            .min { $0.resetAt! < $1.resetAt! }
+    }
+
     private static func rank(_ row: GlanceRow) -> Double {
         row.severity == .exhausted ? -1 : (row.remainingPercent ?? .greatestFiniteMagnitude)
     }
 
     /// The tightest number this block actually shows. Used only for ordering.
     func tightestRemaining(at date: Date) -> Double {
-        representative(at: date)?.remainingPercent ?? .greatestFiniteMagnitude
+        representative(at: date).map(Self.rank) ?? .greatestFiniteMagnitude
     }
 }
 
@@ -278,6 +278,21 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         staleAfter = try c.decodeIfPresent(TimeInterval.self, forKey: .staleAfter)
             ?? Severity.staleAfter
         credits = try c.decodeIfPresent([GlanceCredit].self, forKey: .credits) ?? []
+    }
+
+    public func nextResettingAccount(at date: Date) -> GlanceAccount? {
+        let candidates = accounts.filter { $0.representative(at: date) != nil }
+        let trusted = candidates.filter {
+            let row = $0.nextResettingRow(at: date) ?? $0.representative(at: date)
+            let severity = $0.displaySeverity(of: row, at: date, staleAfter: staleAfter)
+            return severity != .stale && severity != .error
+        }
+        let pool = trusted.isEmpty ? candidates : trusted
+        let upcoming = pool.filter { $0.nextResettingRow(at: date) != nil }
+        if !upcoming.isEmpty {
+            return upcoming.min { $0.nextResettingRow(at: date)!.resetAt! < $1.nextResettingRow(at: date)!.resetAt! }
+        }
+        return pool.min { $0.tightestRemaining(at: date) < $1.tightestRemaining(at: date) }
     }
 
     /// The same snapshot carrying `credits`.
@@ -590,6 +605,6 @@ public enum GlanceModel {
             remainingPercent: window.remainingPercent,
             resetAt: window.resetAt,
             severity: window.severity,
-            scope: window.scope)
+            scope: window.scope, segments: window.segments)
     }
 }

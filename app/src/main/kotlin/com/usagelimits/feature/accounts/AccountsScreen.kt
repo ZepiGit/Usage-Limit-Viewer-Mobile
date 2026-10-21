@@ -29,6 +29,10 @@ internal data class AccountFilter(
     val provider: ProviderId? = null,
     val onlyProblems: Boolean = false,
 ) {
+    fun toggleProblems() = AccountFilter(onlyProblems = !onlyProblems)
+
+    fun toggleProvider(p: ProviderId) = AccountFilter(provider = if (provider == p) null else p)
+
     fun matches(usage: AccountUsage): Boolean {
         if (provider != null && usage.account.provider != provider) return false
         if (onlyProblems) {
@@ -73,13 +77,11 @@ fun AccountsScreen(
                     filter = AccountFilter()
                 }
                 Segment("Needs attention", filter.onlyProblems) {
-                    filter = filter.copy(onlyProblems = !filter.onlyProblems)
+                    filter = filter.toggleProblems()
                 }
                 presentProviders.forEach { provider ->
                     Segment(provider.displayName, filter.provider == provider) {
-                        filter = filter.copy(
-                            provider = if (filter.provider == provider) null else provider,
-                        )
+                        filter = filter.toggleProvider(provider)
                     }
                 }
             }

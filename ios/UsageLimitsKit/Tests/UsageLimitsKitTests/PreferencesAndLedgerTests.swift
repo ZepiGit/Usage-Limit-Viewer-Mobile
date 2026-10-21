@@ -38,9 +38,7 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertFalse(reopened.notifications.notifyOnExhausted)
     }
 
-    /// The store used to normalise by rebuilding the value from the two fields it named, so
-    /// every preference added afterwards was silently discarded on the way to disk — switching
-    /// the tier off wrote it straight back on. This fails against that implementation.
+    /// Normalization must preserve preferences outside the fields it adjusts.
     func testEveryDisplayPreferenceSurvivesASave() async throws {
         let store = SettingsStore(directory: directory)
         var settings = AppSettings()

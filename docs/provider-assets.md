@@ -1,29 +1,11 @@
 # Provider artwork
 
-Provider logos are bundled locally and have transparent backgrounds. Rendering them in the app or a widget does not contact an external website. The marks remain the property of their respective owners.
+Provider marks are bundled locally; displaying them makes no network request. They remain trademarks of their respective owners.
 
-## Source and choices
+Sources live in `assets/providers/lobehub/`, with Devin and Meta Muse artwork beside them. `assets/providers/catalog.json` records the choices. Devin comes from [LobeHub icons](https://lobehub.com/icons); Meta uses the open Meta glyph from [Simple Icons](https://simpleicons.org/).
 
-The original artwork is the user-supplied `lobehub-icons.zip` archive, received on 12 September 2026. Its 19 SVGs are preserved in `assets/providers/lobehub/`; the Devin and Meta Muse marks added for the 0.2.0 release are stored beside them, and `assets/providers/catalog.json` records all choices. The Devin source is from the [LobeHub icon library](https://lobehub.com/icons); the Meta mark is the open Meta glyph from [Simple Icons](https://simpleicons.org/).
+Z.ai, ChatGLM, OpenCode and the six credit marks come from [LobeHub icons v1.96.0](https://www.npmjs.com/package/@lobehub/icons-static-svg/v/1.96.0), licensed under [MIT](https://github.com/lobehub/lobe-icons/blob/master/LICENSE), copyright © 2023 LobeHub. The SVG sources include the license notice; Android PNGs retain it in `Copyright` and `License` metadata. Keep those notices with redistributed artwork.
 
-| App provider | Default | Other available artwork |
-| --- | --- | --- |
-| Claude | Claude Code, color | Claude Code monochrome and wordmark; Claude color, monochrome and wordmark |
-| OpenAI Codex | OpenAI | OpenAI wordmark |
-| Grok | Grok | Grok wordmark |
-| Antigravity | Gemini, color | Gemini monochrome and wordmark; Antigravity color, monochrome and wordmark |
-| Kimi | Kimi, color | Kimi monochrome and wordmark |
-| Devin | Devin, color | Devin monochrome |
-| Meta Muse | Meta Muse, color | Meta Muse monochrome |
+In Settings → Provider icons, choose a mark for each service. The selection applies throughout the app and its widgets on that device. Unknown choice IDs fall back to the default. Claude and Claude Code share an account identity, as do Antigravity and Gemini; changing artwork does not change authentication or quota.
 
-Claude/Claude Code share one provider identity. Antigravity/Gemini also share one provider identity. Changing artwork never changes the account, authentication flow or quota parser.
-
-## App and widget integration
-
-Settings → Provider icons presents the same choices on Android and iOS. Each provider has one saved selection that applies across the app and its widgets. Unknown or removed choice IDs fall back to the provider default.
-
-Android uses `ProviderIconCatalog`, DataStore preferences and `drawable-nodpi/icon_*.png`. iOS uses `ProviderIconCatalog`, persisted `AppSettings.providerIcons` and `ProviderIcon*.imageset` assets shared with the widget extension. Updated icon choices are included when publishing the widget cache.
-
-The packaged PNGs preserve transparency, proportions and source colors. Monochrome SVG `currentColor` paths are rendered white for the existing dark interface. Vector sources remain available for future theme-specific exports. No opaque badge is baked into the artwork.
-
-All 23 Android exports and all 23 iOS exports were checked for an alpha channel and transparent pixels. Visual checks covered the default marks, alternate Claude artwork, the settings picker, account lists and Android home-screen widgets.
+Credit providers each have one fixed mark: OpenRouter, DeepSeek, Moonshot, xAI, fal.ai and Novita. Packaged artwork uses transparent PNGs; monochrome marks render white for the dark interface. Vector sources remain available alongside the exported platform assets.

@@ -16,7 +16,9 @@ class ProviderIconsTest {
         assertEquals(6, ProviderIconCatalog.choices(ProviderId.ANTIGRAVITY).size)
         assertEquals(listOf("devin-color", "devin"), ProviderIconCatalog.choices(ProviderId.DEVIN).map { it.id })
         assertEquals(listOf("meta-color", "meta"), ProviderIconCatalog.choices(ProviderId.META).map { it.id })
-        assertEquals(25, ProviderId.entries.sumOf { ProviderIconCatalog.choices(it).size })
+        assertEquals(listOf("zai", "zai-text", "chatglm-color"), ProviderIconCatalog.choices(ProviderId.ZAI).map { it.id })
+        assertEquals(listOf("opencode", "opencode-text"), ProviderIconCatalog.choices(ProviderId.OPENCODE).map { it.id })
+        assertEquals(28, ProviderId.entries.sumOf { ProviderIconCatalog.choices(it).size })
     }
 
     @Test fun `stored selections remain independent and unknown icons fall back safely`() {

@@ -135,7 +135,7 @@ struct CreditsSmallView: View {
         Group {
             if let credit = entry.credits.first {
                 let severity = credit.severity(at: entry.date, staleAfter: entry.staleAfter)
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .center, spacing: 4) {
                     Text(verbatim: credit.title).usageFont(.bodyStrong).foregroundColor(ink.primary).lineLimit(1)
                     if let name = credit.providerName, name != credit.title {
                         Text(verbatim: name).usageFont(.small).foregroundColor(ink.secondary).lineLimit(1)
@@ -162,7 +162,7 @@ struct CreditsSmallView: View {
                     }
                 }
                 .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
             } else {
                 CreditsEmptyView(state: entry.state, ink: ink)
             }

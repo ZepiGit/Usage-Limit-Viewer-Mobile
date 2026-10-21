@@ -16,6 +16,48 @@ final class ClaudeUsageParserTests: XCTestCase {
         (try! JSONSerialization.jsonObject(with: json.data(using: .utf8)!)) as! [String: Any]
     }
 
+    func testMergePreservesSegmentsWhenSupplementalWindowSuppliesUsage() {
+        let primary = UsageWindow(id: "scoped", label: "Weekly", category: .weekly,
+            usedPercent: nil, periodSeconds: 604_800, resetAt: nil, exhausted: false)
+        let supplemental = UsageWindow(id: "flat", label: "Weekly", category: .weekly,
+            usedPercent: 30, periodSeconds: 604_800, resetAt: now, exhausted: false,
+            group: "pool", scope: .model, segments: [UsageSegment(label: "Product", usedPercent: 30)])
+        let merged = ClaudeUsageParser.merge(primary: [primary], supplemental: [supplemental])
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].id, primary.id)
+        XCTAssertEqual(merged[0].segments, supplemental.segments)
+        XCTAssertEqual(merged[0], supplemental.with(id: primary.id))
+    }
+
+    func testScopedFableAndOpusReplaceFlatTwinsByLabel() {
+        for (flatKey, modelID, name) in [
+            ("iguana_necktie", "fable", "Fable"),
+            ("seven_day_opus", "claude-opus-4", "Opus"),
+        ] {
+            let windows = ClaudeUsageParser.parse(payload("""
+            { "\(flatKey)": { "utilization": 80, "resets_at": "2026-09-16T20:00:00Z" },
+              "limits": [{ "kind": "weekly_scoped", "group": "weekly", "percent": 25,
+                "scope": { "model": { "id": "\(modelID)", "display_name": "\(name)" } } }] }
+            """), now: now)
+            XCTAssertEqual(windows.count, 1)
+            XCTAssertEqual(windows.first?.label, "Weekly (\(name))")
+            XCTAssertEqual(windows.first?.id, "seven-day-\(modelID)")
+            XCTAssertEqual(windows.first?.usedPercent, 25)
+        }
+    }
+
+    func testFlatMeasurementFillsUnknownPrimaryByCaseInsensitiveLabelPreservingIDAndOrder() {
+        let windows = ClaudeUsageParser.parse(payload("""
+        { "iguana_necktie": { "utilization": 42 }, "limits": [
+            { "kind": "session", "percent": 12 },
+            { "kind": "weekly_scoped", "percent": null,
+              "scope": { "model": { "id": "fable-v2", "display_name": "fAbLe" } } }
+        ] }
+        """), now: now)
+        XCTAssertEqual(windows.map(\.id), ["five-hour", "seven-day-fable-v2"])
+        XCTAssertEqual(windows.last?.usedPercent, 42)
+    }
+
     func testFiveHourAndWeeklyKeysClassifyByKeyNotPayload() {
         // Anthropic never states the period, so it is derived from the key: only `five_hour`
         // is a rolling window, everything else it exposes is seven days.
@@ -126,9 +168,7 @@ final class ClaudeUsageParserTests: XCTestCase {
         XCTAssertEqual(windows.map(\.label), ["Weekly (Fable)", "Weekly (Opus)"])
     }
 
-    func testAnUnreadableLimitDoesNotHideOtherReportedWindows() {
-        // An array that yields nothing is no better than an absent one, and silently rendering
-        // an empty screen would be the worst of the three outcomes.
+    func testAnUnreadableScopedLimitUsesTheFlatMeasurementWithoutDuplicatingTheRow() {
         let windows = ClaudeUsageParser.parse(payload("""
         {
           "iguana_necktie": { "utilization": 5.0, "resets_at": "2026-09-14T00:00:00Z" },
@@ -137,9 +177,9 @@ final class ClaudeUsageParserTests: XCTestCase {
         }
         """), now: now)
 
-        XCTAssertEqual(windows.count, 2)
-        XCTAssertNil(windows.first { $0.id == "seven-day-fable" }?.usedPercent)
-        XCTAssertEqual(windows.first { $0.id == "iguana-necktie" }?.usedPercent, 5.0)
+        XCTAssertEqual(windows.count, 1)
+        XCTAssertEqual(windows.first?.id, "seven-day-fable")
+        XCTAssertEqual(windows.first?.usedPercent, 5.0)
     }
 
     func testAnUndocumentedKeyWithRealConsumptionIsSurfaced() {
@@ -375,7 +415,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
     func testRemainingFractionConvertsToConsumedPercent() {
         // The whole point of this parser: remainingFraction is 0...1 REMAINING while
         // usedPercent is 0...100 CONSUMED. Getting it backwards inverts every bar on screen.
-        let windows = AntigravityQuotaParser.parse(payload("""
+        let windows = AntigravityQuotaParser.parseRows(payload("""
         {
           "groups": [
             { "displayName": "Gemini Pro",
@@ -385,7 +425,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
               ] }
           ]
         }
-        """), now: now)
+        """)).map(\.window)
 
         XCTAssertEqual(windows.count, 1)
         XCTAssertEqual(windows[0].usedPercent!, 47.0, accuracy: 0.001)
@@ -393,7 +433,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
     }
 
     func testWindowSpellingsMapToCategories() {
-        let windows = AntigravityQuotaParser.parse(payload("""
+        let windows = AntigravityQuotaParser.parseRows(payload("""
         {
           "groups": [
             { "displayName": "G",
@@ -403,7 +443,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
               ] }
           ]
         }
-        """), now: now)
+        """)).map(\.window)
 
         XCTAssertEqual(windows.first { $0.id == "a" }?.category, .fiveHour)
         XCTAssertEqual(windows.first { $0.id == "a" }?.periodSeconds, 18_000)
@@ -414,20 +454,20 @@ final class AntigravityQuotaParserTests: XCTestCase {
     func testGroupNameIsCarriedOnEveryWindow() {
         // This is what lets the UI show one card per quota group and render a shared bucket
         // exactly once, instead of a row per model.
-        let windows = AntigravityQuotaParser.parse(payload("""
+        let windows = AntigravityQuotaParser.parseRows(payload("""
         {
           "groups": [
             { "displayName": "Claude / GPT",
               "buckets": [ { "bucketId": "a", "window": "5h", "remainingFraction": 0.5 } ] }
           ]
         }
-        """), now: now)
+        """)).map(\.window)
 
         XCTAssertTrue(windows.allSatisfy { $0.group == "Claude / GPT" })
     }
 
     func testSnakeCaseSpellingsParseIdentically() {
-        let windows = AntigravityQuotaParser.parse(payload("""
+        let windows = AntigravityQuotaParser.parseRows(payload("""
         {
           "groups": [
             { "display_name": "G",
@@ -437,7 +477,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
               ] }
           ]
         }
-        """), now: now)
+        """)).map(\.window)
 
         XCTAssertEqual(windows.count, 1)
         XCTAssertEqual(windows[0].usedPercent!, 75.0, accuracy: 0.001)
@@ -449,7 +489,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
         // Google's JSON drops a zero remainingFraction: a spent, enabled bucket arrives with
         // resetTime only. A disabled bucket, an invalid fraction and a bucket with no reset
         // stay unknown.
-        let windows = AntigravityQuotaParser.parse(payload("""
+        let windows = AntigravityQuotaParser.parseRows(payload("""
         {
           "groups": [
             { "displayName": "G",
@@ -461,7 +501,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
               ] }
           ]
         }
-        """), now: now)
+        """)).map(\.window)
 
         let byID = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
         XCTAssertEqual(byID["spent"]?.remainingPercent, 0)
@@ -472,7 +512,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
     }
 
     func testBucketWithoutRemainingFractionRemainsUnknown() {
-        let windows = AntigravityQuotaParser.parse(payload("""
+        let windows = AntigravityQuotaParser.parseRows(payload("""
         {
           "groups": [
             { "displayName": "G",
@@ -482,13 +522,13 @@ final class AntigravityQuotaParserTests: XCTestCase {
               ] }
           ]
         }
-        """), now: now)
+        """)).map(\.window)
 
         XCTAssertEqual(windows.map(\.id), ["a", "b"])
     }
 
     func testGroupWithUnknownBucketsIsPreserved() {
-        let windows = AntigravityQuotaParser.parse(payload("""
+        let windows = AntigravityQuotaParser.parseRows(payload("""
         {
           "groups": [
             { "displayName": "Empty", "buckets": [ { "bucketId": "a", "window": "5h" } ] },
@@ -496,13 +536,13 @@ final class AntigravityQuotaParserTests: XCTestCase {
               "buckets": [ { "bucketId": "b", "window": "5h", "remainingFraction": 0.1 } ] }
           ]
         }
-        """), now: now)
+        """)).map(\.window)
 
         XCTAssertEqual(windows.map(\.group), ["Empty", "Real"])
     }
 
     func testOutOfRangeFractionsRemainUnknown() {
-        let windows = AntigravityQuotaParser.parse(payload("""
+        let windows = AntigravityQuotaParser.parseRows(payload("""
         {
           "groups": [
             { "displayName": "G",
@@ -512,7 +552,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
               ] }
           ]
         }
-        """), now: now)
+        """)).map(\.window)
 
         XCTAssertNil(windows.first { $0.id == "over" }?.usedPercent)
         XCTAssertNil(windows.first { $0.id == "under" }?.usedPercent)
@@ -520,7 +560,7 @@ final class AntigravityQuotaParserTests: XCTestCase {
     }
 
     func testFiveHourSortsBeforeWeeklyWithinAGroup() {
-        let windows = AntigravityQuotaParser.parse(payload("""
+        let windows = AntigravityQuotaParser.parseRows(payload("""
         {
           "groups": [
             { "displayName": "G",
@@ -530,23 +570,20 @@ final class AntigravityQuotaParserTests: XCTestCase {
               ] }
           ]
         }
-        """), now: now)
+        """)).map(\.window)
 
         XCTAssertEqual(windows.map(\.id), ["5h", "wk"])
     }
 
     func testEmptyPayloadYieldsNoWindows() {
-        XCTAssertTrue(AntigravityQuotaParser.parse(payload("{}"), now: now).isEmpty)
+        XCTAssertTrue(AntigravityQuotaParser.parseRows(payload("{}")).map(\.window).isEmpty)
     }
 
     // MARK: - Tier names the provider might actually send
 
     func testATierThatIsOnlyAMultiplierDoesNotCrash() {
-        // "claude_20x" strips its prefix to "20x", whose only underscore-component is the whole
-        // string. Removing that component PLUS a separator took four characters from three — a
-        // precondition failure, which is to say a crash, from a value the provider chose. It is
-        // a tier NAME, not a multiplier, and now reads as one — the same answer Kotlin gives,
-        // whose regex has always demanded a separator before the digits.
+        // claude_20x is a tier name, not a multiplier: a multiplier suffix requires a separator.
+        // Keep this interpretation aligned with Kotlin and avoid out-of-range prefix removal.
         XCTAssertEqual(
             ClaudeUsageParser.parsePlan(
                 payload(#"{"organization":{"rate_limit_tier":"claude_20x"}}"#)),

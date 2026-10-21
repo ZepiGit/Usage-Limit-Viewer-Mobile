@@ -21,7 +21,7 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.3.0"
+    MARKETING_VERSION: "0.3.1"
     CURRENT_PROJECT_VERSION: "1"
     # Strict concurrency across the app too, not only the package. The kit is already clean, and
     # letting the app lag behind is how a @MainActor violation reaches a user as a crash on a
@@ -51,6 +51,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.usagelimits.app
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-GaugeCoin AppIcon-AIGauge AppIcon-AIHourglass AppIcon-AIRefreshRing AppIcon-AIBattery"
         TARGETED_DEVICE_FAMILY: "1,2"
     # A generated Info.plist rather than INFOPLIST_KEY_* build settings, because two of the keys
     # below are arrays and the build-setting spelling cannot express one. Written by XcodeGen,

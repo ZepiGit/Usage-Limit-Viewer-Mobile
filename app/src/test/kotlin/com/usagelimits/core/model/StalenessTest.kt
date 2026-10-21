@@ -157,7 +157,7 @@ class StalenessTest {
             Severity.HEALTHY,
             snapshot.severityAt(twoAndAHalfHoursLater, Severity.staleAfterMs(180)),
         )
-        // The same age against the old fixed hour called it stale.
+        // The default one-hour threshold treats this same age as stale.
         assertEquals(Severity.STALE, snapshot.severityAt(twoAndAHalfHoursLater))
     }
 

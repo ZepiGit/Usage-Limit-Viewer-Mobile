@@ -13,7 +13,8 @@ final class GlanceSnapshotCodecTests: XCTestCase {
     private func snapshot() -> GlanceSnapshot {
         let short = GlanceRow(
             label: "5h limit", category: .fiveHour, remainingPercent: 12.5,
-            resetAt: now.addingTimeInterval(3_600), severity: .low)
+            resetAt: now.addingTimeInterval(3_600), severity: .low,
+            segments: [UsageSegment(label: "GrokBuild", usedPercent: 56)])
         let long = GlanceRow(
             label: "Weekly", category: .weekly, remainingPercent: nil,
             resetAt: nil, severity: .error)
@@ -38,6 +39,51 @@ final class GlanceSnapshotCodecTests: XCTestCase {
         let decoded = GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(original))
 
         XCTAssertEqual(decoded, original)
+    }
+
+    func testUsageWindowRoundTripPreservesSegments() throws {
+        let window = UsageWindow(id: "xai-credits", label: "Weekly credits", category: .weekly,
+            usedPercent: 98, periodSeconds: 604_800, resetAt: nil, exhausted: false,
+            segments: [UsageSegment(label: "GrokBuild", usedPercent: 90),
+                UsageSegment(label: "GrokChat", usedPercent: 7), UsageSegment(label: "GrokImagine", usedPercent: 1)])
+        let decoded = try JSONDecoder().decode(UsageWindow.self, from: JSONEncoder().encode(window))
+        XCTAssertEqual(decoded, window)
+        let account = ProviderAccount(id: "grok", provider: .xai, externalAccountID: "ext-grok",
+            email: nil, displayName: nil, plan: nil, credentialReference: "grok-ref",
+            createdAt: now, lastSuccessfulSync: now)
+        let usage = AccountUsage(account: account, snapshot: UsageSnapshot(accountID: account.id,
+            fetchedAt: now, status: .ok, windows: [window]))
+        let glance = GlanceModel.build([usage], now: now, scope: .allAccounts)
+        XCTAssertEqual(glance.accounts.first?.rows.first?.segments, window.segments)
+        XCTAssertEqual(glance.accounts.first?.candidates.first?.segments, window.segments)
+        XCTAssertEqual(GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(glance)), glance)
+    }
+
+    func testUsageWindowWrittenBeforeSegmentsStillDecodes() throws {
+        let legacy = Data("""
+        {"id":"xai-credits","label":"Weekly credits","category":"weekly","usedPercent":98,"exhausted":false}
+        """.utf8)
+        let window = try JSONDecoder().decode(UsageWindow.self, from: legacy)
+        XCTAssertEqual(window.remainingPercent, 2)
+        XCTAssertEqual(window.segments, [])
+    }
+
+    func testSnapshotWrittenBeforeSegmentsStillDecodes() throws {
+        let original = snapshot()
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: GlanceSnapshotCodec.encode(original)) as? [String: Any])
+        func removingSegments(_ value: Any) -> Any {
+            if let object = value as? [String: Any] {
+                return object.filter { $0.key != "segments" }.mapValues(removingSegments)
+            }
+            if let array = value as? [Any] { return array.map(removingSegments) }
+            return value
+        }
+        json = try XCTUnwrap(removingSegments(json) as? [String: Any])
+        let decoded = GlanceSnapshotCodec.decode(try JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(decoded.accounts.count, original.accounts.count)
+        XCTAssertEqual(decoded.accounts.first?.rows.first?.remainingPercent, 12.5)
+        XCTAssertEqual(decoded.accounts.first?.rows.first?.segments, [])
+        XCTAssertEqual(decoded.headlineShort?.segments, [])
     }
 
     func testAnUnknownPercentageSurvivesAsUnknown() throws {
@@ -70,6 +116,7 @@ final class GlanceSnapshotCodecTests: XCTestCase {
         let account = try decoder.decode(GlanceAccount.self, from: legacy)
 
         XCTAssertEqual(account.candidates, account.rows)
+        XCTAssertEqual(account.rows.first?.segments, [])
         XCTAssertEqual(account.representative(at: now)?.label, "Weekly")
         XCTAssertEqual(account.severity(at: now, staleAfter: 3600), .medium)
     }

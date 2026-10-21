@@ -162,51 +162,50 @@ private extension View {
     }
 }
 
-/// The headline, in two bands: the tightest limit across every account and when it comes back,
-/// then when anything next resets and how many accounts are connected.
-///
-/// This used to lead with "2/3 connected" at 30pt bold, which answers a question nobody opens
-/// the app to ask. What runs out first is `mostCritical`, the kit's own urgency ranking, and the
-/// row that stands for that account is its `representative` — the same pair the widgets lead with.
+/// Keep the account, remaining quota and countdown together so the next reset is unambiguous.
 private struct LeadStrip: View {
 
     let snapshot: GlanceSnapshot
     let now: Date
 
     var body: some View {
-        let lead = snapshot.selecting(scope: .mostCritical, now: now).accounts.first
-        let row = lead?.representative(at: now)
+        let lead = snapshot.nextResettingAccount(at: now)
+        let row = lead?.nextResettingRow(at: now) ?? lead?.representative(at: now)
+        let stale = lead.map {
+            [.stale, .error].contains($0.severity(at: now, staleAfter: snapshot.staleAfter))
+                && $0.nextResettingRow(at: now) != nil
+        } ?? false
         UsageCard(padding: 0, spacing: 0) {
-            band(lead: lead, row: row)
+            band(lead: lead, row: row, stale: stale)
             UsageColors.rule.frame(height: 1)
             HStack(spacing: 0) {
-                cell("Next reset") {
-                    if let next = nextReset {
-                        Text(Countdown.format(until: next, from: now)).usageFont(.figureLarge).foregroundStyle(UsageColors.data)
-                    } else {
-                        Text("—").usageFont(.small).foregroundStyle(UsageColors.faint)
-                    }
-                }
-                .overlay(alignment: .trailing) { UsageColors.rule.frame(width: 1) }
                 cell("Connected accounts") {
                     Text("\(connected)/\(snapshot.accountCount)").usageFont(.figureLarge).foregroundStyle(UsageColors.ink)
                         .accessibilityLabel("\(connected)/\(snapshot.accountCount) connected")
                 }
+                Image(AppIconChoice.active.previewAsset)
+                    .resizable().scaledToFit().frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .accessibilityHidden(true)
+                    .padding(.trailing, 16)
             }
         }
     }
 
-    private func band(lead: GlanceAccount?, row: GlanceRow?) -> some View {
+    private func band(lead: GlanceAccount?, row: GlanceRow?, stale: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             if let lead, let row {
                 // Aged to now, like every other surface: a stale account's last number is
                 // still shown, but it stops speaking in a severity colour.
-                let severity = lead.displaySeverity(of: row, at: now, staleAfter: snapshot.staleAfter)
+                let severity = stale ? Severity.stale : lead.displaySeverity(of: row, at: now, staleAfter: snapshot.staleAfter)
                 let percent = UsageWindow.percentLabel(row.remainingPercent)
                 Text(verbatim: "\(lead.title) · \(row.label)")
                     .usageFont(.small).foregroundStyle(UsageColors.muted).lineLimit(1)
-                Text(verbatim: percent)
-                    .usageFont(.lead).foregroundStyle(SeverityPalette.figureColor(severity))
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: percent)
+                        .usageFont(.lead).foregroundStyle(SeverityPalette.figureColor(severity))
+                    Text("left").usageFont(.small).foregroundStyle(UsageColors.muted)
+                }
                 UsageBar(remainingPercent: row.remainingPercent, severity: severity)
                     .padding(.vertical, 4)
                 if let resetAt = row.resetAt {
@@ -236,10 +235,6 @@ private struct LeadStrip: View {
         guard let lead, let row else { return "No limit to report" }
         guard row.remainingPercent != nil else { return "\(lead.title), \(row.label): remaining unknown" }
         return "\(lead.title), \(row.label): \(UsageWindow.percentLabel(row.remainingPercent)) remaining"
-    }
-
-    private var nextReset: Date? {
-        snapshot.accounts.flatMap(\.resetDates).filter { $0 > now }.min()
     }
 
     /// Counted through the connection status, so an account that needs signing in again stops
@@ -347,6 +342,7 @@ struct WindowRow: View {
     var severity: Severity? = nil
 
     private var shown: Severity { severity ?? row.severity }
+    private let segmentColors = [UsageColors.data, UsageColors.ink, UsageColors.faint, UsageColors.muted]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -366,8 +362,40 @@ struct WindowRow: View {
                 }
             }
 
-            UsageBar(remainingPercent: row.remainingPercent, severity: shown)
+            if row.segments.isEmpty {
+                UsageBar(remainingPercent: row.remainingPercent, severity: shown)
+                    .accessibilityLabel("\(row.label): \(remainingText) remaining")
+            } else {
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(UsageColors.rule)
+                        ForEach(row.segments.indices, id: \.self) { index in
+                            let start = min(row.segments.prefix(index).reduce(0) { $0 + $1.usedPercent }, totalUsed)
+                            let end = min(start + row.segments[index].usedPercent, totalUsed)
+                            Rectangle().fill(segmentColors[index % segmentColors.count])
+                                .frame(width: geometry.size.width * CGFloat((end - start) / 100))
+                                .offset(x: geometry.size.width * CGFloat(start / 100))
+                        }
+                        if totalUsed - segmentTotal >= 0.5 {
+                            Rectangle().fill(UsageColors.faint)
+                                .frame(width: geometry.size.width * CGFloat((totalUsed - segmentTotal) / 100))
+                                .offset(x: geometry.size.width * CGFloat(segmentTotal / 100))
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
+                .frame(height: 6)
                 .accessibilityLabel("\(row.label): \(remainingText) remaining")
+                Text("Usage breakdown").usageFont(.small).foregroundStyle(UsageColors.muted)
+                ForEach(row.segments.indices, id: \.self) { index in
+                    HStack(spacing: 6) {
+                        Circle().fill(segmentColors[index % segmentColors.count]).frame(width: 6, height: 6)
+                            .accessibilityHidden(true)
+                        Text("\(row.segments[index].label) usage: \(UsageWindow.percentLabel(row.segments[index].usedPercent))")
+                            .usageFont(.small).foregroundStyle(UsageColors.muted)
+                    }
+                }
+            }
 
             if let resetAt = row.resetAt {
                 Text("Resets in \(Countdown.format(until: resetAt, from: now))")
@@ -376,6 +404,9 @@ struct WindowRow: View {
             }
         }
     }
+
+    private var totalUsed: Double { min(row.remainingPercent.map { 100 - $0 } ?? row.segments.reduce(0) { $0 + $1.usedPercent }, 100) }
+    private var segmentTotal: Double { min(row.segments.reduce(0) { $0 + $1.usedPercent }, totalUsed) }
 
     /// An em dash, never a zero.
     ///

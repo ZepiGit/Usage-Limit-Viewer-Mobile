@@ -16,11 +16,11 @@ import org.junit.Test
 class QuotaValidationTest {
     @Test fun `invalid fractions remain unknown without hiding the bucket`() {
         for (value in listOf("-0.2", "1.4", "80", "null", "\"invalid\"")) {
-            val window = AntigravityQuotaParser.parse(JsonSupport.parseObject("""
+            val window = AntigravityQuotaParser.parseRows(JsonSupport.parseObject("""
                 {"groups":[{"displayName":"Pool","buckets":[
                   {"bucketId":"weekly","window":"weekly","remainingFraction":$value}
                 ]}]}
-            """), 0).single()
+            """)).map { it.window }.single()
             assertNull("fraction $value", window.remainingPercent)
             assertEquals(Severity.UNKNOWN, window.severity)
             assertEquals(UsageScope.MODEL, window.scope)

@@ -11,13 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Regressions for three payload shapes the parsers originally got wrong.
- *
- * Each was found by comparing against the reference implementations rather than by a failing
- * test — the original fixtures were hand-written in the shape the code expected, so they
- * agreed with the bug. These fixtures follow the upstream types instead.
- *
- * All values are synthetic.
+ * Synthetic fixtures retain upstream payload shapes rather than assuming parser input.
  */
 class UpstreamShapeRegressionTest {
 

@@ -404,8 +404,7 @@ class NotificationEvaluatorTest {
         assertTrue(
             publisher.sync(listOf(usage(remaining = 0.0, exhausted = true)), allOff, now).isEmpty(),
         )
-        // Turning the alerts on must not then deliver the exhaustion that happened while they
-        // were off. The claim was dropped rather than consumed, so it used to.
+        // Enabling alerts must not deliver exhaustion that happened while alerts were off.
         assertTrue(
             publisher.sync(
                 listOf(usage(remaining = 0.0, exhausted = true, fetchedAt = now + 1)),
@@ -1077,10 +1076,7 @@ class NotificationEvaluatorTest {
             nowMs = now,
         )
 
-        // Nothing at all, not "nothing matching a substring". The first version of this
-        // assertion looked for "low" in the key; the keys spell the tier "below-20", so it was
-        // vacuous and passed against the naive implementation that skips a muted account
-        // outright and freezes its state.
+        // Muted accounts must produce no events while still advancing notification state.
         assertTrue(
             "un-silencing must not replay the episode that ran while it was quiet, but got " +
                 afterUnmuting.events.map { it.key },

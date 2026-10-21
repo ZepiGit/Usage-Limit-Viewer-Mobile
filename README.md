@@ -63,7 +63,7 @@ yet, and Kimi may still need to approve the app's name before its sign-in can re
 and Warp only answer apps that pretend to be their own tools. Gemini CLI no longer accepts
 personal Google accounts (Antigravity covers that now). Cursor, Perplexity, Mistral, Zed and
 Qwen only work with browser cookies. Vertex AI counts quota per cloud project, not per person.
-The full reasoning is in [provider research](docs/provider-auth-research.md).
+See the [provider policy](docs/release.md#owner-responsibilities).
 
 ### Signing in
 
@@ -71,8 +71,8 @@ For Claude, Codex, Antigravity and Devin you sign in on the service's own web pa
 normal browser. The app never sees your password; it only receives the sign-in result.
 
 While that page is open you'll see a small **Sign-in** notification. It keeps the app awake
-so it can catch the result: Android 14 and later otherwise pause apps in the background,
-which used to make the last step load forever. If signing in takes longer than three
+so it can catch the result: Android 14 and later can pause background apps while the
+browser is open. If signing in takes longer than three
 minutes, the notification asks you to come back to the app, and that finishes it.
 
 ## Prepaid credits
@@ -161,7 +161,7 @@ current screens and widgets are in [docs/redesign/after](docs/redesign/after), n
 
 Several services don't officially publish the usage pages the app reads, so an update on
 their side can break a card until the app catches up. Details:
-[security model](docs/security.md) and [release readiness](docs/release-readiness.md).
+[security model](docs/security.md) and [release checklist](docs/release.md#device-checklist).
 
 ## Build it yourself
 
@@ -190,6 +190,13 @@ Then open the generated project in Xcode, set up signing and run it.
 | know how your data is protected | [Security](docs/security.md) |
 | set up a specific service | the `docs/providers-*` guides, e.g. [Codex](docs/providers-codex.md), [Kimi](docs/providers-kimi.md), [Z.ai](docs/providers-zai.md) |
 | use the Credits section | [Credits](docs/credits.md) |
-| work on the code | [Architecture](docs/architecture.md), [Verification](docs/verification.md), [Release guide](docs/release.md) |
 
-Found a problem? Please open an [issue](https://github.com/ZepiGit/Usage-Limit-Viewer/issues).
+For development, read the [Architecture](docs/architecture.md) and [Release guide](docs/release.md).
+
+Found a problem or have a feature request? Please open an [issue](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/issues/new/choose).
+For vulnerabilities, follow the [security policy](SECURITY.md) to report privately.
+
+## License
+
+[MIT](LICENSE), copyright (c) 2026 ZepiGit. Third-party artwork notices and trademark
+rights remain as documented in [Provider artwork](docs/provider-assets.md).

@@ -32,18 +32,92 @@
         android:theme="@style/Theme.UsageLimits">
 
         <activity
-            android:name=".MainActivity"
-            android:exported="true"
+            android:name=".UsageLimitsActivity"
+            android:exported="false"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:screenOrientation="unspecified"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode"
             android:theme="@style/Theme.UsageLimits">
+        </activity>
+
+        <activity-alias
+            android:name=".MainActivity"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconGaugeCoin"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_gauge_coin"
+            android:roundIcon="@mipmap/ic_launcher_gauge_coin">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconAiGauge"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_ai_gauge"
+            android:roundIcon="@mipmap/ic_launcher_ai_gauge">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconAiHourglass"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_ai_hourglass"
+            android:roundIcon="@mipmap/ic_launcher_ai_hourglass">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconAiRefreshRing"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_ai_refresh_ring"
+            android:roundIcon="@mipmap/ic_launcher_ai_refresh_ring">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconAiBattery"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_ai_battery"
+            android:roundIcon="@mipmap/ic_launcher_ai_battery">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!--
           Opened by the launcher when a widget is dropped. Not exported: only the system

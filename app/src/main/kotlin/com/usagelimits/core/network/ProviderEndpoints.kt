@@ -6,8 +6,8 @@ import com.usagelimits.core.model.ProviderRegion
  * Every provider URL, client identifier and request header the app sends, in one place.
  *
  * These values are reverse-engineered from the first-party CLI/desktop clients by way of
- * CLIProxyAPI and its Management Center (see docs/provider-auth-research.md for the exact
- * source files and the commits they were read at). They are *not* a documented third-party
+ * CLIProxyAPI and its Management Center (see the docs/providers-*.md provider guides and
+ * docs/security.md). They are *not* a documented third-party
  * API and can change without notice, so they are centralised here: an upstream change should
  * be a one-file edit, never a hunt through parsers.
  *
@@ -188,8 +188,9 @@ object ProviderEndpoints {
             "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
         )
 
-        const val CLI_VERSION = "1.0.13"
-        const val USER_AGENT = "antigravity/cli/$CLI_VERSION (aidev_client; os_type=linux; arch=arm64)"
+        // Cloud Code gates newer models on the Hub version reported by the public updater manifest.
+        const val HUB_VERSION = "2.25.0"
+        const val USER_AGENT = "antigravity/hub/$HUB_VERSION (aidev_client; os_type=darwin; arch=arm64)"
     }
 
     /**

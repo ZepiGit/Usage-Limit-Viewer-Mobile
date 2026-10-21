@@ -99,14 +99,8 @@ public enum JSONSupport {
         if let text = value as? String {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if let exact = Int64(trimmed) { return exact }
-            // Range-checked as well as finiteness-checked, and the range check is the one that
-            // matters here: `Int64(_: Double)` TRAPS on a value outside Int64, where Kotlin's
-            // `toLong()` merely saturates. "1e30" is finite, so the old guard let it through —
-            // and a trap inside the widget extension is a blank tile with no diagnostic.
-            //
-            // The upper comparison is strict: `Double(Int64.max)` rounds UP to 2^63, which is
-            // itself out of range, so `<=` would trap on exactly the boundary it was meant to
-            // stop.
+            // Int64 conversion traps outside its range even for finite doubles.
+            // The upper comparison is strict because Double(Int64.max) rounds up to 2^63.
             if let approx = Double(trimmed), approx.isFinite,
                approx >= Double(Int64.min), approx < -Double(Int64.min) {
                 return Int64(approx)

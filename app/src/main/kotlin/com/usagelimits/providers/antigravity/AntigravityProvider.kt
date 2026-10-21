@@ -316,38 +316,42 @@ class AntigravityProvider(
             ),
         )
 
-        // The quota hosts are rolled out at different speeds and which one serves a given
-        // account varies, so they are tried in order and only the last failure is reported.
-        var lastError: ProviderException? = null
+        // Hosts can carry different quota groups, so their union preserves every shared pool.
+        // The primary host's failure is the one worth reporting; the fallbacks mostly 404.
+        var firstError: ProviderException? = null
+        var authRejection: ProviderException? = null
         var emptyHosts = 0
-        for (url in Antigravity.QUOTA_URLS) {
+        val allRows = mutableListOf<AntigravityQuotaParser.Row>()
+        for ((index, url) in Antigravity.QUOTA_URLS.withIndex()) {
             try {
                 val response = http.request(
                     url = url,
                     method = "POST",
                     headers = authenticatedJsonHeaders(credentials),
                     body = body,
+                    retries = if (index == 0) HttpClient.DEFAULT_RETRIES else 0,
                 )
                 val payload = JsonSupport.parseObject(response.body)
-                val windows = AntigravityQuotaParser.parse(payload, nowMs())
-
-                // An empty 2xx means this host does not serve the account, not that the
-                // account has no quota — the daily hosts answer for everyone but only carry
-                // data for some. Returning here would render zero windows, which the model
-                // reads as ERROR: the same failure shape as an outage, from a successful call.
-                // Upstream continues to the next host on both a missing and an empty `groups`.
-                if (windows.isNotEmpty()) {
-                    return UsageResult(windows = windows)
-                }
-                emptyHosts++
+                val rows = AntigravityQuotaParser.parseRows(payload)
+                allRows += rows
+                if (rows.isEmpty()) emptyHosts++
             } catch (e: ProviderException) {
-                lastError = e
+                firstError = firstError ?: e
+                if (e is ProviderException.Unauthorized || e is ProviderException.Forbidden) {
+                    authRejection = authRejection ?: e
+                }
             }
         }
 
+        val groupsWithWindows = allRows.filterNot { it.isPlaceholder }.mapNotNull { it.window.group }.toSet()
+        val windows = allRows.filterNot { it.isPlaceholder && it.window.group in groupsWithWindows }
+            .map { it.window }.distinctBy { it.id }
+        if (windows.isNotEmpty()) return UsageResult(windows = windows)
+
         // Every host answered, none had data: report it as a payload problem rather than
         // silently showing an account with no limits.
-        lastError?.let { throw it }
+        authRejection?.let { throw it }
+        firstError?.let { throw it }
         throw ProviderException.MalformedPayload(
             if (emptyHosts > 0) {
                 "Antigravity returned no quota groups for this project"

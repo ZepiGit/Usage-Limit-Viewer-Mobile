@@ -1,10 +1,19 @@
 package com.usagelimits.feature
 
+import android.content.Context
+import android.graphics.BitmapFactory
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.core.model.CreditAccount
 import com.usagelimits.core.model.CreditBalance
 import com.usagelimits.core.model.CreditEntry
@@ -15,6 +24,7 @@ import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.feature.credits.AddCreditScreen
 import com.usagelimits.feature.credits.AddCreditState
 import com.usagelimits.feature.credits.CreditDetailScreen
+import com.usagelimits.feature.credits.creditIcon
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import org.junit.Assert.assertEquals
@@ -78,6 +88,40 @@ class CreditScreensRenderTest {
             compose.onNode(hasText(name)).assertExists()
         }
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("No balance endpoint for API keys"))
+        assertEquals(6, compose.onAllNodesWithText("Open").fetchSemanticsNodes().size)
+    }
+
+    @Test fun `open buttons launch the provider key page without selecting a provider`() {
+        val opened = mutableListOf<String>()
+        val handler = object : UriHandler {
+            override fun openUri(uri: String) { opened += uri }
+        }
+        render {
+            CompositionLocalProvider(LocalUriHandler provides handler) {
+                AddCreditScreen(
+                    state = AddCreditState.Idle, onSubmit = { _, _, _, _, _, _ -> }, onCancel = {}, onDone = {},
+                )
+            }
+        }
+        CreditProviderId.entries.forEach { provider ->
+            compose.onNodeWithContentDescription("Open ${provider.displayName} key page").performScrollTo().performClick()
+            assertEquals(provider.consoleUrl, opened.last())
+            compose.onNode(hasText("Connect ${provider.displayName}")).assertDoesNotExist()
+        }
+        assertEquals(CreditProviderId.entries.map { it.consoleUrl }, opened)
+        assertEquals("https://console.x.ai/team/default/api-keys", CreditProviderId.XAI.consoleUrl)
+    }
+
+    @Test fun `each credit provider has its own readable icon`() {
+        val resources = ApplicationProvider.getApplicationContext<Context>().resources
+        assertEquals(6, CreditProviderId.entries.map(::creditIcon).distinct().size)
+        CreditProviderId.entries.forEach { provider ->
+            val icon = creditIcon(provider)
+            assertTrue(icon != 0)
+            val bitmap = requireNotNull(BitmapFactory.decodeResource(resources, icon))
+            assertEquals(512, bitmap.width)
+            assertEquals(512, bitmap.height)
+        }
     }
 
     @Test fun `a failed add shows the reason and a finished one offers done`() {

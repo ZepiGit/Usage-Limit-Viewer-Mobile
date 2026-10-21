@@ -172,6 +172,23 @@ final class LoopbackLoginTests: XCTestCase {
         XCTAssertTrue(body.contains("code_verifier=\(challenge.verifier)"))
     }
 
+    func testAntigravityProjectResolutionUsesTheSupportedHubIdentity() async throws {
+        let (subject, transport) = login(.antigravity, replies: [
+            (200, #"{"id":"synthetic"}"#),
+            (200, #"{"cloudaicompanionProject":"synthetic-project"}"#),
+        ])
+        let profile = try await subject.profile(OAuthCredentials(accessToken: "synthetic-access"))
+
+        XCTAssertEqual(profile.attributes["project_id"], "synthetic-project")
+        let requests = await transport.requests
+        let projectRequest = try XCTUnwrap(requests.last)
+        XCTAssertEqual(projectRequest.url?.absoluteString, ProviderEndpoints.Antigravity.loadCodeAssistURLs.first)
+        XCTAssertEqual(projectRequest.value(forHTTPHeaderField: "User-Agent"),
+            "antigravity/hub/2.25.0 (aidev_client; os_type=darwin; arch=arm64)")
+        XCTAssertEqual(projectRequest.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-access")
+        XCTAssertEqual(projectRequest.httpMethod, "POST")
+    }
+
     func testCodexExchangesOnTheLoopbackRedirectItWasIssuedAgainst() async throws {
         // The token endpoint checks that the exchange names the redirect the code was issued
         // for. The browser flow's is the loopback one; the device flow's — which the fallback

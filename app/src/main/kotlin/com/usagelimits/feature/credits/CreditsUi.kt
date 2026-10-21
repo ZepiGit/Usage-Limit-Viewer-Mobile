@@ -1,5 +1,7 @@
 package com.usagelimits.feature.credits
 
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,12 +20,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.usagelimits.R
 import com.usagelimits.core.model.CreditBalance
 import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.model.CreditFormat
 import com.usagelimits.core.model.CreditNumbers
+import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.CreditSeverity
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
@@ -34,6 +39,16 @@ import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.theme.UsageColors
 import java.math.BigDecimal
+
+@DrawableRes
+internal fun creditIcon(id: CreditProviderId): Int = when (id) {
+    CreditProviderId.OPENROUTER -> R.drawable.icon_credit_openrouter
+    CreditProviderId.DEEPSEEK -> R.drawable.icon_credit_deepseek
+    CreditProviderId.MOONSHOT -> R.drawable.icon_credit_moonshot
+    CreditProviderId.XAI -> R.drawable.icon_credit_xai
+    CreditProviderId.FAL -> R.drawable.icon_credit_fal
+    CreditProviderId.NOVITA -> R.drawable.icon_credit_novita
+}
 
 /**
  * The low-balance field as typed. Blank clears the figure; a comma is accepted as the decimal
@@ -69,6 +84,8 @@ fun CreditCard(
 
     UsageCard(modifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 44.dp)) {
+            Image(painterResource(creditIcon(account.provider)), null, Modifier.size(30.dp))
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(account.label, style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink, maxLines = 1)
                 Text(

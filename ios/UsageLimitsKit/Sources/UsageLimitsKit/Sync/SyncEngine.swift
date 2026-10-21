@@ -283,29 +283,10 @@ public actor SyncEngine {
         do {
             return try await provider.fetchUsage(credentials: usable, attributes: account.attributes)
         } catch ProviderError.unauthorised {
-            // The reactive half of the refresh policy, and the half that makes the proactive one
-            // safe to keep conservative.
-            //
-            // "Not known to be expired" includes an absent expiry, because refreshing on every
-            // call would burn a rotating refresh token each time. On its own that leaves an
-            // account whose provider never states an expiry to 401 for ever, silently — the
-            // proactive branch can never fire for it. So a rejection is what triggers the
-            // exchange instead: the provider itself has said the token is dead, which is better
-            // evidence than any clock.
-            //
-            // What is passed is the access token this request actually tried, not a bare
-            // "force". The difference matters twice. A concurrent pass may already have saved a
-            // DIFFERENT token, which this request has not tried and which no evidence says is
-            // dead — so it is worth one attempt before spending a rotation. And the retry
-            // condition below used to be `!renewed.exchanged`, which spent a second rotation
-            // even when the pair handed back was a different, freshly saved one. Identity of the
-            // rejected token answers both questions exactly; `exchanged` only approximated them.
-            //
-            // Once only. If the pair that comes back is rejected too, the credential is
-            // genuinely revoked and retrying is just a second way to fail.
-            //
-            // Do not start a rotation for an abandoned run. An exchange already in flight
-            // remains non-cancellable through its save.
+            // A provider rejection can trigger renewal even when expiry is unknown.
+            // Pass the rejected access token so a concurrent fresh token gets one attempt
+            // before spending another rotation. Retry once; reject a second failure.
+            // Check cancellation before starting, but finish an exchange through its save.
             try Task.checkCancellation()
             let renewed = try await renewedCredentials(
                 reference: account.credentialReference,
@@ -318,30 +299,9 @@ public actor SyncEngine {
         }
     }
 
-    /// Returns a pair stored under `reference` that is not known to be expired, with at most one
-    /// exchange for the reference in flight at a time.
-    ///
-    /// The lock is keyed by reference, not by account, because two accounts can share one
-    /// credential reference and both would otherwise spend the same rotating refresh token. A
-    /// caller that finds an exchange already running awaits it.
-    ///
-    /// The expiry is re-decided inside the serial section, against a pair re-read from the store.
-    /// That re-read is what stops a caller arriving just after an earlier exchange finished from
-    /// exchanging again immediately: the earlier exchange has already saved a fresh pair, and the
-    /// re-read finds it. Trusting the copy the caller loaded before it waited is precisely the
-    /// double refresh that used to strand accounts.
-    /// - Parameter force: exchange even when the stored pair does not look expired. Set only by
-    ///   the rejection path, where the provider has already said the token is dead.
-    /// A pair fit to send now, renewing through the same coordinator a sync uses.
-    ///
-    /// Exists for the deliberate one-off actions that are not syncs — spending a reset credit
-    /// is the one that matters — which loaded the stored pair and sent it as-is. Leave the app
-    /// open past the access token's expiry, tap redeem, and it failed with 401 while a
-    /// perfectly good refresh token sat in the store. The user is told their credit could not
-    /// be spent for a reason that is entirely inside this app.
-    ///
-    /// It goes through `renewedCredentials` rather than refreshing on its own so that it joins
-    /// an exchange already running instead of spending a second rotation beside it.
+    /// Return a usable pair through the same renewal coordinator as sync.
+    /// One-off actions such as reset-credit redemption must join an in-flight renewal
+    /// rather than send expired credentials or spend a second rotation.
     public func usableCredentials(
         reference: String,
         provider providerID: String
@@ -356,6 +316,12 @@ public actor SyncEngine {
         return try await renewedCredentials(reference: reference, provider: provider).credentials
     }
 
+    /// Serialized per credential reference, not per account: two accounts can share one reference
+    /// and would otherwise both spend the same rotating refresh token. Expiry is re-decided inside
+    /// the lock against a pair re-read from the store, since a caller's pre-wait copy would cause a
+    /// double refresh that strands the account. In-flight renewals are joined, not repeated.
+    /// - Parameter rejectedAccessToken: the token the provider refused. Passed as the token, not a
+    ///   force flag, so a concurrently saved different token gets one attempt before a rotation.
     private func renewedCredentials(reference: String,
                                     provider: any SyncProvider,
                                     rejectedAccessToken: String? = nil) async throws -> Exchange {
