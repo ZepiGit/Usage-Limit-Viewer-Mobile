@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.height
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.CompositionLocalProvider
@@ -76,25 +77,68 @@ class LeadSelectionTest {
     }
 
     @Test
-    fun `with nothing valid the lead is the tightest cached one and marked stale`() {
+    fun `with nothing valid the next cached reset leads and is marked stale`() {
         val failed = usage("failed", 80.0, 10 * hour, status = SnapshotStatus.FAILED)
-        val lead = UsageUiState(accounts = listOf(failed)).leadAt(now)!!
+        val old = usage("old", 99.0, 20 * hour, fetchedAgo = 48 * hour)
+        val lead = UsageUiState(accounts = listOf(old, failed)).leadAt(now)!!
         assertEquals("failed", lead.usage.account.localId)
         assertTrue(lead.stale)
         assertNull(UsageUiState().leadAt(now))
     }
 
     @Test
-    fun `next reset is the fleet minimum, not the lead account's`() {
-        val tight = usage("tight", 96.0, 26 * hour)
-        val soon = usage("soon", 10.0, 2 * hour + 12 * 60_000)
+    fun `next reset leads even when another account has only two percent left`() {
+        val tight = usage("tight", 98.0, 26 * hour)
+        val soon = usage("soon", 20.0, 2 * hour)
+        val lead = UsageUiState(accounts = listOf(tight, soon)).leadAt(now)!!
+        assertEquals("soon", lead.usage.account.localId)
+        assertEquals(80.0, lead.window.remainingPercent!!, 0.001)
+        assertFalse(lead.stale)
+    }
+
+    @Test
+    fun `hero uses the soonest window within an account instead of its tightest`() {
+        val tight = usage("account", 98.0, 26 * hour)
+        val soon = tight.snapshot!!.windows.single().copy(id = "short", label = "5h", usedPercent = 20.0,
+            resetAt = now + 2 * hour)
+        val account = tight.copy(snapshot = tight.snapshot.copy(windows = tight.snapshot.windows + soon))
+        assertEquals("short", UsageUiState(accounts = listOf(account)).leadAt(now)!!.window.id)
+    }
+
+    @Test
+    fun `a trusted window without a reset outranks a cached future reset`() {
+        val cached = usage("cached", 20.0, 2 * hour, status = SnapshotStatus.FAILED)
+        val live = usage("live", 98.0, 0).let {
+            it.copy(snapshot = it.snapshot!!.copy(windows = it.snapshot.windows.map { w -> w.copy(resetAt = null) }))
+        }
+        val lead = UsageUiState(accounts = listOf(live, cached)).leadAt(now)!!
+        assertEquals("live", lead.usage.account.localId)
+        assertFalse(lead.stale)
+    }
+
+    @Test
+    fun `without future resets the tightest window leads rather than the earliest past reset`() {
+        val older = usage("older", 20.0, -2 * hour, fetchedAgo = 3 * hour)
+        val tight = usage("tight", 98.0, -hour, fetchedAgo = 3 * hour)
+        val lead = UsageUiState(accounts = listOf(older, tight)).leadAt(now)!!
+        assertEquals("tight", lead.usage.account.localId)
+        assertTrue(lead.stale)
+    }
+
+    @Test
+    fun `hero shows next resetting account and keeps connections without a duplicate reset stat`() {
+        val tight = usage("tight", 98.0, 26 * hour)
+        val soon = usage("soon", 20.0, 2 * hour + 12 * 60_000)
         compose.setContent {
             UsageLimitsTheme {
                 OverviewScreen(state = UsageUiState(accounts = listOf(tight, soon)), nowMs = now, onRefresh = {},
                     onAccountClick = {}, onAddAccount = {}, onReorder = {})
             }
         }
-        compose.onNodeWithText("2h 12m").assertIsDisplayed()
+        compose.onNodeWithContentDescription("soon, Weekly, 80% left, Reset in 2h 12m").assertIsDisplayed()
+        compose.onNodeWithText("Connected accounts", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("2/2", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("Next reset", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test

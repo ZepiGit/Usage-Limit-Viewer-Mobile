@@ -135,23 +135,24 @@ data class UsageUiState(
         }.minByOrNull { if (it.second.exhausted) -1.0 else it.second.remainingPercent ?: Double.MAX_VALUE }
 
     /**
-     * The window the overview leads with: the tightest among accounts whose data is still valid.
-     *
-     * Validity is the model's own: a failed or old snapshot ([Severity.STALE]/[Severity.ERROR]) and
-     * a window whose reset passed since the fetch do not compete, so cached 80% on a failed account
-     * cannot outrank live numbers. Only when nothing is valid does a cached window lead, flagged
-     * [Lead.stale] so the strip paints it grey rather than blank.
+     * Trusted readings outrank cached ones so a failed account cannot displace live data.
+     * Without any future reset, retain the tightest-window fallback rather than leave a blank.
      */
     fun leadAt(nowMs: Long): Lead? {
         val candidates = accounts.mapNotNull { usage ->
             val snapshot = usage.snapshot ?: return@mapNotNull null
-            val open = snapshot.copy(windows = snapshot.windows.filterNot { it.resetElapsedAt(snapshot.fetchedAt, nowMs) })
+            val next = snapshot.windows.filter { (it.resetAt ?: Long.MIN_VALUE) > nowMs }
+                .minByOrNull { it.resetAt!! }
+            val open = next ?: snapshot.copy(windows = snapshot.windows.filterNot { it.resetElapsedAt(snapshot.fetchedAt, nowMs) })
                 .mostCritical
             val trusted = snapshot.severityAt(nowMs, staleAfterMs) !in setOf(Severity.STALE, Severity.ERROR)
             val window = open ?: snapshot.mostCritical ?: return@mapNotNull null
             Lead(usage, window, stale = !trusted || open == null)
         }
-        return (candidates.filterNot { it.stale }.ifEmpty { candidates })
+        val pool = candidates.filterNot { it.stale }.ifEmpty { candidates }
+        val upcoming = pool.filter { (it.window.resetAt ?: Long.MIN_VALUE) > nowMs }
+        if (upcoming.isNotEmpty()) return upcoming.minByOrNull { it.window.resetAt!! }
+        return pool
             .minByOrNull { if (it.window.exhausted) -1.0 else it.window.remainingPercent ?: Double.MAX_VALUE }
     }
 
