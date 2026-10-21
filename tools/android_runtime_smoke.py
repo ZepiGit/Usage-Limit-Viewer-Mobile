@@ -1006,7 +1006,6 @@ def main():
     old = apk_metadata(aapt, args.previous_apk)
     new = apk_metadata(aapt, args.apk)
     assert old["package"] == new["package"] == PACKAGE, "Package identity changed"
-    assert old["versionName"] == "0.2.0", "Expected the published v0.2.0 baseline"
     assert new["versionCode"] > old["versionCode"], "Upgrade must increase versionCode"
     expected_hash = args.apk_sha256_file.read_text().split()[0].lower()
     assert re.fullmatch(r"[0-9a-f]{64}", expected_hash) and new["sha256"] == expected_hash, "APK differs from assemble-job evidence"
@@ -1039,7 +1038,7 @@ def main():
         smoke.launch("previous-start")
         smoke.navigate("Settings", "Provider icons", "previous-settings")
         setting = smoke.setting("previous-setting")
-        assert setting.get("checked") == "true", "Fresh v0.2.0 setting did not have its documented default"
+        assert setting.get("checked") == "true", "Fresh baseline setting did not have its documented default"
         smoke.tap(setting)
         smoke.wait_for("previous-setting-changed", lambda root: any(node.get("checked") == "false" for node in matches(root, SETTING) if node.get("checkable") == "true"))
         smoke.capture("previous-setting-changed")

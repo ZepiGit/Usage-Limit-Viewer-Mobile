@@ -154,8 +154,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p runtime/previous runtime/evidence
-          gh release download v0.2.0 --repo "$GITHUB_REPOSITORY" \
-            --pattern 'UsageLimits-0.2.0.apk' --dir runtime/previous
+          gh release download --repo "$GITHUB_REPOSITORY" \
+            --pattern 'UsageLimits-*.apk' --dir runtime/previous
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
@@ -168,9 +168,9 @@ jobs:
           fi
           build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
           "$build_tools/aapt" dump badging runtime/apk/app-release.apk > runtime/evidence/apk-metadata.txt
-          "$build_tools/aapt" dump badging runtime/previous/UsageLimits-0.2.0.apk > runtime/evidence/apk-previous-metadata.txt
+          "$build_tools/aapt" dump badging runtime/previous/UsageLimits-*.apk > runtime/evidence/apk-previous-metadata.txt
           "$build_tools/apksigner" verify --verbose --print-certs runtime/apk/app-release.apk > runtime/evidence/apk-signature.txt
-          "$build_tools/apksigner" verify --verbose --print-certs runtime/previous/UsageLimits-0.2.0.apk > runtime/evidence/apk-previous-signature.txt
+          "$build_tools/apksigner" verify --verbose --print-certs runtime/previous/UsageLimits-*.apk > runtime/evidence/apk-previous-signature.txt
           cp runtime/apk/app-release.apk.sha256 runtime/evidence/apk-sha256.txt
       - name: Check the AOSP API 36 image is available
         run: |
@@ -186,7 +186,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Upgrade and navigate the release APK
-        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-0.2.0.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/apk/app-release.apk.sha256 --evidence runtime/evidence
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-*.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/apk/app-release.apk.sha256 --evidence runtime/evidence
       - name: Upload release runtime evidence
         if: always()
         uses: actions/upload-artifact@v4

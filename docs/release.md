@@ -126,7 +126,7 @@ It does not use the Gradle caching action. The uploaded artifacts include the
 signed AAB, APK and matching R8 `mapping.txt`.
 
 Before packaging, the release workflow tests that same `android-release` APK on
-an AOSP API 36 emulator, installing it over the published v0.2.0 APK. The build
+an AOSP API 36 emulator, installing it over the latest published APK. The build
 job's SHA-256 binds the tested file to its artifact; the runtime checkout,
 workflow SHA and release metadata commit must match. The shared smoke script
 checks upgrade continuity, the preserved setting, navigation and app crash
