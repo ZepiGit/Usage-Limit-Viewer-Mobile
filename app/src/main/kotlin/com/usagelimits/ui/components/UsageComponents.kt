@@ -68,6 +68,7 @@ import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageType
 
 private val BarShape = RoundedCornerShape(3.dp)
+private val SegmentColors = listOf(UsageColors.Data, UsageColors.Ink, UsageColors.Warning, UsageColors.Muted)
 
 /**
  * A quota bar.
@@ -161,7 +162,8 @@ fun UsageWindowRow(
     }
     val reset = Countdown.resetLabel(window.resetAt, nowMs)
     Column(modifier.fillMaxWidth().semantics(mergeDescendants = true) {
-        contentDescription = "$label, $percent remaining" + (reset?.let { ", $it" } ?: "")
+        contentDescription = "$label, $percent remaining" + (reset?.let { ", $it" } ?: "") +
+            window.segments.joinToString("") { ", ${it.label} usage: ${percentLabel(it.usedPercent)}" }
     }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -174,7 +176,35 @@ fun UsageWindowRow(
                 Text(percent, style = UsageType.Figure, color = SeverityPalette.figureColor(severity))
             }
         }
-        UsageBar(remaining, severity, Modifier.fillMaxWidth())
+        if (window.segments.isEmpty()) {
+            UsageBar(remaining, severity, Modifier.fillMaxWidth())
+        } else {
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(BarShape).drawBehind {
+                drawRect(UsageColors.Rule)
+                var offset = 0.0
+                val total = (window.usedPercent ?: window.segments.sumOf { it.usedPercent }).coerceIn(0.0, 100.0)
+                window.segments.forEachIndexed { index, segment ->
+                    val end = (offset + segment.usedPercent).coerceIn(offset, total)
+                    drawRect(SegmentColors[index % SegmentColors.size],
+                        topLeft = Offset(size.width * (offset / 100).toFloat(), 0f),
+                        size = Size(size.width * ((end - offset) / 100).toFloat(), size.height))
+                    offset = end
+                }
+                if (total - offset >= 0.5) {
+                    drawRect(UsageColors.Faint,
+                        topLeft = Offset(size.width * (offset / 100).toFloat(), 0f),
+                        size = Size(size.width * ((total - offset) / 100).toFloat(), size.height))
+                }
+            })
+            Text("Usage breakdown", style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+            window.segments.forEachIndexed { index, segment ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Dot(SegmentColors[index % SegmentColors.size], size = 6.dp)
+                    Text("${segment.label} usage: ${percentLabel(segment.usedPercent)}",
+                        style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+                }
+            }
+        }
         if (window.hasConflictingAvailability) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Dot(UsageColors.Warning, size = 6.dp)

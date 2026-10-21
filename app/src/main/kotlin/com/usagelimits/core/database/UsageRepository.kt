@@ -6,6 +6,7 @@ import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ResetCredit
 import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
+import com.usagelimits.core.model.UsageSegment
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
@@ -82,7 +83,11 @@ class UsageRepository(
         val exhausted: Boolean = false,
         val group: String? = null,
         val scope: String? = null,
+        val segments: List<StoredSegment> = emptyList(),
     )
+
+    @Serializable
+    private data class StoredSegment(val label: String, val usedPercent: Double)
 
     @Serializable
     private data class StoredCredit(
@@ -340,9 +345,11 @@ class UsageRepository(
         exhausted = exhausted,
         group = group,
         scope = scope.name,
+        segments = segments.map { StoredSegment(it.label, it.usedPercent) },
     )
 
     private fun StoredWindow.toDomain(provider: ProviderId?, hasLegacyXaiOnDemand: Boolean) = UsageWindow(
+        segments = segments.map { UsageSegment(it.label, it.usedPercent) },
         id = id,
         label = label,
         category = runCatching { WindowCategory.valueOf(category) }

@@ -25,6 +25,7 @@ public struct GlanceRow: Sendable, Equatable, Codable {
     /// Carried so the representative can prefer global windows among those still open at
     /// render time, as Android's `mostCritical` does, instead of fixing the pool at export.
     public let scope: UsageScope
+    public let segments: [UsageSegment]
 
     public init(
         label: String,
@@ -32,7 +33,8 @@ public struct GlanceRow: Sendable, Equatable, Codable {
         remainingPercent: Double?,
         resetAt: Date?,
         severity: Severity,
-        scope: UsageScope = .global
+        scope: UsageScope = .global,
+        segments: [UsageSegment] = []
     ) {
         self.label = label
         self.category = category
@@ -40,10 +42,11 @@ public struct GlanceRow: Sendable, Equatable, Codable {
         self.resetAt = resetAt
         self.severity = severity
         self.scope = scope
+        self.segments = segments
     }
 
     private enum CodingKeys: String, CodingKey {
-        case label, category, remainingPercent, resetAt, severity, scope
+        case label, category, remainingPercent, resetAt, severity, scope, segments
     }
 
     /// Lenient on `scope`: a row written before it was carried came from the global-or-all
@@ -56,6 +59,7 @@ public struct GlanceRow: Sendable, Equatable, Codable {
         resetAt = try c.decodeIfPresent(Date.self, forKey: .resetAt)
         severity = try c.decode(Severity.self, forKey: .severity)
         scope = try c.decodeIfPresent(UsageScope.self, forKey: .scope) ?? .global
+        segments = try c.decodeIfPresent([UsageSegment].self, forKey: .segments) ?? []
     }
 }
 
@@ -610,6 +614,6 @@ public enum GlanceModel {
             remainingPercent: window.remainingPercent,
             resetAt: window.resetAt,
             severity: window.severity,
-            scope: window.scope)
+            scope: window.scope, segments: window.segments)
     }
 }

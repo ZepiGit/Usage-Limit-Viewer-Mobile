@@ -1,6 +1,7 @@
 package com.usagelimits.core.database
 
 import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageSegment
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
@@ -147,6 +148,30 @@ class OrphanSnapshotTest {
         assertEquals(now, saved.fetchedAt)
         assertEquals(now + 60_000, saved.lastAttemptAt)
         assertEquals(60.0, saved.windows.single().remainingPercent!!, 0.0)
+    }
+
+    @Test
+    fun `product segments survive snapshot persistence and a failed refresh`() = runBlocking {
+        val accounts = mutableMapOf("A" to account("A").copy(provider = "xai"))
+        val repository = UsageRepository(FakeAccountDao(accounts), FakeSnapshotDao(accounts))
+        val window = snapshot("A").windows.single().copy(
+            id = "xai-credits", usedPercent = 98.0,
+            segments = listOf(UsageSegment("GrokBuild", 90.0), UsageSegment("GrokChat", 7.0),
+                UsageSegment("GrokImagine", 1.0)),
+        )
+        repository.saveSnapshot(snapshot("A").copy(windows = listOf(window)))
+        assertEquals(window, repository.snapshot("A")!!.windows.single())
+        repository.saveFailure("A", "No network connection", now + 60_000)
+        assertEquals(window, repository.snapshot("A")!!.windows.single())
+    }
+
+    @Test
+    fun `legacy stored windows without segments still decode`() = runBlocking {
+        val restored = cachedXai("""[
+            {"id":"xai-credits","label":"Weekly credits","category":"WEEKLY","usedPercent":98.0}
+        ]""")
+        assertEquals(2.0, restored.windows.single().remainingPercent!!, 0.0)
+        assertTrue(restored.windows.single().segments.isEmpty())
     }
 
     @Test

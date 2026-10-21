@@ -27,6 +27,47 @@ final class XaiBillingParserTests: XCTestCase {
         try XCTUnwrap(XCTUnwrap(windows.first { $0.id == id }).usedPercent)
     }
 
+    func testProductSharesKeepOneTotalWindowAndSurviveMerge() throws {
+        let windows = XaiBillingParser.parseCredits(payload("""
+        {"config":{"creditUsagePercent":98,"usagePeriodType":"weekly","productUsage":[
+          {"product":"GrokChat","usagePercent":7},{"product":"GrokImagine","usagePercent":1},
+          {"product":"GrokBuild","usagePercent":90}]}}
+        """), now: now)
+        XCTAssertEqual(windows.count, 1)
+        let window = try XCTUnwrap(windows.first)
+        XCTAssertEqual(window.remainingPercent, 2)
+        XCTAssertEqual(window.segments, [UsageSegment(label: "GrokBuild", usedPercent: 90),
+            UsageSegment(label: "GrokChat", usedPercent: 7), UsageSegment(label: "GrokImagine", usedPercent: 1)])
+        let billing = XaiBillingParser.parseBilling(payload("""
+        {"monthlyLimit":100,"used":80,"onDemandCap":50,"onDemandUsed":0}
+        """), now: now)
+        let merged = XaiBillingParser.merge(windows, billing)
+        XCTAssertEqual(merged.first?.scope, .model)
+        XCTAssertEqual(merged.first?.segments, window.segments)
+    }
+
+    func testProductAliasesKeepUnknownNamesAndDropMissingOrInvalidShares() {
+        let windows = XaiBillingParser.parseCredits(payload("""
+        {"config":{"credit_usage_percent":64,"product_usage":[
+          {"product":"FutureProduct","usage_percent":56},{"product":"GrokVoice"},
+          {"product":"Zero","usage_percent":0},{"product":"Negative","usage_percent":-1},
+          {"product":"TooLarge","usage_percent":101},{"product":"NaN","usage_percent":"NaN"},
+          {"product":"Infinite","usage_percent":"Infinity"},{"product":"Null","usage_percent":null},
+          {"product":12,"usage_percent":2},{"usage_percent":3},false,
+          {"product":" ","usage_percent":4},{"product":"Broken","usage_percent":{}}]}}
+        """), now: now)
+        XCTAssertEqual(windows.first?.segments, [UsageSegment(label: "FutureProduct", usedPercent: 56)])
+    }
+
+    func testMissingProductSharesKeepLegacyWindowsAndBillingAlsoCarriesSegments() {
+        let credits = XaiBillingParser.parseCredits(payload("{\"creditUsagePercent\":25}"), now: now)
+        XCTAssertEqual(credits.first?.segments, [])
+        let billing = XaiBillingParser.parseBilling(payload("""
+        {"creditUsagePercent":25,"productUsage":[{"product":"GrokBuild","usagePercent":25}]}
+        """), now: now)
+        XCTAssertEqual(billing.first?.segments, [UsageSegment(label: "GrokBuild", usedPercent: 25)])
+    }
+
     // MARK: - The config envelope
 
     func testCreditsWrappedInConfigAreParsed() {
