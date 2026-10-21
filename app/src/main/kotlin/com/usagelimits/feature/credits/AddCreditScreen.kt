@@ -1,5 +1,7 @@
 package com.usagelimits.feature.credits
 
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -57,6 +63,7 @@ fun AddCreditScreen(
     modifier: Modifier = Modifier,
 ) {
     var selected by remember { mutableStateOf<CreditProviderId?>(null) }
+    val uriHandler = LocalUriHandler.current
     val busy = state is AddCreditState.Validating
 
     Column(
@@ -96,6 +103,7 @@ fun AddCreditScreen(
                 ProviderRow(
                     name = provider.displayName, subtitle = provider.keyHint,
                     selected = provider == selected, enabled = !busy,
+                    icon = creditIcon(provider), onOpen = { uriHandler.openUri(provider.consoleUrl) },
                 ) { selected = provider }
             }
             CreditProviderId.notPossible.forEach { unavailable ->
@@ -114,18 +122,31 @@ fun AddCreditScreen(
 
 /** A 56dp ledger row; the chosen one carries a 1.5dp ink border. Unavailable rows are plain grey text. */
 @Composable
-private fun ProviderRow(name: String, subtitle: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    Column(
+private fun ProviderRow(
+    name: String,
+    subtitle: String,
+    selected: Boolean,
+    enabled: Boolean,
+    @DrawableRes icon: Int? = null,
+    onOpen: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .then(if (selected) Modifier.border(1.5.dp, UsageColors.Ink, MaterialTheme.shapes.medium) else Modifier)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(name, style = MaterialTheme.typography.titleMedium, color = if (enabled || selected) UsageColors.Ink else UsageColors.Muted)
-        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = if (enabled || selected) UsageColors.Muted else UsageColors.Faint)
+        if (icon != null) Image(painterResource(icon), null, Modifier.size(30.dp))
+        Column(Modifier.weight(1f)) {
+            Text(name, style = MaterialTheme.typography.titleMedium, color = if (enabled || selected) UsageColors.Ink else UsageColors.Muted)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = if (enabled || selected) UsageColors.Muted else UsageColors.Faint)
+        }
+        if (onOpen != null) OutlineButton("Open", onOpen, Modifier.semantics { contentDescription = "Open $name key page" })
     }
 }
 

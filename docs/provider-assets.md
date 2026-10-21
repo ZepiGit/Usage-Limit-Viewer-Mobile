@@ -16,6 +16,8 @@ The original artwork is the user-supplied `lobehub-icons.zip` archive, received 
 | Devin | Devin, color | Devin monochrome |
 | Meta Muse | Meta Muse, color | Meta Muse monochrome |
 
+Credit balances and the Add Credit Balance picker use one fixed icon per provider: OpenRouter (`openrouter-color.svg`), DeepSeek (`deepseek-color.svg`), Moonshot (`moonshot.svg`), xAI (`xai.svg`), fal.ai (`fal-color.svg`) and Novita (`novita-color.svg`). These are from [LobeHub icons v1.96.0](https://www.npmjs.com/package/@lobehub/icons-static-svg/v/1.96.0), licensed under [MIT](https://github.com/lobehub/lobe-icons/blob/master/LICENSE), copyright © 2023 LobeHub; the license notice is included in the SVG sources and PNG metadata. Monochrome marks render white, and each 512×512 RGBA Android PNG is identical to its iOS `CreditIcon*.imageset/logo.png`. Credit icons have no variants; the marks remain trademarks of their owners.
+
 Claude/Claude Code share one provider identity. Antigravity/Gemini also share one provider identity. Changing artwork never changes the account, authentication flow or quota parser.
 
 ## App and widget integration
