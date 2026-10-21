@@ -161,7 +161,7 @@ current screens and widgets are in [docs/redesign/after](docs/redesign/after), n
 
 Several services don't officially publish the usage pages the app reads, so an update on
 their side can break a card until the app catches up. Details:
-[security model](docs/security.md) and [release readiness](docs/release-readiness.md).
+[security model](docs/security.md) and [verification runbook](docs/verification.md).
 
 ## Build it yourself
 

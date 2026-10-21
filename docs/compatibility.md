@@ -94,4 +94,4 @@ Emulator settings were restored after the checks. Physical-device checks remain 
 simulator CI results. Local screenshots,
 UI dumps and runtime logs are under `C:/temp/ulv-audit`.
 See [verification.md](verification.md) for the runbook and
-[release-readiness.md](release-readiness.md) for the measured audit evidence.
+[release.md](release.md) for distribution requirements.
