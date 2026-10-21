@@ -63,7 +63,7 @@ data class WidgetStyle(
     val background: WidgetBackground = WidgetBackground(),
     val textTone: WidgetTextTone = WidgetTextTone.AUTO,
 ) {
-    /** True when the ink should be dark, i.e. the panel — or the override — is light. */
+    /** True when the ink is the light set, i.e. the panel — or the override — is dark. */
     val lightInk: Boolean
         get() = when (textTone) {
             WidgetTextTone.LIGHT -> true
