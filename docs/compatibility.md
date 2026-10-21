@@ -1,68 +1,11 @@
-# Device and OS compatibility
+# Device compatibility
 
-## Android toolchain
+Android requires Android 8.0 (API 26) or later. The app compiles and targets API 36 with AGP 8.10.1, Gradle 8.14.6 and Java 17 bytecode. Use JDK 21 and Android SDK 36 for development. Notification permission is requested on Android 13 and later; quota viewing works without it.
 
-| Setting | Current value |
-|---|---|
-| Minimum Android version | API 26 (Android 8.0) |
-| Compile and target SDK | API 36 (Android 16) |
-| Android Gradle Plugin / wrapper | 8.10.1 / 8.14.6 |
-| Robolectric | 4.16.1 |
-| JVM for API 36 tests | JDK 21 |
-| App bytecode target | Java 17 |
-| Packaging JVM | JDK 17 in Android CI; JDK 21 in the release workflow |
+Android uses bottom navigation below 600 dp and a side rail in wider windows. Content is capped at 720 dp. Activities support resizing and rotation, including split-screen. Usage widgets resize to the launcher's available space.
 
-Use [verification.md](verification.md#quota-and-widget-regression-coverage) for checks and
-execution-evidence requirements; emulator results do not verify every physical device.
+Android launcher icons use transparent artwork; the launcher controls any additional frame or background. These icons do not supply monochrome themed variants.
 
-The API 26 floor provides native `java.time` and notification channels. Notification
-permission is requested on API 33 and later; declining it does not block quota
-viewing.
+iOS requires iOS 16 or later and supports iPhone and iPad, including landscape and split view. Content is capped at 760 pt. Configurable usage widgets require iOS 17; the standard tiles and Credits widget support iOS 16.
 
-## Window sizes and navigation
-
-Android chooses navigation from the current window width, including split-screen
-and resizable windows:
-
-| Window width | Navigation |
-|---|---|
-| Below 600 dp | Bottom bar |
-| 600–839 dp | Side rail |
-| 840 dp and wider | Side rail |
-
-Content is centered and capped at 720 dp. The activities allow resizing and do
-not lock orientation. The provider picker scrolls in short landscape windows;
-its regression test checks reachability.
-
-Both Android activities use light system-bar icons over the dark app. Widget
-configuration consumes safe drawing insets. The manifest has no edge-to-edge opt-out;
-navigation uses AndroidX rather than a custom legacy back-key handler. Physical foldable
-transitions require device checks.
-
-iOS content fills narrow windows and is capped at 760 pt on wider ones. The app
-supports iPhone and iPad, including landscape and split view. CI includes iPhone/iPad
-simulator runs and landscape/large-text provider-picker checks.
-
-## Widgets, icons and accessibility
-
-Android's four usage widgets use Glance exact sizes and support resizing; Credits uses
-responsive sizes. Populated accounts, launcher grids and physical foldable resizing require
-runtime checks. iOS uses WidgetKit and the shared App Group snapshot.
-
-Both platforms use the same quota-cell and return-arrow icon. Android supplies
-adaptive and monochrome variants. The iOS AppIcon catalog is wired into the
-XcodeGen build and contains 18 opaque slots.
-
-Status includes text and bar length as well as color. Android exposes grouped
-usage descriptions to screen readers and enables RTL support. Sync-interval choices wrap
-in narrow windows with large text. Some bottom-tab labels can break mid-word at font scale
-2.0; touch targets remain accessible. Keyboard, pointer and screen-reader behavior need
-device checks.
-
-Android observes changes to the system animator scale while the app is open.
-Scale zero removes value interpolation, item movement and sign-in transitions.
-iOS reads `accessibilityReduceMotion`. Test large text, screen readers, RTL,
-keyboard navigation and reduced motion on populated screens before distribution.
-
-See [verification.md](verification.md) for the device runbook and
-[release.md](release.md) for distribution requirements.
+Status uses text and bar length as well as color. Both platforms respect reduced motion. See [Widgets](widgets.md) for setup and the [release checklist](release.md#device-checklist) for accessibility and device checks.

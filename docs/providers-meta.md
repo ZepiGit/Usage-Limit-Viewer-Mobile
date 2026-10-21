@@ -1,42 +1,11 @@
 # Meta Muse
 
-Meta Muse is connected with the OAuth device authorization grant used by the Muse CLI. The app
-uses the public Muse client id and never asks for Google Vertex credentials.
+Add Meta Muse in Accounts, open Meta's browser page and approve the displayed device code. Authorization starts at `https://auth.meta.com/oidc/device/authorization/`; the app polls `/oidc/device/token/` at the provider's interval, respecting pending and slow-down responses.
 
-## Sign in
+The returned DCA token is stored separately from the Muse API key minted through `POST https://api.meta.ai/muse-code/key`. Subscription quota reads call that same route with the DCA bearer token, `x-api-version: 1.0.0` and an empty JSON body. Neither token nor key goes into account metadata or widget snapshots. There is no refresh-token grant, but the DCA token can mint a replacement API key. Reconnect when authorization expires.
 
-Android and iOS POST the public client id to
-`https://auth.meta.com/oidc/device/authorization/`, show the returned user code, and poll
-`https://auth.meta.com/oidc/device/token/` with the RFC 8628 device-code grant. Pending and
-slow-down responses are handled at the provider's interval. The returned DCA token is kept in
-the encrypted credential store/keychain. The app then mints the Muse API key through
-`POST https://api.meta.ai/muse-code/key`.
+## Reading quota
 
-The API key is used as the normal Muse credential. Subscription quota calls intentionally use
-the DCA bearer token instead:
+`subs_usage.window.used_percent` and `subs_usage.weekly.used_percent` report consumed quota; the app displays remaining percentages. The rolling window uses `window_duration_mins`. Reset values accept epoch seconds, milliseconds or ISO timestamps.
 
-```text
-POST https://api.meta.ai/muse-code/key
-Authorization: Bearer <dca_token>
-x-api-version: 1.0.0
-Content-Type: application/json
-{}
-```
-
-The DCA token and API key are never written to the account row or widget cache.
-
-## Quota fields
-
-The response can include account metadata and `subs_usage`. The parser reads only the safe
-quota fields:
-
-- `subs_tier_name` (falling back to `subs_usage.tier` for the plan label)
-- `is_subs_active`
-- `subs_usage.window.used_percent`, `window_duration_mins`, `resets_at`
-- `subs_usage.weekly.used_percent`, `resets_at`
-
-`resets_at` is accepted as epoch seconds/millis or an ISO-8601 string.
-
-`used_percent` is converted to the app's remaining-percent display. Missing usage blocks remain
-unknown; the response is never treated as zero usage. Other response fields, including the
-minted key and personal data, are discarded after parsing.
+`subs_tier_name`, falling back to `subs_usage.tier`, supplies the plan label. Missing usage blocks remain unknown. Removing the account deletes local credentials; manage provider authorization separately with Meta.
