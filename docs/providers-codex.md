@@ -318,7 +318,7 @@ Behaviour derived from, and re-read at, these commits:
 - **CLIProxyAPI Management Center @ `ed5f1c48`** (2026-09-08) — `src/utils/quota/constants.ts`
   for the usage and reset-credit URLs and the header sets; `codex/data.ts`
   (`fetchCodexResetCredits`) for the fact that `OpenAI-Beta` and `Originator` are scoped to
-  the reset-credit calls only, which is the correction recorded in §3.
+  the reset-credit calls only.
 - **CLIProxyAPI-Quota-Inspector @ `1895bc54`** — cross-check on the `/wham/usage` field names,
   in particular `limit_window_seconds` as the classification key and the presence of a monthly
   window in the secondary slot.

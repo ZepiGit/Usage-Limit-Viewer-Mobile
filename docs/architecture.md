@@ -240,22 +240,18 @@ lands behind a widget tick still syncs rather than inheriting the tick's skip. A
 pending forced pass is still dropped by `KEEP`.
 
 Only the periodic pass may return `Result.retry()`, and it backs off linearly by ten minutes.
-A one-shot that retried used to sit in WorkManager's exponential backoff queue under the
-unique name, and `KEEP` then dropped every later trigger — app start, `onResume`, the refresh
-button — for as long as the backoff lasted. A one-shot in which every account failed now
-returns failure; the errors are already recorded per account, and the next trigger runs.
+A one-shot with only failures returns failure rather than entering backoff under the unique
+name: `KEEP` would otherwise discard subsequent manual triggers. Per-account errors are
+already recorded, and the next trigger can run.
 
 The foreground actions — the refresh button, a single account's refresh button, the sync that
 follows a login, and the re-sync after a reset credit is spent — call `SyncEngine` directly
 from the ViewModel's scope instead. That is right for a user-initiated action, which should
 run now and report its own outcome rather than being queued behind a constraint, and these
 calls still inherit isolation and the refresh mutex because they go through the same engine.
-One consequence is deliberate and one was a defect. The deliberate one: a foreground refresh
-does not wait for connectivity — it fails fast and shows the error, which is what someone who
-just tapped refresh wants. The defect: `WidgetUpdater.refreshAll` was originally reachable only
-from `SyncWorker.doWork`, so the in-app refresh button left the home screen on older numbers
-until the next worker pass. Every foreground path — the refresh button, a per-account refresh,
-a completed login, a spent reset credit, a removed account — now calls `refreshAll` itself.
+Foreground refresh fails fast without connectivity and shows the error. Each foreground
+cache-changing path requests `WidgetUpdater.refreshAll`, including refresh, completed login,
+reset-credit spending and account removal, so placed widgets receive the same readings.
 
 **Per-account isolation.** `syncAll()` launches one coroutine per account and awaits them all;
 `syncAccount()` catches `ProviderException` *and* every other exception, records the failure

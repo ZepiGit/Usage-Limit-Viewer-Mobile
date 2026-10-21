@@ -13,8 +13,8 @@ These are deterministic SVG/PNG reconstructions, not images of a running Android
 widget. No image-generation model was used for them. They reproduce the source-defined
 component hierarchy, field choices, spacing where explicit, palette and provider artwork.
 Text rasterisation, automatic measurement, system margins and launcher-specific sizing have
-not been validated pixel-for-pixel against a native host. Do not describe them as genuine
-screenshots or guaranteed 1:1 captures. The editorial panels and captions sit outside the
+not been validated pixel-for-pixel against a native host. Label them as source-based
+illustrations. The editorial panels and captions sit outside the
 illustrated widget boundaries.
 
 In particular, Mini Rings retain their logo-only content. Account labels were not invented

@@ -1,7 +1,8 @@
 # OpenCode Go
 
-API key only. The usage route is undocumented (source: the `opencode-go-limits` project; the
-feature request is anomalyco/opencode#16017), so this is the most fragile provider in the app.
+API key only. The usage route is undocumented (source: the `opencode-go-limits` project; an
+official usage API would be tracked in anomalyco/opencode#16017), so this provider can break
+without notice.
 
 ## Auth
 

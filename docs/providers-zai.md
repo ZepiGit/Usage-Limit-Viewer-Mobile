@@ -56,7 +56,7 @@ account; a rotated key is a new account, because nothing in the response survive
 The region is part of the identity, because the same key digest could otherwise be filed twice
 over from both regions and the second connect would overwrite the first. International is the
 default and keeps the bare digest (`key-<digest>`); China is namespaced as `cn:key-<digest>`,
-identically on Android and iOS. Z.ai is new, so no stored account needs migrating.
+identically on Android and iOS.
 
 ## Not covered
 

@@ -4,7 +4,7 @@ Provider logos are bundled locally and have transparent backgrounds. Rendering t
 
 ## Source and choices
 
-The original artwork is the user-supplied `lobehub-icons.zip` archive, received on 12 September 2026. Its 19 SVGs are preserved in `assets/providers/lobehub/`; the Devin and Meta Muse marks added for the 0.2.0 release are stored beside them, and `assets/providers/catalog.json` records all choices. The Devin source is from the [LobeHub icon library](https://lobehub.com/icons); the Meta mark is the open Meta glyph from [Simple Icons](https://simpleicons.org/).
+Provider SVG sources are stored in `assets/providers/lobehub/`, with the Devin and Meta Muse marks beside the LobeHub sources. `assets/providers/catalog.json` records all choices. The Devin source is from the [LobeHub icon library](https://lobehub.com/icons); the Meta mark is the open Meta glyph from [Simple Icons](https://simpleicons.org/).
 
 | App provider | Default | Other available artwork |
 | --- | --- | --- |

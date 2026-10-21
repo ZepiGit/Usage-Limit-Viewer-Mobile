@@ -159,8 +159,8 @@ is unavailable, retain the finished artifacts and report that blocker.
 
 First merge the reviewed changes and verify the merged commit's Android and iOS
 checks. Choose a new version from the actual release history and update the
-source version names before merging. Do not move an existing tag or replace
-published assets. These Bash commands illustrate a new `0.2.1` release; select
+source version names before merging. Preserve existing tags and published assets;
+publish fixes under a new version. These Bash commands illustrate a new `0.2.1` release; select
 the appropriate unused version and verified commit:
 
 ```bash
@@ -267,7 +267,7 @@ The primary iOS master is `AppIcon.appiconset/icon-1024.png`;
 that is not included in either app.
 
 Release-key custody, live account approval, legal and store copy, and publication
-are human responsibilities outside this audit. See
+require owner review. See
 [provider-auth-research.md](provider-auth-research.md) and the per-provider notes
 for the implementation background. Treat builds as private verification
 artifacts until those decisions and the device runbook are complete.

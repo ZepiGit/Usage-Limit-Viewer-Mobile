@@ -182,9 +182,11 @@ read-only interface (`suspend fun accountUsageOnce()` plus the config DAO) inste
 container; that is the right change if this package ever grows.
 
 Glance compositions use `androidx.glance.LocalContext`, rather than the app Compose
-context. Each `provideGlance` creates its observation flow once per composition session;
-recomposition collects that flow without replacing the subscription. Glance sessions are
-bounded, so these observations do not replace scheduled update requests.
+context; the Compose one fails composition and shows "Can't show content". Each `provideGlance`
+creates its observation flow once per composition session; recomposition collects that flow
+without replacing the subscription. While a session is open, `update()` sends only a state
+event, so `provideGlance` does not re-run. A repaint is lost if the process dies before
+`SessionWorker` starts (`No session available for key`).
 
 ## How a placed widget gets updated
 
@@ -204,23 +206,18 @@ Three update paths serve different triggers; Android can defer background delive
    conditional fetch, because a reset is the one boundary a repaint cannot get right on its own.
    `publishAfterSync` reschedules it after every sync, worker or foreground.
 
-Before the second path existed, the ring widgets showed the numbers from the moment they were
-placed for as long as the app's periodic sync was deferred — including after every limit had
-reset. The reset case compounds it: a cache-only repaint at the reset instant can only redraw
-the spent window's figure, so `WidgetRow.resetElapsed` now marks a row whose reset passed
-after its fetch, and every surface draws such a row in the stale treatment beside "Reset due"
-until a fetch confirms the new window. Neither the old number in a confident colour nor an
-unreported full ring is claimed. Such a window also stops deciding the account's severity
-(`UsageSnapshot.severityAt`) and its ring/most-critical representative while another window is
-still open; the app's rows use the same rule (`UsageWindow.resetElapsedAt`).
+A cache-only repaint cannot confirm a new quota window. `WidgetRow.resetElapsed` marks a
+row whose reset passed after its fetch; every surface uses stale treatment and "Reset due"
+until a fetch confirms the new window. The row stops deciding account severity
+(`UsageSnapshot.severityAt`) and ring/most-critical representation while another window
+remains open. App rows use the same rule (`UsageWindow.resetElapsedAt`).
 
-`refreshAll` also stops failing silently. Each widget is refreshed on its own, cancellation
-is rethrown rather than swallowed, other failures are logged, and when Glance's stored
-receiver-to-class map knows no instances although the framework has some placed — cleared app
-data, or minified class names that moved between release builds, now prevented by a
-`-keepnames` rule — the receiver is sent the framework's own update intent, which rewrites the
-map and renders in one step. The Settings diagnostics show when the last sync ran and when
-the widgets were last repainted, alongside the device's own background restrictions.
+`refreshAll` isolates failures per widget kind, rethrows cancellation and logs other failures.
+If Glance's stored receiver-to-class map has no instances while the framework has placed
+widgets, a framework update intent repairs the map and requests rendering. A `-keepnames`
+rule preserves widget class names across minified builds. Settings diagnostics show sync and
+widget-refresh timestamps alongside background restrictions; an update request is not proof
+of a completed host repaint.
 
 ## Why the refresh button enqueues work instead of fetching
 
@@ -245,11 +242,8 @@ keeps showing the old numbers until the pass lands, then repaints. A progress st
 header would be an improvement, and would need a small piece of transient state the widget can
 read — which today would mean another Room write.
 
-The reverse direction used to be broken and is worth recording: `WidgetUpdater.refreshAll` was
-reachable only from `SyncWorker.doWork`, so refreshing inside the app updated the screens while
-the home screen kept the previous numbers until the next background pass. Every foreground
-path now calls it — the refresh button, a per-account refresh, a completed login, a spent reset
-credit, and a removed account.
+Foreground refresh, per-account refresh, completed login, reset-credit spending and account
+removal all request widget updates after changing the cache.
 
 ## Glance constraints that shaped the layout
 
@@ -262,13 +256,8 @@ accepts a per-instance `color` and `backgroundColor` and fills whatever width it
 gives it, which is exactly what these bars need — the colour carries the severity and the
 width has to follow the tile.
 
-This was originally hand-rolled as two nested `Box`es with an explicit `maxWidth: Int` in dp,
-on the mistaken belief that Glance had no tintable primitive. That was a real defect, not just
-extra code: a compact tile is about 31dp wide at the 250dp size bucket, but the bar was told it
-had 62dp. The fill was clipped at the tile edge, so **every window above roughly half remaining
-painted as a completely full bar** — a 55 % quota looked identical to an untouched one. The
-lesson is worth keeping: in a layout system that does not measure, a hardcoded width is a
-silent wrong answer rather than a visible overflow.
+A hardcoded bar width can clip a partially filled bar into an apparently full one.
+The host progress primitive resolves the fraction against the actual available width.
 
 **No fractional width measurement.** There is still no `fillMaxWidth(fraction)` a child can
 resolve against a parent whose width Glance does not know at composition time — which is why
@@ -346,7 +335,8 @@ Three entries appear in the gallery, all fed by one `UsageProvider` and one snap
 On iOS 17 and later, configurable Bars, Account Rings and Mini Rings also support exact
 account selection and saved custom layouts. Settings edits each layout's selected accounts
 and drag order; widgets referencing the same layout share those saved choices. The iOS 16
-gallery entries remain available.
+gallery entries remain available. On iOS 16 legacy tiles, the large tile shows every account
+and the ring shows the account the kit ranks first.
 
 Configured timeline requests capture the snapshot once and load presets at most once.
 All entries in that timeline use the same captured inputs, evaluated at their entry dates
@@ -354,32 +344,23 @@ for reset and stale boundaries. Missing selections and unreadable snapshots reta
 outcomes, and a single-account reading uses that account's fetch timestamp rather than the
 newest timestamp across unrelated accounts. WidgetKit controls actual delivery timing.
 
-### Why transparency is a second entry rather than a switch
+### Legacy transparency and configurable appearance
 
-Android puts a colour picker, an opacity slider and an ink override in its configuration
-activity — see "Background colour, opacity and ink" above. iOS has no
-equivalent that this app can reach: a per-tile option requires a *configurable* widget, which
-means `AppIntentConfiguration` and iOS 17, where the app's deployment target is iOS 16. A
-second gallery entry costs the user one extra row when placing a tile and works on every
-version the app runs on; a checkbox would work for part of the installed base and be invisible
-to the rest.
-
-The same reasoning applies to per-widget account selection, which Android offers through
-`WidgetConfigActivity`. On iOS the large tile shows every account instead, and the ring shows
-the one the kit ranks first — the selection a user placing a small tile almost always wants.
+Separate standard and Clear gallery entries support iOS 16, where App Intent configuration
+is unavailable. On iOS 17 and later, configurable entries also expose per-widget content,
+transparency and text-tone choices.
 
 On iOS 17 "transparent" means an explicitly CLEAR container background, not the absence of one:
 a widget that declares no `containerBackground` is rejected from the Home Screen outright.
 `widgetBackground(_:)` takes an optional colour and passes `Color.clear` for nil, so both
 generations of chrome are handled in one place.
 
-### The scheme the links needed
+### Deep links
 
-`widgetURL(DeepLink.glance)` had shipped against `usagelimits://`, a scheme no bundle claimed —
-so the system could not route it and tapping a tile did nothing at all. The scheme is now
-declared in the app's `CFBundleURLTypes` and answered in `onOpenURL`: `//glance` selects the
-Overview tab, `//refresh` selects it and fetches. An unrecognised URL is ignored rather than
-treated as a refresh, because a link this build does not know is a link from a later one.
+The app declares `usagelimits` in `CFBundleURLTypes` and handles it in `onOpenURL`.
+`//glance` selects Overview; `//refresh` selects it and requests a fetch. Unrecognized URLs
+are ignored rather than treated as refresh requests, because a link this build does not
+recognize comes from a later build.
 
 The refresh glyph is a `Link` rather than the tile-wide `widgetURL`, so one glyph opens the app
 on a refresh while the rest of the tile opens the overview. The system honours `Link` on medium

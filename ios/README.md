@@ -28,7 +28,7 @@ may intercept the callback, while the listener provides another way to receive
 it. Codex also has a device-code fallback when the port cannot be used. Grok and
 Kimi use device codes; Meta Muse uses the Meta device grant, and Kimi additionally accepts a key from the user's console.
 These code paths are implemented, but live account sign-in has not been verified
-in the current audit.
+by synthetic tests alone.
 
 ## Building and checking
 
@@ -51,10 +51,8 @@ The iOS workflow is configured to test the package on Linux and macOS, build the
 app with the real SDK, check the embedded widget and run simulator UI tests.
 The Linux `ios/Tools/typecheck-app.sh` script provides an additional check with
 framework shims; a pass there does not establish an Xcode build or UI behavior.
-The final local audit passed 456 package tests and the app/widget shim type check.
-Real-SDK, iPhone/iPad, landscape and large-text CI results remain pending.
 
-See [verification.md](../docs/verification.md) for the observed local results and
+See [verification.md](../docs/verification.md) for execution-evidence requirements and
 remaining device checks, and [release.md](../docs/release.md) for unsigned archives,
 distribution signing and release requirements.
 
