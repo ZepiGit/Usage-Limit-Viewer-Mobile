@@ -433,15 +433,14 @@ public struct AntigravityClient: SyncProvider, Sendable {
 
         var authRejection: ProviderError?
         var firstFailure: Error?
-        var transientFailure = false
         var allRows: [AntigravityQuotaParser.Row] = []
 
-        for url in Self.quotaHosts {
+        for (index, url) in Self.quotaHosts.enumerated() {
             let response: HTTPResponse
             do {
-                // Preserve HTTP failure types so a retired shard cannot make a healthy union partial.
                 response = try await httpClient.request(
-                    url: url, method: "POST", headers: headers, body: requestBody)
+                    url: url, method: "POST", headers: headers, body: requestBody,
+                    retries: index == 0 ? nil : 0)
             } catch let error as CancellationError {
                 throw error
             } catch let error as HTTPError {
@@ -451,13 +450,10 @@ public struct AntigravityClient: SyncProvider, Sendable {
                     if authRejection == nil { authRejection = .unauthorised }
                     continue
                 case .status(let code, _):
-                    transientFailure = transientFailure || (500...599).contains(code)
                     failure = .noData("antigravity quota answered HTTP \(code)")
                 case .rateLimited:
-                    transientFailure = true
                     failure = .noData("antigravity quota is rate limiting this account")
                 case .transport:
-                    transientFailure = true
                     failure = .noData("antigravity quota could not be reached")
                 default:
                     failure = .noData("antigravity quota could not be reached")
@@ -492,8 +488,7 @@ public struct AntigravityClient: SyncProvider, Sendable {
             !($0.isPlaceholder && $0.window.group.map(groupsWithWindows.contains) == true)
         }.map(\.window).filter { seenIDs.insert($0.id).inserted }
         if !allWindows.isEmpty {
-            return UsageResult(windows: allWindows, status: transientFailure ? .partial : .ok,
-                               errorMessage: transientFailure ? "Some quota hosts could not be read; available usage is shown." : nil)
+            return UsageResult(windows: allWindows)
         }
 
         // An authorisation rejection outranks the other failures because it is the only one

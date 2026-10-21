@@ -3,7 +3,6 @@ package com.usagelimits.providers.antigravity
 import com.usagelimits.core.auth.OAuthCredentials
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
-import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.network.ProviderEndpoints.Antigravity
@@ -319,16 +318,17 @@ class AntigravityProvider(
 
         // Hosts can carry different quota groups, so their union preserves every shared pool.
         var lastError: ProviderException? = null
-        var transientFailure = false
+        var authRejection: ProviderException? = null
         var emptyHosts = 0
         val allRows = mutableListOf<AntigravityQuotaParser.Row>()
-        for (url in Antigravity.QUOTA_URLS) {
+        for ((index, url) in Antigravity.QUOTA_URLS.withIndex()) {
             try {
                 val response = http.request(
                     url = url,
                     method = "POST",
                     headers = authenticatedJsonHeaders(credentials),
                     body = body,
+                    retries = if (index == 0) HttpClient.DEFAULT_RETRIES else 0,
                 )
                 val payload = JsonSupport.parseObject(response.body)
                 val rows = AntigravityQuotaParser.parseRows(payload)
@@ -336,8 +336,8 @@ class AntigravityProvider(
                 if (rows.isEmpty()) emptyHosts++
             } catch (e: ProviderException) {
                 lastError = e
-                if (e is ProviderException.Offline || e is ProviderException.ServerError || e is ProviderException.RateLimited) {
-                    transientFailure = true
+                if (e is ProviderException.Unauthorized || e is ProviderException.Forbidden) {
+                    authRejection = authRejection ?: e
                 }
             }
         }
@@ -345,14 +345,11 @@ class AntigravityProvider(
         val groupsWithWindows = allRows.filterNot { it.isPlaceholder }.mapNotNull { it.window.group }.toSet()
         val windows = allRows.filterNot { it.isPlaceholder && it.window.group in groupsWithWindows }
             .map { it.window }.distinctBy { it.id }
-        if (windows.isNotEmpty()) return UsageResult(
-            windows = windows,
-            status = if (transientFailure) SnapshotStatus.PARTIAL else SnapshotStatus.OK,
-            errorMessage = if (transientFailure) "Some quota hosts could not be read; available usage is shown." else null,
-        )
+        if (windows.isNotEmpty()) return UsageResult(windows = windows)
 
         // Every host answered, none had data: report it as a payload problem rather than
         // silently showing an account with no limits.
+        authRejection?.let { throw it }
         lastError?.let { throw it }
         throw ProviderException.MalformedPayload(
             if (emptyHosts > 0) {

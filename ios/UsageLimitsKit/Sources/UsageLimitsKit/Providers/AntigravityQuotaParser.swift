@@ -7,11 +7,6 @@ public enum AntigravityQuotaParser: Sendable {
         var isPlaceholder = false
     }
 
-    // The shared parser contract includes `now`, but this provider reports absolute reset times.
-    public static func parse(_ payload: [String: Any], now _: Date) -> [UsageWindow] {
-        parseRows(payload).map(\.window)
-    }
-
     static func parseRows(_ payload: [String: Any]) -> [Row] {
         var windows: [Row] = []
 
