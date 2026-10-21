@@ -97,6 +97,35 @@ class LeadSelectionTest {
     }
 
     @Test
+    fun `an exhausted window with unknown usage leads when its reset comes first`() {
+        val blocked = usage("blocked", 0.0, 3 * hour).let {
+            it.copy(snapshot = it.snapshot!!.copy(windows = it.snapshot.windows.map { w ->
+                w.copy(usedPercent = null, exhausted = true)
+            }))
+        }
+        val nearlyUsed = usage("nearly-used", 90.0, 5 * hour)
+        val lead = UsageUiState(accounts = listOf(nearlyUsed, blocked)).leadAt(now)!!
+        assertEquals("blocked", lead.usage.account.localId)
+        assertFalse(lead.stale)
+    }
+
+    @Test
+    fun `a reset with unknown usage never displaces a measured window`() {
+        val measured = usage("measured", 20.0, 2 * hour)
+        val unknown = measured.snapshot!!.windows.single().copy(id = "unknown", usedPercent = null,
+            resetAt = now + hour)
+        val mixed = measured.copy(snapshot = measured.snapshot.copy(windows = measured.snapshot.windows + unknown))
+        val unknownAccount = usage("unknown", 0.0, hour).let {
+            it.copy(snapshot = it.snapshot!!.copy(windows = listOf(unknown)))
+        }
+        assertEquals("w", UsageUiState(accounts = listOf(mixed)).leadAt(now)!!.window.id)
+        assertEquals("measured", UsageUiState(accounts = listOf(unknownAccount, mixed)).leadAt(now)!!.usage.account.localId)
+        val withoutReset = measured.copy(snapshot = measured.snapshot.copy(
+            windows = measured.snapshot.windows.map { it.copy(resetAt = null) }))
+        assertEquals("measured", UsageUiState(accounts = listOf(unknownAccount, withoutReset)).leadAt(now)!!.usage.account.localId)
+    }
+
+    @Test
     fun `hero uses the soonest window within an account instead of its tightest`() {
         val tight = usage("account", 98.0, 26 * hour)
         val soon = tight.snapshot!!.windows.single().copy(id = "short", label = "5h", usedPercent = 20.0,

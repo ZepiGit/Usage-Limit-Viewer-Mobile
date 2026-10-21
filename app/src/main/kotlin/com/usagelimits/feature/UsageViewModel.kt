@@ -93,41 +93,9 @@ data class UsageUiState(
     val lastUpdated: Long?
         get() = accounts.mapNotNull { it.measurementAt }.maxOrNull()
 
-    /**
-     * The soonest rollover still ahead.
-     *
-     * Ahead is the point. Taking the minimum over every window's reset instant meant that
-     * once ONE window's reset had passed — and a snapshot keeps that instant until the next
-     * fetch replaces it — the minimum was anchored to the past and the summary card read
-     * "Next reset: now" for hours while the real next rollover was never shown. The Resets
-     * screen already drops passed instants; this now matches it.
-     */
-    fun nextResetAt(nowMs: Long): Long? =
-        accounts.flatMap { it.snapshot?.windows.orEmpty() }
-            .mapNotNull { it.resetAt }
-            .filter { it > nowMs }
-            .minOrNull()
-
     fun overallSeverityAt(nowMs: Long): Severity =
         accounts.mapNotNull { it.snapshot?.severityAt(nowMs, staleAfterMs) }.maxOrNull()
             ?: Severity.STALE
-
-    /** The single most-depleted window anywhere — what the summary card leads with. */
-    /**
-     * The leading account owns the summary reset time. A fleet-wide reset could imply
-     * that an exhausted limit resets when an unrelated healthy account does.
-     */
-    fun nextResetAt(nowMs: Long, accountId: String): Long? =
-        accounts.firstOrNull { it.account.localId == accountId }
-            ?.snapshot?.windows.orEmpty()
-            .mapNotNull { it.resetAt }
-            .filter { it > nowMs }
-            .minOrNull()
-
-    val mostCritical: Pair<AccountUsage, UsageWindow>?
-        get() = accounts.mapNotNull { usage ->
-            usage.snapshot?.mostCritical?.let { usage to it }
-        }.minByOrNull { if (it.second.exhausted) -1.0 else it.second.remainingPercent ?: Double.MAX_VALUE }
 
     /**
      * Trusted readings outrank cached ones so a failed account cannot displace live data.
@@ -136,7 +104,7 @@ data class UsageUiState(
     fun leadAt(nowMs: Long): Lead? {
         val candidates = accounts.mapNotNull { usage ->
             val snapshot = usage.snapshot ?: return@mapNotNull null
-            val next = snapshot.windows.filter { (it.resetAt ?: Long.MIN_VALUE) > nowMs }
+            val next = snapshot.windows.filter { (it.remainingPercent != null || it.exhausted) && (it.resetAt ?: Long.MIN_VALUE) > nowMs }
                 .minByOrNull { it.resetAt!! }
             val open = next ?: snapshot.copy(windows = snapshot.windows.filterNot { it.resetElapsedAt(snapshot.fetchedAt, nowMs) })
                 .mostCritical
@@ -145,7 +113,7 @@ data class UsageUiState(
             Lead(usage, window, stale = !trusted || open == null)
         }
         val pool = candidates.filterNot { it.stale }.ifEmpty { candidates }
-        val upcoming = pool.filter { (it.window.resetAt ?: Long.MIN_VALUE) > nowMs }
+        val upcoming = pool.filter { (it.window.remainingPercent != null || it.window.exhausted) && (it.window.resetAt ?: Long.MIN_VALUE) > nowMs }
         if (upcoming.isNotEmpty()) return upcoming.minByOrNull { it.window.resetAt!! }
         return pool
             .minByOrNull { if (it.window.exhausted) -1.0 else it.window.remainingPercent ?: Double.MAX_VALUE }

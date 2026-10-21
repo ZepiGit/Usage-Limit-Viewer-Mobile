@@ -78,6 +78,37 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertNil(account.nextResettingRow(at: weekly.resetAt!))
     }
 
+    func testResetWithUnknownUsageNeverDisplacesMeasuredWindow() {
+        let unknownRow = GlanceRow(label: "Unknown", category: .fiveHour, remainingPercent: nil,
+            resetAt: now.addingTimeInterval(60), severity: .unknown)
+        let measuredRow = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 80,
+            resetAt: now.addingTimeInterval(3_600), severity: .healthy)
+        let mixed = GlanceAccount(id: "measured", title: "Measured", subtitle: nil,
+            rows: [unknownRow, measuredRow], severity: .healthy, fetchedAt: now)
+        let unknown = GlanceAccount(id: "unknown", title: "Unknown", subtitle: nil,
+            rows: [unknownRow], severity: .unknown, fetchedAt: now)
+        XCTAssertEqual(mixed.nextResettingRow(at: now), measuredRow)
+        XCTAssertNil(unknown.nextResettingRow(at: now))
+        let snapshot = GlanceSnapshot(accounts: [unknown, mixed], accountCount: 2, updatedAt: now,
+            nextResetAt: nil, overallSeverity: .healthy, headlineShort: nil, headlineLong: nil)
+        XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "measured")
+    }
+
+    func testExhaustedRowWithUnknownUsageLeadsWhenItsResetComesFirst() {
+        let blockedRow = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: nil,
+            resetAt: now.addingTimeInterval(3 * 3_600), severity: .exhausted)
+        let nearlyUsedRow = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 10,
+            resetAt: now.addingTimeInterval(5 * 3_600), severity: .low)
+        let blocked = GlanceAccount(id: "blocked", title: "Blocked", subtitle: nil,
+            rows: [blockedRow], severity: .exhausted, fetchedAt: now)
+        let nearlyUsed = GlanceAccount(id: "nearly-used", title: "Nearly used", subtitle: nil,
+            rows: [nearlyUsedRow], severity: .low, fetchedAt: now)
+        XCTAssertEqual(blocked.nextResettingRow(at: now), blockedRow)
+        let snapshot = GlanceSnapshot(accounts: [nearlyUsed, blocked], accountCount: 2, updatedAt: now,
+            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil)
+        XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "blocked")
+    }
+
     func testTrustedAccountWithoutResetOutranksCachedFutureResets() {
         let live = AccountUsage(account: account("live", .codex), snapshot: UsageSnapshot(
             accountID: "live", fetchedAt: now, status: .ok,

@@ -269,11 +269,10 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long) {
 }
 
 @Composable
-private fun LeadStat(label: String, value: String?, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
+private fun LeadStat(label: String, value: String, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
     Column(modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted, maxLines = 1)
-        if (value != null) Text(value, style = UsageType.FigureLarge, color = color)
-        else Text("—", style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
+        Text(value, style = UsageType.FigureLarge, color = color)
     }
 }
 
