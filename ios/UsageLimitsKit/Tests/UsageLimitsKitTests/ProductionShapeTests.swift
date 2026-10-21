@@ -112,7 +112,7 @@ final class ProductionShapeTests: XCTestCase {
                  "resetTime": "2026-09-10T02:14:41Z", "remainingFraction": 1 } ] } ] }
         """)
 
-        let windows = AntigravityQuotaParser.parse(input, now: now)
+        let windows = AntigravityQuotaParser.parseRows(input).map(\.window)
 
         XCTAssertEqual(windows.count, 4)
         XCTAssertEqual(

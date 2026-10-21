@@ -9,7 +9,7 @@ final class AntigravityQuotaRobustnessTests: XCTestCase {
 
     private func parse(_ json: String) throws -> [UsageWindow] {
         let payload = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any]
-        return AntigravityQuotaParser.parse(payload, now: now)
+        return AntigravityQuotaParser.parseRows(payload).map(\.window)
     }
 
     func testGroupAndBucketAliasesRetainGeminiLimits() throws {
@@ -86,9 +86,9 @@ final class AntigravityQuotaRobustnessTests: XCTestCase {
         """
     }
 
-    private func fetch(_ replies: [(Int, String)]) async throws -> (UsageResult, [String]) {
+    private func fetch(_ replies: [(Int, String)], maxRetries: Int = 0) async throws -> (UsageResult, [String]) {
         let transport = Transport(replies)
-        let client = AntigravityClient(httpClient: UsageHTTPClient(transport: transport, maxRetries: 0))
+        let client = AntigravityClient(httpClient: UsageHTTPClient(transport: transport, maxRetries: maxRetries))
         let result = try await client.fetchUsage(
             credentials: OAuthCredentials(accessToken: "synthetic"), attributes: ["project_id": "synthetic-project"])
         return (result, await transport.urls)
@@ -131,14 +131,23 @@ final class AntigravityQuotaRobustnessTests: XCTestCase {
         }
     }
 
-    func testTransientFailuresInEitherHostOrderMarkSuccessfulUnionPartial() async throws {
+    func testSecondaryHostsAreRequestedOnceWithoutRetries() async throws {
+        let (result, urls) = try await fetch([
+            (200, "{\"groups\":[\(group("gemini", "Gemini Models"))]}"),
+            (503, "{}"), (429, "{}"),
+        ], maxRetries: 2)
+        XCTAssertEqual(result.status, .ok)
+        XCTAssertEqual(urls, ProviderEndpoints.Antigravity.quotaURLs)
+    }
+
+    func testTransientFailuresInEitherHostOrderKeepSuccessfulUnionHealthy() async throws {
         let real = (200, "{\"groups\":[\(group("gemini", "Gemini Models"))]}")
         for code in [0, 429, 503] {
             for replies in [[(code, "{}"), real, (404, "{}")], [real, (404, "{}"), (code, "{}")]] {
                 let (result, _) = try await fetch(replies)
                 XCTAssertEqual(result.windows.count, 2)
-                XCTAssertEqual(result.status, .partial)
-                XCTAssertNotNil(result.errorMessage)
+                XCTAssertEqual(result.status, .ok)
+                XCTAssertNil(result.errorMessage)
             }
         }
     }

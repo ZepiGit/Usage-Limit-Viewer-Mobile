@@ -29,15 +29,6 @@ import kotlinx.serialization.json.JsonObject
 object AntigravityQuotaParser {
     internal data class Row(val window: UsageWindow, val isPlaceholder: Boolean = false)
 
-    /**
-     * Parses the quota summary.
-     *
-     * [nowMs] is part of the parser contract shared with the other providers; Antigravity
-     * reports absolute `resetTime` stamps only, so nothing here currently needs it.
-     */
-    @Suppress("UNUSED_PARAMETER")
-    fun parse(payload: JsonObject, nowMs: Long): List<UsageWindow> = parseRows(payload).map { it.window }
-
     internal fun parseRows(payload: JsonObject): List<Row> {
         val windows = mutableListOf<Row>()
         JsonSupport.array(payload, "groups", "quotaGroups", "quota_groups").forEachIndexed { index, element ->

@@ -95,14 +95,14 @@ class AntigravityProviderTest {
     }
 
     @Test
-    fun `transient failures in either host order mark a successful union partial`() = runBlocking {
+    fun `transient failures in either host order keep a successful union healthy`() = runBlocking {
         val real = 200 to """{"groups":[${group("gemini", "Gemini Models")}]}"""
         for (code in listOf(0, 429, 503)) {
             for (replies in listOf(listOf(code to "{}", real, 404 to "{}"), listOf(real, 404 to "{}", code to "{}"))) {
                 val result = provider(replies, mutableListOf()).fetchUsage(account, credentials)
                 assertEquals(2, result.windows.size)
-                assertEquals(SnapshotStatus.PARTIAL, result.status)
-                assertNotNull(result.errorMessage)
+                assertEquals(SnapshotStatus.OK, result.status)
+                assertNull(result.errorMessage)
             }
         }
     }
@@ -143,12 +143,30 @@ class AntigravityProviderTest {
     }
 
     @Test
-    fun `empty union retains the last host failure`() = runBlocking {
+    fun `secondary hosts are requested once without retries`() = runBlocking {
+        val requests = mutableListOf<String>()
+        val real = 200 to """{"groups":[${group("gemini", "Gemini Models")}]}"""
+        provider(listOf(real, 503 to "{}", 429 to "{}"), requests).fetchUsage(account, credentials)
+        assertEquals(Antigravity.QUOTA_URLS, requests)
+    }
+
+    @Test
+    fun `auth rejection outranks a later server failure when all hosts fail`() = runBlocking {
+        try {
+            provider(listOf(401 to "{}", 503 to "{}", 404 to "{}"), mutableListOf())
+                .fetchUsage(account, credentials)
+            fail("expected auth rejection")
+        } catch (_: ProviderException.Unauthorized) {
+        }
+    }
+
+    @Test
+    fun `empty union retains the first auth rejection`() = runBlocking {
         try {
             provider(listOf(403 to "{}", 200 to "{}", 401 to "{}"), mutableListOf())
                 .fetchUsage(account, credentials)
-            fail("expected the last host failure")
-        } catch (_: ProviderException.Unauthorized) {
+            fail("expected the first auth rejection")
+        } catch (_: ProviderException.Forbidden) {
         }
     }
 
