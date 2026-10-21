@@ -15,6 +15,10 @@ The original artwork is the user-supplied `lobehub-icons.zip` archive, received 
 | Kimi | Kimi, color | Kimi monochrome and wordmark |
 | Devin | Devin, color | Devin monochrome |
 | Meta Muse | Meta Muse, color | Meta Muse monochrome |
+| Z.ai GLM | Z.ai, monochrome | Z.ai wordmark; ChatGLM, color |
+| OpenCode Go | OpenCode, monochrome | OpenCode wordmark |
+
+Z.ai and OpenCode artwork (`zai.svg`, `zai-text.svg`, `chatglm-color.svg`, `opencode.svg`, `opencode-text.svg`) is from [LobeHub icons v1.96.0](https://www.npmjs.com/package/@lobehub/icons-static-svg/v/1.96.0), licensed under MIT like the credit marks below. Their SVG sources carry the license notice, and the Android PNGs carry it as `Copyright` and `License` metadata.
 
 Credit balances and the Add Credit Balance picker use one fixed icon per provider: OpenRouter (`openrouter-color.svg`), DeepSeek (`deepseek-color.svg`), Moonshot (`moonshot.svg`), xAI (`xai.svg`), fal.ai (`fal-color.svg`) and Novita (`novita-color.svg`). These are from [LobeHub icons v1.96.0](https://www.npmjs.com/package/@lobehub/icons-static-svg/v/1.96.0), licensed under [MIT](https://github.com/lobehub/lobe-icons/blob/master/LICENSE), copyright © 2023 LobeHub; the license notice is included in the SVG sources and PNG metadata. Monochrome marks render white, and each 512×512 RGBA Android PNG is identical to its iOS `CreditIcon*.imageset/logo.png`. Credit icons have no variants; the marks remain trademarks of their owners.
 
@@ -28,4 +32,4 @@ Android uses `ProviderIconCatalog`, DataStore preferences and `drawable-nodpi/ic
 
 The packaged PNGs preserve transparency, proportions and source colors. Monochrome SVG `currentColor` paths are rendered white for the existing dark interface. Vector sources remain available for future theme-specific exports. No opaque badge is baked into the artwork.
 
-All 23 Android exports and all 23 iOS exports were checked for an alpha channel and transparent pixels. Visual checks covered the default marks, alternate Claude artwork, the settings picker, account lists and Android home-screen widgets.
+All 28 Android exports and all 28 iOS exports were checked for an alpha channel and transparent pixels. Visual checks covered the default marks, alternate Claude artwork, the settings picker, account lists and Android home-screen widgets.
