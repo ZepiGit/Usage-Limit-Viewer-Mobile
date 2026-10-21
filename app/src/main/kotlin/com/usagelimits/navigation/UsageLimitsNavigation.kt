@@ -1,5 +1,9 @@
 package com.usagelimits.navigation
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -55,6 +59,7 @@ import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.ConstrainedContent
 import com.usagelimits.ui.NavigationLayout
+import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.AppIcons
 
@@ -65,6 +70,9 @@ import com.usagelimits.ui.AppIcons
  * changing a single character; a longer one would let "1m" sit on screen after it became "now".
  */
 private const val TICK_INTERVAL_MS = 30_000L
+
+/** Tab and route switches: the 700 ms navigation-compose default reads as lag. */
+private const val ROUTE_FADE_MS = 180
 
 private sealed class Destination(val route: String) {
     data object Overview : Destination("overview")
@@ -146,51 +154,19 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         }
     }
 
-    Row(modifier = Modifier.fillMaxSize().background(UsageColors.Ground)) {
-        if (showSideRail) {
-            NavigationRail(containerColor = UsageColors.Ground) {
-                TABS.forEach { tab ->
-                    val selected = currentRoute?.hierarchy
-                        ?.any { it.route == tab.destination.route } == true
-                    NavigationRailItem(
-                        selected = selected,
-                        onClick = { navigateToTab(tab.destination.route) },
-                        icon = { Icon(tab.icon, contentDescription = null) },
-                        label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
-                        colors = NavigationRailItemDefaults.colors(
-                            selectedIconColor = UsageColors.Ink,
-                            selectedTextColor = UsageColors.Ink,
-                            indicatorColor = UsageColors.Raised,
-                            unselectedIconColor = UsageColors.Faint,
-                            unselectedTextColor = UsageColors.Faint,
-                        ),
-                    )
-                }
-            }
-        }
-
-    Scaffold(
-        containerColor = UsageColors.Ground,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            if (showBottomBar) {
-                NavigationBar(
-                    containerColor = UsageColors.Ground,
-                    tonalElevation = 0.dp,
-                    // A 1px rule on the top edge, not a tone step or a shadow.
-                    modifier = Modifier.drawBehind {
-                        drawLine(UsageColors.Rule, Offset.Zero, Offset(size.width, 0f), strokeWidth = 1.dp.toPx())
-                    },
-                ) {
+    Box(Modifier.fillMaxSize().background(UsageColors.Ground)) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            if (showSideRail) {
+                NavigationRail(containerColor = UsageColors.Ground) {
                     TABS.forEach { tab ->
                         val selected = currentRoute?.hierarchy
                             ?.any { it.route == tab.destination.route } == true
-                        NavigationBarItem(
+                        NavigationRailItem(
                             selected = selected,
                             onClick = { navigateToTab(tab.destination.route) },
                             icon = { Icon(tab.icon, contentDescription = null) },
                             label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
-                            colors = NavigationBarItemDefaults.colors(
+                            colors = NavigationRailItemDefaults.colors(
                                 selectedIconColor = UsageColors.Ink,
                                 selectedTextColor = UsageColors.Ink,
                                 indicatorColor = UsageColors.Raised,
@@ -201,159 +177,200 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     }
                 }
             }
-        },
-    ) { padding ->
-        // A plain System.currentTimeMillis() read is not a Compose state read, so with no
-        // data change every countdown on screen froze at whatever the tab was composed with.
-        // For an app made of countdowns that is visible within a minute.
-        val nowMs by produceState(initialValue = System.currentTimeMillis()) {
-            while (true) {
-                value = System.currentTimeMillis()
-                delay(TICK_INTERVAL_MS)
-            }
-        }
 
-        ConstrainedContent(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(UsageColors.Ground)
-                .padding(padding),
-        ) {
-            NavHost(navController = navController, startDestination = Destination.Overview.route) {
-                composable(Destination.Overview.route) {
-                    OverviewScreen(
-                        state = state,
-                        nowMs = nowMs,
-                        onRefresh = viewModel::refresh,
-                        onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
-                        onAddAccount = { navController.navigate(Destination.AddAccount.route) },
-                        onReorder = viewModel::reorderAccounts,
-                        onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
-                        onAddCredit = { navController.navigate(Destination.AddCredit.route) },
-                    )
+        Scaffold(
+            containerColor = UsageColors.Ground,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            bottomBar = {
+                if (showBottomBar) {
+                    NavigationBar(
+                        containerColor = UsageColors.Ground,
+                        tonalElevation = 0.dp,
+                        // A 1px rule on the top edge, not a tone step or a shadow.
+                        modifier = Modifier.drawBehind {
+                            drawLine(UsageColors.Rule, Offset.Zero, Offset(size.width, 0f), strokeWidth = 1.dp.toPx())
+                        },
+                    ) {
+                        TABS.forEach { tab ->
+                            val selected = currentRoute?.hierarchy
+                                ?.any { it.route == tab.destination.route } == true
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = { navigateToTab(tab.destination.route) },
+                                icon = { Icon(tab.icon, contentDescription = null) },
+                                label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = UsageColors.Ink,
+                                    selectedTextColor = UsageColors.Ink,
+                                    indicatorColor = UsageColors.Raised,
+                                    unselectedIconColor = UsageColors.Faint,
+                                    unselectedTextColor = UsageColors.Faint,
+                                ),
+                            )
+                        }
+                    }
                 }
-
-                composable(Destination.Accounts.route) {
-                    AccountsScreen(
-                        state = state,
-                        nowMs = nowMs,
-                        onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
-                        onAddAccount = { navController.navigate(Destination.AddAccount.route) },
-                        onRefresh = viewModel::refresh,
-                    )
-                }
-
-                composable(Destination.Resets.route) {
-                    ResetsScreen(state = state, nowMs = nowMs)
-                }
-
-                composable(Destination.Settings.route) {
-                    SettingsScreen(
-                        state = state,
-                        onSyncIntervalChange = viewModel::setSyncInterval,
-                        onProviderIconChange = viewModel::setProviderIcon,
-                        onNotifyBelow20 = viewModel::setNotifyBelow20,
-                        onNotifyBelow10 = viewModel::setNotifyBelow10,
-                        onNotifyExhausted = viewModel::setNotifyExhausted,
-                        onNotifyResetCredit = viewModel::setNotifyResetCredit,
-                        onNotifyAuthExpired = viewModel::setNotifyAuthExpired,
-                        onNotifyResetApproaching = viewModel::setNotifyResetApproaching,
-                        onNotifyCreditExpiring = viewModel::setNotifyCreditExpiring,
-                        onShowTier = viewModel::setShowSubscriptionTier,
-                        onShowRenewal = viewModel::setShowRenewalTime,
-                    )
-                }
-
-                composable(Destination.AddAccount.route) {
-                    val addViewModel: AddAccountViewModel =
-                        viewModel(factory = AddAccountViewModel.Factory(container))
-                    val addState by addViewModel.state.collectAsState()
-                    val context = androidx.compose.ui.platform.LocalContext.current
-
-                    AddAccountScreen(
-                        state = addState,
-                        providers = addViewModel.availableProviders(),
-                        onStart = { addViewModel.startLogin(context, it) },
-                        onStartWithKey = { addViewModel.startLogin(context, it, withKey = true) },
-                        onStartWithDeviceCode = { addViewModel.startLogin(context, it, withDeviceCode = true) },
-                        onChooseRegion = { provider, region -> addViewModel.chooseRegion(context, provider, region) },
-                        onSubmitApiKey = addViewModel::submitApiKey,
-                        onCancel = {
-                            addViewModel.cancel()
-                            navController.popBackStack()
-                        },
-                        onDone = {
-                            addViewModel.reset()
-                            navController.popBackStack()
-                        },
-                    )
-                }
-
-                composable(Destination.AddCredit.route) {
-                    val addViewModel: AddCreditViewModel =
-                        viewModel(factory = AddCreditViewModel.Factory(container, appContext))
-                    val addState by addViewModel.state.collectAsState()
-                    AddCreditScreen(
-                        state = addState,
-                        onSubmit = addViewModel::submit,
-                        onCancel = {
-                            addViewModel.reset()
-                            navController.popBackStack()
-                        },
-                        onDone = {
-                            addViewModel.reset()
-                            navController.popBackStack()
-                        },
-                    )
-                }
-
-                composable(Destination.CreditDetail.route) { entry ->
-                    val creditId = entry.arguments?.getString("creditId")
-                    CreditDetailScreen(
-                        entry = state.credits.firstOrNull { it.id == creditId },
-                        nowMs = nowMs,
-                        staleAfterMs = state.staleAfterMs,
-                        onSave = { label, threshold ->
-                            creditId?.let { viewModel.updateCredit(it, label, threshold) }
-                            navController.popBackStack()
-                        },
-                        onRefresh = viewModel::refresh,
-                        onRemove = {
-                            creditId?.let(viewModel::removeCredit)
-                            navController.popBackStack()
-                        },
-                    )
-                }
-
-                composable(Destination.AccountDetail.route) { entry ->
-                    val accountId = entry.arguments?.getString("accountId")
-                    val usage = state.accounts.firstOrNull { it.account.localId == accountId }
-                    val supportsCredits = usage?.account?.provider
-                        ?.let { container.providerRegistry.forId(it)?.supportsResetCredits }
-                        ?: false
-
-                    AccountDetailScreen(
-                        usage = usage,
-                        nowMs = nowMs,
-                        staleAfterMs = state.staleAfterMs,
-                        resetInFlight = resetInFlight == accountId,
-                    supportsResetCredits = supportsCredits,
-                    onReconnect = { navController.navigate(Destination.AddAccount.route) },
-                        onRefresh = { accountId?.let(viewModel::refreshAccount) },
-                        onConsumeResetCredit = { accountId?.let(viewModel::consumeResetCredit) },
-                        onRemove = {
-                            accountId?.let(viewModel::removeAccount)
-                            navController.popBackStack()
-                        },
-                        notificationsEnabled =
-                            accountId !in state.settings.mutedAccountIds,
-                        onNotificationsChange = { enabled ->
-                            accountId?.let { viewModel.setAccountNotifications(it, enabled) }
-                        },
-                    )
+            },
+        ) { padding ->
+            // A plain System.currentTimeMillis() read is not a Compose state read, so with no
+            // data change every countdown on screen froze at whatever the tab was composed with.
+            // For an app made of countdowns that is visible within a minute.
+            val nowMs by produceState(initialValue = System.currentTimeMillis()) {
+                while (true) {
+                    value = System.currentTimeMillis()
+                    delay(TICK_INTERVAL_MS)
                 }
             }
+
+            ConstrainedContent(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(UsageColors.Ground)
+                    .padding(padding),
+            ) {
+                val routeFade = tween<Float>(if (LocalMotionEnabled.current) ROUTE_FADE_MS else 0, easing = LinearEasing)
+                NavHost(
+                    navController = navController,
+                    startDestination = Destination.Overview.route,
+                    enterTransition = { fadeIn(routeFade) },
+                    exitTransition = { fadeOut(routeFade) },
+                ) {
+                    composable(Destination.Overview.route) {
+                        OverviewScreen(
+                            state = state,
+                            nowMs = nowMs,
+                            onRefresh = viewModel::refresh,
+                            onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
+                            onAddAccount = { navController.navigate(Destination.AddAccount.route) },
+                            onReorder = viewModel::reorderAccounts,
+                            onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
+                            onAddCredit = { navController.navigate(Destination.AddCredit.route) },
+                        )
+                    }
+
+                    composable(Destination.Accounts.route) {
+                        AccountsScreen(
+                            state = state,
+                            nowMs = nowMs,
+                            onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
+                            onAddAccount = { navController.navigate(Destination.AddAccount.route) },
+                            onRefresh = viewModel::refresh,
+                        )
+                    }
+
+                    composable(Destination.Resets.route) {
+                        ResetsScreen(state = state, nowMs = nowMs)
+                    }
+
+                    composable(Destination.Settings.route) {
+                        SettingsScreen(
+                            state = state,
+                            onSyncIntervalChange = viewModel::setSyncInterval,
+                            onProviderIconChange = viewModel::setProviderIcon,
+                            onNotifyBelow20 = viewModel::setNotifyBelow20,
+                            onNotifyBelow10 = viewModel::setNotifyBelow10,
+                            onNotifyExhausted = viewModel::setNotifyExhausted,
+                            onNotifyResetCredit = viewModel::setNotifyResetCredit,
+                            onNotifyAuthExpired = viewModel::setNotifyAuthExpired,
+                            onNotifyResetApproaching = viewModel::setNotifyResetApproaching,
+                            onNotifyCreditExpiring = viewModel::setNotifyCreditExpiring,
+                            onShowTier = viewModel::setShowSubscriptionTier,
+                            onShowRenewal = viewModel::setShowRenewalTime,
+                        )
+                    }
+
+                    composable(Destination.AddAccount.route) {
+                        val addViewModel: AddAccountViewModel =
+                            viewModel(factory = AddAccountViewModel.Factory(container))
+                        val addState by addViewModel.state.collectAsState()
+                        val context = androidx.compose.ui.platform.LocalContext.current
+
+                        AddAccountScreen(
+                            state = addState,
+                            providers = addViewModel.availableProviders(),
+                            onStart = { addViewModel.startLogin(context, it) },
+                            onStartWithKey = { addViewModel.startLogin(context, it, withKey = true) },
+                            onStartWithDeviceCode = { addViewModel.startLogin(context, it, withDeviceCode = true) },
+                            onChooseRegion = { provider, region -> addViewModel.chooseRegion(context, provider, region) },
+                            onSubmitApiKey = addViewModel::submitApiKey,
+                            onCancel = {
+                                addViewModel.cancel()
+                                navController.popBackStack()
+                            },
+                            onDone = {
+                                addViewModel.reset()
+                                navController.popBackStack()
+                            },
+                        )
+                    }
+
+                    composable(Destination.AddCredit.route) {
+                        val addViewModel: AddCreditViewModel =
+                            viewModel(factory = AddCreditViewModel.Factory(container, appContext))
+                        val addState by addViewModel.state.collectAsState()
+                        AddCreditScreen(
+                            state = addState,
+                            onSubmit = addViewModel::submit,
+                            onCancel = {
+                                addViewModel.reset()
+                                navController.popBackStack()
+                            },
+                            onDone = {
+                                addViewModel.reset()
+                                navController.popBackStack()
+                            },
+                        )
+                    }
+
+                    composable(Destination.CreditDetail.route) { entry ->
+                        val creditId = entry.arguments?.getString("creditId")
+                        CreditDetailScreen(
+                            entry = state.credits.firstOrNull { it.id == creditId },
+                            nowMs = nowMs,
+                            staleAfterMs = state.staleAfterMs,
+                            onSave = { label, threshold ->
+                                creditId?.let { viewModel.updateCredit(it, label, threshold) }
+                                navController.popBackStack()
+                            },
+                            onRefresh = viewModel::refresh,
+                            onRemove = {
+                                creditId?.let(viewModel::removeCredit)
+                                navController.popBackStack()
+                            },
+                        )
+                    }
+
+                    composable(Destination.AccountDetail.route) { entry ->
+                        val accountId = entry.arguments?.getString("accountId")
+                        val usage = state.accounts.firstOrNull { it.account.localId == accountId }
+                        val supportsCredits = usage?.account?.provider
+                            ?.let { container.providerRegistry.forId(it)?.supportsResetCredits }
+                            ?: false
+
+                        AccountDetailScreen(
+                            usage = usage,
+                            nowMs = nowMs,
+                            staleAfterMs = state.staleAfterMs,
+                            resetInFlight = resetInFlight == accountId,
+                        supportsResetCredits = supportsCredits,
+                        onReconnect = { navController.navigate(Destination.AddAccount.route) },
+                            onRefresh = { accountId?.let(viewModel::refreshAccount) },
+                            onConsumeResetCredit = { accountId?.let(viewModel::consumeResetCredit) },
+                            onRemove = {
+                                accountId?.let(viewModel::removeAccount)
+                                navController.popBackStack()
+                            },
+                            notificationsEnabled =
+                                accountId !in state.settings.mutedAccountIds,
+                            onNotificationsChange = { enabled ->
+                                accountId?.let { viewModel.setAccountNotifications(it, enabled) }
+                            },
+                        )
+                    }
+                }
+            }
         }
-    }
+        }
+    LaunchOverlay()
     }
 }
