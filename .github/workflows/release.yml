@@ -233,6 +233,24 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
+      - name: Verify the archived versions
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/UsageLimits.xcarchive"
+          app="$archive/Products/Applications/UsageLimits.app"
+          for plist in "$app/Info.plist" "$app/PlugIns/UsageLimitsWidget.appex/Info.plist" "$archive/Info.plist"; do
+            prefix=""
+            if [[ "$plist" == "$archive/Info.plist" ]]; then
+              prefix=":ApplicationProperties"
+            fi
+            version="$(/usr/libexec/PlistBuddy -c "Print $prefix:CFBundleShortVersionString" "$plist")"
+            build="$(/usr/libexec/PlistBuddy -c "Print $prefix:CFBundleVersion" "$plist")"
+            if [[ "$version" != "$RELEASE_VERSION" || "$build" != "$RELEASE_VERSION_CODE" ]]; then
+              echo "::error::$plist has version $version build $build; expected $RELEASE_VERSION build $RELEASE_VERSION_CODE." >&2
+              exit 1
+            fi
+          done
+
       - name: Zip the archive for the release
         run: |
           set -euo pipefail
