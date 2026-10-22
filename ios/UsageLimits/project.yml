@@ -59,6 +59,8 @@ targets:
     info:
       path: Info.plist
       properties:
+        CFBundleShortVersionString: '$(MARKETING_VERSION)'
+        CFBundleVersion: '$(CURRENT_PROJECT_VERSION)'
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -113,6 +115,8 @@ targets:
     info:
       path: UsageLimitsWidget-Info.plist
       properties:
+        CFBundleShortVersionString: '$(MARKETING_VERSION)'
+        CFBundleVersion: '$(CURRENT_PROJECT_VERSION)'
         CFBundleDisplayName: Usage Limits
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
