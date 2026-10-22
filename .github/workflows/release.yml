@@ -151,10 +151,14 @@ jobs:
       - name: Download the published upgrade baseline
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p runtime/previous runtime/evidence
-          gh release download --repo "$GITHUB_REPOSITORY" \
+          # The release being built may already be published on a re-run; compare against the one before it.
+          baseline_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | grep -vxF "v$RELEASE_VERSION" | head -n 1)
+          gh release download "$baseline_tag" --repo "$GITHUB_REPOSITORY" \
             --pattern 'UsageLimits-*.apk' --dir runtime/previous
       - uses: android-actions/setup-android@v3
         with:

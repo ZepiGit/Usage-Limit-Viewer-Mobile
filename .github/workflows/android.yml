@@ -128,8 +128,12 @@ jobs:
           sha256sum "$apk" > app/build/reports/apk-sha256.txt
           if [ -n "${ANDROID_KEYSTORE_PATH:-}" ]; then
             mkdir -p "$RUNNER_TEMP/previous-release"
-            # The latest published release is the baseline; a pinned tag goes stale once it is deleted.
-            gh release download --repo "$GITHUB_REPOSITORY" \
+            # Baseline: the newest published release other than the version being built, so a run that
+            # starts after its own tag is published still compares against the release before it.
+            current_version=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            baseline_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+              --json tagName -q '.[].tagName' | grep -vxF "v$current_version" | head -n 1)
+            gh release download "$baseline_tag" --repo "$GITHUB_REPOSITORY" \
               --pattern 'UsageLimits-*.apk' --dir "$RUNNER_TEMP/previous-release"
             previous_apk=$(ls "$RUNNER_TEMP"/previous-release/UsageLimits-*.apk)
             "$build_tools/aapt" dump badging "$previous_apk" > app/build/reports/apk-previous-metadata.txt
@@ -236,7 +240,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p runtime/previous
-          gh release download --repo "$GITHUB_REPOSITORY" \
+          current_version=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" runtime/verification/apk-metadata.txt)
+          baseline_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | grep -vxF "v$current_version" | head -n 1)
+          gh release download "$baseline_tag" --repo "$GITHUB_REPOSITORY" \
             --pattern 'UsageLimits-*.apk' --dir runtime/previous
 
       # setup-android adds SDK command-line tools (including sdkmanager) to PATH.
