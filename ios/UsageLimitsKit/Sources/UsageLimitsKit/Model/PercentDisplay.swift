@@ -15,6 +15,17 @@ public enum PercentDisplay: String, Codable, Sendable {
         override ?? self
     }
 
+    /// Whether a bar or ring must take the data hue although its severity has no ink of its own.
+    ///
+    /// Exhausted, error and unknown severities draw nothing in LEFT, where their fill is empty or
+    /// absent. USED flips what full means: an exhausted window fills completely, and an empty
+    /// bar beside a "100" label would contradict it. LEFT can never need the fallback, and a nil
+    /// or zero fraction has nothing to colour. One predicate, because the app and the widget
+    /// each carry the fallback and a drifting copy would repaint one surface and not the other.
+    public func usedFillOverridesMissingInk(_ fraction: Double?) -> Bool {
+        self == .used && (fraction ?? 0) > 0
+    }
+
     /// Lenient read: an unknown or missing stored raw value falls back to the historical default.
     ///
     /// Decoding through `String` rather than failable enum decoding keeps one unknown key from

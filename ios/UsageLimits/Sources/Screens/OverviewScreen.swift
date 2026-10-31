@@ -252,7 +252,8 @@ private struct LeadStrip: View {
         .accessibilityAction(named: switchActionName, toggleMode)
     }
 
-    /// Names the mode the action switches TO.
+    /// Worded as the destination, not the current state: the current mode is already in the
+    /// spoken label, so the rotor entry has to say what activating it will change.
     private var switchActionName: String {
         mode == .used ? "Show percentage left" : "Show percentage used"
     }

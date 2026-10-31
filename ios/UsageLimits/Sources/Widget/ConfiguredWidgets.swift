@@ -247,13 +247,14 @@ private struct ConfiguredRingGrid: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: columns), spacing: 8) {
                     ForEach(entry.snapshot.accounts.prefix(columns * rows)) { account in
                         Link(destination: URL(string: "usagelimits://account/\(account.id)")!) {
+                            // Resolved above the row so the drawn figure and the spoken one share it.
+                            let limit = account.representative(at: entry.date)
+                            let severity = account.displaySeverity(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter)
+                            // The raw row's verdict; the aged `severity` above only colours.
+                            let exhausted = limit?.severity == .exhausted
+                            let fraction = UsageWindow.fillFraction(limit?.remainingPercent, exhausted: exhausted, mode: mode)
+                            let figure = PercentText.figure(limit?.remainingPercent, exhausted: exhausted, mode: mode)
                             HStack(spacing: 8) {
-                                let limit = account.representative(at: entry.date)
-                                let severity = account.displaySeverity(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter)
-                                // The raw row's verdict; the aged `severity` above only colours.
-                                let exhausted = limit?.severity == .exhausted
-                                let fraction = UsageWindow.fillFraction(limit?.remainingPercent, exhausted: exhausted, mode: mode)
-                                let figure = PercentText.figure(limit?.remainingPercent, exhausted: exhausted, mode: mode)
                                 ZStack {
                                     // Reduce track opacity in accented/monochrome modes: the host can recolor both
                                     // circles white, so opacity must distinguish the track from the amount.
@@ -297,7 +298,7 @@ private struct ConfiguredRingGrid: View {
                                         }
                                     }.foregroundStyle(ink.primary)
                                 }
-                            }.accessibilityLabel(spoken(account))
+                            }.accessibilityLabel(spoken(account, drawnFigure: figure))
                         }
                     }
                 }
@@ -305,13 +306,20 @@ private struct ConfiguredRingGrid: View {
         }
     }
 
-    /// The lowest figure across the account's windows, worded for the mode. LEFT is the sentence
-    /// spoken before the mode existed; an exhausted window anywhere makes USED read 100%.
-    private func spoken(_ account: GlanceAccount) -> String {
-        let lowest = account.rows.map(\.remainingPercent).compactMap { $0 }.min()
-        let exhausted = account.rows.contains { $0.severity == .exhausted }
-        let figure = PercentText.figure(lowest, exhausted: exhausted, mode: mode)
-        return "\(account.title), \(account.subtitle ?? ""), \(PercentText.spoken(figure, mode))"
+    /// LEFT is the sentence spoken before the mode existed, which reads the lowest figure across
+    /// every window. USED speaks `drawnFigure`, the very string the ring prints: an exhausted
+    /// 5h window whose reset has passed, beside an open weekly at 60% left, draws "40% used" from
+    /// the representative row, and a second derivation over all rows announced "100% used".
+    /// Taking the drawn figure in means the two cannot be computed apart again.
+    private func spoken(_ account: GlanceAccount, drawnFigure: String) -> String {
+        let sentence: String
+        if mode == .used {
+            sentence = PercentText.spoken(drawnFigure, .used)
+        } else {
+            let lowest = account.rows.map(\.remainingPercent).compactMap { $0 }.min()
+            sentence = PercentText.spoken(PercentText.figure(lowest, exhausted: false, mode: .left), .left)
+        }
+        return "\(account.title), \(account.subtitle ?? ""), \(sentence)"
     }
 
     /// The provider's mark, drawn in the ink's own colour when the tile sits on a light

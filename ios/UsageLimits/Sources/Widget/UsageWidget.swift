@@ -371,7 +371,7 @@ struct WidgetInk {
     /// fallback — its fractions for nil-ink severities are zero or unknown.
     func bar(_ severity: Severity, fraction: Double?, mode: PercentDisplay) -> Color? {
         if let ink = bar(severity) { return ink }
-        guard mode == .used, let fraction, fraction > 0 else { return nil }
+        guard mode.usedFillOverridesMissingInk(fraction) else { return nil }
         return data
     }
 
