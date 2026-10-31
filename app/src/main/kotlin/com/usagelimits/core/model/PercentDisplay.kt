@@ -44,6 +44,18 @@ fun fillFraction(remaining: Double?, exhausted: Boolean, mode: PercentDisplay): 
     else displayPercent(remaining, mode)?.div(100.0)
 
 /**
+ * Whether a bar or ring whose severity gives it no ink must still be filled, in [mode] with the
+ * displayed [fraction].
+ *
+ * USED makes an exhausted window the full bar, and exhausted severity has no fill ink; without this
+ * the one window that is 100% used would sit bare beside its own figure. LEFT never needs it: there
+ * a nil-ink severity has a zero or unknown fraction, so the historical bare track stays exact. One
+ * predicate so the in-app bars and the widget bars cannot disagree about when the fallback fires.
+ */
+fun usedFillOverridesMissingInk(mode: PercentDisplay, fraction: Double?): Boolean =
+    mode == PercentDisplay.USED && fraction != null && fraction > 0.0
+
+/**
  * Whether this window counts as exhausted for labelling and fill: the provider's verdict, or a
  * remainder of zero. Read from the window's own raw severity, never from a display severity that
  * a stale reading or a passed reset has swapped out, so a stale exhausted window still reads

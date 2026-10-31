@@ -1,7 +1,9 @@
 package com.usagelimits.core.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -108,5 +110,20 @@ class DisplayPercentTest {
     fun `fillFraction with no window at all fills nothing in either mode`() {
         assertNull(fillFraction(null as UsageWindow?, PercentDisplay.LEFT))
         assertNull(fillFraction(null as UsageWindow?, PercentDisplay.USED))
+    }
+
+    @Test
+    fun `the fill fallback never fires in LEFT mode`() {
+        for (fraction in listOf(null, 0.0, 0.15, 1.0)) {
+            assertFalse("LEFT, fraction $fraction", usedFillOverridesMissingInk(PercentDisplay.LEFT, fraction))
+        }
+    }
+
+    @Test
+    fun `the fill fallback fires in USED mode only for a positive fraction`() {
+        assertFalse(usedFillOverridesMissingInk(PercentDisplay.USED, null))
+        assertFalse(usedFillOverridesMissingInk(PercentDisplay.USED, 0.0))
+        assertTrue(usedFillOverridesMissingInk(PercentDisplay.USED, 0.15))
+        assertTrue(usedFillOverridesMissingInk(PercentDisplay.USED, 1.0))
     }
 }

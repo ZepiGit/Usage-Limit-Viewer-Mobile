@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -15,9 +16,11 @@ import androidx.glance.appwidget.runComposition
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.WidgetConfigEntity
+import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
@@ -36,6 +39,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
@@ -72,14 +76,29 @@ class PercentModeWidgetRenderingTest {
         UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 63.0, 604_800, System.currentTimeMillis() + 86_400_000, false),
     )
 
-    private suspend fun seedAccount(vararg windows: UsageWindow): String {
+    private suspend fun seedAccount(vararg windows: UsageWindow): String =
+        seedNamedAccount("percent-mode-fixture", "Mode fixture", windows.toList())
+
+    /** A distinct account per [key], so one test can place several; [name] is what the rows call it. */
+    private suspend fun seedNamedAccount(
+        key: String,
+        name: String,
+        windows: List<UsageWindow>,
+        status: SnapshotStatus = SnapshotStatus.OK,
+        connection: ConnectionStatus? = null,
+    ): String {
         val repository = app.container.repository
-        val account = repository.upsertFromLogin(ProviderId.CLAUDE, "percent-mode-fixture",
-            "fixture@example.invalid", "Mode fixture", "Pro", emptyMap())
-        repository.saveSnapshot(UsageSnapshot(account.localId, System.currentTimeMillis(),
-            SnapshotStatus.OK, windows = windows.toList()))
+        val account = repository.upsertFromLogin(ProviderId.CLAUDE, key,
+            "fixture@example.invalid", name, "Pro", emptyMap())
+        val snapshot = UsageSnapshot(account.localId, System.currentTimeMillis(), status, windows = windows)
+        repository.saveSnapshot(connection?.let { snapshot.copy(connectionStatus = it) } ?: snapshot)
         return account.localId
     }
+
+    private fun fixtureWindows() = listOf(
+        UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR, 40.0, 18_000, System.currentTimeMillis() + 3_600_000, false),
+        UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 63.0, 604_800, System.currentTimeMillis() + 86_400_000, false),
+    )
 
     /** Composes [widgetName] for the accounts in [accountIds] at [size] and hands the laid-out view to [check]. */
     private suspend fun inspect(widgetName: String, accountIds: List<String>, size: DpSize, check: (View) -> Unit) {
@@ -246,6 +265,60 @@ class PercentModeWidgetRenderingTest {
         }
     }
 
+    @Test fun `account rings keep both labels and the caption in two columns with a very long label`() = runTest {
+        val size = DpSize(420.dp, 300.dp)
+        assertEquals("the fixture size must be a two-column layout",
+            2, WidgetLayout.accountColumns(size.width.value, size.height.value, null, 1f))
+        val longLabel = "long-account-".padEnd(60, 'x')
+        val ids = listOf(
+            seedNamedAccount("wide-long", longLabel, fixtureWindows()),
+            seedNamedAccount("wide-short", "Short", fixtureWindows()),
+        )
+        inEachMode { mode ->
+            inspect("MinimalUsageWidget", ids, size) { view ->
+                val text = textViews(view).map { it.text.toString() }
+                assertTrue("$mode: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
+                // Ellipsising is the layout's business; the text it was given must be whole.
+                assertTrue("$mode: the 60-character label is rendered, got $text", longLabel in text)
+                assertTrue("$mode: the short label is rendered, got $text", "Short" in text)
+                val long = textViews(view).first { it.text.toString() == longLabel }
+                val short = textViews(view).first { it.text.toString() == "Short" }
+                assertEquals("$mode: both accounts share one row of two columns",
+                    bottomWithin(view, long), bottomWithin(view, short))
+            }
+        }
+    }
+
+    @Test fun `account rings caption the mode whatever status line each account shows`() = runTest {
+        val future = System.currentTimeMillis() + 86_400_000
+        fun weekly(used: Double?, exhausted: Boolean = false, resetAt: Long? = future) =
+            UsageWindow("week", "Weekly", WindowCategory.WEEKLY, used, 604_800, resetAt, exhausted)
+        val ids = listOf(
+            seedNamedAccount("branch-reconnect", "Reconnect account", listOf(weekly(40.0)),
+                connection = ConnectionStatus.RECONNECT_REQUIRED),
+            seedNamedAccount("branch-out", "Out account", listOf(weekly(100.0, exhausted = true)), SnapshotStatus.PARTIAL),
+            seedNamedAccount("branch-partial", "Partial account", listOf(weekly(40.0)), SnapshotStatus.PARTIAL),
+            seedNamedAccount("branch-limited", "Limited account", listOf(weekly(40.0),
+                UsageWindow("opus", "Opus", WindowCategory.OTHER, 100.0, null, future, true, scope = UsageScope.MODEL))),
+            seedNamedAccount("branch-unknown", "Unknown account", listOf(weekly(null, resetAt = null))),
+            seedNamedAccount("branch-normal", "Normal account", listOf(weekly(40.0))),
+            seedNamedAccount("branch-noreset", "No reset account", listOf(weekly(40.0, resetAt = null))),
+        )
+        inEachMode { mode ->
+            inspect("MinimalUsageWidget", ids, DpSize(180.dp, 900.dp)) { view ->
+                val text = textViews(view).map { it.text.toString() }
+                assertTrue("$mode: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
+                assertTrue("$mode: no caption of the other mode, got $text", otherWord(mode) !in text)
+                for (status in listOf("Reconnect", "Out · Partial update", "Partial update",
+                    "Limited: Opus", "Quota unknown", "No reset time")) {
+                    assertEquals("$mode: exactly one account shows '$status', got $text", 1, text.count { it == status })
+                }
+                assertEquals("$mode: exactly one account shows its window and reset, got $text",
+                    1, text.count { it.startsWith("Weekly · ") })
+            }
+        }
+    }
+
     // endregion
 
     // region Mini Rings
@@ -267,6 +340,35 @@ class PercentModeWidgetRenderingTest {
         }
     }
 
+    @Test fun `mini rings at the 56dp minimum keep the caption and show one ring inside the host`() = runTest {
+        // PLAN 3: the deliberate 2-to-1 drop. The caption's line is paid for before rows are
+        // counted, so a one-cell-tall host with more accounts than fit clips nothing.
+        val ids = (1..4).map { seedNamedAccount("mini-$it", "Mini $it", fixtureWindows()) }
+        val size = DpSize(62.dp, 56.dp)
+        val grid = WidgetLayout.miniGrid(size.width.value, size.height.value)
+        val expectedRings = WidgetLayout.miniCaptionedRows(grid, 4, size.height.value, 1f) * grid.columns
+        assertEquals("PLAN 3: a 1x1 cell holds one ring once the caption takes its line", 1, expectedRings)
+        inEachMode { mode ->
+            inspect("MiniRingsWidget", ids, size) { view ->
+                assertCaptionedRingsFit("$mode", view, mode, size, expectedRings = expectedRings)
+            }
+        }
+    }
+
+    @Test fun `mini rings at the 56dp minimum and a 1_3 font scale still caption and fit`() = runTest {
+        val ids = (1..4).map { seedNamedAccount("mini-$it", "Mini $it", fixtureWindows()) }
+        val size = DpSize(62.dp, 56.dp)
+        atFontScale(1.3f) {
+            assertEquals("the font scale reached the resources the widget reads",
+                1.3f, app.resources.configuration.fontScale, 0.001f)
+            inEachMode { mode ->
+                inspect("MiniRingsWidget", ids, size) { view ->
+                    assertCaptionedRingsFit("$mode at 1.3x", view, mode, size, expectedRings = null)
+                }
+            }
+        }
+    }
+
     @Test fun `an empty selection shows its message and no mode caption`() = runTest {
         // PLAN 3: the caption is a hint about the rings below it; with no rings it would be a
         // word floating over an explanation.
@@ -284,6 +386,57 @@ class PercentModeWidgetRenderingTest {
     }
 
     // endregion
+
+    /** Runs [body] at [scale] and always puts the font scale back, so a failure cannot leak it onward. */
+    private inline fun <T> atFontScale(scale: Float, body: () -> T): T {
+        RuntimeEnvironment.setFontScale(scale)
+        try {
+            return body()
+        } finally {
+            RuntimeEnvironment.setFontScale(1f)
+        }
+    }
+
+    /**
+     * The caption and at least one ring are there, the rings number [expectedRings] when given, and
+     * none of them ends below the host. Positions are measured against [root], which [inspect] laid
+     * out at exactly [size] (one pixel per dp under mdpi).
+     */
+    private fun assertCaptionedRingsFit(name: String, root: View, mode: PercentDisplay, size: DpSize,
+        expectedRings: Int?) {
+        val hostHeight = size.height.value.toInt()
+        assertEquals("$name: the host is laid out at its full height", hostHeight, root.height)
+        val text = textViews(root).map { it.text.toString() }
+        assertTrue("$name: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
+        val rings = ringImages(root)
+        assertTrue("$name: at least one ring is shown, got ${descriptions(root)}", rings.isNotEmpty())
+        if (expectedRings != null) {
+            assertEquals("$name: ring count, got ${descriptions(root)}", expectedRings, rings.size)
+        }
+        for (part in rings + textViews(root).filter { it.text.toString() == modeWord(mode) }) {
+            val bottom = bottomWithin(root, part)
+            assertTrue("$name: ${part.javaClass.simpleName} '${part.contentDescription ?: (part as? TextView)?.text}' " +
+                "ends at ${bottom}px, below the ${hostHeight}px host", bottom <= hostHeight)
+        }
+    }
+
+    /** The rings: images whose description ends in a figure clause, which a provider logo's never does. */
+    private fun ringImages(view: View): List<ImageView> = buildList {
+        val description = view.contentDescription?.toString()
+        if (view is ImageView && description != null && ("% remaining" in description || "% used" in description)) add(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(ringImages(view.getChildAt(index)))
+    }
+
+    /** Where [view] ends, in [root]'s coordinates: its own bottom plus the top of every container between. */
+    private fun bottomWithin(root: View, view: View): Int {
+        var bottom = view.bottom
+        var parent = view.parent
+        while (parent is View && parent !== root) {
+            bottom += parent.top
+            parent = parent.parent
+        }
+        return bottom
+    }
 
     private fun textViews(view: View): List<TextView> = buildList {
         if (view is TextView) add(view)

@@ -5,6 +5,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.fillFraction
+import com.usagelimits.core.model.usedFillOverridesMissingInk
 
 /**
  * How one placed widget is painted: the panel behind it and the ink on top.
@@ -141,8 +143,8 @@ data class WidgetStyle(
             Severity.EXHAUSTED -> {}
             else -> return data
         }
-        val fraction = com.usagelimits.core.model.fillFraction(row.remainingPercent, row.isExhausted, mode)
-        return if (mode == PercentDisplay.USED && fraction != null && fraction > 0.0) data else null
+        val fraction = fillFraction(row.remainingPercent, row.isExhausted, mode)
+        return if (usedFillOverridesMissingInk(mode, fraction)) data else null
     }
 
     /** [bar] for the row's figure. */

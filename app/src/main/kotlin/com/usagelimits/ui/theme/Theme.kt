@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.usedFillOverridesMissingInk
 
 /**
  * Maps a [Severity] onto the palette.
@@ -73,7 +74,7 @@ object SeverityPalette {
      */
     fun barInkFor(severity: Severity, fraction: Double?, mode: PercentDisplay): Color? {
         barFill(severity)?.let { return it }
-        if (mode == PercentDisplay.USED && fraction != null && fraction > 0.0) return UsageColors.Data
+        if (usedFillOverridesMissingInk(mode, fraction)) return UsageColors.Data
         return null
     }
 
