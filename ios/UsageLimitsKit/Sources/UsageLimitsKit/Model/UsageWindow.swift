@@ -120,11 +120,72 @@ public struct UsageWindow: Sendable, Codable, Equatable {
     }
 
     /// Round only for display; boundary labels must not imply exhausted or full.
+    ///
+    /// A thin wrapper over `percentToken` in the historical LEFT reading, keeping the
+    /// `%`-suffixed strings existing call sites render; new surfaces take the token and compose
+    /// it with a locale template, so the wording lives in resources rather than here.
     public static func percentLabel(_ percent: Double?) -> String {
-        guard let percent, percent.isFinite, (0...100).contains(percent) else { return "—" }
-        if percent > 0 && percent < 1 { return "<1%" }
-        if percent < 100 && percent.rounded() == 100 { return ">99%" }
-        return "\(Int(percent.rounded()))%"
+        let token = percentToken(percent, exhausted: false, mode: .left)
+        return token == PercentToken.unknown ? token : "\(token)%"
+    }
+
+    /// The figure token for a window in `mode`: the number only, no `%` — the UI composes it with
+    /// a locale template, and tokens (not formatted strings) are the parity contract between this
+    /// table and the Android one.
+    ///
+    /// Exhaustion overrides the number: the provider's verdict is the figure, the same precedence
+    /// the LEFT treatment applies when a blocker with a full-looking percentage stays empty. The
+    /// check comes first, so an exhausted window with an unusable percentage still reads 100 in
+    /// USED mode.
+    public static func percentToken(
+        _ remaining: Double?, exhausted: Bool, mode: PercentDisplay
+    ) -> String {
+        if mode == .used && exhausted { return PercentToken.exhausted }
+        guard let figure = displayPercent(remaining, mode),
+              figure.isFinite, (0...100).contains(figure) else {
+            return PercentToken.unknown
+        }
+        if figure > 0 && figure < 1 { return PercentToken.underOne }
+        if figure < 100 && figure.rounded() == 100 { return PercentToken.overNinetyNine }
+        return String(Int(figure.rounded()))
+    }
+
+    /// The figure this window shows in `mode`, derived from the already-clamped
+    /// `remainingPercent`. Nil stays nil: a window with no usable percentage has no figure in
+    /// either mode. Exhaustion deliberately does not enter here — it is a labelling concern,
+    /// handled by `percentToken`.
+    public func displayPercent(_ mode: PercentDisplay) -> Double? {
+        Self.displayPercent(remainingPercent, mode)
+    }
+
+    /// `displayPercent` for a raw remaining figure, mirroring the Android `displayPercent`.
+    public static func displayPercent(_ remaining: Double?, _ mode: PercentDisplay) -> Double? {
+        switch mode {
+        case .left: return remaining
+        case .used: return remaining.map { 100.0 - $0 }
+        }
+    }
+
+    /// The fraction a bar or ring fills in `mode` (D4).
+    ///
+    /// USED flips what full means: a window the provider calls exhausted fills completely,
+    /// agreeing with its "100" label even when no usable percentage is behind it. A window with
+    /// no figure fills nothing in either mode — unknown never becomes "100 − 0".
+    public static func fillFraction(
+        _ remaining: Double?, exhausted: Bool, mode: PercentDisplay
+    ) -> Double? {
+        if mode == .used && exhausted { return 1.0 }
+        return displayPercent(remaining, mode).map { $0 / 100.0 }
+    }
+
+    /// `fillFraction` for this window; the stored `exhausted` flag decides, never an aged severity.
+    public func fillFraction(_ mode: PercentDisplay) -> Double? {
+        Self.fillFraction(remainingPercent, exhausted: exhausted, mode: mode)
+    }
+
+    /// The figure token for this window in `mode`, from the stored `exhausted` flag.
+    public func percentToken(_ mode: PercentDisplay) -> String {
+        Self.percentToken(remainingPercent, exhausted: exhausted, mode: mode)
     }
 
     public var remainingPercent: Double? {
