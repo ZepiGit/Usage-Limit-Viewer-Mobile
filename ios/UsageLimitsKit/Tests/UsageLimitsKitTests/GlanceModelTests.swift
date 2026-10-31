@@ -836,6 +836,19 @@ extension GlanceModelTests {
         XCTAssertEqual(account.representative(at: now)?.label, "Blocked")
     }
 
+    func testUsedModeReadsTheOpenWeeklyRowNotTheExhaustedWindowThatHasSinceReset() throws {
+        // The configured ring draws and speaks this one row's figure. A 5h window that reset
+        // since the fetch must not announce "100 used" beside an open weekly at 60 % left.
+        let account = try XCTUnwrap(GlanceModel.build([resetSinceFetch()], now: now, scope: .allAccounts).accounts.first)
+        let representative = try XCTUnwrap(account.representative(at: now))
+
+        XCTAssertEqual(representative.label, "Weekly")
+        XCTAssertEqual(
+            UsageWindow.percentToken(
+                representative.remainingPercent, exhausted: representative.severity == .exhausted, mode: .used),
+            "40")
+    }
+
     // MARK: - Exported before a reset, rendered after it
 
     /// Exported at `now`: the 5h window (0 % left, exhausted) resets in a minute, weekly is open at 80 % left.

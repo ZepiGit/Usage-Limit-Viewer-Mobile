@@ -109,7 +109,7 @@ enum SeverityPalette {
     /// both modes; red comes from it and from the dot, not from the bar.
     static func barFill(_ severity: Severity, fraction: Double?, mode: PercentDisplay) -> Color? {
         if let ink = barFill(severity) { return ink }
-        guard mode == .used, let fraction, fraction > 0 else { return nil }
+        guard mode.usedFillOverridesMissingInk(fraction) else { return nil }
         return UsageColors.data
     }
 
@@ -141,7 +141,8 @@ enum PercentText {
         return token == PercentToken.unknown ? token : "\(token)%"
     }
 
-    /// The word that says which side the figure counts.
+    /// The visible caption is the short "left"/"used" so it fits beside the figure; speech says
+    /// "remaining" instead (see `spoken`) because that sentence was already shipped in LEFT.
     static func sideWord(_ mode: PercentDisplay) -> String {
         mode == .used ? "used" : "left"
     }

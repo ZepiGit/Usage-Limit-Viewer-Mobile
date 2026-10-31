@@ -105,4 +105,17 @@ final class PercentDisplayTests: XCTestCase {
         XCTAssertEqual(.left, PercentDisplay.left.resolved(override: nil))
         XCTAssertEqual(.used, PercentDisplay.used.resolved(override: nil))
     }
+
+    /// The same vectors as the Android predicate of the same name.
+    func testUsedFillOverridesMissingInkOnlyForAPositiveFractionInUsedMode() {
+        for fraction in [nil, 0.0, 0.15, 1.0] as [Double?] {
+            XCTAssertFalse(
+                PercentDisplay.left.usedFillOverridesMissingInk(fraction),
+                "LEFT never overrides, fraction=\(String(describing: fraction))")
+        }
+        XCTAssertFalse(PercentDisplay.used.usedFillOverridesMissingInk(nil))
+        XCTAssertFalse(PercentDisplay.used.usedFillOverridesMissingInk(0.0))
+        XCTAssertTrue(PercentDisplay.used.usedFillOverridesMissingInk(0.15))
+        XCTAssertTrue(PercentDisplay.used.usedFillOverridesMissingInk(1.0))
+    }
 }
