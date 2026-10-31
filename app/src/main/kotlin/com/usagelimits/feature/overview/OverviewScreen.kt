@@ -53,6 +53,8 @@ import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.settings.AppIcon
 import com.usagelimits.feature.settings.AppIconTile
 import com.usagelimits.ui.AppIcons
+import com.usagelimits.ui.percentFlipLabel
+import com.usagelimits.ui.percentSideWord
 import com.usagelimits.ui.components.Dot
 import com.usagelimits.ui.components.EmptyBox
 import com.usagelimits.ui.components.ErrorBlock
@@ -240,10 +242,10 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
     val appIcon = remember(context) { AppIcon.current(context) }
     val percent = withPercentSign(percentToken(window, mode))
     // R2: the word beside the figure says which side it counts, and so does the spoken sentence.
-    val side = if (mode == PercentDisplay.USED) "used" else "left"
+    val side = percentSideWord(mode)
     // R3: the figure flips the one global setting; the label names where it goes.
     val flipTo = if (mode == PercentDisplay.USED) PercentDisplay.LEFT else PercentDisplay.USED
-    val flipLabel = if (flipTo == PercentDisplay.USED) "Show percentage used" else "Show percentage left"
+    val flipLabel = percentFlipLabel(mode)
     val motionEnabled = LocalMotionEnabled.current
     // A stale lead says how old it is instead of promising a reset the cache cannot vouch for.
     val reset = if (lead?.stale == true) Countdown.freshnessLabel(lead.usage.snapshot?.fetchedAt, nowMs)

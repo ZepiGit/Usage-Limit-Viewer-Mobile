@@ -57,6 +57,8 @@ import com.usagelimits.ui.components.Spinner
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.percentSideCaption
+import com.usagelimits.ui.percentSideWord
 import com.usagelimits.ui.theme.UsageType
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
@@ -359,7 +361,7 @@ private fun BackgroundSettings(
  * flat mat so a translucent panel reads as translucent.
  */
 @Composable
-private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: WidgetStyle, mode: com.usagelimits.core.model.PercentDisplay) {
+internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: WidgetStyle, mode: com.usagelimits.core.model.PercentDisplay) {
     Box(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(androidx.compose.ui.graphics.Color(0xFF3A3936)).padding(12.dp)) {
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(style.background.color).padding(14.dp),
@@ -367,19 +369,23 @@ private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widget
         ) {
             Text("Preview · ${snapshot.accountCount} selected", style = MaterialTheme.typography.labelMedium, color = style.textSecondary)
             if (snapshot.accounts.isEmpty()) Text(snapshot.emptyMessage ?: "Select accounts to see your widget", color = style.textSecondary)
-            else if (kind.contains("Rings")) Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                snapshot.accounts.take(4).forEach { account ->
-                    val row = ringLimit(account)
-                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                        Image(
-                            UsageRing.draw(
-                                160,
-                                com.usagelimits.core.model.fillFraction(row?.remainingPercent, row?.isExhausted == true, mode)?.times(100.0),
-                                ringAccent(account, style).toArgb(), style.trackArgb,
-                            ).asImageBitmap(),
-                            null, Modifier.fillMaxSize(),
-                        )
-                        ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
+            else if (kind.contains("Rings")) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                // R2: a ring alone does not say which side it counts; the placed widgets carry the same caption.
+                Text(percentSideCaption(mode), style = MaterialTheme.typography.labelSmall, color = style.textSecondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    snapshot.accounts.take(4).forEach { account ->
+                        val row = ringLimit(account)
+                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                            Image(
+                                UsageRing.draw(
+                                    160,
+                                    com.usagelimits.core.model.fillFraction(row?.remainingPercent, row?.isExhausted == true, mode)?.times(100.0),
+                                    ringAccent(account, style).toArgb(), style.trackArgb,
+                                ).asImageBitmap(),
+                                ringDescription(account, mode), Modifier.fillMaxSize(),
+                            )
+                            ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
+                        }
                     }
                 }
             } else snapshot.accounts.take(if (kind == "Usage Summary") 1 else 2).forEach { account ->
@@ -395,7 +401,7 @@ private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widget
                         )
                         // R2: the preview names the side as the placed widget does; a dash stays bare.
                         Text(
-                            if (percent == "—") percent else "$percent ${percentModeWord(mode).lowercase()}",
+                            if (percent == "—") percent else "$percent ${percentSideWord(mode)}",
                             style = UsageType.Figure, color = style.barText(row, account.dataValidity),
                         )
                     }

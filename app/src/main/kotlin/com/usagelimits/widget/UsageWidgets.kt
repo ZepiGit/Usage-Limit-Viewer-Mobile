@@ -48,6 +48,8 @@ import androidx.glance.unit.ColorProvider
 import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
+import com.usagelimits.ui.percentSideCaption
+import com.usagelimits.ui.percentSideWord
 import kotlinx.coroutines.flow.first
 
 /**
@@ -66,10 +68,6 @@ internal val LocalWidgetStyle = staticCompositionLocalOf { WidgetStyle() }
  * drift from the mode its neighbours show.
  */
 internal val LocalPercentMode = staticCompositionLocalOf { com.usagelimits.core.model.PercentDisplay.LEFT }
-
-/** The mode word that keeps a bare figure or ring unambiguous (R2): "Left" / "Used". */
-internal fun percentModeWord(mode: com.usagelimits.core.model.PercentDisplay): String =
-    if (mode == com.usagelimits.core.model.PercentDisplay.USED) "Used" else "Left"
 
 /**
  * A usage bar.
@@ -100,7 +98,10 @@ internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier,
     )
 }
 
-/** The figure a row shows, mode-aware: the token with its sign, "—" for an unknown value. */
+/**
+ * Goes through the exhausted-aware token, not the bare remaining figure, so an exhausted window
+ * with no usable percentage still reads "100%" in USED beside the bar [UsageBar] fills for it.
+ */
 @Composable
 private fun percentText(row: WidgetRow): String = com.usagelimits.core.model.withPercentSign(
     com.usagelimits.core.model.percentToken(row.remainingPercent, row.isExhausted, LocalPercentMode.current))
@@ -212,7 +213,7 @@ class CompactUsageWidget : GlanceAppWidget() {
     private fun FourTileRow(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
         // Leading mode word on every quota label (R2): the tile has no room for a suffix, and a
         // bare figure could be read as either meaning.
-        val modeWord = percentModeWord(LocalPercentMode.current)
+        val modeWord = percentSideCaption(LocalPercentMode.current)
         Row(modifier = root, verticalAlignment = Alignment.CenterVertically) {
             Tile(
                 label = "$modeWord · ${snapshot.headlineShort?.label ?: "5h limit"}",
@@ -272,7 +273,7 @@ class CompactUsageWidget : GlanceAppWidget() {
     @Composable
     private fun TwoMetricRow(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
         val row = snapshot.headlineShort ?: snapshot.headlineLong
-        val modeWord = percentModeWord(LocalPercentMode.current)
+        val modeWord = percentSideCaption(LocalPercentMode.current)
         Row(modifier = root, verticalAlignment = Alignment.CenterVertically) {
             Tile(
                 label = row?.let { "$modeWord · ${it.label}" } ?: modeWord,
@@ -301,7 +302,7 @@ class CompactUsageWidget : GlanceAppWidget() {
     private fun FocusReadout(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
         val lead = snapshot.accounts.firstOrNull()
         val row = snapshot.headlineShort ?: snapshot.headlineLong
-        val modeWord = percentModeWord(LocalPercentMode.current)
+        val modeWord = percentSideCaption(LocalPercentMode.current)
         Column(modifier = root) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -562,7 +563,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
                             // R2: the figure carries its side ("73% left" / "27% used"); a dash stays bare.
                             val percent = percentText(row)
                             val shown = if (percent == "—") percent
-                                else "$percent ${percentModeWord(LocalPercentMode.current).lowercase()}"
+                                else "$percent ${percentSideWord(LocalPercentMode.current)}"
                             Text(shown, style = if (percent == "—") widgetText(style.textSecondary, 12)
                                 else widgetText(style.barText(row, validity), 12, FontWeight.Medium, mono = true))
                         }

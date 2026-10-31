@@ -40,6 +40,7 @@ import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.percentSideCaption
 import com.usagelimits.ui.theme.UsageColors
 
 /** Sync cadence choices. 15 minutes is WorkManager's floor for periodic work. */
@@ -135,7 +136,7 @@ fun SettingsScreen(
                 SegmentedRow {
                     PercentDisplay.entries.forEach { mode ->
                         Segment(
-                            label = if (mode == PercentDisplay.LEFT) "Left" else "Used",
+                            label = percentSideCaption(mode),
                             selected = settings.percentDisplay == mode,
                             onClick = { onPercentDisplayChange(mode) },
                         )

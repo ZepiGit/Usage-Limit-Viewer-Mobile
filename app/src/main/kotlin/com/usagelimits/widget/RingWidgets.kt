@@ -24,6 +24,10 @@ import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.percentToken
+import com.usagelimits.core.model.withPercentSign
+import com.usagelimits.ui.percentSideCaption
+import com.usagelimits.ui.percentSpokenClause
 import kotlinx.coroutines.flow.first
 
 open class AccountRingsWidget(private val mini: Boolean) : GlanceAppWidget() {
@@ -83,7 +87,7 @@ private fun ModeCaption() {
     val style = LocalWidgetStyle.current
     val mode = LocalPercentMode.current
     Text(
-        text = if (mode == PercentDisplay.USED) "Used" else "Left",
+        text = percentSideCaption(mode),
         style = widgetText(style.textSecondary, 9),
         maxLines = 1,
         modifier = GlanceModifier.padding(horizontal = 2.dp).height(((9 * LocalContext.current.resources.configuration.fontScale + 4).dp)),
@@ -131,6 +135,29 @@ private fun RingAccountRow(context: Context, group: List<WidgetAccount>, columns
 
 internal fun ringLimit(account: WidgetAccount): WidgetRow? = account.representative
 
+/**
+ * The figure a ring shows in [mode], with its sign.
+ *
+ * The raw severity decides exhaustion, so a window the provider called closed still reads "100%"
+ * in USED beside whatever colour an aged severity gives the arc (§1.6).
+ */
+internal fun ringFigure(account: WidgetAccount, mode: PercentDisplay): String {
+    val row = ringLimit(account)
+    return withPercentSign(percentToken(row?.remainingPercent, row?.isExhausted == true, mode))
+}
+
+/**
+ * What a screen reader hears for one ring. Shared by the placed widgets and the configuration
+ * preview so the preview cannot describe a ring differently from the widget it stands for.
+ */
+internal fun ringDescription(account: WidgetAccount, mode: PercentDisplay): String =
+    "${account.title}, ${account.subtitle.orEmpty()}, ${ringFigure(account, mode)} ${percentSpokenClause(mode)}" +
+        listOfNotNull(
+            ", reconnect required".takeIf { account.requiresReauthentication },
+            ", some limits could not be updated".takeIf { account.partialUpdate },
+            ", limited: ${account.restrictions.joinToString()}".takeIf { account.restrictions.isNotEmpty() },
+        ).joinToString("")
+
 internal fun compactRingReset(context: Context, resetAt: Long): String {
     val now = System.currentTimeMillis()
     if (resetAt <= now) return "Reset due"
@@ -151,23 +178,14 @@ private fun RingMark(account: WidgetAccount, size: androidx.compose.ui.unit.Dp, 
     val style = LocalWidgetStyle.current
     val mode = LocalPercentMode.current
     val row = ringLimit(account)
-    // The raw severity decides exhaustion, so a window the provider called closed still reads
-    // "100%" in USED beside whatever colour an aged severity gives the arc (§1.6).
-    val percent = com.usagelimits.core.model.withPercentSign(
-        com.usagelimits.core.model.percentToken(row?.remainingPercent, row?.isExhausted == true, mode))
-    val side = if (mode == PercentDisplay.USED) "used" else "remaining"
+    val percent = ringFigure(account, mode)
     Box(GlanceModifier.size(size), contentAlignment = Alignment.Center) {
         Image(
             ImageProvider(UsageRing.draw(
                 160,
                 com.usagelimits.core.model.fillFraction(row?.remainingPercent, row?.isExhausted == true, mode)?.times(100.0),
                 ringAccent(account, style).toArgb(), style.trackArgb)),
-            "${account.title}, ${account.subtitle.orEmpty()}, $percent $side" +
-                listOfNotNull(
-                    ", reconnect required".takeIf { account.requiresReauthentication },
-                    ", some limits could not be updated".takeIf { account.partialUpdate },
-                    ", limited: ${account.restrictions.joinToString()}".takeIf { account.restrictions.isNotEmpty() },
-                ).joinToString(""),
+            ringDescription(account, mode),
             GlanceModifier.fillMaxSize())
         if (mini) {
             ProviderId.fromId(account.providerId)?.let {

@@ -3,6 +3,8 @@ package com.usagelimits.ui.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.snap
+import com.usagelimits.ui.percentSideWord
+import com.usagelimits.ui.percentSpokenClause
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.fillFraction
@@ -170,7 +172,7 @@ fun UsageWindowRow(
     // The mode-aware figure token, composed with the historical "%" until the locale template
     // lands (R4). The spoken sentence keeps the LEFT wording — "remaining" is what it always said.
     val percent = withPercentSign(percentToken(window, mode))
-    val shownSide = if (mode == PercentDisplay.USED) "used" else "left"
+    val shownSide = percentSideWord(mode)
     val label = when {
         window.scope != com.usagelimits.core.model.UsageScope.GLOBAL -> window.label
         window.group != null && window.category == com.usagelimits.core.model.WindowCategory.FIVE_HOUR -> "5h limit"
@@ -182,7 +184,7 @@ fun UsageWindowRow(
     }
     val reset = Countdown.resetLabel(window.resetAt, nowMs)
     Column(modifier.fillMaxWidth().semantics(mergeDescendants = true) {
-        contentDescription = "$label, $percent ${if (mode == PercentDisplay.USED) "used" else "remaining"}" +
+        contentDescription = "$label, $percent ${percentSpokenClause(mode)}" +
             (reset?.let { ", $it" } ?: "") +
             window.segments.joinToString("") { ", ${it.label} usage: ${percentLabel(it.usedPercent)}" }
     }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
