@@ -119,7 +119,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
+                onReorder = {}, onPercentDisplayChange = {},
             )
         }
 
@@ -142,7 +142,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
+                onReorder = {}, onPercentDisplayChange = {},
             )
         }
 
@@ -159,7 +159,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
+                onReorder = {}, onPercentDisplayChange = {},
             )
         }
 
@@ -175,7 +175,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
+                onReorder = {}, onPercentDisplayChange = {},
             )
         }
 
@@ -195,7 +195,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
+                onReorder = {}, onPercentDisplayChange = {},
             )
         }
 
@@ -285,6 +285,62 @@ class ScreenRenderTest {
             .let { assertTrue("the Security section should be gone", it.isEmpty()) }
     }
 
+    private fun renderSettings(mode: PercentDisplay) = render {
+        SettingsScreen(
+            state = UsageUiState(accounts = listOf(usage()), settings = AppSettings(percentDisplay = mode)),
+            onSyncIntervalChange = {},
+            onNotifyBelow20 = {},
+            onNotifyBelow10 = {},
+            onNotifyExhausted = {},
+            onNotifyResetCredit = {},
+            onNotifyAuthExpired = {},
+            onNotifyResetApproaching = {},
+            onNotifyCreditExpiring = {},
+            onShowTier = {},
+            onShowRenewal = {},
+            onPercentDisplayChange = {},
+        )
+    }
+
+    private fun assertShown(text: String, expected: Boolean) {
+        val found = compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        assertEquals("'$text' ${if (expected) "should" else "should not"} be on the settings screen", expected, found)
+    }
+
+    @Test
+    fun `the notification toggles are worded in used terms when the mode is used`() {
+        // The thresholds are unchanged (the same two crossings on remaining); only the words
+        // follow the mode, so the toggle reads in the figures the user is watching.
+        renderSettings(PercentDisplay.USED)
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Above 80% used"))
+
+        assertShown("Above 80% used", true)
+        assertShown("Once, the first time a limit exceeds four fifths used", true)
+        assertShown("Above 90% used", true)
+        assertShown("Once more when it gets tight, even after the 80% warning", true)
+
+        assertShown("Below 20% left", false)
+        assertShown("Below 10% left", false)
+        assertShown("Once, the first time a limit drops under a fifth remaining", false)
+        assertShown("Once more when it gets tight, even after the 20% warning", false)
+    }
+
+    @Test
+    fun `the notification toggles keep their left wording when the mode is left`() {
+        renderSettings(PercentDisplay.LEFT)
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Below 20% left"))
+
+        assertShown("Below 20% left", true)
+        assertShown("Once, the first time a limit drops under a fifth remaining", true)
+        assertShown("Below 10% left", true)
+        assertShown("Once more when it gets tight, even after the 20% warning", true)
+
+        assertShown("Above 80% used", false)
+        assertShown("Above 90% used", false)
+        assertShown("Once, the first time a limit exceeds four fifths used", false)
+        assertShown("Once more when it gets tight, even after the 80% warning", false)
+    }
+
     @Test
     fun `the percent display control reports its choice`() {
         var chosen: PercentDisplay? = null
@@ -319,7 +375,7 @@ class ScreenRenderTest {
                 usage = usage(),
                 nowMs = now,
                 staleAfterMs = 3_600_000,
-                resetInFlight = false,
+                percentDisplay = PercentDisplay.LEFT, resetInFlight = false,
                 supportsResetCredits = true,
                 onRefresh = { refreshed = true },
                 onConsumeResetCredit = {},
@@ -373,7 +429,7 @@ class ScreenRenderTest {
     private fun renderDetail(usage: AccountUsage) = render {
         AccountDetailScreen(
             usage = usage, nowMs = now, staleAfterMs = 3_600_000,
-            resetInFlight = false, supportsResetCredits = false,
+            percentDisplay = PercentDisplay.LEFT, resetInFlight = false, supportsResetCredits = false,
             onRefresh = {}, onConsumeResetCredit = {}, onRemove = {},
             notificationsEnabled = true, onNotificationsChange = {},
         )
@@ -387,7 +443,7 @@ class ScreenRenderTest {
                 usage = null,
                 nowMs = now,
                 staleAfterMs = 3_600_000,
-                resetInFlight = false,
+                percentDisplay = PercentDisplay.LEFT, resetInFlight = false,
                 supportsResetCredits = false,
                 onRefresh = {},
                 onConsumeResetCredit = {},

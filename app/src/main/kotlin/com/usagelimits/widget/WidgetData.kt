@@ -30,6 +30,13 @@ data class WidgetRow(
 ) {
     /** The validity a surface should colour this row with, when its account's own is null. */
     val validity: Severity? get() = if (resetElapsed) Severity.STALE else null
+
+    /**
+     * The raw exhaustion a USED-mode figure or fill keys on: the provider's verdict, never a
+     * validity state a stale reading or a passed reset swapped in, so an exhausted window still
+     * reads "100%" beside a grey bar.
+     */
+    val isExhausted: Boolean get() = severity == Severity.EXHAUSTED
 }
 
 /** One account block in the larger widget. */

@@ -88,7 +88,8 @@ class WidgetConfigActivity : ComponentActivity() {
             options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH), options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT),
             targetColumns ?: if (kind == "Mini Rings") 1 else 3, targetRows ?: if (kind == "Mini Rings" || kind == "Usage Summary") 1 else 2)
         setContent {
-            UsageLimitsTheme(providerIcons = container.settingsStore.settings.collectAsState(initial = com.usagelimits.core.settings.AppSettings()).value.providerIcons) {
+            val settings by container.settingsStore.settings.collectAsState(initial = com.usagelimits.core.settings.AppSettings())
+            UsageLimitsTheme(providerIcons = settings.providerIcons) {
                 var initial by remember { mutableStateOf<WidgetConfigEntity?>(null) }
                 var loaded by remember { mutableStateOf(false) }
                 val accounts by container.repository.observeAccountUsage().collectAsState(emptyList())
@@ -98,7 +99,7 @@ class WidgetConfigActivity : ComponentActivity() {
                     try { initial = container.widgetConfigDao.get(widgetId); loaded = true }
                     catch (_: Exception) { error = "Could not load this widget. Please try again." }
                 }
-                if (loaded) WidgetConfigScreen(accounts, initial, kind, saving, error,
+                if (loaded) WidgetConfigScreen(accounts, initial, kind, saving, error, settings.percentDisplay,
                     onCancel = { finish() }, onSave = { scope, accountId, providerId, style, custom ->
                         if (!saving) {
                             saving = true
@@ -135,7 +136,10 @@ class WidgetConfigActivity : ComponentActivity() {
 
 @Composable
 private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConfigEntity?, kind: String,
-    saving: Boolean, error: String?, onCancel: () -> Unit,
+    saving: Boolean, error: String?,
+    // The preview must show figures the way the placed widget will; required so it cannot drift to LEFT.
+    percentDisplay: com.usagelimits.core.model.PercentDisplay,
+    onCancel: () -> Unit,
     onSave: (WidgetScope, String?, String?, WidgetStyle, List<String>) -> Unit) {
     var scopeName by rememberSaveable { mutableStateOf(WidgetScope.fromName(initial?.scope).name) }
     var accountId by rememberSaveable { mutableStateOf(initial?.accountId) }
@@ -189,7 +193,7 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
     }) { inset ->
         LazyColumn(Modifier.fillMaxSize().padding(inset), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { ScreenTitle(kind) }
-            item { ContentPreview(preview, kind, style) }
+            item { ContentPreview(preview, kind, style, percentDisplay) }
             item {
                 BackgroundSettings(
                     style = style,
@@ -355,7 +359,7 @@ private fun BackgroundSettings(
  * flat mat so a translucent panel reads as translucent.
  */
 @Composable
-private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: WidgetStyle) {
+private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: WidgetStyle, mode: com.usagelimits.core.model.PercentDisplay) {
     Box(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(androidx.compose.ui.graphics.Color(0xFF3A3936)).padding(12.dp)) {
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(style.background.color).padding(14.dp),
@@ -368,7 +372,11 @@ private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widget
                     val row = ringLimit(account)
                     Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                         Image(
-                            UsageRing.draw(160, row?.remainingPercent, ringAccent(account, style).toArgb(), style.trackArgb).asImageBitmap(),
+                            UsageRing.draw(
+                                160,
+                                com.usagelimits.core.model.fillFraction(row?.remainingPercent, row?.isExhausted == true, mode)?.times(100.0),
+                                ringAccent(account, style).toArgb(), style.trackArgb,
+                            ).asImageBitmap(),
                             null, Modifier.fillMaxSize(),
                         )
                         ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
@@ -377,10 +385,19 @@ private fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widget
             } else snapshot.accounts.take(if (kind == "Usage Summary") 1 else 2).forEach { account ->
                 Text(account.title, style = MaterialTheme.typography.titleMedium, color = style.textPrimary)
                 account.rows.take(2).forEach { row ->
+                    val percent = com.usagelimits.core.model.withPercentSign(
+                        com.usagelimits.core.model.percentToken(row.remainingPercent, row.isExhausted, mode))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(row.label, Modifier.width(64.dp), style = MaterialTheme.typography.bodySmall, color = style.textSecondary)
-                        PreviewBar(((row.remainingPercent ?: 0.0) / 100).toFloat(), style.bar(row, account.dataValidity), style.track, Modifier.weight(1f))
-                        Text(com.usagelimits.core.model.percentLabel(row.remainingPercent), style = UsageType.Figure, color = style.barText(row, account.dataValidity))
+                        PreviewBar(
+                            (com.usagelimits.core.model.fillFraction(row.remainingPercent, row.isExhausted, mode) ?: 0.0).toFloat(),
+                            style.bar(row, account.dataValidity, mode), style.track, Modifier.weight(1f),
+                        )
+                        // R2: the preview names the side as the placed widget does; a dash stays bare.
+                        Text(
+                            if (percent == "—") percent else "$percent ${percentModeWord(mode).lowercase()}",
+                            style = UsageType.Figure, color = style.barText(row, account.dataValidity),
+                        )
                     }
                 }
             }

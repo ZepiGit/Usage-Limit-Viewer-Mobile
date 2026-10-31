@@ -146,17 +146,22 @@ fun SettingsScreen(
 
         item { SectionHeader("Notifications") }
         item {
+            // The thresholds stay on remaining (the same two crossings); only their wording
+            // follows the display mode, so the toggles read in the numbers the user is watching.
+            val used = settings.percentDisplay == PercentDisplay.USED
             UsageCard {
                 ToggleRow(
-                    title = "Below 20% left",
-                    subtitle = "Once, the first time a limit drops under a fifth remaining",
+                    title = if (used) "Above 80% used" else "Below 20% left",
+                    subtitle = if (used) "Once, the first time a limit exceeds four fifths used"
+                        else "Once, the first time a limit drops under a fifth remaining",
                     checked = settings.notifyBelow20Percent,
                     onChange = onNotifyBelow20,
                 )
                 RuleDivider()
                 ToggleRow(
-                    title = "Below 10% left",
-                    subtitle = "Once more when it gets tight, even after the 20% warning",
+                    title = if (used) "Above 90% used" else "Below 10% left",
+                    subtitle = if (used) "Once more when it gets tight, even after the 80% warning"
+                        else "Once more when it gets tight, even after the 20% warning",
                     checked = settings.notifyBelow10Percent,
                     onChange = onNotifyBelow10,
                 )

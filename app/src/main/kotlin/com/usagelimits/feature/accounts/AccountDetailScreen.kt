@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.ui.components.Dot
@@ -56,6 +57,8 @@ fun AccountDetailScreen(
     usage: AccountUsage?,
     nowMs: Long,
     staleAfterMs: Long,
+    // Required, never defaulted: a defaulted mode would leave this screen silently in LEFT.
+    percentDisplay: PercentDisplay,
     resetInFlight: Boolean,
     supportsResetCredits: Boolean,
     onRefresh: () -> Unit,
@@ -179,7 +182,7 @@ fun AccountDetailScreen(
                     fun divide(): Boolean { val had = !first; first = false; return had }
                     ungrouped.forEach { window ->
                         if (divide()) RuleDivider(Modifier.padding(horizontal = 16.dp))
-                        UsageWindowRow(window, nowMs, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                        UsageWindowRow(window, nowMs, percentDisplay, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
                     }
                     groups.forEach { (group, rows) ->
                         if (divide()) RuleDivider(Modifier.padding(horizontal = 16.dp))
@@ -190,7 +193,7 @@ fun AccountDetailScreen(
                             color = UsageColors.Ink,
                         )
                         rows.forEach { window ->
-                            UsageWindowRow(window, nowMs, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                            UsageWindowRow(window, nowMs, percentDisplay, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
                         }
                     }
                 }

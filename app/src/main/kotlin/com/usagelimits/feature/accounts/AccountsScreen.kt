@@ -100,7 +100,7 @@ fun AccountsScreen(
         }
 
         items(visible, key = { it.account.localId }) { usage ->
-            AccountCard(usage, nowMs, state.staleAfterMs,
+            AccountCard(usage, nowMs, state.staleAfterMs, state.settings.percentDisplay,
                 modifier = if (LocalMotionEnabled.current) Modifier.animateItem() else Modifier,
                 onRetry = onRefresh,
             ) {

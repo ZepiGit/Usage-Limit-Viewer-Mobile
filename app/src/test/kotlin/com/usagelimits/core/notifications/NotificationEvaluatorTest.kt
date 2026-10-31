@@ -1,6 +1,7 @@
 package com.usagelimits.core.notifications
 
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ResetCredit
@@ -1081,6 +1082,113 @@ class NotificationEvaluatorTest {
             "un-silencing must not replay the episode that ran while it was quiet, but got " +
                 afterUnmuting.events.map { it.key },
             afterUnmuting.events.isEmpty(),
+        )
+    }
+
+    // endregion
+
+    // region percent display mode
+
+    private val usedSettings = AppSettings(percentDisplay = PercentDisplay.USED)
+    private val leftSettings = AppSettings(percentDisplay = PercentDisplay.LEFT)
+
+    @Test
+    fun `in used mode each tier speaks in used terms`() {
+        val publisher = publisher()
+
+        assertEquals(
+            listOf("Account acct · 5h limit: more than 80% used"),
+            publisher.sync(listOf(usage(remaining = 18.0)), usedSettings, now),
+        )
+        assertEquals(
+            listOf("Account acct · 5h limit: more than 90% used"),
+            publisher.sync(listOf(usage(remaining = 8.0, fetchedAt = now + 1)), usedSettings, now),
+        )
+        // Exhaustion has no percentage in its wording, so it reads the same in both modes.
+        assertEquals(
+            listOf("Account acct · 5h limit exhausted"),
+            publisher.sync(listOf(usage(remaining = 0.0, exhausted = true, fetchedAt = now + 2)), usedSettings, now),
+        )
+    }
+
+    @Test
+    fun `used wording is chosen per window when several cross in one sync`() {
+        val lines = run(listOf(multi("5h limit" to 8.0, "Weekly" to 18.0)), emptyMap(), usedSettings).lines()
+        assertEquals(
+            listOf(
+                "Account acct · 5h limit: more than 90% used",
+                "Account acct · Weekly: more than 80% used",
+            ),
+            lines,
+        )
+    }
+
+    @Test
+    fun `left mode keeps its remaining wording when chosen explicitly`() {
+        val publisher = publisher()
+        assertEquals(
+            listOf("Account acct · 5h limit: less than 20% remaining"),
+            publisher.sync(listOf(usage(remaining = 18.0)), leftSettings, now),
+        )
+        assertEquals(
+            listOf("Account acct · 5h limit: less than 10% remaining"),
+            publisher.sync(listOf(usage(remaining = 8.0, fetchedAt = now + 1)), leftSettings, now),
+        )
+        assertEquals(
+            listOf("Account acct · 5h limit exhausted"),
+            publisher.sync(listOf(usage(remaining = 0.0, exhausted = true, fetchedAt = now + 2)), leftSettings, now),
+        )
+        assertTrue(
+            "no LEFT line may borrow the used wording",
+            publisher.sync(listOf(usage(remaining = 0.0, exhausted = true, fetchedAt = now + 3)), leftSettings, now)
+                .none { "used" in it },
+        )
+    }
+
+    @Test
+    fun `the display mode changes the words, never which events fire`() {
+        // Thresholds stay keyed on remaining (display only): the same windows, tiers and episodes
+        // must be claimed in both modes, with text in exactly the same places. Boundaries are
+        // included because "strictly less than" is where a mode-aware rewrite would drift.
+        for (remaining in listOf(25.0, 20.0, 19.9, 10.0, 9.9, 0.0)) {
+            val input = listOf(usage(remaining = remaining, exhausted = remaining == 0.0))
+            val left = run(input, emptyMap(), leftSettings)
+            val used = run(input, emptyMap(), usedSettings)
+            assertEquals("event keys at $remaining% remaining", left.keys(), used.keys())
+            assertEquals(
+                "which events carry text at $remaining% remaining",
+                left.events.map { it.line.isNotBlank() },
+                used.events.map { it.line.isNotBlank() },
+            )
+            assertEquals("episode state at $remaining% remaining", left.states, used.states)
+        }
+        // And across a sequence, so the one-shot claims advance identically.
+        val left = publisher()
+        val used = publisher()
+        for ((step, remaining) in listOf(18.0, 17.0, 8.0, 90.0, 15.0, 0.0).withIndex()) {
+            val input = listOf(usage(remaining = remaining, exhausted = remaining == 0.0, fetchedAt = now + step))
+            assertEquals(
+                "number of lines spoken at step $step ($remaining% remaining)",
+                left.sync(input, leftSettings, now).size,
+                used.sync(input, usedSettings, now).size,
+            )
+            assertEquals("episode bookkeeping at step $step", left.stateOf("acct"), used.stateOf("acct"))
+        }
+        // A fixture that fires nothing would make every comparison above vacuously equal.
+        assertTrue(
+            "the 15% input must fire something in both modes",
+            run(listOf(usage(remaining = 15.0)), emptyMap(), usedSettings).keys().isNotEmpty(),
+        )
+    }
+
+    @Test
+    fun `used wording needs only one enabled tier, like the remaining wording`() {
+        // The strongest reached tier is spoken if ANY reached tier is enabled; the mode must not
+        // change that routing.
+        val onlyWarning = AppSettings(notifyBelow10Percent = false, percentDisplay = PercentDisplay.USED)
+        assertEquals(
+            listOf("Account acct · 5h limit: more than 90% used"),
+            run(listOf(usage(remaining = 8.0)), emptyMap(), onlyWarning).lines(),
         )
     }
 

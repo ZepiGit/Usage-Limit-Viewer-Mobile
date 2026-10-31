@@ -3,6 +3,7 @@ package com.usagelimits.widget
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 
 /**
@@ -128,11 +129,20 @@ data class WidgetStyle(
      * [validity] is the owning account's DATA validity — stale, failed or needing
      * reconnection — and outranks the row. Stale is grey; a failed or unknown reading and an
      * exhausted row draw no fill, whatever percentage they still report.
+     *
+     * In USED mode an exhausted row IS the full bar (D4), so when the severity ink is null but
+     * the row's displayed fraction is positive, the fill takes the data hue instead of
+     * vanishing beside a "100%" figure. Raw exhaustion only — a stale reading keeps its grey.
      */
-    fun bar(row: WidgetRow, validity: Severity? = null): Color? = when ((validity ?: row.validity) ?: row.severity) {
-        Severity.STALE -> stale
-        Severity.ERROR, Severity.UNKNOWN, Severity.EXHAUSTED -> null
-        else -> data
+    fun bar(row: WidgetRow, validity: Severity? = null, mode: PercentDisplay = PercentDisplay.LEFT): Color? {
+        when ((validity ?: row.validity) ?: row.severity) {
+            Severity.STALE -> return stale
+            Severity.ERROR, Severity.UNKNOWN -> return null
+            Severity.EXHAUSTED -> {}
+            else -> return data
+        }
+        val fraction = com.usagelimits.core.model.fillFraction(row.remainingPercent, row.isExhausted, mode)
+        return if (mode == PercentDisplay.USED && fraction != null && fraction > 0.0) data else null
     }
 
     /** [bar] for the row's figure. */

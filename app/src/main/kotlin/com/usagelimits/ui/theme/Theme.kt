@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 
 /**
@@ -58,6 +59,22 @@ object SeverityPalette {
         Severity.STALE -> UsageColors.StaleMark
         Severity.UNKNOWN, Severity.ERROR, Severity.EXHAUSTED -> null
         else -> UsageColors.Data
+    }
+
+    /**
+     * Bar fill ink for [severity] at the displayed [fraction], in [mode] (D4).
+     *
+     * LEFT keeps the historical rendering exactly: severity decides over the percentage, so a
+     * blocker with a full-looking percentage stays empty. USED flips what full means — an
+     * exhausted window there *is* full — so when the severity ink is nil but the displayed
+     * fraction is positive, the fill takes the data hue. Only raw-exhausted, non-stale windows
+     * reach that fallback: a stale reading keeps its grey ink, and unknown/error have no
+     * fraction at all. Figure colour stays on [figureColor], keyed on remaining in both modes.
+     */
+    fun barInkFor(severity: Severity, fraction: Double?, mode: PercentDisplay): Color? {
+        barFill(severity)?.let { return it }
+        if (mode == PercentDisplay.USED && fraction != null && fraction > 0.0) return UsageColors.Data
+        return null
     }
 
     fun label(severity: Severity) = when (severity) {

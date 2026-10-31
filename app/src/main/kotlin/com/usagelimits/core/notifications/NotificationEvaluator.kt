@@ -241,10 +241,17 @@ object NotificationEvaluator {
             EXHAUSTED -> settings.notifyOnExhausted
         }
 
-        fun message(name: String, label: String): String = when (this) {
-            WARNING -> "$name · $label: less than 20% remaining"
-            CRITICAL -> "$name · $label: less than 10% remaining"
-            EXHAUSTED -> "$name · $label exhausted"
+        /**
+         * The wording follows the display mode (R2) while the threshold stays on remaining
+         * (§0 rule 4): "less than 20% remaining" and "more than 80% used" are the same crossing.
+         */
+        fun message(name: String, label: String, mode: com.usagelimits.core.model.PercentDisplay): String {
+            val used = mode == com.usagelimits.core.model.PercentDisplay.USED
+            return when (this) {
+                WARNING -> if (used) "$name · $label: more than 80% used" else "$name · $label: less than 20% remaining"
+                CRITICAL -> if (used) "$name · $label: more than 90% used" else "$name · $label: less than 10% remaining"
+                EXHAUSTED -> "$name · $label exhausted"
+            }
         }
     }
 
@@ -325,7 +332,7 @@ object NotificationEvaluator {
 
             val condition = reached.last()
             val line = if (reached.any { it.enabled(settings) }) {
-                condition.message(name, window.label)
+                condition.message(name, window.label, settings.percentDisplay)
             } else {
                 ""
             }
