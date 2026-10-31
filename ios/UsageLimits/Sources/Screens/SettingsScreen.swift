@@ -28,8 +28,10 @@ struct SettingsScreen: View {
                 .listRowBackground(UsageColors.surface)
 
                 Section(header: LedgerHeader("Notifications")) {
-                    Toggle("Below 20% left", isOn: $store.settings.notifications.notifyBelow20Percent)
-                    Toggle("Below 10% left", isOn: $store.settings.notifications.notifyBelow10Percent)
+                    // Titles follow the display mode; the thresholds do not move. "Below 20% left"
+                    // and "Above 80% used" are one crossing, so the same switch drives both.
+                    Toggle(warningTitle, isOn: $store.settings.notifications.notifyBelow20Percent)
+                    Toggle(criticalTitle, isOn: $store.settings.notifications.notifyBelow10Percent)
                     Toggle("Limit exhausted", isOn: $store.settings.notifications.notifyOnExhausted)
                     Toggle("Reset approaching", isOn: $store.settings.notifications.notifyOnResetApproaching)
                     Toggle(
@@ -55,6 +57,11 @@ struct SettingsScreen: View {
                         + "are about to run out of, not a second date competing with it.")
                         .usageFont(.small)
                         .foregroundStyle(UsageColors.muted)
+                    // A segmented picker draws only its options, so its title has to be written
+                    // out; the Picker keeps its own label for VoiceOver, and this copy is hidden
+                    // so the control is not announced twice.
+                    Text("Show percentages as")
+                        .accessibilityHidden(true)
                     Picker("Show percentages as", selection: $store.settings.percentDisplay) {
                         Text("Left").tag(PercentDisplay.left)
                         Text("Used").tag(PercentDisplay.used)
@@ -88,6 +95,14 @@ struct SettingsScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
         }
+    }
+
+    private var warningTitle: String {
+        store.settings.percentDisplay == .used ? "Above 80% used" : "Below 20% left"
+    }
+
+    private var criticalTitle: String {
+        store.settings.percentDisplay == .used ? "Above 90% used" : "Below 10% left"
     }
 
     private func label(for minutes: Int) -> String {

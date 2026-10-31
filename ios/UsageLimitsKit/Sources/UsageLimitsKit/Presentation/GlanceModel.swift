@@ -235,6 +235,13 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
     /// credits existed; nothing else reads it.
     public let credits: [GlanceCredit]
 
+    /// Which side of each quota the figures count.
+    ///
+    /// Travels with the snapshot because the widget process never reads `AppSettings`: this file
+    /// is the only thing it knows about the app. Deliberately not defaulted in the initialiser,
+    /// so a new construction site cannot silently drop the user's choice back to `left`.
+    public let percentDisplay: PercentDisplay
+
     public init(
         accounts: [GlanceAccount],
         accountCount: Int,
@@ -244,8 +251,10 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         headlineShort: GlanceRow?,
         headlineLong: GlanceRow?,
         staleAfter: TimeInterval = Severity.staleAfter,
-        credits: [GlanceCredit] = []
+        credits: [GlanceCredit] = [],
+        percentDisplay: PercentDisplay
     ) {
+        self.percentDisplay = percentDisplay
         self.credits = credits
         self.staleAfter = staleAfter
         self.accounts = accounts
@@ -259,13 +268,14 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case accounts, accountCount, updatedAt, nextResetAt, overallSeverity
-        case headlineShort, headlineLong, staleAfter, credits
+        case headlineShort, headlineLong, staleAfter, credits, percentDisplay
     }
 
-    /// Lenient on `staleAfter`, which older files do not have. The synthesised decoder
-    /// requires every key, and this file is read by the widget process — a decode failure
-    /// there is not an error anyone sees, it is a blank tile on every home screen at the
-    /// moment of upgrade.
+    /// Lenient on `staleAfter` and `percentDisplay`, which older files do not have. The
+    /// synthesised decoder requires every key, and this file is read by the widget process — a
+    /// decode failure there is not an error anyone sees, it is a blank tile on every home
+    /// screen at the moment of upgrade. The mode is read as a plain string for the same reason:
+    /// a value a later build wrote must not fail the whole snapshot.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         accounts = try c.decode([GlanceAccount].self, forKey: .accounts)
@@ -278,6 +288,8 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         staleAfter = try c.decodeIfPresent(TimeInterval.self, forKey: .staleAfter)
             ?? Severity.staleAfter
         credits = try c.decodeIfPresent([GlanceCredit].self, forKey: .credits) ?? []
+        percentDisplay = PercentDisplay.fromLoose(
+            raw: try c.decodeIfPresent(String.self, forKey: .percentDisplay))
     }
 
     public func nextResettingAccount(at date: Date) -> GlanceAccount? {
@@ -301,7 +313,7 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
             accounts: accounts, accountCount: accountCount, updatedAt: updatedAt,
             nextResetAt: nextResetAt, overallSeverity: overallSeverity,
             headlineShort: headlineShort, headlineLong: headlineLong,
-            staleAfter: staleAfter, credits: credits)
+            staleAfter: staleAfter, credits: credits, percentDisplay: percentDisplay)
     }
 
     /// The instants after `date` at which this snapshot's presentation changes on its own:
@@ -317,7 +329,7 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
 
     public static let empty = GlanceSnapshot(
         accounts: [], accountCount: 0, updatedAt: nil, nextResetAt: nil,
-        overallSeverity: .stale, headlineShort: nil, headlineLong: nil)
+        overallSeverity: .stale, headlineShort: nil, headlineLong: nil, percentDisplay: .left)
 }
 
 /// An account and its latest snapshot, as the cache hands them over.
@@ -370,7 +382,8 @@ public enum GlanceModel {
         providerID: String? = nil,
         staleAfter: TimeInterval = Severity.staleAfter,
         customAccountIDs: [String] = [],
-        providerIcons: [String: String] = [:]
+        providerIcons: [String: String] = [:],
+        percentDisplay: PercentDisplay = .left
     ) -> GlanceSnapshot {
         let selected: [AccountUsage]
         switch scope {
@@ -428,7 +441,8 @@ public enum GlanceModel {
             overallSeverity: ordered.map(\.severity).max() ?? .stale,
             headlineShort: lead?.rows.first { $0.category == .fiveHour },
             headlineLong: lead?.rows.first { $0.category != .fiveHour },
-            staleAfter: staleAfter)
+            staleAfter: staleAfter,
+            percentDisplay: percentDisplay)
     }
 
     /// Worst first, with the tightest number breaking a tie — coarsely.

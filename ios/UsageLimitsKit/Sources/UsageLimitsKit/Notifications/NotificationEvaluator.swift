@@ -245,7 +245,8 @@ public enum NotificationEvaluator {
         accounts: [AccountSummary],
         settings: NotificationSettings,
         states: [String: AccountState],
-        now: Date
+        now: Date,
+        percentDisplay: PercentDisplay = .left
     ) -> Outcome {
         var carried = states
         var events: [Event] = []
@@ -358,6 +359,7 @@ public enum NotificationEvaluator {
                     episode: windowState.episode,
                     reached: reached,
                     settings: settings,
+                    percentDisplay: percentDisplay,
                     into: &events
                 )
             }
@@ -440,11 +442,16 @@ public enum NotificationEvaluator {
             }
         }
 
-        func message(_ name: String, _ label: String) -> String {
-            switch self {
-            case .warning: return "\(name) · \(label): less than 20% remaining"
-            case .critical: return "\(name) · \(label): less than 10% remaining"
-            case .exhausted: return "\(name) · \(label) exhausted"
+        /// The wording follows the display mode while the threshold stays on remaining:
+        /// "less than 20% remaining" and "more than 80% used" are the same crossing, so the
+        /// tiers, settings and dedup keys are untouched. The exhausted line names no figure.
+        func message(_ name: String, _ label: String, _ mode: PercentDisplay) -> String {
+            switch (self, mode) {
+            case (.warning, .left): return "\(name) · \(label): less than 20% remaining"
+            case (.warning, .used): return "\(name) · \(label): more than 80% used"
+            case (.critical, .left): return "\(name) · \(label): less than 10% remaining"
+            case (.critical, .used): return "\(name) · \(label): more than 90% used"
+            case (.exhausted, _): return "\(name) · \(label) exhausted"
             }
         }
     }
@@ -476,12 +483,13 @@ public enum NotificationEvaluator {
         episode: Int,
         reached: [Tier],
         settings: NotificationSettings,
+        percentDisplay: PercentDisplay,
         into events: inout [Event]
     ) {
         guard let condition = reached.last else { return }
 
         let line = reached.contains(where: { $0.enabled(settings) })
-            ? condition.message(accountLabel, windowLabel)
+            ? condition.message(accountLabel, windowLabel, percentDisplay)
             : ""
 
         for tier in reached {

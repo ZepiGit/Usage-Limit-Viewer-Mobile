@@ -90,7 +90,8 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(mixed.nextResettingRow(at: now), measuredRow)
         XCTAssertNil(unknown.nextResettingRow(at: now))
         let snapshot = GlanceSnapshot(accounts: [unknown, mixed], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .healthy, headlineShort: nil, headlineLong: nil)
+            nextResetAt: nil, overallSeverity: .healthy, headlineShort: nil, headlineLong: nil,
+            percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "measured")
     }
 
@@ -105,7 +106,8 @@ final class GlanceModelTests: XCTestCase {
             rows: [nearlyUsedRow], severity: .low, fetchedAt: now)
         XCTAssertEqual(blocked.nextResettingRow(at: now), blockedRow)
         let snapshot = GlanceSnapshot(accounts: [nearlyUsed, blocked], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil)
+            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil,
+            percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "blocked")
     }
 
@@ -133,7 +135,8 @@ final class GlanceModelTests: XCTestCase {
                 resetAt: now.addingTimeInterval(2 * 3_600), severity: .healthy)],
             severity: .healthy, fetchedAt: now)
         let snapshot = GlanceSnapshot(accounts: [tight, soon], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .low, headlineShort: nil, headlineLong: nil)
+            nextResetAt: nil, overallSeverity: .low, headlineShort: nil, headlineLong: nil,
+            percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "soon")
         XCTAssertEqual(snapshot.nextResettingAccount(at: now.addingTimeInterval(27 * 3_600))?.id, "tight")
         XCTAssertNil(GlanceSnapshot.empty.nextResettingAccount(at: now))
@@ -147,8 +150,30 @@ final class GlanceModelTests: XCTestCase {
             rows: [GlanceRow(label: "Weekly", category: .weekly, remainingPercent: nil,
                 resetAt: nil, severity: .exhausted)], severity: .exhausted, fetchedAt: now)
         let snapshot = GlanceSnapshot(accounts: [measured, exhausted], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil)
+            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil,
+            percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "exhausted")
+    }
+
+    // MARK: - Percent display mode
+
+    func testBuildCarriesTheRequestedPercentDisplayAndDefaultsToLeft() {
+        XCTAssertEqual(GlanceModel.build(all, now: now, scope: .allAccounts).percentDisplay, .left)
+        XCTAssertEqual(
+            GlanceModel.build(all, now: now, scope: .allAccounts, percentDisplay: .used).percentDisplay,
+            .used)
+    }
+
+    func testWithCreditsKeepsThePercentDisplay() {
+        // The publisher attaches credits to an already-built snapshot; losing the mode there
+        // would flip every widget back to LEFT on the next publish.
+        let built = GlanceModel.build(all, now: now, scope: .allAccounts, percentDisplay: .used)
+
+        XCTAssertEqual(built.with(credits: []).percentDisplay, .used)
+    }
+
+    func testTheEmptySnapshotReadsLeft() {
+        XCTAssertEqual(GlanceSnapshot.empty.percentDisplay, .left)
     }
 
     // MARK: - Scope selection

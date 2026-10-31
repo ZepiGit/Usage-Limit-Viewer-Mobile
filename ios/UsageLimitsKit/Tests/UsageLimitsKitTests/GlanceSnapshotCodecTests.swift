@@ -10,7 +10,7 @@ final class GlanceSnapshotCodecTests: XCTestCase {
 
     private let now = Date(timeIntervalSince1970: 1_757_000_000)
 
-    private func snapshot() -> GlanceSnapshot {
+    private func snapshot(percentDisplay: PercentDisplay = .left) -> GlanceSnapshot {
         let short = GlanceRow(
             label: "5h limit", category: .fiveHour, remainingPercent: 12.5,
             resetAt: now.addingTimeInterval(3_600), severity: .low,
@@ -30,7 +30,8 @@ final class GlanceSnapshotCodecTests: XCTestCase {
             nextResetAt: now.addingTimeInterval(3_600),
             overallSeverity: .error,
             headlineShort: short,
-            headlineLong: long)
+            headlineLong: long,
+            percentDisplay: percentDisplay)
     }
 
     func testTheRoundTripPreservesEverything() throws {
@@ -39,6 +40,49 @@ final class GlanceSnapshotCodecTests: XCTestCase {
         let decoded = GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(original))
 
         XCTAssertEqual(decoded, original)
+    }
+
+    func testTheRoundTripPreservesTheUsedPercentDisplay() throws {
+        let original = snapshot(percentDisplay: .used)
+
+        let decoded = GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(original))
+
+        XCTAssertEqual(decoded.percentDisplay, .used)
+        XCTAssertEqual(decoded, original)
+    }
+
+    /// The top-level object the current encoder really writes, so the cases below start from
+    /// the real format rather than from a hand-typed document that could drift from it.
+    private func encodedJSON(_ original: GlanceSnapshot) throws -> [String: Any] {
+        try XCTUnwrap(
+            JSONSerialization.jsonObject(with: GlanceSnapshotCodec.encode(original)) as? [String: Any])
+    }
+
+    func testSnapshotWrittenBeforePercentDisplayStillDecodesAsLeft() throws {
+        // The file already on a user's phone at the moment of upgrade. If the missing key failed
+        // the decode, every widget would go blank until the app next ran and republished.
+        var json = try encodedJSON(snapshot(percentDisplay: .used))
+        XCTAssertNotNil(json["percentDisplay"])
+        json.removeValue(forKey: "percentDisplay")
+
+        let decoded = GlanceSnapshotCodec.decode(try JSONSerialization.data(withJSONObject: json))
+
+        XCTAssertEqual(decoded.percentDisplay, .left)
+        XCTAssertEqual(decoded.accounts.count, 1)
+        XCTAssertEqual(decoded.accounts.first?.rows.first?.remainingPercent, 12.5)
+    }
+
+    func testAnUnknownPercentDisplayDecodesAsLeftWithoutFailingTheSnapshot() throws {
+        // A later build may add a mode. This one must keep drawing the rest of the file rather
+        // than collapsing to the empty snapshot.
+        var json = try encodedJSON(snapshot(percentDisplay: .used))
+        json["percentDisplay"] = "sideways"
+
+        let decoded = GlanceSnapshotCodec.decode(try JSONSerialization.data(withJSONObject: json))
+
+        XCTAssertEqual(decoded.percentDisplay, .left)
+        XCTAssertEqual(decoded.accounts.count, 1)
+        XCTAssertNotEqual(decoded, .empty)
     }
 
     func testUsageWindowRoundTripPreservesSegments() throws {

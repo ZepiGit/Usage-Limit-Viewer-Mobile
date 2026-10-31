@@ -67,6 +67,7 @@ struct ResetsScreen: View {
                                         accountLabel: entry.account.label,
                                         window: entry.window,
                                         now: store.now,
+                                        mode: store.settings.percentDisplay,
                                         isNext: nextKey == "\(entry.account.id)/\(entry.window.id)")
                                 }
                             }
@@ -101,6 +102,8 @@ private struct ResetRow: View {
     let accountLabel: String
     let window: UsageWindow
     let now: Date
+    /// Only the spoken sentence carries a percentage on this row.
+    let mode: PercentDisplay
     /// The first reset still ahead: its countdown takes the data hue and it gets a rule on its
     /// leading edge. One per screen, because the colour is only worth anything while it is rare.
     let isNext: Bool
@@ -163,7 +166,10 @@ private struct ResetRow: View {
     /// The status word lives here now, not on screen: a dot says it to the eye and this says
     /// it to VoiceOver.
     private var spoken: String {
-        let remaining = window.remainingPercent.map { ", \(UsageWindow.percentLabel($0)) remaining" } ?? ""
+        // Absent while the figure is unknown, as before; in USED an exhausted window with no
+        // percentage still has a figure to speak ("100% used").
+        let figure = PercentText.figure(window.remainingPercent, exhausted: window.exhausted, mode: mode)
+        let remaining = figure == PercentToken.unknown ? "" : ", \(PercentText.spoken(figure, mode))"
         return "\(window.label), \(accountLabel), resets at \(clock), in \(countdown), \(SeverityPalette.label(window.severity))\(remaining)"
     }
 }

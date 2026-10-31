@@ -376,4 +376,21 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertTrue(again.isEmpty)
     }
 
+    func testTheLedgerWordsAnAlertInTheModeItIsGiven() async throws {
+        let ledger = NotificationLedger(directory: directory)
+        let now = Date(timeIntervalSince1970: 1_757_000_000)
+        let low = AccountSummary(
+            accountId: "acct", label: "Account acct",
+            snapshot: UsageSnapshot(
+                accountID: "acct", fetchedAt: now, status: .ok,
+                windows: [UsageWindow(
+                    id: "w", label: "5h limit", category: .fiveHour, usedPercent: 85,
+                    periodSeconds: 18_000, resetAt: nil, exhausted: false)]))
+
+        let claimed = try await ledger.evaluateAndClaim(
+            accounts: [low], settings: NotificationSettings(), percentDisplay: .used, at: now)
+
+        XCTAssertEqual(claimed.map(\.line), ["Account acct · 5h limit: more than 80% used"])
+    }
+
 }

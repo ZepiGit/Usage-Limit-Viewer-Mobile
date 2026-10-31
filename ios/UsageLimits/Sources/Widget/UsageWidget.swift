@@ -246,13 +246,6 @@ private extension GlanceSnapshot {
 
 enum QuotaFormatting {
 
-    /// A nil percentage is *unknown*, not zero. It renders as an em dash over an
-    /// empty bar; coercing it to "0 %" would cry wolf, and to "100 %" would invent
-    /// an all-clear the cache never made.
-    static func percentText(_ percent: Double?) -> String {
-        UsageWindow.percentLabel(percent)
-    }
-
     /// Normalises a 0…100 percentage to 0…1 for bar widths and labels.
     ///
     /// The previous version guessed the scale from the value — anything above 1 was
@@ -267,6 +260,14 @@ enum QuotaFormatting {
     static func fraction(_ percent: Double) -> Double {
         guard percent.isFinite, (0...100).contains(percent) else { return 0 }
         return percent / 100
+    }
+
+    /// A fill fraction already on 0…1 — what `UsageWindow.fillFraction` returns for either mode —
+    /// clamped for the same reason `fraction(_:)` is: a corrupt cache value must not overflow
+    /// the bar. Equal to `fraction(_:)` of the same window in LEFT.
+    static func clampedFill(_ fraction: Double) -> Double {
+        guard fraction.isFinite else { return 0 }
+        return min(max(fraction, 0), 1)
     }
 }
 
@@ -365,6 +366,15 @@ struct WidgetInk {
         }
     }
 
+    /// `bar(_:)` at the displayed `fraction` in `mode`: in USED an exhausted window is full, so a
+    /// nil severity ink with a positive fraction takes the data hue. LEFT never reaches the
+    /// fallback — its fractions for nil-ink severities are zero or unknown.
+    func bar(_ severity: Severity, fraction: Double?, mode: PercentDisplay) -> Color? {
+        if let ink = bar(severity) { return ink }
+        guard mode == .used, let fraction, fraction > 0 else { return nil }
+        return data
+    }
+
     /// The colour a percentage is written in, on THIS ink — `SeverityPalette.figureColor` is
     /// the dark panel's and reads wrongly on a light wallpaper.
     func figure(_ severity: Severity) -> Color {
@@ -434,11 +444,19 @@ private struct QuotaBar: View {
 
     let remainingPercent: Double?
     let severity: Severity
+    /// The provider's verdict from the RAW row (`row.severity == .exhausted`), never the aged
+    /// `severity` above: in USED an exhausted window fills completely even with no percentage.
+    let exhausted: Bool
+    let mode: PercentDisplay
     /// Spoken context ("Claude, Messages") so the label below reads as a sentence.
     let context: String
     var ink: WidgetInk = .light
 
     @ScaledMetric(relativeTo: .caption) private var barHeight = 4
+
+    private var shownFraction: Double? {
+        UsageWindow.fillFraction(remainingPercent, exhausted: exhausted, mode: mode)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -446,15 +464,15 @@ private struct QuotaBar: View {
                 Capsule()
                     .fill(ink.track)
                     .modifier(AccentedTrackYield())
-                if let remainingPercent, let fill = ink.bar(severity) {
+                if let fraction = shownFraction, let fill = ink.bar(severity, fraction: fraction, mode: mode) {
                     // Unknown percentages draw the empty track only — never a 0 % sliver.
                     Capsule()
                         .fill(fill)
-                        .frame(width: proxy.size.width * QuotaFormatting.fraction(remainingPercent))
+                        .frame(width: proxy.size.width * QuotaFormatting.clampedFill(fraction))
                 }
             }
         }
-        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: remainingPercent)
+        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: shownFraction)
         .frame(height: barHeight)
         // A bar shape tells VoiceOver nothing; state the number in words.
         .accessibilityElement()
@@ -462,10 +480,11 @@ private struct QuotaBar: View {
     }
 
     private var spokenText: String {
-        guard let remainingPercent else {
+        let figure = PercentText.figure(remainingPercent, exhausted: exhausted, mode: mode)
+        guard figure != PercentToken.unknown else {
             return "\(context): remaining unknown"
         }
-        return "\(context): \(QuotaFormatting.percentText(remainingPercent)) remaining"
+        return "\(context): \(PercentText.spoken(figure, mode))"
     }
 }
 
@@ -539,7 +558,12 @@ private struct MediumAccountRow: View {
     /// there rather than at the moment the app wrote the snapshot.
     let now: Date
     let staleAfter: TimeInterval
+    /// From the snapshot, never from settings: the widget process cannot see them.
+    let mode: PercentDisplay
     var ink: WidgetInk = .light
+
+    /// The provider's verdict from the raw row — `rowSeverity` below is aged and only colours.
+    private var exhausted: Bool { row?.severity == .exhausted }
 
     /// The row's own severity while the account is healthy, and the account's otherwise.
     ///
@@ -566,7 +590,9 @@ private struct MediumAccountRow: View {
                     .foregroundColor(ink.primary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                WidgetFigure(remainingPercent: row?.remainingPercent, font: .figure, ink: ink, severity: rowSeverity)
+                WidgetFigure(
+                    remainingPercent: row?.remainingPercent, exhausted: exhausted, mode: mode,
+                    font: .figure, ink: ink, severity: rowSeverity)
                     .lineLimit(1)
             }
             if let message = account.statusMessage {
@@ -575,6 +601,8 @@ private struct MediumAccountRow: View {
             QuotaBar(
                 remainingPercent: row?.remainingPercent,
                 severity: rowSeverity,
+                exhausted: exhausted,
+                mode: mode,
                 context: row.map { "\(account.title), \($0.label)" } ?? account.title,
                 ink: ink
             )
@@ -627,6 +655,8 @@ struct UsageWidgetSmallView: View {
         // passed since the fetch. Otherwise a stale, failed or rolled-over reading was painted
         // in the colour of its last good number.
         let severity = focus.account.displaySeverity(of: focus.row, at: entry.date, staleAfter: entry.snapshot.staleAfter)
+        // The raw row's verdict, not the aged `severity`: it decides the USED fill and wording.
+        let exhausted = focus.row?.severity == .exhausted
         return VStack(alignment: .leading, spacing: 4) {
             Text(verbatim: focus.account.title)
                 .usageFont(.bodyStrong)
@@ -646,12 +676,16 @@ struct UsageWidgetSmallView: View {
 
             Spacer(minLength: 4)
 
-            WidgetFigure(remainingPercent: focus.row?.remainingPercent, font: .widgetLead, ink: ink, severity: severity)
+            WidgetFigure(
+                remainingPercent: focus.row?.remainingPercent, exhausted: exhausted,
+                mode: entry.snapshot.percentDisplay, font: .widgetLead, ink: ink, severity: severity)
                 .lineLimit(1)
 
             QuotaBar(
                 remainingPercent: focus.row?.remainingPercent,
                 severity: severity,
+                exhausted: exhausted,
+                mode: entry.snapshot.percentDisplay,
                 context: focus.row.map { "\(focus.account.title), \($0.label)" } ?? focus.account.title,
                 ink: ink
             )
@@ -741,6 +775,7 @@ struct UsageWidgetMediumView: View {
                     row: row(for: account),
                     now: entry.date,
                     staleAfter: entry.snapshot.staleAfter,
+                    mode: entry.snapshot.percentDisplay,
                     ink: ink)
             }
 
@@ -784,9 +819,16 @@ struct UsageAccessoryRectangularView: View {
                 .lineLimit(1)
 
             HStack(spacing: 4) {
-                WidgetPercentage(remainingPercent: focus.row?.remainingPercent)
+                WidgetPercentage(text: figure(for: focus))
                     .font(.system(.title3, design: .monospaced).weight(.semibold))
                     .lineLimit(1)
+                // Names the side the figure counts; a bare dash for an unknown figure stays bare.
+                if figure(for: focus) != PercentToken.unknown {
+                    Text(verbatim: PercentText.sideWord(entry.snapshot.percentDisplay))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
                 // The ACCOUNT's severity, which is the one that carries staleness. The row's
                 // is computed from the percentage alone, so the lock screen wrote "Healthy"
                 // over numbers fetched a day ago. Now it says "Stale", which is one property
@@ -807,6 +849,12 @@ struct UsageAccessoryRectangularView: View {
                     .lineLimit(1)
             }
         }
+    }
+
+    private func figure(for focus: WidgetFocus) -> String {
+        PercentText.figure(
+            focus.row?.remainingPercent, exhausted: focus.row?.severity == .exhausted,
+            mode: entry.snapshot.percentDisplay)
     }
 
     private var emptyContent: some View {
@@ -831,29 +879,37 @@ private struct UsageRing: View {
 
     let remainingPercent: Double?
     let severity: Severity
+    /// The raw row's verdict and the snapshot's mode: together they decide the arc, so an
+    /// exhausted window closes the ring in USED even with no percentage behind it.
+    let exhausted: Bool
+    let mode: PercentDisplay
     /// `Double`, not `CGFloat`: this file imports Foundation, where corelibs declares its own
     /// CGFloat, so the name is ambiguous on the Linux typecheck. Swift converts between the two
     /// implicitly (SE-0307), so `StrokeStyle` takes it unchanged on the real SDK.
     let lineWidth: Double
     var ink: WidgetInk = .light
 
+    private var shownFraction: Double? {
+        UsageWindow.fillFraction(remainingPercent, exhausted: exhausted, mode: mode)
+    }
+
     var body: some View {
         ZStack {
             Circle()
                 .stroke(ink.track, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .modifier(AccentedTrackYield())
-            if let remainingPercent, let arc = ink.bar(severity) {
+            if let fraction = shownFraction, let arc = ink.bar(severity, fraction: fraction, mode: mode) {
                 // Unknown draws the track alone. A full ring for "the provider did not say"
                 // would be an all-clear nothing reported, which is the one direction a quota
                 // display must never round in.
                 Circle()
-                    .trim(from: 0, to: QuotaFormatting.fraction(remainingPercent))
+                    .trim(from: 0, to: QuotaFormatting.clampedFill(fraction))
                     .stroke(
                         arc,
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     // From twelve o'clock, clockwise. `trim` starts at three o'clock.
                     .rotationEffect(Angle.degrees(-90))
-                    .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: remainingPercent)
+                    .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: shownFraction)
             }
         }
     }
@@ -891,17 +947,32 @@ struct UsageRingWidgetView: View {
             if let rowReset = focus.row?.resetAt, rowReset <= entry.date { return rowReset }
             return entry.snapshot.nextResetAt
         }()
+        let mode = entry.snapshot.percentDisplay
+        // The raw row's verdict; the aged `severity` above only colours.
+        let exhausted = focus.row?.severity == .exhausted
         return VStack(spacing: 6) {
             ZStack {
                 UsageRing(
                     remainingPercent: focus.row?.remainingPercent,
                     severity: severity,
+                    exhausted: exhausted,
+                    mode: mode,
                     lineWidth: 9,
                     ink: ink)
                 VStack(spacing: 1) {
-                    WidgetFigure(remainingPercent: focus.row?.remainingPercent, font: .ringFigure, ink: ink, severity: severity)
+                    // No room beside the figure inside a ring, so the side word is a caption
+                    // under it, in the smallest face the widgets have.
+                    WidgetFigure(
+                        remainingPercent: focus.row?.remainingPercent, exhausted: exhausted, mode: mode,
+                        font: .ringFigure, ink: ink, severity: severity, showsSideWord: false)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
+                    if figure(for: focus) != PercentToken.unknown {
+                        Text(verbatim: PercentText.sideWord(mode))
+                            .usageFont(.micro)
+                            .foregroundColor(ink.secondary)
+                            .lineLimit(1)
+                    }
                     if let row = focus.row {
                         Text(verbatim: row.label)
                             .usageFont(.micro)
@@ -938,12 +1009,19 @@ struct UsageRingWidgetView: View {
         .padding(10)
     }
 
+    private func figure(for focus: WidgetFocus) -> String {
+        PercentText.figure(
+            focus.row?.remainingPercent, exhausted: focus.row?.severity == .exhausted,
+            mode: entry.snapshot.percentDisplay)
+    }
+
     private func spoken(_ focus: WidgetFocus) -> String {
         let limit = focus.row.map { ", \($0.label)" } ?? ""
-        guard let remaining = focus.row?.remainingPercent else {
+        let text = figure(for: focus)
+        guard text != PercentToken.unknown else {
             return "\(focus.account.title)\(limit): remaining unknown"
         }
-        return "\(focus.account.title)\(limit): \(QuotaFormatting.percentText(remaining)) remaining"
+        return "\(focus.account.title)\(limit): \(PercentText.spoken(text, entry.snapshot.percentDisplay))"
     }
 }
 
@@ -959,21 +1037,34 @@ struct UsageAccessoryCircularView: View {
 
     var body: some View {
         let focus = WidgetFocus(snapshot: entry.snapshot)
+        let mode = entry.snapshot.percentDisplay
         let remaining = focus?.row?.remainingPercent
+        // The raw row's verdict, so an exhausted window with no percentage still closes the ring
+        // and reads "100%" in USED.
+        let exhausted = focus?.row?.severity == .exhausted
+        let fraction = UsageWindow.fillFraction(remaining, exhausted: exhausted, mode: mode)
+        let text = PercentText.figure(remaining, exhausted: exhausted, mode: mode)
         return ZStack {
             Circle()
                 .stroke(.tertiary, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-            if let remaining {
+            if let fraction {
                 Circle()
-                    .trim(from: 0, to: QuotaFormatting.fraction(remaining))
+                    .trim(from: 0, to: QuotaFormatting.clampedFill(fraction))
                     .stroke(.primary, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                     .rotationEffect(Angle.degrees(-90))
             }
             VStack(spacing: 1) {
-                WidgetPercentage(remainingPercent: remaining)
+                WidgetPercentage(text: text)
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
+                // A caption inside the ring: there is no room beside the figure, and the arc
+                // alone cannot say which side it counts.
+                if text != PercentToken.unknown {
+                    Text(verbatim: PercentText.sideWord(mode))
+                        .font(.caption2)
+                        .lineLimit(1)
+                }
                 if focus?.account.statusMessage != nil {
                     Image(systemName: "exclamationmark.circle").font(.caption2)
                 }
@@ -981,15 +1072,15 @@ struct UsageAccessoryCircularView: View {
         }
         .accessibilityElement()
         .accessibilityLabel(
-            focus.map { "\($0.title(for: remaining))" } ?? "Open the app to see your quota")
+            focus.map { "\($0.title(for: text, mode: mode))" } ?? "Open the app to see your quota")
     }
 }
 
 private extension WidgetFocus {
-    func title(for remaining: Double?) -> String {
-        guard let remaining else { return "\(account.title): remaining unknown" }
+    func title(for figure: String, mode: PercentDisplay) -> String {
+        guard figure != PercentToken.unknown else { return "\(account.title): remaining unknown" }
         let warning = account.statusMessage.map { ", " + $0 } ?? ""
-        return "\(account.title): \(QuotaFormatting.percentText(remaining)) remaining\(warning)"
+        return "\(account.title): \(PercentText.spoken(figure, mode))\(warning)"
     }
 }
 
@@ -1047,6 +1138,7 @@ struct UsageWidgetLargeView: View {
                     row: row(for: account),
                     now: entry.date,
                     staleAfter: entry.snapshot.staleAfter,
+                    mode: entry.snapshot.percentDisplay,
                     ink: ink)
             }
 
@@ -1254,14 +1346,15 @@ struct UsageWidgets: WidgetBundle {
 /// WidgetKit animates only when a timeline value changes; no timer or background task is added.
 private struct WidgetPercentage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let remainingPercent: Double?
+    /// The composed figure ("45%", "—"), already decided for the snapshot's mode by `PercentText`.
+    let text: String
 
     var body: some View {
         if #available(iOS 17.0, *), !reduceMotion {
-            Text(verbatim: QuotaFormatting.percentText(remainingPercent))
+            Text(verbatim: text)
                 .contentTransition(ContentTransition.numericText())
         } else {
-            Text(verbatim: QuotaFormatting.percentText(remainingPercent))
+            Text(verbatim: text)
                 .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
         }
     }
@@ -1269,19 +1362,41 @@ private struct WidgetPercentage: View {
 
 /// A percentage in the figure face and the colour its severity earns on this ink — or, when the
 /// provider reported none, a small dash. A missing value must not hold the weight of a figure.
+///
+/// The dash is decided by the figure, not by the raw percentage, so an exhausted window with no
+/// percentage still reads "100%" in USED. In LEFT the two are the same test.
 private struct WidgetFigure: View {
     let remainingPercent: Double?
+    /// From the raw row (`row.severity == .exhausted`); an aged severity must not stand in.
+    let exhausted: Bool
+    let mode: PercentDisplay
     let font: UsageFont
     let ink: WidgetInk
     let severity: Severity
+    /// Whether the side word follows the figure ("45% left"). A ring's centre has no room beside
+    /// the figure and draws its own caption underneath instead.
+    var showsSideWord: Bool = true
+
+    private var text: String {
+        PercentText.figure(remainingPercent, exhausted: exhausted, mode: mode)
+    }
 
     var body: some View {
-        if remainingPercent == nil {
-            Text(verbatim: QuotaFormatting.percentText(nil))
+        if text == PercentToken.unknown {
+            Text(verbatim: text)
                 .usageFont(.small)
                 .foregroundColor(ink.secondary)
+        } else if showsSideWord {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                WidgetPercentage(text: text)
+                    .usageFont(font)
+                    .foregroundColor(ink.figure(severity))
+                Text(verbatim: PercentText.sideWord(mode))
+                    .usageFont(.micro)
+                    .foregroundColor(ink.secondary)
+            }
         } else {
-            WidgetPercentage(remainingPercent: remainingPercent)
+            WidgetPercentage(text: text)
                 .usageFont(font)
                 .foregroundColor(ink.figure(severity))
         }

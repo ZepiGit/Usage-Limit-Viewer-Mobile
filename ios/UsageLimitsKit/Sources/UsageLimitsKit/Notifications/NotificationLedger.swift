@@ -111,10 +111,12 @@ public actor NotificationLedger {
     public func evaluateAndClaim(
         accounts: [AccountSummary],
         settings: NotificationSettings,
+        percentDisplay: PercentDisplay = .left,
         at time: Date
     ) throws -> [NotificationEvaluator.Event] {
         let outcome = NotificationEvaluator.evaluate(
-            accounts: accounts, settings: settings, states: states(), now: time)
+            accounts: accounts, settings: settings, states: states(), now: time,
+            percentDisplay: percentDisplay)
 
         var candidate = stored
         candidate.states = outcome.states
