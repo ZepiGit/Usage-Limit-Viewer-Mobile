@@ -103,4 +103,10 @@ class DisplayPercentTest {
         assertEquals(1.0, fillFraction(conflict, PercentDisplay.USED)!!, 1e-9)
         assertEquals(0.15, fillFraction(conflict, PercentDisplay.LEFT)!!, 1e-9)
     }
+
+    @Test
+    fun `fillFraction with no window at all fills nothing in either mode`() {
+        assertNull(fillFraction(null as UsageWindow?, PercentDisplay.LEFT))
+        assertNull(fillFraction(null as UsageWindow?, PercentDisplay.USED))
+    }
 }

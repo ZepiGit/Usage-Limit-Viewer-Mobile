@@ -1,7 +1,14 @@
 package com.usagelimits.feature.overview
 import sh.calvin.reorderable.ReorderableItem
 
+import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.isExhausted
+import com.usagelimits.core.model.percentToken
 import com.usagelimits.core.model.title
+import com.usagelimits.core.model.withPercentSign
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +67,7 @@ import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.components.UsageWindowRow
+import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageType
@@ -79,6 +87,7 @@ fun OverviewScreen(
     onAccountClick: (String) -> Unit,
     onAddAccount: () -> Unit,
     onReorder: (List<String>) -> Unit,
+    onPercentDisplayChange: (PercentDisplay) -> Unit,
     modifier: Modifier = Modifier,
     onCreditClick: (String) -> Unit = {},
     onAddCredit: () -> Unit = {},
@@ -121,7 +130,7 @@ fun OverviewScreen(
             return@LazyColumn
         }
 
-        if (state.accounts.isNotEmpty()) item { LeadStrip(state, nowMs) }
+        if (state.accounts.isNotEmpty()) item { LeadStrip(state, nowMs, onPercentDisplayChange) }
 
         item {
             SectionHeader(
@@ -141,6 +150,7 @@ fun OverviewScreen(
         items(items = shown, key = { it.account.localId }) { usage ->
             ReorderableItem(reorderState, key = usage.account.localId) { isDragging ->
                 AccountCard(usage = usage, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
+                    percentDisplay = state.settings.percentDisplay,
                     showTier = state.settings.showSubscriptionTier, showRenewal = state.settings.showRenewalTime,
                     modifier = Modifier.zIndex(if (isDragging) 1f else 0f),
                     onRetry = onRefresh,
@@ -222,12 +232,19 @@ private fun OverviewHeader(state: UsageUiState, nowMs: Long, onRefresh: () -> Un
  * Keep the account, remaining quota and countdown together so the next reset is unambiguous.
  */
 @Composable
-private fun LeadStrip(state: UsageUiState, nowMs: Long) {
+private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: (PercentDisplay) -> Unit) {
     val lead = state.leadAt(nowMs)
     val window = lead?.window
+    val mode = state.settings.percentDisplay
     val context = LocalContext.current
     val appIcon = remember(context) { AppIcon.current(context) }
-    val percent = com.usagelimits.core.model.percentLabel(window?.remainingPercent)
+    val percent = withPercentSign(percentToken(window, mode))
+    // R2: the word beside the figure says which side it counts, and so does the spoken sentence.
+    val side = if (mode == PercentDisplay.USED) "used" else "left"
+    // R3: the figure flips the one global setting; the label names where it goes.
+    val flipTo = if (mode == PercentDisplay.USED) PercentDisplay.LEFT else PercentDisplay.USED
+    val flipLabel = if (flipTo == PercentDisplay.USED) "Show percentage used" else "Show percentage left"
+    val motionEnabled = LocalMotionEnabled.current
     // A stale lead says how old it is instead of promising a reset the cache cannot vouch for.
     val reset = if (lead?.stale == true) Countdown.freshnessLabel(lead.usage.snapshot?.fetchedAt, nowMs)
         else Countdown.resetLabel(window?.resetAt, nowMs)
@@ -236,7 +253,7 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long) {
         Column(
             Modifier.semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
-                    lead?.let { "${it.usage.account.label}, ${it.window.label}, $percent left" }, reset,
+                    lead?.let { "${it.usage.account.label}, ${it.window.label}, $percent $side" }, reset,
                 ).joinToString(", ")
             },
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -246,13 +263,30 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long) {
                 val severity = if (lead.stale) Severity.STALE else worst.severity
                 Text("${lead.usage.account.label} · ${worst.label}",
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted, maxLines = 1)
-                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(percent, style = MaterialTheme.typography.headlineMedium,
-                        color = SeverityPalette.figureColor(severity))
-                    Text("left", Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
+                // The click lives on the figure but merges into the card's one semantics node, so a
+                // screen reader finds a single button rather than a second focus stop.
+                Row(
+                    Modifier.clickable(
+                        onClickLabel = flipLabel,
+                        role = Role.Button,
+                        onClick = { onPercentDisplayChange(flipTo) },
+                    ),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // No animation when the system has animations off: the figure just changes.
+                    Crossfade(
+                        targetState = percent,
+                        animationSpec = if (motionEnabled) tween(200) else snap(),
+                        label = "leadFigure",
+                    ) { shown ->
+                        Text(shown, style = MaterialTheme.typography.headlineMedium,
+                            color = SeverityPalette.figureColor(severity))
+                    }
+                    Text(side, Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
                 }
                 Spacer(Modifier.height(2.dp))
-                UsageBar(worst.remainingPercent, severity, Modifier.fillMaxWidth())
+                UsageBar(worst.remainingPercent, severity, mode, Modifier.fillMaxWidth(), exhausted = worst.isExhausted)
                 if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {
                 Text("—", style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
@@ -284,7 +318,7 @@ private fun LeadSkeleton() {
         Spacer(Modifier.height(8.dp))
         SkeletonBar(30.dp, 0.2f)
         Spacer(Modifier.height(10.dp))
-        UsageBar(null, Severity.UNKNOWN, Modifier.fillMaxWidth())
+        UsageBar(null, Severity.UNKNOWN, PercentDisplay.LEFT, Modifier.fillMaxWidth())
         Spacer(Modifier.height(12.dp))
         RuleDivider()
         Spacer(Modifier.height(12.dp))
@@ -303,7 +337,7 @@ private fun AccountSkeleton() {
             Spacer(Modifier.height(16.dp))
             SkeletonBar(14.dp, 0.3f)
             Spacer(Modifier.height(6.dp))
-            UsageBar(null, Severity.UNKNOWN, Modifier.fillMaxWidth())
+            UsageBar(null, Severity.UNKNOWN, PercentDisplay.LEFT, Modifier.fillMaxWidth())
         }
     }
 }
@@ -346,6 +380,8 @@ fun AccountCard(
     usage: AccountUsage,
     nowMs: Long,
     staleAfterMs: Long,
+    // Required, never defaulted: a defaulted mode would leave a caller silently in LEFT.
+    percentDisplay: PercentDisplay,
     showTier: Boolean = true,
     showRenewal: Boolean = false,
     // Before `onClick`, so the trailing-lambda call sites keep binding their lambda to the
@@ -428,7 +464,7 @@ fun AccountCard(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 // Ungrouped windows first — they are the account's headline limits.
                 windows.filter { it.group == null }.take(4).forEach { window ->
-                    UsageWindowRow(window, nowMs, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                    UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale)
                 }
 
                 val groups = windows.filter { it.group != null }.groupBy { it.group!! }
@@ -440,7 +476,7 @@ fun AccountCard(
                         color = UsageColors.Muted,
                     )
                     groupWindows.forEach { window ->
-                        UsageWindowRow(window, nowMs, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                        UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale)
                     }
                 }
             }

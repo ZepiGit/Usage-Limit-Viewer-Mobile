@@ -43,10 +43,31 @@ fun fillFraction(remaining: Double?, exhausted: Boolean, mode: PercentDisplay): 
     if (mode == PercentDisplay.USED && exhausted) 1.0
     else displayPercent(remaining, mode)?.div(100.0)
 
+/**
+ * Whether this window counts as exhausted for labelling and fill: the provider's verdict, or a
+ * remainder of zero. Read from the window's own raw severity, never from a display severity that
+ * a stale reading or a passed reset has swapped out, so a stale exhausted window still reads
+ * "100" in USED mode while its colour follows the stale grey.
+ */
+val UsageWindow.isExhausted: Boolean get() = severity == Severity.EXHAUSTED
+
 /** [fillFraction] for a whole window; the raw severity decides "exhausted", never an aged one. */
 fun fillFraction(window: UsageWindow?, mode: PercentDisplay): Double? = window?.let {
-    fillFraction(it.remainingPercent, it.severity == Severity.EXHAUSTED, mode)
+    fillFraction(it.remainingPercent, it.isExhausted, mode)
 }
+
+/** [percentToken] for a whole window; the raw severity decides "exhausted", never an aged one. */
+fun percentToken(window: UsageWindow?, mode: PercentDisplay): String =
+    percentToken(window?.remainingPercent, window?.isExhausted == true, mode)
+
+/**
+ * A figure token with its `%` sign; an unknown figure stays a bare dash.
+ *
+ * The one place the sign is attached until the locale templates land (R4), so the unknown-dash
+ * rule cannot drift between [percentLabel] and the rows that render a mode-aware token.
+ */
+fun withPercentSign(token: String): String =
+    if (token == PERCENT_TOKEN_UNKNOWN) token else "$token%"
 
 /** Token values the localized templates key on (the UI composes "73%" / "73 %"). */
 const val PERCENT_TOKEN_UNKNOWN = "—"

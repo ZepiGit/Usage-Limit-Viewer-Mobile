@@ -224,7 +224,5 @@ data class ResetCredit(
  * strings existing call sites render; new surfaces take the token and compose it with a locale
  * template, so the wording lives in resources rather than here.
  */
-fun percentLabel(remaining: Double?): String {
-    val token = percentToken(remaining, exhausted = false, mode = PercentDisplay.LEFT)
-    return if (token == PERCENT_TOKEN_UNKNOWN) token else "$token%"
-}
+fun percentLabel(remaining: Double?): String =
+    withPercentSign(percentToken(remaining, exhausted = false, mode = PercentDisplay.LEFT))

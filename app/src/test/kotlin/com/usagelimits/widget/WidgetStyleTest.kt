@@ -1,6 +1,7 @@
 package com.usagelimits.widget
 
 import androidx.compose.ui.graphics.Color
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.WindowCategory
 import org.junit.Assert.assertEquals
@@ -190,5 +191,94 @@ class WidgetStyleTest {
             assertNull(style.bar(healthyFull, Severity.UNKNOWN))
             assertEquals(style.stale, style.bar(blockedFull.copy(resetElapsed = true)))
         }
+    }
+
+    @Test
+    fun `LEFT mode paints every severity exactly as the two-argument call always did`() {
+        // The mode parameter is new; LEFT is the historical reading and must stay pixel-identical.
+        // Pinned against the literal expectation, not only against the default argument, so a
+        // change that leaks USED handling into LEFT cannot hide behind "both calls agree".
+        for (style in listOf(WidgetStyle(), WidgetStyle(WidgetBackground(0xFFF3F0E8.toInt(), 100)))) {
+            for (severity in Severity.entries) {
+                val row = WidgetRow("Weekly", WindowCategory.WEEKLY, 40.0, null, severity)
+                val expected = when (severity) {
+                    Severity.STALE -> style.stale
+                    Severity.ERROR, Severity.UNKNOWN, Severity.EXHAUSTED -> null
+                    else -> style.data
+                }
+                assertEquals("$severity row, no validity", expected, style.bar(row))
+                assertEquals("$severity row, LEFT passed explicitly", expected, style.bar(row, null, PercentDisplay.LEFT))
+                for (validity in Severity.entries) {
+                    assertEquals(
+                        "$severity row under $validity validity must not depend on the default argument",
+                        style.bar(row, validity),
+                        style.bar(row, validity, PercentDisplay.LEFT),
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `USED mode fills an exhausted row in the data hue even with a positive remainder`() {
+        // D4: in USED an exhausted window IS the full bar, agreeing with its "100%" figure. In LEFT
+        // the same row is the bare track, so the fill must not vanish beside a "100%" it contradicts.
+        for (style in listOf(WidgetStyle(), WidgetStyle(WidgetBackground(0xFFF3F0E8.toInt(), 100)))) {
+            val blocked = WidgetRow("Weekly", WindowCategory.WEEKLY, 15.0, null, Severity.EXHAUSTED)
+            assertEquals("USED exhausted with 15% remaining fills in the data hue",
+                style.data, style.bar(blocked, mode = PercentDisplay.USED))
+            assertNull("the same row in LEFT stays the bare track", style.bar(blocked, mode = PercentDisplay.LEFT))
+        }
+    }
+
+    @Test
+    fun `USED mode fills an exhausted row that reports no percentage at all`() {
+        // The provider's verdict is the figure: fillFraction forces 1.0, so a null remainder must
+        // not turn the bar into the empty track beside a "100%" label.
+        val style = WidgetStyle()
+        val unknownBlocked = WidgetRow("Weekly", WindowCategory.WEEKLY, null, null, Severity.EXHAUSTED)
+        assertEquals("USED exhausted with no percentage fills in the data hue",
+            style.data, style.bar(unknownBlocked, mode = PercentDisplay.USED))
+        assertNull("LEFT has nothing to fill for the same row", style.bar(unknownBlocked, mode = PercentDisplay.LEFT))
+    }
+
+    @Test
+    fun `USED mode keeps a stale reading grey whatever else it says`() {
+        // Raw exhaustion alone earns the data hue; data validity outranks it, so a stale or
+        // reset-overtaken exhausted row keeps the stale treatment in USED as it does in LEFT.
+        for (style in listOf(WidgetStyle(), WidgetStyle(WidgetBackground(0xFFF3F0E8.toInt(), 100)))) {
+            val healthy = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 60.0, null, Severity.HEALTHY)
+            val blocked = WidgetRow("Weekly", WindowCategory.WEEKLY, 15.0, null, Severity.EXHAUSTED)
+            assertEquals("stale validity on a healthy row in USED",
+                style.stale, style.bar(healthy, Severity.STALE, PercentDisplay.USED))
+            assertEquals("stale validity outranks USED exhaustion",
+                style.stale, style.bar(blocked, Severity.STALE, PercentDisplay.USED))
+            assertEquals("a passed reset is stale in USED too",
+                style.stale, style.bar(blocked.copy(resetElapsed = true), mode = PercentDisplay.USED))
+        }
+    }
+
+    @Test
+    fun `USED mode still draws no fill for a failed or unknown reading`() {
+        val style = WidgetStyle()
+        val healthy = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 60.0, null, Severity.HEALTHY)
+        val blocked = WidgetRow("Weekly", WindowCategory.WEEKLY, 15.0, null, Severity.EXHAUSTED)
+        for (validity in listOf(Severity.ERROR, Severity.UNKNOWN)) {
+            assertNull("$validity validity on a healthy row", style.bar(healthy, validity, PercentDisplay.USED))
+            assertNull("$validity validity outranks USED exhaustion", style.bar(blocked, validity, PercentDisplay.USED))
+        }
+        for (severity in listOf(Severity.ERROR, Severity.UNKNOWN)) {
+            val row = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 60.0, null, severity)
+            assertNull("a $severity row has no fill in USED", style.bar(row, mode = PercentDisplay.USED))
+        }
+    }
+
+    @Test
+    fun `USED mode paints an ordinary row in the data hue like LEFT`() {
+        // Only the fill LENGTH changes with the mode; the ink of a non-exhausted row does not.
+        val style = WidgetStyle()
+        val row = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, 40.0, null, Severity.MEDIUM)
+        assertEquals(style.bar(row, mode = PercentDisplay.LEFT), style.bar(row, mode = PercentDisplay.USED))
+        assertEquals(style.data, style.bar(row, mode = PercentDisplay.USED))
     }
 }

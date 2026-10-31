@@ -243,6 +243,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                             onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
                             onAddAccount = { navController.navigate(Destination.AddAccount.route) },
                             onReorder = viewModel::reorderAccounts,
+                            onPercentDisplayChange = viewModel::setPercentDisplay,
                             onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
                             onAddCredit = { navController.navigate(Destination.AddCredit.route) },
                         )
@@ -352,6 +353,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                             usage = usage,
                             nowMs = nowMs,
                             staleAfterMs = state.staleAfterMs,
+                            percentDisplay = state.settings.percentDisplay,
                             resetInFlight = resetInFlight == accountId,
                         supportsResetCredits = supportsCredits,
                         onReconnect = { navController.navigate(Destination.AddAccount.route) },

@@ -4,7 +4,12 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.snap
 import com.usagelimits.ui.theme.LocalMotionEnabled
+import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.fillFraction
+import com.usagelimits.core.model.isExhausted
 import com.usagelimits.core.model.percentLabel
+import com.usagelimits.core.model.percentToken
+import com.usagelimits.core.model.withPercentSign
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -73,22 +78,33 @@ private val SegmentColors = listOf(UsageColors.Data, UsageColors.Ink, UsageColor
 /**
  * A quota bar.
  *
- * Fill length encodes what is *left*, not what is used, so a long bar always reads as good —
- * the direction people expect from a battery meter. The fill is the data hue; stale is grey and
- * unknown, failed or exhausted is the bare track. Only the length animates.
+ * Fill length encodes the displayed figure: what is left in LEFT mode, so a long bar reads as
+ * good — the battery-meter direction — and what is used in USED, where full means spent, as
+ * Claude and Codex draw it (D4). The colour still comes from severity in both modes: stale is
+ * grey and unknown, failed or exhausted is the bare track, except in USED, where an exhausted
+ * window *is* full and its fill takes the data hue rather than vanishing next to a "100"
+ * figure. Only the length animates.
  */
 @Composable
 fun UsageBar(
     remainingPercent: Double?,
     severity: Severity,
+    mode: PercentDisplay,
     modifier: Modifier = Modifier,
     height: Dp = 6.dp,
+    /**
+     * The window's raw exhaustion ([isExhausted]), separate from the aged [severity] that colours
+     * the fill. It only matters in USED mode, where an exhausted window fills completely, so the
+     * credit and skeleton bars, which are LEFT or empty, leave it at false.
+     */
+    exhausted: Boolean = false,
 ) {
-    val target = ((remainingPercent ?: 0.0) / 100.0).coerceIn(0.0, 1.0).toFloat()
+    val fractionValue = fillFraction(remainingPercent, exhausted, mode)
+    val target = (fractionValue ?: 0.0).coerceIn(0.0, 1.0).toFloat()
     val motionEnabled = LocalMotionEnabled.current
     val animatedFraction by animateFloatAsState(targetValue = target, animationSpec = if (motionEnabled) tween(240) else snap(), label = "usageBar")
     val fraction = if (motionEnabled) animatedFraction else target
-    val fill = SeverityPalette.barFill(severity)
+    val fill = SeverityPalette.barInkFor(severity, fractionValue, mode)
 
     Box(
         modifier = modifier
@@ -142,6 +158,7 @@ fun StatusMark(severity: Severity, modifier: Modifier = Modifier, label: String?
 fun UsageWindowRow(
     window: UsageWindow,
     nowMs: Long,
+    mode: PercentDisplay,
     modifier: Modifier = Modifier,
     fetchedAt: Long? = null,
     /** The whole account is old or failed: the figure and bar go grey. */
@@ -150,7 +167,10 @@ fun UsageWindowRow(
     val remaining = window.remainingPercent
     // Past its reset since the fetch, the figure is the spent window's: stale treatment, as on widgets.
     val severity = if (stale || (fetchedAt != null && window.resetElapsedAt(fetchedAt, nowMs))) Severity.STALE else window.severity
-    val percent = percentLabel(remaining)
+    // The mode-aware figure token, composed with the historical "%" until the locale template
+    // lands (R4). The spoken sentence keeps the LEFT wording — "remaining" is what it always said.
+    val percent = withPercentSign(percentToken(window, mode))
+    val shownSide = if (mode == PercentDisplay.USED) "used" else "left"
     val label = when {
         window.scope != com.usagelimits.core.model.UsageScope.GLOBAL -> window.label
         window.group != null && window.category == com.usagelimits.core.model.WindowCategory.FIVE_HOUR -> "5h limit"
@@ -162,22 +182,27 @@ fun UsageWindowRow(
     }
     val reset = Countdown.resetLabel(window.resetAt, nowMs)
     Column(modifier.fillMaxWidth().semantics(mergeDescendants = true) {
-        contentDescription = "$label, $percent remaining" + (reset?.let { ", $it" } ?: "") +
+        contentDescription = "$label, $percent ${if (mode == PercentDisplay.USED) "used" else "remaining"}" +
+            (reset?.let { ", $it" } ?: "") +
             window.segments.joinToString("") { ", ${it.label} usage: ${percentLabel(it.usedPercent)}" }
     }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                 color = UsageColors.Muted, maxLines = 2)
-            // A value the provider never stated is a quiet dash, not a figure-sized one.
+            // A value the provider never stated is a quiet dash, not a figure-sized one. R2: no
+            // bare percentage — the small word after the figure says which side it counts.
             if (percent == "—") {
                 Text(percent, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {
-                Text(percent, style = UsageType.Figure, color = SeverityPalette.figureColor(severity))
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(percent, style = UsageType.Figure, color = SeverityPalette.figureColor(severity))
+                    Text(shownSide, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+                }
             }
         }
         if (window.segments.isEmpty()) {
-            UsageBar(remaining, severity, Modifier.fillMaxWidth())
+            UsageBar(remaining, severity, mode, Modifier.fillMaxWidth(), exhausted = window.isExhausted)
         } else {
             Box(Modifier.fillMaxWidth().height(6.dp).clip(BarShape).drawBehind {
                 drawRect(UsageColors.Rule)

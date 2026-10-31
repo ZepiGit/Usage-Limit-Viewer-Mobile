@@ -81,7 +81,7 @@ class WidgetAppearanceRenderingTest {
                 val text = textViews(view).map { it.text.toString() }
                 assertTrue("The account header remains visible", account.label in text)
                 assertTrue("The independent fetch warning remains visible", "Some limits could not be updated" in text)
-                val expectedPercents = (1..11).map { index -> "${100 - index}%" }
+                val expectedPercents = (1..11).map { index -> "${100 - index}% left" }
                 windows.forEachIndexed { index, window ->
                     assertTrue("The collection retains ${window.label}", window.label in text)
                     assertTrue("The collection retains the value for ${window.label}", expectedPercents[index] in text)
@@ -184,7 +184,7 @@ class WidgetAppearanceRenderingTest {
                                     assertTrue("$name materializes the account row, not only the panel", account.label in text)
                                     if (placed.name == "DetailedUsageWidget") {
                                         assertTrue("$name retains the scoped limit", "Weekly (Fable)" in text)
-                                        assertTrue("$name renders the global remaining quota", "37%" in text)
+                                        assertTrue("$name renders the global remaining quota", "37% left" in text)
                                         assertTrue("$name renders the independent fetch warning", "Some limits could not be updated" in text)
                                     } else {
                                         assertTrue("$name renders the fetch warning", "Partial update" in text)
