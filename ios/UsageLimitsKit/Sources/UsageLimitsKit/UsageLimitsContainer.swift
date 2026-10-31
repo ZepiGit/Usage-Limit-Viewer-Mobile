@@ -507,8 +507,11 @@ public actor UsageLimitsContainer {
         // consumed by a stronger one — and the claim is what stops it arriving later as a
         // stale alert the moment that setting is switched back on.
         let accounts = await repository.usage().map(AccountSummary.init)
-        let settings = await settingsStore.settings().notifications
-        return try await ledger.evaluateAndClaim(accounts: accounts, settings: settings, at: now())
+        // One read, so the thresholds and the wording come from the same settings value.
+        let settings = await settingsStore.settings()
+        return try await ledger.evaluateAndClaim(
+            accounts: accounts, settings: settings.notifications,
+            percentDisplay: settings.percentDisplay, at: now())
     }
 
     public func add(_ account: ProviderAccount) async throws {
@@ -638,7 +641,8 @@ public actor UsageLimitsContainer {
         let time = now()
         try? GlanceSnapshotCodec.write(
             GlanceModel.build(
-                usage, now: time, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons)
+                usage, now: time, scope: .allAccounts, staleAfter: settings.staleAfter,
+                providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay)
                 .with(credits: GlanceModel.buildCredits(credits, now: time, staleAfter: settings.staleAfter)),
             toDirectory: containerDirectory)
 

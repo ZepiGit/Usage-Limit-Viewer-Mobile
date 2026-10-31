@@ -99,6 +99,20 @@ enum SeverityPalette {
         }
     }
 
+    /// Bar or arc ink for a severity at the displayed `fraction`, in `mode` (D4).
+    ///
+    /// LEFT keeps the historical rendering exactly: severity decides over the percentage, so a
+    /// blocker with a full-looking percentage stays empty. USED flips what full means — an
+    /// exhausted window there IS full — so when the severity ink is nil but the displayed
+    /// fraction is positive, the fill takes the data hue. A stale reading keeps its grey ink and
+    /// an unknown figure has no fraction at all. The figure colour stays keyed on remaining in
+    /// both modes; red comes from it and from the dot, not from the bar.
+    static func barFill(_ severity: Severity, fraction: Double?, mode: PercentDisplay) -> Color? {
+        if let ink = barFill(severity) { return ink }
+        guard mode == .used, let fraction, fraction > 0 else { return nil }
+        return UsageColors.data
+    }
+
     static func label(_ severity: Severity) -> String {
         switch severity {
         case .healthy: return "Healthy"
@@ -110,6 +124,31 @@ enum SeverityPalette {
         case .stale: return "Stale"
         case .error: return "Error"
         }
+    }
+}
+
+/// The words around a percentage figure, composed here so the app and the widget say the same
+/// thing in the same mode.
+///
+/// The Kit hands over a token (no `%`) and this layer owns the wording, which is what keeps the
+/// Kit free of UI strings.
+enum PercentText {
+
+    /// The figure with its `%` sign, composed exactly as `UsageWindow.percentLabel` does for LEFT:
+    /// the unknown dash stays bare, never "—%".
+    static func figure(_ remaining: Double?, exhausted: Bool, mode: PercentDisplay) -> String {
+        let token = UsageWindow.percentToken(remaining, exhausted: exhausted, mode: mode)
+        return token == PercentToken.unknown ? token : "\(token)%"
+    }
+
+    /// The word that says which side the figure counts.
+    static func sideWord(_ mode: PercentDisplay) -> String {
+        mode == .used ? "used" : "left"
+    }
+
+    /// "45% remaining" in LEFT — the sentence spoken today, kept byte-identical — and "55% used".
+    static func spoken(_ figure: String, _ mode: PercentDisplay) -> String {
+        mode == .used ? "\(figure) used" : "\(figure) remaining"
     }
 }
 
@@ -289,7 +328,7 @@ struct AccountSkeletonCard: View {
             ForEach(0..<3, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: 6) {
                     SkeletonBar(width: 0.3, height: 14)
-                    UsageBar(remainingPercent: nil, severity: .healthy)
+                    UsageBar(remainingPercent: nil, severity: .healthy, mode: .left, exhausted: false)
                 }
             }
         }
@@ -493,29 +532,39 @@ struct UsageBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let remainingPercent: Double?
     let severity: Severity
+    /// Which side the bar fills with. Not defaulted, so a new call site has to say; money bars
+    /// say `.left` because they are out of scope for the percentage toggle.
+    let mode: PercentDisplay
+    /// The provider's own verdict, which fills the bar completely in USED even when no usable
+    /// percentage is behind it. Read from the raw row, never from an aged severity.
+    let exhausted: Bool
     var height: CGFloat = 6
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: height / 2, style: .continuous).fill(UsageColors.dataTrack)
-                if let fill = SeverityPalette.barFill(severity) {
+                if let fill = SeverityPalette.barFill(severity, fraction: shownFraction, mode: mode) {
                     RoundedRectangle(cornerRadius: height / 2, style: .continuous)
                         .fill(fill)
                         // An unknown percentage draws nothing rather than a full or empty bar:
                         // either would state a fact the provider did not report.
                         .frame(width: geometry.size.width * fraction)
                         // The fraction animates; the colour does not, since there is one fill.
-                        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: remainingPercent)
+                        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: fraction)
                 }
             }
         }
         .frame(height: height)
     }
 
+    private var shownFraction: Double? {
+        UsageWindow.fillFraction(remainingPercent, exhausted: exhausted, mode: mode)
+    }
+
     private var fraction: CGFloat {
-        guard let remaining = remainingPercent else { return 0 }
-        return CGFloat(min(max(remaining, 0), 100) / 100)
+        guard let shown = shownFraction else { return 0 }
+        return CGFloat(min(max(shown, 0), 1))
     }
 }
 

@@ -36,7 +36,9 @@ struct OverviewScreen: View {
                         // Never draggable: it is the headline, not one of the accounts, and a
                         // list that lets it be dropped between two cards makes the whole gesture
                         // read as broken.
-                        LeadStrip(snapshot: glance, now: store.now)
+                        LeadStrip(
+                            snapshot: glance, now: store.now, mode: store.settings.percentDisplay,
+                            toggleMode: toggleMode)
                             .plainRow()
                             .moveDisabled(true)
                     }
@@ -121,6 +123,16 @@ struct OverviewScreen: View {
         }
     }
 
+    /// Flips the global percentage mode, through the same property the Settings picker writes, so
+    /// persistence, the widget snapshot and the timeline reload follow without a second path.
+    ///
+    /// The crossfade is skipped under reduced motion, as every other animation on this screen is.
+    private func toggleMode() {
+        withAnimation(reduceMotion ? nil : Animation.easeInOut(duration: 0.2)) {
+            store.settings.percentDisplay = store.settings.percentDisplay == .used ? .left : .used
+        }
+    }
+
     /// Hands the store the WHOLE new order rather than the pair that swapped.
     ///
     /// The repository renumbers every row it is given, so sending the complete list is what
@@ -167,6 +179,10 @@ private struct LeadStrip: View {
 
     let snapshot: GlanceSnapshot
     let now: Date
+    let mode: PercentDisplay
+    /// Tapping the figure switches the mode. Scoped to the figure: the rest of the band has no
+    /// action of its own, and a whole-card tap would invite accidental flips while scrolling.
+    let toggleMode: () -> Void
 
     var body: some View {
         let lead = snapshot.nextResettingAccount(at: now)
@@ -198,15 +214,25 @@ private struct LeadStrip: View {
                 // Aged to now, like every other surface: a stale account's last number is
                 // still shown, but it stops speaking in a severity colour.
                 let severity = stale ? Severity.stale : lead.displaySeverity(of: row, at: now, staleAfter: snapshot.staleAfter)
-                let percent = UsageWindow.percentLabel(row.remainingPercent)
+                // The provider's own verdict, from the raw row: an aged severity must not turn
+                // an exhausted window into a partial one in USED.
+                let exhausted = row.severity == .exhausted
+                let percent = PercentText.figure(row.remainingPercent, exhausted: exhausted, mode: mode)
                 Text(verbatim: "\(lead.title) · \(row.label)")
                     .usageFont(.small).foregroundStyle(UsageColors.muted).lineLimit(1)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(verbatim: percent)
                         .usageFont(.lead).foregroundStyle(SeverityPalette.figureColor(severity))
-                    Text("left").usageFont(.small).foregroundStyle(UsageColors.muted)
+                        // Keyed on the figure and the mode, so a flip fades between the two
+                        // readings; a refresh that only moves the number is not inside an
+                        // animation transaction and swaps at once.
+                        .id("\(mode.rawValue):\(percent)")
+                        .transition(AnyTransition.opacity)
+                    Text(PercentText.sideWord(mode)).usageFont(.small).foregroundStyle(UsageColors.muted)
                 }
-                UsageBar(remainingPercent: row.remainingPercent, severity: severity)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: toggleMode)
+                UsageBar(remainingPercent: row.remainingPercent, severity: severity, mode: mode, exhausted: exhausted)
                     .padding(.vertical, 4)
                 if let resetAt = row.resetAt {
                     Text("Resets in \(Countdown.format(until: resetAt, from: now))")
@@ -220,6 +246,15 @@ private struct LeadStrip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken(lead: lead, row: row))
+        // The figure's tap is unreachable once the children are folded into one element, so the
+        // switch is offered as a named action as well.
+        .accessibilityHint("Use the actions rotor to \(switchActionName.lowercased())")
+        .accessibilityAction(named: switchActionName, toggleMode)
+    }
+
+    /// Names the mode the action switches TO.
+    private var switchActionName: String {
+        mode == .used ? "Show percentage left" : "Show percentage used"
     }
 
     private func cell<Value: View>(_ title: String, @ViewBuilder value: () -> Value) -> some View {
@@ -233,8 +268,12 @@ private struct LeadStrip: View {
 
     private func spoken(lead: GlanceAccount?, row: GlanceRow?) -> String {
         guard let lead, let row else { return "No limit to report" }
-        guard row.remainingPercent != nil else { return "\(lead.title), \(row.label): remaining unknown" }
-        return "\(lead.title), \(row.label): \(UsageWindow.percentLabel(row.remainingPercent)) remaining"
+        let figure = PercentText.figure(row.remainingPercent, exhausted: row.severity == .exhausted, mode: mode)
+        // Gated on the figure rather than on the raw percentage, so the sentence agrees with what
+        // is drawn: an exhausted window with no percentage reads "100% used" in USED and is
+        // still "remaining unknown" in LEFT, as before.
+        guard figure != PercentToken.unknown else { return "\(lead.title), \(row.label): remaining unknown" }
+        return "\(lead.title), \(row.label): \(PercentText.spoken(figure, mode))"
     }
 
     /// Counted through the connection status, so an account that needs signing in again stops
@@ -252,7 +291,7 @@ private struct LoadingOverview: View {
             UsageCard {
                 SkeletonBar(width: 0.4, height: 12)
                 SkeletonBar(width: 0.3, height: 30)
-                UsageBar(remainingPercent: nil, severity: .healthy)
+                UsageBar(remainingPercent: nil, severity: .healthy, mode: .left, exhausted: false)
             }
             AccountSkeletonCard()
             AccountSkeletonCard()
@@ -326,7 +365,8 @@ private struct AccountCard: View {
             ForEach(Array(account.rows.enumerated()), id: \.offset) { _, row in
                 WindowRow(
                     row: row, now: now,
-                    severity: account.displaySeverity(of: row, at: now, staleAfter: store.settings.staleAfter))
+                    severity: account.displaySeverity(of: row, at: now, staleAfter: store.settings.staleAfter),
+                    mode: store.settings.percentDisplay)
             }
         }
     }
@@ -340,8 +380,13 @@ struct WindowRow: View {
     /// What colours the figure and the bar. The caller's aged verdict where it has one; a row's
     /// own severity knows only its percentage, so left alone it paints a stale reading as fresh.
     var severity: Severity? = nil
+    /// Which side the figure and the bar count. Not defaulted: a caller that forgets it would
+    /// silently show LEFT on a screen the user switched to USED.
+    let mode: PercentDisplay
 
     private var shown: Severity { severity ?? row.severity }
+    /// The provider's verdict from the raw row — an aged `severity` replaces it for colour only.
+    private var exhausted: Bool { row.severity == .exhausted }
     private let segmentColors = [UsageColors.data, UsageColors.ink, UsageColors.faint, UsageColors.muted]
 
     var body: some View {
@@ -351,20 +396,24 @@ struct WindowRow: View {
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)
                 Spacer()
-                if row.remainingPercent == nil {
+                if figureText == PercentToken.unknown {
                     // A missing value is a small dash, not a figure-sized one: it is the absence
-                    // of a number and should not hold the weight of one.
-                    Text(remainingText).usageFont(.small).foregroundStyle(UsageColors.faint)
+                    // of a number and should not hold the weight of one. Gated on the figure, so
+                    // an exhausted window with no percentage still reads "100%" in USED.
+                    Text(figureText).usageFont(.small).foregroundStyle(UsageColors.faint)
                 } else {
-                    Text(remainingText)
-                        .usageFont(.figure)
-                        .foregroundStyle(SeverityPalette.figureColor(shown))
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(figureText)
+                            .usageFont(.figure)
+                            .foregroundStyle(SeverityPalette.figureColor(shown))
+                        Text(PercentText.sideWord(mode)).usageFont(.small).foregroundStyle(UsageColors.muted)
+                    }
                 }
             }
 
             if row.segments.isEmpty {
-                UsageBar(remainingPercent: row.remainingPercent, severity: shown)
-                    .accessibilityLabel("\(row.label): \(remainingText) remaining")
+                UsageBar(remainingPercent: row.remainingPercent, severity: shown, mode: mode, exhausted: exhausted)
+                    .accessibilityLabel("\(row.label): \(PercentText.spoken(figureText, mode))")
             } else {
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
@@ -385,7 +434,7 @@ struct WindowRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
                 .frame(height: 6)
-                .accessibilityLabel("\(row.label): \(remainingText) remaining")
+                .accessibilityLabel("\(row.label): \(PercentText.spoken(figureText, mode))")
                 Text("Usage breakdown").usageFont(.small).foregroundStyle(UsageColors.muted)
                 ForEach(row.segments.indices, id: \.self) { index in
                     HStack(spacing: 6) {
@@ -412,8 +461,8 @@ struct WindowRow: View {
     ///
     /// A window whose percentage the provider did not report is unknown, and "0%" would state
     /// something it never said — in the one direction that would make a user stop working.
-    private var remainingText: String {
-        UsageWindow.percentLabel(row.remainingPercent)
+    private var figureText: String {
+        PercentText.figure(row.remainingPercent, exhausted: exhausted, mode: mode)
     }
 }
 

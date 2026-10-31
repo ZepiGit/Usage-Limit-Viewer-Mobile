@@ -197,7 +197,8 @@ private struct AccountSummaryCard: View {
                     now: now,
                     // The account's aged verdict outranks a row's own: a stale or failed account
                     // keeps its last numbers, but they stop looking fresh.
-                    severity: agedSeverity == .stale || agedSeverity == .error ? agedSeverity : nil)
+                    severity: agedSeverity == .stale || agedSeverity == .error ? agedSeverity : nil,
+                    mode: store.settings.percentDisplay)
             }
 
             resetCredits

@@ -123,6 +123,9 @@ extension View {
     public func preferredColorScheme(_ value: ColorScheme?) -> Self { self }
     public func badge(_ value: Any?) -> Self { self }
     public func accessibilityLabel(_ value: Any) -> Self { self }
+    public func accessibilityHint(_ value: Any) -> Self { self }
+    public func accessibilityAction(named name: Any, _ handler: @escaping () -> Void) -> Self { self }
+    public func onTapGesture(count: Int = 1, perform action: @escaping () -> Void) -> Self { self }
     public func accessibilityIdentifier(_ value: String) -> Self { self }
     public func buttonStyle(_ value: ButtonStyleShim) -> Self { self }
     public func buttonStyle<S: ButtonStyle>(_ style: S) -> Self { self }
