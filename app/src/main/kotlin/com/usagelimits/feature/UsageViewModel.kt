@@ -8,6 +8,7 @@ import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.sync.publishAfterSync
 import com.usagelimits.core.model.CreditEntry
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.UsageWindow
@@ -363,6 +364,15 @@ class UsageViewModel(
 
     fun setShowRenewalTime(enabled: Boolean) {
         viewModelScope.launch { container.settingsStore.setShowRenewalTime(enabled) }
+    }
+
+    fun setPercentDisplay(mode: PercentDisplay) {
+        viewModelScope.launch {
+            container.settingsStore.setPercentDisplay(mode)
+            // Widgets render the mode from the observed settings; refresh so cold compositions
+            // repaint immediately rather than on their next tick.
+            WidgetUpdater.refreshAll(appContext)
+        }
     }
 
     fun setNotifyBelow20(enabled: Boolean) {

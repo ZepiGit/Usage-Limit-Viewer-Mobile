@@ -4,7 +4,9 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import com.usagelimits.core.model.PercentDisplay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -82,6 +84,20 @@ class SettingsMappingTest {
             AppSettings.MIN_SYNC_INTERVAL_MINUTES,
             settings.syncIntervalMinutes,
         )
+    }
+
+    @Test
+    fun `the percent display preference reads back, and unknown names fall back to LEFT`() {
+        assertEquals(
+            PercentDisplay.USED,
+            settingsFrom(stringPreferencesKey("percent_display") to "USED").percentDisplay,
+        )
+        assertEquals(
+            "an unknown stored name is the historical default, not a crash",
+            PercentDisplay.LEFT,
+            settingsFrom(stringPreferencesKey("percent_display") to "sideways").percentDisplay,
+        )
+        assertEquals(PercentDisplay.LEFT, settingsFrom().percentDisplay)
     }
 
     @Test

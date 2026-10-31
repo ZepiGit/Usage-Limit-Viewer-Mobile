@@ -4,9 +4,12 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.SnapshotStatus
@@ -248,6 +251,7 @@ class ScreenRenderTest {
                 onNotifyCreditExpiring = {},
                 onShowTier = {},
                 onShowRenewal = {},
+                onPercentDisplayChange = {},
             )
         }
 
@@ -268,10 +272,43 @@ class ScreenRenderTest {
             .fetchSemanticsNodes()
             .let { assertTrue("the renewal switch should be reachable", it.isNotEmpty()) }
 
+        // The percent-display control, with both modes reachable.
+        compose.onNode(hasScrollToNodeAction())
+            .performScrollToNode(hasText("Show percentages as", substring = true))
+        compose.onAllNodesWithText("Show percentages as", substring = true)
+            .fetchSemanticsNodes()
+            .let { assertTrue("the percent display control should be reachable", it.isNotEmpty()) }
+
         // Credential storage details are absent from Settings.
         compose.onAllNodesWithText("Credential storage", substring = true)
             .fetchSemanticsNodes()
             .let { assertTrue("the Security section should be gone", it.isEmpty()) }
+    }
+
+    @Test
+    fun `the percent display control reports its choice`() {
+        var chosen: PercentDisplay? = null
+        render {
+            SettingsScreen(
+                state = state(usage()),
+                onSyncIntervalChange = {},
+                onNotifyBelow20 = {},
+                onNotifyBelow10 = {},
+                onNotifyExhausted = {},
+                onNotifyResetCredit = {},
+                onNotifyAuthExpired = {},
+                onNotifyResetApproaching = {},
+                onNotifyCreditExpiring = {},
+                onShowTier = {},
+                onShowRenewal = {},
+                onPercentDisplayChange = { chosen = it },
+            )
+        }
+
+        compose.onNode(hasScrollToNodeAction())
+            .performScrollToNode(hasText("Show percentages as", substring = true))
+        compose.onNodeWithText("Used").performClick()
+        assertEquals(PercentDisplay.USED, chosen)
     }
 
     @Test

@@ -32,6 +32,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
     public var showRenewalTime: Bool
     public var providerIcons: [String: String]
 
+    /// Whether quota figures count down what is left or up what has been used.
+    public var percentDisplay: PercentDisplay
+
     public static let minimumSyncIntervalMinutes = 15
     public static let defaultSyncIntervalMinutes = 30
 
@@ -41,7 +44,8 @@ public struct AppSettings: Sendable, Equatable, Codable {
         accountsManuallyOrdered: Bool = false,
         showSubscriptionTier: Bool = true,
         showRenewalTime: Bool = false,
-        providerIcons: [String: String] = [:]
+        providerIcons: [String: String] = [:],
+        percentDisplay: PercentDisplay = .left
     ) {
         self.syncIntervalMinutes = max(syncIntervalMinutes, AppSettings.minimumSyncIntervalMinutes)
         self.notifications = notifications
@@ -49,6 +53,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         self.showSubscriptionTier = showSubscriptionTier
         self.showRenewalTime = showRenewalTime
         self.providerIcons = providerIcons
+        self.percentDisplay = percentDisplay
     }
 
     /// Decoded leniently, for the same reason as `NotificationSettings`: a missing key is a
@@ -69,7 +74,11 @@ public struct AppSettings: Sendable, Equatable, Codable {
                 Bool.self, forKey: .showSubscriptionTier) ?? true,
             showRenewalTime: try container.decodeIfPresent(
                 Bool.self, forKey: .showRenewalTime) ?? false,
-            providerIcons: try container.decodeIfPresent([String: String].self, forKey: .providerIcons) ?? [:])
+            providerIcons: try container.decodeIfPresent([String: String].self, forKey: .providerIcons) ?? [:],
+            // Decoded through the raw String, so an unknown stored name reads as the default
+            // instead of failing the whole decode and resetting every preference.
+            percentDisplay: PercentDisplay.fromLoose(
+                raw: try container.decodeIfPresent(String.self, forKey: .percentDisplay)))
     }
 
     /// Apply initializer rules to a copy so normalization preserves every other preference.

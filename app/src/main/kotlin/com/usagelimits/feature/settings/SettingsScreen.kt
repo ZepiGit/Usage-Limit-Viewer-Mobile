@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.sync.BackgroundRestrictions
@@ -57,6 +58,7 @@ fun SettingsScreen(
     onNotifyCreditExpiring: (Boolean) -> Unit,
     onShowTier: (Boolean) -> Unit,
     onShowRenewal: (Boolean) -> Unit,
+    onPercentDisplayChange: (PercentDisplay) -> Unit,
     modifier: Modifier = Modifier,
     onProviderIconChange: (com.usagelimits.core.model.ProviderId, String) -> Unit = { _, _ -> },
 ) {
@@ -118,6 +120,27 @@ fun SettingsScreen(
                     checked = settings.showRenewalTime,
                     onChange = onShowRenewal,
                 )
+                RuleDivider()
+                Text(
+                    text = "Show percentages as",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = UsageColors.Ink,
+                )
+                Text(
+                    text = "Whether figures count down what is left or up what you have used.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = UsageColors.Muted,
+                )
+                Spacer(Modifier.height(10.dp))
+                SegmentedRow {
+                    PercentDisplay.entries.forEach { mode ->
+                        Segment(
+                            label = if (mode == PercentDisplay.LEFT) "Left" else "Used",
+                            selected = settings.percentDisplay == mode,
+                            onClick = { onPercentDisplayChange(mode) },
+                        )
+                    }
+                }
             }
         }
 

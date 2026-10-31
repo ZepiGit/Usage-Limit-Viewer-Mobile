@@ -1,7 +1,5 @@
 package com.usagelimits.core.model
 
-import kotlin.math.roundToInt
-
 /**
  * How long a quota window spans. Derived from the window duration reported by the provider
  * rather than from its position in the payload, because providers reorder and rename windows.
@@ -219,10 +217,14 @@ data class ResetCredit(
     val status: String,
 )
 
-/** Display rounding never turns a positive remainder into zero, or a partial quota into full. */
-fun percentLabel(remaining: Double?): String = when {
-    remaining == null || !remaining.isFinite() || remaining !in 0.0..100.0 -> "—"
-    remaining > 0.0 && remaining < 1.0 -> "<1%"
-    remaining < 100.0 && remaining.roundToInt() == 100 -> ">99%"
-    else -> "${remaining.roundToInt()}%"
+/**
+ * Display rounding never turns a positive remainder into zero, or a partial quota into full.
+ *
+ * A thin wrapper over [percentToken] in the historical LEFT reading, keeping the `%`-suffixed
+ * strings existing call sites render; new surfaces take the token and compose it with a locale
+ * template, so the wording lives in resources rather than here.
+ */
+fun percentLabel(remaining: Double?): String {
+    val token = percentToken(remaining, exhausted = false, mode = PercentDisplay.LEFT)
+    return if (token == PERCENT_TOKEN_UNKNOWN) token else "$token%"
 }

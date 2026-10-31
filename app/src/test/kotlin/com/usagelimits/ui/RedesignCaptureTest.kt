@@ -172,7 +172,8 @@ class RedesignCaptureTest {
         "settings" to {
             SettingsScreen(state = state, onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
                 onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {},
-                onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {})
+                onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {},
+                onPercentDisplayChange = {})
         },
         "credit-detail" to {
             CreditDetailScreen(entry = credits[0], nowMs = NOW, staleAfterMs = state.staleAfterMs,

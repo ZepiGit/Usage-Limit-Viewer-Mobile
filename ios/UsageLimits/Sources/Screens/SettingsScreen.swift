@@ -55,6 +55,14 @@ struct SettingsScreen: View {
                         + "are about to run out of, not a second date competing with it.")
                         .usageFont(.small)
                         .foregroundStyle(UsageColors.muted)
+                    Picker("Show percentages as", selection: $store.settings.percentDisplay) {
+                        Text("Left").tag(PercentDisplay.left)
+                        Text("Used").tag(PercentDisplay.used)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("Whether figures count down what is left or up what you have used.")
+                        .usageFont(.small)
+                        .foregroundStyle(UsageColors.muted)
                 }
                 .listRowBackground(UsageColors.surface)
 

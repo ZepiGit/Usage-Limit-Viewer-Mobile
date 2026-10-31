@@ -45,6 +45,7 @@ final class PreferencesAndLedgerTests: XCTestCase {
         settings.showSubscriptionTier = false
         settings.showRenewalTime = true
         settings.accountsManuallyOrdered = true
+        settings.percentDisplay = .used
         settings.notifications.mutedAccountIDs = ["acct-1", "acct-2"]
 
         let returned = try await store.save(settings)
@@ -56,6 +57,7 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertFalse(reopened.showSubscriptionTier)
         XCTAssertTrue(reopened.showRenewalTime)
         XCTAssertTrue(reopened.accountsManuallyOrdered)
+        XCTAssertEqual(reopened.percentDisplay, .used)
         XCTAssertEqual(reopened.notifications.mutedAccountIDs, ["acct-1", "acct-2"])
     }
 
@@ -71,7 +73,20 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertTrue(settings.showSubscriptionTier)
         XCTAssertFalse(settings.showRenewalTime)
         XCTAssertFalse(settings.accountsManuallyOrdered)
+        XCTAssertEqual(settings.percentDisplay, .left)
         XCTAssertTrue(settings.notifications.mutedAccountIDs.isEmpty)
+    }
+
+    /// One unknown enum name must not fail the whole decode: the file holds every other
+    /// preference, and failing it would reset them all.
+    func testAnUnknownPercentDisplayNameTakesTheDefaultWithoutResettingTheRest() async throws {
+        let json = #"{"syncIntervalMinutes": 60, "percentDisplay": "sideways"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(settings.percentDisplay, .left)
+        XCTAssertEqual(settings.syncIntervalMinutes, 60)
     }
 
     func testDefaultsRatherThanAFailureWhenNothingIsStored() async {
