@@ -171,7 +171,7 @@ private struct BalanceRow: View {
                 }
                 if let percent = balance.remainingPercent, let total = balance.total {
                     // Money, not a quota window: the percentage toggle does not apply here.
-                    UsageBar(remainingPercent: percent, severity: severity, mode: .left, exhausted: false)
+                    UsageBar(remainingPercent: percent, severity: severity)
                         .accessibilityLabel("\(amount) of \(CreditFormat.string(total, currency: balance.currency)) left")
                 }
             }

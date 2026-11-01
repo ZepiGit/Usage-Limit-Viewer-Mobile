@@ -224,7 +224,7 @@ private struct ConfiguredRingGrid: View {
     /// The line the mode caption takes above the grid, taken off the height before rows are
     /// counted so a captioned grid cannot overflow its tile. A deliberate capacity drop for a
     /// one-row-tall mini widget: one ring where two fitted before.
-    private let captionSpace: CGFloat = 14
+    @ScaledMetric(relativeTo: .caption2) private var captionSpace: CGFloat = 14
 
     /// From the snapshot alone: the widget process cannot read the app's settings.
     private var mode: PercentDisplay { entry.snapshot.percentDisplay }
@@ -250,7 +250,7 @@ private struct ConfiguredRingGrid: View {
                     // One hint for the whole grid, independent of which status line each ring shows:
                     // a bare ring does not say which side it counts. The rings speak the mode
                     // themselves, so VoiceOver does not need the caption as well.
-                    Text(verbatim: mode == .used ? "Used" : "Left")
+                    Text(verbatim: PercentText.caption(mode))
                         .usageFont(.micro)
                         .foregroundStyle(ink.secondary)
                         .lineLimit(1)
@@ -264,10 +264,9 @@ private struct ConfiguredRingGrid: View {
                             // Resolved above the row so the drawn figure and the spoken one share it.
                             let limit = account.representative(at: entry.date)
                             let severity = account.displaySeverity(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter)
-                            // The raw row's verdict; the aged `severity` above only colours.
-                            let exhausted = limit?.severity == .exhausted
-                            let fraction = UsageWindow.fillFraction(limit?.remainingPercent, exhausted: exhausted, mode: mode)
-                            let figure = PercentText.figure(limit?.remainingPercent, exhausted: exhausted, mode: mode)
+                            // Built from the raw row; the aged `severity` above only colours the figure.
+                            let p = account.presentation(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter, mode: mode)
+                            let figure = PercentText.figure(p)
                             HStack(spacing: 8) {
                                 ZStack {
                                     // Reduce track opacity in accented/monochrome modes: the host can recolor both
@@ -275,8 +274,8 @@ private struct ConfiguredRingGrid: View {
                                     Circle().stroke(ink.track, lineWidth: mini ? 4 : 5).opacity(trackOpacity)
                                     // No fraction, no arc: an unknown figure must not become a ring
                                     // drawn from "100 − 0".
-                                    if let fraction, let arc = ink.bar(severity, fraction: fraction, mode: mode) {
-                                        Circle().trim(from: 0, to: CGFloat(QuotaFormatting.clampedFill(fraction)))
+                                    if let fill = p.fill, let arc = ink.fill(p.fillState) {
+                                        Circle().trim(from: 0, to: CGFloat(fill))
                                             .stroke(arc, style: StrokeStyle(lineWidth: mini ? 4 : 5, lineCap: .round))
                                             .rotationEffect(.degrees(-90))
                                     }
@@ -287,7 +286,7 @@ private struct ConfiguredRingGrid: View {
                                         // A ring this size reads best with its number inside; the
                                         // logo goes beside the name instead.
                                         Text(verbatim: figure)
-                                            .usageFont(figure == PercentToken.unknown ? .small : .smallStrong)
+                                            .usageFont(p.hasFigure ? .smallStrong : .small)
                                             .foregroundStyle(ink.figure(severity))
                                             .lineLimit(1)
                                             .minimumScaleFactor(0.85)
@@ -331,7 +330,7 @@ private struct ConfiguredRingGrid: View {
             sentence = PercentText.spoken(drawnFigure, .used)
         } else {
             let lowest = account.rows.map(\.remainingPercent).compactMap { $0 }.min()
-            sentence = PercentText.spoken(PercentText.figure(lowest, exhausted: false, mode: .left), .left)
+            sentence = PercentText.spoken(UsageWindow.percentLabel(lowest), .left)
         }
         return "\(account.title), \(account.subtitle ?? ""), \(sentence)"
     }

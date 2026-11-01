@@ -84,33 +84,20 @@ enum SeverityPalette {
         }
     }
 
-    /// Bar or arc fill for a severity, mirroring Android's `SeverityPalette.barFill`: the data hue,
-    /// the stale grey for an aged reading, and nil (the bare track) for an unknown, failed or
-    /// exhausted one, whatever percentage it still reports.
+    /// Bar or arc ink for how a presentation paints its fill: the data hue, the stale grey for a
+    /// reading that is no longer to be trusted, and nil (the bare track) for one that draws no
+    /// fill at all.
     ///
-    /// The callers pass the account's AGED severity, so a stale or failed account whose cached
-    /// reading still sat at 100 % cannot paint a fresh-looking bar under an out-of-date verdict.
-    /// Quota severity stays per row and never recolours a bar: the figure and the dot say it.
-    static func barFill(_ severity: Severity) -> Color? {
-        switch severity {
+    /// Which of the three applies is the Kit's decision (`WindowPresentation.fillState`), taken
+    /// from the reading's validity and its raw severity, so the palette holds colours only and a
+    /// stale or failed account whose cached reading still sat at 100 % cannot paint a
+    /// fresh-looking bar. Quota severity never recolours a bar: the figure and the dot say it.
+    static func fill(_ state: FillState) -> Color? {
+        switch state {
+        case .data: return UsageColors.data
         case .stale: return UsageColors.staleMark
-        case .unknown, .error, .exhausted: return nil
-        default: return UsageColors.data
+        case .noFill: return nil
         }
-    }
-
-    /// Bar or arc ink for a severity at the displayed `fraction`, in `mode` (D4).
-    ///
-    /// LEFT keeps the historical rendering exactly: severity decides over the percentage, so a
-    /// blocker with a full-looking percentage stays empty. USED flips what full means — an
-    /// exhausted window there IS full — so when the severity ink is nil but the displayed
-    /// fraction is positive, the fill takes the data hue. A stale reading keeps its grey ink and
-    /// an unknown figure has no fraction at all. The figure colour stays keyed on remaining in
-    /// both modes; red comes from it and from the dot, not from the bar.
-    static func barFill(_ severity: Severity, fraction: Double?, mode: PercentDisplay) -> Color? {
-        if let ink = barFill(severity) { return ink }
-        guard mode.usedFillOverridesMissingInk(fraction) else { return nil }
-        return UsageColors.data
     }
 
     static func label(_ severity: Severity) -> String {
@@ -136,9 +123,14 @@ enum PercentText {
 
     /// The figure with its `%` sign, composed exactly as `UsageWindow.percentLabel` does for LEFT:
     /// the unknown dash stays bare, never "—%".
-    static func figure(_ remaining: Double?, exhausted: Bool, mode: PercentDisplay) -> String {
-        let token = UsageWindow.percentToken(remaining, exhausted: exhausted, mode: mode)
-        return token == PercentToken.unknown ? token : "\(token)%"
+    static func figure(_ p: WindowPresentation) -> String {
+        p.hasFigure ? "\(p.token)%" : p.token
+    }
+
+    /// The one-word caption over a grid of figures, "Used" or "Left". Kept in one place, like
+    /// Android's `percentSideCaption`, so the later localisation changes a single function.
+    static func caption(_ mode: PercentDisplay) -> String {
+        mode == .used ? "Used" : "Left"
     }
 
     /// The visible caption is the short "left"/"used" so it fits beside the figure; speech says
@@ -329,7 +321,7 @@ struct AccountSkeletonCard: View {
             ForEach(0..<3, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: 6) {
                     SkeletonBar(width: 0.3, height: 14)
-                    UsageBar(remainingPercent: nil, severity: .healthy, mode: .left, exhausted: false)
+                    UsageBar(remainingPercent: nil, severity: .healthy)
                 }
             }
         }
@@ -531,21 +523,30 @@ struct SegmentedRow: View {
 /// gives up control of all three.
 struct UsageBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let remainingPercent: Double?
-    let severity: Severity
-    /// Which side the bar fills with. Not defaulted, so a new call site has to say; money bars
-    /// say `.left` because they are out of scope for the percentage toggle.
-    let mode: PercentDisplay
-    /// The provider's own verdict, which fills the bar completely in USED even when no usable
-    /// percentage is behind it. Read from the raw row, never from an aged severity.
-    let exhausted: Bool
+    /// What the bar draws: its fill and how that fill is painted come from the Kit, so the bar
+    /// cannot disagree with the figure beside it.
+    let presentation: WindowPresentation
     var height: CGFloat = 6
+
+    init(presentation: WindowPresentation, height: CGFloat = 6) {
+        self.presentation = presentation
+        self.height = height
+    }
+
+    /// The LEFT-only bar for a skeleton and for money, which are out of scope for the percentage
+    /// toggle: a current reading counted from what is left, with no raw-row verdict to carry.
+    init(remainingPercent: Double?, severity: Severity, height: CGFloat = 6) {
+        self.init(
+            presentation: WindowPresentation(
+                remaining: remainingPercent, severity: severity, validity: .current, mode: .left),
+            height: height)
+    }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: height / 2, style: .continuous).fill(UsageColors.dataTrack)
-                if let fill = SeverityPalette.barFill(severity, fraction: shownFraction, mode: mode) {
+                if let fill = SeverityPalette.fill(presentation.fillState) {
                     RoundedRectangle(cornerRadius: height / 2, style: .continuous)
                         .fill(fill)
                         // An unknown percentage draws nothing rather than a full or empty bar:
@@ -559,13 +560,10 @@ struct UsageBar: View {
         .frame(height: height)
     }
 
-    private var shownFraction: Double? {
-        UsageWindow.fillFraction(remainingPercent, exhausted: exhausted, mode: mode)
-    }
-
+    /// `fill` is already within 0 to 1, or nil: a figure that is missing or out of range draws
+    /// the bare track, never a full or an empty bar.
     private var fraction: CGFloat {
-        guard let shown = shownFraction else { return 0 }
-        return CGFloat(min(max(shown, 0), 1))
+        CGFloat(presentation.fill ?? 0)
     }
 }
 

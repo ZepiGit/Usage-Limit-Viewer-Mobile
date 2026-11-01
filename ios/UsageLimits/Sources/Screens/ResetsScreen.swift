@@ -168,8 +168,9 @@ private struct ResetRow: View {
     private var spoken: String {
         // Absent while the figure is unknown, as before; in USED an exhausted window with no
         // percentage still has a figure to speak ("100% used").
-        let figure = PercentText.figure(window.remainingPercent, exhausted: window.exhausted, mode: mode)
-        let remaining = figure == PercentToken.unknown ? "" : ", \(PercentText.spoken(figure, mode))"
+        let p = window.presentation(validity: .current, mode: mode)
+        let figure = PercentText.figure(p)
+        let remaining = p.hasFigure ? ", \(PercentText.spoken(figure, mode))" : ""
         return "\(window.label), \(accountLabel), resets at \(clock), in \(countdown), \(SeverityPalette.label(window.severity))\(remaining)"
     }
 }
