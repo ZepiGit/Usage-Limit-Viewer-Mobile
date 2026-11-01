@@ -31,6 +31,14 @@ enum WidgetToneChoice: String, AppEnum {
 }
 
 @available(iOS 17.0, *)
+enum WidgetModeChoice: String, AppEnum {
+    case appSetting, left, used
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Show percentages as"
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .appSetting: "App setting", .left: "Left", .used: "Used"]
+}
+
+@available(iOS 17.0, *)
 struct WidgetAccountEntity: AppEntity {
     var id: String
     var name: String
@@ -84,6 +92,9 @@ struct UsageWidgetIntent: WidgetConfigurationIntent {
     // user's explicit choice — the same contract as the Android LIGHT/DARK override. Light
     // is the default, which is what every existing transparent tile has always drawn.
     @Parameter(title: "Text tone", default: .light) var tone: WidgetToneChoice
+    // App setting is the default because every widget placed before this existed follows the
+    // app's mode, as it always did; Left and Used pin this one widget regardless of the app.
+    @Parameter(title: "Show percentages as", default: .appSetting) var percentDisplay: WidgetModeChoice
 }
 
 @available(iOS 17.0, *)
@@ -150,9 +161,14 @@ struct ConfiguredUsageProvider: AppIntentTimelineProvider {
         case .custom: .custom
         case .account: .account
         }
+        let percentOverride: PercentDisplay? = switch config.percentDisplay {
+        case .appSetting: nil
+        case .left: PercentDisplay.left
+        case .used: PercentDisplay.used
+        }
         return ConfiguredWidgetCapture(source: source, preset: preset, scope: scope,
             accountID: config.account?.id, providerID: config.provider.rawValue,
-            transparent: config.transparent)
+            transparent: config.transparent, percentOverride: percentOverride)
     }
 }
 

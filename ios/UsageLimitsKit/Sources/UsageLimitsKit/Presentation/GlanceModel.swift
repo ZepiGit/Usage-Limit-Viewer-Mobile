@@ -316,6 +316,15 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
             staleAfter: staleAfter, credits: credits, percentDisplay: percentDisplay)
     }
 
+    /// The same snapshot reading its figures in `percentDisplay`.
+    public func with(percentDisplay: PercentDisplay) -> GlanceSnapshot {
+        GlanceSnapshot(
+            accounts: accounts, accountCount: accountCount, updatedAt: updatedAt,
+            nextResetAt: nextResetAt, overallSeverity: overallSeverity,
+            headlineShort: headlineShort, headlineLong: headlineLong,
+            staleAfter: staleAfter, credits: credits, percentDisplay: percentDisplay)
+    }
+
     /// The instants after `date` at which this snapshot's presentation changes on its own:
     /// each account's stale boundary and every reset of every window it reports (`resetDates`,
     /// which the representative and the severity steps are keyed by) plus the lead's next
