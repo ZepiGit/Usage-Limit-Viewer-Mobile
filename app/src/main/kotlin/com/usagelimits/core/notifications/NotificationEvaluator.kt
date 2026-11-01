@@ -41,6 +41,10 @@ object NotificationEvaluator {
      * account needs signing in again." and the predicate was therefore false for every account
      * whose sign-in had lapsed. Nothing failed; the notification simply never fired. This side
      * was one reword away from the same silence, which is why it stops guessing too.
+     *
+     * Stays English whatever the display language: it is matched as data, not only shown, so a
+     * translation here would silence the notification in that language. Where it is displayed,
+     * the screen translates it separately.
      */
     const val SIGN_IN_EXPIRED_MESSAGE = "Sign-in expired — reconnect this account"
 
@@ -126,6 +130,7 @@ object NotificationEvaluator {
         settings: AppSettings,
         states: Map<String, AccountState>,
         nowMs: Long,
+        texts: NotificationTexts = EnglishNotificationTexts,
     ): Outcome {
         // Seeded with every state we were given, not only the accounts in this sync. A provider
         // that returns a partial response would otherwise drop an account's state, restart its
@@ -158,7 +163,7 @@ object NotificationEvaluator {
             // network blip end a low-quota episode and re-arm the warning for the next sync.
             if (snapshot == null || snapshot.status == SnapshotStatus.FAILED) {
                 newStates[id] = previous
-                if (!muted) standing += authFinding(usage, snapshot, settings)
+                if (!muted) standing += authFinding(usage, snapshot, settings, texts)
                 continue
             }
 
@@ -168,7 +173,7 @@ object NotificationEvaluator {
                 snapshot.fetchedAt <= previous.lastProcessedFetchedAt
             ) {
                 newStates[id] = previous
-                if (!muted) standing += standingFindings(usage, snapshot, settings, nowMs)
+                if (!muted) standing += standingFindings(usage, snapshot, settings, nowMs, texts)
                 // Quota edges are a property of the snapshot and fire once; DEADLINES are a
                 // property of the clock. A reset two hours away at fetch time, with a
                 // thirty-minute lead and a three-hour sync interval, was never announced: the
@@ -176,15 +181,15 @@ object NotificationEvaluator {
                 // fetch found the reset gone. The keys carry the instant, so re-evaluating
                 // here cannot say anything twice.
                 events += evaluateResetApproaching(
-                    usage.account.localId, usage.account.label, snapshot, settings, nowMs)
-                events += evaluateExpiringCredits(usage, snapshot, settings, nowMs)
+                    usage.account.localId, usage.account.label, snapshot, settings, nowMs, texts)
+                events += evaluateExpiringCredits(usage, snapshot, settings, nowMs, texts)
                 continue
             }
 
-            val (state, accountEvents) = evaluateAccount(usage, snapshot, settings, previous, nowMs)
+            val (state, accountEvents) = evaluateAccount(usage, snapshot, settings, previous, nowMs, texts)
             newStates[id] = state
             events += accountEvents
-            if (!muted) standing += standingFindings(usage, snapshot, settings, nowMs)
+            if (!muted) standing += standingFindings(usage, snapshot, settings, nowMs, texts)
         }
 
         // Silenced here rather than at each `events +=` above. Every event carries the account
@@ -210,15 +215,16 @@ object NotificationEvaluator {
         settings: AppSettings,
         previous: AccountState,
         nowMs: Long,
+        texts: NotificationTexts,
     ): Pair<AccountState, List<Event>> {
         val name = usage.account.label
         val events = mutableListOf<Event>()
 
         val accountId = usage.account.localId
-        val (state, lowEvents) = evaluateLowQuota(accountId, name, snapshot, settings, previous)
+        val (state, lowEvents) = evaluateLowQuota(accountId, name, snapshot, settings, previous, texts)
         events += lowEvents
-        events += evaluateResetApproaching(accountId, name, snapshot, settings, nowMs)
-        events += evaluateExpiringCredits(usage, snapshot, settings, nowMs)
+        events += evaluateResetApproaching(accountId, name, snapshot, settings, nowMs, texts)
+        events += evaluateExpiringCredits(usage, snapshot, settings, nowMs, texts)
 
         return state.copy(lastProcessedFetchedAt = snapshot.fetchedAt) to events
     }
@@ -246,13 +252,15 @@ object NotificationEvaluator {
          * The wording follows the display mode (R2) while the threshold stays on remaining
          * (§0 rule 4): "less than 20% remaining" and "more than 80% used" are the same crossing.
          */
-        fun message(name: String, label: String, mode: PercentDisplay): String {
-            val used = mode == PercentDisplay.USED
-            return when (this) {
-                WARNING -> if (used) "$name · $label: more than 80% used" else "$name · $label: less than 20% remaining"
-                CRITICAL -> if (used) "$name · $label: more than 90% used" else "$name · $label: less than 10% remaining"
-                EXHAUSTED -> "$name · $label exhausted"
-            }
+        fun message(
+            texts: NotificationTexts,
+            name: String,
+            label: String,
+            mode: PercentDisplay,
+        ): String = when (this) {
+            WARNING -> texts.warning(name, label, mode)
+            CRITICAL -> texts.critical(name, label, mode)
+            EXHAUSTED -> texts.exhausted(name, label)
         }
     }
 
@@ -284,6 +292,7 @@ object NotificationEvaluator {
         snapshot: UsageSnapshot,
         settings: AppSettings,
         previous: AccountState,
+        texts: NotificationTexts,
     ): Pair<AccountState, List<Event>> {
         // The ENCLOSING account's id, not the snapshot's.
         //
@@ -333,7 +342,7 @@ object NotificationEvaluator {
 
             val condition = reached.last()
             val line = if (reached.any { it.enabled(settings) }) {
-                condition.message(name, window.label, settings.percentDisplay)
+                condition.message(texts, name, window.label, settings.percentDisplay)
             } else {
                 ""
             }
@@ -377,6 +386,7 @@ object NotificationEvaluator {
         snapshot: UsageSnapshot,
         settings: AppSettings,
         nowMs: Long,
+        texts: NotificationTexts,
     ): List<Event> {
         val keys = windowKeys(snapshot.windows)
         // Claimed even while the setting is off, so switching it on delivers what happens next
@@ -395,7 +405,7 @@ object NotificationEvaluator {
                 accountId,
                 key(accountId, keys.getValue(window.id), "reset-approaching", resetAt.toString()),
                 if (settings.notifyOnResetApproaching) {
-                    "$name · ${window.label} resets in about $minutes minutes"
+                    texts.resetApproaching(name, window.label, minutes)
                 } else {
                     ""
                 },
@@ -415,6 +425,7 @@ object NotificationEvaluator {
         snapshot: UsageSnapshot,
         settings: AppSettings,
         nowMs: Long,
+        texts: NotificationTexts,
     ): List<Event> {
         // Same reasoning as the reset heads-up: claimed while off, text withheld.
         val leadMs = settings.resetCreditExpiryLeadMinutes.toLong() * MINUTE_MS
@@ -448,7 +459,7 @@ object NotificationEvaluator {
                 usage.account.localId,
                 key(usage.account.localId, credit.id, "credit-expiring"),
                 if (settings.notifyOnResetCreditExpiring) {
-                    "$name · a reset credit expires in ${Countdown.format(remainingMs)}"
+                    texts.creditExpiring(name, Countdown.format(remainingMs, texts.countdown))
                 } else {
                     ""
                 },
@@ -467,25 +478,26 @@ object NotificationEvaluator {
         snapshot: UsageSnapshot,
         settings: AppSettings,
         nowMs: Long,
+        texts: NotificationTexts,
     ): List<String> {
-        val authentication = authFinding(usage, snapshot, settings)
+        val authentication = authFinding(usage, snapshot, settings, texts)
         if (!settings.notifyOnResetCreditAvailable) return authentication
         val count = snapshot.spendableResetCreditsAt(nowMs)
         if (count <= 0) return authentication
 
-        val noun = if (count == 1) "reset credit" else "reset credits"
-        return authentication + "${usage.account.label} · $count $noun available"
+        return authentication + texts.creditsAvailable(usage.account.label, count)
     }
 
     private fun authFinding(
         usage: AccountUsage,
         snapshot: UsageSnapshot?,
         settings: AppSettings,
+        texts: NotificationTexts,
     ): List<String> {
         if (!settings.notifyOnAuthExpired) return emptyList()
         val expired = snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED ||
             meansSignInExpired(snapshot?.errorMessage)
-        return if (expired) listOf("${usage.account.label} needs to be reconnected") else emptyList()
+        return if (expired) listOf(texts.needsReconnect(usage.account.label)) else emptyList()
     }
 
     /**

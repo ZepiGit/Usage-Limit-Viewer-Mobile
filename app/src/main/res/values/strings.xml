@@ -5,4 +5,62 @@
     <string name="widget_detailed_description">Usage bars and reset times for your chosen accounts</string>
     <string name="widget_minimal_description">Usage rings with account names and reset times</string>
     <string name="widget_credits_description">Prepaid API balances, lowest first</string>
+
+    <!-- Countdown and freshness labels (core/time/Countdown.kt). Unit abbreviations take no plural. -->
+    <string name="countdown_now">now</string>
+    <string name="countdown_days_hours">%1$dd %2$dh</string>
+    <string name="countdown_days">%1$dd</string>
+    <string name="countdown_hours_minutes">%1$dh %2$dm</string>
+    <string name="countdown_hours">%1$dh</string>
+    <string name="countdown_minutes">%1$dm</string>
+    <string name="countdown_under_one_minute">&lt;1m</string>
+    <string name="countdown_reset_due">Reset due</string>
+    <string name="countdown_reset_in">Reset in %1$s</string>
+    <string name="countdown_resets_at">Resets %1$s</string>
+    <string name="countdown_resets_on">Resets %1$s %2$s</string>
+    <string name="countdown_resets_on_date">Resets %1$s</string>
+    <!-- A DateTimeFormatter pattern, not display text: the short date shape differs per language. -->
+    <string name="countdown_reset_date_pattern">d MMM</string>
+    <string name="countdown_never_updated">Never updated</string>
+    <string name="countdown_updated_just_now">Updated just now</string>
+    <string name="countdown_updated_ago">Updated %1$s ago</string>
+    <string name="countdown_as_of">As of %1$s</string>
+
+    <!-- Notification lines (core/notifications/NotificationEvaluator.kt). Name and label are data. -->
+    <string name="notification_warning_left">%1$s · %2$s: less than 20%% remaining</string>
+    <string name="notification_warning_used">%1$s · %2$s: more than 80%% used</string>
+    <string name="notification_critical_left">%1$s · %2$s: less than 10%% remaining</string>
+    <string name="notification_critical_used">%1$s · %2$s: more than 90%% used</string>
+    <string name="notification_exhausted">%1$s · %2$s exhausted</string>
+    <plurals name="notification_reset_approaching">
+        <item quantity="one">%1$s · %2$s resets in about %3$d minute</item>
+        <item quantity="other">%1$s · %2$s resets in about %3$d minutes</item>
+    </plurals>
+    <string name="notification_credit_expiring">%1$s · a reset credit expires in %2$s</string>
+    <plurals name="notification_credits_available">
+        <item quantity="one">%1$s · %2$d reset credit available</item>
+        <item quantity="other">%1$s · %2$d reset credits available</item>
+    </plurals>
+    <string name="notification_needs_reconnect">%1$s needs to be reconnected</string>
+
+    <!-- Percent figures and the side words that say which side of a quota they count (R2). -->
+    <string name="percent_figure">%1$s%%</string>
+    <string name="percent_side_left">left</string>
+    <string name="percent_side_used">used</string>
+    <string name="percent_caption_left">Left</string>
+    <string name="percent_caption_used">Used</string>
+    <string name="percent_spoken_left">remaining</string>
+    <string name="percent_spoken_used">used</string>
+    <string name="percent_flip_to_used">Show percentage used</string>
+    <string name="percent_flip_to_left">Show percentage left</string>
+
+    <!-- Severity labels (ui/theme/Theme.kt). -->
+    <string name="severity_healthy">Healthy</string>
+    <string name="severity_medium">Moderate</string>
+    <string name="severity_low">Low</string>
+    <string name="severity_limited">Limited</string>
+    <string name="severity_unknown">Unknown</string>
+    <string name="severity_exhausted">Exhausted</string>
+    <string name="severity_stale">Stale</string>
+    <string name="severity_error">Error</string>
 </resources>

@@ -1,5 +1,6 @@
 package com.usagelimits.ui.theme
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,6 +19,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.usagelimits.R
 import com.usagelimits.core.model.FillState
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ReadingValidity
@@ -99,6 +101,19 @@ object SeverityPalette {
         Severity.EXHAUSTED -> "Exhausted"
         Severity.STALE -> "Stale"
         Severity.ERROR -> "Error"
+    }
+
+    /** [label] as a string resource, so a screen shows it in the user's language. */
+    @StringRes
+    fun labelRes(severity: Severity): Int = when (severity) {
+        Severity.HEALTHY -> R.string.severity_healthy
+        Severity.MEDIUM -> R.string.severity_medium
+        Severity.LOW -> R.string.severity_low
+        Severity.LIMITED -> R.string.severity_limited
+        Severity.UNKNOWN -> R.string.severity_unknown
+        Severity.EXHAUSTED -> R.string.severity_exhausted
+        Severity.STALE -> R.string.severity_stale
+        Severity.ERROR -> R.string.severity_error
     }
 
 }

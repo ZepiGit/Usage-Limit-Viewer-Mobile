@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Usage Limits</string>
+    <string name="widget_compact_description">Kompakte Zeile: 5‑Std.-Limit, Wöchentlich, nächster Reset und Status</string>
+    <string name="widget_detailed_description">Verbrauchsbalken und Reset-Zeiten für deine ausgewählten Konten</string>
+    <string name="widget_minimal_description">Verbrauchsringe mit Kontonamen und Reset-Zeiten</string>
+    <string name="widget_credits_description">Prepaid-API-Guthaben, niedrigstes zuerst</string>
+
+    <!-- Countdown and freshness labels (core/time/Countdown.kt). Unit abbreviations take no plural. -->
+    <string name="countdown_now">jetzt</string>
+    <string name="countdown_days_hours">%1$d T. %2$d Std.</string>
+    <string name="countdown_days">%1$d T.</string>
+    <string name="countdown_hours_minutes">%1$d Std. %2$d Min.</string>
+    <string name="countdown_hours">%1$d Std.</string>
+    <string name="countdown_minutes">%1$d Min.</string>
+    <string name="countdown_under_one_minute">&lt;1 Min.</string>
+    <string name="countdown_reset_due">Reset fällig</string>
+    <string name="countdown_reset_in">Reset in %1$s</string>
+    <string name="countdown_resets_at">Reset %1$s</string>
+    <string name="countdown_resets_on">Reset %1$s %2$s</string>
+    <string name="countdown_resets_on_date">Reset %1$s</string>
+    <!-- A DateTimeFormatter pattern, not display text: German puts a dot after the day. -->
+    <string name="countdown_reset_date_pattern">d. MMM</string>
+    <string name="countdown_never_updated">Nie aktualisiert</string>
+    <string name="countdown_updated_just_now">Gerade aktualisiert</string>
+    <string name="countdown_updated_ago">Aktualisiert vor %1$s</string>
+    <string name="countdown_as_of">Stand %1$s</string>
+
+    <!-- Notification lines (core/notifications/NotificationEvaluator.kt). Name and label are data. -->
+    <string name="notification_warning_left">%1$s · %2$s: weniger als 20 %% übrig</string>
+    <string name="notification_warning_used">%1$s · %2$s: mehr als 80 %% verbraucht</string>
+    <string name="notification_critical_left">%1$s · %2$s: weniger als 10 %% übrig</string>
+    <string name="notification_critical_used">%1$s · %2$s: mehr als 90 %% verbraucht</string>
+    <string name="notification_exhausted">%1$s · %2$s aufgebraucht</string>
+    <plurals name="notification_reset_approaching">
+        <item quantity="one">%1$s · %2$s: Reset in etwa %3$d Minute</item>
+        <item quantity="other">%1$s · %2$s: Reset in etwa %3$d Minuten</item>
+    </plurals>
+    <string name="notification_credit_expiring">%1$s · ein Reset-Credit läuft in %2$s ab</string>
+    <plurals name="notification_credits_available">
+        <item quantity="one">%1$s · %2$d Reset-Credit verfügbar</item>
+        <item quantity="other">%1$s · %2$d Reset-Credits verfügbar</item>
+    </plurals>
+    <string name="notification_needs_reconnect">%1$s muss neu verbunden werden</string>
+
+    <!-- Percent figures and the side words that say which side of a quota they count (R2). -->
+    <string name="percent_figure">%1$s %%</string>
+    <string name="percent_side_left">übrig</string>
+    <string name="percent_side_used">verbraucht</string>
+    <string name="percent_caption_left">Übrig</string>
+    <string name="percent_caption_used">Verbraucht</string>
+    <string name="percent_spoken_left">übrig</string>
+    <string name="percent_spoken_used">verbraucht</string>
+    <string name="percent_flip_to_used">Prozent verbraucht anzeigen</string>
+    <string name="percent_flip_to_left">Prozent übrig anzeigen</string>
+
+    <!-- Severity labels (ui/theme/Theme.kt). -->
+    <string name="severity_healthy">Gut</string>
+    <string name="severity_medium">Mäßig</string>
+    <string name="severity_low">Niedrig</string>
+    <string name="severity_limited">Eingeschränkt</string>
+    <string name="severity_unknown">Unbekannt</string>
+    <string name="severity_exhausted">Aufgebraucht</string>
+    <string name="severity_stale">Veraltet</string>
+    <string name="severity_error">Fehler</string>
+</resources>
