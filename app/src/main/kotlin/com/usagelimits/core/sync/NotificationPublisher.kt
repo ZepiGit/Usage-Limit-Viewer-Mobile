@@ -20,6 +20,7 @@ import com.usagelimits.core.database.NotificationEventEntity
 import com.usagelimits.core.database.NotificationStateEntity
 import com.usagelimits.core.notifications.NotificationEvaluator
 import com.usagelimits.core.settings.SettingsStore
+import com.usagelimits.ui.text.ResourceNotificationTexts
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -66,6 +67,9 @@ class NotificationPublisher(
     suspend fun publishFor(accounts: List<AccountUsage>) {
         val settings = settingsStore.settings.first()
         val nowMs = now()
+        // Read per run, not held: the language can change between syncs, and a line is composed
+        // in whichever one is current when it is posted.
+        val texts = ResourceNotificationTexts(context.resources)
 
         val (outcome, claimed) = transactions.inTransaction {
             // Only accounts that still exist, decided INSIDE the transaction, so a delete
@@ -85,6 +89,7 @@ class NotificationPublisher(
                     )
                 },
                 nowMs = nowMs,
+                texts = texts,
             )
 
             // Claim first, and advance state, whether or not anything can be posted. Skipping
