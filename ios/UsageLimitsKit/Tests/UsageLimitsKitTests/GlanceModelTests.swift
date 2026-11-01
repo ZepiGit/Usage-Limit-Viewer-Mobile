@@ -172,6 +172,25 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(built.with(credits: []).percentDisplay, .used)
     }
 
+    func testWithPercentDisplayChangesOnlyTheMode() {
+        let built = GlanceModel.build(all, now: now, scope: .allAccounts, percentDisplay: .left)
+        let flipped = built.with(percentDisplay: .used)
+
+        XCTAssertEqual(flipped.percentDisplay, .used)
+        XCTAssertEqual(flipped.accounts, built.accounts)
+        XCTAssertEqual(flipped.accountCount, built.accountCount)
+        XCTAssertEqual(flipped.updatedAt, built.updatedAt)
+        XCTAssertEqual(flipped.nextResetAt, built.nextResetAt)
+        XCTAssertEqual(flipped.overallSeverity, built.overallSeverity)
+        XCTAssertEqual(flipped.headlineShort, built.headlineShort)
+        XCTAssertEqual(flipped.headlineLong, built.headlineLong)
+        XCTAssertEqual(flipped.staleAfter, built.staleAfter)
+        XCTAssertEqual(flipped.credits, built.credits)
+        XCTAssertEqual(flipped.with(percentDisplay: .left), built)
+        // The credits attach that follows must keep the new mode, not restore the old one.
+        XCTAssertEqual(flipped.with(credits: []).percentDisplay, .used)
+    }
+
     func testTheEmptySnapshotReadsLeft() {
         XCTAssertEqual(GlanceSnapshot.empty.percentDisplay, .left)
     }
@@ -932,7 +951,7 @@ extension GlanceModelTests {
         // Legacy tiles re-select before planning; configured tiles plan from the capture.
         XCTAssertEqual(Set(export.selecting(scope: .mostCritical, now: now).presentationBoundaries(after: now)), expected)
         let capture = ConfiguredWidgetCapture(source: .loaded(export), preset: .notRead, scope: .allAccounts,
-            accountID: nil, providerID: nil, transparent: false)
+            accountID: nil, providerID: nil, transparent: false, percentOverride: nil)
         XCTAssertEqual(Set(capture.presentationBoundaries(after: now)), expected)
 
         let account = try XCTUnwrap(export.accounts.first)

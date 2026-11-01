@@ -40,25 +40,36 @@ public struct ConfiguredWidgetCapture: Sendable, Equatable {
     public let providerID: String?
     public let transparent: Bool
 
+    /// This widget's own choice of percent mode; nil means it follows the app's mode, which the
+    /// snapshot carries.
+    public let percentOverride: PercentDisplay?
+
+    /// `percentOverride` is deliberately not defaulted, so a new construction site cannot
+    /// silently drop a widget's choice back to the app's mode.
     public init(source: GlanceSnapshotCodec.Load, preset: PresetResolution, scope: GlanceScope,
-        accountID: String?, providerID: String?, transparent: Bool) {
+        accountID: String?, providerID: String?, transparent: Bool,
+        percentOverride: PercentDisplay?) {
         self.source = source
         self.preset = preset
         self.scope = scope
         self.accountID = accountID
         self.providerID = providerID
         self.transparent = transparent
+        self.percentOverride = percentOverride
     }
 
     /// The selected snapshot at `date`, derived from the captured inputs alone.
     ///
     /// Pure over the capture: the same capture and date always produce the same snapshot, and
-    /// no input file is touched here.
+    /// no input file is touched here. The widget's mode override is resolved into the snapshot's
+    /// own `percentDisplay` here, so every view keeps reading that one field and none of them
+    /// has to know the intent exists.
     public func selectedSnapshot(at date: Date) -> GlanceSnapshot {
         let customIDs: [String]
         if case .matched(let ids) = preset { customIDs = ids } else { customIDs = [] }
-        return source.snapshot.selecting(scope: scope, now: date, accountID: accountID,
+        let selected = source.snapshot.selecting(scope: scope, now: date, accountID: accountID,
             providerID: providerID, customAccountIDs: customIDs)
+        return selected.with(percentDisplay: selected.percentDisplay.resolved(override: percentOverride))
     }
 
     /// The outcome this capture renders, decided once at resolution time.
