@@ -15,6 +15,16 @@ public enum PercentDisplay: String, Codable, Sendable {
         override ?? self
     }
 
+    /// A configured widget's stored choice, read as an override.
+    ///
+    /// The widget intent's choice is an app-target `AppEnum` whose raw values are this enum's plus
+    /// "appSetting". Reading it here, by raw value, keeps the mapping where Linux tests reach it:
+    /// "appSetting", a missing value and a raw value this build does not know all return nil, so
+    /// such a widget follows the app instead of being pinned to a mode nobody chose.
+    public static func widgetOverride(rawChoice: String?) -> PercentDisplay? {
+        rawChoice.flatMap(PercentDisplay.init(rawValue:))
+    }
+
     /// Whether a bar or ring must take the data hue although its severity has no ink of its own.
     ///
     /// Exhausted, error and unknown severities draw nothing in LEFT, where their fill is empty or

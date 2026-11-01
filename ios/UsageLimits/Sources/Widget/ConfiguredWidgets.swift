@@ -32,6 +32,8 @@ enum WidgetToneChoice: String, AppEnum {
 
 @available(iOS 17.0, *)
 enum WidgetModeChoice: String, AppEnum {
+    // Raw values are the contract: `left`/`used` must equal `PercentDisplay`'s, because
+    // `PercentDisplay.widgetOverride(rawChoice:)` reads the choice by raw value.
     case appSetting, left, used
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Show percentages as"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
@@ -161,11 +163,7 @@ struct ConfiguredUsageProvider: AppIntentTimelineProvider {
         case .custom: .custom
         case .account: .account
         }
-        let percentOverride: PercentDisplay? = switch config.percentDisplay {
-        case .appSetting: nil
-        case .left: PercentDisplay.left
-        case .used: PercentDisplay.used
-        }
+        let percentOverride = PercentDisplay.widgetOverride(rawChoice: config.percentDisplay.rawValue)
         return ConfiguredWidgetCapture(source: source, preset: preset, scope: scope,
             accountID: config.account?.id, providerID: config.provider.rawValue,
             transparent: config.transparent, percentOverride: percentOverride)
