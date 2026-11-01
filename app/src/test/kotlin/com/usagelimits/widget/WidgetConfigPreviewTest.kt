@@ -3,12 +3,25 @@ package com.usagelimits.widget
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
+import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageSnapshot
+import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import org.junit.Assert.assertEquals
@@ -123,4 +136,127 @@ class WidgetConfigPreviewTest {
             assertTrue("$mode: no caption over an empty preview", texts("Left").isEmpty() && texts("Used").isEmpty())
         }
     }
+
+    // region Per-widget override (R5)
+
+    private val saved = mutableListOf<String?>()
+
+    private fun fixtureUsage(): AccountUsage {
+        val now = System.currentTimeMillis()
+        return AccountUsage(
+            ProviderAccount("a", ProviderId.CLAUDE, "ext", "fixture@example.invalid", null, "Pro", "ref", now, now),
+            UsageSnapshot("a", now, SnapshotStatus.OK, windows = listOf(
+                UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 40.0, 604_800, now + 86_400_000, false))),
+        )
+    }
+
+    private fun configScreen(initial: WidgetConfigEntity? = null, appMode: PercentDisplay = PercentDisplay.LEFT) {
+        compose.setContent {
+            UsageLimitsTheme {
+                WidgetConfigScreen(listOf(fixtureUsage()), initial, "Usage Bars", saving = false, error = null,
+                    percentDisplay = appMode, onCancel = {},
+                    onSave = { _, _, _, _, _, override -> saved += override })
+            }
+        }
+        compose.waitForIdle()
+    }
+
+    private fun stored(percentDisplay: String?) =
+        WidgetConfigEntity(7, "CLOSEST_RESETS", null, null, 1L, percentDisplay = percentDisplay)
+
+    /** The config list is lazy, so an item below the fold is not composed until it is scrolled to. */
+    private fun reveal(text: String) {
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text))
+        compose.waitForIdle()
+    }
+
+    private fun choose(label: String) {
+        reveal(label)
+        compose.onNodeWithText(label).performClick()
+        compose.waitForIdle()
+    }
+
+    private fun save() {
+        compose.onNodeWithText("Save widget").performClick()
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun `the percent control offers three segments with the app setting selected for a new widget`() {
+        configScreen()
+        reveal("Show percentages as")
+        compose.onNodeWithText("App setting").assertIsSelected()
+        compose.onNodeWithText("Left").assertIsNotSelected()
+        compose.onNodeWithText("Used").assertIsNotSelected()
+    }
+
+    @Test
+    fun `a stored override is selected when the screen opens`() {
+        configScreen(stored("USED"))
+        reveal("Show percentages as")
+        compose.onNodeWithText("Used").assertIsSelected()
+        compose.onNodeWithText("App setting").assertIsNotSelected()
+    }
+
+    @Test
+    fun `an unknown stored override opens as the app setting`() {
+        configScreen(stored("SIDEWAYS"))
+        reveal("Show percentages as")
+        compose.onNodeWithText("App setting").assertIsSelected()
+    }
+
+    @Test
+    fun `choosing Used while the app shows Left switches the preview figures`() {
+        configScreen(appMode = PercentDisplay.LEFT)
+        reveal("60% left")
+        assertEquals("the preview starts on the app mode", 1, texts("60% left").size)
+
+        choose("Used")
+        reveal("40% used")
+        assertEquals("the preview now shows used", 1, texts("40% used").size)
+        assertTrue("and no longer the left figure", texts("60% left").isEmpty())
+
+        choose("App setting")
+        reveal("60% left")
+        assertEquals("the app setting brings the app mode back", 1, texts("60% left").size)
+        assertTrue(texts("40% used").isEmpty())
+    }
+
+    @Test
+    fun `choosing Left while the app shows Used keeps the preview on left`() {
+        configScreen(appMode = PercentDisplay.USED)
+        reveal("40% used")
+        choose("Left")
+        reveal("60% left")
+        assertEquals(1, texts("60% left").size)
+        assertTrue(texts("40% used").isEmpty())
+    }
+
+    @Test
+    fun `saving carries the chosen override and the app setting saves null`() {
+        configScreen()
+        choose("Used")
+        save()
+        assertEquals(listOf<String?>("USED"), saved)
+
+        choose("App setting")
+        save()
+        assertEquals(listOf<String?>("USED", null), saved)
+    }
+
+    @Test
+    fun `saving a widget that never chose keeps null`() {
+        configScreen(stored(null))
+        save()
+        assertEquals(listOf<String?>(null), saved)
+    }
+
+    @Test
+    fun `saving a widget with an unknown stored override writes null rather than the unknown name`() {
+        configScreen(stored("SIDEWAYS"))
+        save()
+        assertEquals(listOf<String?>(null), saved)
+    }
+
+    // endregion
 }

@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CreditAccountEntity::class,
         CreditSnapshotEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class UsageLimitsDatabase : RoomDatabase() {
@@ -190,6 +190,18 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * A placed widget may keep its own choice of showing percentages as left or used.
+         *
+         * Nullable with no default, matching the entity: null means "follow the app setting", so
+         * every widget already on a home screen keeps tracking it rather than being pinned.
+         */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE widget_configs ADD COLUMN percentDisplay TEXT")
+            }
+        }
+
         fun build(context: Context): UsageLimitsDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
@@ -202,6 +214,7 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             MIGRATION_8_9,
             MIGRATION_9_10,
             MIGRATION_10_11,
+            MIGRATION_11_12,
             ).build()
     }
 }

@@ -43,6 +43,7 @@ import androidx.lifecycle.lifecycleScope
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.database.WidgetConfigEntity
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.WidgetScope
 import com.usagelimits.ui.ProviderLogo
@@ -102,7 +103,7 @@ class WidgetConfigActivity : ComponentActivity() {
                     catch (_: Exception) { error = "Could not load this widget. Please try again." }
                 }
                 if (loaded) WidgetConfigScreen(accounts, initial, kind, saving, error, settings.percentDisplay,
-                    onCancel = { finish() }, onSave = { scope, accountId, providerId, style, custom ->
+                    onCancel = { finish() }, onSave = { scope, accountId, providerId, style, custom, percentOverride ->
                         if (!saving) {
                             saving = true
                             lifecycleScope.launch {
@@ -116,6 +117,7 @@ class WidgetConfigActivity : ComponentActivity() {
                                         backgroundArgb = style.background.argb,
                                         backgroundOpacity = style.background.clampedOpacity,
                                         textTone = style.textTone.name,
+                                        percentDisplay = percentOverride,
                                         customAccountIdsJson = JSONArray(custom).toString(),
                                         layoutMetricsJson = (WidgetMetrics.fromJson(initial?.layoutMetricsJson ?: "{}") ?: placementMetrics).toJson()))
                                     WidgetUpdater.refreshAll(this@WidgetConfigActivity)
@@ -137,12 +139,12 @@ class WidgetConfigActivity : ComponentActivity() {
 }
 
 @Composable
-private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConfigEntity?, kind: String,
+internal fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConfigEntity?, kind: String,
     saving: Boolean, error: String?,
-    // The preview must show figures the way the placed widget will; required so it cannot drift to LEFT.
-    percentDisplay: com.usagelimits.core.model.PercentDisplay,
+    // The app's mode; the preview resolves this widget's own choice over it, and required so it cannot drift to LEFT.
+    percentDisplay: PercentDisplay,
     onCancel: () -> Unit,
-    onSave: (WidgetScope, String?, String?, WidgetStyle, List<String>) -> Unit) {
+    onSave: (WidgetScope, String?, String?, WidgetStyle, List<String>, String?) -> Unit) {
     var scopeName by rememberSaveable { mutableStateOf(WidgetScope.fromName(initial?.scope).name) }
     var accountId by rememberSaveable { mutableStateOf(initial?.accountId) }
     var providerId by rememberSaveable { mutableStateOf(initial?.provider) }
@@ -153,6 +155,7 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
     var opacity by rememberSaveable { mutableStateOf(savedStyle.background.clampedOpacity) }
     var textToneName by rememberSaveable { mutableStateOf(savedStyle.textTone.name) }
     val style = WidgetStyle(WidgetBackground(backgroundArgb, opacity), WidgetTextTone.fromName(textToneName))
+    var modeOverrideName by rememberSaveable { mutableStateOf(initial?.percentDisplay?.let { PercentDisplay.fromNameOrNull(it)?.name }) }
     val savedIds = remember(initial) { runCatching {
         val a = JSONArray(initial?.customAccountIdsJson ?: "[]"); (0 until a.length()).map { a.getString(it) }
     }.getOrDefault(emptyList()) }
@@ -189,13 +192,13 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
     Scaffold(containerColor = UsageColors.Ground, bottomBar = {
         Row(Modifier.fillMaxWidth().background(UsageColors.Surface).navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             TextAction("Cancel", onCancel, color = UsageColors.Muted, enabled = !saving)
-            InkButton(if (saving) "Saving…" else "Save widget", { onSave(scope, accountId, providerId, style, currentOrder.filter { it in selected }) },
+            InkButton(if (saving) "Saving…" else "Save widget", { onSave(scope, accountId, providerId, style, currentOrder.filter { it in selected }, modeOverrideName) },
                 Modifier.weight(1f), enabled = valid && !saving)
         }
     }) { inset ->
         LazyColumn(Modifier.fillMaxSize().padding(inset), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { ScreenTitle(kind) }
-            item { ContentPreview(preview, kind, style, percentDisplay) }
+            item { ContentPreview(preview, kind, style, percentDisplay.resolved(PercentDisplay.fromNameOrNull(modeOverrideName))) }
             item {
                 BackgroundSettings(
                     style = style,
@@ -204,6 +207,7 @@ private fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConf
                     onTextTone = { textToneName = it.name },
                 )
             }
+            item { PercentDisplaySettings(modeOverrideName) { modeOverrideName = it } }
             item { SectionHeader("Widget content") }
             // Restored as a real choice: it was removed from this screen once and the saved
             // value kept working, so a widget could silently watch "most critical" with no way
@@ -352,6 +356,25 @@ private fun BackgroundSettings(
             listOf(WidgetTextTone.AUTO to "Auto", WidgetTextTone.LIGHT to "Light", WidgetTextTone.DARK to "Dark").forEach { (tone, label) ->
                 Segment(label, style.textTone == tone) { onTextTone(tone) }
             }
+        }
+    }
+}
+
+/**
+ * Whether this widget counts what is left or what is used, or simply follows the app.
+ *
+ * "App setting" is its own segment rather than the absence of a choice, so a widget that never
+ * picked one keeps tracking the app's mode instead of being pinned to today's value.
+ */
+@Composable
+private fun PercentDisplaySettings(overrideName: String?, onSelect: (String?) -> Unit) {
+    UsageCard {
+        Text("Show percentages as", style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
+        Text("This widget can follow the app or keep its own choice", style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
+        Spacer(Modifier.height(6.dp))
+        SegmentedRow {
+            listOf<Pair<String?, String>>(null to "App setting", PercentDisplay.LEFT.name to "Left", PercentDisplay.USED.name to "Used")
+                .forEach { (name, label) -> Segment(label, overrideName == name) { onSelect(name) } }
         }
     }
 }
