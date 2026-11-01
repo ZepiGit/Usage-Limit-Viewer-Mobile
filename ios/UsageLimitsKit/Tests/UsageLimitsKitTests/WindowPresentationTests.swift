@@ -1,9 +1,9 @@
 import XCTest
 @testable import UsageLimitsKit
 
-/// The presentation parity vectors (PLAN M3b.5), shared row for row with `WindowPresentationTest.kt`
-/// on Android. Both tables are written out literally: the independent proof that the rule is the
-/// one the surfaces used before is the frozen-copy equivalence tests at the bottom, not the tables.
+/// The presentation parity vectors, shared row for row with `WindowPresentationTest.kt` on Android.
+/// Both tables are written out literally so they pin the rule's values instead of re-deriving them;
+/// agreement with the bar's own ink rule is proved by the reference equivalence tests at the bottom.
 /// When a row changes here, change it there in the same commit.
 final class WindowPresentationTests: XCTestCase {
 
@@ -375,11 +375,11 @@ final class WindowPresentationTests: XCTestCase {
         XCTAssertEqual(FillState.stale, p.fillState)
     }
 
-    // MARK: - Equivalence with the ink rule before M3b
+    // MARK: - Equivalence with the reference ink rule
 
-    // f9075fb `SeverityPalette.barFill(_:)` / `WidgetInk.bar(_:)`, verbatim except that the two
-    // colours are named by what they stand for: `staleMark` is `.stale`, `data` is `.data`.
-    private func barFillBeforeM3b(_ severity: Severity) -> FillState? {
+    // An independent copy of the bar's ink rule, so a mistake in the module's rule cannot also hide
+    // in its oracle. The two colours are named by what they stand for: `.stale` and `.data`.
+    private func referenceBarFill(_ severity: Severity) -> FillState? {
         switch severity {
         case .stale: return .stale
         case .unknown, .error, .exhausted: return nil
@@ -387,26 +387,26 @@ final class WindowPresentationTests: XCTestCase {
         }
     }
 
-    // f9075fb `barFill(_:fraction:mode:)` / `bar(_:fraction:mode:)`.
-    private func inkBeforeM3b(_ severity: Severity, fraction: Double?, mode: PercentDisplay) -> FillState? {
-        if let ink = barFillBeforeM3b(severity) { return ink }
+    // The ink for a severity and fraction in a mode.
+    private func referenceInk(_ severity: Severity, fraction: Double?, mode: PercentDisplay) -> FillState? {
+        if let ink = referenceBarFill(severity) { return ink }
         guard mode.usedFillOverridesMissingInk(fraction) else { return nil }
         return .data
     }
 
-    // f9075fb `QuotaFormatting.clampedFill`.
-    private func clampedFillBeforeM3b(_ fraction: Double) -> Double {
+    // A fraction clamped into 0 to 1, with a non-finite one at 0.
+    private func referenceClampedFill(_ fraction: Double) -> Double {
         guard fraction.isFinite else { return 0 }
         return min(max(fraction, 0), 1)
     }
 
-    // f9075fb `QuotaBar`: the capsule is drawn only for a shown fraction AND an ink, at the clamped width.
-    private func paintedBeforeM3b(_ ink: FillState?, fraction: Double?) -> Double {
+    // The capsule is drawn only for a shown fraction AND an ink, at the clamped width.
+    private func referencePainted(_ ink: FillState?, fraction: Double?) -> Double {
         guard let fraction, ink != nil else { return 0 }
-        return clampedFillBeforeM3b(fraction)
+        return referenceClampedFill(fraction)
     }
 
-    private func paintedAfterM3b(_ p: WindowPresentation) -> Double {
+    private func modulePainted(_ p: WindowPresentation) -> Double {
         p.fillState == .noFill ? 0 : (p.fill ?? 0)
     }
 
@@ -428,13 +428,13 @@ final class WindowPresentationTests: XCTestCase {
         let displaySeverity: Severity
         let mode: PercentDisplay
         let fraction: Double?
-        let old: FillState?
+        let reference: FillState?
         let validity: ReadingValidity
-        let new: WindowPresentation
+        let module: WindowPresentation
     }
 
     /// Every row severity x aged state x reset pending x mode x remaining, each cell holding what
-    /// the surfaces fed the old rule today and what the module now answers.
+    /// the reference rule gives and what the module answers.
     private func sweep() -> [Cell] {
         let severities: [Severity] = [.healthy, .medium, .low, .limited, .exhausted, .unknown, .stale, .error]
         let remainings: [Double?] = [nil, 0.0, 15.0, 73.0, 100.0]
@@ -471,9 +471,9 @@ final class WindowPresentationTests: XCTestCase {
                                 displaySeverity: display,
                                 mode: mode,
                                 fraction: fraction,
-                                old: inkBeforeM3b(display, fraction: fraction, mode: mode),
+                                reference: referenceInk(display, fraction: fraction, mode: mode),
                                 validity: account.readingValidity(of: row, at: now, staleAfter: staleAfter),
-                                new: account.presentation(of: row, at: now, staleAfter: staleAfter, mode: mode)))
+                                module: account.presentation(of: row, at: now, staleAfter: staleAfter, mode: mode)))
                         }
                     }
                 }
@@ -482,9 +482,10 @@ final class WindowPresentationTests: XCTestCase {
         return cells
     }
 
-    /// F1 (and the corrupt-row case): a failed or unknown reading with a positive fraction in USED
-    /// used to take the data hue; it now draws nothing, as it already did in LEFT.
-    private func isTheIntendedChange(_ cell: Cell) -> Bool {
+    /// The one case where the module differs from the reference: a failed or unknown reading with a
+    /// positive fraction in USED draws nothing, as it does in LEFT, where the reference gives the
+    /// data hue.
+    private func differsFromReference(_ cell: Cell) -> Bool {
         (cell.displaySeverity == .error || cell.displaySeverity == .unknown)
             && cell.mode == .used && (cell.fraction ?? 0) > 0
     }
@@ -509,53 +510,53 @@ final class WindowPresentationTests: XCTestCase {
         }
     }
 
-    func testTheFillStateIsTheOldInkExceptWhereAFailedReadingHadAFill() {
-        var changed = 0
+    func testTheFillStateIsTheReferenceInkExceptWhereAFailedReadingHasAFraction() {
+        var differing = 0
         for cell in sweep() {
-            let new = paintedInk(cell.new.fillState)
-            if isTheIntendedChange(cell) {
-                XCTAssertEqual(FillState.data, cell.old, "\(cell.at) old")
-                XCTAssertNil(new, "\(cell.at) new")
-                changed += 1
+            let module = paintedInk(cell.module.fillState)
+            if differsFromReference(cell) {
+                XCTAssertEqual(FillState.data, cell.reference, "\(cell.at) reference")
+                XCTAssertNil(module, "\(cell.at) module")
+                differing += 1
             } else {
-                XCTAssertEqual(cell.old, new, cell.at)
+                XCTAssertEqual(cell.reference, module, cell.at)
             }
         }
-        XCTAssertGreaterThan(changed, 0, "the sweep never reached the intended change")
+        XCTAssertGreaterThan(differing, 0, "the sweep never reached a differing cell")
     }
 
-    func testThePaintedLengthIsTheOldOneExceptWhereAFailedReadingHadAFill() {
-        for cell in sweep() where !isTheIntendedChange(cell) {
+    func testThePaintedLengthIsTheReferenceOneExceptWhereAFailedReadingHasAFraction() {
+        for cell in sweep() where !differsFromReference(cell) {
             XCTAssertEqual(
-                paintedBeforeM3b(cell.old, fraction: cell.fraction),
-                paintedAfterM3b(cell.new),
+                referencePainted(cell.reference, fraction: cell.fraction),
+                modulePainted(cell.module),
                 accuracy: 1e-9,
                 cell.at)
         }
     }
 
-    func testAFailedReadingInUsedPaintsNothingWhereItPaintedItsFraction() {
-        // F1, stated once outside the sweep: a failed account's cached 15 % left is 0.85 used.
+    func testAFailedReadingInUsedPaintsNothingWhereTheReferencePaintsItsFraction() {
+        // A failed account's cached 15 % left is 0.85 used.
         let row = glanceRow(resetAt: now.addingTimeInterval(3_600), severity: .low, remaining: 15.0)
         let failed = glanceAccount(baseSeverity: .error, fetchedAt: now.addingTimeInterval(-600))
         let display = failed.displaySeverity(of: row, at: now, staleAfter: staleAfter)
         XCTAssertEqual(.error, display)
         let fraction = UsageWindow.fillFraction(15.0, exhausted: false, mode: .used)
         XCTAssertEqual(
-            0.85, paintedBeforeM3b(inkBeforeM3b(display, fraction: fraction, mode: .used), fraction: fraction),
+            0.85, referencePainted(referenceInk(display, fraction: fraction, mode: .used), fraction: fraction),
             accuracy: 1e-9)
         let p = failed.presentation(of: row, at: now, staleAfter: staleAfter, mode: .used)
         XCTAssertEqual(FillState.noFill, p.fillState)
-        XCTAssertEqual(0, paintedAfterM3b(p), accuracy: 1e-9)
-        // LEFT never painted it, so LEFT does not change.
+        XCTAssertEqual(0, modulePainted(p), accuracy: 1e-9)
+        // LEFT never paints a failed reading, so the reference and the module agree there.
         let leftFraction = UsageWindow.fillFraction(15.0, exhausted: false, mode: .left)
         XCTAssertEqual(
-            0, paintedBeforeM3b(inkBeforeM3b(display, fraction: leftFraction, mode: .left), fraction: leftFraction),
+            0, referencePainted(referenceInk(display, fraction: leftFraction, mode: .left), fraction: leftFraction),
             accuracy: 1e-9)
     }
 
-    func testACorruptCachedFigureNoLongerPaintsAFullBar() {
-        // G3-2: `clampedFill` turned a cached 150 into a full bar beside a dash; the module draws none.
+    func testACorruptCachedFigurePaintsNoBarWhereTheReferenceClampsItToFull() {
+        // A figure out of range reads as a dash, so its bar stays empty beside it.
         let fresh = glanceAccount(fetchedAt: now.addingTimeInterval(-60))
         let corrupt: [(Double, PercentDisplay)] = [(150.0, .left), (-5.0, .used)]
         for (remaining, mode) in corrupt {
@@ -563,12 +564,12 @@ final class WindowPresentationTests: XCTestCase {
             let display = fresh.displaySeverity(of: row, at: now, staleAfter: staleAfter)
             let fraction = UsageWindow.fillFraction(remaining, exhausted: false, mode: mode)
             XCTAssertEqual(
-                1.0, paintedBeforeM3b(inkBeforeM3b(display, fraction: fraction, mode: mode), fraction: fraction),
-                accuracy: 1e-9, "\(remaining) \(mode) before")
+                1.0, referencePainted(referenceInk(display, fraction: fraction, mode: mode), fraction: fraction),
+                accuracy: 1e-9, "\(remaining) \(mode) reference")
             let p = fresh.presentation(of: row, at: now, staleAfter: staleAfter, mode: mode)
             XCTAssertEqual("—", p.token, "\(remaining) \(mode) token")
             XCTAssertNil(p.fill, "\(remaining) \(mode) fill")
-            XCTAssertEqual(0, paintedAfterM3b(p), accuracy: 1e-9, "\(remaining) \(mode) after")
+            XCTAssertEqual(0, modulePainted(p), accuracy: 1e-9, "\(remaining) \(mode) module")
         }
     }
 }

@@ -127,8 +127,7 @@ enum PercentText {
         p.hasFigure ? "\(p.token)%" : p.token
     }
 
-    /// The one-word caption over a grid of figures, "Used" or "Left". Kept in one place, like
-    /// Android's `percentSideCaption`, so the later localisation changes a single function.
+    /// The caption a grid carries when its rings show no side word: "Left" or "Used".
     static func caption(_ mode: PercentDisplay) -> String {
         mode == .used ? "Used" : "Left"
     }
