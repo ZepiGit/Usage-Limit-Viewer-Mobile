@@ -18,9 +18,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.usagelimits.core.model.FillState
 import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
-import com.usagelimits.core.model.usedFillOverridesMissingInk
+import com.usagelimits.core.model.fillState
 
 /**
  * Maps a [Severity] onto the palette.
@@ -69,13 +71,23 @@ object SeverityPalette {
      * blocker with a full-looking percentage stays empty. USED flips what full means — an
      * exhausted window there *is* full — so when the severity ink is nil but the displayed
      * fraction is positive, the fill takes the data hue. Only raw-exhausted, non-stale windows
-     * reach that fallback: a stale reading keeps its grey ink, and unknown/error have no
-     * fraction at all. Figure colour stays on [figureColor], keyed on remaining in both modes.
+     * reach that fallback: a stale reading keeps its grey ink, and unknown/error draw nothing in
+     * either mode. Figure colour stays on [figureColor], keyed on remaining in both modes.
+     *
+     * Decided by [fillState] for a current reading, so the in-app bars and the widget bars share
+     * one rule; [barFill] stays the LEFT reference it is pinned against.
      */
-    fun barInkFor(severity: Severity, fraction: Double?, mode: PercentDisplay): Color? {
-        barFill(severity)?.let { return it }
-        if (usedFillOverridesMissingInk(mode, fraction)) return UsageColors.Data
-        return null
+    fun barInkFor(severity: Severity, fraction: Double?, mode: PercentDisplay): Color? =
+        fill(fillState(ReadingValidity.CURRENT, severity, fraction, mode))
+
+    /**
+     * The ink for a [FillState], which the presentation module decides and this palette only colours.
+     * Glance widgets cannot read this theme, so [com.usagelimits.widget.WidgetStyle.fill] restates it.
+     */
+    fun fill(state: FillState): Color? = when (state) {
+        FillState.DATA -> UsageColors.Data
+        FillState.STALE -> UsageColors.StaleMark
+        FillState.NO_FILL -> null
     }
 
     fun label(severity: Severity) = when (severity) {
