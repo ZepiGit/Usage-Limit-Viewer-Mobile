@@ -184,6 +184,37 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         return row?.severity ?? aged
     }
 
+    /// The validity a surface gives one shown row at `date`, decided exactly as `displaySeverity`
+    /// decides which row reads stale or failed.
+    ///
+    /// The account's aged verdict outranks the row: an error stays an error and an old snapshot
+    /// is stale whatever its rows say. Only then does a row whose own reset has passed since the
+    /// fetch read as reset due. A nil row has no reset to compare, so it takes the account's
+    /// verdict alone. Kept beside `displaySeverity` so colour and fill cannot disagree about
+    /// which readings are untrustworthy; `displaySeverity` itself still colours figures and dots.
+    public func readingValidity(of row: GlanceRow?, at date: Date, staleAfter: TimeInterval) -> ReadingValidity {
+        let aged = ReadingValidity.aged(severity(at: date, staleAfter: staleAfter))
+        if aged != .current { return aged }
+        if row?.resetPending(at: date, fetchedAt: fetchedAt) == true { return .resetDue }
+        return .current
+    }
+
+    /// Everything a surface needs to present `row` at `date`: the figure, the fill and how it is
+    /// painted, from the row's raw severity and the validity above.
+    ///
+    /// A missing row presents as `WindowPresentation.absent`, so a dash reads the same on every
+    /// surface whether the row was never there or the account has none.
+    public func presentation(
+        of row: GlanceRow?, at date: Date, staleAfter: TimeInterval, mode: PercentDisplay
+    ) -> WindowPresentation {
+        guard let row else { return .absent(mode) }
+        return WindowPresentation(
+            remaining: row.remainingPercent,
+            severity: row.severity,
+            validity: readingValidity(of: row, at: date, staleAfter: staleAfter),
+            mode: mode)
+    }
+
     /// The one row that stands for the account (ring, ordering): an exhausted row first, then the
     /// lowest percentage, among global rows whose reset has not passed since the fetch — scoped
     /// rows stand in only once no open global one is left. When every row has reset they all
