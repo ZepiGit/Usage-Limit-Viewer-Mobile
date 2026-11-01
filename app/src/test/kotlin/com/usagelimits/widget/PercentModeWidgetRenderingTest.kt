@@ -154,33 +154,43 @@ class PercentModeWidgetRenderingTest {
 
     @Test fun `compact four tiles name the mode in each label and show the matching figures`() = runTest {
         val id = seedFixtureAccount()
-        val size = DpSize(420.dp, 130.dp)
-        assertEquals("420dp is wide enough for four tiles",
-            WidgetLayout.CompactLayout.FOUR_TILES, WidgetLayout.compactLayout(size.width.value, 1f))
+        // 372dp is the narrowest width that still selects four tiles, so the labels are tightest there.
+        val sizes = listOf(DpSize(420.dp, 130.dp), DpSize(372.dp, 130.dp))
+        for (size in sizes) {
+            assertEquals("${size.width} is wide enough for four tiles",
+                WidgetLayout.CompactLayout.FOUR_TILES, WidgetLayout.compactLayout(size.width.value, 1f))
+        }
         inEachMode { mode ->
-            inspect("CompactUsageWidget", listOf(id), size) { view ->
-                val text = textViews(view).map { it.text.toString() }
-                val word = modeWord(mode)
-                assertTrue("$mode: 5h tile label leads with the mode word, got $text", "$word · 5h limit" in text)
-                assertTrue("$mode: weekly tile label leads with the mode word, got $text", "$word · Weekly" in text)
-                figures(mode).forEach { assertTrue("$mode: tile figure $it present, got $text", it in text) }
-                otherFigures(mode).forEach { assertTrue("$mode: the other mode's $it must be absent, got $text", it !in text) }
-                assertTrue("$mode: no label carries the other mode's word, got $text",
-                    text.none { it.startsWith("${otherWord(mode)} · ") })
+            for (size in sizes) {
+                inspect("CompactUsageWidget", listOf(id), size) { view ->
+                    val text = textViews(view).map { it.text.toString() }
+                    val word = modeWord(mode)
+                    assertTrue("$mode ${size.width}: 5h tile label leads with the mode word, got $text", "$word · 5h limit" in text)
+                    assertTrue("$mode ${size.width}: weekly tile label leads with the mode word, got $text", "$word · Weekly" in text)
+                    figures(mode).forEach { assertTrue("$mode ${size.width}: tile figure $it present, got $text", it in text) }
+                    otherFigures(mode).forEach {
+                        assertTrue("$mode ${size.width}: the other mode's $it must be absent, got $text", it !in text)
+                    }
+                    assertTrue("$mode ${size.width}: no label carries the other mode's word, got $text",
+                        text.none { it.startsWith("${otherWord(mode)} · ") })
+                }
             }
         }
     }
 
     @Test fun `compact summary and focus layouts lead their label with the mode word`() = runTest {
         val id = seedFixtureAccount()
-        val summary = DpSize(300.dp, 130.dp)
-        val focus = DpSize(180.dp, 150.dp)
-        assertEquals("300dp selects the two-metric summary",
-            WidgetLayout.CompactLayout.SUMMARY, WidgetLayout.compactLayout(summary.width.value, 1f))
-        assertEquals("180dp selects the focus readout",
-            WidgetLayout.CompactLayout.FOCUS, WidgetLayout.compactLayout(focus.width.value, 1f))
+        // 212dp is the narrowest width that still selects the summary, so its labels are tightest there.
+        val cases = listOf(
+            Triple("summary 300dp", DpSize(300.dp, 130.dp), WidgetLayout.CompactLayout.SUMMARY),
+            Triple("summary 212dp", DpSize(212.dp, 130.dp), WidgetLayout.CompactLayout.SUMMARY),
+            Triple("focus 180dp", DpSize(180.dp, 150.dp), WidgetLayout.CompactLayout.FOCUS),
+        )
+        for ((name, size, layout) in cases) {
+            assertEquals("$name selects $layout", layout, WidgetLayout.compactLayout(size.width.value, 1f))
+        }
         inEachMode { mode ->
-            for ((name, size) in listOf("summary" to summary, "focus" to focus)) {
+            for ((name, size, _) in cases) {
                 inspect("CompactUsageWidget", listOf(id), size) { view ->
                     val text = textViews(view).map { it.text.toString() }
                     val word = modeWord(mode)

@@ -99,7 +99,8 @@ final class UsageStore: ObservableObject {
     /// below it.
     var glance: GlanceSnapshot {
         GlanceModel.build(
-            accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons)
+            accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons,
+            percentDisplay: settings.percentDisplay)
     }
 
     /// The accounts in the order the overview should show them.
@@ -114,7 +115,7 @@ final class UsageStore: ObservableObject {
     /// user dragging a healthy account to the top must not thereby change what the headline
     /// reports about the fleet.
     var orderedAccounts: [GlanceAccount] {
-        let values = GlanceModel.build(accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons).accounts
+        let values = GlanceModel.build(accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay).accounts
         guard let order = pendingAccountOrder else { return values }
         let byID = Dictionary(uniqueKeysWithValues: values.map { ($0.id, $0) })
         return order.compactMap { byID[$0] } + values.filter { !order.contains($0.id) }
