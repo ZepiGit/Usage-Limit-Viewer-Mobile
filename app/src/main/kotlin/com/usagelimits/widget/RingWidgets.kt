@@ -24,7 +24,6 @@ import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
-import com.usagelimits.core.model.percentToken
 import com.usagelimits.core.model.withPercentSign
 import com.usagelimits.ui.percentSideCaption
 import com.usagelimits.ui.percentSpokenClause
@@ -142,8 +141,7 @@ internal fun ringLimit(account: WidgetAccount): WidgetRow? = account.representat
  * in USED beside whatever colour an aged severity gives the arc (§1.6).
  */
 internal fun ringFigure(account: WidgetAccount, mode: PercentDisplay): String {
-    val row = ringLimit(account)
-    return withPercentSign(percentToken(row?.remainingPercent, row?.isExhausted == true, mode))
+    return withPercentSign(ringLimit(account).presentation(null, mode).token)
 }
 
 /**
@@ -177,13 +175,13 @@ internal fun compactRingReset(context: Context, resetAt: Long): String {
 private fun RingMark(account: WidgetAccount, size: androidx.compose.ui.unit.Dp, mini: Boolean) {
     val style = LocalWidgetStyle.current
     val mode = LocalPercentMode.current
-    val row = ringLimit(account)
-    val percent = ringFigure(account, mode)
+    val p = ringLimit(account).presentation(null, mode)
+    val percent = withPercentSign(p.token)
     Box(GlanceModifier.size(size), contentAlignment = Alignment.Center) {
         Image(
             ImageProvider(UsageRing.draw(
                 160,
-                com.usagelimits.core.model.fillFraction(row?.remainingPercent, row?.isExhausted == true, mode)?.times(100.0),
+                p.fill?.times(100.0),
                 ringAccent(account, style).toArgb(), style.trackArgb)),
             ringDescription(account, mode),
             GlanceModifier.fillMaxSize())
@@ -191,7 +189,7 @@ private fun RingMark(account: WidgetAccount, size: androidx.compose.ui.unit.Dp, 
             ProviderId.fromId(account.providerId)?.let {
                 WidgetLogo(it, account.iconChoiceId, size * 0.46f)
             }
-        } else if (percent != "—") {
+        } else if (p.hasFigure) {
             Text(percent, style = widgetText(style.textPrimary, 12, FontWeight.Bold, mono = true), maxLines = 1)
         }
         if (account.partialUpdate) {

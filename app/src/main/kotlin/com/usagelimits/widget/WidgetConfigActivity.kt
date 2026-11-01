@@ -46,6 +46,7 @@ import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.WidgetScope
+import com.usagelimits.core.model.withPercentSign
 import com.usagelimits.ui.ProviderLogo
 import com.usagelimits.ui.components.ErrorBlock
 import com.usagelimits.ui.components.InkButton
@@ -384,7 +385,7 @@ private fun PercentDisplaySettings(overrideName: String?, onSelect: (String?) ->
  * flat mat so a translucent panel reads as translucent.
  */
 @Composable
-internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: WidgetStyle, mode: com.usagelimits.core.model.PercentDisplay) {
+internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: WidgetStyle, mode: PercentDisplay) {
     Box(Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(androidx.compose.ui.graphics.Color(0xFF3A3936)).padding(12.dp)) {
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(style.background.color).padding(14.dp),
@@ -397,12 +398,12 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                 Text(percentSideCaption(mode), style = MaterialTheme.typography.labelSmall, color = style.textSecondary)
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     snapshot.accounts.take(4).forEach { account ->
-                        val row = ringLimit(account)
+                        val p = ringLimit(account).presentation(null, mode)
                         Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                             Image(
                                 UsageRing.draw(
                                     160,
-                                    com.usagelimits.core.model.fillFraction(row?.remainingPercent, row?.isExhausted == true, mode)?.times(100.0),
+                                    p.fill?.times(100.0),
                                     ringAccent(account, style).toArgb(), style.trackArgb,
                                 ).asImageBitmap(),
                                 ringDescription(account, mode), Modifier.fillMaxSize(),
@@ -414,17 +415,17 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
             } else snapshot.accounts.take(if (kind == "Usage Summary") 1 else 2).forEach { account ->
                 Text(account.title, style = MaterialTheme.typography.titleMedium, color = style.textPrimary)
                 account.rows.take(2).forEach { row ->
-                    val percent = com.usagelimits.core.model.withPercentSign(
-                        com.usagelimits.core.model.percentToken(row.remainingPercent, row.isExhausted, mode))
+                    val p = row.presentation(account.dataValidity, mode)
+                    val percent = withPercentSign(p.token)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(row.label, Modifier.width(64.dp), style = MaterialTheme.typography.bodySmall, color = style.textSecondary)
                         PreviewBar(
-                            (com.usagelimits.core.model.fillFraction(row.remainingPercent, row.isExhausted, mode) ?: 0.0).toFloat(),
-                            style.bar(row, account.dataValidity, mode), style.track, Modifier.weight(1f),
+                            (p.fill ?: 0.0).toFloat(),
+                            style.fill(p.fillState), style.track, Modifier.weight(1f),
                         )
                         // R2: the preview names the side as the placed widget does; a dash stays bare.
                         Text(
-                            if (percent == "—") percent else "$percent ${percentSideWord(mode)}",
+                            if (!p.hasFigure) percent else "$percent ${percentSideWord(mode)}",
                             style = UsageType.Figure, color = style.barText(row, account.dataValidity),
                         )
                     }

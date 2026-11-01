@@ -30,7 +30,6 @@ import com.usagelimits.core.model.CreditFormat
 import com.usagelimits.core.model.CreditNumbers
 import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.CreditSeverity
-import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.ui.AppIcons
@@ -150,7 +149,7 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity) {
         }
         balance.remainingPercent?.let { percent ->
             // Money, not a quota window: out of scope for the percent display mode (R1/§0 rule 6).
-            UsageBar(percent, barSeverity, PercentDisplay.LEFT, Modifier.fillMaxWidth())
+            UsageBar(percent, barSeverity, Modifier.fillMaxWidth())
         }
         // An uncapped key has no bar: its existing label says so instead.
         if (balance.unlimited) balance.label?.let {
