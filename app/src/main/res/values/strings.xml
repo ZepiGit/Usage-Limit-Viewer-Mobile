@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">Usage Limits</string>
     <string name="widget_compact_description">Compact quota row: 5h, weekly, next reset and status</string>
     <string name="widget_detailed_description">Usage bars and reset times for your chosen accounts</string>
@@ -63,4 +63,263 @@
     <string name="severity_exhausted">Exhausted</string>
     <string name="severity_stale">Stale</string>
     <string name="severity_error">Error</string>
+
+    <!-- Settings screen (feature/settings/SettingsScreen.kt). Thresholds are passed in as formatted figures so the percent template stays the one place a sign is laid out. -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_sync">Sync</string>
+    <string name="settings_interval_title">Background refresh interval</string>
+    <string name="settings_interval_subtitle">Android may delay background work to save battery, so this is a target rather than a guarantee.</string>
+    <string name="settings_section_overview">Overview</string>
+    <string name="settings_show_tier_title">Show subscription tier</string>
+    <string name="settings_show_tier_subtitle">Plus, Pro, Max — beside the provider name</string>
+    <string name="settings_show_renewal_title">Show renewal time</string>
+    <string name="settings_show_renewal_subtitle">When the weekly or monthly allowance starts over, as opposed to the next reset. Overview only — the widgets stay on one number.</string>
+    <string name="settings_percent_display_title">Show percentages as</string>
+    <string name="settings_percent_display_subtitle">Whether figures count down what is left or up what you have used.</string>
+    <string name="settings_section_notifications">Notifications</string>
+    <string name="settings_notify_below_left_title">Below %1$s left</string>
+    <string name="settings_notify_above_used_title">Above %1$s used</string>
+    <string name="settings_notify_first_left_subtitle">Once, the first time a limit drops under a fifth remaining</string>
+    <string name="settings_notify_first_used_subtitle">Once, the first time a limit exceeds four fifths used</string>
+    <string name="settings_notify_second_subtitle">Once more when it gets tight, even after the %1$s warning</string>
+    <string name="settings_notify_exhausted_title">Limit exhausted</string>
+    <string name="settings_notify_exhausted_subtitle">When a window is fully consumed</string>
+    <string name="settings_notify_reset_credit_title">Reset credit available</string>
+    <string name="settings_notify_reset_credit_subtitle">When Codex reports a usable rate-limit reset credit</string>
+    <string name="settings_notify_reset_approaching_title">Reset approaching</string>
+    <plurals name="settings_notify_reset_approaching_subtitle">
+        <item quantity="one">About %1$d minute before a window rolls over</item>
+        <item quantity="other">About %1$d minutes before a window rolls over</item>
+    </plurals>
+    <string name="settings_notify_credit_expiring_title">Unused reset credit expires soon</string>
+    <string name="settings_notify_credit_expiring_subtitle">Notify me when an unused Codex reset credit expires within 24 hours. A credit lets you reset an eligible usage limit.</string>
+    <string name="settings_notify_auth_expired_title">Sign-in expired</string>
+    <string name="settings_notify_auth_expired_subtitle">When an account needs to be reconnected</string>
+    <string name="settings_section_thresholds">Thresholds</string>
+    <string name="settings_thresholds_note">Status is derived from the percentage still available.</string>
+    <string name="settings_threshold_above">above %1$s</string>
+    <string name="settings_threshold_range">%1$s–%2$s</string>
+    <string name="settings_section_diagnostics">Diagnostics</string>
+    <string name="settings_diag_accounts">Accounts</string>
+    <string name="settings_diag_last_sync">Last successful sync</string>
+    <string name="settings_diag_last_attempt">Last sync attempt</string>
+    <string name="settings_diag_widgets_repainted">Widgets last repainted</string>
+    <string name="settings_diag_sync_interval">Sync interval</string>
+    <string name="settings_diag_interval_value">%1$d min</string>
+    <string name="settings_diag_never">Never</string>
+    <string name="settings_diag_just_now">just now</string>
+    <string name="settings_diag_ago">%1$s ago</string>
+    <string name="settings_diag_note">Diagnostics deliberately exclude tokens, account identifiers and raw provider responses.</string>
+    <string name="settings_background_title">Background refresh</string>
+    <string name="settings_background_body">The widgets show what the last background refresh fetched. Android decides how often that runs; these are its current settings for this app.</string>
+    <string name="settings_background_use">Background use</string>
+    <string name="settings_background_restricted">Restricted</string>
+    <string name="settings_background_allowed">Allowed</string>
+    <string name="settings_battery_optimisation">Battery optimisation</string>
+    <string name="settings_battery_on">On (refresh may be deferred)</string>
+    <string name="settings_battery_off">Off</string>
+    <string name="settings_standby_bucket">Standby bucket</string>
+    <string name="settings_standby_active">Active</string>
+    <string name="settings_standby_working_set">Working set</string>
+    <string name="settings_standby_frequent">Frequent</string>
+    <string name="settings_standby_rare">Rare</string>
+    <string name="settings_standby_restricted">Restricted</string>
+    <string name="settings_standby_unknown">Unknown</string>
+    <string name="settings_background_held_back">Background refresh is being held back on this device, so widgets can fall hours behind. Allowing background use for Usage Limits fixes it.</string>
+    <string name="settings_open_battery_settings">Open battery settings</string>
+
+    <!-- Icon pickers (feature/settings/AppIconSettings.kt, ProviderIconSettings.kt). Provider icon names are brand descriptors and stay in code. -->
+    <string name="settings_section_app_icon">App icon</string>
+    <string name="app_icon_default">Default</string>
+    <string name="app_icon_gauge_coin">Gauge Coin</string>
+    <string name="app_icon_gauge">Gauge</string>
+    <string name="app_icon_hourglass">Hourglass</string>
+    <string name="app_icon_refresh_ring">Refresh Ring</string>
+    <string name="app_icon_battery">Battery</string>
+    <string name="settings_section_provider_icons">Provider icons</string>
+    <string name="settings_provider_icon_title">%1$s icon</string>
+
+    <!-- Actions shared by several screens. -->
+    <string name="action_choose">Choose</string>
+    <string name="action_done">Done</string>
+
+    <!-- Window rows (ui/components/UsageComponents.kt). The window labels are the names the app gives a window; labels a provider reports stay as reported. -->
+    <string name="window_label_five_hour">5h limit</string>
+    <string name="window_label_weekly">Weekly</string>
+    <string name="window_label_monthly">Monthly</string>
+    <string name="usage_segment_legend">%1$s usage: %2$s</string>
+    <string name="usage_breakdown">Usage breakdown</string>
+    <string name="usage_conflicting_availability">Provider reports this limit as blocked despite a positive remaining value.</string>
+
+    <!-- More shared actions. -->
+    <string name="action_retry">Retry</string>
+
+    <!-- Overview screen and account cards (feature/overview/OverviewScreen.kt). -->
+    <string name="overview_section_accounts">Accounts</string>
+    <string name="overview_reorder">Reorder</string>
+    <string name="overview_no_accounts">No accounts yet. Add one to start tracking usage.</string>
+    <string name="overview_move_account">Move %1$s</string>
+    <string name="overview_add_account">Add account</string>
+    <string name="overview_add_account_hint">Monitor another AI subscription</string>
+    <string name="overview_section_credits">Credits</string>
+    <string name="overview_no_credits">No prepaid balances tracked.</string>
+    <string name="overview_add_credit">Add credit balance</string>
+    <string name="overview_add_credit_hint">Track prepaid API credit</string>
+    <plurals name="overview_accounts_monitored">
+        <item quantity="one">%1$d account monitored</item>
+        <item quantity="other">%1$d accounts monitored</item>
+    </plurals>
+    <string name="overview_refreshing">Refreshing…</string>
+    <string name="overview_refresh_usage">Refresh usage</string>
+    <string name="overview_connected_accounts">Connected accounts</string>
+    <string name="overview_loading_usage">Loading usage</string>
+    <string name="overview_renews">%1$s renews %2$s</string>
+    <string name="overview_no_usage_data">No usage data yet</string>
+    <string name="status_reconnect">Reconnect</string>
+    <string name="restricted_windows">Restricted: %1$s</string>
+    <string name="reset_credits_title">Reset credits</string>
+    <!-- Not a plural: "available", "shown" and "upcoming" after a count do not inflect (also accounts_shown, resets_upcoming_count). -->
+    <string name="reset_credits_available_count" tools:ignore="PluralsCandidate">%1$d available</string>
+    <string name="error_partial_update">%1$s · partial update</string>
+    <string name="error_showing_last_known">%1$s · showing last known data</string>
+
+    <!-- Accounts screen (feature/accounts/AccountsScreen.kt). -->
+    <string name="accounts_title">Accounts</string>
+    <string name="accounts_shown" tools:ignore="PluralsCandidate">%1$d of %2$d shown</string>
+    <string name="accounts_filter_all">All</string>
+    <string name="accounts_filter_attention">Needs attention</string>
+    <string name="accounts_no_match">No accounts match this filter.</string>
+
+    <!-- Resets screen (feature/resets/ResetsScreen.kt). The day pattern is a DateTimeFormatter pattern, not display text. -->
+    <string name="resets_title">Resets</string>
+    <string name="resets_none_upcoming">No upcoming resets</string>
+    <string name="resets_upcoming_count" tools:ignore="PluralsCandidate">%1$d upcoming</string>
+    <string name="resets_empty">Reset times appear once an account has been synced and the provider reports a rollover time.</string>
+    <string name="resets_row_description">%1$s, %2$s, %3$s, %4$s, resets in %5$s</string>
+    <string name="resets_today">Today</string>
+    <string name="resets_tomorrow">Tomorrow</string>
+    <string name="resets_day_pattern">EEEE d MMM</string>
+
+    <!-- Account detail (feature/accounts/AccountDetailScreen.kt). -->
+    <string name="account_unavailable">This account is no longer available.</string>
+    <string name="account_remove_body">Its stored credentials are deleted from this device. Nothing changes on the provider side, and you can add the account again at any time.</string>
+    <string name="account_last_attempt_just_now">Last attempt just now</string>
+    <string name="account_last_attempt_ago">Last attempt %1$s ago</string>
+    <string name="account_reconnect">Reconnect account</string>
+    <string name="account_detail_partial">Available figures are from this update; some limits could not be refreshed.</string>
+    <string name="account_detail_no_measurement">No usage measurement has loaded yet.</string>
+    <string name="account_detail_last_loaded">The figures below are the last values that loaded successfully.</string>
+    <string name="account_section_limits">Limits</string>
+    <string name="account_section_account">Account</string>
+    <string name="account_notifications_title">Notifications</string>
+    <string name="account_notifications_subtitle">Alerts about this account\'s limits, resets and credits. Its numbers keep updating either way.</string>
+    <string name="account_refresh_now">Refresh now</string>
+    <string name="account_remove">Remove account</string>
+    <string name="account_remove_title">Remove account?</string>
+    <string name="account_remove_confirm">Remove</string>
+    <string name="reset_credits_none_available">None available</string>
+    <string name="reset_credits_none_apply">None apply to your current limit yet</string>
+    <string name="reset_credits_expires_in">Expires in %1$s</string>
+    <string name="reset_credits_empty_hint">Credits appear here when your plan grants one</string>
+    <string name="reset_credits_reset_limit">Reset limit</string>
+    <string name="reset_credits_confirm_title">Use a reset credit?</string>
+    <string name="reset_credits_confirm_body">This consumes 1 reset credit and cannot be undone. Your rate limit will be reset immediately.</string>
+    <string name="reset_credits_confirm_action">Use credit</string>
+
+    <!-- More shared actions. -->
+    <string name="action_cancel">Cancel</string>
+
+    <!-- Add-account flow (feature/accounts/AddAccountScreen.kt, AddAccountViewModel.kt). -->
+    <string name="add_account_title">Add account</string>
+    <string name="add_pick_intro">You can connect several accounts per provider.</string>
+    <string name="add_region_title">%1$s region</string>
+    <string name="add_region_body">Keys and sign-ins only work on the service they were issued by. Pick the one your account is on.</string>
+    <string name="add_starting">Contacting %1$s…</string>
+    <string name="add_enter_code">Enter this code</string>
+    <string name="add_code_body">Your browser is opening %1$s. Paste the code there — this app never sees your password.</string>
+    <string name="add_code_copied">Copied to your clipboard</string>
+    <string name="add_code_tap_to_copy">Tap the code to copy</string>
+    <string name="add_copy_code">Copy code</string>
+    <string name="add_open_page">Open page</string>
+    <string name="add_waiting">Waiting for approval…</string>
+    <string name="add_use_api_key_instead">Use an API key instead</string>
+    <string name="add_paste_key_title">Paste your %1$s key</string>
+    <string name="add_api_key_label">API key</string>
+    <string name="add_connect">Connect</string>
+    <string name="add_open_console">Open console</string>
+    <!-- "sign-in in" is correct English, and the wording must stay as it was (also add_hint_browser). -->
+    <string name="add_browser_wait" tools:ignore="Typos">Complete the sign-in in your browser. You\'ll come straight back here.</string>
+    <string name="add_browser_not_returning">Browser not coming back? Sign in with a code instead — you type it on the provider\'s page and no redirect is needed.</string>
+    <string name="add_use_device_code">Use a device code</string>
+    <string name="add_open_page_again">Open page again</string>
+    <string name="add_connected">Connected</string>
+    <string name="add_now_monitored">%1$s is now being monitored.</string>
+    <string name="add_signin_failed">Sign-in failed</string>
+    <string name="add_try_again">Try again</string>
+    <string name="add_use_api_key">Use an API key</string>
+    <string name="add_use_browser">Use the browser</string>
+    <string name="add_hint_browser" tools:ignore="Typos">Sign in in your browser</string>
+    <string name="add_hint_device_code">Sign in with a device code</string>
+    <string name="add_hint_google">Sign in with Google</string>
+    <string name="add_hint_api_key">Paste an API key</string>
+
+    <!-- More shared actions. -->
+    <string name="action_back">Back</string>
+
+    <!-- Add-credit flow (feature/credits/AddCreditScreen.kt, AddCreditViewModel.kt). -->
+    <string name="credit_add_title">Add credit balance</string>
+    <string name="credit_added">Added</string>
+    <string name="credit_now_tracked">%1$s is now being tracked.</string>
+    <string name="credit_add_intro">Prepaid balances for API keys. The key is checked against the provider before it is saved and is stored only in this device\'s Keystore.</string>
+    <string name="credit_open">Open</string>
+    <string name="credit_open_key_page_description">Open %1$s key page</string>
+    <string name="credit_connect_title">Connect %1$s</string>
+    <string name="credit_region_hint">Keys only work on the service they were issued by. Pick the one your account is on.</string>
+    <string name="credit_name_label">Name (optional)</string>
+    <string name="credit_team_label">Team id (only if the key is not tied to one team)</string>
+    <string name="credit_threshold_label">Low-balance figure (optional)</string>
+    <string name="credit_threshold_supporting">Default 5, or 35 for CNY. Below it the balance reads low.</string>
+    <string name="credit_checking">Checking…</string>
+    <string name="credit_check_and_add">Check and add</string>
+    <string name="credit_error_threshold">The low-balance figure must be a number above zero.</string>
+    <string name="credit_error_save">The key could not be saved on this device.</string>
+
+    <!-- Credit detail and credit cards (feature/credits/CreditDetailScreen.kt, CreditsUi.kt). -->
+    <string name="credit_unavailable">This credit account is no longer available.</string>
+    <string name="credit_remove_body">Its key is deleted from this device. It is not revoked at the provider: do that in the provider\'s console if the key may have leaked.</string>
+    <string name="credit_edit">Edit</string>
+    <string name="credit_detail_name_label">Name</string>
+    <string name="credit_detail_threshold_label">Low-balance figure</string>
+    <string name="credit_threshold_invalid">Enter a number above zero, or leave blank for the default.</string>
+    <string name="credit_threshold_blank">Blank uses the default: 5, or 35 for CNY.</string>
+    <string name="credit_save">Save</string>
+    <string name="credit_remove">Remove credit account</string>
+    <string name="credit_remove_title">Remove credit account?</string>
+    <string name="credit_no_balance">No balance read yet</string>
+    <string name="credit_showing_last_known">%1$s · showing last known balance</string>
+    <string name="credit_of_total">of %1$s</string>
+
+    <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
+    <string name="message_order_save_failed">Could not save account order. Try again.</string>
+    <string name="message_icon_save_failed">Could not save the icon choice. Try again.</string>
+    <string name="message_refresh_failed">Refresh failed</string>
+    <!-- Only raised when some but not all of several accounts failed, so the noun is always plural. -->
+    <string name="message_refresh_partly_failed" tools:ignore="PluralsCandidate">%1$d of %2$d accounts failed to refresh</string>
+    <string name="message_reset_applied">Limit reset applied</string>
+    <string name="message_reset_requested">Reset requested — the new limit will show on the next refresh</string>
+    <string name="message_reset_failed">Could not apply the reset</string>
+    <string name="message_changes_save_failed">Could not save the changes. Try again.</string>
+    <string name="message_credit_remove_failed">Could not remove the credit account. Try again.</string>
+
+    <!-- Navigation tabs (navigation/UsageLimitsNavigation.kt). -->
+    <string name="tab_overview">Overview</string>
+    <string name="tab_accounts">Accounts</string>
+    <string name="tab_resets">Resets</string>
+    <string name="tab_settings">Settings</string>
+
+    <!-- Sign-in keep-alive notification (core/oauth/SignInKeepAliveService.kt). -->
+    <string name="signin_channel_name">Sign-in</string>
+    <string name="signin_notification_title">Signing in</string>
+    <string name="signin_notification_body">Finishing sign-in… Return to Usage Limits if the browser stalls.</string>
+    <string name="signin_timeout_body">Return to Usage Limits to finish signing in</string>
 </resources>

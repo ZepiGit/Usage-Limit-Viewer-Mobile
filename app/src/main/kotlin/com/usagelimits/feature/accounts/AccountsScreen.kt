@@ -12,7 +12,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.feature.UsageUiState
@@ -69,14 +71,19 @@ fun AccountsScreen(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item { ScreenTitle("Accounts", stamp = "${visible.size} of ${state.accountCount} shown") }
+        item {
+            ScreenTitle(
+                stringResource(R.string.accounts_title),
+                stamp = stringResource(R.string.accounts_shown, visible.size, state.accountCount),
+            )
+        }
 
         item {
             SegmentedRow {
-                Segment("All", filter.provider == null && !filter.onlyProblems) {
+                Segment(stringResource(R.string.accounts_filter_all), filter.provider == null && !filter.onlyProblems) {
                     filter = AccountFilter()
                 }
-                Segment("Needs attention", filter.onlyProblems) {
+                Segment(stringResource(R.string.accounts_filter_attention), filter.onlyProblems) {
                     filter = filter.toggleProblems()
                 }
                 presentProviders.forEach { provider ->
@@ -90,11 +97,9 @@ fun AccountsScreen(
         if (visible.isEmpty()) {
             item {
                 EmptyBox(
-                    if (state.accounts.isEmpty()) {
-                        "No accounts yet. Add one to start tracking usage."
-                    } else {
-                        "No accounts match this filter."
-                    },
+                    stringResource(
+                        if (state.accounts.isEmpty()) R.string.overview_no_accounts else R.string.accounts_no_match,
+                    ),
                 )
             }
         }
@@ -108,6 +113,6 @@ fun AccountsScreen(
             }
         }
 
-        item { AddButton("Add account", "Monitor another AI subscription", onAddAccount) }
+        item { AddButton(stringResource(R.string.overview_add_account), stringResource(R.string.overview_add_account_hint), onAddAccount) }
     }
 }

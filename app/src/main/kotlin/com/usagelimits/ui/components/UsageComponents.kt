@@ -3,17 +3,19 @@ package com.usagelimits.ui.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.snap
-import com.usagelimits.ui.percentSideWord
-import com.usagelimits.ui.percentSpokenClause
+import com.usagelimits.ui.percentSideWordRes
+import com.usagelimits.ui.percentSpokenClauseRes
+import com.usagelimits.ui.text.percentFigureText
+import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.WindowPresentation
 import com.usagelimits.core.model.fillFraction
-import com.usagelimits.core.model.percentLabel
+import com.usagelimits.core.model.percentToken
 import com.usagelimits.core.model.presentation
 import com.usagelimits.core.model.readingValidity
-import com.usagelimits.core.model.withPercentSign
+import com.usagelimits.R
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -63,6 +65,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -160,7 +163,7 @@ fun StatusMark(severity: Severity, modifier: Modifier = Modifier, label: String?
     ) {
         Dot(SeverityPalette.accent(severity))
         Text(
-            text = label ?: SeverityPalette.label(severity),
+            text = label ?: stringResource(SeverityPalette.labelRes(severity)),
             style = MaterialTheme.typography.labelMedium,
             color = UsageColors.Muted,
         )
@@ -187,24 +190,39 @@ fun UsageWindowRow(
     val validity = window.readingValidity(stale, fetchedAt, nowMs)
     val severity = if (validity == ReadingValidity.CURRENT) window.severity else Severity.STALE
     val p = window.presentation(validity, mode)
-    // The mode-aware figure token, composed with the historical "%" until the locale template
-    // lands (R4). The spoken sentence keeps the LEFT wording — "remaining" is what it always said.
-    val percent = withPercentSign(p.token)
-    val shownSide = percentSideWord(mode)
+    // The mode-aware figure token, laid out by the language's percent template. The spoken sentence
+    // keeps the LEFT wording — "remaining" is what it always said.
+    val percent = percentFigureText(p.token)
+    val shownSide = stringResource(percentSideWordRes(mode))
+    val spokenClause = stringResource(percentSpokenClauseRes(mode))
+    // Names the app gives a window are words of the app and are translated; a label the provider
+    // reported is data and is shown as it came.
     val label = when {
         window.scope != com.usagelimits.core.model.UsageScope.GLOBAL -> window.label
-        window.group != null && window.category == com.usagelimits.core.model.WindowCategory.FIVE_HOUR -> "5h limit"
-        window.group != null && window.category == com.usagelimits.core.model.WindowCategory.WEEKLY -> "Weekly"
-        window.group != null && window.category == com.usagelimits.core.model.WindowCategory.MONTHLY -> "Monthly"
-        window.label.equals("Five Hour Limit Remaining", ignoreCase = true) -> "5h limit"
-        window.label.equals("Weekly Limit Remaining", ignoreCase = true) -> "Weekly"
+        window.group != null && window.category == com.usagelimits.core.model.WindowCategory.FIVE_HOUR ->
+            stringResource(R.string.window_label_five_hour)
+        window.group != null && window.category == com.usagelimits.core.model.WindowCategory.WEEKLY ->
+            stringResource(R.string.window_label_weekly)
+        window.group != null && window.category == com.usagelimits.core.model.WindowCategory.MONTHLY ->
+            stringResource(R.string.window_label_monthly)
+        window.label.equals("Five Hour Limit Remaining", ignoreCase = true) ->
+            stringResource(R.string.window_label_five_hour)
+        window.label.equals("Weekly Limit Remaining", ignoreCase = true) -> stringResource(R.string.window_label_weekly)
         else -> window.label
     }
-    val reset = Countdown.resetLabel(window.resetAt, nowMs)
+    val reset = Countdown.resetLabel(window.resetAt, nowMs, rememberCountdownTexts())
+    // A segment is a usage breakdown: its figure is always the used share, and says so in both modes.
+    val segmentLegends = window.segments.map {
+        stringResource(
+            R.string.usage_segment_legend,
+            it.label,
+            percentFigureText(percentToken(it.usedPercent, exhausted = false, mode = PercentDisplay.LEFT)),
+        )
+    }
     Column(modifier.fillMaxWidth().semantics(mergeDescendants = true) {
-        contentDescription = "$label, $percent ${percentSpokenClause(mode)}" +
+        contentDescription = "$label, $percent $spokenClause" +
             (reset?.let { ", $it" } ?: "") +
-            window.segments.joinToString("") { ", ${it.label} usage: ${percentLabel(it.usedPercent)}" }
+            segmentLegends.joinToString("") { ", $it" }
     }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -241,11 +259,11 @@ fun UsageWindowRow(
                         size = Size(size.width * ((total - offset) / 100).toFloat(), size.height))
                 }
             })
-            Text("Usage breakdown", style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+            Text(stringResource(R.string.usage_breakdown), style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
             window.segments.forEachIndexed { index, segment ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Dot(SegmentColors[index % SegmentColors.size], size = 6.dp)
-                    Text("${segment.label} usage: ${percentLabel(segment.usedPercent)}",
+                    Text(segmentLegends[index],
                         style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
                 }
             }
@@ -253,7 +271,7 @@ fun UsageWindowRow(
         if (window.hasConflictingAvailability) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Dot(UsageColors.Warning, size = 6.dp)
-                Text("Provider reports this limit as blocked despite a positive remaining value.",
+                Text(stringResource(R.string.usage_conflicting_availability),
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
             }
         }
@@ -533,7 +551,7 @@ fun ErrorBlock(
         Column(Modifier.weight(1f)) {
             Text(message, style = MaterialTheme.typography.bodyMedium, color = UsageColors.Ink)
             if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
-            if (onRetry != null) TextAction("Retry", onRetry)
+            if (onRetry != null) TextAction(stringResource(R.string.action_retry), onRetry)
         }
     }
 }

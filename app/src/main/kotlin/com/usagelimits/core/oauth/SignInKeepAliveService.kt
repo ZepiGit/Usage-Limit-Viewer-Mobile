@@ -35,12 +35,12 @@ class SignInKeepAliveService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Sign-in", NotificationManager.IMPORTANCE_LOW),
+                NotificationChannel(CHANNEL_ID, getString(R.string.signin_channel_name), NotificationManager.IMPORTANCE_LOW),
             )
             val notification = NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Signing in")
-                .setContentText("Finishing sign-in… Return to Usage Limits if the browser stalls.")
+                .setContentTitle(getString(R.string.signin_notification_title))
+                .setContentText(getString(R.string.signin_notification_body))
                 .setContentIntent(openApp())
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -83,8 +83,8 @@ class SignInKeepAliveService : Service() {
             HINT_ID,
             NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Signing in")
-                .setContentText("Return to Usage Limits to finish signing in")
+                .setContentTitle(getString(R.string.signin_notification_title))
+                .setContentText(getString(R.string.signin_timeout_body))
                 .setContentIntent(openApp())
                 .setAutoCancel(true)
                 .build(),

@@ -39,6 +39,8 @@ class AppIconsTest {
 
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
+    private fun AppIcon.text() = context.getString(labelRes)
+
     @Before
     fun clearPendingChoice() {
         AppIcon.select(AppIcon.CURRENT)
@@ -58,13 +60,13 @@ class AppIconsTest {
     @Test
     fun `picker displays pending choice without changing the active launcher`() {
         compose.setContent { UsageLimitsTheme { AppIconSettings() } }
-        compose.onNodeWithText(AppIcon.CURRENT.label).assertIsSelected()
+        compose.onNodeWithText(AppIcon.CURRENT.text()).assertIsSelected()
         AppIcon.entries.forEach { selected ->
-            compose.onNodeWithText(selected.label).assertIsDisplayed().performClick().assertIsSelected()
+            compose.onNodeWithText(selected.text()).assertIsDisplayed().performClick().assertIsSelected()
             assertEquals(selected, AppIcon.pending)
             assertEquals(AppIcon.CURRENT, AppIcon.current(context))
             AppIcon.entries.filterNot { it == selected }.forEach {
-                compose.onNodeWithText(it.label).assertIsNotSelected()
+                compose.onNodeWithText(it.text()).assertIsNotSelected()
             }
         }
     }
@@ -74,12 +76,12 @@ class AppIconsTest {
     fun `pending choice survives picker disposal and is applied when activity stops`() {
         var showing by androidx.compose.runtime.mutableStateOf(true)
         compose.setContent { UsageLimitsTheme { if (showing) AppIconSettings() } }
-        compose.onNodeWithText(AppIcon.GAUGE_COIN.label).performClick().assertIsSelected()
+        compose.onNodeWithText(AppIcon.GAUGE_COIN.text()).performClick().assertIsSelected()
         compose.runOnIdle { showing = false }
         compose.waitForIdle()
         assertEquals(AppIcon.CURRENT, AppIcon.current(context))
         compose.runOnIdle { showing = true }
-        compose.onNodeWithText(AppIcon.GAUGE_COIN.label).assertIsSelected()
+        compose.onNodeWithText(AppIcon.GAUGE_COIN.text()).assertIsSelected()
         compose.runOnIdle { showing = false }
         compose.waitForIdle()
         val activity = Robolectric.buildActivity(UsageLimitsActivity::class.java).create().start().resume()
@@ -121,7 +123,7 @@ class AppIconsTest {
             .map { it.groupValues[1] to it.groupValues[2] }.toList()
         val androidChoices = AppIcon.entries.map { icon ->
             val parts = icon.name.lowercase().split('_')
-            (parts.first() + parts.drop(1).joinToString("") { it.replaceFirstChar(Char::uppercaseChar) }) to icon.label
+            (parts.first() + parts.drop(1).joinToString("") { it.replaceFirstChar(Char::uppercaseChar) }) to icon.text()
         }
         assertEquals(6, choices.size)
         assertEquals(androidChoices, choices)

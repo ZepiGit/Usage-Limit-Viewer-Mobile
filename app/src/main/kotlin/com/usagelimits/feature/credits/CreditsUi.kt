@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.usagelimits.R
@@ -37,6 +38,7 @@ import com.usagelimits.ui.components.ErrorBlock
 import com.usagelimits.ui.components.StatusMark
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.theme.UsageColors
 import java.math.BigDecimal
 
@@ -79,6 +81,7 @@ fun CreditCard(
 ) {
     val account = entry.account
     val snapshot = entry.snapshot
+    val countdownTexts = rememberCountdownTexts()
     val severity = CreditSeverity.of(entry, nowMs, staleAfterMs)
     val balances = CreditSeverity.worstFirst(entry)
 
@@ -90,7 +93,7 @@ fun CreditCard(
                 Text(account.label, style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink, maxLines = 1)
                 Text(
                     account.provider.displayName + " · " +
-                        Countdown.freshnessLabel(snapshot?.takeIf { it.balances.isNotEmpty() }?.fetchedAt, nowMs),
+                        Countdown.freshnessLabel(snapshot?.takeIf { it.balances.isNotEmpty() }?.fetchedAt, nowMs, countdownTexts),
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint, maxLines = 1,
                 )
             }
@@ -106,7 +109,7 @@ fun CreditCard(
             if (snapshot?.error != null) {
                 ErrorBlock(snapshot.error, onRetry = onRetry)
             } else {
-                Text(text = "No balance read yet", style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
+                Text(text = stringResource(R.string.credit_no_balance), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
             }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -114,7 +117,7 @@ fun CreditCard(
             }
             if (snapshot?.error != null) {
                 ErrorBlock(
-                    message = "${snapshot.error} · showing last known balance",
+                    message = stringResource(R.string.credit_showing_last_known, snapshot.error),
                     modifier = Modifier.padding(top = 12.dp),
                     onRetry = onRetry,
                 )
@@ -137,7 +140,7 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity) {
             )
             balance.total?.takeIf { !balance.unlimited && balance.remainingPercent != null }?.let { total ->
                 Text(
-                    text = "of " + CreditFormat.string(total, balance.currency),
+                    text = stringResource(R.string.credit_of_total, CreditFormat.string(total, balance.currency)),
                     modifier = Modifier.weight(1f).padding(bottom = 2.dp),
                     style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     color = UsageColors.Muted,
