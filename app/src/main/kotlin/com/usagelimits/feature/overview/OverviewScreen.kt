@@ -11,6 +11,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -268,7 +274,15 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
                         true
                     }
                 }
-            },
+            }
+                // A keyboard or D-pad reaches the same action: the figure's tap is pointer-only.
+                .onKeyEvent { event ->
+                    val confirm = event.key == Key.Enter || event.key == Key.NumPadEnter || event.key == Key.DirectionCenter
+                    if (lead != null && confirm && event.type == KeyEventType.KeyUp) {
+                        onPercentDisplayChange(flipTo); true
+                    } else false
+                }
+                .focusable(enabled = lead != null),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (lead != null) {

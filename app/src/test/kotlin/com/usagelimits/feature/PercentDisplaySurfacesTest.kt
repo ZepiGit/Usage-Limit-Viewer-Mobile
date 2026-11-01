@@ -10,7 +10,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyAncestor
@@ -208,6 +213,19 @@ class PercentDisplaySurfacesTest {
             hasText("60%") and hasAnyAncestor(hasContentDescription("60% left", substring = true)),
             useUnmergedTree = true,
         ).performTouchInput { click() }
+
+        assertEquals(PercentDisplay.USED, chosen)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun `enter on the focused lead strip flips the mode`() {
+        var chosen: PercentDisplay? = null
+        overview(PercentDisplay.LEFT) { chosen = it }
+
+        val lead = compose.onNode(hasContentDescription("60% left", substring = true))
+        lead.requestFocus()
+        lead.performKeyInput { pressKey(Key.Enter) }
 
         assertEquals(PercentDisplay.USED, chosen)
     }

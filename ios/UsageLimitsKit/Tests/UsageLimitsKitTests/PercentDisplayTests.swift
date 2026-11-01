@@ -100,10 +100,14 @@ final class PercentDisplayTests: XCTestCase {
     }
 
     func testResolvedOverridePrefersTheWidgetChoiceButFallsBackToTheAppMode() {
-        XCTAssertEqual(.used, PercentDisplay.left.resolved(override: .used))
-        XCTAssertEqual(.left, PercentDisplay.used.resolved(override: .left))
-        XCTAssertEqual(.left, PercentDisplay.left.resolved(override: nil))
-        XCTAssertEqual(.used, PercentDisplay.used.resolved(override: nil))
+        // The same (app, override, shown) table as Android's DisplayPercentTest.
+        let table: [(PercentDisplay, PercentDisplay?, PercentDisplay)] = [
+            (.left, nil, .left), (.left, .left, .left), (.left, .used, .used),
+            (.used, nil, .used), (.used, .left, .left), (.used, .used, .used),
+        ]
+        for (app, choice, shown) in table {
+            XCTAssertEqual(app.resolved(override: choice), shown, "app \(app), override \(String(describing: choice))")
+        }
     }
 
     /// The same vectors as Android's `fromNameOrNull` override read: only a known choice pins.
