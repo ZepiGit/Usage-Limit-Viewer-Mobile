@@ -7,9 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The presentation parity vectors (PLAN M3b.5), shared row for row with `WindowPresentationTests.swift`
- * in the iOS UsageLimitsKit. Both tables are written out literally: the independent proof that the
- * rule is the one the surfaces used before is the frozen-copy equivalence tests, not this file.
+ * The presentation parity vectors, shared row for row with `WindowPresentationTests.swift` in the
+ * iOS UsageLimitsKit. Both tables are written out literally so they pin the rule's values instead of
+ * re-deriving them; agreement with each surface's own bar rule is proved by the bar equivalence tests.
  */
 class WindowPresentationTest {
 
@@ -164,13 +164,13 @@ class WindowPresentationTest {
         assertEquals(FillState.STALE, p.fillState)
     }
 
-    // f9075fb UsageWindowRow: `stale || (fetchedAt != null && window.resetElapsedAt(fetchedAt, nowMs))`
-    // decided whether the row took the stale treatment. Frozen here so the helper cannot drift from it.
-    private fun staleBeforeM3b(window: UsageWindow, stale: Boolean, fetchedAt: Long?, nowMs: Long): Boolean =
+    // An independent copy of the app row's stale test, so a mistake in `readingValidity` cannot also
+    // hide in its oracle.
+    private fun referenceStale(window: UsageWindow, stale: Boolean, fetchedAt: Long?, nowMs: Long): Boolean =
         stale || (fetchedAt != null && window.resetElapsedAt(fetchedAt, nowMs))
 
     @Test
-    fun `reading validity agrees with the inline expression it replaces over every input`() {
+    fun `reading validity agrees with the plain stale-or-reset-elapsed test over every input`() {
         val resetAt = 10_000L
         val windows = listOf(window(usedPercent = 27.0, resetAt = resetAt), window(usedPercent = 27.0, resetAt = null))
         val fetchedAts = listOf(null, 5_000L, 12_000L)
@@ -182,7 +182,7 @@ class WindowPresentationTest {
                     nows.forEach { now ->
                         val actual = w.readingValidity(stale, fetchedAt, now)
                         val at = "resetAt=${w.resetAt} stale=$stale fetchedAt=$fetchedAt now=$now"
-                        if (staleBeforeM3b(w, stale, fetchedAt, now)) {
+                        if (referenceStale(w, stale, fetchedAt, now)) {
                             assertEquals(at, if (stale) ReadingValidity.STALE else ReadingValidity.RESET_DUE, actual)
                             if (!stale) resetDueSeen = true
                         } else {

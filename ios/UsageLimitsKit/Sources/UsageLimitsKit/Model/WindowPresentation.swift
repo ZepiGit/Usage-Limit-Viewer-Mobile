@@ -36,9 +36,9 @@ public enum FillState: Sendable, Equatable {
 
 /// Everything a surface needs to present one usage window, with no strings and no colours.
 ///
-/// Each surface used to derive its figure, fill and exhausted state on its own, and they drifted.
-/// This is the one answer (ADR 0001), the twin of the Android `WindowPresentation`; words, the
-/// percent sign and palettes stay with the surface.
+/// One presentation per usage window, shared by every surface (ADR 0001), so the figure, the fill
+/// and the exhausted state cannot differ between them. Words, the percent sign and palettes stay
+/// with each surface.
 public struct WindowPresentation: Equatable, Sendable {
     /// The figure the window shows in `side`; `PercentToken.unknown` when there is none.
     public let token: String
@@ -54,9 +54,9 @@ public struct WindowPresentation: Equatable, Sendable {
 
     /// Presents a window from its `remaining` figure and its raw `severity`.
     ///
-    /// The fill is `UsageWindow.fillFraction` kept only when finite and within 0 to 1. That
-    /// function passes an out-of-range figure through, and a bar drawn from one used to be
-    /// clamped to full; a corrupt cached value now draws nothing, matching the dash it reads as.
+    /// `severity` is the raw one, never an aged or display severity, because `exhausted` is the
+    /// provider's verdict. The fill is `UsageWindow.fillFraction` kept only when finite and within
+    /// 0 to 1: a missing or out-of-range figure never fills, matching the dash it reads as.
     public init(remaining: Double?, severity: Severity, validity: ReadingValidity, mode: PercentDisplay) {
         let exhausted = severity == .exhausted
         let fraction = UsageWindow.fillFraction(remaining, exhausted: exhausted, mode: mode)
@@ -73,7 +73,6 @@ public struct WindowPresentation: Equatable, Sendable {
         self.exhausted = exhausted
     }
 
-    /// The one place a presentation is built from parts instead of from a window.
     private init(token: String, side: PercentDisplay, fill: Double?, fillState: FillState, exhausted: Bool) {
         self.token = token
         self.side = side
@@ -82,7 +81,7 @@ public struct WindowPresentation: Equatable, Sendable {
         self.exhausted = exhausted
     }
 
-    /// What a surface shows for a window that is not there, the same as today's nil-row figures.
+    /// What a surface shows for a window that is not there: a dash and no fill, never exhausted.
     public static func absent(_ mode: PercentDisplay) -> WindowPresentation {
         WindowPresentation(
             token: PercentToken.unknown, side: mode, fill: nil, fillState: .noFill, exhausted: false)

@@ -178,20 +178,20 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     /// `WidgetRow.validity` says; otherwise the row speaks with its own quota severity, never the
     /// account's worst one.
     public func displaySeverity(of row: GlanceRow?, at date: Date, staleAfter: TimeInterval) -> Severity {
-        let aged = severity(at: date, staleAfter: staleAfter)
-        if aged == .error || aged == .stale { return aged }
-        if row?.resetPending(at: date, fetchedAt: fetchedAt) == true { return .stale }
-        return row?.severity ?? aged
+        switch readingValidity(of: row, at: date, staleAfter: staleAfter) {
+        case .error: return .error
+        case .stale, .resetDue: return .stale
+        case .current: return row?.severity ?? severity(at: date, staleAfter: staleAfter)
+        }
     }
 
-    /// The validity a surface gives one shown row at `date`, decided exactly as `displaySeverity`
-    /// decides which row reads stale or failed.
+    /// The validity a surface gives one shown row at `date`.
     ///
     /// The account's aged verdict outranks the row: an error stays an error and an old snapshot
     /// is stale whatever its rows say. Only then does a row whose own reset has passed since the
     /// fetch read as reset due. A nil row has no reset to compare, so it takes the account's
-    /// verdict alone. Kept beside `displaySeverity` so colour and fill cannot disagree about
-    /// which readings are untrustworthy; `displaySeverity` itself still colours figures and dots.
+    /// verdict alone. `displaySeverity` derives from this, so colour and fill cannot disagree
+    /// about which readings are untrustworthy.
     public func readingValidity(of row: GlanceRow?, at date: Date, staleAfter: TimeInterval) -> ReadingValidity {
         let aged = ReadingValidity.aged(severity(at: date, staleAfter: staleAfter))
         if aged != .current { return aged }

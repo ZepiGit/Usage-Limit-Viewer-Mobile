@@ -15,8 +15,9 @@ enum class FillState { DATA, STALE, NO_FILL }
 /**
  * Everything a surface needs to present one usage window, with no strings and no colours.
  *
- * Each surface used to derive its figure, fill and exhausted state on its own, and they drifted.
- * This is the one answer (ADR 0001); words, the percent sign and palettes stay with the surface.
+ * One presentation per usage window, shared by every surface (ADR 0001), so the figure, the fill and
+ * the exhausted state cannot differ between them. Words, the percent sign and palettes stay with
+ * each surface.
  */
 data class WindowPresentation(
     /** The figure the window shows in [side]; [PERCENT_TOKEN_UNKNOWN] when there is none. */
@@ -32,7 +33,7 @@ data class WindowPresentation(
     val hasFigure: Boolean get() = token != PERCENT_TOKEN_UNKNOWN
 
     companion object {
-        /** What a surface shows for a window that is not there, same as today's null-row figures. */
+        /** What a surface shows for a window that is not there: a dash and no fill, never exhausted. */
         fun absent(mode: PercentDisplay) = WindowPresentation(
             token = PERCENT_TOKEN_UNKNOWN,
             side = mode,
@@ -46,9 +47,9 @@ data class WindowPresentation(
 /**
  * Presents a window from its [remaining] figure and its raw [severity].
  *
- * The fill is [fillFraction] kept only when finite and within 0 to 1. [fillFraction] passes an
- * out-of-range figure through, and a bar drawn from one used to be clamped to full; a corrupt value
- * now draws nothing, matching the dash it reads as.
+ * [severity] is the raw one, never an aged or display severity, because [WindowPresentation.exhausted]
+ * is the provider's verdict. The fill is [fillFraction] kept only when finite and within 0 to 1:
+ * a missing or out-of-range figure never fills, matching the dash it reads as.
  */
 fun windowPresentation(
     remaining: Double?,

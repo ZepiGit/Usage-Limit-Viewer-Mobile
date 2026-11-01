@@ -7,6 +7,7 @@ import com.usagelimits.ui.percentSideWord
 import com.usagelimits.ui.percentSpokenClause
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.WindowPresentation
 import com.usagelimits.core.model.fillFraction
 import com.usagelimits.core.model.percentLabel
@@ -183,8 +184,9 @@ fun UsageWindowRow(
     stale: Boolean = false,
 ) {
     // Past its reset since the fetch, the figure is the spent window's: stale treatment, as on widgets.
-    val severity = if (stale || (fetchedAt != null && window.resetElapsedAt(fetchedAt, nowMs))) Severity.STALE else window.severity
-    val p = window.presentation(window.readingValidity(stale, fetchedAt, nowMs), mode)
+    val validity = window.readingValidity(stale, fetchedAt, nowMs)
+    val severity = if (validity == ReadingValidity.CURRENT) window.severity else Severity.STALE
+    val p = window.presentation(validity, mode)
     // The mode-aware figure token, composed with the historical "%" until the locale template
     // lands (R4). The spoken sentence keeps the LEFT wording — "remaining" is what it always said.
     val percent = withPercentSign(p.token)

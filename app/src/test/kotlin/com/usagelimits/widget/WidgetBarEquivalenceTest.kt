@@ -16,12 +16,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The widget bar after M3b is the bar before it.
+ * The widget bar inks and fills what the bar's own rule gives.
  *
- * `WidgetStyle.bar` and the Glance fraction lose their production callers once the widgets read the
- * presentation module, so the existing style tests alone would no longer prove the path a widget
- * takes. The private `inkBeforeM3b` and `paintedBeforeM3b` are verbatim copies of f9075fb; the sweep
- * compares the module against them, so a wrong mapping fails here and not on a home screen.
+ * The widgets read the presentation module, not `WidgetStyle.bar`, so the style tests alone would
+ * not prove the path a widget takes. `referenceInk` and `referencePainted` are independent copies of
+ * the bar's rule; the sweep compares the module against them, so a wrong mapping fails here and not
+ * on a home screen.
  */
 class WidgetBarEquivalenceTest {
 
@@ -31,8 +31,11 @@ class WidgetBarEquivalenceTest {
         resetElapsed: Boolean = false,
     ) = WidgetRow("5h limit", WindowCategory.FIVE_HOUR, remaining, null, severity, resetElapsed = resetElapsed)
 
-    /** f9075fb `WidgetStyle.bar`, verbatim except that `stale` and `data` are read off [style]. */
-    private fun inkBeforeM3b(style: WidgetStyle, row: WidgetRow, validity: Severity?, mode: PercentDisplay): Color? {
+    /**
+     * An independent copy of the widget bar's ink rule, so a mistake in the module's rule cannot also
+     * hide in its oracle; `stale` and `data` are read off [style].
+     */
+    private fun referenceInk(style: WidgetStyle, row: WidgetRow, validity: Severity?, mode: PercentDisplay): Color? {
         when ((validity ?: row.validity) ?: row.severity) {
             Severity.STALE -> return style.stale
             Severity.ERROR, Severity.UNKNOWN -> return null
@@ -43,9 +46,9 @@ class WidgetBarEquivalenceTest {
         return if (usedFillOverridesMissingInk(mode, fraction)) style.data else null
     }
 
-    /** f9075fb Glance `UsageBar`: the fraction handed to the progress indicator. */
-    private fun paintedBeforeM3b(style: WidgetStyle, row: WidgetRow, validity: Severity?, mode: PercentDisplay): Float {
-        val bar = inkBeforeM3b(style, row, validity, mode)
+    /** An independent copy of the fraction the Glance `UsageBar` hands to the progress indicator. */
+    private fun referencePainted(style: WidgetStyle, row: WidgetRow, validity: Severity?, mode: PercentDisplay): Float {
+        val bar = referenceInk(style, row, validity, mode)
         return if (bar == null) 0f
         else (fillFraction(row.remainingPercent, row.isExhausted, mode) ?: 0.0).coerceIn(0.0, 1.0).toFloat()
     }
@@ -76,10 +79,10 @@ class WidgetBarEquivalenceTest {
     }
 
     @Test
-    fun `the module paints the ink the bar painted before it, for every row and validity`() {
+    fun `the module paints the reference ink for every row and validity`() {
         var paints = 0
         val cases = sweep { style, row, validity, mode, at ->
-            val expected = inkBeforeM3b(style, row, validity, mode)
+            val expected = referenceInk(style, row, validity, mode)
             assertEquals(at, expected, style.fill(row.presentation(validity, mode).fillState))
             if (expected != null) paints++
         }
@@ -88,12 +91,12 @@ class WidgetBarEquivalenceTest {
     }
 
     @Test
-    fun `the module fills the length the Glance bar filled before it, for every row and validity`() {
+    fun `the module fills the reference length for every row and validity`() {
         val lengths = mutableSetOf<Float>()
         sweep { style, row, validity, mode, at ->
             val p = row.presentation(validity, mode)
             val painted = if (p.fillState == FillState.NO_FILL) 0f else (p.fill ?: 0.0).toFloat()
-            val expected = paintedBeforeM3b(style, row, validity, mode)
+            val expected = referencePainted(style, row, validity, mode)
             assertEquals(at, expected, painted, 0f)
             lengths += painted
         }
@@ -101,9 +104,9 @@ class WidgetBarEquivalenceTest {
     }
 
     @Test
-    fun `the bar the style returns is still the ink it returned before`() {
+    fun `the bar the style returns is the reference ink`() {
         sweep { style, row, validity, mode, at ->
-            assertEquals(at, inkBeforeM3b(style, row, validity, mode), style.bar(row, validity, mode))
+            assertEquals(at, referenceInk(style, row, validity, mode), style.bar(row, validity, mode))
         }
     }
 
