@@ -198,6 +198,7 @@ private struct AccountSummaryCard: View {
                     // The account's aged verdict outranks a row's own: a stale or failed account
                     // keeps its last numbers, but they stop looking fresh.
                     severity: agedSeverity == .stale || agedSeverity == .error ? agedSeverity : nil,
+                    validity: ReadingValidity.aged(agedSeverity),
                     mode: store.settings.percentDisplay)
             }
 

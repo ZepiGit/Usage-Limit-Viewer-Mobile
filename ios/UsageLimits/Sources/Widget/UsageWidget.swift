@@ -261,14 +261,6 @@ enum QuotaFormatting {
         guard percent.isFinite, (0...100).contains(percent) else { return 0 }
         return percent / 100
     }
-
-    /// A fill fraction already on 0…1 — what `UsageWindow.fillFraction` returns for either mode —
-    /// clamped for the same reason `fraction(_:)` is: a corrupt cache value must not overflow
-    /// the bar. Equal to `fraction(_:)` of the same window in LEFT.
-    static func clampedFill(_ fraction: Double) -> Double {
-        guard fraction.isFinite else { return 0 }
-        return min(max(fraction, 0), 1)
-    }
 }
 
 /// Builds every time string the tiles show. Everything here is *absolute*.
@@ -366,13 +358,14 @@ struct WidgetInk {
         }
     }
 
-    /// `bar(_:)` at the displayed `fraction` in `mode`: in USED an exhausted window is full, so a
-    /// nil severity ink with a positive fraction takes the data hue. LEFT never reaches the
-    /// fallback — its fractions for nil-ink severities are zero or unknown.
-    func bar(_ severity: Severity, fraction: Double?, mode: PercentDisplay) -> Color? {
-        if let ink = bar(severity) { return ink }
-        guard mode.usedFillOverridesMissingInk(fraction) else { return nil }
-        return data
+    /// The bar or arc colour for how a presentation paints its fill, on THIS ink. Whether it
+    /// paints is the Kit's decision (`WindowPresentation.fillState`); nil is the bare track.
+    func fill(_ state: FillState) -> Color? {
+        switch state {
+        case .data: return data
+        case .stale: return staleMark
+        case .noFill: return nil
+        }
     }
 
     /// The colour a percentage is written in, on THIS ink — `SeverityPalette.figureColor` is
@@ -442,21 +435,14 @@ private struct ModernTrackYield: ViewModifier {
 private struct QuotaBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    let remainingPercent: Double?
-    let severity: Severity
-    /// The provider's verdict from the RAW row (`row.severity == .exhausted`), never the aged
-    /// `severity` above: in USED an exhausted window fills completely even with no percentage.
-    let exhausted: Bool
-    let mode: PercentDisplay
+    /// The figure, the fill and how it is painted, built once per row from the RAW row so the aged
+    /// severity that colours the figure cannot change the bar.
+    let presentation: WindowPresentation
     /// Spoken context ("Claude, Messages") so the label below reads as a sentence.
     let context: String
     var ink: WidgetInk = .light
 
     @ScaledMetric(relativeTo: .caption) private var barHeight = 4
-
-    private var shownFraction: Double? {
-        UsageWindow.fillFraction(remainingPercent, exhausted: exhausted, mode: mode)
-    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -464,15 +450,15 @@ private struct QuotaBar: View {
                 Capsule()
                     .fill(ink.track)
                     .modifier(AccentedTrackYield())
-                if let fraction = shownFraction, let fill = ink.bar(severity, fraction: fraction, mode: mode) {
+                if let fraction = presentation.fill, let fill = ink.fill(presentation.fillState) {
                     // Unknown percentages draw the empty track only — never a 0 % sliver.
                     Capsule()
                         .fill(fill)
-                        .frame(width: proxy.size.width * QuotaFormatting.clampedFill(fraction))
+                        .frame(width: proxy.size.width * fraction)
                 }
             }
         }
-        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: shownFraction)
+        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: presentation.fill)
         .frame(height: barHeight)
         // A bar shape tells VoiceOver nothing; state the number in words.
         .accessibilityElement()
@@ -480,11 +466,10 @@ private struct QuotaBar: View {
     }
 
     private var spokenText: String {
-        let figure = PercentText.figure(remainingPercent, exhausted: exhausted, mode: mode)
-        guard figure != PercentToken.unknown else {
+        guard presentation.hasFigure else {
             return "\(context): remaining unknown"
         }
-        return "\(context): \(PercentText.spoken(figure, mode))"
+        return "\(context): \(PercentText.spoken(PercentText.figure(presentation), presentation.side))"
     }
 }
 
@@ -562,8 +547,10 @@ private struct MediumAccountRow: View {
     let mode: PercentDisplay
     var ink: WidgetInk = .light
 
-    /// The provider's verdict from the raw row — `rowSeverity` below is aged and only colours.
-    private var exhausted: Bool { row?.severity == .exhausted }
+    /// Built from the raw row — `rowSeverity` below is aged and only colours the figure.
+    private var presentation: WindowPresentation {
+        account.presentation(of: row, at: now, staleAfter: staleAfter, mode: mode)
+    }
 
     /// The row's own severity while the account is healthy, and the account's otherwise.
     ///
@@ -591,7 +578,7 @@ private struct MediumAccountRow: View {
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 WidgetFigure(
-                    remainingPercent: row?.remainingPercent, exhausted: exhausted, mode: mode,
+                    presentation: presentation,
                     font: .figure, ink: ink, severity: rowSeverity)
                     .lineLimit(1)
             }
@@ -599,10 +586,7 @@ private struct MediumAccountRow: View {
                 Text(verbatim: message).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(2)
             }
             QuotaBar(
-                remainingPercent: row?.remainingPercent,
-                severity: rowSeverity,
-                exhausted: exhausted,
-                mode: mode,
+                presentation: presentation,
                 context: row.map { "\(account.title), \($0.label)" } ?? account.title,
                 ink: ink
             )
@@ -655,8 +639,10 @@ struct UsageWidgetSmallView: View {
         // passed since the fetch. Otherwise a stale, failed or rolled-over reading was painted
         // in the colour of its last good number.
         let severity = focus.account.displaySeverity(of: focus.row, at: entry.date, staleAfter: entry.snapshot.staleAfter)
-        // The raw row's verdict, not the aged `severity`: it decides the USED fill and wording.
-        let exhausted = focus.row?.severity == .exhausted
+        // Built from the raw row, not the aged `severity`: it decides the figure and the fill.
+        let p = focus.account.presentation(
+            of: focus.row, at: entry.date, staleAfter: entry.snapshot.staleAfter,
+            mode: entry.snapshot.percentDisplay)
         return VStack(alignment: .leading, spacing: 4) {
             Text(verbatim: focus.account.title)
                 .usageFont(.bodyStrong)
@@ -677,15 +663,11 @@ struct UsageWidgetSmallView: View {
             Spacer(minLength: 4)
 
             WidgetFigure(
-                remainingPercent: focus.row?.remainingPercent, exhausted: exhausted,
-                mode: entry.snapshot.percentDisplay, font: .widgetLead, ink: ink, severity: severity)
+                presentation: p, font: .widgetLead, ink: ink, severity: severity)
                 .lineLimit(1)
 
             QuotaBar(
-                remainingPercent: focus.row?.remainingPercent,
-                severity: severity,
-                exhausted: exhausted,
-                mode: entry.snapshot.percentDisplay,
+                presentation: p,
                 context: focus.row.map { "\(focus.account.title), \($0.label)" } ?? focus.account.title,
                 ink: ink
             )
@@ -818,12 +800,13 @@ struct UsageAccessoryRectangularView: View {
                 .font(.headline)
                 .lineLimit(1)
 
+            let p = presentation(for: focus)
             HStack(spacing: 4) {
-                WidgetPercentage(text: figure(for: focus))
+                WidgetPercentage(text: PercentText.figure(p))
                     .font(.system(.title3, design: .monospaced).weight(.semibold))
                     .lineLimit(1)
                 // Names the side the figure counts; a bare dash for an unknown figure stays bare.
-                if figure(for: focus) != PercentToken.unknown {
+                if p.hasFigure {
                     Text(verbatim: PercentText.sideWord(entry.snapshot.percentDisplay))
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -851,9 +834,9 @@ struct UsageAccessoryRectangularView: View {
         }
     }
 
-    private func figure(for focus: WidgetFocus) -> String {
-        PercentText.figure(
-            focus.row?.remainingPercent, exhausted: focus.row?.severity == .exhausted,
+    private func presentation(for focus: WidgetFocus) -> WindowPresentation {
+        focus.account.presentation(
+            of: focus.row, at: entry.date, staleAfter: entry.snapshot.staleAfter,
             mode: entry.snapshot.percentDisplay)
     }
 
@@ -877,39 +860,32 @@ struct UsageAccessoryRectangularView: View {
 private struct UsageRing: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    let remainingPercent: Double?
-    let severity: Severity
-    /// The raw row's verdict and the snapshot's mode: together they decide the arc, so an
-    /// exhausted window closes the ring in USED even with no percentage behind it.
-    let exhausted: Bool
-    let mode: PercentDisplay
+    /// Built from the raw row and the snapshot's mode, so an exhausted window closes the ring in
+    /// USED even with no percentage behind it.
+    let presentation: WindowPresentation
     /// `Double`, not `CGFloat`: this file imports Foundation, where corelibs declares its own
     /// CGFloat, so the name is ambiguous on the Linux typecheck. Swift converts between the two
     /// implicitly (SE-0307), so `StrokeStyle` takes it unchanged on the real SDK.
     let lineWidth: Double
     var ink: WidgetInk = .light
 
-    private var shownFraction: Double? {
-        UsageWindow.fillFraction(remainingPercent, exhausted: exhausted, mode: mode)
-    }
-
     var body: some View {
         ZStack {
             Circle()
                 .stroke(ink.track, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .modifier(AccentedTrackYield())
-            if let fraction = shownFraction, let arc = ink.bar(severity, fraction: fraction, mode: mode) {
+            if let fraction = presentation.fill, let arc = ink.fill(presentation.fillState) {
                 // Unknown draws the track alone. A full ring for "the provider did not say"
                 // would be an all-clear nothing reported, which is the one direction a quota
                 // display must never round in.
                 Circle()
-                    .trim(from: 0, to: QuotaFormatting.clampedFill(fraction))
+                    .trim(from: 0, to: fraction)
                     .stroke(
                         arc,
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     // From twelve o'clock, clockwise. `trim` starts at three o'clock.
                     .rotationEffect(Angle.degrees(-90))
-                    .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: shownFraction)
+                    .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: presentation.fill)
             }
         }
     }
@@ -948,26 +924,23 @@ struct UsageRingWidgetView: View {
             return entry.snapshot.nextResetAt
         }()
         let mode = entry.snapshot.percentDisplay
-        // The raw row's verdict; the aged `severity` above only colours.
-        let exhausted = focus.row?.severity == .exhausted
+        // Built from the raw row; the aged `severity` above only colours the figure.
+        let p = presentation(for: focus)
         return VStack(spacing: 6) {
             ZStack {
                 UsageRing(
-                    remainingPercent: focus.row?.remainingPercent,
-                    severity: severity,
-                    exhausted: exhausted,
-                    mode: mode,
+                    presentation: p,
                     lineWidth: 9,
                     ink: ink)
                 VStack(spacing: 1) {
                     // No room beside the figure inside a ring, so the side word is a caption
                     // under it, in the smallest face the widgets have.
                     WidgetFigure(
-                        remainingPercent: focus.row?.remainingPercent, exhausted: exhausted, mode: mode,
+                        presentation: p,
                         font: .ringFigure, ink: ink, severity: severity, showsSideWord: false)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
-                    if figure(for: focus) != PercentToken.unknown {
+                    if p.hasFigure {
                         Text(verbatim: PercentText.sideWord(mode))
                             .usageFont(.micro)
                             .foregroundColor(ink.secondary)
@@ -983,7 +956,7 @@ struct UsageRingWidgetView: View {
                 .padding(10)
             }
             .accessibilityElement()
-            .accessibilityLabel(spoken(focus))
+            .accessibilityLabel(spoken(p, focus))
 
             Text(verbatim: focus.account.title)
                 .usageFont(.smallStrong)
@@ -1009,19 +982,18 @@ struct UsageRingWidgetView: View {
         .padding(10)
     }
 
-    private func figure(for focus: WidgetFocus) -> String {
-        PercentText.figure(
-            focus.row?.remainingPercent, exhausted: focus.row?.severity == .exhausted,
+    private func presentation(for focus: WidgetFocus) -> WindowPresentation {
+        focus.account.presentation(
+            of: focus.row, at: entry.date, staleAfter: entry.snapshot.staleAfter,
             mode: entry.snapshot.percentDisplay)
     }
 
-    private func spoken(_ focus: WidgetFocus) -> String {
+    private func spoken(_ p: WindowPresentation, _ focus: WidgetFocus) -> String {
         let limit = focus.row.map { ", \($0.label)" } ?? ""
-        let text = figure(for: focus)
-        guard text != PercentToken.unknown else {
+        guard p.hasFigure else {
             return "\(focus.account.title)\(limit): remaining unknown"
         }
-        return "\(focus.account.title)\(limit): \(PercentText.spoken(text, entry.snapshot.percentDisplay))"
+        return "\(focus.account.title)\(limit): \(PercentText.spoken(PercentText.figure(p), entry.snapshot.percentDisplay))"
     }
 }
 
@@ -1038,18 +1010,20 @@ struct UsageAccessoryCircularView: View {
     var body: some View {
         let focus = WidgetFocus(snapshot: entry.snapshot)
         let mode = entry.snapshot.percentDisplay
-        let remaining = focus?.row?.remainingPercent
-        // The raw row's verdict, so an exhausted window with no percentage still closes the ring
-        // and reads "100%" in USED.
-        let exhausted = focus?.row?.severity == .exhausted
-        let fraction = UsageWindow.fillFraction(remaining, exhausted: exhausted, mode: mode)
-        let text = PercentText.figure(remaining, exhausted: exhausted, mode: mode)
+        // Built from the raw row, so an exhausted window with no percentage still closes the ring
+        // and reads "100%" in USED; a missing focus is the absent presentation.
+        let p = focus?.account.presentation(
+            of: focus?.row, at: entry.date, staleAfter: entry.snapshot.staleAfter, mode: mode)
+            ?? WindowPresentation.absent(mode)
+        let text = PercentText.figure(p)
         return ZStack {
             Circle()
                 .stroke(.tertiary, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-            if let fraction {
+            // Stroked in `.primary` whatever the fill state: the system re-tints this accessory and
+            // the arc has never followed severity, so only a missing fill draws no arc.
+            if let fraction = p.fill {
                 Circle()
-                    .trim(from: 0, to: QuotaFormatting.clampedFill(fraction))
+                    .trim(from: 0, to: fraction)
                     .stroke(.primary, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                     .rotationEffect(Angle.degrees(-90))
             }
@@ -1060,7 +1034,7 @@ struct UsageAccessoryCircularView: View {
                     .minimumScaleFactor(0.85)
                 // A caption inside the ring: there is no room beside the figure, and the arc
                 // alone cannot say which side it counts.
-                if text != PercentToken.unknown {
+                if p.hasFigure {
                     Text(verbatim: PercentText.sideWord(mode))
                         .font(.caption2)
                         .lineLimit(1)
@@ -1366,10 +1340,8 @@ private struct WidgetPercentage: View {
 /// The dash is decided by the figure, not by the raw percentage, so an exhausted window with no
 /// percentage still reads "100%" in USED. In LEFT the two are the same test.
 private struct WidgetFigure: View {
-    let remainingPercent: Double?
-    /// From the raw row (`row.severity == .exhausted`); an aged severity must not stand in.
-    let exhausted: Bool
-    let mode: PercentDisplay
+    /// Built from the raw row; the aged `severity` below only colours the figure.
+    let presentation: WindowPresentation
     let font: UsageFont
     let ink: WidgetInk
     let severity: Severity
@@ -1378,11 +1350,11 @@ private struct WidgetFigure: View {
     var showsSideWord: Bool = true
 
     private var text: String {
-        PercentText.figure(remainingPercent, exhausted: exhausted, mode: mode)
+        PercentText.figure(presentation)
     }
 
     var body: some View {
-        if text == PercentToken.unknown {
+        if !presentation.hasFigure {
             Text(verbatim: text)
                 .usageFont(.small)
                 .foregroundColor(ink.secondary)
@@ -1391,7 +1363,7 @@ private struct WidgetFigure: View {
                 WidgetPercentage(text: text)
                     .usageFont(font)
                     .foregroundColor(ink.figure(severity))
-                Text(verbatim: PercentText.sideWord(mode))
+                Text(verbatim: PercentText.sideWord(presentation.side))
                     .usageFont(.micro)
                     .foregroundColor(ink.secondary)
             }
