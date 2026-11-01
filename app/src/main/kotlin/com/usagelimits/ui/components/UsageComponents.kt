@@ -7,10 +7,11 @@ import com.usagelimits.ui.percentSideWord
 import com.usagelimits.ui.percentSpokenClause
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.WindowPresentation
 import com.usagelimits.core.model.fillFraction
-import com.usagelimits.core.model.isExhausted
 import com.usagelimits.core.model.percentLabel
-import com.usagelimits.core.model.percentToken
+import com.usagelimits.core.model.presentation
+import com.usagelimits.core.model.readingValidity
 import com.usagelimits.core.model.withPercentSign
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -78,35 +79,50 @@ private val BarShape = RoundedCornerShape(3.dp)
 private val SegmentColors = listOf(UsageColors.Data, UsageColors.Ink, UsageColors.Faint, UsageColors.Muted)
 
 /**
- * A quota bar.
+ * A quota bar for one presented window.
  *
  * Fill length encodes the displayed figure: what is left in LEFT mode, so a long bar reads as
  * good — the battery-meter direction — and what is used in USED, where full means spent, as
- * Claude and Codex draw it (D4). The colour still comes from severity in both modes: stale is
- * grey and unknown, failed or exhausted is the bare track, except in USED, where an exhausted
- * window *is* full and its fill takes the data hue rather than vanishing next to a "100"
- * figure. Only the length animates.
+ * Claude and Codex draw it (D4). The colour comes from the presentation's fill state in both
+ * modes: stale is grey and unknown, failed or exhausted is the bare track, except in USED, where
+ * an exhausted window *is* full and its fill takes the data hue rather than vanishing next to a
+ * "100" figure. Only the length animates.
+ */
+@Composable
+fun UsageBar(
+    presentation: WindowPresentation,
+    modifier: Modifier = Modifier,
+    height: Dp = 6.dp,
+) {
+    // The length tracks the figure even while nothing is painted, so a bar that starts painting
+    // grows from its figure, not from empty.
+    QuotaBarTrack((presentation.fill ?: 0.0).toFloat(), SeverityPalette.fill(presentation.fillState), modifier, height)
+}
+
+/**
+ * A LEFT-mode quota bar for a figure that is not a usage window's percentage.
+ *
+ * The credit balance and the loading skeletons sit outside the percentage toggle, so they have no
+ * mode to follow and no exhaustion to flip it; a usage window's bar comes from its presentation.
  */
 @Composable
 fun UsageBar(
     remainingPercent: Double?,
     severity: Severity,
-    mode: PercentDisplay,
     modifier: Modifier = Modifier,
     height: Dp = 6.dp,
-    /**
-     * The window's raw exhaustion ([isExhausted]), separate from the aged [severity] that colours
-     * the fill. It only matters in USED mode, where an exhausted window fills completely, so the
-     * credit and skeleton bars, which are LEFT or empty, leave it at false.
-     */
-    exhausted: Boolean = false,
 ) {
-    val fractionValue = fillFraction(remainingPercent, exhausted, mode)
+    val fractionValue = fillFraction(remainingPercent, false, PercentDisplay.LEFT)
     val target = (fractionValue ?: 0.0).coerceIn(0.0, 1.0).toFloat()
+    QuotaBarTrack(target, SeverityPalette.barInkFor(severity, fractionValue, PercentDisplay.LEFT), modifier, height)
+}
+
+/** The track and its fill, shared by both bars so they clip and animate identically. */
+@Composable
+private fun QuotaBarTrack(target: Float, fill: Color?, modifier: Modifier, height: Dp) {
     val motionEnabled = LocalMotionEnabled.current
     val animatedFraction by animateFloatAsState(targetValue = target, animationSpec = if (motionEnabled) tween(240) else snap(), label = "usageBar")
     val fraction = if (motionEnabled) animatedFraction else target
-    val fill = SeverityPalette.barInkFor(severity, fractionValue, mode)
 
     Box(
         modifier = modifier
@@ -166,12 +182,12 @@ fun UsageWindowRow(
     /** The whole account is old or failed: the figure and bar go grey. */
     stale: Boolean = false,
 ) {
-    val remaining = window.remainingPercent
     // Past its reset since the fetch, the figure is the spent window's: stale treatment, as on widgets.
     val severity = if (stale || (fetchedAt != null && window.resetElapsedAt(fetchedAt, nowMs))) Severity.STALE else window.severity
+    val p = window.presentation(window.readingValidity(stale, fetchedAt, nowMs), mode)
     // The mode-aware figure token, composed with the historical "%" until the locale template
     // lands (R4). The spoken sentence keeps the LEFT wording — "remaining" is what it always said.
-    val percent = withPercentSign(percentToken(window, mode))
+    val percent = withPercentSign(p.token)
     val shownSide = percentSideWord(mode)
     val label = when {
         window.scope != com.usagelimits.core.model.UsageScope.GLOBAL -> window.label
@@ -194,7 +210,7 @@ fun UsageWindowRow(
                 color = UsageColors.Muted, maxLines = 2)
             // A value the provider never stated is a quiet dash, not a figure-sized one. R2: no
             // bare percentage — the small word after the figure says which side it counts.
-            if (percent == "—") {
+            if (!p.hasFigure) {
                 Text(percent, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -204,7 +220,7 @@ fun UsageWindowRow(
             }
         }
         if (window.segments.isEmpty()) {
-            UsageBar(remaining, severity, mode, Modifier.fillMaxWidth(), exhausted = window.isExhausted)
+            UsageBar(p, Modifier.fillMaxWidth())
         } else {
             Box(Modifier.fillMaxWidth().height(6.dp).clip(BarShape).drawBehind {
                 drawRect(UsageColors.Rule)

@@ -46,7 +46,11 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.usagelimits.UsageLimitsActivity
+import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.model.withPercentSign
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.ui.percentSideCaption
 import com.usagelimits.ui.percentSideWord
@@ -67,7 +71,7 @@ internal val LocalWidgetStyle = staticCompositionLocalOf { WidgetStyle() }
  * composition root from the observed settings — never read at the call site, so no figure can
  * drift from the mode its neighbours show.
  */
-internal val LocalPercentMode = staticCompositionLocalOf { com.usagelimits.core.model.PercentDisplay.LEFT }
+internal val LocalPercentMode = staticCompositionLocalOf { PercentDisplay.LEFT }
 
 /**
  * A usage bar.
@@ -78,17 +82,17 @@ internal val LocalPercentMode = staticCompositionLocalOf { com.usagelimits.core.
  * remaining painted as a full bar — a confidently wrong number on the home screen.
  *
  * The fill length follows the displayed figure (D4): remaining in LEFT, used in USED, where an
- * exhausted window is the full bar. The ink still comes from severity — grey when stale, bare
- * track when failed or unknown — except the USED exhausted case, which fills in the data hue
- * rather than vanishing beside a "100%" figure.
+ * exhausted window is the full bar. The ink comes from the presentation's fill state — grey when
+ * stale, bare track when failed or unknown — except the USED exhausted case, which fills in the
+ * data hue rather than vanishing beside a "100%" figure.
  */
 @Composable
 internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier, validity: Severity? = null, height: Dp = 4.dp) {
     val style = LocalWidgetStyle.current
     val mode = LocalPercentMode.current
-    val fill = style.bar(row, validity, mode)
-    val displayed = com.usagelimits.core.model.fillFraction(row.remainingPercent, row.isExhausted, mode)
-    val fraction = if (fill == null) 0f else (displayed ?: 0.0).coerceIn(0.0, 1.0).toFloat()
+    val p = row.presentation(validity, mode)
+    val fill = style.fill(p.fillState)
+    val fraction = if (fill == null) 0f else (p.fill ?: 0.0).toFloat()
 
     LinearProgressIndicator(
         progress = fraction,
@@ -103,8 +107,8 @@ internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier,
  * with no usable percentage still reads "100%" in USED beside the bar [UsageBar] fills for it.
  */
 @Composable
-private fun percentText(row: WidgetRow): String = com.usagelimits.core.model.withPercentSign(
-    com.usagelimits.core.model.percentToken(row.remainingPercent, row.isExhausted, LocalPercentMode.current))
+private fun percentText(row: WidgetRow): String =
+    withPercentSign(row.presentation(null, LocalPercentMode.current).token)
 
 /** Text on a widget: sizes from the scale (11, 12, 14, 16, 22), figures in the system mono. */
 internal fun widgetText(color: Color, size: Int, weight: FontWeight = FontWeight.Normal, mono: Boolean = false) = TextStyle(
@@ -327,7 +331,7 @@ class CompactUsageWidget : GlanceAppWidget() {
                 maxLines = 1,
             )
             Spacer(GlanceModifier.height(4.dp))
-            UsageBar(row ?: WidgetRow("5h limit", com.usagelimits.core.model.WindowCategory.FIVE_HOUR, null, null, Severity.STALE),
+            UsageBar(row ?: WidgetRow("5h limit", WindowCategory.FIVE_HOUR, null, null, Severity.STALE),
                 GlanceModifier.fillMaxWidth(), validity = snapshot.leadValidity)
             Spacer(GlanceModifier.height(4.dp))
             Text(
@@ -501,7 +505,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
         val validity = account.dataValidity
         Column(GlanceModifier.fillMaxWidth().clickable(openAccount)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                com.usagelimits.core.model.ProviderId.fromId(account.providerId)?.let { provider ->
+                ProviderId.fromId(account.providerId)?.let { provider ->
                     WidgetLogo(provider, account.iconChoiceId, 20.dp)
                     Spacer(GlanceModifier.width(8.dp))
                 }
@@ -561,10 +565,11 @@ class DetailedUsageWidget : GlanceAppWidget() {
                                 style = widgetText(style.textSecondary, 12),
                             )
                             // R2: the figure carries its side ("73% left" / "27% used"); a dash stays bare.
-                            val percent = percentText(row)
-                            val shown = if (percent == "—") percent
+                            val p = row.presentation(null, LocalPercentMode.current)
+                            val percent = withPercentSign(p.token)
+                            val shown = if (!p.hasFigure) percent
                                 else "$percent ${percentSideWord(LocalPercentMode.current)}"
-                            Text(shown, style = if (percent == "—") widgetText(style.textSecondary, 12)
+                            Text(shown, style = if (!p.hasFigure) widgetText(style.textSecondary, 12)
                                 else widgetText(style.barText(row, validity), 12, FontWeight.Medium, mono = true))
                         }
                         Spacer(GlanceModifier.height(3.dp))
@@ -588,7 +593,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
  * on one the mark is drawn in the panel's ink instead.
  */
 @Composable
-internal fun WidgetLogo(provider: com.usagelimits.core.model.ProviderId, iconChoiceId: String?, size: Dp) {
+internal fun WidgetLogo(provider: ProviderId, iconChoiceId: String?, size: Dp) {
     val style = LocalWidgetStyle.current
     Image(
         ImageProvider(com.usagelimits.ui.providerLogoResource(provider, iconChoiceId)), null, GlanceModifier.size(size),
@@ -597,7 +602,7 @@ internal fun WidgetLogo(provider: com.usagelimits.core.model.ProviderId, iconCho
 }
 
 private val WHITE_ARTWORK = setOf(
-    com.usagelimits.core.model.ProviderId.CODEX, com.usagelimits.core.model.ProviderId.XAI, com.usagelimits.core.model.ProviderId.KIMI,
+    ProviderId.CODEX, ProviderId.XAI, ProviderId.KIMI,
 )
 
 class CompactUsageWidgetReceiver : UsageWidgetReceiver() {

@@ -2,8 +2,9 @@ package com.usagelimits.feature.overview
 import sh.calvin.reorderable.ReorderableItem
 
 import com.usagelimits.core.model.PercentDisplay
-import com.usagelimits.core.model.isExhausted
-import com.usagelimits.core.model.percentToken
+import com.usagelimits.core.model.WindowPresentation
+import com.usagelimits.core.model.presentation
+import com.usagelimits.core.model.readingValidity
 import com.usagelimits.core.model.title
 import com.usagelimits.core.model.withPercentSign
 import androidx.compose.animation.Crossfade
@@ -250,7 +251,10 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
     val mode = state.settings.percentDisplay
     val context = LocalContext.current
     val appIcon = remember(context) { AppIcon.current(context) }
-    val percent = withPercentSign(percentToken(window, mode))
+    // The view model already marks a lead whose window has reset as stale, so no fetch time is needed.
+    val p = if (lead == null) WindowPresentation.absent(mode)
+        else lead.window.presentation(lead.window.readingValidity(stale = lead.stale, fetchedAt = null, nowMs = nowMs), mode)
+    val percent = withPercentSign(p.token)
     // R2: the word beside the figure says which side it counts, and so does the spoken sentence.
     val side = percentSideWord(mode)
     // R3: the figure flips the one global setting; the label names where it goes.
@@ -310,7 +314,7 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
                     Text(side, Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
                 }
                 Spacer(Modifier.height(2.dp))
-                UsageBar(worst.remainingPercent, severity, mode, Modifier.fillMaxWidth(), exhausted = worst.isExhausted)
+                UsageBar(p, Modifier.fillMaxWidth())
                 if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {
                 Text("—", style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
@@ -342,7 +346,7 @@ private fun LeadSkeleton() {
         Spacer(Modifier.height(8.dp))
         SkeletonBar(30.dp, 0.2f)
         Spacer(Modifier.height(10.dp))
-        UsageBar(null, Severity.UNKNOWN, PercentDisplay.LEFT, Modifier.fillMaxWidth())
+        UsageBar(null, Severity.UNKNOWN, Modifier.fillMaxWidth())
         Spacer(Modifier.height(12.dp))
         RuleDivider()
         Spacer(Modifier.height(12.dp))
@@ -361,7 +365,7 @@ private fun AccountSkeleton() {
             Spacer(Modifier.height(16.dp))
             SkeletonBar(14.dp, 0.3f)
             Spacer(Modifier.height(6.dp))
-            UsageBar(null, Severity.UNKNOWN, PercentDisplay.LEFT, Modifier.fillMaxWidth())
+            UsageBar(null, Severity.UNKNOWN, Modifier.fillMaxWidth())
         }
     }
 }
