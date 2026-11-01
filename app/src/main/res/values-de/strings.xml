@@ -63,4 +63,260 @@
     <string name="severity_exhausted">Aufgebraucht</string>
     <string name="severity_stale">Veraltet</string>
     <string name="severity_error">Fehler</string>
+
+    <!-- Settings screen (feature/settings/SettingsScreen.kt). Thresholds are passed in as formatted figures so the percent template stays the one place a sign is laid out. -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_section_sync">Synchronisierung</string>
+    <string name="settings_interval_title">Intervall der Hintergrundaktualisierung</string>
+    <string name="settings_interval_subtitle">Android kann Hintergrundaufgaben verzögern, um Akku zu sparen. Das Intervall ist daher ein Zielwert, keine Garantie.</string>
+    <string name="settings_section_overview">Übersicht</string>
+    <string name="settings_show_tier_title">Abo-Stufe anzeigen</string>
+    <string name="settings_show_tier_subtitle">Plus, Pro, Max – neben dem Anbieternamen</string>
+    <string name="settings_show_renewal_title">Erneuerungszeit anzeigen</string>
+    <string name="settings_show_renewal_subtitle">Wann das Wochen- oder Monatskontingent neu beginnt, im Unterschied zum nächsten Reset. Nur in der Übersicht – die Widgets zeigen weiterhin nur eine Angabe.</string>
+    <string name="settings_percent_display_title">Prozente anzeigen als</string>
+    <string name="settings_percent_display_subtitle">Ob die Zahlen herunterzählen, was übrig ist, oder hochzählen, was du verbraucht hast.</string>
+    <string name="settings_section_notifications">Benachrichtigungen</string>
+    <string name="settings_notify_below_left_title">Unter %1$s übrig</string>
+    <string name="settings_notify_above_used_title">Über %1$s verbraucht</string>
+    <string name="settings_notify_first_left_subtitle">Einmalig, sobald weniger als ein Fünftel eines Limits übrig ist</string>
+    <string name="settings_notify_first_used_subtitle">Einmalig, sobald mehr als vier Fünftel eines Limits verbraucht sind</string>
+    <string name="settings_notify_second_subtitle">Noch einmal, wenn es knapp wird – auch nach der Warnung bei %1$s</string>
+    <string name="settings_notify_exhausted_title">Limit aufgebraucht</string>
+    <string name="settings_notify_exhausted_subtitle">Wenn ein Zeitfenster vollständig aufgebraucht ist</string>
+    <string name="settings_notify_reset_credit_title">Reset-Credit verfügbar</string>
+    <string name="settings_notify_reset_credit_subtitle">Wenn Codex einen nutzbaren Reset-Credit für das Rate-Limit meldet</string>
+    <string name="settings_notify_reset_approaching_title">Reset steht bevor</string>
+    <plurals name="settings_notify_reset_approaching_subtitle">
+        <item quantity="one">Etwa %1$d Minute, bevor ein Zeitfenster zurückgesetzt wird</item>
+        <item quantity="other">Etwa %1$d Minuten, bevor ein Zeitfenster zurückgesetzt wird</item>
+    </plurals>
+    <string name="settings_notify_credit_expiring_title">Ungenutzter Reset-Credit läuft bald ab</string>
+    <string name="settings_notify_credit_expiring_subtitle">Benachrichtige mich, wenn ein ungenutzter Codex-Reset-Credit innerhalb von 24 Stunden abläuft. Mit einem Credit kannst du ein berechtigtes Nutzungslimit zurücksetzen.</string>
+    <string name="settings_notify_auth_expired_title">Anmeldung abgelaufen</string>
+    <string name="settings_notify_auth_expired_subtitle">Wenn ein Konto neu verbunden werden muss</string>
+    <string name="settings_section_thresholds">Schwellenwerte</string>
+    <string name="settings_thresholds_note">Der Status ergibt sich aus dem Prozentsatz, der noch verfügbar ist.</string>
+    <string name="settings_threshold_above">über %1$s</string>
+    <string name="settings_threshold_range">%1$s–%2$s</string>
+    <string name="settings_section_diagnostics">Diagnose</string>
+    <string name="settings_diag_accounts">Konten</string>
+    <string name="settings_diag_last_sync">Letzte erfolgreiche Synchronisierung</string>
+    <string name="settings_diag_last_attempt">Letzter Synchronisierungsversuch</string>
+    <string name="settings_diag_widgets_repainted">Widgets zuletzt neu gezeichnet</string>
+    <string name="settings_diag_sync_interval">Synchronisierungsintervall</string>
+    <string name="settings_diag_interval_value">%1$d Min.</string>
+    <string name="settings_diag_never">Nie</string>
+    <string name="settings_diag_just_now">gerade eben</string>
+    <string name="settings_diag_ago">vor %1$s</string>
+    <string name="settings_diag_note">Die Diagnose enthält bewusst keine Tokens, Konto-Kennungen oder rohen Anbieterantworten.</string>
+    <string name="settings_background_title">Hintergrundaktualisierung</string>
+    <string name="settings_background_body">Die Widgets zeigen, was die letzte Hintergrundaktualisierung geholt hat. Android entscheidet, wie oft sie läuft; das sind die aktuellen Einstellungen für diese App.</string>
+    <string name="settings_background_use">Hintergrundnutzung</string>
+    <string name="settings_background_restricted">Eingeschränkt</string>
+    <string name="settings_background_allowed">Erlaubt</string>
+    <string name="settings_battery_optimisation">Akkuoptimierung</string>
+    <string name="settings_battery_on">An (Aktualisierung kann sich verzögern)</string>
+    <string name="settings_battery_off">Aus</string>
+    <string name="settings_standby_bucket">Standby-Gruppe</string>
+    <string name="settings_standby_active">Aktiv</string>
+    <string name="settings_standby_working_set">Arbeitsgruppe</string>
+    <string name="settings_standby_frequent">Häufig</string>
+    <string name="settings_standby_rare">Selten</string>
+    <string name="settings_standby_restricted">Eingeschränkt</string>
+    <string name="settings_standby_unknown">Unbekannt</string>
+    <string name="settings_background_held_back">Die Hintergrundaktualisierung wird auf diesem Gerät ausgebremst, sodass Widgets Stunden hinterherhinken können. Mit erlaubter Hintergrundnutzung für Usage Limits ist das behoben.</string>
+    <string name="settings_open_battery_settings">Akkueinstellungen öffnen</string>
+
+    <!-- Icon pickers (feature/settings/AppIconSettings.kt, ProviderIconSettings.kt). Provider icon names are brand descriptors and stay in code. -->
+    <string name="settings_section_app_icon">App-Symbol</string>
+    <string name="app_icon_default">Standard</string>
+    <string name="app_icon_gauge_coin">Messuhr-Münze</string>
+    <string name="app_icon_gauge">Messuhr</string>
+    <string name="app_icon_hourglass">Sanduhr</string>
+    <string name="app_icon_refresh_ring">Aktualisierungsring</string>
+    <string name="app_icon_battery">Batterie</string>
+    <string name="settings_section_provider_icons">Anbieter-Symbole</string>
+    <string name="settings_provider_icon_title">Symbol für %1$s</string>
+
+    <!-- Actions shared by several screens. -->
+    <string name="action_choose">Auswählen</string>
+    <string name="action_done">Fertig</string>
+
+    <!-- Window rows (ui/components/UsageComponents.kt). The window labels are the names the app gives a window; labels a provider reports stay as reported. -->
+    <string name="window_label_five_hour">5‑Std.-Limit</string>
+    <string name="window_label_weekly">Wöchentlich</string>
+    <string name="window_label_monthly">Monatlich</string>
+    <string name="usage_segment_legend">%1$s verbraucht: %2$s</string>
+    <string name="usage_breakdown">Verbrauchsaufschlüsselung</string>
+    <string name="usage_conflicting_availability">Der Anbieter meldet dieses Limit als gesperrt, obwohl noch ein positiver Restwert vorhanden ist.</string>
+
+    <!-- More shared actions. -->
+    <string name="action_retry">Erneut versuchen</string>
+
+    <!-- Overview screen and account cards (feature/overview/OverviewScreen.kt). -->
+    <string name="overview_section_accounts">Konten</string>
+    <string name="overview_reorder">Sortieren</string>
+    <string name="overview_no_accounts">Noch keine Konten. Füge eines hinzu, um die Nutzung zu verfolgen.</string>
+    <string name="overview_move_account">%1$s verschieben</string>
+    <string name="overview_add_account">Konto hinzufügen</string>
+    <string name="overview_add_account_hint">Ein weiteres KI-Abo überwachen</string>
+    <string name="overview_section_credits">Guthaben</string>
+    <string name="overview_no_credits">Keine Prepaid-Guthaben erfasst.</string>
+    <string name="overview_add_credit">Guthaben hinzufügen</string>
+    <string name="overview_add_credit_hint">Prepaid-API-Guthaben verfolgen</string>
+    <plurals name="overview_accounts_monitored">
+        <item quantity="one">%1$d Konto überwacht</item>
+        <item quantity="other">%1$d Konten überwacht</item>
+    </plurals>
+    <string name="overview_refreshing">Wird aktualisiert…</string>
+    <string name="overview_refresh_usage">Nutzung aktualisieren</string>
+    <string name="overview_connected_accounts">Verbundene Konten</string>
+    <string name="overview_loading_usage">Nutzung wird geladen</string>
+    <string name="overview_renews">%1$s erneuert sich in %2$s</string>
+    <string name="overview_no_usage_data">Noch keine Nutzungsdaten</string>
+    <string name="status_reconnect">Neu verbinden</string>
+    <string name="restricted_windows">Eingeschränkt: %1$s</string>
+    <string name="reset_credits_title">Reset-Credits</string>
+    <string name="reset_credits_available_count">%1$d verfügbar</string>
+    <string name="error_partial_update">%1$s · teilweise aktualisiert</string>
+    <string name="error_showing_last_known">%1$s · zeigt zuletzt bekannte Daten</string>
+
+    <!-- Accounts screen (feature/accounts/AccountsScreen.kt). -->
+    <string name="accounts_title">Konten</string>
+    <string name="accounts_shown">%1$d von %2$d angezeigt</string>
+    <string name="accounts_filter_all">Alle</string>
+    <string name="accounts_filter_attention">Braucht Aufmerksamkeit</string>
+    <string name="accounts_no_match">Kein Konto passt zu diesem Filter.</string>
+
+    <!-- Resets screen (feature/resets/ResetsScreen.kt). The day pattern is a DateTimeFormatter pattern, not display text. -->
+    <string name="resets_title">Resets</string>
+    <string name="resets_none_upcoming">Keine anstehenden Resets</string>
+    <string name="resets_upcoming_count">%1$d anstehend</string>
+    <string name="resets_empty">Reset-Zeiten erscheinen, sobald ein Konto synchronisiert wurde und der Anbieter einen Reset-Zeitpunkt meldet.</string>
+    <string name="resets_row_description">%1$s, %2$s, %3$s, %4$s, Reset in %5$s</string>
+    <string name="resets_today">Heute</string>
+    <string name="resets_tomorrow">Morgen</string>
+    <string name="resets_day_pattern">EEEE, d. MMM</string>
+
+    <!-- Account detail (feature/accounts/AccountDetailScreen.kt). -->
+    <string name="account_unavailable">Dieses Konto ist nicht mehr verfügbar.</string>
+    <string name="account_remove_body">Die gespeicherten Zugangsdaten werden von diesem Gerät gelöscht. Beim Anbieter ändert sich nichts, und du kannst das Konto jederzeit erneut hinzufügen.</string>
+    <string name="account_last_attempt_just_now">Letzter Versuch gerade eben</string>
+    <string name="account_last_attempt_ago">Letzter Versuch vor %1$s</string>
+    <string name="account_reconnect">Konto neu verbinden</string>
+    <string name="account_detail_partial">Die verfügbaren Werte stammen aus diesem Update; einige Limits konnten nicht aktualisiert werden.</string>
+    <string name="account_detail_no_measurement">Es wurde noch keine Nutzungsmessung geladen.</string>
+    <string name="account_detail_last_loaded">Die Werte unten sind die zuletzt erfolgreich geladenen.</string>
+    <string name="account_section_limits">Limits</string>
+    <string name="account_section_account">Konto</string>
+    <string name="account_notifications_title">Benachrichtigungen</string>
+    <string name="account_notifications_subtitle">Hinweise zu den Limits, Resets und Credits dieses Kontos. Die Zahlen werden in jedem Fall weiter aktualisiert.</string>
+    <string name="account_refresh_now">Jetzt aktualisieren</string>
+    <string name="account_remove">Konto entfernen</string>
+    <string name="account_remove_title">Konto entfernen?</string>
+    <string name="account_remove_confirm">Entfernen</string>
+    <string name="reset_credits_none_available">Keine verfügbar</string>
+    <string name="reset_credits_none_apply">Aktuell nicht auf dein Limit anwendbar</string>
+    <string name="reset_credits_expires_in">Läuft in %1$s ab</string>
+    <string name="reset_credits_empty_hint">Credits erscheinen hier, sobald dein Tarif einen gewährt</string>
+    <string name="reset_credits_reset_limit">Limit zurücksetzen</string>
+    <string name="reset_credits_confirm_title">Reset-Credit verwenden?</string>
+    <string name="reset_credits_confirm_body">Dabei wird 1 Reset-Credit verbraucht. Das lässt sich nicht rückgängig machen. Dein Rate-Limit wird sofort zurückgesetzt.</string>
+    <string name="reset_credits_confirm_action">Credit verwenden</string>
+
+    <!-- More shared actions. -->
+    <string name="action_cancel">Abbrechen</string>
+
+    <!-- Add-account flow (feature/accounts/AddAccountScreen.kt, AddAccountViewModel.kt). -->
+    <string name="add_account_title">Konto hinzufügen</string>
+    <string name="add_pick_intro">Du kannst pro Anbieter mehrere Konten verbinden.</string>
+    <string name="add_region_title">Region für %1$s</string>
+    <string name="add_region_body">Schlüssel und Anmeldungen funktionieren nur bei dem Dienst, der sie ausgestellt hat. Wähle den, bei dem dein Konto liegt.</string>
+    <string name="add_starting">%1$s wird kontaktiert…</string>
+    <string name="add_enter_code">Gib diesen Code ein</string>
+    <string name="add_code_body">Dein Browser öffnet %1$s. Füge den Code dort ein – diese App sieht dein Passwort nie.</string>
+    <string name="add_code_copied">In die Zwischenablage kopiert</string>
+    <string name="add_code_tap_to_copy">Tippe auf den Code, um ihn zu kopieren</string>
+    <string name="add_copy_code">Code kopieren</string>
+    <string name="add_open_page">Seite öffnen</string>
+    <string name="add_waiting">Warte auf Freigabe…</string>
+    <string name="add_use_api_key_instead">Stattdessen API-Schlüssel verwenden</string>
+    <string name="add_paste_key_title">%1$s-Schlüssel einfügen</string>
+    <string name="add_api_key_label">API-Schlüssel</string>
+    <string name="add_connect">Verbinden</string>
+    <string name="add_open_console">Konsole öffnen</string>
+    <string name="add_browser_wait">Schließe die Anmeldung in deinem Browser ab. Du kommst direkt hierher zurück.</string>
+    <string name="add_browser_not_returning">Der Browser kommt nicht zurück? Melde dich stattdessen mit einem Code an – du gibst ihn auf der Seite des Anbieters ein, eine Weiterleitung ist nicht nötig.</string>
+    <string name="add_use_device_code">Gerätecode verwenden</string>
+    <string name="add_open_page_again">Seite erneut öffnen</string>
+    <string name="add_connected">Verbunden</string>
+    <string name="add_now_monitored">%1$s wird jetzt überwacht.</string>
+    <string name="add_signin_failed">Anmeldung fehlgeschlagen</string>
+    <string name="add_try_again">Erneut versuchen</string>
+    <string name="add_use_api_key">API-Schlüssel verwenden</string>
+    <string name="add_use_browser">Browser verwenden</string>
+    <string name="add_hint_browser">Im Browser anmelden</string>
+    <string name="add_hint_device_code">Mit einem Gerätecode anmelden</string>
+    <string name="add_hint_google">Mit Google anmelden</string>
+    <string name="add_hint_api_key">API-Schlüssel einfügen</string>
+
+    <!-- More shared actions. -->
+    <string name="action_back">Zurück</string>
+
+    <!-- Add-credit flow (feature/credits/AddCreditScreen.kt, AddCreditViewModel.kt). -->
+    <string name="credit_add_title">Guthaben hinzufügen</string>
+    <string name="credit_added">Hinzugefügt</string>
+    <string name="credit_now_tracked">%1$s wird jetzt verfolgt.</string>
+    <string name="credit_add_intro">Prepaid-Guthaben für API-Schlüssel. Der Schlüssel wird vor dem Speichern beim Anbieter geprüft und nur im Keystore dieses Geräts abgelegt.</string>
+    <string name="credit_open">Öffnen</string>
+    <string name="credit_open_key_page_description">Schlüsselseite von %1$s öffnen</string>
+    <string name="credit_connect_title">%1$s verbinden</string>
+    <string name="credit_region_hint">Schlüssel funktionieren nur bei dem Dienst, der sie ausgestellt hat. Wähle den, bei dem dein Konto liegt.</string>
+    <string name="credit_name_label">Name (optional)</string>
+    <string name="credit_team_label">Team-ID (nur, wenn der Schlüssel nicht an ein Team gebunden ist)</string>
+    <string name="credit_threshold_label">Warnschwelle für niedriges Guthaben (optional)</string>
+    <string name="credit_threshold_supporting">Standard 5, bei CNY 35. Darunter gilt das Guthaben als niedrig.</string>
+    <string name="credit_checking">Wird geprüft…</string>
+    <string name="credit_check_and_add">Prüfen und hinzufügen</string>
+    <string name="credit_error_threshold">Die Warnschwelle muss eine Zahl größer als null sein.</string>
+    <string name="credit_error_save">Der Schlüssel konnte auf diesem Gerät nicht gespeichert werden.</string>
+
+    <!-- Credit detail and credit cards (feature/credits/CreditDetailScreen.kt, CreditsUi.kt). -->
+    <string name="credit_unavailable">Dieses Guthabenkonto ist nicht mehr verfügbar.</string>
+    <string name="credit_remove_body">Der Schlüssel wird von diesem Gerät gelöscht. Beim Anbieter wird er nicht widerrufen: Tu das in der Konsole des Anbieters, falls der Schlüssel in falsche Hände geraten sein könnte.</string>
+    <string name="credit_edit">Bearbeiten</string>
+    <string name="credit_detail_name_label">Name</string>
+    <string name="credit_detail_threshold_label">Warnschwelle für niedriges Guthaben</string>
+    <string name="credit_threshold_invalid">Gib eine Zahl größer als null ein oder lass das Feld für den Standardwert leer.</string>
+    <string name="credit_threshold_blank">Leer bedeutet Standard: 5, bei CNY 35.</string>
+    <string name="credit_save">Speichern</string>
+    <string name="credit_remove">Guthabenkonto entfernen</string>
+    <string name="credit_remove_title">Guthabenkonto entfernen?</string>
+    <string name="credit_no_balance">Noch kein Guthaben gelesen</string>
+    <string name="credit_showing_last_known">%1$s · zeigt zuletzt bekanntes Guthaben</string>
+    <string name="credit_of_total">von %1$s</string>
+
+    <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
+    <string name="message_order_save_failed">Die Reihenfolge der Konten konnte nicht gespeichert werden. Versuche es erneut.</string>
+    <string name="message_icon_save_failed">Die Symbolauswahl konnte nicht gespeichert werden. Versuche es erneut.</string>
+    <string name="message_refresh_failed">Aktualisierung fehlgeschlagen</string>
+    <string name="message_refresh_partly_failed">Bei %1$d von %2$d Konten ist die Aktualisierung fehlgeschlagen</string>
+    <string name="message_reset_applied">Limit zurückgesetzt</string>
+    <string name="message_reset_requested">Reset angefordert – das neue Limit erscheint bei der nächsten Aktualisierung</string>
+    <string name="message_reset_failed">Der Reset konnte nicht ausgeführt werden</string>
+    <string name="message_changes_save_failed">Die Änderungen konnten nicht gespeichert werden. Versuche es erneut.</string>
+    <string name="message_credit_remove_failed">Das Guthabenkonto konnte nicht entfernt werden. Versuche es erneut.</string>
+
+    <!-- Navigation tabs (navigation/UsageLimitsNavigation.kt). -->
+    <string name="tab_overview">Übersicht</string>
+    <string name="tab_accounts">Konten</string>
+    <string name="tab_resets">Resets</string>
+    <string name="tab_settings">Einstellungen</string>
+
+    <!-- Sign-in keep-alive notification (core/oauth/SignInKeepAliveService.kt). -->
+    <string name="signin_channel_name">Anmeldung</string>
+    <string name="signin_notification_title">Anmeldung läuft</string>
+    <string name="signin_notification_body">Anmeldung wird abgeschlossen… Kehre zu Usage Limits zurück, falls der Browser hängt.</string>
+    <string name="signin_timeout_body">Kehre zu Usage Limits zurück, um die Anmeldung abzuschließen</string>
 </resources>

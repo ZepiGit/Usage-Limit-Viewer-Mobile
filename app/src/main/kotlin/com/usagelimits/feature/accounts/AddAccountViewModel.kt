@@ -7,6 +7,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ProviderRegion
@@ -249,7 +250,7 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 _state.value = AddAccountState.Failed(
-                    providerId, "Sign-in failed", keyAlternative, deviceCodeAlternative, withDeviceCode,
+                    providerId, context.getString(R.string.add_signin_failed), keyAlternative, deviceCodeAlternative, withDeviceCode,
                 )
             } finally {
                 val lease = keepAlive

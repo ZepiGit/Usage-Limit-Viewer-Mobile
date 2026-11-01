@@ -16,6 +16,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -25,6 +27,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.usagelimits.R
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UpcomingReset
 import com.usagelimits.feature.UsageUiState
@@ -33,6 +36,7 @@ import com.usagelimits.ui.components.EmptyBox
 import com.usagelimits.ui.components.RuleDivider
 import com.usagelimits.ui.components.ScreenTitle
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageType
@@ -68,17 +72,15 @@ fun ResetsScreen(
     ) {
         item {
             ScreenTitle(
-                title = "Resets",
-                stamp = if (resets.isEmpty()) "No upcoming resets" else "${resets.size} upcoming",
+                title = stringResource(R.string.resets_title),
+                stamp = if (resets.isEmpty()) stringResource(R.string.resets_none_upcoming)
+                    else stringResource(R.string.resets_upcoming_count, resets.size),
             )
         }
 
         if (resets.isEmpty()) {
             item {
-                EmptyBox(
-                    "Reset times appear once an account has been synced and the " +
-                        "provider reports a rollover time.",
-                )
+                EmptyBox(stringResource(R.string.resets_empty))
             }
         }
 
@@ -111,8 +113,11 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
         Instant.ofEpochMilli(reset.resetAt).atZone(zone)
             .format(DateTimeFormatter.ofPattern("HH:mm"))
     }
-    val statusLabel = SeverityPalette.label(reset.severity)
-    val countdown = Countdown.format(reset.resetAt - nowMs)
+    val statusLabel = stringResource(SeverityPalette.labelRes(reset.severity))
+    val countdown = Countdown.format(reset.resetAt - nowMs, rememberCountdownTexts())
+    val description = stringResource(
+        R.string.resets_row_description, time, reset.windowLabel, reset.accountLabel, statusLabel, countdown,
+    )
 
     Row(
         // The severity dot is a bare Box: it emits no semantics node, so the status was
@@ -123,8 +128,7 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .semantics(mergeDescendants = true) {
-                contentDescription = "$time, ${reset.windowLabel}, ${reset.accountLabel}, " +
-                    "$statusLabel, resets in $countdown"
+                contentDescription = description
             }
             .drawBehind {
                 if (isNext) drawRect(UsageColors.Data, Offset(0f, 8.dp.toPx()), Size(2.dp.toPx(), size.height - 16.dp.toPx()))
@@ -162,8 +166,12 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
     }
 }
 
+@Composable
 private fun dayLabel(date: LocalDate, today: LocalDate): String = when (date) {
-    today -> "Today"
-    today.plusDays(1) -> "Tomorrow"
-    else -> date.format(DateTimeFormatter.ofPattern("EEEE d MMM"))
+    today -> stringResource(R.string.resets_today)
+    today.plusDays(1) -> stringResource(R.string.resets_tomorrow)
+    // The pattern is a resource because the shape of a dated heading differs per language.
+    else -> date.format(
+        DateTimeFormatter.ofPattern(stringResource(R.string.resets_day_pattern), LocalConfiguration.current.locales[0]),
+    )
 }

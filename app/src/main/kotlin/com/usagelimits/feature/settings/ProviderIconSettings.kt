@@ -11,8 +11,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.usagelimits.R
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.ui.ProviderIconCatalog
 import com.usagelimits.ui.components.RuleDivider
@@ -24,7 +26,7 @@ import com.usagelimits.ui.theme.UsageColors
 fun ProviderIconSettings(selected: Map<String, String>, onChoose: (ProviderId, String) -> Unit) {
     var editing by remember { mutableStateOf<ProviderId?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("Provider icons")
+        SectionHeader(stringResource(R.string.settings_section_provider_icons))
         UsageCard {
             ProviderId.entries.forEachIndexed { index, provider ->
                 if (index > 0) RuleDivider()
@@ -35,13 +37,13 @@ fun ProviderIconSettings(selected: Map<String, String>, onChoose: (ProviderId, S
                         Text(provider.displayName, style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
                         Text(icon.label, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
                     }
-                    Text("Choose", color = UsageColors.Muted, style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.action_choose), color = UsageColors.Muted, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
     }
     editing?.let { provider ->
-        AlertDialog(onDismissRequest = { editing = null }, title = { Text("${provider.displayName} icon") },
+        AlertDialog(onDismissRequest = { editing = null }, title = { Text(stringResource(R.string.settings_provider_icon_title, provider.displayName)) },
             text = {
                 Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProviderIconCatalog.choices(provider).forEach { choice ->
@@ -56,6 +58,6 @@ fun ProviderIconSettings(selected: Map<String, String>, onChoose: (ProviderId, S
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { editing = null }) { Text("Done") } })
+            confirmButton = { TextButton(onClick = { editing = null }) { Text(stringResource(R.string.action_done)) } })
     }
 }

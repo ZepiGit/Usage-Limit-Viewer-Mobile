@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.sync.publishAfterSync
 import com.usagelimits.core.model.CreditEntry
@@ -190,7 +191,7 @@ class UsageViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                transientMessage.value = "Could not save account order. Try again."
+                transientMessage.value = appContext.getString(R.string.message_order_save_failed)
             } finally {
                 reorderMutex.unlock()
             }
@@ -203,7 +204,7 @@ class UsageViewModel(
                 container.settingsStore.setProviderIcon(provider.id, iconId)
                 WidgetUpdater.refreshAll(appContext)
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { transientMessage.value = "Could not save the icon choice. Try again." }
+            catch (_: Exception) { transientMessage.value = appContext.getString(R.string.message_icon_save_failed) }
         }
     }
 
@@ -217,8 +218,8 @@ class UsageViewModel(
                 transientMessage.value = when {
                     outcomes.isEmpty() -> null
                     failures == 0 -> null
-                    failures == outcomes.size -> "Refresh failed"
-                    else -> "$failures of ${outcomes.size} accounts failed to refresh"
+                    failures == outcomes.size -> appContext.getString(R.string.message_refresh_failed)
+                    else -> appContext.getString(R.string.message_refresh_partly_failed, failures, outcomes.size)
                 }
                 container.publishAfterSync(appContext)
             } finally {
@@ -264,9 +265,9 @@ class UsageViewModel(
                 val outcome = container.syncEngine.syncAccount(account)
                 container.publishAfterSync(appContext)
                 transientMessage.value = if (outcome.success) {
-                    "Limit reset applied"
+                    appContext.getString(R.string.message_reset_applied)
                 } else {
-                    "Reset requested — the new limit will show on the next refresh"
+                    appContext.getString(R.string.message_reset_requested)
                 }
             } catch (e: CancellationException) {
                 // Not a failure, and not ours to swallow: the credit may already be spent, and
@@ -275,7 +276,7 @@ class UsageViewModel(
             } catch (e: ProviderException) {
                 transientMessage.value = e.userMessage()
             } catch (e: Exception) {
-                transientMessage.value = "Could not apply the reset"
+                transientMessage.value = appContext.getString(R.string.message_reset_failed)
             } finally {
                 _resetCreditInFlight.value = null
             }
@@ -291,7 +292,7 @@ class UsageViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                transientMessage.value = "Could not save the changes. Try again."
+                transientMessage.value = appContext.getString(R.string.message_changes_save_failed)
             }
         }
     }
@@ -303,7 +304,7 @@ class UsageViewModel(
                 try {
                     container.creditAccounts.remove(id)
                 } catch (_: Exception) {
-                    transientMessage.value = "Could not remove the credit account. Try again."
+                    transientMessage.value = appContext.getString(R.string.message_credit_remove_failed)
                 }
                 WidgetUpdater.refreshAll(appContext)
             }
