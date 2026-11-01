@@ -14,6 +14,15 @@ enum class PercentDisplay {
     LEFT,
     USED;
 
+    /**
+     * The mode a surface actually shows when it may carry its own choice on top of the app's.
+     *
+     * A null [override] follows the app mode, so a widget that never picked one keeps tracking the
+     * setting instead of freezing the value it was placed under. Kept pure and in the model so
+     * the widget read site, the config preview and the iOS twin resolve identically.
+     */
+    fun resolved(override: PercentDisplay?): PercentDisplay = override ?: this
+
     companion object {
         /** Lenient read: an unknown or missing stored name falls back to the historical default. */
         fun fromNameOrNull(name: String?): PercentDisplay? = entries.firstOrNull { it.name == name }

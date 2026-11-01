@@ -101,10 +101,17 @@ class PercentModeWidgetRenderingTest {
     )
 
     /** Composes [widgetName] for the accounts in [accountIds] at [size] and hands the laid-out view to [check]. */
-    private suspend fun inspect(widgetName: String, accountIds: List<String>, size: DpSize, check: (View) -> Unit) {
+    private suspend fun inspect(
+        widgetName: String,
+        accountIds: List<String>,
+        size: DpSize,
+        storedOverride: String? = null,
+        check: (View) -> Unit,
+    ) {
         val placed = WidgetUpdater.allWidgets.first { it.name == widgetName }
         val config = WidgetConfigEntity(nextWidgetId++, "CUSTOM", null, null, System.currentTimeMillis(),
-            customAccountIdsJson = accountIds.joinToString(prefix = "[", postfix = "]") { "\"$it\"" })
+            customAccountIdsJson = accountIds.joinToString(prefix = "[", postfix = "]") { "\"$it\"" },
+            percentDisplay = storedOverride)
         app.container.widgetConfigDao.upsert(config)
         shadowOf(AppWidgetManager.getInstance(app)).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
             provider = ComponentName(app, placed.receiver)
@@ -391,6 +398,98 @@ class PercentModeWidgetRenderingTest {
                     assertTrue("$mode $name: no caption over an empty widget, got $text",
                         "Left" !in text && "Used" !in text)
                 }
+            }
+        }
+    }
+
+    // endregion
+
+    // region Per-widget override (R5)
+
+    /** App mode, the override a widget row stores, and the mode that widget must therefore show. */
+    private data class OverrideCase(val app: PercentDisplay, val stored: String?, val shown: PercentDisplay)
+
+    private val overrideCases = listOf(
+        OverrideCase(PercentDisplay.LEFT, "USED", PercentDisplay.USED),
+        OverrideCase(PercentDisplay.USED, "LEFT", PercentDisplay.LEFT),
+        OverrideCase(PercentDisplay.LEFT, "LEFT", PercentDisplay.LEFT),
+        OverrideCase(PercentDisplay.USED, "USED", PercentDisplay.USED),
+        OverrideCase(PercentDisplay.LEFT, null, PercentDisplay.LEFT),
+        OverrideCase(PercentDisplay.USED, null, PercentDisplay.USED),
+        OverrideCase(PercentDisplay.LEFT, "SIDEWAYS", PercentDisplay.LEFT),
+        OverrideCase(PercentDisplay.USED, "SIDEWAYS", PercentDisplay.USED),
+    )
+
+    /** Runs [body] once per [overrideCases] entry with that app mode persisted, restoring LEFT afterwards. */
+    private suspend fun TestScope.inEachOverrideCase(body: suspend (OverrideCase) -> Unit) {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            for (case in overrideCases) {
+                app.container.settingsStore.setPercentDisplay(case.app)
+                body(case)
+            }
+        } finally {
+            app.container.settingsStore.setPercentDisplay(PercentDisplay.LEFT)
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun `a detailed widget shows its own mode over the app setting and follows the app without one`() = runTest {
+        val id = seedFixtureAccount()
+        inEachOverrideCase { case ->
+            inspect("DetailedUsageWidget", listOf(id), DpSize(300.dp, 260.dp), case.stored) { view ->
+                val text = textViews(view).map { it.text.toString() }
+                val suffix = if (case.shown == PercentDisplay.USED) "used" else "left"
+                figures(case.shown).forEach {
+                    assertTrue("$case: row figure '$it $suffix' present, got $text", "$it $suffix" in text)
+                }
+                otherFigures(case.shown).forEach {
+                    assertTrue("$case: the other mode's '$it' must be absent, got $text", text.none { t -> t.startsWith(it) })
+                }
+            }
+        }
+    }
+
+    @Test fun `a compact widget shows its own mode over the app setting and follows the app without one`() = runTest {
+        val id = seedFixtureAccount()
+        inEachOverrideCase { case ->
+            inspect("CompactUsageWidget", listOf(id), DpSize(420.dp, 130.dp), case.stored) { view ->
+                val text = textViews(view).map { it.text.toString() }
+                assertTrue("$case: tile label leads with '${modeWord(case.shown)}', got $text",
+                    "${modeWord(case.shown)} · 5h limit" in text)
+                figures(case.shown).forEach { assertTrue("$case: tile figure $it present, got $text", it in text) }
+                otherFigures(case.shown).forEach {
+                    assertTrue("$case: the other mode's $it must be absent, got $text", it !in text)
+                }
+            }
+        }
+    }
+
+    @Test fun `account rings show their own mode over the app setting and follow the app without one`() = runTest {
+        val id = seedFixtureAccount()
+        inEachOverrideCase { case ->
+            inspect("MinimalUsageWidget", listOf(id), DpSize(180.dp, 240.dp), case.stored) { view ->
+                val text = textViews(view).map { it.text.toString() }
+                assertTrue("$case: caption '${modeWord(case.shown)}' present, got $text", modeWord(case.shown) in text)
+                assertTrue("$case: no caption of the other mode, got $text", otherWord(case.shown) !in text)
+                assertTrue("$case: centre figure ${figures(case.shown).last()} present, got $text",
+                    figures(case.shown).last() in text)
+                assertTrue("$case: the other mode's ${otherFigures(case.shown).last()} must be absent, got $text",
+                    otherFigures(case.shown).last() !in text)
+            }
+        }
+    }
+
+    @Test fun `mini rings show their own mode over the app setting and follow the app without one`() = runTest {
+        val id = seedFixtureAccount()
+        inEachOverrideCase { case ->
+            inspect("MiniRingsWidget", listOf(id), DpSize(62.dp, 180.dp), case.stored) { view ->
+                val text = textViews(view).map { it.text.toString() }
+                val descriptions = descriptions(view)
+                assertTrue("$case: caption '${modeWord(case.shown)}' present, got $text", modeWord(case.shown) in text)
+                assertTrue("$case: no caption of the other mode, got $text", otherWord(case.shown) !in text)
+                val spoken = if (case.shown == PercentDisplay.USED) "63% used" else "37% remaining"
+                assertTrue("$case: ring description says '$spoken', got $descriptions", descriptions.any { spoken in it })
             }
         }
     }

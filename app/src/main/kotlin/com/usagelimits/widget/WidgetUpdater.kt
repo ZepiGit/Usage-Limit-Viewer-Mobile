@@ -114,7 +114,11 @@ object WidgetUpdater {
         val snapshot: WidgetSnapshot,
         val style: WidgetStyle = WidgetStyle(),
         val metrics: WidgetMetrics = WidgetMetrics(),
-        /** Every figure follows this mode (R1); observed with the settings, so a toggle repaints at once. */
+        /**
+         * Every figure follows this mode (R1): the widget's own choice if it has one, else the app's.
+         * Resolved once here so no widget reads the setting itself; observed with the settings, so a
+         * toggle repaints at once.
+         */
         val percentDisplay: PercentDisplay,
     ) {
         val transparent: Boolean get() = style.background.isTransparent
@@ -164,7 +168,7 @@ object WidgetUpdater {
                         config?.transparent ?: false, config?.textTone,
                     ),
                     WidgetMetrics.fromJson(config?.layoutMetricsJson ?: "{}") ?: WidgetMetrics(),
-                    settings.percentDisplay,
+                    settings.percentDisplay.resolved(PercentDisplay.fromNameOrNull(config?.percentDisplay)),
                 )
             })
         }
