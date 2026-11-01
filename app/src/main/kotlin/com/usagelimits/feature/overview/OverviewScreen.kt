@@ -11,6 +11,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,9 +41,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -257,6 +261,13 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
                 contentDescription = listOfNotNull(
                     lead?.let { "${it.usage.account.label}, ${it.window.label}, $percent $side" }, reset,
                 ).joinToString(", ")
+                if (lead != null) {
+                    role = Role.Button
+                    onClick(label = flipLabel) {
+                        onPercentDisplayChange(flipTo)
+                        true
+                    }
+                }
             },
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -265,14 +276,11 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
                 val severity = if (lead.stale) Severity.STALE else worst.severity
                 Text("${lead.usage.account.label} · ${worst.label}",
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted, maxLines = 1)
-                // The click lives on the figure but merges into the card's one semantics node, so a
-                // screen reader finds a single button rather than a second focus stop.
+                // The accessibility action lives on the card's merged node above, so a screen reader
+                // finds one button. `clickable` would add a second focus stop of its own; this tap
+                // is the finger's route to the same action and creates no semantics node.
                 Row(
-                    Modifier.clickable(
-                        onClickLabel = flipLabel,
-                        role = Role.Button,
-                        onClick = { onPercentDisplayChange(flipTo) },
-                    ),
+                    Modifier.pointerInput(flipTo, onPercentDisplayChange) { detectTapGestures { onPercentDisplayChange(flipTo) } },
                     verticalAlignment = Alignment.Bottom,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {

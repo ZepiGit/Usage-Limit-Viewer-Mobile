@@ -111,7 +111,7 @@ public actor NotificationLedger {
     public func evaluateAndClaim(
         accounts: [AccountSummary],
         settings: NotificationSettings,
-        percentDisplay: PercentDisplay = .left,
+        percentDisplay: PercentDisplay,
         at time: Date
     ) throws -> [NotificationEvaluator.Event] {
         let outcome = NotificationEvaluator.evaluate(

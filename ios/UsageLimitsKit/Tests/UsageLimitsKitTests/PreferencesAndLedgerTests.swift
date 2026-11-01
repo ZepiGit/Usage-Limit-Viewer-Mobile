@@ -357,7 +357,8 @@ final class PreferencesAndLedgerTests: XCTestCase {
                     periodSeconds: 18_000, resetAt: nil, exhausted: false)]))
 
         do {
-            _ = try await ledger.evaluateAndClaim(accounts: [low], settings: NotificationSettings(), at: now)
+            _ = try await ledger.evaluateAndClaim(
+                accounts: [low], settings: NotificationSettings(), percentDisplay: .left, at: now)
             XCTFail("the first write must fail: the directory does not exist")
         } catch {
             // Expected.
@@ -365,14 +366,14 @@ final class PreferencesAndLedgerTests: XCTestCase {
 
         try FileManager.default.createDirectory(at: missing, withIntermediateDirectories: true)
         let retried = try await ledger.evaluateAndClaim(
-            accounts: [low], settings: NotificationSettings(), at: now)
+            accounts: [low], settings: NotificationSettings(), percentDisplay: .left, at: now)
 
         XCTAssertEqual(
             retried.map(\.line), ["Account acct · 5h limit: less than 20% remaining"],
             "the transition must still be announced once the write succeeds")
         // And once more, to prove the claim then holds.
         let again = try await ledger.evaluateAndClaim(
-            accounts: [low], settings: NotificationSettings(), at: now.addingTimeInterval(1))
+            accounts: [low], settings: NotificationSettings(), percentDisplay: .left, at: now.addingTimeInterval(1))
         XCTAssertTrue(again.isEmpty)
     }
 

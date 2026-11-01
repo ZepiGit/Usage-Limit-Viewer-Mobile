@@ -115,7 +115,7 @@ object WidgetUpdater {
         val style: WidgetStyle = WidgetStyle(),
         val metrics: WidgetMetrics = WidgetMetrics(),
         /** Every figure follows this mode (R1); observed with the settings, so a toggle repaints at once. */
-        val percentDisplay: PercentDisplay = PercentDisplay.LEFT,
+        val percentDisplay: PercentDisplay,
     ) {
         val transparent: Boolean get() = style.background.isTransparent
     }

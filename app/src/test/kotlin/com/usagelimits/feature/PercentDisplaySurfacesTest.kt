@@ -6,14 +6,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.PercentDisplay
@@ -160,25 +167,49 @@ class PercentDisplaySurfacesTest {
     // MARK: - R3: tap to switch
 
     @Test
-    fun `tapping the lead figure asks for USED from LEFT, with a label that names it`() {
+    fun `the lead strip is one focus stop holding its description, the flip action and the button role`() {
+        overview(PercentDisplay.LEFT)
+
+        val lead = compose.onNode(hasContentDescription("60% left", substring = true)).fetchSemanticsNode()
+
+        assertEquals("Show percentage used", lead.config.getOrNull(SemanticsActions.OnClick)?.label)
+        assertEquals(Role.Button, lead.config.getOrNull(SemanticsProperties.Role))
+        compose.onAllNodes(flipTo("Show percentage used")).assertCountEquals(1)
+    }
+
+    @Test
+    fun `invoking the lead strip action asks for USED from LEFT, with a label that names it`() {
         var chosen: PercentDisplay? = null
         overview(PercentDisplay.LEFT) { chosen = it }
 
         compose.onAllNodes(flipTo("Show percentage used")).assertCountEquals(1)
-        compose.onNode(flipTo("Show percentage used")).performClick()
+        compose.onNode(flipTo("Show percentage used")).performSemanticsAction(SemanticsActions.OnClick)
 
         assertEquals(PercentDisplay.USED, chosen)
     }
 
     @Test
-    fun `tapping the lead figure asks for LEFT from USED, with a label that names it`() {
+    fun `invoking the lead strip action asks for LEFT from USED, with a label that names it`() {
         var chosen: PercentDisplay? = null
         overview(PercentDisplay.USED) { chosen = it }
 
         compose.onAllNodes(flipTo("Show percentage left")).assertCountEquals(1)
-        compose.onNode(flipTo("Show percentage left")).performClick()
+        compose.onNode(flipTo("Show percentage left")).performSemanticsAction(SemanticsActions.OnClick)
 
         assertEquals(PercentDisplay.LEFT, chosen)
+    }
+
+    @Test
+    fun `a finger on the lead figure flips the mode`() {
+        var chosen: PercentDisplay? = null
+        overview(PercentDisplay.LEFT) { chosen = it }
+
+        compose.onNode(
+            hasText("60%") and hasAnyAncestor(hasContentDescription("60% left", substring = true)),
+            useUnmergedTree = true,
+        ).performTouchInput { click() }
+
+        assertEquals(PercentDisplay.USED, chosen)
     }
 
     // MARK: - R3: reduced motion

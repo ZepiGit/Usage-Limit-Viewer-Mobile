@@ -136,7 +136,7 @@ data class WidgetStyle(
      * the row's displayed fraction is positive, the fill takes the data hue instead of
      * vanishing beside a "100%" figure. Raw exhaustion only — a stale reading keeps its grey.
      */
-    fun bar(row: WidgetRow, validity: Severity? = null, mode: PercentDisplay = PercentDisplay.LEFT): Color? {
+    fun bar(row: WidgetRow, validity: Severity? = null, mode: PercentDisplay): Color? {
         when ((validity ?: row.validity) ?: row.severity) {
             Severity.STALE -> return stale
             Severity.ERROR, Severity.UNKNOWN -> return null
