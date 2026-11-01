@@ -3,10 +3,12 @@ package com.usagelimits.widget
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import com.usagelimits.core.model.FillState
 import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
-import com.usagelimits.core.model.fillFraction
-import com.usagelimits.core.model.usedFillOverridesMissingInk
+import com.usagelimits.core.model.fillState
+import com.usagelimits.core.model.windowPresentation
 
 /**
  * How one placed widget is painted: the panel behind it and the ink on top.
@@ -137,14 +139,15 @@ data class WidgetStyle(
      * vanishing beside a "100%" figure. Raw exhaustion only — a stale reading keeps its grey.
      */
     fun bar(row: WidgetRow, validity: Severity? = null, mode: PercentDisplay): Color? {
-        when ((validity ?: row.validity) ?: row.severity) {
-            Severity.STALE -> return stale
-            Severity.ERROR, Severity.UNKNOWN -> return null
-            Severity.EXHAUSTED -> {}
-            else -> return data
-        }
-        val fraction = fillFraction(row.remainingPercent, row.isExhausted, mode)
-        return if (usedFillOverridesMissingInk(mode, fraction)) data else null
+        val length = windowPresentation(row.remainingPercent, row.severity, ReadingValidity.CURRENT, mode).fill
+        return fill(fillState(ReadingValidity.CURRENT, (validity ?: row.validity) ?: row.severity, length, mode))
+    }
+
+    /** The ink for a [FillState] on this panel; null is the bare track. */
+    fun fill(state: FillState): Color? = when (state) {
+        FillState.DATA -> data
+        FillState.STALE -> stale
+        FillState.NO_FILL -> null
     }
 
     /** [bar] for the row's figure. */

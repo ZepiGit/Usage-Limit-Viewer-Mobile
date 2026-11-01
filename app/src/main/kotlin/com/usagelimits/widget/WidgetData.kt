@@ -2,11 +2,15 @@ package com.usagelimits.widget
 
 import com.usagelimits.core.model.title
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WidgetScope
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.model.WindowPresentation
+import com.usagelimits.core.model.windowPresentation
 
 /** One bar in a widget. */
 data class WidgetRow(
@@ -38,6 +42,29 @@ data class WidgetRow(
      */
     val isExhausted: Boolean get() = severity == Severity.EXHAUSTED
 }
+
+/**
+ * The validity a widget gives this row, from its account's [accountValidity] first and its own
+ * passed reset second, the same precedence [WidgetStyle.barText] colours by.
+ *
+ * Production passes only STALE, ERROR or null. UNKNOWN reads as ERROR because the bar has always
+ * drawn nothing for it; any other severity is not a validity and falls through to the row.
+ */
+fun WidgetRow.readingValidity(accountValidity: Severity?): ReadingValidity = when (accountValidity) {
+    Severity.STALE -> ReadingValidity.STALE
+    Severity.ERROR, Severity.UNKNOWN -> ReadingValidity.ERROR
+    else -> if (resetElapsed) ReadingValidity.RESET_DUE else ReadingValidity.CURRENT
+}
+
+/**
+ * The presentation of a widget row, or [WindowPresentation.absent] for no row.
+ *
+ * Reads the row's raw [WidgetRow.severity]: a reading's validity is passed in separately and never
+ * replaces it, so a stale exhausted row still counts as exhausted.
+ */
+fun WidgetRow?.presentation(accountValidity: Severity?, mode: PercentDisplay): WindowPresentation =
+    if (this == null) WindowPresentation.absent(mode)
+    else windowPresentation(remainingPercent, severity, readingValidity(accountValidity), mode)
 
 /** One account block in the larger widget. */
 data class WidgetAccount(
