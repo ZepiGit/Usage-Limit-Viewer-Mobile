@@ -112,11 +112,12 @@ public actor NotificationLedger {
         accounts: [AccountSummary],
         settings: NotificationSettings,
         percentDisplay: PercentDisplay,
-        at time: Date
+        at time: Date,
+        texts: any NotificationTexts = EnglishNotificationTexts()
     ) throws -> [NotificationEvaluator.Event] {
         let outcome = NotificationEvaluator.evaluate(
             accounts: accounts, settings: settings, states: states(), now: time,
-            percentDisplay: percentDisplay)
+            percentDisplay: percentDisplay, texts: texts)
 
         var candidate = stored
         candidate.states = outcome.states
