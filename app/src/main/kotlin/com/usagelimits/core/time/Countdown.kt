@@ -118,7 +118,7 @@ object Countdown {
             // month is, because "Tue" stops being unambiguous once more than one has passed.
             days in 1..6 -> {
                 val weekday = DateTimeFormatter.ofPattern("EEE", locale).format(reset)
-                if (bare) "$weekday $time" else texts.resetsOn(weekday, time)
+                if (bare) texts.weekdayStamp(weekday, time) else texts.resetsOn(weekday, time)
             }
             else -> {
                 val date = DateTimeFormatter.ofPattern(texts.resetDatePattern(), locale).format(reset)

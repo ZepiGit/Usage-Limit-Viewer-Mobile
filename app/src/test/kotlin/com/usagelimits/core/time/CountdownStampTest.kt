@@ -5,6 +5,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.Locale
 
 /**
@@ -23,10 +25,25 @@ class CountdownStampTest {
 
     @Test
     fun `the reset stamp is the label without its word in every shape`() {
-        for (offset in listOf(2 * hour, day + 3 * hour, 3 * day, 20 * day)) {
+        for (offset in listOf(2 * hour, 20 * day)) {
             val resetAt = now + offset
             assertEquals("offset $offset", label(resetAt)!!.removePrefix("Resets "), stamp(resetAt))
         }
+    }
+
+    @Test
+    fun `the weekday stamp is the weekday and the time, put together by the texts`() {
+        val resetAt = now + 3 * day
+        val time = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(Locale.US)
+            .format(Instant.ofEpochMilli(resetAt).atZone(zone))
+        assertEquals("Sat $time", stamp(resetAt))
+        assertEquals("Resets Sat $time", label(resetAt))
+
+        val reversed = object : CountdownTexts by EnglishCountdownTexts {
+            override fun weekdayStamp(weekday: String, time: String) = "$time / $weekday"
+        }
+        assertEquals("$time / Sat", Countdown.absoluteResetStamp(resetAt, now, zone, Locale.US, reversed))
+        assertEquals("Resets Sat $time", Countdown.absoluteResetLabel(resetAt, now, zone, Locale.US, reversed))
     }
 
     @Test

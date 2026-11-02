@@ -71,6 +71,7 @@ import com.usagelimits.ui.percentSideWordRes
 import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.text.storedMessageText
+import com.usagelimits.ui.text.windowLabelRes
 import com.usagelimits.ui.components.Dot
 import com.usagelimits.ui.components.EmptyBox
 import com.usagelimits.ui.components.ErrorBlock
@@ -403,7 +404,11 @@ private fun renewalLabel(usage: AccountUsage, nowMs: Long): String? {
     val soonest = windows.mapNotNull { it.resetAt }.filter { it > nowMs }.minOrNull()
     val renewsAt = longest.resetAt?.takeIf { it > nowMs } ?: return null
     if (renewsAt == soonest) return null
-    return stringResource(R.string.overview_renews, longest.label, Countdown.format(renewsAt - nowMs, rememberCountdownTexts()))
+    // The same words the row of this window shows: the app's own names are translated, a label
+    // the provider reported is data.
+    val label = windowLabelRes(longest.label, longest.category, longest.scope)
+        ?.let { stringResource(it) } ?: longest.label
+    return stringResource(R.string.overview_renews, label, Countdown.format(renewsAt - nowMs, rememberCountdownTexts()))
 }
 
 /**

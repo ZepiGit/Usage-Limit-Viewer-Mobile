@@ -35,6 +35,9 @@ interface CountdownTexts {
     /** A reset beyond the week: [date] is formatted with [resetDatePattern]. */
     fun resetsOnDate(date: String): String
 
+    /** [resetsOn] without its lead-in, for a tile that already says what it is. */
+    fun weekdayStamp(weekday: String, time: String): String
+
     /**
      * The `DateTimeFormatter` pattern for [resetsOnDate]'s date.
      *
@@ -67,6 +70,7 @@ object EnglishCountdownTexts : CountdownTexts {
     override fun resetsAt(time: String) = "Resets $time"
     override fun resetsOn(weekday: String, time: String) = "Resets $weekday $time"
     override fun resetsOnDate(date: String) = "Resets $date"
+    override fun weekdayStamp(weekday: String, time: String) = "$weekday $time"
     override fun resetDatePattern() = "d MMM"
     override fun neverUpdated() = "Never updated"
     override fun updatedJustNow() = "Updated just now"

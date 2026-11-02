@@ -11,6 +11,8 @@ import com.usagelimits.ui.text.windowLabelRes
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ReadingValidity
+import com.usagelimits.core.model.UsageScope
+import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.model.WindowPresentation
 import com.usagelimits.core.model.fillFraction
 import com.usagelimits.core.model.percentToken
@@ -191,8 +193,7 @@ fun UsageWindowRow(
     val validity = window.readingValidity(stale, fetchedAt, nowMs)
     val severity = if (validity == ReadingValidity.CURRENT) window.severity else Severity.STALE
     val p = window.presentation(validity, mode)
-    // The mode-aware figure token, laid out by the language's percent template. The spoken sentence
-    // keeps the LEFT wording — "remaining" is what it always said.
+    // The mode-aware figure token, laid out by the language's percent template.
     val percent = percentFigureText(p.token)
     val shownSide = stringResource(percentSideWordRes(mode))
     val spokenClause = stringResource(percentSpokenClauseRes(mode))
@@ -200,14 +201,13 @@ fun UsageWindowRow(
     // reported is data and is shown as it came.
     val appLabelRes = windowLabelRes(window.label, window.category, window.scope)
     val label = when {
-        window.scope != com.usagelimits.core.model.UsageScope.GLOBAL -> window.label
-        // The same rule the widgets apply: the parsers' own horizon words, exactly, on a global window.
+        window.scope != UsageScope.GLOBAL -> window.label
         appLabelRes != null -> stringResource(appLabelRes)
-        window.group != null && window.category == com.usagelimits.core.model.WindowCategory.FIVE_HOUR ->
+        window.group != null && window.category == WindowCategory.FIVE_HOUR ->
             stringResource(R.string.window_label_five_hour)
-        window.group != null && window.category == com.usagelimits.core.model.WindowCategory.WEEKLY ->
+        window.group != null && window.category == WindowCategory.WEEKLY ->
             stringResource(R.string.window_label_weekly)
-        window.group != null && window.category == com.usagelimits.core.model.WindowCategory.MONTHLY ->
+        window.group != null && window.category == WindowCategory.MONTHLY ->
             stringResource(R.string.window_label_monthly)
         window.label.equals("Five Hour Limit Remaining", ignoreCase = true) ->
             stringResource(R.string.window_label_five_hour)

@@ -42,6 +42,9 @@ class ResourceCountdownTexts(private val resources: Resources) : CountdownTexts 
     override fun resetsOnDate(date: String): String =
         resources.getString(R.string.countdown_resets_on_date, date)
 
+    override fun weekdayStamp(weekday: String, time: String): String =
+        resources.getString(R.string.countdown_weekday_stamp, weekday, time)
+
     override fun resetDatePattern(): String = resources.getString(R.string.countdown_reset_date_pattern)
 
     override fun neverUpdated(): String = resources.getString(R.string.countdown_never_updated)

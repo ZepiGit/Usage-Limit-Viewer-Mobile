@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Resources
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -152,11 +153,11 @@ class NotificationPublisher(
 
         ensureChannel()
 
-        val title = if (findings.size == 1) findings.first() else "${findings.size} usage alerts"
+        val title = if (findings.size == 1) findings.first() else titleForCount(context.resources, findings.size)
         val style = NotificationCompat.InboxStyle().also { style ->
             findings.take(MAX_LINES).forEach(style::addLine)
             if (findings.size > MAX_LINES) {
-                style.setSummaryText("+${findings.size - MAX_LINES} more")
+                style.setSummaryText(overflowSummary(context.resources, findings.size - MAX_LINES))
             }
         }
 
@@ -231,6 +232,14 @@ class NotificationPublisher(
          */
         fun shouldPost(alerts: List<String>, standing: List<String>, lastStandingFingerprint: String?): Boolean =
             alerts.isNotEmpty() || (standing.isNotEmpty() && fingerprint(standing) != lastStandingFingerprint)
+
+        /** The title over several findings; one finding is its own title. Counts come from the caller. */
+        fun titleForCount(resources: Resources, count: Int): String =
+            resources.getQuantityString(R.plurals.notification_title_count, count, count)
+
+        /** The inbox summary for the lines cut off by [MAX_LINES]. */
+        fun overflowSummary(resources: Resources, hidden: Int): String =
+            resources.getString(R.string.widget_credits_more, hidden)
 
         const val CHANNEL_ID = "usage_alerts"
 

@@ -19,6 +19,7 @@
     <string name="countdown_resets_at">Resets %1$s</string>
     <string name="countdown_resets_on">Resets %1$s %2$s</string>
     <string name="countdown_resets_on_date">Resets %1$s</string>
+    <string name="countdown_weekday_stamp">%1$s %2$s</string>
     <!-- A DateTimeFormatter pattern, not display text: the short date shape differs per language. -->
     <string name="countdown_reset_date_pattern">d MMM</string>
     <string name="countdown_never_updated">Never updated</string>
@@ -474,6 +475,11 @@
     <!-- Usage alerts notification channel (core/sync/NotificationPublisher.kt). -->
     <string name="notification_channel_name">Usage alerts</string>
     <string name="notification_channel_description">Low quota, exhausted limits and available reset credits</string>
+    <!-- English has always said "usage alerts" here; the title is only built for two or more. -->
+    <plurals name="notification_title_count">
+        <item quantity="one">%d usage alerts</item>
+        <item quantity="other">%d usage alerts</item>
+    </plurals>
 
     <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
     <string name="loopback_signed_in">Signed in</string>

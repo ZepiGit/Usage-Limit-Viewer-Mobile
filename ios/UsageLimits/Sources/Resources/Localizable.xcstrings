@@ -3068,7 +3068,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nutzungsübersicht"
+            "value" : "Usage Limits"
           }
         }
       }
@@ -3079,7 +3079,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nutzungsübersicht (transparent)"
+            "value" : "Usage Limits (transparent)"
           }
         }
       }
