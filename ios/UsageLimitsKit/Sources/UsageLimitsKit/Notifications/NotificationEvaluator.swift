@@ -103,6 +103,10 @@ public enum NotificationEvaluator {
     ///
     /// Matching one constant instead means a reword cannot silently kill the notification: it
     /// breaks `testTheMessageAFailedSignInProducesIsTheOneTheEvaluatorLooksFor` first.
+    ///
+    /// English on purpose and never routed through `NotificationTexts`: it is stored in
+    /// snapshots and compared as data, so translating it here would stop it matching every
+    /// snapshot written in another language. The display translates it (`StoredMessage`).
     public static let signInExpiredMessage = "Sign-in expired — reconnect this account"
 
     /// Whether this failure is one the user has to fix by signing in again.
@@ -246,7 +250,8 @@ public enum NotificationEvaluator {
         settings: NotificationSettings,
         states: [String: AccountState],
         now: Date,
-        percentDisplay: PercentDisplay = .left
+        percentDisplay: PercentDisplay = .left,
+        texts: any NotificationTexts = EnglishNotificationTexts()
     ) -> Outcome {
         var carried = states
         var events: [Event] = []
@@ -277,7 +282,7 @@ public enum NotificationEvaluator {
                     // No separator, unlike every other line: this one reads as a sentence, and
                     // it is worded identically on Android. Two platforms phrasing the same
                     // condition differently is the divergence this shared kit exists to stop.
-                    findings.append("\(account.label) needs to be reconnected")
+                    findings.append(texts.needsReconnect(name: account.label))
                 }
                 continue
             }
@@ -296,15 +301,16 @@ public enum NotificationEvaluator {
                         settings: settings,
                         snapshot: snapshot,
                         now: now,
+                        texts: texts,
                         into: &findings
                     )
                 }
                 appendResetApproachingEvents(
                     accountId: id, accountLabel: account.label, windows: snapshot.windows,
-                    settings: settings, now: now, into: &events)
+                    settings: settings, now: now, texts: texts, into: &events)
                 appendCreditExpiringEvents(
                     accountId: id, accountLabel: account.label, snapshot: snapshot,
-                    settings: settings, now: now, into: &events)
+                    settings: settings, now: now, texts: texts, into: &events)
                 continue
             }
 
@@ -360,6 +366,7 @@ public enum NotificationEvaluator {
                     reached: reached,
                     settings: settings,
                     percentDisplay: percentDisplay,
+                    texts: texts,
                     into: &events
                 )
             }
@@ -372,6 +379,7 @@ public enum NotificationEvaluator {
                 windows: snapshot.windows,
                 settings: settings,
                 now: now,
+                texts: texts,
                 into: &events
             )
             appendCreditExpiringEvents(
@@ -380,6 +388,7 @@ public enum NotificationEvaluator {
                 snapshot: snapshot,
                 settings: settings,
                 now: now,
+                texts: texts,
                 into: &events
             )
             if !muted {
@@ -388,6 +397,7 @@ public enum NotificationEvaluator {
                     settings: settings,
                     snapshot: snapshot,
                     now: now,
+                    texts: texts,
                     into: &findings
                 )
             }
@@ -445,13 +455,13 @@ public enum NotificationEvaluator {
         /// The wording follows the display mode while the threshold stays on remaining:
         /// "less than 20% remaining" and "more than 80% used" are the same crossing, so the
         /// tiers, settings and dedup keys are untouched. The exhausted line names no figure.
-        func message(_ name: String, _ label: String, _ mode: PercentDisplay) -> String {
-            switch (self, mode) {
-            case (.warning, .left): return "\(name) · \(label): less than 20% remaining"
-            case (.warning, .used): return "\(name) · \(label): more than 80% used"
-            case (.critical, .left): return "\(name) · \(label): less than 10% remaining"
-            case (.critical, .used): return "\(name) · \(label): more than 90% used"
-            case (.exhausted, _): return "\(name) · \(label) exhausted"
+        func message(
+            _ texts: any NotificationTexts, _ name: String, _ label: String, _ mode: PercentDisplay
+        ) -> String {
+            switch self {
+            case .warning: return texts.warning(name: name, label: label, mode: mode)
+            case .critical: return texts.critical(name: name, label: label, mode: mode)
+            case .exhausted: return texts.exhausted(name: name, label: label)
             }
         }
     }
@@ -484,12 +494,13 @@ public enum NotificationEvaluator {
         reached: [Tier],
         settings: NotificationSettings,
         percentDisplay: PercentDisplay,
+        texts: any NotificationTexts,
         into events: inout [Event]
     ) {
         guard let condition = reached.last else { return }
 
         let line = reached.contains(where: { $0.enabled(settings) })
-            ? condition.message(accountLabel, windowLabel, percentDisplay)
+            ? condition.message(texts, accountLabel, windowLabel, percentDisplay)
             : ""
 
         for tier in reached {
@@ -555,6 +566,7 @@ public enum NotificationEvaluator {
         windows: [UsageWindow],
         settings: NotificationSettings,
         now: Date,
+        texts: any NotificationTexts,
         into events: inout [Event]
     ) {
         let lead = TimeInterval(settings.resetApproachingMinutes) * 60
@@ -572,7 +584,7 @@ public enum NotificationEvaluator {
                 key: "\(accountId)|\(keys[window.id] ?? "")"
                     + "|reset-approaching|\(Int((resetAt.timeIntervalSince1970 * 1000).rounded()))",
                 line: settings.notifyOnResetApproaching
-                    ? "\(accountLabel) · \(window.label) resets in about \(minutes) minutes"
+                    ? texts.resetApproaching(name: accountLabel, label: window.label, minutes: minutes)
                     : ""))
         }
     }
@@ -597,6 +609,7 @@ public enum NotificationEvaluator {
         snapshot: UsageSnapshot,
         settings: NotificationSettings,
         now: Date,
+        texts: any NotificationTexts,
         into events: inout [Event]
     ) {
         let lead = TimeInterval(settings.resetCreditExpiryLeadMinutes) * 60
@@ -616,8 +629,9 @@ public enum NotificationEvaluator {
                 accountId: accountId,
                 key: "\(accountId)|\(credit.id)|credit-expiring",
                 line: settings.notifyOnResetCreditExpiring
-                    ? "\(accountLabel) · a reset credit expires in "
-                        + Countdown.format(seconds: Int(remaining))
+                    ? texts.creditExpiring(
+                        name: accountLabel,
+                        duration: Countdown.format(seconds: Int(remaining), texts: texts.countdown))
                     : ""))
         }
     }
@@ -632,6 +646,7 @@ public enum NotificationEvaluator {
         settings: NotificationSettings,
         snapshot: UsageSnapshot,
         now: Date,
+        texts: any NotificationTexts,
         into findings: inout [String]
     ) {
         guard settings.notifyOnResetCreditAvailable else { return }
@@ -646,7 +661,6 @@ public enum NotificationEvaluator {
         let count = snapshot.spendableResetCredits(at: now)
         guard count > 0 else { return }
 
-        let noun = count == 1 ? "reset credit" : "reset credits"
-        findings.append("\(accountLabel) · \(count) \(noun) available")
+        findings.append(texts.creditsAvailable(name: accountLabel, count: count))
     }
 }
