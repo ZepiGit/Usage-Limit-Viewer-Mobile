@@ -32,7 +32,11 @@ data class AuthorizationResponse(
  * Using this rather than an embedded WebView is deliberate: the user authenticates in the
  * real browser, where they can see the address bar and the app never observes their password.
  */
-class LoopbackServer(private val port: Int) : Closeable {
+class LoopbackServer(
+    private val port: Int,
+    /** The words of the result page; the caller that has resources supplies them. */
+    private val texts: LoopbackPageTexts = EnglishLoopbackPageTexts,
+) : Closeable {
 
     private var serverSocket: ServerSocket? = null
 
@@ -228,15 +232,15 @@ class LoopbackServer(private val port: Int) : Closeable {
 
     private fun httpResponse(result: AuthorizationResponse): String {
         val ok = result.error == null && result.code != null
-        val title = if (ok) "Signed in" else "Sign-in failed"
+        // The injected words are escaped as well: they come from resources today, but the page is
+        // built from strings, and an unescaped one would be a hole the day a translation has a "&".
+        val title = escapeHtml(if (ok) texts.signedIn() else texts.signInFailed())
         // error/error_description are attacker-influenced: any local app can open
         // http://127.0.0.1:PORT/?error=<img src=x onerror=...> while the listener is up.
         // Interpolating them raw would execute script at this origin, so they are escaped.
-        val detail = if (ok) {
-            "You can close this tab and return to Usage Limits."
-        } else {
-            escapeHtml(result.errorDescription ?: result.error ?: "No authorization code was returned.")
-        }
+        val detail = escapeHtml(
+            if (ok) texts.closeThisTab() else result.errorDescription ?: result.error ?: texts.noCodeReturned(),
+        )
         val html = """
             <!doctype html>
             <html><head><meta charset="utf-8"><title>$title</title>

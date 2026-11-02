@@ -14,6 +14,7 @@ import com.usagelimits.core.sync.CreditSyncEngine
 import com.usagelimits.core.sync.SyncEngine
 import com.usagelimits.providers.credits.CreditRegistry
 import com.usagelimits.providers.ProviderRegistry
+import com.usagelimits.ui.text.ResourceLoopbackPageTexts
 
 /**
  * Manual dependency graph.
@@ -51,7 +52,11 @@ open class AppContainer(context: Context) {
 
     val notificationDao by lazy { database.notificationDao() }
 
-    open val providerRegistry: ProviderRegistry by lazy { ProviderRegistry(httpClient) }
+    // The browser page after a redirect sign-in is built far from any Context, so its words are
+    // resolved here, from the application's resources, and handed down.
+    open val providerRegistry: ProviderRegistry by lazy {
+        ProviderRegistry(httpClient, ResourceLoopbackPageTexts(appContext.resources))
+    }
 
     val settingsStore: SettingsStore by lazy { SettingsStore(appContext) }
 

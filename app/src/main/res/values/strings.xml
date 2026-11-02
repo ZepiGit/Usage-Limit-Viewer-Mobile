@@ -474,4 +474,16 @@
     <!-- Usage alerts notification channel (core/sync/NotificationPublisher.kt). -->
     <string name="notification_channel_name">Usage alerts</string>
     <string name="notification_channel_description">Low quota, exhausted limits and available reset credits</string>
+
+    <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
+    <string name="loopback_signed_in">Signed in</string>
+    <string name="loopback_sign_in_failed">Sign-in failed</string>
+    <string name="loopback_close_tab">You can close this tab and return to Usage Limits.</string>
+    <string name="loopback_no_code">No authorization code was returned.</string>
+
+    <!-- Provider icon style words (ui/ProviderIconCatalog.kt); the brand in front of them stays as written. -->
+    <string name="icon_style_color">Color</string>
+    <string name="icon_style_monochrome">Monochrome</string>
+    <string name="icon_style_wordmark">Wordmark</string>
+    <string name="icon_label_with_style">%1$s · %2$s</string>
 </resources>

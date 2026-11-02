@@ -10,6 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -17,10 +19,18 @@ import androidx.compose.ui.unit.dp
 import com.usagelimits.R
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.ui.ProviderIconCatalog
+import com.usagelimits.ui.ProviderIconChoice
 import com.usagelimits.ui.components.RuleDivider
 import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.theme.UsageColors
+
+/** The choice's label in the current language; reading the configuration makes a language change recompose it. */
+@Composable
+private fun ProviderIconChoice.labelText(): String {
+    LocalConfiguration.current
+    return label(LocalContext.current.resources)
+}
 
 @Composable
 fun ProviderIconSettings(selected: Map<String, String>, onChoose: (ProviderId, String) -> Unit) {
@@ -35,7 +45,7 @@ fun ProviderIconSettings(selected: Map<String, String>, onChoose: (ProviderId, S
                     Image(painterResource(icon.drawable), null, Modifier.size(30.dp))
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                         Text(provider.displayName, style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
-                        Text(icon.label, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+                        Text(icon.labelText(), style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
                     }
                     Text(stringResource(R.string.action_choose), color = UsageColors.Muted, style = MaterialTheme.typography.labelLarge)
                 }
@@ -52,7 +62,7 @@ fun ProviderIconSettings(selected: Map<String, String>, onChoose: (ProviderId, S
                             onClick = { onChoose(provider, choice.id); editing = null }).padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Image(painterResource(choice.drawable), null, Modifier.size(36.dp))
-                            Text(choice.label, Modifier.weight(1f).padding(horizontal = 12.dp))
+                            Text(choice.labelText(), Modifier.weight(1f).padding(horizontal = 12.dp))
                             RadioButton(checked, onClick = null)
                         }
                     }

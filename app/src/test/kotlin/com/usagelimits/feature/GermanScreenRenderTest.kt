@@ -3,6 +3,7 @@ package com.usagelimits.feature
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performScrollToNode
 import com.usagelimits.core.database.AccountUsage
@@ -169,6 +170,55 @@ class GermanScreenRenderTest {
         assertShown("verbraucht")
         assertShown("73 %", expected = false)
         assertShown("Reset in 1 Std.")
+    }
+
+    @Test
+    fun `a Claude window the app labelled 5h limit reads 5-Std-Limit on the overview and in its spoken row`() {
+        val claude = usage.copy(
+            account = usage.account.copy(localId = "c", provider = ProviderId.CLAUDE, credentialReference = "ref-c"),
+            snapshot = usage.snapshot!!.copy(accountId = "c"),
+        )
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(claude), settings = AppSettings(percentDisplay = PercentDisplay.LEFT)),
+                nowMs = now,
+                onRefresh = {},
+                onAccountClick = {},
+                onAddAccount = {},
+                onReorder = {},
+                onPercentDisplayChange = {},
+            )
+        }
+
+        assertShown("5\u2011Std.-Limit")
+        assertShown("5h limit", expected = false)
+        // The spoken sentence of the row leads with the same translated label.
+        val spoken = compose.onAllNodesWithContentDescription("5\u2011Std.-Limit, ", substring = true)
+            .fetchSemanticsNodes()
+        assertEquals("one row speaks the translated label", 1, spoken.size)
+    }
+
+    @Test
+    fun `a window label the provider reported stays verbatim in German`() {
+        val reported = usage.copy(
+            snapshot = usage.snapshot!!.copy(
+                windows = listOf(usage.snapshot!!.windows.first().copy(label = "Weekly (Opus)", category = WindowCategory.WEEKLY)),
+            ),
+        )
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(reported), settings = AppSettings(percentDisplay = PercentDisplay.LEFT)),
+                nowMs = now,
+                onRefresh = {},
+                onAccountClick = {},
+                onAddAccount = {},
+                onReorder = {},
+                onPercentDisplayChange = {},
+            )
+        }
+
+        assertShown("Weekly (Opus)")
+        assertShown("W\u00F6chentlich", expected = false)
     }
 
     @Test

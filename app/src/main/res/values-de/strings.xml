@@ -470,4 +470,16 @@
     <!-- Usage alerts notification channel (core/sync/NotificationPublisher.kt). -->
     <string name="notification_channel_name">Nutzungshinweise</string>
     <string name="notification_channel_description">Niedriges Kontingent, aufgebrauchte Limits und verfügbare Reset-Credits</string>
+
+    <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
+    <string name="loopback_signed_in">Angemeldet</string>
+    <string name="loopback_sign_in_failed">Anmeldung fehlgeschlagen</string>
+    <string name="loopback_close_tab">Du kannst diesen Tab schließen und zu Usage Limits zurückkehren.</string>
+    <string name="loopback_no_code">Es wurde kein Autorisierungscode zurückgegeben.</string>
+
+    <!-- Provider icon style words (ui/ProviderIconCatalog.kt); the brand in front of them stays as written. -->
+    <string name="icon_style_color">Farbe</string>
+    <string name="icon_style_monochrome">Einfarbig</string>
+    <string name="icon_style_wordmark">Wortmarke</string>
+    <string name="icon_label_with_style">%1$s · %2$s</string>
 </resources>
