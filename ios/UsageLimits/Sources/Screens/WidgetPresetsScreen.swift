@@ -15,7 +15,7 @@ struct WidgetPresetsScreen: View {
                     .foregroundStyle(UsageColors.muted)
             }
             .listRowBackground(UsageColors.surface)
-            Section(header: LedgerHeader("Custom layouts")) {
+            Section(header: LedgerHeader(String(localized: "Custom layouts"))) {
                 ForEach(presets) { preset in
                     Button { editing = preset } label: {
                         HStack {
@@ -29,7 +29,7 @@ struct WidgetPresetsScreen: View {
                     }
                 }
                 Button("New custom layout") {
-                    editing = WidgetPreset(name: "Custom \(presets.count + 1)", accountIDs: [])
+                    editing = WidgetPreset(name: String(localized: "Custom \(presets.count + 1)"), accountIDs: [])
                 }
             }
             .listRowBackground(UsageColors.surface)
@@ -39,7 +39,7 @@ struct WidgetPresetsScreen: View {
         .ledgerList().navigationTitle("Widget layouts")
         .task {
             do { presets = try await WidgetPresetStore.shared.load() }
-            catch { self.error = "Could not load your widget layouts." }
+            catch { self.error = String(localized: "Could not load your widget layouts.") }
         }
         .sheet(item: $editing) { preset in
             WidgetPresetEditor(preset: preset, accounts: store.accounts) { saved in
@@ -77,9 +77,9 @@ private struct WidgetPresetEditor: View {
     var body: some View {
         NavigationStack {
             List {
-                Section(header: LedgerHeader("Layout name")) { TextField("Name", text: $name) }
+                Section(header: LedgerHeader(String(localized: "Layout name"))) { TextField("Name", text: $name) }
                     .listRowBackground(UsageColors.surface)
-                Section(header: LedgerHeader("Preview")) {
+                Section(header: LedgerHeader(String(localized: "Preview"))) {
                     HStack(spacing: 12) {
                         ForEach(order.filter { selected.contains($0) }.prefix(5), id: \.self) { id in
                             if let account = accounts.first(where: { $0.account.id == id }) {
@@ -90,7 +90,7 @@ private struct WidgetPresetEditor: View {
                     }
                 }
                 .listRowBackground(UsageColors.surface)
-                Section(header: LedgerHeader("Accounts · drag to reorder")) {
+                Section(header: LedgerHeader(String(localized: "Accounts · drag to reorder"))) {
                     ForEach(order, id: \.self) { id in
                         if let usage = accounts.first(where: { $0.account.id == id }) {
                             HStack(spacing: 12) {
@@ -100,7 +100,7 @@ private struct WidgetPresetEditor: View {
                                     Image(systemName: selected.contains(id) ? "checkmark.circle.fill" : "circle")
                                         .foregroundStyle(selected.contains(id) ? UsageColors.ink : UsageColors.faint)
                                 }.buttonStyle(.plain).accessibilityLabel("Show \(usage.account.label)")
-                                    .accessibilityValue(selected.contains(id) ? "Selected" : "Not selected")
+                                    .accessibilityValue(DisplayText.selection(selected.contains(id)))
                                 ProviderBadge(provider: usage.account.provider)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(usage.account.label).foregroundStyle(UsageColors.ink)
@@ -119,14 +119,14 @@ private struct WidgetPresetEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Saving…" : "Save") {
+                    Button(saving ? String(localized: "Saving…") : String(localized: "Save")) {
                         saving = true
                         Task {
                             do {
                                 try await onSave(WidgetPreset(id: preset.id, name: name.trimmingCharacters(in: .whitespacesAndNewlines),
                                     accountIDs: order.filter { selected.contains($0) }))
                                 dismiss()
-                            } catch { self.error = "Could not save this layout. Try again."; saving = false }
+                            } catch { self.error = String(localized: "Could not save this layout. Try again."); saving = false }
                         }
                     }.disabled(saving || selected.isEmpty || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
