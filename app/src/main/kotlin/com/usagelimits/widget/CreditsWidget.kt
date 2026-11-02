@@ -34,6 +34,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import com.usagelimits.R
 import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.CreditFormat
 import com.usagelimits.core.model.Severity
@@ -59,6 +60,7 @@ class CreditsWidget : GlanceAppWidget() {
             val snapshot by views.collectAsState(initial)
             val size = LocalSize.current
             val style = WidgetStyle()
+            val texts = ResourceCreditWidgetTexts(context.resources)
             // What the height can hold, so the last row is never cut mid-glyph; the rest is a "+N more".
             val capacity = CreditWidgetBuilder.capacity(size.width.value, size.height.value)
             var fit = minOf(capacity, ((size.height.value - HEADER_DP) / ROW_DP).toInt().coerceAtLeast(1))
@@ -73,26 +75,26 @@ class CreditsWidget : GlanceAppWidget() {
                     ) {
                         when {
                             snapshot.rows.isEmpty() -> Text(
-                                "No credit balances. Add one in the app.",
+                                context.getString(R.string.widget_credits_empty),
                                 style = widgetText(style.textSecondary, 12),
                             )
-                            shown.size == 1 -> Single(shown.first(), style, centered = size.width < MEDIUM.width)
+                            shown.size == 1 -> Single(shown.first(), style, texts, centered = size.width < MEDIUM.width)
                             else -> {
                                 Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        "Credits", GlanceModifier.defaultWeight(),
+                                        context.getString(R.string.widget_label_credits), GlanceModifier.defaultWeight(),
                                         style = widgetText(style.textSecondary, 12, FontWeight.Medium),
                                     )
                                     snapshot.rows.mapNotNull { it.fetchedAt }.maxOrNull()?.let {
                                         Text(
-                                            Countdown.asOfLabel(it, nowMs = System.currentTimeMillis()), maxLines = 1,
+                                            Countdown.asOfLabel(it, nowMs = System.currentTimeMillis(), texts = texts), maxLines = 1,
                                             style = widgetText(style.textSecondary, 11, mono = true),
                                         )
                                     }
                                 }
                                 Spacer(GlanceModifier.height(4.dp))
-                                shown.forEach { Line(it, style) }
-                                if (more > 0) Text("+$more more", style = widgetText(style.textSecondary, 11))
+                                shown.forEach { Line(it, style, texts) }
+                                if (more > 0) Text(context.getString(R.string.widget_credits_more, more), style = widgetText(style.textSecondary, 11))
                             }
                         }
                     }
@@ -103,7 +105,7 @@ class CreditsWidget : GlanceAppWidget() {
 
     /** The 2x2 tile: one account, its amount large, and as of when. */
     @Composable
-    private fun Single(row: CreditWidgetRow, style: WidgetStyle, centered: Boolean) {
+    private fun Single(row: CreditWidgetRow, style: WidgetStyle, texts: CreditWidgetTexts, centered: Boolean) {
         // Centred as a block on the small tile, where a start-aligned lone row reads as left-heavy.
         Column(
             GlanceModifier.fillMaxSize(),
@@ -117,7 +119,7 @@ class CreditsWidget : GlanceAppWidget() {
             Spacer(GlanceModifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    amountText(row), maxLines = 1,
+                    amountText(row, texts), maxLines = 1,
                     style = widgetText(style.textPrimary, 22, FontWeight.Bold, mono = true),
                 )
                 if (row.severity != Severity.HEALTHY) {
@@ -126,14 +128,14 @@ class CreditsWidget : GlanceAppWidget() {
                 }
             }
             Text(
-                statusText(row), maxLines = 1,
+                statusText(row, texts), maxLines = 1,
                 style = widgetText(if (refreshFailed(row)) style.textPrimary else style.textSecondary, 11),
             )
         }
     }
 
     @Composable
-    private fun Line(row: CreditWidgetRow, style: WidgetStyle) {
+    private fun Line(row: CreditWidgetRow, style: WidgetStyle, texts: CreditWidgetTexts) {
         Row(GlanceModifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
             SeverityDot(style.accent(row.severity))
             Spacer(GlanceModifier.width(8.dp))
@@ -144,12 +146,12 @@ class CreditsWidget : GlanceAppWidget() {
                 )
                 // Independent of the balance: a stale or failed read must not hide behind it.
                 if (refreshFailed(row)) {
-                    Text("Refresh failed", maxLines = 1, style = widgetText(style.textPrimary, 11))
+                    Text(androidx.glance.LocalContext.current.getString(R.string.widget_credits_refresh_failed), maxLines = 1, style = widgetText(style.textPrimary, 11))
                 }
             }
             Spacer(GlanceModifier.width(8.dp))
             Text(
-                amountText(row), maxLines = 1,
+                amountText(row, texts), maxLines = 1,
                 style = widgetText(style.textPrimary, 14, FontWeight.Bold, mono = true),
             )
         }
@@ -167,20 +169,28 @@ class CreditsWidget : GlanceAppWidget() {
 }
 
 /** The figure on the right of a row: the worst balance, or a quiet dash when there is none. */
-internal fun amountText(row: CreditWidgetRow): String =
-    row.balances.firstOrNull()?.let { CreditFormat.line(it) } ?: "—"
+internal fun amountText(row: CreditWidgetRow, texts: CreditWidgetTexts = EnglishCreditWidgetTexts): String =
+    row.balances.firstOrNull()?.let { CreditFormat.line(it, spentThisMonth = texts::spentThisMonth) } ?: "—"
 
 /** The last refresh failed but a cached balance is still shown; severity then describes the balance only. */
 internal fun refreshFailed(row: CreditWidgetRow): Boolean = row.statusMessage != null && row.balances.isNotEmpty()
 
-/** The line under the tile's amount: when it was read, or why it was not. */
-internal fun statusText(row: CreditWidgetRow): String = when {
-    row.severity == Severity.ERROR -> row.statusMessage ?: "Could not be read"
-    refreshFailed(row) -> "Refresh failed: ${row.statusMessage}" +
-        (row.fetchedAt?.let { " · " + Countdown.asOfLabel(it, nowMs = System.currentTimeMillis()) } ?: "")
-    row.fetchedAt == null -> "Not read yet"
-    row.severity == Severity.STALE -> "Out of date · ${Countdown.asOfLabel(row.fetchedAt, nowMs = System.currentTimeMillis())}"
-    else -> row.providerName + " · " + Countdown.asOfLabel(row.fetchedAt, nowMs = System.currentTimeMillis()).removePrefix("As of ")
+/**
+ * The line under the tile's amount: when it was read, or why it was not.
+ *
+ * A failure's reason is the message stored with the snapshot when the refresh failed, in English;
+ * [CreditWidgetTexts.stored] reads it in the screen's language without touching what is stored.
+ */
+internal fun statusText(row: CreditWidgetRow, texts: CreditWidgetTexts = EnglishCreditWidgetTexts): String {
+    val now = System.currentTimeMillis()
+    return when {
+        row.severity == Severity.ERROR -> row.statusMessage?.let(texts::stored) ?: texts.couldNotBeRead()
+        refreshFailed(row) -> texts.refreshFailed(texts.stored(row.statusMessage.orEmpty())) +
+            (row.fetchedAt?.let { " · " + Countdown.asOfLabel(it, nowMs = now, texts = texts) } ?: "")
+        row.fetchedAt == null -> texts.notReadYet()
+        row.severity == Severity.STALE -> texts.outOfDate(Countdown.asOfLabel(row.fetchedAt, nowMs = now, texts = texts))
+        else -> row.providerName + " · " + Countdown.asOfStamp(row.fetchedAt, nowMs = now)
+    }
 }
 
 class CreditsWidgetReceiver : UsageWidgetReceiver() {

@@ -43,6 +43,7 @@ import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.components.UsageWindowRow
 import com.usagelimits.ui.text.rememberCountdownTexts
+import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageType
 
@@ -158,7 +159,7 @@ fun AccountDetailScreen(
                 val partial = snapshot.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL
                 UsageCard {
                     ErrorBlock(
-                        message = error,
+                        message = storedMessageText(error),
                         dot = if (partial) UsageColors.Warning else UsageColors.Negative,
                         detail = when {
                             partial -> stringResource(R.string.account_detail_partial)

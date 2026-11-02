@@ -144,7 +144,7 @@
         <receiver
             android:name=".widget.CompactUsageWidgetReceiver"
             android:exported="true"
-            android:label="Usage Summary">
+            android:label="@string/widget_label_usage_summary">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -156,7 +156,7 @@
         <receiver
             android:name=".widget.DetailedUsageWidgetReceiver"
             android:exported="true"
-            android:label="Usage Bars">
+            android:label="@string/widget_label_usage_bars">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -168,7 +168,7 @@
         <receiver
             android:name=".widget.MinimalUsageWidgetReceiver"
             android:exported="true"
-            android:label="Account Rings">
+            android:label="@string/widget_label_account_rings">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -177,12 +177,12 @@
                 android:resource="@xml/widget_minimal_info" />
         </receiver>
 
-        <receiver android:name=".widget.MiniRingsWidgetReceiver" android:exported="true" android:label="Mini Rings">
+        <receiver android:name=".widget.MiniRingsWidgetReceiver" android:exported="true" android:label="@string/widget_label_mini_rings">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_mini_rings_info" />
         </receiver>
 
-        <receiver android:name=".widget.CreditsWidgetReceiver" android:exported="true" android:label="Credits">
+        <receiver android:name=".widget.CreditsWidgetReceiver" android:exported="true" android:label="@string/widget_label_credits">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_credits_info" />
         </receiver>

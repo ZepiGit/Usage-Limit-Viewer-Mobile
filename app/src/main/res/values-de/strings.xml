@@ -319,4 +319,155 @@
     <string name="signin_notification_title">Anmeldung läuft</string>
     <string name="signin_notification_body">Anmeldung wird abgeschlossen… Kehre zu Usage Limits zurück, falls der Browser hängt.</string>
     <string name="signin_timeout_body">Kehre zu Usage Limits zurück, um die Anmeldung abzuschließen</string>
+
+    <!-- Widget picker names (AndroidManifest.xml) and the titles of their configuration screens. -->
+    <string name="widget_label_usage_summary">Nutzungsübersicht</string>
+    <string name="widget_label_usage_bars">Verbrauchsbalken</string>
+    <string name="widget_label_account_rings">Konto-Ringe</string>
+    <string name="widget_label_mini_rings">Mini-Ringe</string>
+    <string name="widget_label_credits">Guthaben</string>
+
+    <!-- Usage widgets (widget/UsageWidgets.kt, RingWidgets.kt, WidgetData.kt). -->
+    <string name="widget_refresh">Nutzung aktualisieren</string>
+    <string name="widget_next_reset">Nächster Reset</string>
+    <string name="widget_sync_issue">Sync-Problem</string>
+    <string name="widget_account">Konto</string>
+    <plurals name="widget_accounts_count">
+        <item quantity="one">%1$d Konto</item>
+        <item quantity="other">%1$d Konten</item>
+    </plurals>
+    <string name="widget_status_ok">OK</string>
+    <string name="widget_status_fair">Mäßig</string>
+    <string name="widget_status_low">Niedrig</string>
+    <string name="widget_status_out">Leer</string>
+    <string name="widget_status_stale">Veraltet</string>
+    <string name="widget_status_error">Fehler</string>
+    <string name="widget_status_unknown">Unbekannt</string>
+    <string name="widget_status_limited">Eingeschränkt</string>
+    <string name="widget_no_matching_accounts_edit">Keine passenden Konten. Bearbeite dieses Widget, um ein Konto auszuwählen.</string>
+    <string name="widget_no_matching_accounts">Keine passenden Konten</string>
+    <string name="widget_no_provider_account">Kein %1$s-Konto verbunden. Füge in der App eines hinzu.</string>
+    <string name="widget_reconnect_account">Konto neu verbinden</string>
+    <string name="widget_update_failed_last_known">Aktualisierung fehlgeschlagen · zuletzt bekannte Daten</string>
+    <string name="widget_data_out_of_date">Daten sind veraltet</string>
+    <string name="widget_some_limits_not_updated">Einige Limits konnten nicht aktualisiert werden</string>
+    <string name="widget_ring_out_partial">Leer · Teilweise aktualisiert</string>
+    <string name="widget_ring_partial">Teilweise aktualisiert</string>
+    <string name="widget_ring_limited">Eingeschränkt: %1$s</string>
+    <string name="widget_ring_quota_unknown">Kontingent unbekannt</string>
+    <string name="widget_ring_no_reset">Keine Reset-Zeit</string>
+    <string name="widget_ring_desc_reconnect">Neuverbindung erforderlich</string>
+    <string name="widget_ring_desc_partial">einige Limits konnten nicht aktualisiert werden</string>
+    <string name="widget_ring_desc_limited">eingeschränkt: %1$s</string>
+
+    <!-- Credits widget (widget/CreditsWidget.kt). -->
+    <string name="widget_credits_empty">Keine Guthaben. Füge eins in der App hinzu.</string>
+    <string name="widget_credits_more">+%1$d weitere</string>
+    <string name="widget_credits_refresh_failed">Aktualisierung fehlgeschlagen</string>
+    <string name="widget_credits_unreadable">Konnte nicht gelesen werden</string>
+    <string name="widget_credits_refresh_failed_reason">Aktualisierung fehlgeschlagen: %1$s</string>
+    <string name="widget_credits_not_read">Noch nicht gelesen</string>
+    <string name="widget_credits_out_of_date">Veraltet · %1$s</string>
+    <string name="credit_spent_this_month">%1$s diesen Monat ausgegeben</string>
+
+    <!-- Widget configuration (widget/WidgetConfigActivity.kt, WidgetStyle.kt). -->
+    <string name="widget_config_load_failed">Dieses Widget konnte nicht geladen werden. Bitte versuche es erneut.</string>
+    <string name="widget_config_save_failed">Das Widget konnte nicht gespeichert werden. Versuche es erneut.</string>
+    <string name="widget_config_save">Widget speichern</string>
+    <string name="widget_config_saving">Speichern…</string>
+    <string name="widget_config_section_content">Widget-Inhalt</string>
+    <string name="widget_config_most_critical_title">Kritischstes zuerst</string>
+    <string name="widget_config_most_critical_subtitle">Zeigt automatisch, was am dringendsten Aufmerksamkeit braucht</string>
+    <string name="widget_config_closest_resets_title">Nächste Resets</string>
+    <string name="widget_config_closest_resets_subtitle">Zeigt automatisch das Konto, das als Nächstes zurückgesetzt wird</string>
+    <string name="widget_config_all_accounts_title">Alle Konten</string>
+    <string name="widget_config_all_accounts_subtitle">Gleiche Reihenfolge wie in der Übersicht</string>
+    <string name="widget_config_section_provider">Ein Anbieter</string>
+    <string name="widget_config_provider_accounts">Alle %1$s-Konten</string>
+    <string name="widget_config_custom_title">Eigene Auswahl</string>
+    <string name="widget_config_custom_subtitle">Konten auswählen und zum Sortieren ziehen</string>
+    <string name="widget_config_show_account">%1$s anzeigen</string>
+    <string name="widget_config_move_up">%1$s nach oben</string>
+    <string name="widget_config_move_down">%1$s nach unten</string>
+    <string name="widget_config_move">%1$s verschieben</string>
+    <string name="widget_config_section_account">Ein Konto</string>
+    <string name="widget_config_background_title">Hintergrund</string>
+    <string name="widget_config_background_subtitle">Farbe und Deckkraft des Widget-Hintergrunds</string>
+    <string name="widget_config_background_choice">Hintergrund %1$s</string>
+    <string name="widget_config_opacity_transparent">Deckkraft · transparent</string>
+    <string name="widget_config_opacity_percent">Deckkraft · %1$d %%</string>
+    <string name="widget_config_opacity_description">Deckkraft des Hintergrunds</string>
+    <string name="widget_config_text_title">Text</string>
+    <string name="widget_config_text_note">Auto richtet sich nach der Farbe oben, egal wie deckend sie ist. Wenn der Hintergrund durchscheint, wähle selbst Hell oder Dunkel.</string>
+    <string name="widget_config_tone_auto">Auto</string>
+    <string name="widget_config_tone_light">Hell</string>
+    <string name="widget_config_tone_dark">Dunkel</string>
+    <string name="widget_config_percent_title">Prozente anzeigen als</string>
+    <string name="widget_config_percent_subtitle">Dieses Widget kann der App folgen oder eine eigene Auswahl behalten</string>
+    <string name="widget_config_percent_app">App-Einstellung</string>
+    <string name="widget_config_preview_title">Vorschau · %1$d ausgewählt</string>
+    <string name="widget_config_preview_empty">Wähle Konten aus, um dein Widget zu sehen</string>
+    <string name="widget_color_charcoal">Anthrazit</string>
+    <string name="widget_color_black">Schwarz</string>
+    <string name="widget_color_graphite">Graphit</string>
+    <string name="widget_color_navy">Marineblau</string>
+    <string name="widget_color_plum">Pflaume</string>
+    <string name="widget_color_forest">Waldgrün</string>
+    <string name="widget_color_terracotta">Terrakotta</string>
+    <string name="widget_color_cream">Creme</string>
+    <string name="widget_color_light_grey">Hellgrau</string>
+    <string name="widget_color_white">Weiß</string>
+
+    <!-- Sentences of the model and provider layers (ui/text/ModelTexts.kt). Domains inside them are data and stay as written. -->
+    <string name="credit_key_hint_openrouter">Management-Schlüssel für das Kontoguthaben oder ein beliebiger API-Schlüssel für das Limit dieses Schlüssels.</string>
+    <string name="credit_key_hint_deepseek">DeepSeek-API-Schlüssel.</string>
+    <string name="credit_key_hint_moonshot">Moonshot-Plattform-API-Schlüssel (kein Kimi-Code-Schlüssel).</string>
+    <string name="credit_key_hint_xai">xAI-Management-Schlüssel (console.x.ai, Einstellungen, Management Keys), kein Inferenz-Schlüssel.</string>
+    <string name="credit_key_hint_fal">fal-Schlüssel mit dem Scope billing:usage:read (Vorlage BILLING), kein Inferenz-Schlüssel.</string>
+    <string name="credit_key_hint_novita">Novita-API-Schlüssel.</string>
+    <string name="credit_region_china">China (moonshot.cn, CNY)</string>
+    <string name="credit_region_international">International (moonshot.ai, USD)</string>
+    <string name="credit_unavailable_no_balance_endpoint">Kein Guthaben-Endpunkt für API-Schlüssel</string>
+    <string name="region_kimi_china">China (kimi.com)</string>
+    <string name="region_kimi_international">International (kimi.ai)</string>
+    <string name="region_zai_china">China (bigmodel.cn)</string>
+    <string name="region_zai_international">International (z.ai)</string>
+    <string name="add_api_key_hint_zai">Erstelle in deiner Z.ai-Konsole einen Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
+    <string name="add_api_key_hint_kimi">Erstelle in deiner Kimi-Code-Konsole einen Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
+    <string name="add_api_key_hint_opencode">Erstelle in deiner OpenCode-Konsole einen OpenCode-Go-Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
+    <string name="credit_balance_key_limit">Schlüssel-Limit</string>
+    <string name="credit_balance_no_limit">Kein Limit</string>
+    <string name="credit_balance_unavailable">Nicht verfügbar</string>
+    <string name="credit_error_rejected">Der Schlüssel wurde abgelehnt (HTTP %1$d). Prüfe, ob es die richtige Art von Schlüssel ist.</string>
+    <string name="credit_error_malformed">Der Anbieter hat in einem Format geantwortet, das diese App nicht versteht (%1$s).</string>
+    <string name="credit_error_unavailable">Es konnte kein Guthaben gelesen werden (%1$s).</string>
+    <string name="credit_error_xai_no_prepaid">xAI hat für dieses Team kein Prepaid-Guthaben (HTTP 404). Prüfe die Team-ID und ob das Team im Voraus bezahlt.</string>
+    <string name="credit_error_team_required">Dieser xAI-Schlüssel gehört nicht zu einem einzelnen Team. Gib die Team-ID aus console.x.ai ein.</string>
+    <string name="credit_error_no_key">Es wurde kein Schlüssel eingegeben.</string>
+
+    <!-- Failure sentences the sync layer and providers store in English; recognised and translated at the display (ui/text/ModelTexts.kt). -->
+    <string name="stored_sign_in_expired">Anmeldung abgelaufen — verbinde dieses Konto neu</string>
+    <string name="stored_access_denied">Zugriff für dieses Konto verweigert</string>
+    <string name="stored_rate_limited">Zu viele Anfragen — versuche es gleich noch einmal</string>
+    <string name="stored_server_trouble">Der Anbieter hat gerade Probleme (%1$d)</string>
+    <string name="stored_offline">Keine Netzwerkverbindung</string>
+    <string name="stored_malformed">Unerwartete Antwort vom Anbieter</string>
+    <string name="stored_login_cancelled">Anmeldung abgebrochen</string>
+    <string name="stored_refresh_failed">Aktualisierung fehlgeschlagen</string>
+    <string name="stored_unexpected">Unerwarteter Fehler beim Aktualisieren</string>
+    <string name="stored_dns">%1$s konnte nicht aufgelöst werden. Prüfe die Verbindung oder einen DNS-Filter, der die Adresse blockieren könnte.</string>
+    <string name="stored_connect">Verbindung zu %1$s nicht möglich.</string>
+    <string name="stored_timeout">%1$s hat nicht rechtzeitig geantwortet.</string>
+    <string name="stored_tls">Eine sichere Verbindung zu %1$s konnte nicht aufgebaut werden.</string>
+    <string name="stored_interrupted">Die Verbindung zu %1$s wurde unterbrochen.</string>
+    <string name="stored_quota_malformed">Einige Kontingentwerte konnten nicht gelesen werden; die verfügbare Nutzung wird angezeigt.</string>
+    <string name="stored_reset_credits">Reset-Credits konnten nicht aktualisiert werden</string>
+    <string name="stored_billing_auth">Eine Abrechnungsansicht hat die Anmeldung abgelehnt; einige Nutzungswerte konnten nicht aktualisiert werden.</string>
+    <string name="stored_billing_failed">Eine Abrechnungsansicht konnte nicht aktualisiert werden; nur die gelieferte Nutzung wird angezeigt.</string>
+    <string name="stored_billing_malformed">Einige Abrechnungswerte konnten nicht gelesen werden; die verfügbare Nutzung wird angezeigt.</string>
+    <string name="stored_credit_unreadable">Der Schlüssel konnte nicht vom Gerät gelesen werden.</string>
+
+    <!-- Usage alerts notification channel (core/sync/NotificationPublisher.kt). -->
+    <string name="notification_channel_name">Nutzungshinweise</string>
+    <string name="notification_channel_description">Niedriges Kontingent, aufgebrauchte Limits und verfügbare Reset-Credits</string>
 </resources>

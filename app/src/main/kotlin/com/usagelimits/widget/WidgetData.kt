@@ -6,6 +6,7 @@ import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WidgetScope
 import com.usagelimits.core.model.WindowCategory
@@ -31,6 +32,8 @@ data class WidgetRow(
      */
     val resetElapsed: Boolean = false,
     val windowId: String = "",
+    /** Carried so a label the app chose can be told from one a model-scoped window brought along. */
+    val scope: UsageScope = UsageScope.GLOBAL,
 ) {
     /** The validity a surface should colour this row with, when its account's own is null. */
     val validity: Severity? get() = if (resetElapsed) Severity.STALE else null
@@ -119,9 +122,17 @@ data class WidgetSnapshot(
      * must answer to. Null while the lead's data is trustworthy.
      */
     val leadValidity: Severity? = null,
-    /** What an empty selection means, when the widget knows; null leaves the generic hint. */
-    val emptyMessage: String? = null,
+    /**
+     * The provider a provider-scoped widget found no account for, when the widget knows; null
+     * leaves the generic hint. Carried as data rather than as a sentence so each surface says it
+     * in the user's language (see [emptyText]).
+     */
+    val emptyProvider: ProviderId? = null,
 ) {
+    /** English wording of [emptyText], for code with no resources and the tests that pin it. */
+    val emptyMessage: String? get() = emptyProvider?.let { "No ${it.displayName} account connected. Add one in the app." }
+
+    /** English wording of [statusLabel], for code with no resources and the tests that pin it. */
     val selectionStatusLabel: String get() = if (accountCount > 1) "$accountCount accounts" else "Account"
     val hasPartialUpdate: Boolean get() = accounts.any { it.partialUpdate }
 
@@ -176,7 +187,7 @@ object WidgetDataBuilder {
                 ?: return WidgetSnapshot.Empty
             return WidgetSnapshot.Empty.copy(
                 overallSeverity = Severity.UNKNOWN,
-                emptyMessage = "No ${provider.displayName} account connected. Add one in the app.",
+                emptyProvider = provider,
             )
         }
 
@@ -335,6 +346,7 @@ object WidgetDataBuilder {
         severity = severity,
         resetElapsed = resetElapsedAt(resetAt, fetchedAt, nowMs),
         windowId = id,
+        scope = scope,
     )
 
     /**

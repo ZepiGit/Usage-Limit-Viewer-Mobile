@@ -20,6 +20,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -38,7 +40,9 @@ import com.usagelimits.ui.components.ErrorBlock
 import com.usagelimits.ui.components.StatusMark
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.text.creditBalanceLabelRes
 import com.usagelimits.ui.text.rememberCountdownTexts
+import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.ui.theme.UsageColors
 import java.math.BigDecimal
 
@@ -107,7 +111,7 @@ fun CreditCard(
         Spacer(Modifier.height(12.dp))
         if (balances.isEmpty()) {
             if (snapshot?.error != null) {
-                ErrorBlock(snapshot.error, onRetry = onRetry)
+                ErrorBlock(storedMessageText(snapshot.error), onRetry = onRetry)
             } else {
                 Text(text = stringResource(R.string.credit_no_balance), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
             }
@@ -117,7 +121,7 @@ fun CreditCard(
             }
             if (snapshot?.error != null) {
                 ErrorBlock(
-                    message = stringResource(R.string.credit_showing_last_known, snapshot.error),
+                    message = stringResource(R.string.credit_showing_last_known, storedMessageText(snapshot.error)),
                     modifier = Modifier.padding(top = 12.dp),
                     onRetry = onRetry,
                 )
@@ -129,12 +133,17 @@ fun CreditCard(
 /** The amount in ink (never severity-coloured, a real zero included), its cap, and a data bar. */
 @Composable
 private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity) {
+    // Reading the configuration is what recomposes the card when the language changes.
+    LocalConfiguration.current
+    val resources = LocalContext.current.resources
+    // The parsers' own labels are stored in English and translated here; any other label is shown as stored.
+    val balanceLabel = balance.label?.let { stored -> creditBalanceLabelRes(stored)?.let { stringResource(it) } ?: stored }
     // A stale or failed account keeps the grey of its age in the bar.
     val barSeverity = if (accountSeverity == Severity.STALE || accountSeverity == Severity.ERROR) Severity.STALE else Severity.HEALTHY
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                text = CreditFormat.line(balance),
+                text = CreditFormat.line(balance, spentThisMonth = { resources.getString(R.string.credit_spent_this_month, it) }),
                 style = MaterialTheme.typography.titleLarge,
                 color = UsageColors.Ink,
             )
@@ -146,7 +155,7 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity) {
                     color = UsageColors.Muted,
                 )
             } ?: Spacer(Modifier.weight(1f))
-            if (!balance.unlimited) balance.label?.let {
+            if (!balance.unlimited) balanceLabel?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
             }
         }
@@ -155,7 +164,7 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity) {
             UsageBar(percent, barSeverity, Modifier.fillMaxWidth())
         }
         // An uncapped key has no bar: its existing label says so instead.
-        if (balance.unlimited) balance.label?.let {
+        if (balance.unlimited) balanceLabel?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
         }
     }

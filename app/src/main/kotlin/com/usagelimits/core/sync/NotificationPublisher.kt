@@ -194,10 +194,10 @@ class NotificationPublisher(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Usage alerts",
+            context.getString(R.string.notification_channel_name),
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "Low quota, exhausted limits and available reset credits"
+            description = context.getString(R.string.notification_channel_description)
         }
         context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }

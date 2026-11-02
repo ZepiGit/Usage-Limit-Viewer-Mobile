@@ -89,12 +89,12 @@ class StatusContrastTest {
             val panel = Color(choice.argb)
             for (severity in Severity.entries) {
                 val ratio = contrast(style.textColor(severity), panel)
-                assertTrue("${choice.label}: $severity text measures %.2f:1".format(ratio), ratio >= AA_NORMAL_TEXT)
+                assertTrue("${choice.id}: $severity text measures %.2f:1".format(ratio), ratio >= AA_NORMAL_TEXT)
             }
             val secondary = contrast(style.textSecondary, panel)
-            assertTrue("${choice.label}: secondary ink measures %.2f:1".format(secondary), secondary >= AA_NORMAL_TEXT)
+            assertTrue("${choice.id}: secondary ink measures %.2f:1".format(secondary), secondary >= AA_NORMAL_TEXT)
             val data = contrast(style.data, panel)
-            assertTrue("${choice.label}: data hue measures %.2f:1".format(data), data >= AA_GRAPHIC)
+            assertTrue("${choice.id}: data hue measures %.2f:1".format(data), data >= AA_GRAPHIC)
         }
     }
 
