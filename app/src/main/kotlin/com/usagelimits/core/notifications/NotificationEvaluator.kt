@@ -342,7 +342,9 @@ object NotificationEvaluator {
 
             val condition = reached.last()
             val line = if (reached.any { it.enabled(settings) }) {
-                condition.message(texts, name, window.label, settings.percentDisplay)
+                condition.message(
+                    texts, name, texts.windowLabel(window.label, window.category, window.scope), settings.percentDisplay,
+                )
             } else {
                 ""
             }
@@ -405,7 +407,7 @@ object NotificationEvaluator {
                 accountId,
                 key(accountId, keys.getValue(window.id), "reset-approaching", resetAt.toString()),
                 if (settings.notifyOnResetApproaching) {
-                    texts.resetApproaching(name, window.label, minutes)
+                    texts.resetApproaching(name, texts.windowLabel(window.label, window.category, window.scope), minutes)
                 } else {
                     ""
                 },

@@ -475,6 +475,7 @@
         <item quantity="one">%d Nutzungswarnung</item>
         <item quantity="other">%d Nutzungswarnungen</item>
     </plurals>
+    <string name="notification_more">+%1$d weitere</string>
 
     <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
     <string name="loopback_signed_in">Angemeldet</string>

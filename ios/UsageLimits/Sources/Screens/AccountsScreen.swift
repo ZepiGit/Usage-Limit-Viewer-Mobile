@@ -198,7 +198,7 @@ private struct AccountSummaryCard: View {
                         category: window.category,
                         remainingPercent: window.remainingPercent,
                         resetAt: window.resetAt,
-                        severity: window.severity, segments: window.segments),
+                        severity: window.severity, scope: window.scope, segments: window.segments),
                     now: now,
                     // The account's aged verdict outranks a row's own: a stale or failed account
                     // keeps its last numbers, but they stop looking fresh.

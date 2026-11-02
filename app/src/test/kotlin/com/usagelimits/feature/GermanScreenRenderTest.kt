@@ -1,5 +1,8 @@
 package com.usagelimits.feature
 
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -11,12 +14,14 @@ import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.feature.accounts.AccountDetailScreen
 import com.usagelimits.feature.overview.OverviewScreen
+import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import org.junit.Assert.assertEquals
@@ -193,8 +198,12 @@ class GermanScreenRenderTest {
         assertShown("5\u2011Std.-Limit")
         assertShown("5h limit", expected = false)
         // The spoken sentence of the row leads with the same translated label.
-        val spoken = compose.onAllNodesWithContentDescription("5\u2011Std.-Limit, ", substring = true)
-            .fetchSemanticsNodes()
+        // The row's sentence leads with the label; the lead card's names the account first and has
+        // its own test below.
+        val startsWithLabel = SemanticsMatcher("description starts with the label") { node ->
+            node.config.getOrNull(SemanticsProperties.ContentDescription)?.any { it.startsWith("5\u2011Std.-Limit, ") } == true
+        }
+        val spoken = compose.onAllNodes(startsWithLabel).fetchSemanticsNodes()
         assertEquals("one row speaks the translated label", 1, spoken.size)
     }
 
@@ -255,6 +264,75 @@ class GermanScreenRenderTest {
 
         assertShown("Weekly (Opus)")
         assertShown("W\u00F6chentlich", expected = false)
+    }
+
+    @Test
+    fun `the overview lead names its window in German and no text node keeps the English label`() {
+        renderOverview(PercentDisplay.LEFT)
+
+        // The lead line is "account · window"; the row below it carries the same label on its own.
+        assertShown("${usage.account.label} \u00B7 5\u2011Std.-Limit")
+        assertShown("5h limit", expected = false, substring = true)
+    }
+
+    @Test
+    fun `the overview lead speaks the window label in German`() {
+        renderOverview(PercentDisplay.LEFT)
+
+        val spoken = compose.onAllNodesWithContentDescription("${usage.account.label}, 5\u2011Std.-Limit, 73 %", substring = true)
+            .fetchSemanticsNodes()
+        assertEquals("the lead card speaks the translated label", 1, spoken.size)
+        val english = compose.onAllNodesWithContentDescription("5h limit", substring = true).fetchSemanticsNodes()
+        assertEquals("no spoken sentence keeps the English label", 0, english.size)
+    }
+
+    private fun renderResets(vararg windows: UsageWindow) = render {
+        ResetsScreen(
+            state = UsageUiState(accounts = listOf(usage.copy(snapshot = usage.snapshot!!.copy(windows = windows.toList())))),
+            nowMs = now,
+        )
+    }
+
+    @Test
+    fun `a reset row names the window in German on screen and in its spoken sentence`() {
+        renderResets(usage.snapshot!!.windows.first())
+
+        assertShown("5\u2011Std.-Limit")
+        assertShown("5h limit", expected = false, substring = true)
+        val spoken = compose.onAllNodesWithContentDescription(", 5\u2011Std.-Limit, ${usage.account.label}, ", substring = true)
+            .fetchSemanticsNodes()
+        assertEquals("the row speaks the translated label", 1, spoken.size)
+        val english = compose.onAllNodesWithContentDescription("5h limit", substring = true).fetchSemanticsNodes()
+        assertEquals("no spoken sentence keeps the English label", 0, english.size)
+    }
+
+    @Test
+    fun `a reset row translates the weekly and monthly horizons`() {
+        val first = usage.snapshot!!.windows.first()
+        renderResets(
+            first.copy(id = "weekly", label = "Weekly", category = WindowCategory.WEEKLY, periodSeconds = 604_800),
+            first.copy(
+                id = "monthly", label = "Monthly", category = WindowCategory.MONTHLY, periodSeconds = 2_592_000,
+                resetAt = now + 7_200_000,
+            ),
+        )
+
+        assertShown("W\u00F6chentlich")
+        assertShown("Monatlich")
+        assertShown("Weekly", expected = false, substring = true)
+        assertShown("Monthly", expected = false, substring = true)
+    }
+
+    @Test
+    fun `a reset row keeps a window label the provider reported`() {
+        val first = usage.snapshot!!.windows.first()
+        renderResets(first.copy(label = "Weekly (Opus)", category = WindowCategory.WEEKLY, scope = UsageScope.MODEL))
+
+        assertShown("Weekly (Opus)")
+        assertShown("W\u00F6chentlich", expected = false, substring = true)
+        val spoken = compose.onAllNodesWithContentDescription(", Weekly (Opus), ${usage.account.label}, ", substring = true)
+            .fetchSemanticsNodes()
+        assertEquals("the row speaks the provider's label as it came", 1, spoken.size)
     }
 
     @Test

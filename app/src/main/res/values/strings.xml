@@ -480,6 +480,7 @@
         <item quantity="one">%d usage alerts</item>
         <item quantity="other">%d usage alerts</item>
     </plurals>
+    <string name="notification_more" tools:ignore="PluralsCandidate">+%1$d more</string>
 
     <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
     <string name="loopback_signed_in">Signed in</string>

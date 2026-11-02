@@ -1,6 +1,8 @@
 package com.usagelimits.core.notifications
 
 import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.UsageScope
+import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.time.CountdownTexts
 import com.usagelimits.core.time.EnglishCountdownTexts
 
@@ -13,11 +15,20 @@ import com.usagelimits.core.time.EnglishCountdownTexts
  *
  * Every function takes whole pieces (an account name, a window label, a count) instead of
  * returning a fragment, because word order and plural forms differ between languages. Names and
- * labels are data — the user's own and the provider's — and are inserted untranslated.
+ * labels are data — the user's own and the provider's — and are inserted untranslated; the one
+ * exception is a window label the app chose itself, which [windowLabel] puts into the language first.
  */
 interface NotificationTexts {
     /** Formats the deadline inside [creditExpiring], in the same language as the sentence. */
     val countdown: CountdownTexts
+
+    /**
+     * The label to put into a sentence for a window: the app's own horizon names ("5h limit",
+     * "Weekly", "Monthly" on a global window) in this language, anything else as the provider
+     * reported it. The English default is the label unchanged, so the screens and the notifications
+     * name a window with the same words.
+     */
+    fun windowLabel(label: String, category: WindowCategory, scope: UsageScope): String = label
 
     /**
      * The first tier. The threshold itself stays on remaining quota; only the wording follows

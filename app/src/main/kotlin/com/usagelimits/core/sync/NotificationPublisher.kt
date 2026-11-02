@@ -239,7 +239,7 @@ class NotificationPublisher(
 
         /** The inbox summary for the lines cut off by [MAX_LINES]. */
         fun overflowSummary(resources: Resources, hidden: Int): String =
-            resources.getString(R.string.widget_credits_more, hidden)
+            resources.getString(R.string.notification_more, hidden)
 
         const val CHANNEL_ID = "usage_alerts"
 

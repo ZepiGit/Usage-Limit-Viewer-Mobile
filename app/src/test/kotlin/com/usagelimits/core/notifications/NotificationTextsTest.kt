@@ -9,6 +9,7 @@ import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ResetCredit
 import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
@@ -54,6 +55,9 @@ abstract class NotificationTextsFixture {
         resetAt: Long? = null,
         credits: List<ResetCredit> = emptyList(),
         connection: ConnectionStatus = ConnectionStatus.CONNECTED,
+        label: String = "5h limit",
+        category: WindowCategory = WindowCategory.FIVE_HOUR,
+        scope: UsageScope = UsageScope.GLOBAL,
     ) = AccountUsage(
         account = ProviderAccount(
             localId = "acct",
@@ -73,12 +77,13 @@ abstract class NotificationTextsFixture {
             windows = listOf(
                 UsageWindow(
                     id = "w",
-                    label = "5h limit",
-                    category = WindowCategory.FIVE_HOUR,
+                    label = label,
+                    category = category,
                     usedPercent = remaining?.let { 100.0 - it },
                     periodSeconds = 18_000,
                     resetAt = resetAt,
                     exhausted = exhausted,
+                    scope = scope,
                 ),
             ),
             resetCredits = credits,
@@ -113,6 +118,24 @@ abstract class NotificationTextsFixture {
             }
             put("reset in 10 minutes", usage(80.0, resetAt = now + 10 * minute) to PercentDisplay.LEFT)
             put("reset in 1 minute", usage(80.0, resetAt = now + 30_000L) to PercentDisplay.LEFT)
+            put("weekly warning", usage(15.0, label = "Weekly", category = WindowCategory.WEEKLY) to PercentDisplay.LEFT)
+            put(
+                "weekly reset",
+                usage(80.0, resetAt = now + 10 * minute, label = "Weekly", category = WindowCategory.WEEKLY) to PercentDisplay.LEFT,
+            )
+            put(
+                "provider label warning",
+                usage(
+                    15.0, label = "Weekly (Opus)", category = WindowCategory.WEEKLY, scope = UsageScope.MODEL,
+                ) to PercentDisplay.LEFT,
+            )
+            put(
+                "provider label reset",
+                usage(
+                    80.0, resetAt = now + 10 * minute, label = "Weekly (Opus)",
+                    category = WindowCategory.WEEKLY, scope = UsageScope.MODEL,
+                ) to PercentDisplay.LEFT,
+            )
             put("one credit", usage(80.0, credits = oneCredit) to PercentDisplay.LEFT)
             put("two credits", usage(80.0, credits = twoCredits) to PercentDisplay.LEFT)
             put(
@@ -148,6 +171,9 @@ class NotificationTextsEnglishTest : NotificationTextsFixture() {
         assertEquals(listOf("Konto A · 5h limit: more than 90% used"), all["critical USED"])
         assertEquals(listOf("Konto A · 5h limit exhausted"), all["exhausted LEFT"])
         assertEquals(listOf("Konto A · 5h limit resets in about 10 minutes"), all["reset in 10 minutes"])
+        assertEquals(listOf("Konto A · Weekly: less than 20% remaining"), all["weekly warning"])
+        assertEquals(listOf("Konto A · Weekly resets in about 10 minutes"), all["weekly reset"])
+        assertEquals(listOf("Konto A · Weekly (Opus): less than 20% remaining"), all["provider label warning"])
         assertEquals(listOf("Konto A · a reset credit expires in 1h", "Konto A · 1 reset credit available"), all["one credit"])
         assertEquals(
             listOf("Konto A · a reset credit expires in 1h", "Konto A · a reset credit expires in 2h", "Konto A · 2 reset credits available"),
@@ -168,22 +194,30 @@ class NotificationTextsGermanTest : NotificationTextsFixture() {
 
     @Test
     fun `the tiers follow the display mode and use the glossary`() {
-        assertEquals(listOf("Konto A · 5h limit: weniger als 20 % übrig"), german("warning LEFT"))
-        assertEquals(listOf("Konto A · 5h limit: mehr als 80 % verbraucht"), german("warning USED"))
-        assertEquals(listOf("Konto A · 5h limit: weniger als 10 % übrig"), german("critical LEFT"))
-        assertEquals(listOf("Konto A · 5h limit: mehr als 90 % verbraucht"), german("critical USED"))
+        assertEquals(listOf("Konto A · 5\u2011Std.-Limit: weniger als 20 % übrig"), german("warning LEFT"))
+        assertEquals(listOf("Konto A · 5\u2011Std.-Limit: mehr als 80 % verbraucht"), german("warning USED"))
+        assertEquals(listOf("Konto A · 5\u2011Std.-Limit: weniger als 10 % übrig"), german("critical LEFT"))
+        assertEquals(listOf("Konto A · 5\u2011Std.-Limit: mehr als 90 % verbraucht"), german("critical USED"))
     }
 
     @Test
     fun `an exhausted limit reads the same in both modes`() {
-        assertEquals(listOf("Konto A · 5h limit aufgebraucht"), german("exhausted LEFT"))
-        assertEquals(listOf("Konto A · 5h limit aufgebraucht"), german("exhausted USED"))
+        assertEquals(listOf("Konto A · 5\u2011Std.-Limit aufgebraucht"), german("exhausted LEFT"))
+        assertEquals(listOf("Konto A · 5\u2011Std.-Limit aufgebraucht"), german("exhausted USED"))
     }
 
     @Test
     fun `the reset heads-up pluralises its minutes`() {
-        assertEquals(listOf("Konto A · 5h limit: Reset in etwa 10 Minuten"), german("reset in 10 minutes"))
-        assertEquals(listOf("Konto A · 5h limit: Reset in etwa 1 Minute"), german("reset in 1 minute"))
+        assertEquals(listOf("Konto A · 5\u2011Std.-Limit: Reset in etwa 10 Minuten"), german("reset in 10 minutes"))
+        assertEquals(listOf("Konto A · 5\u2011Std.-Limit: Reset in etwa 1 Minute"), german("reset in 1 minute"))
+    }
+
+    @Test
+    fun `the app's own window names are German in a notification and a provider's label is not`() {
+        assertEquals(listOf("Konto A · W\u00F6chentlich: weniger als 20 % übrig"), german("weekly warning"))
+        assertEquals(listOf("Konto A · W\u00F6chentlich: Reset in etwa 10 Minuten"), german("weekly reset"))
+        assertEquals(listOf("Konto A · Weekly (Opus): weniger als 20 % übrig"), german("provider label warning"))
+        assertEquals(listOf("Konto A · Weekly (Opus): Reset in etwa 10 Minuten"), german("provider label reset"))
     }
 
     @Test

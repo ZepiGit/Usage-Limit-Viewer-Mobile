@@ -8,7 +8,8 @@ import Foundation
 ///
 /// Every function takes whole pieces (an account name, a window label, a count) instead of
 /// returning a fragment, because word order and plural forms differ between languages. Names and
-/// labels are data — the user's own and the provider's — and are inserted untranslated.
+/// labels are data — the user's own and the provider's — and are inserted untranslated; the one
+/// exception is a window label the app chose itself, which `windowLabel` puts into the language first.
 ///
 /// Not here: the sentence a rejected credential stores (`NotificationEvaluator.signInExpiredMessage`).
 /// It is matched as data and written into snapshots, so it stays English; `StoredMessage` maps it
@@ -16,6 +17,12 @@ import Foundation
 public protocol NotificationTexts: Sendable {
     /// Formats the deadline inside `creditExpiring`, in the same language as the sentence.
     var countdown: any CountdownTexts { get }
+
+    /// The label to put into a sentence for a window: the app's own horizon names ("5h limit",
+    /// "Weekly", "Monthly" on a global window) in this language, anything else as the provider
+    /// reported it. The default is the label unchanged, so the screens and the notifications
+    /// name a window with the same words.
+    func windowLabel(_ label: String, category: WindowCategory, scope: UsageScope) -> String
 
     /// The first tier. The threshold itself stays on remaining quota; only the wording follows
     /// `mode`, so "less than 20% remaining" and "more than 80% used" are one crossing.
@@ -33,6 +40,12 @@ public protocol NotificationTexts: Sendable {
     func creditsAvailable(name: String, count: Int) -> String
 
     func needsReconnect(name: String) -> String
+}
+
+extension NotificationTexts {
+    public func windowLabel(_ label: String, category: WindowCategory, scope: UsageScope) -> String {
+        label
+    }
 }
 
 /// The wording the app shipped with, kept as the default so context-free callers are unchanged.
