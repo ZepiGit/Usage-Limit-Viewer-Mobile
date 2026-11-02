@@ -37,6 +37,10 @@ struct LocalizedNotificationTexts: NotificationTexts {
 
     var countdown: any CountdownTexts { LocalizedCountdownTexts() }
 
+    func windowLabel(_ label: String, category: WindowCategory, scope: UsageScope) -> String {
+        DisplayText.windowLabel(label, category: category, scope: scope)
+    }
+
     func warning(name: String, label: String, mode: PercentDisplay) -> String {
         switch mode {
         case .left: return String(localized: "\(name) · \(label): less than 20% remaining")

@@ -37,6 +37,7 @@ import com.usagelimits.ui.components.RuleDivider
 import com.usagelimits.ui.components.ScreenTitle
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.text.rememberCountdownTexts
+import com.usagelimits.ui.text.windowLabelRes
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageType
@@ -115,8 +116,12 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
     }
     val statusLabel = stringResource(SeverityPalette.labelRes(reset.severity))
     val countdown = Countdown.format(reset.resetAt - nowMs, rememberCountdownTexts())
+    // The app's own horizon names in the user's language, as the window rows show them; a label the
+    // provider reported is shown as it came.
+    val windowLabel = windowLabelRes(reset.windowLabel, reset.windowCategory, reset.windowScope)
+        ?.let { stringResource(it) } ?: reset.windowLabel
     val description = stringResource(
-        R.string.resets_row_description, time, reset.windowLabel, reset.accountLabel, statusLabel, countdown,
+        R.string.resets_row_description, time, windowLabel, reset.accountLabel, statusLabel, countdown,
     )
 
     Row(
@@ -144,7 +149,7 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = reset.windowLabel,
+                text = windowLabel,
                 style = MaterialTheme.typography.bodyMedium,
                 color = UsageColors.Ink,
                 maxLines = 1,

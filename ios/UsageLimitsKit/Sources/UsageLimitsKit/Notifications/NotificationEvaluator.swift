@@ -361,7 +361,7 @@ public enum NotificationEvaluator {
                     accountId: account.accountId,
                     accountLabel: account.label,
                     windowKey: id,
-                    windowLabel: window.label,
+                    windowLabel: texts.windowLabel(window.label, category: window.category, scope: window.scope),
                     episode: windowState.episode,
                     reached: reached,
                     settings: settings,
@@ -584,7 +584,10 @@ public enum NotificationEvaluator {
                 key: "\(accountId)|\(keys[window.id] ?? "")"
                     + "|reset-approaching|\(Int((resetAt.timeIntervalSince1970 * 1000).rounded()))",
                 line: settings.notifyOnResetApproaching
-                    ? texts.resetApproaching(name: accountLabel, label: window.label, minutes: minutes)
+                    ? texts.resetApproaching(
+                        name: accountLabel,
+                        label: texts.windowLabel(window.label, category: window.category, scope: window.scope),
+                        minutes: minutes)
                     : ""))
         }
     }

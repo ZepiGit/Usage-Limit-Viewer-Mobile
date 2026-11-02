@@ -35,6 +35,18 @@ private struct GermanTestTexts: CountdownTexts {
 private struct GermanTestNotificationTexts: NotificationTexts {
     var countdown: any CountdownTexts { GermanTestTexts() }
 
+    /// The app's three global horizon names, as the app's catalog has them; any other label is
+    /// the provider's and stays.
+    func windowLabel(_ label: String, category: WindowCategory, scope: UsageScope) -> String {
+        guard scope == .global else { return label }
+        switch (category, label) {
+        case (.fiveHour, "5h limit"): return "5\u{2011}Std.-Limit"
+        case (.weekly, "Weekly"): return "Wöchentlich"
+        case (.monthly, "Monthly"): return "Monatlich"
+        default: return label
+        }
+    }
+
     func warning(name: String, label: String, mode: PercentDisplay) -> String {
         switch mode {
         case .left: return "\(name) · \(label): weniger als 20 % übrig"
@@ -227,7 +239,10 @@ final class LocalizedTextsTests: XCTestCase {
         resetAt: Date? = nil,
         credits: [ResetCredit] = [],
         failed: Bool = false,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        label: String = "5h limit",
+        category: WindowCategory = .fiveHour,
+        scope: UsageScope = .global
     ) -> AccountSummary {
         AccountSummary(
             accountId: "acct",
@@ -236,9 +251,10 @@ final class LocalizedTextsTests: XCTestCase {
                 accountID: "acct", fetchedAt: now, status: failed ? .failed : .ok,
                 windows: [
                     UsageWindow(
-                        id: "w", label: "5h limit", category: .fiveHour,
+                        id: "w", label: label, category: category,
                         usedPercent: remaining.map { 100 - $0 },
-                        periodSeconds: 18_000, resetAt: resetAt, exhausted: exhausted),
+                        periodSeconds: 18_000, resetAt: resetAt, exhausted: exhausted,
+                        scope: scope),
                 ],
                 resetCredits: credits,
                 errorMessage: errorMessage))
@@ -291,41 +307,69 @@ final class LocalizedTextsTests: XCTestCase {
             NotificationCase(
                 name: "warning, left", accounts: [summary(remaining: 15)], settings: plain, mode: .left,
                 english: ["Account acct · 5h limit: less than 20% remaining"],
-                german: ["Account acct · 5h limit: weniger als 20 % übrig"]),
+                german: ["Account acct · 5\u{2011}Std.-Limit: weniger als 20 % übrig"]),
             NotificationCase(
                 name: "warning, used", accounts: [summary(remaining: 15)], settings: plain, mode: .used,
                 english: ["Account acct · 5h limit: more than 80% used"],
-                german: ["Account acct · 5h limit: mehr als 80 % verbraucht"]),
+                german: ["Account acct · 5\u{2011}Std.-Limit: mehr als 80 % verbraucht"]),
             NotificationCase(
                 name: "critical, left", accounts: [summary(remaining: 5)], settings: plain, mode: .left,
                 english: ["Account acct · 5h limit: less than 10% remaining"],
-                german: ["Account acct · 5h limit: weniger als 10 % übrig"]),
+                german: ["Account acct · 5\u{2011}Std.-Limit: weniger als 10 % übrig"]),
             NotificationCase(
                 name: "critical, used", accounts: [summary(remaining: 5)], settings: plain, mode: .used,
                 english: ["Account acct · 5h limit: more than 90% used"],
-                german: ["Account acct · 5h limit: mehr als 90 % verbraucht"]),
+                german: ["Account acct · 5\u{2011}Std.-Limit: mehr als 90 % verbraucht"]),
             NotificationCase(
                 name: "exhausted, left", accounts: [summary(remaining: 0, exhausted: true)],
                 settings: plain, mode: .left,
                 english: ["Account acct · 5h limit exhausted"],
-                german: ["Account acct · 5h limit aufgebraucht"]),
+                german: ["Account acct · 5\u{2011}Std.-Limit aufgebraucht"]),
             NotificationCase(
                 name: "exhausted, used", accounts: [summary(remaining: 0, exhausted: true)],
                 settings: plain, mode: .used,
                 english: ["Account acct · 5h limit exhausted"],
-                german: ["Account acct · 5h limit aufgebraucht"]),
+                german: ["Account acct · 5\u{2011}Std.-Limit aufgebraucht"]),
             NotificationCase(
                 name: "reset in under a minute",
                 accounts: [summary(remaining: 80, resetAt: now.addingTimeInterval(30))],
                 settings: resetApproachingEnabled, mode: .left,
                 english: ["Account acct · 5h limit resets in about 1 minute"],
-                german: ["Account acct · 5h limit: Reset in etwa 1 Minute"]),
+                german: ["Account acct · 5\u{2011}Std.-Limit: Reset in etwa 1 Minute"]),
             NotificationCase(
                 name: "reset in ten minutes",
                 accounts: [summary(remaining: 80, resetAt: now.addingTimeInterval(10 * 60))],
                 settings: resetApproachingEnabled, mode: .left,
                 english: ["Account acct · 5h limit resets in about 10 minutes"],
-                german: ["Account acct · 5h limit: Reset in etwa 10 Minuten"]),
+                german: ["Account acct · 5\u{2011}Std.-Limit: Reset in etwa 10 Minuten"]),
+            NotificationCase(
+                name: "weekly window, warning",
+                accounts: [summary(remaining: 15, label: "Weekly", category: .weekly)],
+                settings: plain, mode: .left,
+                english: ["Account acct · Weekly: less than 20% remaining"],
+                german: ["Account acct · Wöchentlich: weniger als 20 % übrig"]),
+            NotificationCase(
+                name: "weekly window, reset",
+                accounts: [summary(
+                    remaining: 80, resetAt: now.addingTimeInterval(10 * 60),
+                    label: "Weekly", category: .weekly)],
+                settings: resetApproachingEnabled, mode: .left,
+                english: ["Account acct · Weekly resets in about 10 minutes"],
+                german: ["Account acct · Wöchentlich: Reset in etwa 10 Minuten"]),
+            NotificationCase(
+                name: "provider-labelled window, warning",
+                accounts: [summary(remaining: 15, label: "Weekly (Opus)", category: .weekly, scope: .model)],
+                settings: plain, mode: .left,
+                english: ["Account acct · Weekly (Opus): less than 20% remaining"],
+                german: ["Account acct · Weekly (Opus): weniger als 20 % übrig"]),
+            NotificationCase(
+                name: "provider-labelled window, reset",
+                accounts: [summary(
+                    remaining: 80, resetAt: now.addingTimeInterval(10 * 60),
+                    label: "Weekly (Opus)", category: .weekly, scope: .model)],
+                settings: resetApproachingEnabled, mode: .left,
+                english: ["Account acct · Weekly (Opus) resets in about 10 minutes"],
+                german: ["Account acct · Weekly (Opus): Reset in etwa 10 Minuten"]),
             NotificationCase(
                 name: "one credit, expiring",
                 accounts: [summary(remaining: 80, credits: [credit("c1", expiresIn: 3_600)])],
@@ -405,7 +449,7 @@ final class LocalizedTextsTests: XCTestCase {
         for line in lines {
             for fragment in [
                 "remaining", " used", "exhausted", "resets in", "minute", "reset credit",
-                "reconnected", "available", "expires",
+                "reconnected", "available", "expires", "5h limit", "Weekly:", "Weekly resets",
             ] {
                 XCTAssertFalse(line.contains(fragment), "\"\(line)\" still says \"\(fragment)\"")
             }
@@ -443,7 +487,7 @@ final class LocalizedTextsTests: XCTestCase {
             accounts: [summary(remaining: 15)], settings: NotificationSettings(),
             percentDisplay: .left, at: now, texts: GermanTestNotificationTexts())
 
-        XCTAssertEqual(claimed.map(\.line), ["Account acct · 5h limit: weniger als 20 % übrig"])
+        XCTAssertEqual(claimed.map(\.line), ["Account acct · 5\u{2011}Std.-Limit: weniger als 20 % übrig"])
     }
 
     func testTheLedgerSpeaksEnglishWhenGivenNoTexts() async throws {

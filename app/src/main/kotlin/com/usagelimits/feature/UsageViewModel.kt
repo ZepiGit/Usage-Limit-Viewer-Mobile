@@ -12,7 +12,9 @@ import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.SyncDiagnostics
 import com.usagelimits.core.sync.SyncWorker
@@ -45,6 +47,9 @@ data class UpcomingReset(
      */
     val windowId: String,
     val windowLabel: String,
+    /** With [windowScope], what the screen needs to put an app-chosen [windowLabel] into the user's language. */
+    val windowCategory: WindowCategory,
+    val windowScope: UsageScope,
     val resetAt: Long,
     val severity: Severity,
 )
@@ -134,6 +139,8 @@ data class UsageUiState(
                     provider = usage.account.provider,
                     windowId = window.id,
                     windowLabel = window.label,
+                    windowCategory = window.category,
+                    windowScope = window.scope,
                     resetAt = resetAt,
                     severity = window.severity,
                 )

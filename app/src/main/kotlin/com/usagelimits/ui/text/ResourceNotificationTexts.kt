@@ -3,6 +3,8 @@ package com.usagelimits.ui.text
 import android.content.res.Resources
 import com.usagelimits.R
 import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.UsageScope
+import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.notifications.NotificationTexts
 import com.usagelimits.core.time.CountdownTexts
 
@@ -16,6 +18,9 @@ class ResourceNotificationTexts(
     private val resources: Resources,
     override val countdown: CountdownTexts = ResourceCountdownTexts(resources),
 ) : NotificationTexts {
+
+    override fun windowLabel(label: String, category: WindowCategory, scope: UsageScope): String =
+        windowLabelRes(label, category, scope)?.let(resources::getString) ?: label
 
     override fun warning(name: String, label: String, mode: PercentDisplay): String =
         resources.getString(

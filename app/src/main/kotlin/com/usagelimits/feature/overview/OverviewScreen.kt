@@ -273,12 +273,17 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
     val countdownTexts = rememberCountdownTexts()
     val reset = if (lead?.stale == true) Countdown.freshnessLabel(lead.usage.snapshot?.fetchedAt, nowMs, countdownTexts)
         else Countdown.resetLabel(window?.resetAt, nowMs, countdownTexts)
+    // The window row below names it in the user's language, so the lead does too; a label the
+    // provider reported is shown as it came.
+    val windowLabel = window?.let { w ->
+        windowLabelRes(w.label, w.category, w.scope)?.let { stringResource(it) } ?: w.label
+    }
 
     UsageCard {
         Column(
             Modifier.semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
-                    lead?.let { "${it.usage.account.label}, ${it.window.label}, $percent $side" }, reset,
+                    lead?.let { "${it.usage.account.label}, $windowLabel, $percent $side" }, reset,
                 ).joinToString(", ")
                 if (lead != null) {
                     role = Role.Button
@@ -301,7 +306,7 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
             if (lead != null) {
                 val worst = lead.window
                 val severity = if (lead.stale) Severity.STALE else worst.severity
-                Text("${lead.usage.account.label} · ${worst.label}",
+                Text("${lead.usage.account.label} · $windowLabel",
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted, maxLines = 1)
                 // The accessibility action lives on the card's merged node above, so a screen reader
                 // finds one button. `clickable` would add a second focus stop of its own; this tap
