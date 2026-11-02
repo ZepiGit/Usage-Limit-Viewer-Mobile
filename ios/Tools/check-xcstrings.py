@@ -28,6 +28,19 @@ its callers write String(localized: ...) and the helper is not listed. More name
 with --call, for a helper whose parameter is a LocalizedStringKey. A literal followed by `+` is an error, because concatenating
 literals produces a plain String, which SwiftUI shows without looking it up.
 
+The widget extension speaks through WidgetKit and AppIntents, whose text parameters are
+LocalizedStringKey or LocalizedStringResource and therefore also look a literal up by key. These
+forms count too: the first literal of IntentDescription(...), `@Parameter(title: ...)`,
+DisplayRepresentation(title: ...), TypeDisplayRepresentation(name: ...), and of an assignment to a
+TypeDisplayRepresentation or a LocalizedStringResource (`static let title: LocalizedStringResource
+= "..."`); every literal inside `.configurationDisplayName(...)` and `.description(...)`, so a
+ternary of two names is read; and every literal in the dictionary assigned to
+`caseDisplayRepresentations`, whose keys are enum cases and whose values are the texts.
+
+A key made only of placeholders ("%@", as in `DisplayRepresentation(title: "\\(name)")`) has no
+words to translate: it passes its argument through, so it is neither required nor reported.
+A name that is data, such as a provider's, is a key with `"shouldTranslate": false`.
+
 How a literal becomes a key. Text is kept as written, with a literal "%" doubled to "%%" (what
 Swift does when it builds the lookup key), and every interpolation \\(...) becomes a placeholder.
 The script cannot see the type of the expression, and Swift writes %@ for a String but %lld for an
@@ -57,7 +70,7 @@ PLACEHOLDER = re.compile(r"%%|%(?:\d+\$)?(?:hh|h|ll|l|z|t|j|q|L)?[@diouxXeEfFgGa
 # Names whose first literal argument SwiftUI looks up in the catalog, written as `Name(`.
 CONSTRUCTORS = [
     "Text", "Button", "Label", "Toggle", "Section", "Picker", "NavigationLink", "Link",
-    "TextField", "SecureField", "Menu", "LocalizedStringKey",
+    "TextField", "SecureField", "Menu", "LocalizedStringKey", "IntentDescription",
 ]
 # Modifiers, written as `.name(`.
 MODIFIERS = [
@@ -199,42 +212,88 @@ def key_of(parts):
 
 
 def call_patterns(extra):
+    """The patterns whose match ends at the opening quote of the one literal that is a key."""
     names = CONSTRUCTORS + list(extra)
     patterns = [re.compile(r"(?<![\w.])(?:%s)\(\s*(?=\")" % "|".join(map(re.escape, names)))]
     patterns.append(re.compile(r"(?<![\w.])String\(\s*localized:\s*(?=\")"))
     patterns.append(re.compile(r"\.(?:%s)\(\s*(?=\")" % "|".join(MODIFIERS)))
     patterns.append(re.compile(r"\.accessibilityAction\(\s*named:\s*(?=\")"))
+    # WidgetKit and AppIntents: see the module docstring.
+    patterns.append(re.compile(r"@Parameter\(\s*title:\s*(?=\")"))
+    patterns.append(re.compile(
+        r"(?<![\w.])(?:TypeDisplayRepresentation\(\s*name|DisplayRepresentation\(\s*title):\s*(?=\")"))
+    patterns.append(re.compile(r"\b(?:TypeDisplayRepresentation|LocalizedStringResource)\s*=\s*(?=\")"))
     return patterns
+
+
+# Patterns whose match ends at an opening ( or [, inside which every literal is a key.
+REGION_PATTERNS = [
+    re.compile(r"\.(?:configurationDisplayName|description)(?=\()"),
+    re.compile(r"\bcaseDisplayRepresentations\s*:[^=\n]*=\s*(?=\[)"),
+]
+
+
+def region_literals(src, open_index):
+    """The index of each string literal between the bracket at `open_index` and its partner."""
+    depth = 0
+    i = open_index
+    n = len(src)
+    while i < n:
+        c = src[i]
+        if c == '"':
+            if depth:
+                yield i
+            i = skip_string(src, i)
+            continue
+        if c in "([":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+            if depth == 0:
+                return
+        i += 1
+
+
+def has_words(key):
+    """False for a key that is only placeholders: it passes its argument through."""
+    rest = PLACEHOLDER.sub(lambda m: m.group(0) if m.group(0) == "%%" else "", key)
+    return bool(rest.strip())
 
 
 def scan_swift(path, patterns, errors):
     """Yields (line, key) for each localized literal in one file."""
     src = path.read_text(encoding="utf-8")
     masked = mask_comments(src)
-    seen = set()
+
+    starts = []
     for pattern in patterns:
+        starts.extend(match.end() for match in pattern.finditer(masked))
+    for pattern in REGION_PATTERNS:
         for match in pattern.finditer(masked):
-            start = match.end()
-            if start in seen:
-                continue
-            seen.add(start)
-            line = masked.count("\n", 0, start) + 1
-            if masked.startswith('"""', start):
-                errors.append(f"{path}:{line}: multi-line literal, not supported by this checker")
-                continue
-            try:
-                parts, end = parse_literal(masked, start)
-            except LiteralError as problem:
-                errors.append(f"{path}:{line}: {problem}")
-                continue
-            if masked[end:].lstrip().startswith("+"):
-                errors.append(
-                    f"{path}:{line}: literal is concatenated with +, which makes a plain String "
-                    "that is never looked up; write one literal")
-                continue
-            key = key_of(parts)
-            if key:
-                yield line, key
+            starts.extend(region_literals(masked, match.end()))
+
+    seen = set()
+    for start in sorted(starts):
+        if start in seen:
+            continue
+        seen.add(start)
+        line = masked.count("\n", 0, start) + 1
+        if masked.startswith('"""', start):
+            errors.append(f"{path}:{line}: multi-line literal, not supported by this checker")
+            continue
+        try:
+            parts, end = parse_literal(masked, start)
+        except LiteralError as problem:
+            errors.append(f"{path}:{line}: {problem}")
+            continue
+        if masked[end:].lstrip().startswith("+"):
+            errors.append(
+                f"{path}:{line}: literal is concatenated with +, which makes a plain String "
+                "that is never looked up; write one literal")
+            continue
+        key = key_of(parts)
+        if key and has_words(key):
+            yield line, key
 
 
 def swift_files(roots, excludes):

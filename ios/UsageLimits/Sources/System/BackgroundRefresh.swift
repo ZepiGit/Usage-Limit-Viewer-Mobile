@@ -58,7 +58,7 @@ enum BackgroundRefresh {
 
         let work = Task {
             try await container.refresh()
-            let pending = try await container.pendingNotifications()
+            let pending = try await container.pendingNotifications(texts: LocalizedNotificationTexts())
             await NotificationScheduler.post(pending)
         }
 

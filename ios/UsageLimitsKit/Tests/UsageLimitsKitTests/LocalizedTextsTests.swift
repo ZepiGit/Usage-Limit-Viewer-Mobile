@@ -1,6 +1,10 @@
 import XCTest
 @testable import UsageLimitsKit
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 // MARK: - A second language, for tests only
 
 /// German, in the wording of the Android `values-de` resources, as a stand-in for any
@@ -442,6 +446,86 @@ final class LocalizedTextsTests: XCTestCase {
             percentDisplay: .left, at: now)
 
         XCTAssertEqual(claimed.map(\.line), ["Account acct · 5h limit: less than 20% remaining"])
+    }
+
+    // MARK: - The container hands its texts to the ledger
+
+    /// Answers each request from a script in order, repeating the last reply once it runs out.
+    private actor ScriptedTransport: HTTPTransport {
+        private var replies: [(status: Int, body: String)]
+
+        init(_ replies: [(status: Int, body: String)]) { self.replies = replies }
+
+        func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+            let reply = replies.count > 1 ? replies.removeFirst() : replies[0]
+            let response = HTTPURLResponse(
+                url: request.url ?? URL(string: "https://example.invalid")!,
+                statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: [:])!
+            return (Data(reply.body.utf8), response)
+        }
+    }
+
+    /// A Codex payload whose 5-hour window is nearly spent, so the evaluator has something to say.
+    private let nearlySpentCodex = """
+    { "plan_type": "plus",
+      "rate_limit": { "allowed": true, "limit_reached": false,
+        "primary_window": { "used_percent": 95, "limit_window_seconds": 18000,
+                            "reset_after_seconds": 3600, "reset_at": 1757003600 },
+        "secondary_window": null } }
+    """
+
+    /// A container in a scratch directory holding one refreshed, nearly spent account.
+    private func containerWithNearlySpentAccount(in directory: URL) async throws -> UsageLimitsContainer {
+        let credentials = InMemoryCredentialStore(credentials: [
+            "ref-a": OAuthCredentials(accessToken: "synthetic-access", refreshToken: "synthetic-refresh"),
+        ])
+        let subject = UsageLimitsContainer(
+            directory: directory, credentials: credentials,
+            transport: ScriptedTransport([(200, nearlySpentCodex), (200, #"{"credits": []}"#)]),
+            now: { [now] in now })
+        try await subject.add(ProviderAccount(
+            id: "a", provider: .codex, externalAccountID: "ext-a", email: "a@example.com",
+            displayName: nil, plan: nil, credentialReference: "ref-a",
+            createdAt: Date(timeIntervalSince1970: 0), lastSuccessfulSync: nil))
+        _ = try await subject.refresh()
+        return subject
+    }
+
+    private func scratchDirectory() throws -> URL {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("texts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    func testTheContainerWordsItsNotificationsInTheTextsItIsGiven() async throws {
+        // The app's scheduler and background refresh call the container, not the ledger, so this
+        // is the hop that decides whether a German user is sent English alerts.
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let subject = try await containerWithNearlySpentAccount(in: directory)
+
+        let pending = try await subject.pendingNotifications(texts: GermanTestNotificationTexts())
+
+        XCTAssertFalse(pending.isEmpty)
+        for event in pending {
+            XCTAssertTrue(event.line.contains("übrig"), "\"\(event.line)\"")
+            XCTAssertFalse(event.line.contains("remaining"), "\"\(event.line)\"")
+        }
+    }
+
+    func testTheContainerSpeaksEnglishWhenGivenNoTexts() async throws {
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let subject = try await containerWithNearlySpentAccount(in: directory)
+
+        let pending = try await subject.pendingNotifications()
+
+        XCTAssertFalse(pending.isEmpty)
+        for event in pending {
+            XCTAssertTrue(event.line.contains("remaining"), "\"\(event.line)\"")
+            XCTAssertFalse(event.line.contains("übrig"), "\"\(event.line)\"")
+        }
     }
 
     func testTheEnglishNotificationTextsCarryTheEnglishCountdown() {

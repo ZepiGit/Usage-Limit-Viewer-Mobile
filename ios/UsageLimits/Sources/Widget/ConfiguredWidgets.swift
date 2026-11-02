@@ -52,7 +52,10 @@ struct WidgetAccountEntity: AppEntity {
 @available(iOS 17.0, *)
 struct WidgetAccountQuery: EntityQuery {
     func suggestedEntities() async throws -> [WidgetAccountEntity] {
-        SnapshotCache.load().accounts.map { WidgetAccountEntity(id: $0.id, name: "\($0.title) · \($0.subtitle ?? "Account")") }
+        let fallback = String(localized: "Account")
+        return SnapshotCache.load().accounts.map {
+            WidgetAccountEntity(id: $0.id, name: "\($0.title) · \($0.subtitle ?? fallback)")
+        }
     }
     func entities(for identifiers: [String]) async throws -> [WidgetAccountEntity] {
         let all = try await suggestedEntities()
@@ -301,10 +304,10 @@ private struct ConfiguredRingGrid: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack(spacing: 6) {
                                             logo(for: account).frame(width: 16, height: 16)
-                                            Text(account.title).usageFont(.smallStrong).lineLimit(1)
+                                            Text(verbatim: account.title).usageFont(.smallStrong).lineLimit(1)
                                         }
                                         if account.connectionStatus == .reconnectRequired { Text("Reconnect").usageFont(.micro) }
-                                        else if let message = account.statusMessage { Text(verbatim: message).usageFont(.micro).lineLimit(2) }
+                                        else if let message = account.statusMessage { Text(verbatim: DisplayText.stored(message)).usageFont(.micro).lineLimit(2) }
                                         // Passed resets need an overdue label; future-day resets need a date, not only a time.
                                         else if let reset = GlanceText.resetLine(resetAt: limit?.resetAt, now: entry.date) {
                                             Text(verbatim: reset).usageFont(.micro).lineLimit(1)

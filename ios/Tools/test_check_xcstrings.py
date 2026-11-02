@@ -51,6 +51,39 @@ struct V: View {
 '''
 
 
+WIDGET_SWIFT = '''
+import WidgetKit
+struct W: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "com.example.kind", provider: P()) { entry in V(entry: entry) }
+            .configurationDisplayName(mini ? "Mini Rings" : "Account Rings")
+            .description("Usage, account and reset at a glance.")
+    }
+}
+enum Choice: String, AppEnum {
+    case light, dark
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Text tone"
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .light: "Light", .dark: "Dark"]
+}
+struct Entity: AppEntity {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Named type")
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\\(name)") }
+    var other: DisplayRepresentation { DisplayRepresentation(title: "Shown title") }
+}
+struct Intent: WidgetConfigurationIntent {
+    static let title: LocalizedStringResource = "Widget content"
+    static let description = IntentDescription("Explains the intent")
+    @Parameter(title: "Content", default: .light) var content: Choice
+}
+'''
+
+WIDGET_KEYS = [
+    "Mini Rings", "Account Rings", "Usage, account and reset at a glance.", "Text tone",
+    "Light", "Dark", "Named type", "Shown title", "Widget content", "Explains the intent", "Content",
+]
+
+
 class CheckXcstringsTests(unittest.TestCase):
     def run_check(self, strings_catalog, swift=SWIFT, extra=None, exclude_widget=False):
         with tempfile.TemporaryDirectory() as directory:
@@ -188,6 +221,49 @@ class CheckXcstringsTests(unittest.TestCase):
     def test_an_escaped_quote_and_nested_interpolation_are_read(self):
         parts, end = check.parse_literal('"say \\"hi\\" \\(f("x")) now"', 0)
         self.assertEqual(check.key_of(parts), 'say "hi" %@ now')
+
+    # -- The literal forms of the widget extension --------------------------------------------
+
+    def widget_catalog(self, keys=WIDGET_KEYS):
+        return catalog({key: {"localizations": {"de": unit("x")}} for key in keys})
+
+    def test_every_widget_literal_form_is_a_key(self):
+        status, out = self.run_check(self.widget_catalog(), swift=WIDGET_SWIFT)
+        self.assertEqual(status, 0, out)
+        self.assertIn(f"{len(WIDGET_KEYS)} keys", out)
+
+    def test_each_widget_literal_form_is_reported_when_its_key_is_missing(self):
+        for key in WIDGET_KEYS:
+            with self.subTest(key=key):
+                keys = [k for k in WIDGET_KEYS if k != key]
+                status, out = self.run_check(self.widget_catalog(keys), swift=WIDGET_SWIFT)
+                self.assertEqual(status, 1, out)
+                self.assertIn(f"missing key {key!r}", out)
+
+    def test_a_key_that_is_only_a_placeholder_is_not_required(self):
+        # DisplayRepresentation(title: "\(name)") shows the name; there is nothing to translate.
+        status, out = self.run_check(self.widget_catalog(), swift=WIDGET_SWIFT)
+        self.assertEqual(status, 0, out)
+        self.assertNotIn("'%@'", out)
+
+    def test_a_name_marked_not_to_translate_needs_no_german(self):
+        names = self.widget_catalog()
+        names["strings"]["Claude"] = {"shouldTranslate": False}
+        swift = WIDGET_SWIFT + '''
+enum Provider: AppEnum {
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [.claude: "Claude"]
+}
+'''
+        status, out = self.run_check(names, swift=swift)
+        self.assertEqual(status, 0, out)
+
+    def test_a_widget_literal_outside_the_known_forms_is_left_alone(self):
+        swift = WIDGET_SWIFT + '''
+let kind = "com.usagelimits.widget.usage"
+let image = Image(systemName: "arrow.clockwise")
+'''
+        status, out = self.run_check(self.widget_catalog(), swift=swift)
+        self.assertEqual(status, 0, out)
 
     def test_help_exits_cleanly(self):
         with contextlib.redirect_stdout(io.StringIO()):
