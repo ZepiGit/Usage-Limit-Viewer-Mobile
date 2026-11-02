@@ -333,7 +333,8 @@ private struct ConfiguredRingGrid: View {
             sentence = PercentText.spoken(drawnFigure, .used)
         } else {
             let lowest = account.rows.map(\.remainingPercent).compactMap { $0 }.min()
-            sentence = PercentText.spoken(UsageWindow.percentLabel(lowest), .left)
+            let token = UsageWindow.percentToken(lowest, exhausted: false, mode: .left)
+            sentence = PercentText.spoken(PercentText.figure(token: token), .left)
         }
         return "\(account.title), \(account.subtitle ?? ""), \(sentence)"
     }

@@ -119,7 +119,8 @@ class AppIconsTest {
     @Test
     fun `icon ids and labels match the iOS catalog in order`() {
         val swift = File("../ios/UsageLimits/Sources/Screens/AppIconScreen.swift").readText()
-        val choices = Regex("""\(\.(\w+), "[^"]+", "([^"]+)"\)""").findAll(swift)
+        // The label is a bare literal or wrapped in String(localized:).
+        val choices = Regex("""\(\.(\w+), "[^"]+", (?:String\(localized: )?"([^"]+)"\)+""").findAll(swift)
             .map { it.groupValues[1] to it.groupValues[2] }.toList()
         val androidChoices = AppIcon.entries.map { icon ->
             val parts = icon.name.lowercase().split('_')

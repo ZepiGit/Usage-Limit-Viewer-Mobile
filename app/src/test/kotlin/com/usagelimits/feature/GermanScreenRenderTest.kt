@@ -199,6 +199,42 @@ class GermanScreenRenderTest {
     }
 
     @Test
+    fun `the renewal line names the long window in German like its row does`() {
+        val first = usage.snapshot!!.windows.first()
+        val withWeekly = usage.copy(
+            snapshot = usage.snapshot!!.copy(
+                windows = listOf(
+                    first,
+                    first.copy(
+                        id = "weekly",
+                        label = "Weekly",
+                        category = WindowCategory.WEEKLY,
+                        periodSeconds = 604_800,
+                        resetAt = now + 3 * 86_400_000L,
+                    ),
+                ),
+            ),
+        )
+        render {
+            OverviewScreen(
+                state = UsageUiState(
+                    accounts = listOf(withWeekly),
+                    settings = AppSettings(percentDisplay = PercentDisplay.LEFT, showRenewalTime = true),
+                ),
+                nowMs = now,
+                onRefresh = {},
+                onAccountClick = {},
+                onAddAccount = {},
+                onReorder = {},
+                onPercentDisplayChange = {},
+            )
+        }
+
+        assertShown("W\u00F6chentlich erneuert sich in 3 T.")
+        assertShown("Weekly erneuert sich", expected = false, substring = true)
+    }
+
+    @Test
     fun `a window label the provider reported stays verbatim in German`() {
         val reported = usage.copy(
             snapshot = usage.snapshot!!.copy(
