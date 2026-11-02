@@ -28,6 +28,38 @@ public enum StoredMessage: Sendable, Equatable {
     case noUsage(detail: String)
     case noCredentials
 
+    // Sign-in. These are thrown rather than stored, but they reach the same `NoticeLine`s and
+    // alerts as a stored status, so the display reads them the same way.
+
+    /// `reason` is the provider's own error code or wording.
+    case signInRefused(reason: String)
+    case signInWithoutCode
+    case signInUnreadable
+    case signInCodeExpired
+    case signInTimedOut
+    case portInUse(port: Int)
+    /// Antigravity's project lookup came back empty. Carried by a `malformedResponse` sentence
+    /// whose detail is advice the user can act on, so the detail gets a case of its own.
+    case antigravityProjectMissing
+
+    // Credits.
+    case noKeyEntered
+    case keyRejected(status: Int)
+    case noBalance(detail: String)
+    case xaiNoPrepaidBalance
+    case xaiTeamRequired
+    case providerUnreachable
+    case keyUnreadable
+
+    // Spending a reset credit.
+    case resetCreditsUnavailable
+    case noResetCreditApplicable
+    case resetAlreadyRequested
+
+    // Faults the sync engine raises for one account.
+    case accountNamesNoProvider
+    case providerNotRegistered(id: String)
+
     /// What `message` is, or `nil` when it is not one of the kit's own sentences.
     public static func classify(_ message: String) -> StoredMessage? {
         // `meansSignInExpired` is deliberately not used: it also accepts any text containing
@@ -45,9 +77,55 @@ public enum StoredMessage: Sendable, Equatable {
             return .billingRejectedAuthentication
         case "Provider reports a block despite remaining quota": return .providerBlockDespiteQuota
         case "No credentials are stored for the account.": return .noCredentials
+        case "The sign-in came back without an authorisation code.": return .signInWithoutCode
+        case "The sign-in could not be read.": return .signInUnreadable
+        case "The sign-in code expired before it was approved.": return .signInCodeExpired
+        case "The sign-in was not completed in time.": return .signInTimedOut
+        // Before the general malformed-response match below, which would also take it.
+        case antigravityProjectMissingMessage: return .antigravityProjectMissing
+        case "No key was entered.": return .noKeyEntered
+        case "xAI has no prepaid balance for this team (HTTP 404). Check the team id, and that the team prepays.":
+            return .xaiNoPrepaidBalance
+        case "This xAI key is not tied to one team. Enter the team id from console.x.ai.":
+            return .xaiTeamRequired
+        case "The provider could not be reached.": return .providerUnreachable
+        case "The key could not be read from the keychain.": return .keyUnreadable
+        case "This account cannot use reset credits.": return .resetCreditsUnavailable
+        case "No reset credit can be applied to this limit right now.": return .noResetCreditApplicable
+        case "A reset is already being requested for this account.": return .resetAlreadyRequested
+        case "The account does not name a provider.": return .accountNamesNoProvider
         default: break
         }
 
+        if let reason = between(
+            message, prefix: "The provider refused the sign-in (", suffix: ").")
+        {
+            return .signInRefused(reason: reason)
+        }
+        if let text = between(
+            message,
+            prefix: "Port ",
+            suffix: " is in use, so the sign-in cannot be received. Close whatever is using it and try again."),
+           let port = integer(text)
+        {
+            return .portInUse(port: port)
+        }
+        if let text = between(
+            message,
+            prefix: "The key was rejected (HTTP ",
+            suffix: "). Check that it is the right kind of key."),
+           let status = integer(text)
+        {
+            return .keyRejected(status: status)
+        }
+        if let detail = between(message, prefix: "No balance could be read (", suffix: ").") {
+            return .noBalance(detail: detail)
+        }
+        if let id = between(
+            message, prefix: "No provider is registered for provider id \"", suffix: "\".")
+        {
+            return .providerNotRegistered(id: id)
+        }
         if let detail = between(
             message,
             prefix: "The provider answered in a shape this app does not understand (",
@@ -72,6 +150,18 @@ public enum StoredMessage: Sendable, Equatable {
 
     /// The wording an earlier build stored for the same condition as `signInExpired`.
     private static let legacySignInMessage = "This account needs signing in again."
+
+    /// `LoopbackLogin.resolveProject`'s failure, as `DeviceLoginError.malformedResponse` words it.
+    private static let antigravityProjectMissingMessage =
+        "The provider answered in a shape this app does not understand "
+        + "(loadCodeAssist returned no GCP project id. If this account has never used "
+        + "Antigravity, sign in to the desktop client once to provision it, then add it here.)."
+
+    /// Digits only, so "+5" and " 5" are not a port or a status.
+    private static func integer(_ text: String) -> Int? {
+        guard !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isWholeNumber }) else { return nil }
+        return Int(text)
+    }
 
     private static func between(_ message: String, prefix: String, suffix: String) -> String? {
         guard message.hasPrefix(prefix), message.hasSuffix(suffix),

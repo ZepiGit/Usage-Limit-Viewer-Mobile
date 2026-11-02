@@ -373,7 +373,11 @@ final class UsageStore: ObservableObject {
         provider: CreditProviderID, key: String, label: String, region: ProviderRegion?,
         teamID: String?, lowThreshold: Decimal?
     ) async throws {
-        guard let container else { throw CreditError.unavailable("shared storage is missing") }
+        // The detail of "No balance could be read (…)", which the display translates whole
+        // (`StoredMessage.noBalance`); only the detail is worded here.
+        guard let container else {
+            throw CreditError.unavailable(String(localized: "shared storage is missing"))
+        }
         try await container.addCreditAccount(
             provider: provider, key: key, label: label, region: region, teamID: teamID, lowThreshold: lowThreshold)
         credits = await container.credits()
