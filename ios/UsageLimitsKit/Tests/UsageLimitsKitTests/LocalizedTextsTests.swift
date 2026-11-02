@@ -68,6 +68,18 @@ private struct GermanTestNotificationTexts: NotificationTexts {
     func needsReconnect(name: String) -> String { "\(name) muss neu verbunden werden" }
 }
 
+/// The sign-in result page in German, where Android has the same sentence in `values-de`
+/// ("Angemeldet", "Anmeldung fehlgeschlagen"), and in the same glossary where it has not.
+private struct GermanTestLoopbackTexts: LoopbackPageTexts {
+    func signedIn() -> String { "Angemeldet" }
+    func signInFailed() -> String { "Anmeldung fehlgeschlagen" }
+    func closeThisPage() -> String { "Du kannst diese Seite schließen und zu Usage Limits zurückkehren." }
+    func nothingToSee() -> String { "Hier gibt es nichts zu sehen." }
+    func providerRefused(reason: String) -> String { "Der Anbieter hat die Anmeldung abgelehnt (\(reason))." }
+    func noAuthorisationCode() -> String { "Die Anmeldung kam ohne Autorisierungscode zurück." }
+    func signInUnreadable() -> String { "Die Anmeldung konnte nicht gelesen werden." }
+}
+
 /// The words the kit speaks, in English by default and in whatever the caller injects.
 ///
 /// Three things are pinned. The English defaults are the strings the app has always shown, so
@@ -618,5 +630,262 @@ final class LocalizedTextsTests: XCTestCase {
             .noUsage(detail: "HTTP 503 (retry)"))
         XCTAssertEqual(
             StoredMessage.classify("No usage could be read ()."), .noUsage(detail: ""))
+    }
+
+    // MARK: - Sign-in, credit, reset and sync sentences
+
+    private func redirectOutcome(_ target: String) -> LoopbackRedirect.Outcome {
+        LoopbackRedirect.interpret(
+            request: "GET \(target) HTTP/1.1\r\nHost: 127.0.0.1:54545\r\n\r\n",
+            expectedPath: "/callback", expectedState: "s")
+    }
+
+    func testTheSignInSentencesAreRecognisedFromTheirRealProducers() {
+        XCTAssertEqual(
+            StoredMessage.classify(DeviceLoginError.expired.errorDescription ?? ""), .signInCodeExpired)
+        XCTAssertEqual(
+            StoredMessage.classify(
+                DeviceLoginError.declined("the device grant was refused").errorDescription ?? ""),
+            .signInRefused(reason: "the device grant was refused"))
+        XCTAssertEqual(
+            StoredMessage.classify(
+                DeviceLoginError.malformedResponse("the profile names no account").errorDescription ?? ""),
+            .malformedResponse(detail: "the profile names no account"))
+        // The paste-a-key path throws the credit sentence as an unsupported-platform reason.
+        XCTAssertEqual(
+            StoredMessage.classify(
+                DeviceLoginError.unsupportedOnThisPlatform("No key was entered.").errorDescription ?? ""),
+            .noKeyEntered)
+
+        guard case .rejected(let refused) = redirectOutcome("/callback?error=access_denied&state=s"),
+              case .rejected(let withoutCode) = redirectOutcome("/callback?state=s")
+        else { return XCTFail("a refusal and a redirect without a code are both rejected") }
+        XCTAssertEqual(StoredMessage.classify(refused), .signInRefused(reason: "access_denied"))
+        XCTAssertEqual(StoredMessage.classify(withoutCode), .signInWithoutCode)
+
+        #if canImport(Network)
+        XCTAssertEqual(
+            StoredMessage.classify(
+                LoopbackListener.ListenError.portUnavailable(1455).errorDescription ?? ""),
+            .portInUse(port: 1455))
+        XCTAssertEqual(
+            StoredMessage.classify(LoopbackListener.ListenError.timedOut.errorDescription ?? ""),
+            .signInTimedOut)
+        // A refusal is thrown with the very sentence the page and the sheet show.
+        XCTAssertEqual(
+            StoredMessage.classify(LoopbackListener.ListenError.refused(refused).errorDescription ?? ""),
+            .signInRefused(reason: "access_denied"))
+        #endif
+    }
+
+    func testTheCreditAndResetSentencesAreRecognisedFromTheirRealProducers() {
+        func classify(_ error: any LocalizedError) -> StoredMessage? {
+            StoredMessage.classify(error.errorDescription ?? "")
+        }
+
+        XCTAssertEqual(classify(CreditError.rejected(403)), .keyRejected(status: 403))
+        XCTAssertEqual(
+            classify(CreditError.malformed("openrouter balance")),
+            .malformedResponse(detail: "openrouter balance"))
+        XCTAssertEqual(classify(CreditError.unavailable("HTTP 500")), .noBalance(detail: "HTTP 500"))
+        XCTAssertEqual(classify(CreditError.noKey), .noKeyEntered)
+        XCTAssertEqual(classify(CreditError.teamIDRequired), .xaiTeamRequired)
+
+        XCTAssertEqual(classify(UsageLimitsContainer.ResetCreditError.notAvailable), .resetCreditsUnavailable)
+        XCTAssertEqual(classify(UsageLimitsContainer.ResetCreditError.noneApplicable), .noResetCreditApplicable)
+        XCTAssertEqual(classify(UsageLimitsContainer.ResetCreditError.alreadyRedeeming), .resetAlreadyRequested)
+    }
+
+    func testEveryNewSentenceIsRecognisedFromItsLiteralEnglish() {
+        // Written inline where no test can reach the producer without a network or a keychain.
+        let table: [(String, StoredMessage)] = [
+            ("The sign-in could not be read.", .signInUnreadable),
+            ("The sign-in was not completed in time.", .signInTimedOut),
+            ("The sign-in came back without an authorisation code.", .signInWithoutCode),
+            ("The sign-in code expired before it was approved.", .signInCodeExpired),
+            ("The provider refused the sign-in (access_denied).", .signInRefused(reason: "access_denied")),
+            ("Port 1455 is in use, so the sign-in cannot be received. Close whatever is using it and try again.",
+             .portInUse(port: 1455)),
+            ("The provider answered in a shape this app does not understand (loadCodeAssist returned no GCP project id. If this account has never used Antigravity, sign in to the desktop client once to provision it, then add it here.).",
+             .antigravityProjectMissing),
+            ("No key was entered.", .noKeyEntered),
+            ("The key was rejected (HTTP 401). Check that it is the right kind of key.", .keyRejected(status: 401)),
+            ("No balance could be read (no key is stored for this account).",
+             .noBalance(detail: "no key is stored for this account")),
+            ("xAI has no prepaid balance for this team (HTTP 404). Check the team id, and that the team prepays.",
+             .xaiNoPrepaidBalance),
+            ("This xAI key is not tied to one team. Enter the team id from console.x.ai.", .xaiTeamRequired),
+            ("The provider could not be reached.", .providerUnreachable),
+            ("The key could not be read from the keychain.", .keyUnreadable),
+            ("This account cannot use reset credits.", .resetCreditsUnavailable),
+            ("No reset credit can be applied to this limit right now.", .noResetCreditApplicable),
+            ("A reset is already being requested for this account.", .resetAlreadyRequested),
+            ("The account does not name a provider.", .accountNamesNoProvider),
+            ("No provider is registered for provider id \"acme\".", .providerNotRegistered(id: "acme")),
+        ]
+        for (sentence, expected) in table {
+            XCTAssertEqual(StoredMessage.classify(sentence), expected, "\"\(sentence)\"")
+        }
+    }
+
+    func testTextThatOnlyResemblesANewSentenceIsPassedThroughUntouched() {
+        for message in [
+            "The sign-in",
+            "The sign-in could not be read",
+            "The provider refused the sign-in",
+            "The provider refused the sign-in (access_denied)",
+            "Port 1455 is in use",
+            "Port x is in use, so the sign-in cannot be received. Close whatever is using it and try again.",
+            "Port +5 is in use, so the sign-in cannot be received. Close whatever is using it and try again.",
+            "Port  is in use, so the sign-in cannot be received. Close whatever is using it and try again.",
+            "The key was rejected (HTTP abc). Check that it is the right kind of key.",
+            "The key was rejected (HTTP 401).",
+            "No balance could be read",
+            "No balance could be read (x)",
+            "No key was entered",
+            "no key was entered.",
+            "No provider is registered for provider id acme.",
+            "The account does not name a provider",
+            "The provider could not be reached",
+            "Die Anmeldung wurde nicht rechtzeitig abgeschlossen.",
+        ] {
+            XCTAssertNil(StoredMessage.classify(message), "\"\(message)\"")
+        }
+    }
+
+    func testOnlyTheWholeAntigravityAdviceIsTheAntigravityCase() {
+        // The same frame with a shorter detail is the general malformed-response sentence.
+        XCTAssertEqual(
+            StoredMessage.classify(
+                "The provider answered in a shape this app does not understand (loadCodeAssist returned no GCP project id.)."),
+            .malformedResponse(detail: "loadCodeAssist returned no GCP project id."))
+    }
+
+    func testAPortAndAStatusKeepTheirDigits() {
+        XCTAssertEqual(
+            StoredMessage.classify(
+                "Port 0 is in use, so the sign-in cannot be received. Close whatever is using it and try again."),
+            .portInUse(port: 0))
+        XCTAssertEqual(
+            StoredMessage.classify("The key was rejected (HTTP 500). Check that it is the right kind of key."),
+            .keyRejected(status: 500))
+        XCTAssertEqual(
+            StoredMessage.classify("No provider is registered for provider id \"\"."),
+            .providerNotRegistered(id: ""))
+    }
+
+    func testEveryProviderThatSignsInByRedirectHasARedirect() {
+        // Why "This provider does not use a loopback sign-in." is a log line and not a sentence
+        // for the display: the app only starts a loopback login for these, and each has one.
+        for provider in ProviderID.allCases where DeviceLoginSupport.style(for: provider) == .loopbackRedirect {
+            XCTAssertNotNil(LoopbackLogin.redirect(for: provider), provider.rawValue)
+        }
+    }
+
+    // MARK: - The sign-in result page
+
+    /// The page as the listener has always served it, written out so the test does not share the
+    /// code it checks.
+    private func page(status: String, title: String, message: String) -> String {
+        let body = "<!doctype html><meta charset=\"utf-8\"><title>\(title)</title>"
+            + "<body style=\"font:16px -apple-system,system-ui,sans-serif;margin:3rem;color:#1a1918\">"
+            + "<h1 style=\"font-size:1.2rem\">\(title)</h1><p>\(message)</p>"
+        return "HTTP/1.1 \(status)\r\nContent-Type: text/html; charset=utf-8\r\n"
+            + "Content-Length: \(body.utf8.count)\r\nCache-Control: no-store\r\n"
+            + "Connection: close\r\n\r\n\(body)"
+    }
+
+    /// One of each thing the listener can decide, in the order the expected pages below follow.
+    private var pageOutcomes: [LoopbackRedirect.Outcome] {
+        [
+            redirectOutcome("/callback?code=c&state=s"),
+            redirectOutcome("/favicon.ico"),
+            redirectOutcome("/callback?error=access_denied&state=s"),
+            redirectOutcome("/callback?state=s"),
+            LoopbackRedirect.Outcome.rejected("The sign-in could not be read."),
+        ]
+    }
+
+    func testTheEnglishPageIsWhatTheListenerAlwaysServed() {
+        let expected = [
+            page(status: "200 OK", title: "Signed in",
+                 message: "You can close this page and return to Usage Limits."),
+            page(status: "400 Bad Request", title: "Sign-in failed", message: "Nothing to see here."),
+            page(status: "400 Bad Request", title: "Sign-in failed",
+                 message: "The provider refused the sign-in (access_denied)."),
+            page(status: "400 Bad Request", title: "Sign-in failed",
+                 message: "The sign-in came back without an authorisation code."),
+            page(status: "400 Bad Request", title: "Sign-in failed",
+                 message: "The sign-in could not be read."),
+        ]
+        XCTAssertEqual(pageOutcomes.count, expected.count)
+        for (outcome, want) in zip(pageOutcomes, expected) {
+            XCTAssertEqual(LoopbackRedirect.pageResponse(for: outcome), want, "\(outcome)")
+            XCTAssertEqual(
+                LoopbackRedirect.pageResponse(for: outcome, texts: EnglishLoopbackPageTexts()), want,
+                "\(outcome), explicit English")
+        }
+
+        // The two entry points that were there before keep their words.
+        XCTAssertEqual(LoopbackRedirect.successResponse(), expected[0])
+        XCTAssertEqual(
+            LoopbackRedirect.failureResponse(message: "Nothing to see here."), expected[1])
+    }
+
+    func testTheEnglishRefusalSentencesAreTheOnesTheRedirectWrites() {
+        // The page re-words a refusal it recognises by the sentence `interpret` wrote, so the
+        // English texts and that sentence cannot be allowed to drift apart.
+        let english = EnglishLoopbackPageTexts()
+        guard case .rejected(let refused) = redirectOutcome("/callback?error=access_denied&state=s"),
+              case .rejected(let withoutCode) = redirectOutcome("/callback?state=s")
+        else { return XCTFail("a refusal and a redirect without a code are both rejected") }
+
+        XCTAssertEqual(refused, english.providerRefused(reason: "access_denied"))
+        XCTAssertEqual(withoutCode, english.noAuthorisationCode())
+        XCTAssertEqual(english.signInUnreadable(), "The sign-in could not be read.")
+        XCTAssertEqual(
+            DeviceLoginError.declined("x").errorDescription, english.providerRefused(reason: "x"))
+    }
+
+    func testEveryWordOfThePageGoesThroughTheInjectedTexts() {
+        let german = GermanTestLoopbackTexts()
+        let expected = [
+            page(status: "200 OK", title: "Angemeldet",
+                 message: "Du kannst diese Seite schließen und zu Usage Limits zurückkehren."),
+            page(status: "400 Bad Request", title: "Anmeldung fehlgeschlagen",
+                 message: "Hier gibt es nichts zu sehen."),
+            page(status: "400 Bad Request", title: "Anmeldung fehlgeschlagen",
+                 message: "Der Anbieter hat die Anmeldung abgelehnt (access_denied)."),
+            page(status: "400 Bad Request", title: "Anmeldung fehlgeschlagen",
+                 message: "Die Anmeldung kam ohne Autorisierungscode zurück."),
+            page(status: "400 Bad Request", title: "Anmeldung fehlgeschlagen",
+                 message: "Die Anmeldung konnte nicht gelesen werden."),
+        ]
+        XCTAssertEqual(pageOutcomes.count, expected.count)
+        for (outcome, want) in zip(pageOutcomes, expected) {
+            let response = LoopbackRedirect.pageResponse(for: outcome, texts: german)
+            XCTAssertEqual(response, want, "\(outcome)")
+            for fragment in [
+                "Signed in", "Sign-in", "close this page", "Nothing to see", "provider refused",
+                "authorisation", "could not be read",
+            ] {
+                XCTAssertFalse(response.contains(fragment), "\(outcome) still says \"\(fragment)\"")
+            }
+        }
+    }
+
+    func testTheReasonAndAnUnknownMessageAreEscapedAndKeptOnTheTranslatedPage() {
+        let german = GermanTestLoopbackTexts()
+
+        XCTAssertEqual(
+            LoopbackRedirect.pageResponse(
+                for: .rejected("The provider refused the sign-in (<b>)."), texts: german),
+            page(status: "400 Bad Request", title: "Anmeldung fehlgeschlagen",
+                 message: "Der Anbieter hat die Anmeldung abgelehnt (&lt;b&gt;)."))
+        // A message the page does not know is shown as it came, never dropped.
+        XCTAssertEqual(
+            LoopbackRedirect.pageResponse(for: .rejected("Something else <b>"), texts: german),
+            page(status: "400 Bad Request", title: "Anmeldung fehlgeschlagen",
+                 message: "Something else &lt;b&gt;"))
     }
 }

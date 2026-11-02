@@ -76,6 +76,29 @@ struct LocalizedNotificationTexts: NotificationTexts {
     }
 }
 
+/// The page the sign-in leaves in the browser, from the catalog. The kit's `LoopbackListener`
+/// serves it and has no bundle of its own; see `LoopbackPageTexts`.
+///
+/// The three refusal sentences share their keys with the same sentences `DisplayText.stored`
+/// shows in the app, so the browser and the sheet say the same thing.
+struct LocalizedLoopbackPageTexts: LoopbackPageTexts {
+
+    func signedIn() -> String { String(localized: "Signed in") }
+    func signInFailed() -> String { String(localized: "Sign-in failed") }
+    func closeThisPage() -> String { String(localized: "You can close this page and return to Usage Limits.") }
+    func nothingToSee() -> String { String(localized: "Nothing to see here.") }
+
+    func providerRefused(reason: String) -> String {
+        String(localized: "The provider refused the sign-in (\(reason)).")
+    }
+
+    func noAuthorisationCode() -> String {
+        String(localized: "The sign-in came back without an authorisation code.")
+    }
+
+    func signInUnreadable() -> String { String(localized: "The sign-in could not be read.") }
+}
+
 /// Words for what the kit stores or names in English, read at the display.
 ///
 /// Every function matches the English text exactly and returns anything it does not recognise
@@ -105,6 +128,46 @@ enum DisplayText {
             return String(localized: "No usage could be read (\(detail)).")
         case .noCredentials:
             return String(localized: "No credentials are stored for the account.")
+        case .signInRefused(let reason):
+            return String(localized: "The provider refused the sign-in (\(reason)).")
+        case .signInWithoutCode:
+            return String(localized: "The sign-in came back without an authorisation code.")
+        case .signInUnreadable:
+            return String(localized: "The sign-in could not be read.")
+        case .signInCodeExpired:
+            return String(localized: "The sign-in code expired before it was approved.")
+        case .signInTimedOut:
+            return String(localized: "The sign-in was not completed in time.")
+        case .portInUse(let port):
+            return String(localized: "Port \(port) is in use, so the sign-in cannot be received. Close whatever is using it and try again.")
+        case .antigravityProjectMissing:
+            // The advice is the detail of the malformed-response sentence, so it keeps that frame.
+            let advice = String(localized: "loadCodeAssist returned no GCP project id. If this account has never used Antigravity, sign in to the desktop client once to provision it, then add it here.")
+            return String(localized: "The provider answered in a shape this app does not understand (\(advice)).")
+        case .noKeyEntered:
+            return String(localized: "No key was entered.")
+        case .keyRejected(let status):
+            return String(localized: "The key was rejected (HTTP \(status)). Check that it is the right kind of key.")
+        case .noBalance(let detail):
+            return String(localized: "No balance could be read (\(detail)).")
+        case .xaiNoPrepaidBalance:
+            return String(localized: "xAI has no prepaid balance for this team (HTTP 404). Check the team id, and that the team prepays.")
+        case .xaiTeamRequired:
+            return String(localized: "This xAI key is not tied to one team. Enter the team id from console.x.ai.")
+        case .providerUnreachable:
+            return String(localized: "The provider could not be reached.")
+        case .keyUnreadable:
+            return String(localized: "The key could not be read from the keychain.")
+        case .resetCreditsUnavailable:
+            return String(localized: "This account cannot use reset credits.")
+        case .noResetCreditApplicable:
+            return String(localized: "No reset credit can be applied to this limit right now.")
+        case .resetAlreadyRequested:
+            return String(localized: "A reset is already being requested for this account.")
+        case .accountNamesNoProvider:
+            return String(localized: "The account does not name a provider.")
+        case .providerNotRegistered(let id):
+            return String(localized: "No provider is registered for provider id \"\(id)\".")
         }
     }
 

@@ -36,7 +36,9 @@ final class LoopbackSignIn: NSObject {
     func authorize(_ challenge: LoopbackChallenge) async throws -> String {
         // Built from the challenge rather than its parts, so this never handles the state and
         // cannot open a listener for one attempt while checking another's.
-        let listener = LoopbackListener(challenge: challenge)
+        // The page the browser is left showing is the kit's, so the words are handed in here,
+        // where the String Catalog can be reached.
+        let listener = LoopbackListener(challenge: challenge, pageTexts: LocalizedLoopbackPageTexts())
 
         return try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask { try await listener.awaitCode() }
@@ -138,8 +140,10 @@ final class LoopbackSignIn: NSObject {
                 self.session = session
 
                 if !session.start() {
+                    // The detail goes into a sentence the display translates whole
+                    // (`StoredMessage.malformedResponse`), so only the detail is worded here.
                     waiter.finish(.failure(
-                        DeviceLoginError.malformedResponse("the sign-in page could not be opened")))
+                        DeviceLoginError.malformedResponse(String(localized: "the sign-in page could not be opened"))))
                 }
             }
         } onCancel: {

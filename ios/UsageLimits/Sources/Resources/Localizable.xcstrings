@@ -544,6 +544,17 @@
         }
       }
     },
+    "A reset is already being requested for this account." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für dieses Konto wird bereits ein Reset angefordert."
+          }
+        }
+      }
+    },
     "API key" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1734,6 +1745,17 @@
         }
       }
     },
+    "No balance could be read (%@)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Es konnte kein Guthaben gelesen werden (%@)."
+          }
+        }
+      }
+    },
     "No balance endpoint for API keys" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1778,6 +1800,17 @@
         }
       }
     },
+    "No key was entered." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Es wurde kein Schlüssel eingegeben."
+          }
+        }
+      }
+    },
     "No limit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1796,6 +1829,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kein Limit zu melden"
+          }
+        }
+      }
+    },
+    "No provider is registered for provider id \"%@\"." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für die Anbieter-ID „%@“ ist kein Anbieter registriert."
+          }
+        }
+      }
+    },
+    "No reset credit can be applied to this limit right now." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf dieses Limit kann gerade kein Reset-Credit angewendet werden."
           }
         }
       }
@@ -1840,6 +1895,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nichts geplant"
+          }
+        }
+      }
+    },
+    "Nothing to see here." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hier gibt es nichts zu sehen."
           }
         }
       }
@@ -2090,6 +2156,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@-Schlüssel einfügen"
+          }
+        }
+      }
+    },
+    "Port %lld is in use, so the sign-in cannot be received. Close whatever is using it and try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Port %lld wird bereits verwendet, daher kann die Anmeldung nicht empfangen werden. Beende, was den Port belegt, und versuche es erneut."
           }
         }
       }
@@ -2534,6 +2611,28 @@
         }
       }
     },
+    "Sign-in failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anmeldung fehlgeschlagen"
+          }
+        }
+      }
+    },
+    "Signed in" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Angemeldet"
+          }
+        }
+      }
+    },
     "Some billing data could not be updated" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2600,6 +2699,17 @@
         }
       }
     },
+    "The account does not name a provider." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Konto nennt keinen Anbieter."
+          }
+        }
+      }
+    },
     "The browser opens %@'s own sign-in page. This app never sees your password." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2607,6 +2717,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Der Browser öffnet die Anmeldeseite von %@. Diese App sieht dein Passwort nie."
+          }
+        }
+      }
+    },
+    "The key could not be read from the keychain." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Schlüssel konnte nicht aus dem Schlüsselbund gelesen werden."
           }
         }
       }
@@ -2622,6 +2743,17 @@
         }
       }
     },
+    "The key was rejected (HTTP %lld). Check that it is the right kind of key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Schlüssel wurde abgelehnt (HTTP %lld). Prüfe, ob es die richtige Art von Schlüssel ist."
+          }
+        }
+      }
+    },
     "The provider answered in a shape this app does not understand (%@)." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2629,6 +2761,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Der Anbieter hat in einem Format geantwortet, das diese App nicht versteht (%@)."
+          }
+        }
+      }
+    },
+    "The provider could not be reached." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Anbieter konnte nicht erreicht werden."
+          }
+        }
+      }
+    },
+    "The provider refused the sign-in (%@)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Anbieter hat die Anmeldung abgelehnt (%@)."
           }
         }
       }
@@ -2651,6 +2805,61 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dieselbe Kachel mit transparentem Hintergrund."
+          }
+        }
+      }
+    },
+    "The sign-in came back without an authorisation code." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Anmeldung kam ohne Autorisierungscode zurück."
+          }
+        }
+      }
+    },
+    "The sign-in code expired before it was approved." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Anmeldecode ist abgelaufen, bevor er bestätigt wurde."
+          }
+        }
+      }
+    },
+    "The sign-in could not be read." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Anmeldung konnte nicht gelesen werden."
+          }
+        }
+      }
+    },
+    "The sign-in was not completed in time." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Anmeldung wurde nicht rechtzeitig abgeschlossen."
+          }
+        }
+      }
+    },
+    "This account cannot use reset credits." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Konto kann keine Reset-Credits verwenden."
           }
         }
       }
@@ -2684,6 +2893,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dabei wird 1 Reset-Credit verbraucht. Das lässt sich nicht rückgängig machen. Das Rate-Limit wird sofort zurückgesetzt."
+          }
+        }
+      }
+    },
+    "This xAI key is not tied to one team. Enter the team id from console.x.ai." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser xAI-Schlüssel gehört nicht zu einem einzelnen Team. Gib die Team-ID aus console.x.ai ein."
           }
         }
       }
@@ -3051,6 +3271,17 @@
         }
       }
     },
+    "You can close this page and return to Usage Limits." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du kannst diese Seite schließen und zu Usage Limits zurückkehren."
+          }
+        }
+      }
+    },
     "Your accounts, your order. Choose one account, a provider or a custom layout." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3129,6 +3360,17 @@
         }
       }
     },
+    "loadCodeAssist returned no GCP project id. If this account has never used Antigravity, sign in to the desktop client once to provision it, then add it here." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "loadCodeAssist hat keine GCP-Projekt-ID geliefert. Falls dieses Konto Antigravity noch nie genutzt hat, melde dich einmal im Desktop-Client an, um es einzurichten, und füge es dann hier hinzu."
+          }
+        }
+      }
+    },
     "now" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3151,6 +3393,28 @@
         }
       }
     },
+    "shared storage is missing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "der gemeinsame Speicher fehlt"
+          }
+        }
+      }
+    },
+    "the sign-in page could not be opened" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "die Anmeldeseite konnte nicht geöffnet werden"
+          }
+        }
+      }
+    },
     "this balance" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3169,6 +3433,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "verbraucht"
+          }
+        }
+      }
+    },
+    "xAI has no prepaid balance for this team (HTTP 404). Check the team id, and that the team prepays." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "xAI hat für dieses Team kein Prepaid-Guthaben (HTTP 404). Prüfe die Team-ID und ob das Team im Voraus bezahlt."
           }
         }
       }
