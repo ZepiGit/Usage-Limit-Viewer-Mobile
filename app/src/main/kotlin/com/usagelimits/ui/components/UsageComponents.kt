@@ -7,6 +7,7 @@ import com.usagelimits.ui.percentSideWordRes
 import com.usagelimits.ui.percentSpokenClauseRes
 import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.text.rememberCountdownTexts
+import com.usagelimits.ui.text.windowLabelRes
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ReadingValidity
@@ -197,8 +198,11 @@ fun UsageWindowRow(
     val spokenClause = stringResource(percentSpokenClauseRes(mode))
     // Names the app gives a window are words of the app and are translated; a label the provider
     // reported is data and is shown as it came.
+    val appLabelRes = windowLabelRes(window.label, window.category, window.scope)
     val label = when {
         window.scope != com.usagelimits.core.model.UsageScope.GLOBAL -> window.label
+        // The same rule the widgets apply: the parsers' own horizon words, exactly, on a global window.
+        appLabelRes != null -> stringResource(appLabelRes)
         window.group != null && window.category == com.usagelimits.core.model.WindowCategory.FIVE_HOUR ->
             stringResource(R.string.window_label_five_hour)
         window.group != null && window.category == com.usagelimits.core.model.WindowCategory.WEEKLY ->

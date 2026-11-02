@@ -2,6 +2,8 @@ package com.usagelimits.providers
 
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.network.HttpClient
+import com.usagelimits.core.oauth.EnglishLoopbackPageTexts
+import com.usagelimits.core.oauth.LoopbackPageTexts
 import com.usagelimits.providers.antigravity.AntigravityProvider
 import com.usagelimits.providers.claude.ClaudeProvider
 import com.usagelimits.providers.codex.CodexProvider
@@ -20,14 +22,15 @@ import com.usagelimits.providers.zai.ZaiProvider
  */
 class ProviderRegistry(private val providers: Map<ProviderId, UsageProvider>) {
 
-    constructor(http: HttpClient) : this(
+    /** [loginPageTexts] is the language of the page the browser shows after a redirect sign-in. */
+    constructor(http: HttpClient, loginPageTexts: LoopbackPageTexts = EnglishLoopbackPageTexts) : this(
         buildMap {
-            put(ProviderId.CODEX, CodexProvider(http))
-            put(ProviderId.CLAUDE, ClaudeProvider(http))
-            put(ProviderId.ANTIGRAVITY, AntigravityProvider(http))
+            put(ProviderId.CODEX, CodexProvider(http, loginPageTexts = loginPageTexts))
+            put(ProviderId.CLAUDE, ClaudeProvider(http, loginPageTexts = loginPageTexts))
+            put(ProviderId.ANTIGRAVITY, AntigravityProvider(http, loginPageTexts = loginPageTexts))
             put(ProviderId.XAI, XaiProvider(http))
             put(ProviderId.KIMI, KimiProvider(http))
-            put(ProviderId.DEVIN, DevinProvider(http))
+            put(ProviderId.DEVIN, DevinProvider(http, loginPageTexts = loginPageTexts))
             put(ProviderId.META, MetaProvider(http))
             put(ProviderId.ZAI, ZaiProvider(http))
             put(ProviderId.OPENCODE, OpenCodeProvider(http))

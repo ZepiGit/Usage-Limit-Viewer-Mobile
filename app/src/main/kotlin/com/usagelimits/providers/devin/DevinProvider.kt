@@ -7,6 +7,8 @@ import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.network.ProviderEndpoints.Devin
 import com.usagelimits.core.network.ProviderException
+import com.usagelimits.core.oauth.EnglishLoopbackPageTexts
+import com.usagelimits.core.oauth.LoopbackPageTexts
 import com.usagelimits.core.oauth.LoopbackServer
 import com.usagelimits.core.oauth.Pkce
 import com.usagelimits.core.oauth.PkceCodes
@@ -34,6 +36,7 @@ import java.security.MessageDigest
 class DevinProvider(
     private val http: HttpClient,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val loginPageTexts: LoopbackPageTexts = EnglishLoopbackPageTexts,
 ) : UsageProvider {
 
     override val providerId = ProviderId.DEVIN
@@ -69,7 +72,7 @@ class DevinProvider(
         // same listener, so a retry cannot have its PKCE pair wiped by the old attempt.
         server?.close()
 
-        val boundServer = LoopbackServer(0)
+        val boundServer = LoopbackServer(0, loginPageTexts)
         try {
             boundServer.start()
             val port = boundServer.localPort
