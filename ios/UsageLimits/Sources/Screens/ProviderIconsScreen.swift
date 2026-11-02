@@ -15,11 +15,11 @@ struct ProviderIconsScreen: View {
                         } label: {
                             HStack(spacing: 16) {
                                 ProviderMark(assetName: choice.assetName).frame(width: 36, height: 36)
-                                Text(choice.label).foregroundStyle(UsageColors.ink)
+                                Text(verbatim: DisplayText.providerIconLabel(choice.label)).foregroundStyle(UsageColors.ink)
                                 Spacer()
                                 if selected { Image(systemName: "checkmark").foregroundStyle(UsageColors.ink) }
                             }.padding(.vertical, 6)
-                        }.accessibilityLabel(choice.label).accessibilityValue(selected ? "Selected" : "Not selected")
+                        }.accessibilityLabel(DisplayText.providerIconLabel(choice.label)).accessibilityValue(DisplayText.selection(selected))
                     }
                 }
                 .listRowBackground(UsageColors.surface)

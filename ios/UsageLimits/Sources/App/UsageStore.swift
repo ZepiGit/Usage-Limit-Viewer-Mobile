@@ -143,7 +143,7 @@ final class UsageStore: ObservableObject {
             } catch {
                 if self.orderGeneration == generation {
                     self.pendingAccountOrder = nil
-                    self.lastError = "Could not save account order. Try again."
+                    self.lastError = String(localized: "Could not save account order. Try again.")
                 }
             }
         }
@@ -195,7 +195,9 @@ final class UsageStore: ObservableObject {
         guard let renewsAt = longest.resetAt, renewsAt > now else { return nil }
         let soonest = windows.compactMap(\.resetAt).filter { $0 > now }.min()
         guard renewsAt != soonest else { return nil }
-        return "\(longest.label) renews \(Countdown.format(until: renewsAt, from: now))"
+        return Countdown.renewsLine(
+            label: DisplayText.windowLabel(longest.label, category: longest.category, scope: longest.scope),
+            until: renewsAt, from: now, texts: LocalizedCountdownTexts())
     }
 
     /// Every window that has a reset time, soonest first — the Resets screen.
@@ -232,7 +234,7 @@ final class UsageStore: ObservableObject {
             // Said here as well as in `refresh`, because a cold launch renders this screen before
             // anything is refreshed: without it the user sees an empty account list and the
             // explanation exists only behind a pull they have no reason to perform.
-            lastError = "This build cannot reach its shared storage."
+            lastError = String(localized: "This build cannot reach its shared storage.")
             return
         }
         // Before anything reads or writes an account. Keychain items outlive the app being
@@ -269,7 +271,7 @@ final class UsageStore: ObservableObject {
             // No shared container means the app group is missing from the entitlements, which is
             // a build fault rather than anything the user did — but it must still say so, since
             // the alternative is a screen that stays empty and explains nothing.
-            lastError = "This build cannot reach its shared storage."
+            lastError = String(localized: "This build cannot reach its shared storage.")
             return
         }
 

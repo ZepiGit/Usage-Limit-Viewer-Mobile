@@ -15,7 +15,7 @@ struct SettingsScreen: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: LedgerHeader("Refresh")) {
+                Section(header: LedgerHeader(String(localized: "Refresh"))) {
                     Picker("Every", selection: $store.settings.syncIntervalMinutes) {
                         ForEach(intervals, id: \.self) { minutes in
                             Text(label(for: minutes)).tag(minutes)
@@ -27,7 +27,7 @@ struct SettingsScreen: View {
                 }
                 .listRowBackground(UsageColors.surface)
 
-                Section(header: LedgerHeader("Notifications")) {
+                Section(header: LedgerHeader(String(localized: "Notifications"))) {
                     // Titles follow the display mode; the thresholds do not move. "Below 20% left"
                     // and "Above 80% used" are one crossing, so the same switch drives both.
                     Toggle(warningTitle, isOn: $store.settings.notifications.notifyBelow20Percent)
@@ -43,7 +43,7 @@ struct SettingsScreen: View {
                 }
                 .listRowBackground(UsageColors.surface)
 
-                Section(header: LedgerHeader("Display")) {
+                Section(header: LedgerHeader(String(localized: "Display"))) {
                     NavigationLink("Provider icons") { ProviderIconsScreen() }
                     NavigationLink("App icon") { AppIconScreen() }
                     NavigationLink("Widget layouts") { WidgetPresetsScreen() }
@@ -51,10 +51,7 @@ struct SettingsScreen: View {
                         "Show subscription tier",
                         isOn: $store.settings.showSubscriptionTier)
                     Toggle("Show renewal time", isOn: $store.settings.showRenewalTime)
-                    Text(
-                        "The renewal line names when the longest allowance comes back. It is "
-                        + "shown on the overview only — a widget has room for the number you "
-                        + "are about to run out of, not a second date competing with it.")
+                    Text("The renewal line names when the longest allowance comes back. It is shown on the overview only — a widget has room for the number you are about to run out of, not a second date competing with it.")
                         .usageFont(.small)
                         .foregroundStyle(UsageColors.muted)
                     // A segmented picker draws only its options, so its title has to be written
@@ -73,16 +70,16 @@ struct SettingsScreen: View {
                 }
                 .listRowBackground(UsageColors.surface)
 
-                Section(header: LedgerHeader("Privacy")) {
-                    Text(
-                        "Tokens are stored in the keychain and excluded from backups and device "
-                        + "transfer. Moving to a new phone means signing in again.")
+                Section(header: LedgerHeader(String(localized: "Privacy"))) {
+                    Text("Tokens are stored in the keychain and excluded from backups and device transfer. Moving to a new phone means signing in again.")
                         .usageFont(.small)
                         .foregroundStyle(UsageColors.muted)
                 }
                 .listRowBackground(UsageColors.surface)
                 Section {
-                    Link("GitHub · ZepiGit", destination: URL(string: "https://github.com/ZepiGit")!)
+                    Link(destination: URL(string: "https://github.com/ZepiGit")!) {
+                        Text(verbatim: "GitHub · ZepiGit")
+                    }
                 }
                 .listRowBackground(UsageColors.surface)
             }
@@ -98,22 +95,24 @@ struct SettingsScreen: View {
     }
 
     private var warningTitle: String {
-        store.settings.percentDisplay == .used ? "Above 80% used" : "Below 20% left"
+        store.settings.percentDisplay == .used
+            ? String(localized: "Above 80% used") : String(localized: "Below 20% left")
     }
 
     private var criticalTitle: String {
-        store.settings.percentDisplay == .used ? "Above 90% used" : "Below 10% left"
+        store.settings.percentDisplay == .used
+            ? String(localized: "Above 90% used") : String(localized: "Below 10% left")
     }
 
     private func label(for minutes: Int) -> String {
-        minutes < 60 ? "\(minutes) minutes" : "\(minutes / 60) hours"
+        minutes < 60 ? String(localized: "\(minutes) minutes") : String(localized: "\(minutes / 60) hours")
     }
 
     /// Says out loud what the interval implies, because the two are linked and the link is not
     /// obvious: pick a three-hour refresh and data three hours old is normal, not suspect.
     private var stalenessNote: String {
         let minutes = Int(store.settings.staleAfter / 60)
-        let text = minutes < 120 ? "\(minutes) minutes" : "\(minutes / 60) hours"
-        return "Numbers older than \(text) are marked stale."
+        let text = minutes < 120 ? String(localized: "\(minutes) minutes") : String(localized: "\(minutes / 60) hours")
+        return String(localized: "Numbers older than \(text) are marked stale.")
     }
 }

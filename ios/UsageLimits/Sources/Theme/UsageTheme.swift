@@ -102,14 +102,14 @@ enum SeverityPalette {
 
     static func label(_ severity: Severity) -> String {
         switch severity {
-        case .healthy: return "Healthy"
-        case .medium: return "Moderate"
-        case .low: return "Low"
-        case .limited: return "Limited"
-        case .unknown: return "Unknown"
-        case .exhausted: return "Exhausted"
-        case .stale: return "Stale"
-        case .error: return "Error"
+        case .healthy: return String(localized: "Healthy")
+        case .medium: return String(localized: "Moderate")
+        case .low: return String(localized: "Low")
+        case .limited: return String(localized: "Limited")
+        case .unknown: return String(localized: "Unknown")
+        case .exhausted: return String(localized: "Exhausted")
+        case .stale: return String(localized: "Stale")
+        case .error: return String(localized: "Error")
         }
     }
 }
@@ -123,24 +123,33 @@ enum PercentText {
 
     /// The figure with its `%` sign, composed exactly as `UsageWindow.percentLabel` does for LEFT:
     /// the unknown dash stays bare, never "—%".
+    ///
+    /// The sign comes from the catalog's one template, `"%@%%"`, so a language that sets a space
+    /// before it ("73 %") changes it in one place.
     static func figure(_ p: WindowPresentation) -> String {
-        p.hasFigure ? "\(p.token)%" : p.token
+        figure(token: p.token)
+    }
+
+    /// The same composition for a bare token, for a figure that has no `WindowPresentation`
+    /// (a segment's share of the bar).
+    static func figure(token: String) -> String {
+        token == PercentToken.unknown ? token : String(localized: "\(token)%")
     }
 
     /// The caption a grid carries when its rings show no side word: "Left" or "Used".
     static func caption(_ mode: PercentDisplay) -> String {
-        mode == .used ? "Used" : "Left"
+        mode == .used ? String(localized: "Used") : String(localized: "Left")
     }
 
     /// The visible caption is the short "left"/"used" so it fits beside the figure; speech says
     /// "remaining" instead (see `spoken`) because that sentence was already shipped in LEFT.
     static func sideWord(_ mode: PercentDisplay) -> String {
-        mode == .used ? "used" : "left"
+        mode == .used ? String(localized: "used") : String(localized: "left")
     }
 
     /// "45% remaining" in LEFT — the sentence spoken today, kept byte-identical — and "55% used".
     static func spoken(_ figure: String, _ mode: PercentDisplay) -> String {
-        mode == .used ? "\(figure) used" : "\(figure) remaining"
+        mode == .used ? String(localized: "\(figure) used") : String(localized: "\(figure) remaining")
     }
 }
 
@@ -360,7 +369,9 @@ struct NoticeLine: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Circle().fill(dot).frame(width: 6, height: 6).accessibilityHidden(true)
-                Text(verbatim: message)
+                // The kit's own failure sentences are stored in English; this reads one in the
+                // current language and shows anything else exactly as it came.
+                Text(verbatim: DisplayText.stored(message))
                     .usageFont(.body)
                     .foregroundStyle(retry == nil ? UsageColors.muted : UsageColors.ink)
             }
@@ -502,7 +513,7 @@ struct SegmentedRow: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityValue(option.selected ? "Selected" : "Not selected")
+                    .accessibilityValue(DisplayText.selection(option.selected))
                 }
             }
             .background(

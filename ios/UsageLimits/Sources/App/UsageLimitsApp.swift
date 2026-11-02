@@ -61,7 +61,9 @@ struct UsageLimitsApp: App {
                 ) {
                     Button("OK", role: .cancel) { store.clearError() }
                 } message: {
-                    Text(verbatim: store.lastError ?? "")
+                    // `lastError` is often a kit error read from English text; a sentence the kit
+                    // wrote is shown in the current language, anything else as it came.
+                    Text(verbatim: DisplayText.stored(store.lastError ?? ""))
                 }
                 // Widget links require the usagelimits scheme in CFBundleURLTypes for system routing.
                 .onOpenURL { url in

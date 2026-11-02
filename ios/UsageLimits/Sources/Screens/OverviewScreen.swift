@@ -68,7 +68,7 @@ struct OverviewScreen: View {
                     // Prepaid balances: a separate list with its own screen, below the usage
                     // accounts and outside the reorder gesture.
                     Section {
-                        SectionTitle(text: "Credits")
+                        SectionTitle(text: String(localized: "Credits"))
                             .padding(.top, 28)
                             .plainRow()
                             .moveDisabled(true)
@@ -77,7 +77,13 @@ struct OverviewScreen: View {
                                 .plainRow()
                                 .moveDisabled(true)
                         }
-                        NavigationLink(store.credits.isEmpty ? "Add a credit balance" : "Manage credits") {
+                        // Both arms are looked up here: a ternary of two literals would be taken for a
+                        // plain String and shown as written.
+                        NavigationLink(
+                            store.credits.isEmpty
+                                ? String(localized: "Add a credit balance")
+                                : String(localized: "Manage credits")
+                        ) {
                             CreditsScreen()
                         }
                         .usageFont(.bodyStrong)
@@ -106,7 +112,7 @@ struct OverviewScreen: View {
                 // left to turn any of it off. Killing the app was the only exit.
                 if store.accounts.count > 1 || editMode.isEditing {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button(editMode.isEditing ? "Done" : "Reorder") {
+                        Button(editMode.isEditing ? String(localized: "Done") : String(localized: "Reorder")) {
                             withAnimation(reduceMotion ? nil : Animation.easeInOut(duration: 0.2)) { editMode = editMode.isEditing ? .inactive : .active }
                         }
                     }
@@ -152,10 +158,14 @@ struct OverviewScreen: View {
     /// matches the widget, and one wording across both surfaces is worth more than the marginal
     /// readability of "12 minutes ago".
     private func stamp(_ glance: GlanceSnapshot) -> String {
-        if !store.hasLoaded || store.isRefreshing { return "Refreshing…" }
-        let accounts = glance.accountCount == 1 ? "1 account" : "\(glance.accountCount) accounts"
-        guard let updated = glance.updatedAt else { return "\(accounts) · Never updated" }
-        return "\(accounts) · As of \(Countdown.absolute(updated, now: store.now))"
+        if !store.hasLoaded || store.isRefreshing { return String(localized: "Refreshing…") }
+        let accounts = String(localized: "\(glance.accountCount) accounts")
+        guard let updated = glance.updatedAt else {
+            let never = String(localized: "Never updated")
+            return String(localized: "\(accounts) · \(never)")
+        }
+        let asOf = Countdown.asOfLine(updatedAt: updated, now: store.now, texts: LocalizedCountdownTexts()) ?? ""
+        return String(localized: "\(accounts) · \(asOf)")
     }
 }
 
@@ -195,8 +205,8 @@ private struct LeadStrip: View {
             band(lead: lead, row: row, stale: stale)
             UsageColors.rule.frame(height: 1)
             HStack(spacing: 0) {
-                cell("Connected accounts") {
-                    Text("\(connected)/\(snapshot.accountCount)").usageFont(.figureLarge).foregroundStyle(UsageColors.ink)
+                cell(String(localized: "Connected accounts")) {
+                    Text(verbatim: "\(connected)/\(snapshot.accountCount)").usageFont(.figureLarge).foregroundStyle(UsageColors.ink)
                         .accessibilityLabel("\(connected)/\(snapshot.accountCount) connected")
                 }
                 Image(AppIconChoice.active.previewAsset)
@@ -221,7 +231,8 @@ private struct LeadStrip: View {
                     validity: stale ? ReadingValidity.stale : lead.readingValidity(of: row, at: now, staleAfter: snapshot.staleAfter),
                     mode: mode)
                 let percent = PercentText.figure(p)
-                Text(verbatim: "\(lead.title) · \(row.label)")
+                let rowLabel = DisplayText.windowLabel(row.label, category: row.category, scope: row.scope)
+                Text(verbatim: String(localized: "\(lead.title) · \(rowLabel)"))
                     .usageFont(.small).foregroundStyle(UsageColors.muted).lineLimit(1)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(verbatim: percent)
@@ -238,11 +249,11 @@ private struct LeadStrip: View {
                 UsageBar(presentation: p)
                     .padding(.vertical, 4)
                 if let resetAt = row.resetAt {
-                    Text("Resets in \(Countdown.format(until: resetAt, from: now))")
+                    Text(verbatim: Countdown.resetsInLine(until: resetAt, from: now, texts: LocalizedCountdownTexts()))
                         .usageFont(.small).foregroundStyle(UsageColors.faint)
                 }
             } else {
-                Text("—").usageFont(.small).foregroundStyle(UsageColors.faint)
+                Text(verbatim: "—").usageFont(.small).foregroundStyle(UsageColors.faint)
             }
         }
         .padding(16)
@@ -251,14 +262,22 @@ private struct LeadStrip: View {
         .accessibilityLabel(spoken(lead: lead, row: row))
         // The figure's tap is unreachable once the children are folded into one element, so the
         // switch is offered as a named action as well.
-        .accessibilityHint("Use the actions rotor to \(switchActionName.lowercased())")
+        .accessibilityHint(switchHint)
         .accessibilityAction(named: switchActionName, toggleMode)
     }
 
     /// Worded as the destination, not the current state: the current mode is already in the
     /// spoken label, so the rotor entry has to say what activating it will change.
     private var switchActionName: String {
-        mode == .used ? "Show percentage left" : "Show percentage used"
+        mode == .used ? String(localized: "Show percentage left") : String(localized: "Show percentage used")
+    }
+
+    /// A whole sentence per mode rather than the action name lower-cased into one: lower-casing
+    /// is wrong in a language that capitalises its nouns.
+    private var switchHint: String {
+        mode == .used
+            ? String(localized: "Use the actions rotor to show percentage left")
+            : String(localized: "Use the actions rotor to show percentage used")
     }
 
     private func cell<Value: View>(_ title: String, @ViewBuilder value: () -> Value) -> some View {
@@ -271,15 +290,17 @@ private struct LeadStrip: View {
     }
 
     private func spoken(lead: GlanceAccount?, row: GlanceRow?) -> String {
-        guard let lead, let row else { return "No limit to report" }
+        guard let lead, let row else { return String(localized: "No limit to report") }
         // Validity never changes the figure, so the lead's `stale` override is not needed here.
         let p = lead.presentation(of: row, at: now, staleAfter: snapshot.staleAfter, mode: mode)
         let figure = PercentText.figure(p)
+        let rowLabel = DisplayText.windowLabel(row.label, category: row.category, scope: row.scope)
         // Gated on the figure rather than on the raw percentage, so the sentence agrees with what
         // is drawn: an exhausted window with no percentage reads "100% used" in USED and is
         // still "remaining unknown" in LEFT, as before.
-        guard p.hasFigure else { return "\(lead.title), \(row.label): remaining unknown" }
-        return "\(lead.title), \(row.label): \(PercentText.spoken(figure, mode))"
+        guard p.hasFigure else { return String(localized: "\(lead.title), \(rowLabel): remaining unknown") }
+        let said = PercentText.spoken(figure, mode)
+        return String(localized: "\(lead.title), \(rowLabel): \(said)")
     }
 
     /// Counted through the connection status, so an account that needs signing in again stops
@@ -358,7 +379,9 @@ private struct AccountCard: View {
 
                 Spacer()
 
-                StatusMark(severity: account.severity, label: account.connectionStatus == .reconnectRequired ? "Reconnect" : nil)
+                StatusMark(
+                    severity: account.severity,
+                    label: account.connectionStatus == .reconnectRequired ? String(localized: "Reconnect") : nil)
             }
 
             if let message = account.statusMessage {
@@ -402,10 +425,16 @@ struct WindowRow: View {
     }
     private let segmentColors = [UsageColors.data, UsageColors.ink, UsageColors.faint, UsageColors.muted]
 
+    /// The window's name: the three horizons the app names itself are translated, a provider's
+    /// own label is shown as it came.
+    private var rowLabel: String {
+        DisplayText.windowLabel(row.label, category: row.category, scope: row.scope)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(row.label)
+                Text(verbatim: rowLabel)
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)
                 Spacer()
@@ -426,7 +455,7 @@ struct WindowRow: View {
 
             if row.segments.isEmpty {
                 UsageBar(presentation: presentation)
-                    .accessibilityLabel("\(row.label): \(PercentText.spoken(figureText, mode))")
+                    .accessibilityLabel(String(localized: "\(rowLabel): \(PercentText.spoken(figureText, mode))"))
             } else {
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
@@ -447,24 +476,32 @@ struct WindowRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
                 .frame(height: 6)
-                .accessibilityLabel("\(row.label): \(PercentText.spoken(figureText, mode))")
+                .accessibilityLabel(String(localized: "\(rowLabel): \(PercentText.spoken(figureText, mode))"))
                 Text("Usage breakdown").usageFont(.small).foregroundStyle(UsageColors.muted)
                 ForEach(row.segments.indices, id: \.self) { index in
                     HStack(spacing: 6) {
                         Circle().fill(segmentColors[index % segmentColors.count]).frame(width: 6, height: 6)
                             .accessibilityHidden(true)
-                        Text("\(row.segments[index].label) usage: \(UsageWindow.percentLabel(row.segments[index].usedPercent))")
+                        Text(verbatim: segmentLegend(row.segments[index]))
                             .usageFont(.small).foregroundStyle(UsageColors.muted)
                     }
                 }
             }
 
             if let resetAt = row.resetAt {
-                Text("Resets in \(Countdown.format(until: resetAt, from: now))")
+                Text(verbatim: Countdown.resetsInLine(until: resetAt, from: now, texts: LocalizedCountdownTexts()))
                     .usageFont(.small)
                     .foregroundStyle(UsageColors.faint)
             }
         }
+    }
+
+    /// "Opus usage: 20%": the segment's own label is data, and its share is a used figure whatever
+    /// the mode, since the bar it belongs to always draws usage.
+    private func segmentLegend(_ segment: UsageSegment) -> String {
+        let token = UsageWindow.percentToken(segment.usedPercent, exhausted: false, mode: .left)
+        let share = PercentText.figure(token: token)
+        return String(localized: "\(segment.label) usage: \(share)")
     }
 
     private var totalUsed: Double { min(row.remainingPercent.map { 100 - $0 } ?? row.segments.reduce(0) { $0 + $1.usedPercent }, 100) }
