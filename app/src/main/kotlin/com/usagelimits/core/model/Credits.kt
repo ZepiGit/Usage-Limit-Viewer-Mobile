@@ -232,9 +232,14 @@ object CreditFormat {
         else plain(amount, currency, locale)
 
     /** A balance as the cards and the widget say it: an uncapped key reads as spend, not balance. */
-    fun line(balance: CreditBalance, locale: Locale = Locale.getDefault()): String {
+    fun line(
+        balance: CreditBalance,
+        locale: Locale = Locale.getDefault(),
+        /** Wraps the amount for an uncapped key; English by default, the UI passes its resource. */
+        spentThisMonth: (String) -> String = { "$it spent this month" },
+    ): String {
         val text = string(balance.amount, balance.currency, locale)
-        return if (balance.unlimited) "$text spent this month" else text
+        return if (balance.unlimited) spentThisMonth(text) else text
     }
 
     /** Every balance of an account on one line: "¥110.00 · $5.00". */

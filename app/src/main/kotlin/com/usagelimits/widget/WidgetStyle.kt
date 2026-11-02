@@ -1,8 +1,10 @@
 package com.usagelimits.widget
 
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import com.usagelimits.R
 import com.usagelimits.core.model.FillState
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ReadingValidity
@@ -51,8 +53,8 @@ enum class WidgetTextTone {
     }
 }
 
-/** A choosable panel colour, with the name the configuration screen shows for it. */
-data class WidgetColorChoice(val id: String, val label: String, val argb: Int)
+/** A choosable panel colour, with the string resource naming it on the configuration screen. */
+data class WidgetColorChoice(val id: String, @StringRes val labelRes: Int, val argb: Int)
 
 /**
  * Everything the widgets need to paint one configuration: the panel, and the ink derived
@@ -176,16 +178,16 @@ data class WidgetStyle(
 
         /** The panel colours the configuration screen offers, default first. */
         val CHOICES: List<WidgetColorChoice> = listOf(
-            WidgetColorChoice("charcoal", "Charcoal", WidgetBackground.DEFAULT_ARGB),
-            WidgetColorChoice("black", "Black", 0xFF000000.toInt()),
-            WidgetColorChoice("graphite", "Graphite", 0xFF2A2927.toInt()),
-            WidgetColorChoice("navy", "Navy", 0xFF16213A.toInt()),
-            WidgetColorChoice("plum", "Plum", 0xFF2B1A34.toInt()),
-            WidgetColorChoice("forest", "Forest", 0xFF13281C.toInt()),
-            WidgetColorChoice("terracotta", "Terracotta", 0xFF6E3A2B.toInt()),
-            WidgetColorChoice("cream", "Cream", 0xFFF3F0E8.toInt()),
-            WidgetColorChoice("light", "Light grey", 0xFFE6E5E0.toInt()),
-            WidgetColorChoice("white", "White", 0xFFFFFFFF.toInt()),
+            WidgetColorChoice("charcoal", R.string.widget_color_charcoal, WidgetBackground.DEFAULT_ARGB),
+            WidgetColorChoice("black", R.string.widget_color_black, 0xFF000000.toInt()),
+            WidgetColorChoice("graphite", R.string.widget_color_graphite, 0xFF2A2927.toInt()),
+            WidgetColorChoice("navy", R.string.widget_color_navy, 0xFF16213A.toInt()),
+            WidgetColorChoice("plum", R.string.widget_color_plum, 0xFF2B1A34.toInt()),
+            WidgetColorChoice("forest", R.string.widget_color_forest, 0xFF13281C.toInt()),
+            WidgetColorChoice("terracotta", R.string.widget_color_terracotta, 0xFF6E3A2B.toInt()),
+            WidgetColorChoice("cream", R.string.widget_color_cream, 0xFFF3F0E8.toInt()),
+            WidgetColorChoice("light", R.string.widget_color_light_grey, 0xFFE6E5E0.toInt()),
+            WidgetColorChoice("white", R.string.widget_color_white, 0xFFFFFFFF.toInt()),
         )
 
         fun fromStored(argb: Int?, opacityPercent: Int?, transparent: Boolean, textTone: String?): WidgetStyle =

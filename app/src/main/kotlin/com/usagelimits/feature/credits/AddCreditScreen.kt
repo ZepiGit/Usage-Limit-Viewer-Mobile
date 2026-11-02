@@ -50,6 +50,9 @@ import com.usagelimits.ui.components.Segment
 import com.usagelimits.ui.components.SegmentedRow
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.text.creditKeyHintRes
+import com.usagelimits.ui.text.creditRegionLabelRes
+import com.usagelimits.ui.text.creditUnavailableReasonRes
 import com.usagelimits.ui.theme.UsageColors
 
 /**
@@ -102,14 +105,14 @@ fun AddCreditScreen(
             CreditProviderId.entries.forEachIndexed { index, provider ->
                 if (index > 0) RuleDivider(Modifier.padding(horizontal = 16.dp))
                 ProviderRow(
-                    name = provider.displayName, subtitle = provider.keyHint,
+                    name = provider.displayName, subtitle = stringResource(creditKeyHintRes(provider)),
                     selected = provider == selected, enabled = !busy,
                     icon = creditIcon(provider), onOpen = { uriHandler.openUri(provider.consoleUrl) },
                 ) { selected = provider }
             }
             CreditProviderId.notPossible.forEach { unavailable ->
                 RuleDivider(Modifier.padding(horizontal = 16.dp))
-                ProviderRow(name = unavailable.displayName, subtitle = unavailable.reason, selected = false, enabled = false) {}
+                ProviderRow(name = unavailable.displayName, subtitle = creditUnavailableReasonRes(unavailable)?.let { stringResource(it) } ?: unavailable.reason, selected = false, enabled = false) {}
             }
         }
 
@@ -180,7 +183,7 @@ private fun KeyForm(
             Spacer(Modifier.height(6.dp))
             SegmentedRow {
                 CreditProviderId.regions.forEach { option ->
-                    Segment(CreditProviderId.regionLabel(option), option == region) { if (!busy) region = option }
+                    Segment(stringResource(creditRegionLabelRes(option)), option == region) { if (!busy) region = option }
                 }
             }
             Spacer(Modifier.height(10.dp))

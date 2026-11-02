@@ -70,6 +70,7 @@ import com.usagelimits.ui.percentFlipLabelRes
 import com.usagelimits.ui.percentSideWordRes
 import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.text.rememberCountdownTexts
+import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.ui.components.Dot
 import com.usagelimits.ui.components.EmptyBox
 import com.usagelimits.ui.components.ErrorBlock
@@ -494,7 +495,7 @@ fun AccountCard(
         Spacer(Modifier.height(12.dp))
         if (windows.isEmpty()) {
             Text(
-                text = snapshot?.errorMessage ?: stringResource(R.string.overview_no_usage_data),
+                text = snapshot?.errorMessage?.let { storedMessageText(it) } ?: stringResource(R.string.overview_no_usage_data),
                 style = MaterialTheme.typography.bodyMedium,
                 color = UsageColors.Muted,
             )
@@ -546,7 +547,7 @@ fun AccountCard(
             ErrorBlock(
                 message = stringResource(
                     if (partial) R.string.error_partial_update else R.string.error_showing_last_known,
-                    snapshot.errorMessage,
+                    storedMessageText(snapshot.errorMessage),
                 ),
                 modifier = Modifier.padding(top = 12.dp),
                 dot = if (partial) UsageColors.Warning else UsageColors.Negative,

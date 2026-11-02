@@ -14,6 +14,7 @@ import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.network.ProviderException
 import com.usagelimits.core.oauth.SignInKeepAliveService
 import com.usagelimits.core.sync.userMessage
+import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.providers.DeviceCodeLoginCapable
 import com.usagelimits.providers.LoginChallenge
 import com.usagelimits.providers.KeyLoginCapable
@@ -244,7 +245,7 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                 _state.value = AddAccountState.Success(providerId, account.label)
             } catch (e: ProviderException) {
                 _state.value = AddAccountState.Failed(
-                    providerId, e.userMessage(), keyAlternative, deviceCodeAlternative, withDeviceCode,
+                    providerId, storedMessageText(context.resources, e.userMessage()), keyAlternative, deviceCodeAlternative, withDeviceCode,
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

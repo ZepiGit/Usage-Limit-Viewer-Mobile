@@ -17,6 +17,7 @@ import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.SyncDiagnostics
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.userMessage
+import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.core.network.ProviderException
 import com.usagelimits.widget.WidgetUpdater
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -274,7 +275,7 @@ class UsageViewModel(
                 // the next sync will show whatever the provider did.
                 throw e
             } catch (e: ProviderException) {
-                transientMessage.value = e.userMessage()
+                transientMessage.value = storedMessageText(appContext.resources, e.userMessage())
             } catch (e: Exception) {
                 transientMessage.value = appContext.getString(R.string.message_reset_failed)
             } finally {

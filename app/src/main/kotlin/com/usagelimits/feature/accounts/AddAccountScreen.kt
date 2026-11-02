@@ -56,6 +56,8 @@ import com.usagelimits.ui.components.ScreenTitle
 import com.usagelimits.ui.components.Spinner
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.text.apiKeyHintRes
+import com.usagelimits.ui.text.providerRegionLabelRes
 import com.usagelimits.ui.theme.UsageColors
 
 /**
@@ -137,7 +139,7 @@ fun AddAccountScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 ProviderRegion.options(state.provider).forEach { option ->
                                     OutlineButton(
-                                        option.label(state.provider),
+                                        providerRegionLabelRes(state.provider, option)?.let { stringResource(it) } ?: option.label(state.provider),
                                         { if (acceptsInput()) onChooseRegion(state.provider, option) },
                                         Modifier.fillMaxWidth(),
                                     )
@@ -237,7 +239,7 @@ fun AddAccountScreen(
                                 color = UsageColors.Ink,
                             )
                             Text(
-                                text = state.hint,
+                                text = apiKeyHintRes(state.provider)?.let { stringResource(it) } ?: state.hint,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = UsageColors.Muted,
                             )

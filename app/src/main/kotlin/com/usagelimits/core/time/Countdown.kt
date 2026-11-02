@@ -75,6 +75,31 @@ object Countdown {
         zone: ZoneId = ZoneId.systemDefault(),
         locale: Locale = Locale.getDefault(),
         texts: CountdownTexts = EnglishCountdownTexts,
+    ): String? = resetMoment(resetAt, nowMs, zone, locale, texts, bare = false)
+
+    /**
+     * [absoluteResetLabel] without its "Resets" word: "14:05", "Tue 09:00", "16 Sep", or "Reset
+     * due" once the instant has passed.
+     *
+     * For a tile that already says what it is ("Next reset") and has no width for the word again.
+     * Built from the same pieces rather than by cutting a prefix off the label, because the word
+     * and its position differ per language.
+     */
+    fun absoluteResetStamp(
+        resetAt: Long?,
+        nowMs: Long,
+        zone: ZoneId = ZoneId.systemDefault(),
+        locale: Locale = Locale.getDefault(),
+        texts: CountdownTexts = EnglishCountdownTexts,
+    ): String? = resetMoment(resetAt, nowMs, zone, locale, texts, bare = true)
+
+    private fun resetMoment(
+        resetAt: Long?,
+        nowMs: Long,
+        zone: ZoneId,
+        locale: Locale,
+        texts: CountdownTexts,
+        bare: Boolean,
     ): String? {
         if (resetAt == null) return null
         if (resetAt <= nowMs) return texts.resetDue()
@@ -88,16 +113,17 @@ object Countdown {
             .format(reset)
 
         return when {
-            days == 0L -> texts.resetsAt(time)
+            days == 0L -> if (bare) time else texts.resetsAt(time)
             // Inside a week the weekday is the most readable anchor; beyond it the day of the
             // month is, because "Tue" stops being unambiguous once more than one has passed.
-            days in 1..6 -> texts.resetsOn(
-                DateTimeFormatter.ofPattern("EEE", locale).format(reset),
-                time,
-            )
-            else -> texts.resetsOnDate(
-                DateTimeFormatter.ofPattern(texts.resetDatePattern(), locale).format(reset),
-            )
+            days in 1..6 -> {
+                val weekday = DateTimeFormatter.ofPattern("EEE", locale).format(reset)
+                if (bare) "$weekday $time" else texts.resetsOn(weekday, time)
+            }
+            else -> {
+                val date = DateTimeFormatter.ofPattern(texts.resetDatePattern(), locale).format(reset)
+                if (bare) date else texts.resetsOnDate(date)
+            }
         }
     }
 
@@ -132,8 +158,20 @@ object Countdown {
          */
         nowMs: Long? = null,
         texts: CountdownTexts = EnglishCountdownTexts,
+    ): String =
+        if (fetchedAt == null) texts.neverUpdated()
+        else texts.asOf(asOfStamp(fetchedAt, zone, locale, nowMs))
+
+    /**
+     * The stamp inside [asOfLabel]: "12:40", or date and time when [nowMs] says it is not from
+     * today. For a line that already carries its own lead-in and cannot repeat "As of".
+     */
+    fun asOfStamp(
+        fetchedAt: Long,
+        zone: ZoneId = ZoneId.systemDefault(),
+        locale: Locale = Locale.getDefault(),
+        nowMs: Long? = null,
     ): String {
-        if (fetchedAt == null) return texts.neverUpdated()
         val at = Instant.ofEpochMilli(fetchedAt).atZone(zone)
         val sameDay = nowMs == null ||
             Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate() == at.toLocalDate()
@@ -142,6 +180,6 @@ object Countdown {
         } else {
             DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT, FormatStyle.SHORT)
         }
-        return texts.asOf(style.withLocale(locale).format(at))
+        return style.withLocale(locale).format(at)
     }
 }
