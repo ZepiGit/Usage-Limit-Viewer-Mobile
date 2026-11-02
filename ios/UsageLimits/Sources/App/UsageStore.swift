@@ -290,7 +290,7 @@ final class UsageStore: ObservableObject {
             // opens the app and pulls to refresh should hear about a limit that has just run
             // out; the ledger is what stops them hearing it twice when the background task
             // reaches the same conclusion later.
-            await NotificationScheduler.post(try await container.pendingNotifications())
+            await NotificationScheduler.post(try await container.pendingNotifications(texts: LocalizedNotificationTexts()))
         } catch is CancellationError {
             // The screen was closed. Not a failure, and not something to paint red.
         } catch {

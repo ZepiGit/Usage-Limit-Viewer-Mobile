@@ -274,29 +274,47 @@ enum QuotaFormatting {
 /// instead carries its own timestamp: "As of 12:40".
 /// Internal, not private: the configured widgets in `ConfiguredWidgets.swift` render the
 /// same reset line, and a second copy of the wording is a second answer to one question.
+///
+/// The wording is the app's: the same `Countdown` lines the screens use, with the catalog-backed
+/// texts, so a clock time reads the same on the tile and in the overview.
 enum GlanceText {
 
     /// "Resets Tue 09:00", or the boundary state once the reset has passed.
+    ///
+    /// The cached numbers of a passed reset predate it, so the tile says a refresh is pending
+    /// instead of implying a reset is still ahead. The timeline requests fresh data moments
+    /// after the boundary, so this state is short-lived.
     static func resetLine(resetAt: Date?, now: Date) -> String? {
-        guard let resetAt else { return nil }
-        if resetAt <= now {
-            // The cached numbers predate the reset, so the tile says so instead of
-            // implying a reset is still pending. The timeline requests fresh data
-            // moments after the boundary, so this state is short-lived.
-            return "Reset · refresh pending"
-        }
-        return "Resets \(Countdown.absolute(resetAt, now: now))"
+        Countdown.resetLine(resetAt: resetAt, now: now, texts: LocalizedCountdownTexts())
     }
 
     /// "As of 12:40" — the data's own timestamp, or nothing if the cache states none.
-    ///
-    /// [label] names whose timestamp it is, because an aggregate max does not mean what
+    static func asOfLine(updatedAt: Date?, now: Date) -> String? {
+        Countdown.asOfLine(updatedAt: updatedAt, now: now, texts: LocalizedCountdownTexts())
+    }
+
+    /// "Latest update 12:40" — for an aggregate, because an aggregate max does not mean what
     /// "As of" implies beside one account's numbers: on a multi-account tile the maximum
     /// fetch instant across the selection is the NEWEST account's update, so the header
     /// says that rather than dating every row with it.
-    static func asOfLine(updatedAt: Date?, now: Date, label: String = "As of") -> String? {
-        guard let updatedAt else { return nil }
-        return "\(label) \(Countdown.absolute(updatedAt, now: now))"
+    static func latestUpdateLine(updatedAt: Date?, now: Date) -> String? {
+        Countdown.latestUpdateLine(updatedAt: updatedAt, now: now, texts: LocalizedCountdownTexts())
+    }
+
+    /// "Claude, Messages": the account and the limit a figure belongs to, as VoiceOver reads
+    /// them ahead of the number. The limit's own label is data except for the app's three
+    /// horizons, which `DisplayText` translates.
+    static func subject(_ account: GlanceAccount, _ row: GlanceRow?) -> String {
+        guard let row else { return account.title }
+        return String(localized: "\(account.title), \(row.displayLabel)")
+    }
+}
+
+extension GlanceRow {
+    /// The row's label in the current language: "5h limit", "Weekly" and "Monthly" of a global
+    /// window are the app's words, anything else is the provider's.
+    var displayLabel: String {
+        DisplayText.windowLabel(label, category: category, scope: scope)
     }
 }
 
@@ -467,9 +485,10 @@ private struct QuotaBar: View {
 
     private var spokenText: String {
         guard presentation.hasFigure else {
-            return "\(context): remaining unknown"
+            return String(localized: "\(context): remaining unknown")
         }
-        return "\(context): \(PercentText.spoken(PercentText.figure(presentation), presentation.side))"
+        let said = PercentText.spoken(PercentText.figure(presentation), presentation.side)
+        return String(localized: "\(context): \(said)")
     }
 }
 
@@ -499,21 +518,22 @@ struct WidgetEmptyStateView: View {
 
     private var title: String {
         switch reason {
-        case .missingAccount: return "Account unavailable"
-        case .missingPreset: return "Layout unavailable"
-        case .sourceUnavailable: return "Locked"
-        case .corruptSource: return "Can't read usage"
-        case .ready, .noAccounts: return "No accounts yet"
+        case .missingAccount: return String(localized: "Account unavailable")
+        case .missingPreset: return String(localized: "Layout unavailable")
+        case .sourceUnavailable: return String(localized: "Locked")
+        case .corruptSource: return String(localized: "Can't read usage")
+        case .ready, .noAccounts: return String(localized: "No accounts yet")
         }
     }
 
     private var detail: String {
         switch reason {
-        case .missingAccount: return "Edit this widget and choose another account"
-        case .missingPreset: return "Recreate this layout in UsageLimits, then edit this widget"
-        case .sourceUnavailable: return "Unlock this device to see how much quota is left"
-        case .corruptSource: return "Open UsageLimits to rebuild the data"
-        case .ready, .noAccounts: return "Open UsageLimits to see how much quota is left"
+        case .missingAccount: return String(localized: "Edit this widget and choose another account")
+        case .missingPreset:
+            return String(localized: "Recreate this layout in UsageLimits, then edit this widget")
+        case .sourceUnavailable: return String(localized: "Unlock this device to see how much quota is left")
+        case .corruptSource: return String(localized: "Open UsageLimits to rebuild the data")
+        case .ready, .noAccounts: return String(localized: "Open UsageLimits to see how much quota is left")
         }
     }
 
@@ -583,11 +603,11 @@ private struct MediumAccountRow: View {
                     .lineLimit(1)
             }
             if let message = account.statusMessage {
-                Text(verbatim: message).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(2)
+                Text(verbatim: DisplayText.stored(message)).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(2)
             }
             QuotaBar(
                 presentation: presentation,
-                context: row.map { "\(account.title), \($0.label)" } ?? account.title,
+                context: GlanceText.subject(account, row),
                 ink: ink
             )
         }
@@ -650,14 +670,14 @@ struct UsageWidgetSmallView: View {
                 .lineLimit(1)
 
             if let row = focus.row {
-                Text(verbatim: row.label)
+                Text(verbatim: row.displayLabel)
                     .usageFont(.small)
                     .foregroundColor(ink.secondary)
                     .lineLimit(1)
             }
 
             if let message = focus.account.statusMessage {
-                Text(verbatim: message).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(2)
+                Text(verbatim: DisplayText.stored(message)).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(2)
             }
 
             Spacer(minLength: 4)
@@ -668,7 +688,7 @@ struct UsageWidgetSmallView: View {
 
             QuotaBar(
                 presentation: p,
-                context: focus.row.map { "\(focus.account.title), \($0.label)" } ?? focus.account.title,
+                context: GlanceText.subject(focus.account, focus.row),
                 ink: ink
             )
 
@@ -764,7 +784,7 @@ struct UsageWidgetMediumView: View {
             if hiddenCount > 0 {
                 // Counted, not drawn: the reader learns the rest exist without
                 // being shown three unreadable half-rows.
-                Text(verbatim: "+\(hiddenCount) more")
+                Text(verbatim: String(localized: "+\(hiddenCount) more"))
                     .usageFont(.micro)
                     .foregroundColor(ink.tertiary)
             }
@@ -824,7 +844,7 @@ struct UsageAccessoryRectangularView: View {
             }
 
             if let message = focus.account.statusMessage {
-                Text(verbatim: message).font(.caption2).lineLimit(1)
+                Text(verbatim: DisplayText.stored(message)).font(.caption2).lineLimit(1)
             } else if let reset = GlanceText.resetLine(resetAt: entry.snapshot.nextResetAt, now: entry.date) {
                 Text(verbatim: reset)
                     .font(.caption2)
@@ -842,7 +862,8 @@ struct UsageAccessoryRectangularView: View {
 
     private var emptyContent: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text("UsageLimits")
+            // The app's name is a brand, not a sentence.
+            Text(verbatim: "UsageLimits")
                 .font(.headline)
             Text("Open the app to see your quota")
                 .font(.caption2)
@@ -947,7 +968,7 @@ struct UsageRingWidgetView: View {
                             .lineLimit(1)
                     }
                     if let row = focus.row {
-                        Text(verbatim: row.label)
+                        Text(verbatim: row.displayLabel)
                             .usageFont(.micro)
                             .foregroundColor(ink.secondary)
                             .lineLimit(1)
@@ -963,7 +984,7 @@ struct UsageRingWidgetView: View {
                 .foregroundColor(ink.primary)
                 .lineLimit(1)
             if let message = focus.account.statusMessage {
-                Text(verbatim: message).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(2)
+                Text(verbatim: DisplayText.stored(message)).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(2)
             }
             if let reset = GlanceText.resetLine(resetAt: shownReset, now: entry.date) {
                 Text(verbatim: reset)
@@ -989,11 +1010,12 @@ struct UsageRingWidgetView: View {
     }
 
     private func spoken(_ p: WindowPresentation, _ focus: WidgetFocus) -> String {
-        let limit = focus.row.map { ", \($0.label)" } ?? ""
+        let subject = GlanceText.subject(focus.account, focus.row)
         guard p.hasFigure else {
-            return "\(focus.account.title)\(limit): remaining unknown"
+            return String(localized: "\(subject): remaining unknown")
         }
-        return "\(focus.account.title)\(limit): \(PercentText.spoken(PercentText.figure(p), entry.snapshot.percentDisplay))"
+        let said = PercentText.spoken(PercentText.figure(p), entry.snapshot.percentDisplay)
+        return String(localized: "\(subject): \(said)")
     }
 }
 
@@ -1046,15 +1068,19 @@ struct UsageAccessoryCircularView: View {
         }
         .accessibilityElement()
         .accessibilityLabel(
-            focus.map { "\($0.title(for: text, mode: mode))" } ?? "Open the app to see your quota")
+            focus.map { $0.title(for: text, mode: mode) } ?? String(localized: "Open the app to see your quota"))
     }
 }
 
 private extension WidgetFocus {
     func title(for figure: String, mode: PercentDisplay) -> String {
-        guard figure != PercentToken.unknown else { return "\(account.title): remaining unknown" }
-        let warning = account.statusMessage.map { ", " + $0 } ?? ""
-        return "\(account.title): \(PercentText.spoken(figure, mode))\(warning)"
+        guard figure != PercentToken.unknown else {
+            return String(localized: "\(account.title): remaining unknown")
+        }
+        let said = PercentText.spoken(figure, mode)
+        let sentence = String(localized: "\(account.title): \(said)")
+        guard let message = account.statusMessage else { return sentence }
+        return String(localized: "\(sentence), \(DisplayText.stored(message))")
     }
 }
 
@@ -1117,7 +1143,7 @@ struct UsageWidgetLargeView: View {
             }
 
             if hiddenCount > 0 {
-                Text(verbatim: "+\(hiddenCount) more")
+                Text(verbatim: String(localized: "+\(hiddenCount) more"))
                     .usageFont(.micro)
                     .foregroundColor(ink.tertiary)
             }
@@ -1141,7 +1167,7 @@ private struct WidgetHeader: View {
             // The maximum fetch instant across the accounts shown. "As of" beside one
             // account's row means THAT account's fetch — a newer hidden account must not
             // freshen an older visible one, so the aggregate names itself truthfully.
-            if let asOf = GlanceText.asOfLine(updatedAt: entry.snapshot.updatedAt, now: entry.date, label: "Latest update") {
+            if let asOf = GlanceText.latestUpdateLine(updatedAt: entry.snapshot.updatedAt, now: entry.date) {
                 Text(verbatim: asOf)
                     .usageFont(.micro)
                     .foregroundColor(ink.tertiary)

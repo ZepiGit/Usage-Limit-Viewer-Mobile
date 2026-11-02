@@ -89,7 +89,7 @@ private extension GlanceCredit {
     /// The figure a row leads with. Unlimited has no balance, only a spend.
     var headlineText: String {
         guard let balance = balances.first else { return "—" }
-        return balance.unlimited ? "No limit" : CreditFormat.string(balance.amount, currency: balance.currency)
+        return balance.unlimited ? String(localized: "No limit") : CreditFormat.string(balance.amount, currency: balance.currency)
     }
 
     /// Other currencies, for the second line ("¥110.00 · $5.00" leads with the worse one).
@@ -172,7 +172,7 @@ struct CreditsSmallView: View {
     }
 
     private func statusLine(_ credit: GlanceCredit, _ severity: Severity) -> String {
-        if let message = credit.statusMessage { return message }
+        if let message = credit.statusMessage { return DisplayText.stored(message) }
         // Stale, failed or unread: say so rather than dating a number that cannot be trusted.
         if severity == .stale || severity == .error || severity == .unknown { return SeverityPalette.label(severity) }
         return GlanceText.asOfLine(updatedAt: credit.fetchedAt, now: entry.date) ?? SeverityPalette.label(severity)
@@ -203,7 +203,7 @@ private struct CreditRow: View {
                     .lineLimit(1)
             }
             CreditBar(remainingPercent: credit.balances.first?.remainingPercent, severity: severity, ink: ink)
-            if let message = credit.statusMessage ?? credit.extraText {
+            if let message = credit.statusMessage.map({ DisplayText.stored($0) }) ?? credit.extraText {
                 Text(verbatim: message).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(1)
             }
         }
@@ -233,8 +233,8 @@ struct CreditsListView: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text("Credits").usageFont(.smallStrong).foregroundColor(ink.secondary)
                         Spacer(minLength: 4)
-                        if let asOf = GlanceText.asOfLine(
-                            updatedAt: entry.updatedAt, now: entry.date, label: "Latest update") {
+                        if let asOf = GlanceText.latestUpdateLine(
+                            updatedAt: entry.updatedAt, now: entry.date) {
                             Text(verbatim: asOf).usageFont(.micro).foregroundColor(ink.tertiary).lineLimit(1)
                         }
                     }
@@ -243,7 +243,7 @@ struct CreditsListView: View {
                     }
                     let hidden = entry.credits.count - shown.count
                     if hidden > 0 {
-                        Text(verbatim: "+\(hidden) more")
+                        Text(verbatim: String(localized: "+\(hidden) more"))
                             .usageFont(.micro).foregroundColor(ink.tertiary)
                     }
                     Spacer(minLength: 0)
@@ -263,17 +263,17 @@ struct CreditsEmptyView: View {
 
     private var title: String {
         switch state {
-        case .locked: return "Locked"
-        case .unreadable: return "Can't read balances"
-        case .ready, .noCredits: return "No credit balances"
+        case .locked: return String(localized: "Locked")
+        case .unreadable: return String(localized: "Can't read balances")
+        case .ready, .noCredits: return String(localized: "No credit balances")
         }
     }
 
     private var detail: String {
         switch state {
-        case .locked: return "Unlock this device to see your balances"
-        case .unreadable: return "Open UsageLimits to rebuild the data"
-        case .ready, .noCredits: return "Add one in UsageLimits to see what is left to spend"
+        case .locked: return String(localized: "Unlock this device to see your balances")
+        case .unreadable: return String(localized: "Open UsageLimits to rebuild the data")
+        case .ready, .noCredits: return String(localized: "Add one in UsageLimits to see what is left to spend")
         }
     }
 

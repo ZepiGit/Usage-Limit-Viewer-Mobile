@@ -254,6 +254,17 @@
         }
       }
     },
+    "%@: remaining unknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: Restwert unbekannt"
+          }
+        }
+      }
+    },
     "%lld accounts" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -500,6 +511,17 @@
         }
       }
     },
+    "+%lld more" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+%lld weitere"
+          }
+        }
+      }
+    },
     "5h limit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -555,6 +577,28 @@
         }
       }
     },
+    "Account" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto"
+          }
+        }
+      }
+    },
+    "Account Rings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto-Ringe"
+          }
+        }
+      }
+    },
     "Account actions" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -562,6 +606,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Kontoaktionen"
+          }
+        }
+      }
+    },
+    "Account unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto nicht verfügbar"
           }
         }
       }
@@ -643,6 +698,17 @@
         }
       }
     },
+    "Add one in UsageLimits to see what is left to spend" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Füge in UsageLimits eins hinzu, um zu sehen, wie viel du noch ausgeben kannst"
+          }
+        }
+      }
+    },
     "All" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -654,6 +720,21 @@
         }
       }
     },
+    "All accounts" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Konten"
+          }
+        }
+      }
+    },
+    "Antigravity" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
+    },
     "App icon" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -661,6 +742,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "App-Symbol"
+          }
+        }
+      }
+    },
+    "App setting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-Einstellung"
           }
         }
       }
@@ -742,6 +834,28 @@
         }
       }
     },
+    "Can't read balances" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Guthaben nicht lesbar"
+          }
+        }
+      }
+    },
+    "Can't read usage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nutzung nicht lesbar"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -808,6 +922,32 @@
         }
       }
     },
+    "Claude" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
+    },
+    "Closest Resets" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächste Resets"
+          }
+        }
+      }
+    },
+    "Closest Resets automatically shows whatever account resets next. Create custom layouts in the app's widget settings." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächste Resets zeigt automatisch das Konto, das als Nächstes zurückgesetzt wird. Eigene Layouts erstellst du in den Widget-Einstellungen der App."
+          }
+        }
+      }
+    },
     "Color" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -837,6 +977,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Verbundene Konten"
+          }
+        }
+      }
+    },
+    "Content" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inhalt"
           }
         }
       }
@@ -940,6 +1091,17 @@
         }
       }
     },
+    "Custom" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eigene Auswahl"
+          }
+        }
+      }
+    },
     "Custom %lld" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -973,6 +1135,17 @@
         }
       }
     },
+    "Dark" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dunkel"
+          }
+        }
+      }
+    },
     "DeepSeek API key." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -994,6 +1167,10 @@
           }
         }
       }
+    },
+    "Devin" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
     },
     "Disconnect" : {
       "extractionState" : "manual",
@@ -1057,6 +1234,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bearbeiten"
+          }
+        }
+      }
+    },
+    "Edit this widget and choose another account" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bearbeite dieses Widget und wähle ein anderes Konto"
           }
         }
       }
@@ -1149,6 +1337,10 @@
         }
       }
     },
+    "Grok" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
+    },
     "Healthy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1237,6 +1429,10 @@
         }
       }
     },
+    "Kimi" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
+    },
     "Latest update %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1259,6 +1455,17 @@
         }
       }
     },
+    "Layout unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Layout nicht verfügbar"
+          }
+        }
+      }
+    },
     "Left" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1266,6 +1473,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Übrig"
+          }
+        }
+      }
+    },
+    "Light" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hell"
           }
         }
       }
@@ -1299,6 +1517,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nutzung wird geladen"
+          }
+        }
+      }
+    },
+    "Locked" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gesperrt"
           }
         }
       }
@@ -1354,6 +1583,21 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Management-Schlüssel für das Kontoguthaben oder ein beliebiger API-Schlüssel für das Limit dieses Schlüssels."
+          }
+        }
+      }
+    },
+    "Meta Muse" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
+    },
+    "Mini Rings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mini-Ringe"
           }
         }
       }
@@ -1523,6 +1767,17 @@
         }
       }
     },
+    "No credit balances" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Guthaben"
+          }
+        }
+      }
+    },
     "No limit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1655,6 +1910,17 @@
         }
       }
     },
+    "One account" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Konto"
+          }
+        }
+      }
+    },
     "One billing view rejected authentication; some usage could not be refreshed." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1662,6 +1928,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine Abrechnungsansicht hat die Anmeldung abgelehnt; einige Nutzungswerte konnten nicht aktualisiert werden."
+          }
+        }
+      }
+    },
+    "One provider" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Anbieter"
+          }
+        }
+      }
+    },
+    "Only your usage rings and provider logos." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur deine Verbrauchsringe und Anbieter-Logos."
           }
         }
       }
@@ -1688,6 +1976,28 @@
         }
       }
     },
+    "Open UsageLimits to rebuild the data" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffne UsageLimits, um die Daten neu aufzubauen"
+          }
+        }
+      }
+    },
+    "Open UsageLimits to see how much quota is left" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffne UsageLimits, um zu sehen, wie viel Kontingent übrig ist"
+          }
+        }
+      }
+    },
     "Open console" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1709,6 +2019,25 @@
           }
         }
       }
+    },
+    "Open the app to see your quota" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffne die App, um dein Kontingent zu sehen"
+          }
+        }
+      }
+    },
+    "OpenAI Codex" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
+    },
+    "OpenCode Go" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
     },
     "OpenRouter, DeepSeek, Moonshot, xAI, fal.ai and Novita. Keys stay in the keychain on this device." : {
       "extractionState" : "manual",
@@ -1765,6 +2094,17 @@
         }
       }
     },
+    "Prepaid and API balances left to spend, lowest first." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prepaid- und API-Guthaben, niedrigstes zuerst."
+          }
+        }
+      }
+    },
     "Preview" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1783,6 +2123,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Datenschutz"
+          }
+        }
+      }
+    },
+    "Provider" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anbieter"
           }
         }
       }
@@ -1809,6 +2160,17 @@
         }
       }
     },
+    "Quota left on your AI subscriptions, at a glance." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übriges Kontingent deiner KI-Abos auf einen Blick."
+          }
+        }
+      }
+    },
     "Reconnect" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1831,6 +2193,17 @@
         }
       }
     },
+    "Recreate this layout in UsageLimits, then edit this widget" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erstelle dieses Layout in UsageLimits neu und bearbeite dann dieses Widget"
+          }
+        }
+      }
+    },
     "Refresh" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1849,6 +2222,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aktualisierungsring"
+          }
+        }
+      }
+    },
+    "Refresh in the app" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In der App aktualisieren"
           }
         }
       }
@@ -2205,6 +2589,17 @@
         }
       }
     },
+    "Text tone" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Textfarbe"
+          }
+        }
+      }
+    },
     "The browser opens %@'s own sign-in page. This app never sees your password." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2245,6 +2640,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die Erneuerungszeile nennt, wann das längste Kontingent zurückkommt. Sie erscheint nur in der Übersicht – ein Widget hat Platz für die Zahl, bei der es gleich knapp wird, nicht für ein zweites Datum, das damit konkurriert."
+          }
+        }
+      }
+    },
+    "The same tile with a transparent background." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieselbe Kachel mit transparentem Hintergrund."
           }
         }
       }
@@ -2315,6 +2721,17 @@
         }
       }
     },
+    "Transparent background" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transparenter Hintergrund"
+          }
+        }
+      }
+    },
     "Try again" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2344,6 +2761,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Unbekannt"
+          }
+        }
+      }
+    },
+    "Unlock this device to see how much quota is left" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entsperre dieses Gerät, um zu sehen, wie viel Kontingent übrig ist"
+          }
+        }
+      }
+    },
+    "Unlock this device to see your balances" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entsperre dieses Gerät, um deine Guthaben zu sehen"
           }
         }
       }
@@ -2392,6 +2831,50 @@
         }
       }
     },
+    "Usage Bars" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbrauchsbalken"
+          }
+        }
+      }
+    },
+    "Usage Limits" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nutzungsübersicht"
+          }
+        }
+      }
+    },
+    "Usage Limits (Clear)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nutzungsübersicht (transparent)"
+          }
+        }
+      }
+    },
+    "Usage Ring" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbrauchsring"
+          }
+        }
+      }
+    },
     "Usage breakdown" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2399,6 +2882,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Verbrauchsaufschlüsselung"
+          }
+        }
+      }
+    },
+    "Usage, account and reset at a glance." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbrauch, Konto und Reset auf einen Blick."
           }
         }
       }
@@ -2502,6 +2996,17 @@
         }
       }
     },
+    "What is left on one subscription, as a ring, with its reset time." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was bei einem Abo übrig ist, als Ring mit Reset-Zeit."
+          }
+        }
+      }
+    },
     "Whether figures count down what is left or up what you have used." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2509,6 +3014,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ob die Zahlen herunterzählen, was übrig ist, oder hochzählen, was du verbraucht hast."
+          }
+        }
+      }
+    },
+    "Widget content" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Widget-Inhalt"
           }
         }
       }
@@ -2534,6 +3050,21 @@
           }
         }
       }
+    },
+    "Your accounts, your order. Choose one account, a provider or a custom layout." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Konten in deiner Reihenfolge. Wähle ein Konto, einen Anbieter oder ein eigenes Layout."
+          }
+        }
+      }
+    },
+    "Z.ai GLM" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
     },
     "about %lld minutes" : {
       "extractionState" : "manual",
