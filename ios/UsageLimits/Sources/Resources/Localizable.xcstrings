@@ -602,24 +602,24 @@
         }
       }
     },
-    "Above 80%% used" : {
+    "Above 80% used" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Über 80 %% verbraucht"
+            "value" : "Über 80 % verbraucht"
           }
         }
       }
     },
-    "Above 90%% used" : {
+    "Above 90% used" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Über 90 %% verbraucht"
+            "value" : "Über 90 % verbraucht"
           }
         }
       }
@@ -848,24 +848,24 @@
         }
       }
     },
-    "Below 10%% left" : {
+    "Below 10% left" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unter 10 %% übrig"
+            "value" : "Unter 10 % übrig"
           }
         }
       }
     },
-    "Below 20%% left" : {
+    "Below 20% left" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Unter 20 %% übrig"
+            "value" : "Unter 20 % übrig"
           }
         }
       }

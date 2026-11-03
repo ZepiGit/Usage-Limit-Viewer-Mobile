@@ -41,8 +41,9 @@ A key made only of placeholders ("%@", as in `DisplayRepresentation(title: "\\(n
 words to translate: it passes its argument through, so it is neither required nor reported.
 A name that is data, such as a provider's, is a key with `"shouldTranslate": false`.
 
-How a literal becomes a key. Text is kept as written, with a literal "%" doubled to "%%" (what
-Swift does when it builds the lookup key), and every interpolation \\(...) becomes a placeholder.
+How a literal becomes a key. Text is kept as written. A literal with an interpolation is a format
+string, so its "%" is doubled to "%%" and every interpolation \\(...) becomes a placeholder; a
+literal without one is looked up as written and its "%" stays single ("Above 80% used").
 The script cannot see the type of the expression, and Swift writes %@ for a String but %lld for an
 Int, so a placeholder of any kind (%@, %lld, %d, %ld, %f, positional or not) is compared as the
 same placeholder: write whichever form is true in the catalog and either matches. Two catalog keys
@@ -207,7 +208,11 @@ def parse_literal(src, i):
 
 
 def key_of(parts):
-    """The lookup key Swift builds for a literal: % doubled, interpolations as %@."""
+    """The lookup key Swift builds for a literal. A literal with an interpolation becomes a format
+    string, so its % is doubled and each interpolation is %@; a literal without one is the key as
+    written."""
+    if not any(kind == "i" for kind, _ in parts):
+        return "".join(text for _, text in parts)
     return "".join(text.replace("%", "%%") if kind == "t" else "%@" for kind, text in parts)
 
 

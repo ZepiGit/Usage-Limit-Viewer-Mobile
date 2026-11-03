@@ -69,7 +69,7 @@ Choose an unused version, merge the reviewed changes, update source version name
 Prepare local `release-notes.md` and a `release-candidate/` directory containing the release workflow's versioned assets.
 
 ```sh
-RELEASE_VERSION=0.4.0
+RELEASE_VERSION=0.4.1
 RELEASE_TAG="v$RELEASE_VERSION"
 gh api user --jq .login
 gh release create "$RELEASE_TAG" --verify-tag --draft \
