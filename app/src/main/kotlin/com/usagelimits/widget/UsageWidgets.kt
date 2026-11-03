@@ -70,7 +70,7 @@ import kotlinx.coroutines.flow.first
 internal val LocalWidgetStyle = staticCompositionLocalOf { WidgetStyle() }
 
 /**
- * The percent mode this widget renders its figures in (R1). Provided once by each widget's
+ * The percent mode this widget renders its figures in. Provided once by each widget's
  * composition root from the observed settings — never read at the call site, so no figure can
  * drift from the mode its neighbours show.
  */
@@ -84,7 +84,7 @@ internal val LocalPercentMode = staticCompositionLocalOf { PercentDisplay.LEFT }
  * wider than a tile actually gets: the fill was clipped, and anything above roughly half
  * remaining painted as a full bar — a confidently wrong number on the home screen.
  *
- * The fill length follows the displayed figure (D4): remaining in LEFT, used in USED, where an
+ * The fill length follows the displayed figure: remaining in LEFT, used in USED, where an
  * exhausted window is the full bar. The ink comes from the presentation's fill state — grey when
  * stale, bare track when failed or unknown — except the USED exhausted case, which fills in the
  * data hue rather than vanishing beside a "100%" figure.
@@ -219,7 +219,7 @@ class CompactUsageWidget : GlanceAppWidget() {
     /** The full row: 5h, the long horizon, next reset, overall status, refresh. */
     @Composable
     private fun FourTileRow(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
-        // Leading mode word on every quota label (R2): the tile has no room for a suffix, and a
+        // Leading mode word on every quota label: the tile has no room for a suffix, and a
         // bare figure could be read as either meaning.
         val resources = androidx.glance.LocalContext.current.resources
         val texts = ResourceCountdownTexts(resources)
@@ -563,7 +563,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
                                 row.labelText(context.resources), GlanceModifier.defaultWeight(), maxLines = 1,
                                 style = widgetText(style.textSecondary, 12),
                             )
-                            // R2: the figure carries its side ("73% left" / "27% used"); a dash stays bare.
+                            // The figure carries its side ("73% left" / "27% used"); a dash stays bare.
                             val p = row.presentation(null, LocalPercentMode.current)
                             val percent = percentFigure(p.token, context.resources)
                             val shown = if (!p.hasFigure) percent

@@ -45,7 +45,7 @@ open class AccountRingsWidget(private val mini: Boolean) : GlanceAppWidget() {
             val fontScale = LocalContext.current.resources.configuration.fontScale
             val grid = WidgetLayout.miniGrid(size.width.value, size.height.value, view.metrics)
             val columns = if (mini) grid.columns else WidgetLayout.accountColumns(size.width.value, size.height.value, view.metrics, fontScale)
-            // The caption above the grid states which side every arc counts (R2). Mini grids
+            // The caption above the grid states which side every arc counts. Mini grids
             // reserve its line before counting rows; non-mini grids scroll, so it is only an inset.
             val captionHeight = WidgetLayout.ringCaptionHeight(fontScale)
             val selected = if (mini) {
@@ -80,7 +80,7 @@ open class AccountRingsWidget(private val mini: Boolean) : GlanceAppWidget() {
 }
 
 /**
- * The one-word hint that keeps a bare ring unambiguous (R2): a figure alone does not say which
+ * The one-word hint that keeps a bare ring unambiguous: a figure alone does not say which
  * side it counts. Same placement on every ring widget, independent of any branch below it.
  */
 @Composable
@@ -141,7 +141,7 @@ internal fun ringLimit(account: WidgetAccount): WidgetRow? = account.representat
  * The figure a ring shows in [mode], with its sign.
  *
  * The raw severity decides exhaustion, so a window the provider called closed still reads "100%"
- * in USED beside whatever colour an aged severity gives the arc (§1.6).
+ * in USED beside whatever colour an aged severity gives the arc.
  */
 internal fun ringFigure(resources: android.content.res.Resources, account: WidgetAccount, mode: PercentDisplay): String =
     percentFigure(ringLimit(account).presentation(null, mode).token, resources)

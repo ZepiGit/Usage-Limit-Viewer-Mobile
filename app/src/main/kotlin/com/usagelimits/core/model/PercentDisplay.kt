@@ -42,7 +42,7 @@ fun displayPercent(remaining: Double?, mode: PercentDisplay): Double? = when (mo
 }
 
 /**
- * The fraction a bar or ring fills in [mode] (D4).
+ * The fraction a bar or ring fills in [mode].
  *
  * USED flips what full means: a window the provider calls exhausted fills completely, agreeing with
  * its "100" label even when no usable percentage is behind it. A window with no figure fills
@@ -84,8 +84,9 @@ fun percentToken(window: UsageWindow?, mode: PercentDisplay): String =
 /**
  * A figure token with its `%` sign; an unknown figure stays a bare dash.
  *
- * The one place the sign is attached until the locale templates land (R4), so the unknown-dash
- * rule cannot drift between [percentLabel] and the rows that render a mode-aware token.
+ * The English reference of [com.usagelimits.ui.text.percentFigure], which PercentResourcesEnglishTest
+ * holds equal to it under `en`. It needs no resources, so [percentLabel] uses it; screens take the
+ * localized form.
  */
 fun withPercentSign(token: String): String =
     if (token == PERCENT_TOKEN_UNKNOWN) token else "$token%"
@@ -103,7 +104,7 @@ const val PERCENT_TOKEN_EXHAUSTED = "100"
  * locale template, and tokens (not formatted strings) are the parity contract between this table
  * and the iOS one.
  *
- * Exhaustion overrides the number (D3): the provider's verdict is the figure, the same precedence
+ * Exhaustion overrides the number: the provider's verdict is the figure, the same precedence
  * the LEFT treatment applies when a blocker with a full-looking percentage stays empty. The check
  * comes first, so an exhausted window with an unusable percentage still reads 100 in USED mode.
  */

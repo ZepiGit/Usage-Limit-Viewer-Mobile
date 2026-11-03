@@ -29,7 +29,7 @@ object UsageRing {
         (percent?.takeIf { it.isFinite() && it in 0.0..100.0 }?.div(100.0) ?: 0.0).toFloat()
 
     /**
-     * Draws a ring filled to the DISPLAYED percentage (D4): what is left in LEFT mode, what is
+     * Draws a ring filled to the DISPLAYED percentage: what is left in LEFT mode, what is
      * used in USED. The caller decides which, via [com.usagelimits.core.model.fillFraction] —
      * pass its result scaled back to percent (an exhausted window in USED arrives as 100).
      */

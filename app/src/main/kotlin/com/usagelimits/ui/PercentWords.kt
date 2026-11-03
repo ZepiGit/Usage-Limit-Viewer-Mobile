@@ -5,7 +5,7 @@ import com.usagelimits.R
 import com.usagelimits.core.model.PercentDisplay
 
 /*
- * The words that say which side of a quota a figure counts (R2). Every surface — app screens,
+ * The words that say which side of a quota a figure counts. Every surface — app screens,
  * widgets, widget configuration — takes them from here, so a bare figure can never be captioned
  * differently on two screens.
  *

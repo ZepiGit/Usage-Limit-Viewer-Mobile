@@ -22,7 +22,7 @@ object WidgetLayout {
 
     fun miniCapacity(width: Float, height: Float): Int = miniGrid(width, height).capacity
 
-    /** The ring widgets' one-line mode caption (R2): 9sp text plus its 4dp inset, in dp. */
+    /** The ring widgets' one-line mode caption: 9sp text plus its 4dp inset, in dp. */
     fun ringCaptionHeight(fontScale: Float): Float = 9f * fontScale + 4f
 
     /**

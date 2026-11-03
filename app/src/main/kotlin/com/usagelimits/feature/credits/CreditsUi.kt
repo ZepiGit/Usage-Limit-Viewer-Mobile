@@ -160,7 +160,7 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity) {
             }
         }
         balance.remainingPercent?.let { percent ->
-            // Money, not a quota window: out of scope for the percent display mode (R1/§0 rule 6).
+            // Money, not a quota window: the percent display mode does not apply.
             UsageBar(percent, barSeverity, Modifier.fillMaxWidth())
         }
         // An uncapped key has no bar: its existing label says so instead.
