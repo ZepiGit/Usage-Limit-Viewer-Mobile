@@ -1,5 +1,6 @@
 package com.usagelimits.navigation
 
+import androidx.annotation.StringRes
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -32,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
@@ -44,6 +46,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.delay
+import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.feature.credits.AddCreditScreen
@@ -91,15 +94,15 @@ private sealed class Destination(val route: String) {
 
 private data class TabItem(
     val destination: Destination,
-    val label: String,
+    @StringRes val labelRes: Int,
     val icon: ImageVector,
 )
 
 private val TABS = listOf(
-    TabItem(Destination.Overview, "Overview", Icons.Default.Home),
-    TabItem(Destination.Accounts, "Accounts", AppIcons.People),
-    TabItem(Destination.Resets, "Resets", AppIcons.Schedule),
-    TabItem(Destination.Settings, "Settings", Icons.Default.Settings),
+    TabItem(Destination.Overview, R.string.tab_overview, Icons.Default.Home),
+    TabItem(Destination.Accounts, R.string.tab_accounts, AppIcons.People),
+    TabItem(Destination.Resets, R.string.tab_resets, AppIcons.Schedule),
+    TabItem(Destination.Settings, R.string.tab_settings, Icons.Default.Settings),
 )
 
 /**
@@ -165,7 +168,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                             selected = selected,
                             onClick = { navigateToTab(tab.destination.route) },
                             icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
+                            label = { Text(stringResource(tab.labelRes), style = MaterialTheme.typography.labelMedium) },
                             colors = NavigationRailItemDefaults.colors(
                                 selectedIconColor = UsageColors.Ink,
                                 selectedTextColor = UsageColors.Ink,
@@ -198,7 +201,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                                 selected = selected,
                                 onClick = { navigateToTab(tab.destination.route) },
                                 icon = { Icon(tab.icon, contentDescription = null) },
-                                label = { Text(tab.label, style = MaterialTheme.typography.labelMedium) },
+                                label = { Text(stringResource(tab.labelRes), style = MaterialTheme.typography.labelMedium) },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = UsageColors.Ink,
                                     selectedTextColor = UsageColors.Ink,
@@ -243,6 +246,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                             onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
                             onAddAccount = { navController.navigate(Destination.AddAccount.route) },
                             onReorder = viewModel::reorderAccounts,
+                            onPercentDisplayChange = viewModel::setPercentDisplay,
                             onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
                             onAddCredit = { navController.navigate(Destination.AddCredit.route) },
                         )
@@ -276,6 +280,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                             onNotifyCreditExpiring = viewModel::setNotifyCreditExpiring,
                             onShowTier = viewModel::setShowSubscriptionTier,
                             onShowRenewal = viewModel::setShowRenewalTime,
+                            onPercentDisplayChange = viewModel::setPercentDisplay,
                         )
                     }
 
@@ -351,6 +356,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                             usage = usage,
                             nowMs = nowMs,
                             staleAfterMs = state.staleAfterMs,
+                            percentDisplay = state.settings.percentDisplay,
                             resetInFlight = resetInFlight == accountId,
                         supportsResetCredits = supportsCredits,
                         onReconnect = { navController.navigate(Destination.AddAccount.route) },

@@ -22,10 +22,12 @@ final class NotificationEvaluatorTests: XCTestCase {
         func sync(
             _ accounts: [AccountSummary],
             _ settings: NotificationSettings,
-            _ now: Date
+            _ now: Date,
+            percentDisplay: PercentDisplay = .left
         ) -> [String] {
             let outcome = NotificationEvaluator.evaluate(
-                accounts: accounts, settings: settings, states: states, now: now)
+                accounts: accounts, settings: settings, states: states, now: now,
+                percentDisplay: percentDisplay)
             states = Dictionary(uniqueKeysWithValues: outcome.states.map { ($0.accountId, $0) })
             // Claim before posting, as the real publisher does.
             let fresh = outcome.events.filter { consumed.insert($0.key).inserted }
@@ -706,6 +708,68 @@ final class NotificationEvaluatorTests: XCTestCase {
         XCTAssertEqual(
             outcome.events.filter { !$0.line.isEmpty }.map(\.line),
             ["Account acct · 5h limit exhausted"])
+    }
+
+    // MARK: - Percent display mode
+
+    func testTheUsedWordingNamesTheSameCrossingsAsTheLeftOne() {
+        // Mirrors the Android twin: "less than 20% remaining" and "more than 80% used" are one
+        // crossing, so only the sentence changes and the exhausted line has no percentage to swap.
+        let publisher = Publisher()
+        let t = { (s: TimeInterval) in self.now.addingTimeInterval(s) }
+
+        XCTAssertEqual(
+            publisher.sync([account(remaining: 18)], settings, now, percentDisplay: .used),
+            ["Account acct · 5h limit: more than 80% used"])
+        XCTAssertEqual(
+            publisher.sync([account(remaining: 8, fetchedAt: t(1))], settings, now, percentDisplay: .used),
+            ["Account acct · 5h limit: more than 90% used"])
+        XCTAssertEqual(
+            publisher.sync([account(remaining: 0, fetchedAt: t(2))], settings, now, percentDisplay: .used),
+            ["Account acct · 5h limit exhausted"])
+    }
+
+    func testTheLeftWordingIsUnchangedAndIsTheDefault() {
+        let publisher = Publisher()
+        let t = { (s: TimeInterval) in self.now.addingTimeInterval(s) }
+
+        XCTAssertEqual(
+            publisher.sync([account(remaining: 18)], settings, now),
+            ["Account acct · 5h limit: less than 20% remaining"])
+        XCTAssertEqual(
+            publisher.sync([account(remaining: 8, fetchedAt: t(1))], settings, now, percentDisplay: .left),
+            ["Account acct · 5h limit: less than 10% remaining"])
+        XCTAssertEqual(
+            publisher.sync([account(remaining: 0, fetchedAt: t(2))], settings, now),
+            ["Account acct · 5h limit exhausted"])
+    }
+
+    func testTheModeChangesTheWordingButNeverTheDeduplicationKeys() {
+        // Switching modes mid-episode must not re-arm anything: a key that spelled the mode would
+        // announce every standing crossing a second time the moment the user flipped the toggle.
+        for remaining in [18.0, 8.0, 0.0] {
+            let input = [account(remaining: remaining)]
+            let left = NotificationEvaluator.evaluate(
+                accounts: input, settings: settings, states: [:], now: now, percentDisplay: .left)
+            let used = NotificationEvaluator.evaluate(
+                accounts: input, settings: settings, states: [:], now: now, percentDisplay: .used)
+
+            XCTAssertEqual(left.events.map(\.key), used.events.map(\.key), "remaining \(remaining)")
+            XCTAssertEqual(left.states, used.states, "remaining \(remaining)")
+        }
+    }
+
+    func testADisabledTierStaysSilentButStillClaimedInUsedMode() {
+        var onlyExhausted = NotificationSettings()
+        onlyExhausted.notifyBelow20Percent = false
+        onlyExhausted.notifyBelow10Percent = false
+
+        let outcome = NotificationEvaluator.evaluate(
+            accounts: [account(remaining: 18)], settings: onlyExhausted, states: [:], now: now,
+            percentDisplay: .used)
+
+        XCTAssertFalse(outcome.events.isEmpty)
+        XCTAssertTrue(outcome.events.allSatisfy { $0.line.isEmpty })
     }
 
 }

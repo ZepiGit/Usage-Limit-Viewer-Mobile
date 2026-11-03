@@ -24,8 +24,8 @@ struct AccountsScreen: View {
 
     private var filterOptions: [SegmentOption] {
         var options = [
-            option("All", selected: providerFilter == nil && !attentionOnly) { providerFilter = nil; attentionOnly = false },
-            option("Needs attention", selected: attentionOnly) { providerFilter = nil; attentionOnly.toggle() },
+            option(String(localized: "All"), selected: providerFilter == nil && !attentionOnly) { providerFilter = nil; attentionOnly = false },
+            option(String(localized: "Needs attention"), selected: attentionOnly) { providerFilter = nil; attentionOnly.toggle() },
         ]
         for provider in ProviderID.allCases where store.accounts.contains(where: { $0.account.provider == provider }) {
             options.append(option(provider.displayName, selected: providerFilter == provider) {
@@ -126,7 +126,9 @@ private struct AccountSummaryCard: View {
                         .foregroundStyle(UsageColors.faint)
                         .accessibilityLabel("Notifications muted")
                 }
-                StatusMark(severity: agedSeverity, label: snapshot?.connectionStatus == .reconnectRequired ? "Reconnect" : nil)
+                StatusMark(
+                    severity: agedSeverity,
+                    label: snapshot?.connectionStatus == .reconnectRequired ? String(localized: "Reconnect") : nil)
                 // Disconnecting has been possible in the container, and tested there, since
                 // before anything on screen could ask for it — so a user could connect an
                 // account and then had no way at all to disconnect it. Deleting the app was
@@ -140,7 +142,10 @@ private struct AccountSummaryCard: View {
                     // Muting lives in this menu rather than as a switch on the card, because
                     // it is a per-account preference and not a per-account fact: a row of
                     // toggles down the list would compete with the numbers the screen is for.
-                    Button(notificationsEnabled ? "Mute notifications" : "Unmute notifications") {
+                    Button(
+                        notificationsEnabled
+                            ? String(localized: "Mute notifications") : String(localized: "Unmute notifications")
+                    ) {
                         store.setNotifications(
                             enabled: !notificationsEnabled, accountID: usage.account.id)
                     }
@@ -193,11 +198,13 @@ private struct AccountSummaryCard: View {
                         category: window.category,
                         remainingPercent: window.remainingPercent,
                         resetAt: window.resetAt,
-                        severity: window.severity, segments: window.segments),
+                        severity: window.severity, scope: window.scope, segments: window.segments),
                     now: now,
                     // The account's aged verdict outranks a row's own: a stale or failed account
                     // keeps its last numbers, but they stop looking fresh.
-                    severity: agedSeverity == .stale || agedSeverity == .error ? agedSeverity : nil)
+                    severity: agedSeverity == .stale || agedSeverity == .error ? agedSeverity : nil,
+                    validity: ReadingValidity.aged(agedSeverity),
+                    mode: store.settings.percentDisplay)
             }
 
             resetCredits
@@ -217,9 +224,7 @@ private struct AccountSummaryCard: View {
             UsageColors.rule.frame(height: 1)
 
             HStack {
-                Text(snapshot.heldResetCredits == 1
-                     ? "1 reset credit"
-                     : "\(snapshot.heldResetCredits) reset credits")
+                Text("\(snapshot.heldResetCredits) reset credits")
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)
                 Spacer()

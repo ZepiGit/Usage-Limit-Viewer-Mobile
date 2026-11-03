@@ -84,32 +84,72 @@ enum SeverityPalette {
         }
     }
 
-    /// Bar or arc fill for a severity, mirroring Android's `SeverityPalette.barFill`: the data hue,
-    /// the stale grey for an aged reading, and nil (the bare track) for an unknown, failed or
-    /// exhausted one, whatever percentage it still reports.
+    /// Bar or arc ink for how a presentation paints its fill: the data hue, the stale grey for a
+    /// reading that is no longer to be trusted, and nil (the bare track) for one that draws no
+    /// fill at all.
     ///
-    /// The callers pass the account's AGED severity, so a stale or failed account whose cached
-    /// reading still sat at 100 % cannot paint a fresh-looking bar under an out-of-date verdict.
-    /// Quota severity stays per row and never recolours a bar: the figure and the dot say it.
-    static func barFill(_ severity: Severity) -> Color? {
-        switch severity {
+    /// Which of the three applies is the Kit's decision (`WindowPresentation.fillState`), taken
+    /// from the reading's validity and its raw severity, so the palette holds colours only and a
+    /// stale or failed account whose cached reading still sat at 100 % cannot paint a
+    /// fresh-looking bar. Quota severity never recolours a bar: the figure and the dot say it.
+    static func fill(_ state: FillState) -> Color? {
+        switch state {
+        case .data: return UsageColors.data
         case .stale: return UsageColors.staleMark
-        case .unknown, .error, .exhausted: return nil
-        default: return UsageColors.data
+        case .noFill: return nil
         }
     }
 
     static func label(_ severity: Severity) -> String {
         switch severity {
-        case .healthy: return "Healthy"
-        case .medium: return "Moderate"
-        case .low: return "Low"
-        case .limited: return "Limited"
-        case .unknown: return "Unknown"
-        case .exhausted: return "Exhausted"
-        case .stale: return "Stale"
-        case .error: return "Error"
+        case .healthy: return String(localized: "Healthy")
+        case .medium: return String(localized: "Moderate")
+        case .low: return String(localized: "Low")
+        case .limited: return String(localized: "Limited")
+        case .unknown: return String(localized: "Unknown")
+        case .exhausted: return String(localized: "Exhausted")
+        case .stale: return String(localized: "Stale")
+        case .error: return String(localized: "Error")
         }
+    }
+}
+
+/// The words around a percentage figure, composed here so the app and the widget say the same
+/// thing in the same mode.
+///
+/// The Kit hands over a token (no `%`) and this layer owns the wording, which is what keeps the
+/// Kit free of UI strings.
+enum PercentText {
+
+    /// The figure with its `%` sign, composed exactly as `UsageWindow.percentLabel` does for LEFT:
+    /// the unknown dash stays bare, never "—%".
+    ///
+    /// The sign comes from the catalog's one template, `"%@%%"`, so a language that sets a space
+    /// before it ("73 %") changes it in one place.
+    static func figure(_ p: WindowPresentation) -> String {
+        figure(token: p.token)
+    }
+
+    /// The same composition for a bare token, for a figure that has no `WindowPresentation`
+    /// (a segment's share of the bar).
+    static func figure(token: String) -> String {
+        token == PercentToken.unknown ? token : String(localized: "\(token)%")
+    }
+
+    /// The caption a grid carries when its rings show no side word: "Left" or "Used".
+    static func caption(_ mode: PercentDisplay) -> String {
+        mode == .used ? String(localized: "Used") : String(localized: "Left")
+    }
+
+    /// The visible caption is the short "left"/"used" so it fits beside the figure; speech says
+    /// "remaining" instead (see `spoken`) because that sentence was already shipped in LEFT.
+    static func sideWord(_ mode: PercentDisplay) -> String {
+        mode == .used ? String(localized: "used") : String(localized: "left")
+    }
+
+    /// "45% remaining" in LEFT — the sentence spoken today, kept byte-identical — and "55% used".
+    static func spoken(_ figure: String, _ mode: PercentDisplay) -> String {
+        mode == .used ? String(localized: "\(figure) used") : String(localized: "\(figure) remaining")
     }
 }
 
@@ -329,7 +369,9 @@ struct NoticeLine: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Circle().fill(dot).frame(width: 6, height: 6).accessibilityHidden(true)
-                Text(verbatim: message)
+                // The kit's own failure sentences are stored in English; this reads one in the
+                // current language and shows anything else exactly as it came.
+                Text(verbatim: DisplayText.stored(message))
                     .usageFont(.body)
                     .foregroundStyle(retry == nil ? UsageColors.muted : UsageColors.ink)
             }
@@ -471,7 +513,7 @@ struct SegmentedRow: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityValue(option.selected ? "Selected" : "Not selected")
+                    .accessibilityValue(DisplayText.selection(option.selected))
                 }
             }
             .background(
@@ -491,31 +533,47 @@ struct SegmentedRow: View {
 /// gives up control of all three.
 struct UsageBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let remainingPercent: Double?
-    let severity: Severity
+    /// What the bar draws: its fill and how that fill is painted come from the Kit, so the bar
+    /// cannot disagree with the figure beside it.
+    let presentation: WindowPresentation
     var height: CGFloat = 6
+
+    init(presentation: WindowPresentation, height: CGFloat = 6) {
+        self.presentation = presentation
+        self.height = height
+    }
+
+    /// The LEFT-only bar for a skeleton and for money, which are out of scope for the percentage
+    /// toggle: a current reading counted from what is left, with no raw-row verdict to carry.
+    init(remainingPercent: Double?, severity: Severity, height: CGFloat = 6) {
+        self.init(
+            presentation: WindowPresentation(
+                remaining: remainingPercent, severity: severity, validity: .current, mode: .left),
+            height: height)
+    }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: height / 2, style: .continuous).fill(UsageColors.dataTrack)
-                if let fill = SeverityPalette.barFill(severity) {
+                if let fill = SeverityPalette.fill(presentation.fillState) {
                     RoundedRectangle(cornerRadius: height / 2, style: .continuous)
                         .fill(fill)
                         // An unknown percentage draws nothing rather than a full or empty bar:
                         // either would state a fact the provider did not report.
                         .frame(width: geometry.size.width * fraction)
                         // The fraction animates; the colour does not, since there is one fill.
-                        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: remainingPercent)
+                        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: fraction)
                 }
             }
         }
         .frame(height: height)
     }
 
+    /// `fill` is already within 0 to 1, or nil: a figure that is missing or out of range draws
+    /// the bare track, never a full or an empty bar.
     private var fraction: CGFloat {
-        guard let remaining = remainingPercent else { return 0 }
-        return CGFloat(min(max(remaining, 0), 100) / 100)
+        CGFloat(presentation.fill ?? 0)
     }
 }
 

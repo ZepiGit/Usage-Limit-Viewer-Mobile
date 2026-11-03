@@ -1,5 +1,6 @@
 package com.usagelimits.ui.theme
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -18,7 +19,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.usagelimits.R
+import com.usagelimits.core.model.FillState
+import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.fillState
 
 /**
  * Maps a [Severity] onto the palette.
@@ -53,6 +59,10 @@ object SeverityPalette {
      * Bar fill for a single window: the data hue at the true ratio, a grey when stale, and no
      * fill at all (track only) when the figure is unknown, failed or exhausted. Severity
      * decides over the percentage, so a blocker with a full-looking percentage stays empty.
+     *
+     * Kept as the LEFT reference: SeverityPaletteInkTest holds [barInkFor] in LEFT equal to it and
+     * StatusContrastTest pins its colours. No bar reads it; they take their ink from [barInkFor] or,
+     * for a window row, from the presentation's fill state through [fill].
      */
     fun barFill(severity: Severity): Color? = when (severity) {
         Severity.STALE -> UsageColors.StaleMark
@@ -60,6 +70,36 @@ object SeverityPalette {
         else -> UsageColors.Data
     }
 
+    /**
+     * Bar fill ink for [severity] at the displayed [fraction], in [mode].
+     *
+     * LEFT keeps the historical rendering exactly: severity decides over the percentage, so a
+     * blocker with a full-looking percentage stays empty. USED flips what full means — an
+     * exhausted window there *is* full — so when the severity ink is nil but the displayed
+     * fraction is positive, the fill takes the data hue. Only raw-exhausted, non-stale windows
+     * reach that fallback: a stale reading keeps its grey ink, and unknown/error draw nothing in
+     * either mode. Figure colour stays on [figureColor], keyed on remaining in both modes.
+     *
+     * Decided by [fillState] for a current reading, so the in-app bars and the widget bars share
+     * one rule; [barFill] stays the LEFT reference it is pinned against.
+     */
+    fun barInkFor(severity: Severity, fraction: Double?, mode: PercentDisplay): Color? =
+        fill(fillState(ReadingValidity.CURRENT, severity, fraction, mode))
+
+    /**
+     * The ink for a [FillState], which the presentation module decides and this palette only colours.
+     * Glance widgets cannot read this theme, so [com.usagelimits.widget.WidgetStyle.fill] restates it.
+     */
+    fun fill(state: FillState): Color? = when (state) {
+        FillState.DATA -> UsageColors.Data
+        FillState.STALE -> UsageColors.StaleMark
+        FillState.NO_FILL -> null
+    }
+
+    /**
+     * The English reference [labelRes] is held equal to under `en` by PercentResourcesEnglishTest;
+     * nothing on screen reads it.
+     */
     fun label(severity: Severity) = when (severity) {
         Severity.HEALTHY -> "Healthy"
         Severity.MEDIUM -> "Moderate"
@@ -69,6 +109,19 @@ object SeverityPalette {
         Severity.EXHAUSTED -> "Exhausted"
         Severity.STALE -> "Stale"
         Severity.ERROR -> "Error"
+    }
+
+    /** [label] as a string resource, so a screen shows it in the user's language. */
+    @StringRes
+    fun labelRes(severity: Severity): Int = when (severity) {
+        Severity.HEALTHY -> R.string.severity_healthy
+        Severity.MEDIUM -> R.string.severity_medium
+        Severity.LOW -> R.string.severity_low
+        Severity.LIMITED -> R.string.severity_limited
+        Severity.UNKNOWN -> R.string.severity_unknown
+        Severity.EXHAUSTED -> R.string.severity_exhausted
+        Severity.STALE -> R.string.severity_stale
+        Severity.ERROR -> R.string.severity_error
     }
 
 }

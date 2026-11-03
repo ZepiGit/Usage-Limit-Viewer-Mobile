@@ -496,7 +496,13 @@ public actor UsageLimitsContainer {
     /// Deliberately separate from `refresh`, because a background refresh and a user pulling to
     /// refresh want the same sync and different notification behaviour, and because a failure to
     /// persist the ledger must not fail the refresh the user is watching.
-    public func pendingNotifications() async throws -> [NotificationEvaluator.Event] {
+    ///
+    /// `texts` is how the lines are worded: the app passes its catalog-backed implementation, and
+    /// the default keeps every context-free caller on the English the kit shipped with. The
+    /// claim does not depend on the wording, so a language change never re-announces an edge.
+    public func pendingNotifications(
+        texts: any NotificationTexts = EnglishNotificationTexts()
+    ) async throws -> [NotificationEvaluator.Event] {
         // One ledger step, not evaluate-then-save-then-claim from here. Split across three
         // calls, a failed first write left the ledger's cache advanced and its file not, and
         // the retry read the snapshot as a replay: the transition was consumed and its alert
@@ -507,8 +513,11 @@ public actor UsageLimitsContainer {
         // consumed by a stronger one — and the claim is what stops it arriving later as a
         // stale alert the moment that setting is switched back on.
         let accounts = await repository.usage().map(AccountSummary.init)
-        let settings = await settingsStore.settings().notifications
-        return try await ledger.evaluateAndClaim(accounts: accounts, settings: settings, at: now())
+        // One read, so the thresholds and the wording come from the same settings value.
+        let settings = await settingsStore.settings()
+        return try await ledger.evaluateAndClaim(
+            accounts: accounts, settings: settings.notifications,
+            percentDisplay: settings.percentDisplay, at: now(), texts: texts)
     }
 
     public func add(_ account: ProviderAccount) async throws {
@@ -638,7 +647,8 @@ public actor UsageLimitsContainer {
         let time = now()
         try? GlanceSnapshotCodec.write(
             GlanceModel.build(
-                usage, now: time, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons)
+                usage, now: time, scope: .allAccounts, staleAfter: settings.staleAfter,
+                providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay)
                 .with(credits: GlanceModel.buildCredits(credits, now: time, staleAfter: settings.staleAfter)),
             toDirectory: containerDirectory)
 

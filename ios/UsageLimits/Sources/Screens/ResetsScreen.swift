@@ -67,6 +67,7 @@ struct ResetsScreen: View {
                                         accountLabel: entry.account.label,
                                         window: entry.window,
                                         now: store.now,
+                                        mode: store.settings.percentDisplay,
                                         isNext: nextKey == "\(entry.account.id)/\(entry.window.id)")
                                 }
                             }
@@ -87,9 +88,9 @@ struct ResetsScreen: View {
     /// "Today", "Tomorrow", then the weekday and date.
     private func dayTitle(_ start: Date) -> String {
         let calendar = Calendar.current
-        if calendar.isDate(start, inSameDayAs: store.now) { return "Today" }
+        if calendar.isDate(start, inSameDayAs: store.now) { return String(localized: "Today") }
         if let tomorrow = calendar.date(byAdding: .day, value: 1, to: store.now),
-            calendar.isDate(start, inSameDayAs: tomorrow) { return "Tomorrow" }
+            calendar.isDate(start, inSameDayAs: tomorrow) { return String(localized: "Tomorrow") }
         let formatter = DateFormatter()
         formatter.setLocalizedDateFormatFromTemplate("EEEdMMM")
         return formatter.string(from: start)
@@ -101,6 +102,8 @@ private struct ResetRow: View {
     let accountLabel: String
     let window: UsageWindow
     let now: Date
+    /// Only the spoken sentence carries a percentage on this row.
+    let mode: PercentDisplay
     /// The first reset still ahead: its countdown takes the data hue and it gets a rule on its
     /// leading edge. One per screen, because the colour is only worth anything while it is rare.
     let isNext: Bool
@@ -124,7 +127,7 @@ private struct ResetRow: View {
                 .frame(width: 6, height: 6)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(window.label)
+                Text(verbatim: DisplayText.windowLabel(window.label, category: window.category, scope: window.scope))
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.ink)
                 Text(accountLabel)
@@ -157,13 +160,21 @@ private struct ResetRow: View {
 
     private var countdown: String {
         guard let resetAt = window.resetAt else { return "—" }
-        return Countdown.format(until: resetAt, from: now)
+        return Countdown.format(until: resetAt, from: now, texts: LocalizedCountdownTexts())
     }
 
     /// The status word lives here now, not on screen: a dot says it to the eye and this says
     /// it to VoiceOver.
     private var spoken: String {
-        let remaining = window.remainingPercent.map { ", \(UsageWindow.percentLabel($0)) remaining" } ?? ""
-        return "\(window.label), \(accountLabel), resets at \(clock), in \(countdown), \(SeverityPalette.label(window.severity))\(remaining)"
+        // Absent while the figure is unknown, as before; in USED an exhausted window with no
+        // percentage still has a figure to speak ("100% used").
+        let p = window.presentation(validity: .current, mode: mode)
+        let figure = PercentText.figure(p)
+        let label = DisplayText.windowLabel(window.label, category: window.category, scope: window.scope)
+        let status = SeverityPalette.label(window.severity)
+        let sentence = String(localized: "\(label), \(accountLabel), resets at \(clock), in \(countdown), \(status)")
+        guard p.hasFigure else { return sentence }
+        let said = PercentText.spoken(figure, mode)
+        return String(localized: "\(sentence), \(said)")
     }
 }

@@ -143,19 +143,19 @@ class RedesignCaptureTest {
     private fun screens(): List<Pair<String, @Composable () -> Unit>> = listOf(
         "overview" to {
             OverviewScreen(state = state, nowMs = NOW, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
-                onReorder = {}, onCreditClick = {}, onAddCredit = {})
+                onReorder = {}, onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
         },
         "overview-empty" to {
             OverviewScreen(state = UsageUiState(), nowMs = NOW, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
-                onReorder = {})
+                onReorder = {}, onPercentDisplayChange = {})
         },
         "account-detail" to {
-            AccountDetailScreen(usage = claude, nowMs = NOW, staleAfterMs = state.staleAfterMs, resetInFlight = false,
+            AccountDetailScreen(usage = claude, nowMs = NOW, staleAfterMs = state.staleAfterMs, percentDisplay = com.usagelimits.core.model.PercentDisplay.LEFT, resetInFlight = false,
                 supportsResetCredits = false, onRefresh = {}, onConsumeResetCredit = {}, onRemove = {},
                 notificationsEnabled = true, onNotificationsChange = {})
         },
         "account-detail-failed" to {
-            AccountDetailScreen(usage = kimi, nowMs = NOW, staleAfterMs = state.staleAfterMs, resetInFlight = false,
+            AccountDetailScreen(usage = kimi, nowMs = NOW, staleAfterMs = state.staleAfterMs, percentDisplay = com.usagelimits.core.model.PercentDisplay.LEFT, resetInFlight = false,
                 supportsResetCredits = false, onRefresh = {}, onConsumeResetCredit = {}, onRemove = {},
                 notificationsEnabled = true, onNotificationsChange = {})
         },
@@ -172,7 +172,8 @@ class RedesignCaptureTest {
         "settings" to {
             SettingsScreen(state = state, onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
                 onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {},
-                onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {})
+                onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {},
+                onPercentDisplayChange = {})
         },
         "credit-detail" to {
             CreditDetailScreen(entry = credits[0], nowMs = NOW, staleAfterMs = state.staleAfterMs,

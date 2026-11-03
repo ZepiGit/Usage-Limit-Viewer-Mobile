@@ -22,8 +22,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
+import com.usagelimits.R
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.sync.BackgroundRestrictions
@@ -39,6 +44,10 @@ import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.percentSideCaptionRes
+import com.usagelimits.ui.text.percentFigureText
+import com.usagelimits.ui.text.rememberCountdownTexts
+import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
 
 /** Sync cadence choices. 15 minutes is WorkManager's floor for periodic work. */
@@ -57,6 +66,7 @@ fun SettingsScreen(
     onNotifyCreditExpiring: (Boolean) -> Unit,
     onShowTier: (Boolean) -> Unit,
     onShowRenewal: (Boolean) -> Unit,
+    onPercentDisplayChange: (PercentDisplay) -> Unit,
     modifier: Modifier = Modifier,
     onProviderIconChange: (com.usagelimits.core.model.ProviderId, String) -> Unit = { _, _ -> },
 ) {
@@ -70,21 +80,20 @@ fun SettingsScreen(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item { ScreenTitle("Settings") }
+        item { ScreenTitle(stringResource(R.string.settings_title)) }
 
         item { ProviderIconSettings(settings.providerIcons, onProviderIconChange) }
         item { AppIconSettings() }
-        item { SectionHeader("Sync") }
+        item { SectionHeader(stringResource(R.string.settings_section_sync)) }
         item {
             UsageCard {
                 Text(
-                    text = "Background refresh interval",
+                    text = stringResource(R.string.settings_interval_title),
                     style = MaterialTheme.typography.titleMedium,
                     color = UsageColors.Ink,
                 )
                 Text(
-                    text = "Android may delay background work to save battery, so this is a " +
-                        "target rather than a guarantee.",
+                    text = stringResource(R.string.settings_interval_subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = UsageColors.Muted,
                 )
@@ -92,7 +101,8 @@ fun SettingsScreen(
                 SegmentedRow {
                     INTERVAL_CHOICES.forEach { minutes ->
                         Segment(
-                            label = if (minutes >= 60) "${minutes / 60}h" else "${minutes}m",
+                            label = if (minutes >= 60) stringResource(R.string.countdown_hours, minutes / 60)
+                                else stringResource(R.string.countdown_minutes, minutes),
                             selected = settings.syncIntervalMinutes == minutes,
                             onClick = { onSyncIntervalChange(minutes) },
                         )
@@ -101,114 +111,166 @@ fun SettingsScreen(
             }
         }
 
-        item { SectionHeader("Overview") }
+        item { SectionHeader(stringResource(R.string.settings_section_overview)) }
         item {
             UsageCard {
                 ToggleRow(
-                    title = "Show subscription tier",
-                    subtitle = "Plus, Pro, Max — beside the provider name",
+                    title = stringResource(R.string.settings_show_tier_title),
+                    subtitle = stringResource(R.string.settings_show_tier_subtitle),
                     checked = settings.showSubscriptionTier,
                     onChange = onShowTier,
                 )
                 RuleDivider()
                 ToggleRow(
-                    title = "Show renewal time",
-                    subtitle = "When the weekly or monthly allowance starts over, as opposed to " +
-                        "the next reset. Overview only — the widgets stay on one number.",
+                    title = stringResource(R.string.settings_show_renewal_title),
+                    subtitle = stringResource(R.string.settings_show_renewal_subtitle),
                     checked = settings.showRenewalTime,
                     onChange = onShowRenewal,
                 )
+                RuleDivider()
+                Text(
+                    text = stringResource(R.string.settings_percent_display_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = UsageColors.Ink,
+                )
+                Text(
+                    text = stringResource(R.string.settings_percent_display_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = UsageColors.Muted,
+                )
+                Spacer(Modifier.height(10.dp))
+                SegmentedRow {
+                    PercentDisplay.entries.forEach { mode ->
+                        Segment(
+                            label = stringResource(percentSideCaptionRes(mode)),
+                            selected = settings.percentDisplay == mode,
+                            onClick = { onPercentDisplayChange(mode) },
+                        )
+                    }
+                }
             }
         }
 
-        item { SectionHeader("Notifications") }
+        item { SectionHeader(stringResource(R.string.settings_section_notifications)) }
         item {
+            // The thresholds stay on remaining (the same two crossings); only their wording
+            // follows the display mode, so the toggles read in the numbers the user is watching.
+            val used = settings.percentDisplay == PercentDisplay.USED
+            val first = percentFigureText(if (used) "80" else "20")
+            val second = percentFigureText(if (used) "90" else "10")
             UsageCard {
                 ToggleRow(
-                    title = "Below 20% left",
-                    subtitle = "Once, the first time a limit drops under a fifth remaining",
+                    title = stringResource(
+                        if (used) R.string.settings_notify_above_used_title else R.string.settings_notify_below_left_title,
+                        first,
+                    ),
+                    subtitle = stringResource(
+                        if (used) R.string.settings_notify_first_used_subtitle else R.string.settings_notify_first_left_subtitle,
+                    ),
                     checked = settings.notifyBelow20Percent,
                     onChange = onNotifyBelow20,
                 )
                 RuleDivider()
                 ToggleRow(
-                    title = "Below 10% left",
-                    subtitle = "Once more when it gets tight, even after the 20% warning",
+                    title = stringResource(
+                        if (used) R.string.settings_notify_above_used_title else R.string.settings_notify_below_left_title,
+                        second,
+                    ),
+                    subtitle = stringResource(R.string.settings_notify_second_subtitle, first),
                     checked = settings.notifyBelow10Percent,
                     onChange = onNotifyBelow10,
                 )
                 RuleDivider()
                 ToggleRow(
-                    title = "Limit exhausted",
-                    subtitle = "When a window is fully consumed",
+                    title = stringResource(R.string.settings_notify_exhausted_title),
+                    subtitle = stringResource(R.string.settings_notify_exhausted_subtitle),
                     checked = settings.notifyOnExhausted,
                     onChange = onNotifyExhausted,
                 )
                 RuleDivider()
                 ToggleRow(
-                    title = "Reset credit available",
-                    subtitle = "When Codex reports a usable rate-limit reset credit",
+                    title = stringResource(R.string.settings_notify_reset_credit_title),
+                    subtitle = stringResource(R.string.settings_notify_reset_credit_subtitle),
                     checked = settings.notifyOnResetCreditAvailable,
                     onChange = onNotifyResetCredit,
                 )
                 RuleDivider()
                 ToggleRow(
-                    title = "Reset approaching",
-                    subtitle = "About ${settings.resetApproachingMinutes} minutes before a " +
-                        "window rolls over",
+                    title = stringResource(R.string.settings_notify_reset_approaching_title),
+                    subtitle = pluralStringResource(
+                        R.plurals.settings_notify_reset_approaching_subtitle,
+                        settings.resetApproachingMinutes,
+                        settings.resetApproachingMinutes,
+                    ),
                     checked = settings.notifyOnResetApproaching,
                     onChange = onNotifyResetApproaching,
                 )
                 RuleDivider()
                 ToggleRow(
-                    title = "Unused reset credit expires soon",
-                    subtitle = "Notify me when an unused Codex reset credit expires within 24 hours. A credit lets you reset an eligible usage limit.",
+                    title = stringResource(R.string.settings_notify_credit_expiring_title),
+                    subtitle = stringResource(R.string.settings_notify_credit_expiring_subtitle),
                     checked = settings.notifyOnResetCreditExpiring,
                     onChange = onNotifyCreditExpiring,
                 )
                 RuleDivider()
                 ToggleRow(
-                    title = "Sign-in expired",
-                    subtitle = "When an account needs to be reconnected",
+                    title = stringResource(R.string.settings_notify_auth_expired_title),
+                    subtitle = stringResource(R.string.settings_notify_auth_expired_subtitle),
                     checked = settings.notifyOnAuthExpired,
                     onChange = onNotifyAuthExpired,
                 )
             }
         }
 
-        item { SectionHeader("Thresholds") }
+        item { SectionHeader(stringResource(R.string.settings_section_thresholds)) }
         item {
             UsageCard {
                 Text(
-                    text = "Status is derived from the percentage still available.",
+                    text = stringResource(R.string.settings_thresholds_note),
                     style = MaterialTheme.typography.bodyMedium,
                     color = UsageColors.Muted,
                 )
                 Spacer(Modifier.height(10.dp))
-                ThresholdRow("Healthy", "above ${Severity.HEALTHY_ABOVE.toInt()}%", UsageColors.Positive)
+                val healthyAbove = Severity.HEALTHY_ABOVE.toInt().toString()
+                val mediumAbove = Severity.MEDIUM_ABOVE.toInt().toString()
                 ThresholdRow(
-                    "Moderate",
-                    "${Severity.MEDIUM_ABOVE.toInt()}–${Severity.HEALTHY_ABOVE.toInt()}%",
+                    stringResource(SeverityPalette.labelRes(Severity.HEALTHY)),
+                    stringResource(R.string.settings_threshold_above, percentFigureText(healthyAbove)),
+                    UsageColors.Positive,
+                )
+                ThresholdRow(
+                    stringResource(SeverityPalette.labelRes(Severity.MEDIUM)),
+                    stringResource(R.string.settings_threshold_range, mediumAbove, percentFigureText(healthyAbove)),
                     UsageColors.Warning,
                 )
-                ThresholdRow("Low", "1–${Severity.MEDIUM_ABOVE.toInt()}%", UsageColors.Warning)
-                ThresholdRow("Exhausted", "0%", UsageColors.Negative)
+                ThresholdRow(
+                    stringResource(SeverityPalette.labelRes(Severity.LOW)),
+                    stringResource(R.string.settings_threshold_range, "1", percentFigureText(mediumAbove)),
+                    UsageColors.Warning,
+                )
+                ThresholdRow(
+                    stringResource(SeverityPalette.labelRes(Severity.EXHAUSTED)),
+                    percentFigureText("0"),
+                    UsageColors.Negative,
+                )
             }
         }
 
-        item { SectionHeader("Diagnostics") }
+        item { SectionHeader(stringResource(R.string.settings_section_diagnostics)) }
         item {
             val now = System.currentTimeMillis()
             UsageCard {
-                InfoRow("Accounts", state.accountCount.toString())
-                InfoRow("Last successful sync", state.lastUpdated.ago(now))
-                InfoRow("Last sync attempt", state.diagnostics.lastSyncAttemptAt.ago(now))
-                InfoRow("Widgets last repainted", state.diagnostics.lastWidgetRefreshAt.ago(now))
-                InfoRow("Sync interval", "${settings.syncIntervalMinutes} min")
+                InfoRow(stringResource(R.string.settings_diag_accounts), state.accountCount.toString())
+                InfoRow(stringResource(R.string.settings_diag_last_sync), diagnosticAge(state.lastUpdated, now))
+                InfoRow(stringResource(R.string.settings_diag_last_attempt), diagnosticAge(state.diagnostics.lastSyncAttemptAt, now))
+                InfoRow(stringResource(R.string.settings_diag_widgets_repainted), diagnosticAge(state.diagnostics.lastWidgetRefreshAt, now))
+                InfoRow(
+                    stringResource(R.string.settings_diag_sync_interval),
+                    stringResource(R.string.settings_diag_interval_value, settings.syncIntervalMinutes),
+                )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Diagnostics deliberately exclude tokens, account identifiers and " +
-                        "raw provider responses.",
+                    text = stringResource(R.string.settings_diag_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = UsageColors.Faint,
                 )
@@ -219,9 +281,19 @@ fun SettingsScreen(
     }
 }
 
-/** "37m ago" for a timestamp the diagnostics show, "Never" for none. */
-private fun Long?.ago(nowMs: Long): String =
-    this?.let { Countdown.freshnessLabel(it, nowMs).removePrefix("Updated ") } ?: "Never"
+/**
+ * "37m ago" for a timestamp the diagnostics show, "Never" for none.
+ *
+ * Its own strings rather than [Countdown.freshnessLabel] with the "Updated" stripped off: cutting a
+ * prefix only works in the one language it was written for.
+ */
+@Composable
+private fun diagnosticAge(at: Long?, nowMs: Long): String {
+    if (at == null) return stringResource(R.string.settings_diag_never)
+    val age = nowMs - at
+    if (age < 60_000) return stringResource(R.string.settings_diag_just_now)
+    return stringResource(R.string.settings_diag_ago, Countdown.format(age, rememberCountdownTexts()))
+}
 
 /**
  * What the device lets this app do in the background, and where to change it.
@@ -238,43 +310,56 @@ private fun BackgroundRefreshCard() {
     val restrictions = remember { BackgroundRestrictions.read(context) }
     UsageCard {
         Text(
-            text = "Background refresh",
+            text = stringResource(R.string.settings_background_title),
             style = MaterialTheme.typography.titleMedium,
             color = UsageColors.Ink,
         )
         Text(
-            text = "The widgets show what the last background refresh fetched. Android decides " +
-                "how often that runs; these are its current settings for this app.",
+            text = stringResource(R.string.settings_background_body),
             style = MaterialTheme.typography.bodyMedium,
             color = UsageColors.Muted,
         )
         Spacer(Modifier.height(6.dp))
         InfoRow(
-            "Background use",
-            if (restrictions.backgroundRestricted) "Restricted" else "Allowed",
+            stringResource(R.string.settings_background_use),
+            stringResource(
+                if (restrictions.backgroundRestricted) R.string.settings_background_restricted
+                else R.string.settings_background_allowed,
+            ),
         )
         InfoRow(
-            "Battery optimisation",
-            if (restrictions.batteryOptimised) "On (refresh may be deferred)" else "Off",
+            stringResource(R.string.settings_battery_optimisation),
+            stringResource(
+                if (restrictions.batteryOptimised) R.string.settings_battery_on else R.string.settings_battery_off,
+            ),
         )
         restrictions.standbyBucket?.let { bucket ->
-            InfoRow("Standby bucket", bucket.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase))
+            InfoRow(stringResource(R.string.settings_standby_bucket), stringResource(standbyBucketRes(bucket)))
         }
         if (restrictions.severe) {
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Dot(UsageColors.Warning, Modifier.padding(top = 7.dp), size = 6.dp)
                 Text(
-                    text = "Background refresh is being held back on this device, so widgets can " +
-                        "fall hours behind. Allowing background use for Usage Limits fixes it.",
+                    text = stringResource(R.string.settings_background_held_back),
                     style = MaterialTheme.typography.bodyMedium,
                     color = UsageColors.Muted,
                 )
             }
         }
         Spacer(Modifier.height(10.dp))
-        OutlineButton("Open battery settings", { openBatterySettings(context) })
+        OutlineButton(stringResource(R.string.settings_open_battery_settings), { openBatterySettings(context) })
     }
+}
+
+@StringRes
+private fun standbyBucketRes(bucket: BackgroundRestrictions.StandbyBucket): Int = when (bucket) {
+    BackgroundRestrictions.StandbyBucket.ACTIVE -> R.string.settings_standby_active
+    BackgroundRestrictions.StandbyBucket.WORKING_SET -> R.string.settings_standby_working_set
+    BackgroundRestrictions.StandbyBucket.FREQUENT -> R.string.settings_standby_frequent
+    BackgroundRestrictions.StandbyBucket.RARE -> R.string.settings_standby_rare
+    BackgroundRestrictions.StandbyBucket.RESTRICTED -> R.string.settings_standby_restricted
+    BackgroundRestrictions.StandbyBucket.UNKNOWN -> R.string.settings_standby_unknown
 }
 
 /**

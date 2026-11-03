@@ -45,21 +45,37 @@ public actor LoopbackListener {
     private let path: String
     private let state: String
     private let timeout: TimeInterval
+    private let pageTexts: any LoopbackPageTexts
 
     /// The listener for a challenge.
     ///
     /// Preferred over naming the parts, so the caller never handles the state or the path — and
     /// so a listener cannot be opened for one attempt while checking another's state.
-    public init(challenge: LoopbackChallenge, timeout: TimeInterval = 300) {
+    ///
+    /// `pageTexts` words the page the browser is left showing; English unless the caller, which
+    /// can reach a bundle where this cannot, hands in its own.
+    public init(
+        challenge: LoopbackChallenge,
+        timeout: TimeInterval = 300,
+        pageTexts: any LoopbackPageTexts = EnglishLoopbackPageTexts()
+    ) {
         self.init(
-            port: challenge.port, path: challenge.path, state: challenge.state, timeout: timeout)
+            port: challenge.port, path: challenge.path, state: challenge.state, timeout: timeout,
+            pageTexts: pageTexts)
     }
 
-    public init(port: UInt16, path: String, state: String, timeout: TimeInterval = 300) {
+    public init(
+        port: UInt16,
+        path: String,
+        state: String,
+        timeout: TimeInterval = 300,
+        pageTexts: any LoopbackPageTexts = EnglishLoopbackPageTexts()
+    ) {
         self.port = port
         self.path = path
         self.state = state
         self.timeout = timeout
+        self.pageTexts = pageTexts
     }
 
     /// Binds, waits for the redirect, and returns the authorisation code.
@@ -149,19 +165,22 @@ public actor LoopbackListener {
                         request: request, expectedPath: self.path, expectedState: self.state,
                         expectedPort: self.port)
 
+                    // Every outcome is worded by the same function, so no sentence is built
+                    // here that the injected texts could miss.
+                    Self.reply(
+                        connection,
+                        LoopbackRedirect.pageResponse(for: outcome, texts: self.pageTexts))
+
                     switch outcome {
                     case .ignored:
-                        // Not an answer to THIS attempt — including a mismatched state. Answer
-                        // briefly and keep waiting, because every process on the device shares
-                        // this address and stopping on the first stranger hands any of them a
-                        // way to break a sign-in in progress.
-                        Self.reply(connection, LoopbackRedirect.failureResponse(
-                            message: "Nothing to see here."))
+                        // Not an answer to THIS attempt — including a mismatched state. Answered
+                        // briefly above and the wait goes on, because every process on the device
+                        // shares this address and stopping on the first stranger hands any of
+                        // them a way to break a sign-in in progress.
+                        break
                     case .code(let code):
-                        Self.reply(connection, LoopbackRedirect.successResponse())
                         if finished.claim() { continuation.resume(returning: code) }
                     case .rejected(let message):
-                        Self.reply(connection, LoopbackRedirect.failureResponse(message: message))
                         if finished.claim() {
                             continuation.resume(throwing: ListenError.refused(message))
                         }

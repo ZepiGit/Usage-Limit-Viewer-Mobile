@@ -84,4 +84,46 @@ class WidgetUpgradeTest {
             assertEquals(com.usagelimits.widget.WidgetStyle(), style)
         } finally { upgraded.close(); context.deleteDatabase("usage_limits.db") }
     }
+
+    @Test fun `a widget on version 11 keeps every setting and follows the app mode after the upgrade`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        context.deleteDatabase("usage_limits.db")
+        val file = context.getDatabasePath("usage_limits.db")
+        file.parentFile!!.mkdirs()
+        val schema = JSONObject(File("schemas/com.usagelimits.core.database.UsageLimitsDatabase/11.json").readText()).getJSONObject("database")
+        SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
+            val entities = schema.getJSONArray("entities")
+            for (i in 0 until entities.length()) {
+                val table = entities.getJSONObject(i)
+                val name = table.getString("tableName")
+                db.execSQL(table.getString("createSql").replace("\${TABLE_NAME}", name))
+                val indices = table.getJSONArray("indices")
+                for (j in 0 until indices.length()) db.execSQL(indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", name))
+            }
+            val setup = schema.getJSONArray("setupQueries")
+            for (i in 0 until setup.length()) db.execSQL(setup.getString(i))
+            db.execSQL("INSERT INTO accounts(localId, provider, externalAccountId, credentialReference, createdAt, attributesJson, sortOrder) VALUES('kept', 'codex', 'external', 'test-only', 1, '{}', 0)")
+            db.execSQL(
+                "INSERT INTO widget_configs(appWidgetId, scope, accountId, provider, updatedAt, transparent, " +
+                    "customAccountIdsJson, layoutMetricsJson, backgroundArgb, backgroundOpacity, textTone) " +
+                    "VALUES(33, 'ACCOUNT', 'kept', 'codex', 9, 0, '[\"kept\"]', '{\"w\":2}', -16711936, 60, 'LIGHT')",
+            )
+            db.version = 11
+        }
+        val upgraded = UsageLimitsDatabase.build(context)
+        try {
+            val config = upgraded.widgetConfigDao().get(33)!!
+            assertEquals("ACCOUNT", config.scope)
+            assertEquals("kept", config.accountId)
+            assertEquals("codex", config.provider)
+            assertEquals(9L, config.updatedAt)
+            assertFalse(config.transparent)
+            assertEquals("[\"kept\"]", config.customAccountIdsJson)
+            assertEquals("{\"w\":2}", config.layoutMetricsJson)
+            assertEquals(-16711936, config.backgroundArgb)
+            assertEquals(60, config.backgroundOpacity)
+            assertEquals("LIGHT", config.textTone)
+            assertNull("an existing widget keeps following the app's percent mode", config.percentDisplay)
+        } finally { upgraded.close(); context.deleteDatabase("usage_limits.db") }
+    }
 }

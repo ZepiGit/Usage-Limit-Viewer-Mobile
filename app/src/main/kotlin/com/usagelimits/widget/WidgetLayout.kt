@@ -22,6 +22,21 @@ object WidgetLayout {
 
     fun miniCapacity(width: Float, height: Float): Int = miniGrid(width, height).capacity
 
+    /** The ring widgets' one-line mode caption: 9sp text plus its 4dp inset, in dp. */
+    fun ringCaptionHeight(fontScale: Float): Float = 9f * fontScale + 4f
+
+    /**
+     * Rows a Mini Rings grid shows once the mode caption has taken its line.
+     *
+     * The caption is reserved before the rows are counted, so a host too short for both shows
+     * fewer rings rather than clipping one: at the 56dp minimum a one-cell-tall widget drops
+     * from two rings to one. Every row needs 20dp; there is always at least one.
+     */
+    fun miniCaptionedRows(grid: Grid, accountCount: Int, heightDp: Float, fontScale: Float): Int {
+        val content = heightDp - 8f - ringCaptionHeight(fontScale)
+        return minOf(miniVisibleRows(grid, accountCount), kotlin.math.floor(content / 20f).toInt()).coerceAtLeast(1)
+    }
+
     /**
      * Which content the compact widget lays out at a given width.
      *

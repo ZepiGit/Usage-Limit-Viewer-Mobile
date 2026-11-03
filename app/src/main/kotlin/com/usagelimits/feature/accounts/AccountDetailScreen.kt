@@ -24,8 +24,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.ui.components.Dot
@@ -39,11 +42,10 @@ import com.usagelimits.ui.components.StatusMark
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.components.UsageWindowRow
+import com.usagelimits.ui.text.rememberCountdownTexts
+import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageType
-
-private const val REMOVE_BODY = "Its stored credentials are deleted from this device. Nothing changes on " +
-    "the provider side, and you can add the account again at any time."
 
 /**
  * One account in full: every window, its reset credits, and account management.
@@ -56,6 +58,8 @@ fun AccountDetailScreen(
     usage: AccountUsage?,
     nowMs: Long,
     staleAfterMs: Long,
+    // Required, never defaulted: a defaulted mode would leave this screen silently in LEFT.
+    percentDisplay: PercentDisplay,
     resetInFlight: Boolean,
     supportsResetCredits: Boolean,
     onRefresh: () -> Unit,
@@ -74,7 +78,7 @@ fun AccountDetailScreen(
                 .padding(16.dp),
         ) {
             Text(
-                text = "This account is no longer available.",
+                text = stringResource(R.string.account_unavailable),
                 style = MaterialTheme.typography.bodyLarge,
                 color = UsageColors.Muted,
             )
@@ -83,6 +87,8 @@ fun AccountDetailScreen(
     }
 
     var showRemoveDialog by remember { mutableStateOf(false) }
+    val removeBody = stringResource(R.string.account_remove_body)
+    val countdownTexts = rememberCountdownTexts()
     val snapshot = usage.snapshot
     val severity = snapshot?.severityAt(nowMs, staleAfterMs)
     // Old or failed: the figures stay, in grey.
@@ -112,7 +118,7 @@ fun AccountDetailScreen(
                     )
                 }
                 severity?.let {
-                    StatusMark(it, label = if (snapshot.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) "Reconnect" else null)
+                    StatusMark(it, label = if (snapshot.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) stringResource(R.string.status_reconnect) else null)
                 }
             }
         }
@@ -120,10 +126,11 @@ fun AccountDetailScreen(
         item {
             val attempt = if (snapshot != null && snapshot.status != com.usagelimits.core.model.SnapshotStatus.OK) {
                 val age = (nowMs - snapshot.lastAttemptAt).coerceAtLeast(0)
-                " · " + if (age < 60_000) "Last attempt just now" else "Last attempt ${Countdown.format(age)} ago"
+                " · " + if (age < 60_000) stringResource(R.string.account_last_attempt_just_now)
+                    else stringResource(R.string.account_last_attempt_ago, Countdown.format(age, countdownTexts))
             } else ""
             Text(
-                text = Countdown.freshnessLabel(usage.measurementAt, nowMs) + attempt,
+                text = Countdown.freshnessLabel(usage.measurementAt, nowMs, countdownTexts) + attempt,
                 style = MaterialTheme.typography.bodySmall,
                 color = UsageColors.Faint,
             )
@@ -133,7 +140,7 @@ fun AccountDetailScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Dot(UsageColors.Warning, size = 6.dp)
                     Text(
-                        text = "Restricted: " + snapshot!!.restrictedWindows.joinToString { it.label },
+                        text = stringResource(R.string.restricted_windows, snapshot!!.restrictedWindows.joinToString { it.label }),
                         style = MaterialTheme.typography.bodyMedium,
                         color = UsageColors.Muted,
                     )
@@ -144,7 +151,7 @@ fun AccountDetailScreen(
         if (snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) {
             item {
                 // The one filled primary on this screen.
-                InkButton("Reconnect account", onReconnect, Modifier.fillMaxWidth())
+                InkButton(stringResource(R.string.account_reconnect), onReconnect, Modifier.fillMaxWidth())
             }
         }
         snapshot?.errorMessage?.let { error ->
@@ -152,12 +159,12 @@ fun AccountDetailScreen(
                 val partial = snapshot.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL
                 UsageCard {
                     ErrorBlock(
-                        message = error,
+                        message = storedMessageText(error),
                         dot = if (partial) UsageColors.Warning else UsageColors.Negative,
                         detail = when {
-                            partial -> "Available figures are from this update; some limits could not be refreshed."
-                            usage.measurementAt == null -> "No usage measurement has loaded yet."
-                            else -> "The figures below are the last values that loaded successfully."
+                            partial -> stringResource(R.string.account_detail_partial)
+                            usage.measurementAt == null -> stringResource(R.string.account_detail_no_measurement)
+                            else -> stringResource(R.string.account_detail_last_loaded)
                         },
                         onRetry = onRefresh,
                     )
@@ -167,7 +174,7 @@ fun AccountDetailScreen(
 
         val windows = snapshot?.windows.orEmpty()
         if (windows.isNotEmpty()) {
-            item { SectionHeader("Limits") }
+            item { SectionHeader(stringResource(R.string.account_section_limits)) }
             // One ledger card; grouped windows keep their heading so a shared quota bucket
             // reads as one thing.
             item(key = "limits") {
@@ -179,7 +186,7 @@ fun AccountDetailScreen(
                     fun divide(): Boolean { val had = !first; first = false; return had }
                     ungrouped.forEach { window ->
                         if (divide()) RuleDivider(Modifier.padding(horizontal = 16.dp))
-                        UsageWindowRow(window, nowMs, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                        UsageWindowRow(window, nowMs, percentDisplay, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
                     }
                     groups.forEach { (group, rows) ->
                         if (divide()) RuleDivider(Modifier.padding(horizontal = 16.dp))
@@ -190,7 +197,7 @@ fun AccountDetailScreen(
                             color = UsageColors.Ink,
                         )
                         rows.forEach { window ->
-                            UsageWindowRow(window, nowMs, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                            UsageWindowRow(window, nowMs, percentDisplay, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
                         }
                     }
                 }
@@ -198,7 +205,7 @@ fun AccountDetailScreen(
         }
 
         if (supportsResetCredits) {
-            item { SectionHeader("Reset credits") }
+            item { SectionHeader(stringResource(R.string.reset_credits_title)) }
             item {
                 ResetCreditCard(
                     heldCount = snapshot?.heldResetCredits ?: 0,
@@ -211,7 +218,7 @@ fun AccountDetailScreen(
             }
         }
 
-        item { SectionHeader("Account") }
+        item { SectionHeader(stringResource(R.string.account_section_account)) }
         item {
             UsageCard {
                 // Per account, because the global switches in Settings decide WHICH kinds of
@@ -219,22 +226,21 @@ fun AccountDetailScreen(
                 // they never run down does not want to turn off "below 20%" for the account
                 // they live in.
                 ToggleRow(
-                    title = "Notifications",
-                    subtitle = "Alerts about this account's limits, resets and credits. Its " +
-                        "numbers keep updating either way.",
+                    title = stringResource(R.string.account_notifications_title),
+                    subtitle = stringResource(R.string.account_notifications_subtitle),
                     checked = notificationsEnabled,
                     onChange = onNotificationsChange,
                 )
             }
         }
 
-        item { OutlineButton("Refresh now", onRefresh, Modifier.fillMaxWidth()) }
+        item { OutlineButton(stringResource(R.string.account_refresh_now), onRefresh, Modifier.fillMaxWidth()) }
 
         // Destructive and rare: its own section, last, with the consequence stated above it.
         item {
             Column(Modifier.padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(REMOVE_BODY, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
-                OutlineButton("Remove account", { showRemoveDialog = true }, Modifier.fillMaxWidth(), color = UsageColors.NegativeText)
+                Text(removeBody, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+                OutlineButton(stringResource(R.string.account_remove), { showRemoveDialog = true }, Modifier.fillMaxWidth(), color = UsageColors.NegativeText)
             }
         }
     }
@@ -243,17 +249,17 @@ fun AccountDetailScreen(
         AlertDialog(
             onDismissRequest = { showRemoveDialog = false },
             containerColor = UsageColors.Raised,
-            title = { Text("Remove account?", style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink) },
-            text = { Text(REMOVE_BODY, color = UsageColors.Muted) },
+            title = { Text(stringResource(R.string.account_remove_title), style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink) },
+            text = { Text(removeBody, color = UsageColors.Muted) },
             confirmButton = {
                 TextButton(onClick = {
                     showRemoveDialog = false
                     onRemove()
-                }) { Text("Remove", color = UsageColors.NegativeText) }
+                }) { Text(stringResource(R.string.account_remove_confirm), color = UsageColors.NegativeText) }
             },
             dismissButton = {
                 TextButton(onClick = { showRemoveDialog = false }) {
-                    Text("Cancel", color = UsageColors.Muted)
+                    Text(stringResource(R.string.action_cancel), color = UsageColors.Muted)
                 }
             },
         )
@@ -277,6 +283,7 @@ private fun ResetCreditCard(
     onConsume: () -> Unit,
 ) {
     var showConfirm by remember { mutableStateOf(false) }
+    val countdownTexts = rememberCountdownTexts()
 
     // The provider reports credits held and credits that apply to the limit currently reached
     // as separate numbers. Showing the held count keeps a user who owns credits from being
@@ -288,15 +295,18 @@ private fun ResetCreditCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (heldCount > 0) "$heldCount available" else "None available",
+                    text = if (heldCount > 0) stringResource(R.string.reset_credits_available_count, heldCount)
+                        else stringResource(R.string.reset_credits_none_available),
                     style = UsageType.FigureLarge,
                     color = if (heldCount > 0) UsageColors.Ink else UsageColors.Muted,
                 )
                 Text(
                     text = when {
-                        heldButUnspendable -> "None apply to your current limit yet"
-                        expiresAt != null -> "Expires in ${Countdown.format(expiresAt - nowMs)}"
-                        else -> "Credits appear here when your plan grants one"
+                        heldButUnspendable -> stringResource(R.string.reset_credits_none_apply)
+                        expiresAt != null -> stringResource(
+                            R.string.reset_credits_expires_in, Countdown.format(expiresAt - nowMs, countdownTexts),
+                        )
+                        else -> stringResource(R.string.reset_credits_empty_hint)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = UsageColors.Muted,
@@ -307,7 +317,7 @@ private fun ResetCreditCard(
         if (spendableCount > 0) {
             Spacer(Modifier.height(12.dp))
             // Spends a credit, so it is deliberately not the screen's primary.
-            OutlineButton("Reset limit", { showConfirm = true }, Modifier.fillMaxWidth(), enabled = !inFlight)
+            OutlineButton(stringResource(R.string.reset_credits_reset_limit), { showConfirm = true }, Modifier.fillMaxWidth(), enabled = !inFlight)
         }
     }
 
@@ -315,23 +325,19 @@ private fun ResetCreditCard(
         AlertDialog(
             onDismissRequest = { showConfirm = false },
             containerColor = UsageColors.Raised,
-            title = { Text("Use a reset credit?", style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink) },
+            title = { Text(stringResource(R.string.reset_credits_confirm_title), style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink) },
             text = {
-                Text(
-                    "This consumes 1 reset credit and cannot be undone. Your rate limit will " +
-                        "be reset immediately.",
-                    color = UsageColors.Muted,
-                )
+                Text(stringResource(R.string.reset_credits_confirm_body), color = UsageColors.Muted)
             },
             confirmButton = {
                 TextButton(onClick = {
                     showConfirm = false
                     onConsume()
-                }) { Text("Use credit", color = UsageColors.Ink) }
+                }) { Text(stringResource(R.string.reset_credits_confirm_action), color = UsageColors.Ink) }
             },
             dismissButton = {
                 TextButton(onClick = { showConfirm = false }) {
-                    Text("Cancel", color = UsageColors.Muted)
+                    Text(stringResource(R.string.action_cancel), color = UsageColors.Muted)
                 }
             },
         )

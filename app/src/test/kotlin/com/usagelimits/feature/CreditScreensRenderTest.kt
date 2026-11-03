@@ -63,7 +63,7 @@ class CreditScreensRenderTest {
         render {
             OverviewScreen(
                 state = UsageUiState(settings = AppSettings(), credits = listOf(entry(error = "The key was rejected (HTTP 401)."))),
-                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onReorder = {},
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onReorder = {}, onPercentDisplayChange = {},
                 onCreditClick = {}, onAddCredit = {},
             )
         }

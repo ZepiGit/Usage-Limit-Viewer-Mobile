@@ -4,10 +4,12 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.providers.credits.CreditError
+import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.widget.WidgetUpdater
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,7 +45,7 @@ class AddCreditViewModel(
         if (_state.value == AddCreditState.Validating) return
         val threshold = parseThreshold(lowThreshold)
         if (threshold == ThresholdInput.Invalid) {
-            _state.value = AddCreditState.Failed("The low-balance figure must be a number above zero.")
+            _state.value = AddCreditState.Failed(appContext.getString(R.string.credit_error_threshold))
             return
         }
         _state.value = AddCreditState.Validating
@@ -59,10 +61,10 @@ class AddCreditViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: CreditError) {
-                AddCreditState.Failed(e.message.orEmpty())
+                AddCreditState.Failed(storedMessageText(appContext.resources, e.message.orEmpty()))
             } catch (e: Exception) {
                 // Never e.message: it could carry anything. This is the only other way to fail.
-                AddCreditState.Failed("The key could not be saved on this device.")
+                AddCreditState.Failed(appContext.getString(R.string.credit_error_save))
             }
         }
     }

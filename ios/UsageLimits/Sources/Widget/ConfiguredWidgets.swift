@@ -31,6 +31,16 @@ enum WidgetToneChoice: String, AppEnum {
 }
 
 @available(iOS 17.0, *)
+enum WidgetModeChoice: String, AppEnum {
+    // Raw values are the contract: `left`/`used` must equal `PercentDisplay`'s, because
+    // `PercentDisplay.widgetOverride(rawChoice:)` reads the choice by raw value.
+    case appSetting, left, used
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Show percentages as"
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .appSetting: "App setting", .left: "Left", .used: "Used"]
+}
+
+@available(iOS 17.0, *)
 struct WidgetAccountEntity: AppEntity {
     var id: String
     var name: String
@@ -42,7 +52,10 @@ struct WidgetAccountEntity: AppEntity {
 @available(iOS 17.0, *)
 struct WidgetAccountQuery: EntityQuery {
     func suggestedEntities() async throws -> [WidgetAccountEntity] {
-        SnapshotCache.load().accounts.map { WidgetAccountEntity(id: $0.id, name: "\($0.title) · \($0.subtitle ?? "Account")") }
+        let fallback = String(localized: "Account")
+        return SnapshotCache.load().accounts.map {
+            WidgetAccountEntity(id: $0.id, name: "\($0.title) · \($0.subtitle ?? fallback)")
+        }
     }
     func entities(for identifiers: [String]) async throws -> [WidgetAccountEntity] {
         let all = try await suggestedEntities()
@@ -84,6 +97,9 @@ struct UsageWidgetIntent: WidgetConfigurationIntent {
     // user's explicit choice — the same contract as the Android LIGHT/DARK override. Light
     // is the default, which is what every existing transparent tile has always drawn.
     @Parameter(title: "Text tone", default: .light) var tone: WidgetToneChoice
+    // App setting is the default because every widget placed before this existed follows the
+    // app's mode, as it always did; Left and Used pin this one widget regardless of the app.
+    @Parameter(title: "Show percentages as", default: .appSetting) var percentDisplay: WidgetModeChoice
 }
 
 @available(iOS 17.0, *)
@@ -150,9 +166,10 @@ struct ConfiguredUsageProvider: AppIntentTimelineProvider {
         case .custom: .custom
         case .account: .account
         }
+        let percentOverride = PercentDisplay.widgetOverride(rawChoice: config.percentDisplay.rawValue)
         return ConfiguredWidgetCapture(source: source, preset: preset, scope: scope,
             accountID: config.account?.id, providerID: config.provider.rawValue,
-            transparent: config.transparent)
+            transparent: config.transparent, percentOverride: percentOverride)
     }
 }
 
@@ -207,6 +224,14 @@ private struct ConfiguredRingGrid: View {
     let mini: Bool
     var ink: WidgetInk
 
+    /// The line the mode caption takes above the grid, taken off the height before rows are
+    /// counted so a captioned grid cannot overflow its tile. A deliberate capacity drop for a
+    /// one-row-tall mini widget: one ring where two fitted before.
+    @ScaledMetric(relativeTo: .caption2) private var captionSpace: CGFloat = 14
+
+    /// From the snapshot alone: the widget process cannot read the app's settings.
+    private var mode: PercentDisplay { entry.snapshot.percentDisplay }
+
     var body: some View {
         Group {
             if entry.outcome == .ready {
@@ -222,59 +247,96 @@ private struct ConfiguredRingGrid: View {
     private var grid: some View {
         GeometryReader { geometry in
             let columns = max(1, Int(geometry.size.width / (mini ? 48 : 140)))
-            let rows = max(1, Int(geometry.size.height / (mini ? 48 : 56)))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: columns), spacing: 8) {
-                ForEach(entry.snapshot.accounts.prefix(columns * rows)) { account in
-                    Link(destination: URL(string: "usagelimits://account/\(account.id)")!) {
-                        HStack(spacing: 8) {
+            let rows = max(1, Int((geometry.size.height - captionSpace) / (mini ? 48 : 56)))
+            VStack(alignment: .leading, spacing: 0) {
+                if !entry.snapshot.accounts.isEmpty {
+                    // One hint for the whole grid, independent of which status line each ring shows:
+                    // a bare ring does not say which side it counts. The rings speak the mode
+                    // themselves, so VoiceOver does not need the caption as well.
+                    Text(verbatim: PercentText.caption(mode))
+                        .usageFont(.micro)
+                        .foregroundStyle(ink.secondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: captionSpace)
+                        .accessibilityHidden(true)
+                }
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: columns), spacing: 8) {
+                    ForEach(entry.snapshot.accounts.prefix(columns * rows)) { account in
+                        Link(destination: URL(string: "usagelimits://account/\(account.id)")!) {
+                            // Resolved above the row so the drawn figure and the spoken one share it.
                             let limit = account.representative(at: entry.date)
                             let severity = account.displaySeverity(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter)
-                            ZStack {
-                                // Reduce track opacity in accented/monochrome modes: the host can recolor both
-                                // circles white, so opacity must distinguish the track from the amount.
-                                Circle().stroke(ink.track, lineWidth: mini ? 4 : 5).opacity(trackOpacity)
-                                if let arc = ink.bar(severity) {
-                                    Circle().trim(from: 0, to: CGFloat((limit?.remainingPercent ?? 0) / 100))
-                                        .stroke(arc, style: StrokeStyle(lineWidth: mini ? 4 : 5, lineCap: .round))
-                                        .rotationEffect(.degrees(-90))
-                                }
-                                if mini {
-                                    // Only room for the logo: the figure is the arc.
-                                    logo(for: account).frame(width: 20, height: 20)
-                                } else {
-                                    // A ring this size reads best with its number inside; the
-                                    // logo goes beside the name instead.
-                                    Text(verbatim: QuotaFormatting.percentText(limit?.remainingPercent))
-                                        .usageFont(limit?.remainingPercent == nil ? .small : .smallStrong)
-                                        .foregroundStyle(ink.figure(severity))
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.85)
-                                        .monospaced()
-                                }
-                            }.frame(width: mini ? 38 : 46, height: mini ? 38 : 46)
-                            if mini && account.statusMessage != nil {
-                                // Partial update: a dot, not a badge.
-                                Circle().fill(ink.warning).frame(width: 6, height: 6)
-                            }
-                            if !mini {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: 6) {
-                                        logo(for: account).frame(width: 16, height: 16)
-                                        Text(account.title).usageFont(.smallStrong).lineLimit(1)
+                            // Built from the raw row; the aged `severity` above only colours the figure.
+                            let p = account.presentation(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter, mode: mode)
+                            let figure = PercentText.figure(p)
+                            HStack(spacing: 8) {
+                                ZStack {
+                                    // Reduce track opacity in accented/monochrome modes: the host can recolor both
+                                    // circles white, so opacity must distinguish the track from the amount.
+                                    Circle().stroke(ink.track, lineWidth: mini ? 4 : 5).opacity(trackOpacity)
+                                    // No fraction, no arc: an unknown figure must not become a ring
+                                    // drawn from "100 − 0".
+                                    if let fill = p.fill, let arc = ink.fill(p.fillState) {
+                                        Circle().trim(from: 0, to: CGFloat(fill))
+                                            .stroke(arc, style: StrokeStyle(lineWidth: mini ? 4 : 5, lineCap: .round))
+                                            .rotationEffect(.degrees(-90))
                                     }
-                                    if account.connectionStatus == .reconnectRequired { Text("Reconnect").usageFont(.micro) }
-                                    else if let message = account.statusMessage { Text(verbatim: message).usageFont(.micro).lineLimit(2) }
-                                    // Passed resets need an overdue label; future-day resets need a date, not only a time.
-                                    else if let reset = GlanceText.resetLine(resetAt: limit?.resetAt, now: entry.date) {
-                                        Text(verbatim: reset).usageFont(.micro).lineLimit(1)
+                                    if mini {
+                                        // Only room for the logo: the figure is the arc.
+                                        logo(for: account).frame(width: 20, height: 20)
+                                    } else {
+                                        // A ring this size reads best with its number inside; the
+                                        // logo goes beside the name instead.
+                                        Text(verbatim: figure)
+                                            .usageFont(p.hasFigure ? .smallStrong : .small)
+                                            .foregroundStyle(ink.figure(severity))
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.85)
+                                            .monospaced()
                                     }
-                                }.foregroundStyle(ink.primary)
-                            }
-                        }.accessibilityLabel("\(account.title), \(account.subtitle ?? ""), \(QuotaFormatting.percentText(account.rows.map(\.remainingPercent).compactMap { $0 }.min())) remaining")
+                                }.frame(width: mini ? 38 : 46, height: mini ? 38 : 46)
+                                if mini && account.statusMessage != nil {
+                                    // Partial update: a dot, not a badge.
+                                    Circle().fill(ink.warning).frame(width: 6, height: 6)
+                                }
+                                if !mini {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 6) {
+                                            logo(for: account).frame(width: 16, height: 16)
+                                            Text(verbatim: account.title).usageFont(.smallStrong).lineLimit(1)
+                                        }
+                                        if account.connectionStatus == .reconnectRequired { Text("Reconnect").usageFont(.micro) }
+                                        else if let message = account.statusMessage { Text(verbatim: DisplayText.stored(message)).usageFont(.micro).lineLimit(2) }
+                                        // Passed resets need an overdue label; future-day resets need a date, not only a time.
+                                        else if let reset = GlanceText.resetLine(resetAt: limit?.resetAt, now: entry.date) {
+                                            Text(verbatim: reset).usageFont(.micro).lineLimit(1)
+                                        }
+                                    }.foregroundStyle(ink.primary)
+                                }
+                            }.accessibilityLabel(spoken(account, drawnFigure: figure))
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// LEFT is the sentence spoken before the mode existed, which reads the lowest figure across
+    /// every window. USED speaks `drawnFigure`, the very string the ring prints: an exhausted
+    /// 5h window whose reset has passed, beside an open weekly at 60% left, draws "40% used" from
+    /// the representative row, and a second derivation over all rows announced "100% used".
+    /// Taking the drawn figure in means the two cannot be computed apart again.
+    private func spoken(_ account: GlanceAccount, drawnFigure: String) -> String {
+        let sentence: String
+        if mode == .used {
+            sentence = PercentText.spoken(drawnFigure, .used)
+        } else {
+            let lowest = account.rows.map(\.remainingPercent).compactMap { $0 }.min()
+            let token = UsageWindow.percentToken(lowest, exhausted: false, mode: .left)
+            sentence = PercentText.spoken(PercentText.figure(token: token), .left)
+        }
+        return "\(account.title), \(account.subtitle ?? ""), \(sentence)"
     }
 
     /// The provider's mark, drawn in the ink's own colour when the tile sits on a light

@@ -21,7 +21,7 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.3.1"
+    MARKETING_VERSION: "0.4.0"
     CURRENT_PROJECT_VERSION: "1"
     # Strict concurrency across the app too, not only the package. The kit is already clean, and
     # letting the app lag behind is how a @MainActor violation reaches a user as a crash on a
@@ -38,6 +38,13 @@ targets:
       - path: Sources
         excludes:
           - Widget/**
+          # Listed once, explicitly, below, the same way the widget lists it.
+          - Resources/**
+      # One catalog for the app and the widget. Both targets compile Theme, whose words
+      # (percent figures, severity names, countdowns) are looked up from the bundle they run in,
+      # so a widget whose bundle lacked the catalog would show English in every language.
+      - path: Sources/Resources/Localizable.xcstrings
+        buildPhase: resources
     dependencies:
       - package: UsageLimitsKit
       # The widget must be EMBEDDED, not merely built. Listing both targets in the scheme
@@ -102,6 +109,8 @@ targets:
       - path: Sources/Widget
       - path: Sources/Theme
       - path: Sources/Assets.xcassets
+      - path: Sources/Resources/Localizable.xcstrings
+        buildPhase: resources
     dependencies:
       - package: UsageLimitsKit
     settings:

@@ -45,6 +45,7 @@ final class PreferencesAndLedgerTests: XCTestCase {
         settings.showSubscriptionTier = false
         settings.showRenewalTime = true
         settings.accountsManuallyOrdered = true
+        settings.percentDisplay = .used
         settings.notifications.mutedAccountIDs = ["acct-1", "acct-2"]
 
         let returned = try await store.save(settings)
@@ -56,6 +57,7 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertFalse(reopened.showSubscriptionTier)
         XCTAssertTrue(reopened.showRenewalTime)
         XCTAssertTrue(reopened.accountsManuallyOrdered)
+        XCTAssertEqual(reopened.percentDisplay, .used)
         XCTAssertEqual(reopened.notifications.mutedAccountIDs, ["acct-1", "acct-2"])
     }
 
@@ -71,7 +73,20 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertTrue(settings.showSubscriptionTier)
         XCTAssertFalse(settings.showRenewalTime)
         XCTAssertFalse(settings.accountsManuallyOrdered)
+        XCTAssertEqual(settings.percentDisplay, .left)
         XCTAssertTrue(settings.notifications.mutedAccountIDs.isEmpty)
+    }
+
+    /// One unknown enum name must not fail the whole decode: the file holds every other
+    /// preference, and failing it would reset them all.
+    func testAnUnknownPercentDisplayNameTakesTheDefaultWithoutResettingTheRest() async throws {
+        let json = #"{"syncIntervalMinutes": 60, "percentDisplay": "sideways"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(settings.percentDisplay, .left)
+        XCTAssertEqual(settings.syncIntervalMinutes, 60)
     }
 
     func testDefaultsRatherThanAFailureWhenNothingIsStored() async {
@@ -342,7 +357,8 @@ final class PreferencesAndLedgerTests: XCTestCase {
                     periodSeconds: 18_000, resetAt: nil, exhausted: false)]))
 
         do {
-            _ = try await ledger.evaluateAndClaim(accounts: [low], settings: NotificationSettings(), at: now)
+            _ = try await ledger.evaluateAndClaim(
+                accounts: [low], settings: NotificationSettings(), percentDisplay: .left, at: now)
             XCTFail("the first write must fail: the directory does not exist")
         } catch {
             // Expected.
@@ -350,15 +366,32 @@ final class PreferencesAndLedgerTests: XCTestCase {
 
         try FileManager.default.createDirectory(at: missing, withIntermediateDirectories: true)
         let retried = try await ledger.evaluateAndClaim(
-            accounts: [low], settings: NotificationSettings(), at: now)
+            accounts: [low], settings: NotificationSettings(), percentDisplay: .left, at: now)
 
         XCTAssertEqual(
             retried.map(\.line), ["Account acct · 5h limit: less than 20% remaining"],
             "the transition must still be announced once the write succeeds")
         // And once more, to prove the claim then holds.
         let again = try await ledger.evaluateAndClaim(
-            accounts: [low], settings: NotificationSettings(), at: now.addingTimeInterval(1))
+            accounts: [low], settings: NotificationSettings(), percentDisplay: .left, at: now.addingTimeInterval(1))
         XCTAssertTrue(again.isEmpty)
+    }
+
+    func testTheLedgerWordsAnAlertInTheModeItIsGiven() async throws {
+        let ledger = NotificationLedger(directory: directory)
+        let now = Date(timeIntervalSince1970: 1_757_000_000)
+        let low = AccountSummary(
+            accountId: "acct", label: "Account acct",
+            snapshot: UsageSnapshot(
+                accountID: "acct", fetchedAt: now, status: .ok,
+                windows: [UsageWindow(
+                    id: "w", label: "5h limit", category: .fiveHour, usedPercent: 85,
+                    periodSeconds: 18_000, resetAt: nil, exhausted: false)]))
+
+        let claimed = try await ledger.evaluateAndClaim(
+            accounts: [low], settings: NotificationSettings(), percentDisplay: .used, at: now)
+
+        XCTAssertEqual(claimed.map(\.line), ["Account acct · 5h limit: more than 80% used"])
     }
 
 }

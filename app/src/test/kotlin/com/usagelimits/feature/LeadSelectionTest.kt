@@ -161,7 +161,7 @@ class LeadSelectionTest {
         compose.setContent {
             UsageLimitsTheme {
                 OverviewScreen(state = UsageUiState(accounts = listOf(tight, soon)), nowMs = now, onRefresh = {},
-                    onAccountClick = {}, onAddAccount = {}, onReorder = {})
+                    onAccountClick = {}, onAddAccount = {}, onReorder = {}, onPercentDisplayChange = {})
             }
         }
         compose.onNodeWithContentDescription("soon, Weekly, 80% left, Reset in 2h 12m").assertIsDisplayed()

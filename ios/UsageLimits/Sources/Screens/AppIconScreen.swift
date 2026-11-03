@@ -5,12 +5,12 @@ enum AppIconChoice: CaseIterable {
     case current, gaugeCoin, aiGauge, aiHourglass, aiRefreshRing, aiBattery
 
     private static let catalog: [(id: AppIconChoice, assetSuffix: String, label: String)] = [
-        (.current, "Current", "Default"),
-        (.gaugeCoin, "GaugeCoin", "Gauge Coin"),
-        (.aiGauge, "AIGauge", "Gauge"),
-        (.aiHourglass, "AIHourglass", "Hourglass"),
-        (.aiRefreshRing, "AIRefreshRing", "Refresh Ring"),
-        (.aiBattery, "AIBattery", "Battery"),
+        (.current, "Current", String(localized: "Default")),
+        (.gaugeCoin, "GaugeCoin", String(localized: "Gauge Coin")),
+        (.aiGauge, "AIGauge", String(localized: "Gauge")),
+        (.aiHourglass, "AIHourglass", String(localized: "Hourglass")),
+        (.aiRefreshRing, "AIRefreshRing", String(localized: "Refresh Ring")),
+        (.aiBattery, "AIBattery", String(localized: "Battery")),
     ]
 
     static var allCases: [AppIconChoice] { catalog.map(\.id) }
@@ -67,7 +67,7 @@ struct AppIconScreen: View {
                     .buttonStyle(.plain)
                     .disabled(applying || !UIApplication.shared.supportsAlternateIcons)
                     .accessibilityLabel(choice.label)
-                    .accessibilityValue(selected == choice ? "Selected" : "Not selected")
+                    .accessibilityValue(DisplayText.selection(selected == choice))
                 }
             }
             .padding(16)

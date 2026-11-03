@@ -30,11 +30,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.usagelimits.R
 import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.ui.components.Dot
@@ -48,6 +50,9 @@ import com.usagelimits.ui.components.Segment
 import com.usagelimits.ui.components.SegmentedRow
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.text.creditKeyHintRes
+import com.usagelimits.ui.text.creditRegionLabelRes
+import com.usagelimits.ui.text.creditUnavailableReasonRes
 import com.usagelimits.ui.theme.UsageColors
 
 /**
@@ -74,26 +79,25 @@ fun AddCreditScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ScreenTitle("Add credit balance")
+        ScreenTitle(stringResource(R.string.credit_add_title))
 
         if (state is AddCreditState.Added) {
             UsageCard {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Dot(UsageColors.Positive)
-                    Text("Added", style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
+                    Text(stringResource(R.string.credit_added), style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
                 }
                 Text(
-                    "${state.label} is now being tracked.",
+                    stringResource(R.string.credit_now_tracked, state.label),
                     style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted,
                 )
             }
-            InkButton("Done", onDone, Modifier.fillMaxWidth())
+            InkButton(stringResource(R.string.action_done), onDone, Modifier.fillMaxWidth())
             return@Column
         }
 
         Text(
-            "Prepaid balances for API keys. The key is checked against the provider before it is saved " +
-                "and is stored only in this device's Keystore.",
+            stringResource(R.string.credit_add_intro),
             style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted,
         )
 
@@ -101,14 +105,14 @@ fun AddCreditScreen(
             CreditProviderId.entries.forEachIndexed { index, provider ->
                 if (index > 0) RuleDivider(Modifier.padding(horizontal = 16.dp))
                 ProviderRow(
-                    name = provider.displayName, subtitle = provider.keyHint,
+                    name = provider.displayName, subtitle = stringResource(creditKeyHintRes(provider)),
                     selected = provider == selected, enabled = !busy,
                     icon = creditIcon(provider), onOpen = { uriHandler.openUri(provider.consoleUrl) },
                 ) { selected = provider }
             }
             CreditProviderId.notPossible.forEach { unavailable ->
                 RuleDivider(Modifier.padding(horizontal = 16.dp))
-                ProviderRow(name = unavailable.displayName, subtitle = unavailable.reason, selected = false, enabled = false) {}
+                ProviderRow(name = unavailable.displayName, subtitle = creditUnavailableReasonRes(unavailable)?.let { stringResource(it) } ?: unavailable.reason, selected = false, enabled = false) {}
             }
         }
 
@@ -116,7 +120,7 @@ fun AddCreditScreen(
             KeyForm(provider = provider, state = state, onSubmit = onSubmit)
         }
 
-        TextAction("Cancel", onCancel, color = UsageColors.Muted)
+        TextAction(stringResource(R.string.action_cancel), onCancel, color = UsageColors.Muted)
     }
 }
 
@@ -146,7 +150,10 @@ private fun ProviderRow(
             Text(name, style = MaterialTheme.typography.titleMedium, color = if (enabled || selected) UsageColors.Ink else UsageColors.Muted)
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = if (enabled || selected) UsageColors.Muted else UsageColors.Faint)
         }
-        if (onOpen != null) OutlineButton("Open", onOpen, Modifier.semantics { contentDescription = "Open $name key page" })
+        if (onOpen != null) {
+            val openDescription = stringResource(R.string.credit_open_key_page_description, name)
+            OutlineButton(stringResource(R.string.credit_open), onOpen, Modifier.semantics { contentDescription = openDescription })
+        }
     }
 }
 
@@ -165,43 +172,43 @@ private fun KeyForm(
     val busy = state is AddCreditState.Validating
 
     UsageCard {
-        Text("Connect ${provider.displayName}", style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
+        Text(stringResource(R.string.credit_connect_title, provider.displayName), style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
         Spacer(Modifier.height(10.dp))
 
         if (provider.hasRegion) {
             Text(
-                "Keys only work on the service they were issued by. Pick the one your account is on.",
+                stringResource(R.string.credit_region_hint),
                 style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted,
             )
             Spacer(Modifier.height(6.dp))
             SegmentedRow {
                 CreditProviderId.regions.forEach { option ->
-                    Segment(CreditProviderId.regionLabel(option), option == region) { if (!busy) region = option }
+                    Segment(stringResource(creditRegionLabelRes(option)), option == region) { if (!busy) region = option }
                 }
             }
             Spacer(Modifier.height(10.dp))
         }
 
         LedgerField(
-            label = "Name (optional)", value = label, onValueChange = { label = it }, enabled = !busy,
+            label = stringResource(R.string.credit_name_label), value = label, onValueChange = { label = it }, enabled = !busy,
             placeholder = provider.displayName,
         )
         Spacer(Modifier.height(12.dp))
         if (provider.acceptsTeamId) {
             LedgerField(
-                label = "Team id (only if the key is not tied to one team)", value = teamId,
+                label = stringResource(R.string.credit_team_label), value = teamId,
                 onValueChange = { teamId = it }, enabled = !busy,
             )
             Spacer(Modifier.height(12.dp))
         }
         LedgerField(
-            label = "Low-balance figure (optional)", value = threshold, onValueChange = { threshold = it }, enabled = !busy,
-            supporting = "Default 5, or 35 for CNY. Below it the balance reads low.",
+            label = stringResource(R.string.credit_threshold_label), value = threshold, onValueChange = { threshold = it }, enabled = !busy,
+            supporting = stringResource(R.string.credit_threshold_supporting),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         )
         Spacer(Modifier.height(12.dp))
         LedgerField(
-            label = "API key", value = key, onValueChange = { key = it }, enabled = !busy,
+            label = stringResource(R.string.add_api_key_label), value = key, onValueChange = { key = it }, enabled = !busy,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
         )
@@ -213,11 +220,11 @@ private fun KeyForm(
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             InkButton(
-                if (busy) "Checking…" else "Check and add",
+                stringResource(if (busy) R.string.credit_checking else R.string.credit_check_and_add),
                 { onSubmit(provider, key, label, region, teamId, threshold) },
                 Modifier.weight(1f), enabled = key.isNotBlank() && !busy, busy = busy,
             )
-            OutlineButton("Open console", { uriHandler.openUri(provider.consoleUrl) }, Modifier.weight(1f))
+            OutlineButton(stringResource(R.string.add_open_console), { uriHandler.openUri(provider.consoleUrl) }, Modifier.weight(1f))
         }
     }
 }

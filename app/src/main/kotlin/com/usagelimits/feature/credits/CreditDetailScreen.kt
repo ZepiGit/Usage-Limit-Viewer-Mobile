@@ -22,8 +22,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.usagelimits.R
 import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.ui.components.InkButton
 import com.usagelimits.ui.components.LedgerField
@@ -31,9 +33,6 @@ import com.usagelimits.ui.components.OutlineButton
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.theme.UsageColors
 import java.math.BigDecimal
-
-private const val REMOVE_BODY = "Its key is deleted from this device. It is not revoked at the provider: do that " +
-    "in the provider's console if the key may have leaked."
 
 /** One credit account in full: its balance, the name and low-balance figure to edit, and removal. */
 @Composable
@@ -48,12 +47,13 @@ fun CreditDetailScreen(
 ) {
     if (entry == null) {
         Column(modifier.fillMaxSize().background(UsageColors.Ground).padding(16.dp)) {
-            Text("This credit account is no longer available.", style = MaterialTheme.typography.bodyLarge, color = UsageColors.Muted)
+            Text(stringResource(R.string.credit_unavailable), style = MaterialTheme.typography.bodyLarge, color = UsageColors.Muted)
         }
         return
     }
 
     var showRemove by remember { mutableStateOf(false) }
+    val removeBody = stringResource(R.string.credit_remove_body)
     var label by remember(entry.id) { mutableStateOf(entry.account.label) }
     var threshold by remember(entry.id) { mutableStateOf(entry.account.customThreshold?.toPlainString().orEmpty()) }
     val parsed = parseThreshold(threshold)
@@ -69,33 +69,34 @@ fun CreditDetailScreen(
         CreditCard(entry, nowMs, staleAfterMs, onRetry = onRefresh)
 
         UsageCard {
-            Text("Edit", style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
+            Text(stringResource(R.string.credit_edit), style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
             Spacer(Modifier.height(12.dp))
-            LedgerField(label = "Name", value = label, onValueChange = { label = it })
+            LedgerField(label = stringResource(R.string.credit_detail_name_label), value = label, onValueChange = { label = it })
             Spacer(Modifier.height(12.dp))
             LedgerField(
-                label = "Low-balance figure", value = threshold, onValueChange = { threshold = it },
+                label = stringResource(R.string.credit_detail_threshold_label), value = threshold, onValueChange = { threshold = it },
                 isError = parsed == ThresholdInput.Invalid,
-                supporting = if (parsed == ThresholdInput.Invalid) "Enter a number above zero, or leave blank for the default."
-                else "Blank uses the default: 5, or 35 for CNY.",
+                supporting = stringResource(
+                    if (parsed == ThresholdInput.Invalid) R.string.credit_threshold_invalid else R.string.credit_threshold_blank,
+                ),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             )
             Spacer(Modifier.height(16.dp))
             // The one filled primary on this screen, at the panel's bottom edge.
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 InkButton(
-                    "Save", { onSave(label, (parsed as? ThresholdInput.Value)?.amount) },
+                    stringResource(R.string.credit_save), { onSave(label, (parsed as? ThresholdInput.Value)?.amount) },
                     enabled = parsed != ThresholdInput.Invalid && label.isNotBlank(),
                 )
             }
         }
 
-        OutlineButton("Refresh now", onRefresh, Modifier.fillMaxWidth())
+        OutlineButton(stringResource(R.string.account_refresh_now), onRefresh, Modifier.fillMaxWidth())
 
         // Destructive and rare: last, with the consequence stated above it.
         Column(Modifier.padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(REMOVE_BODY, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
-            OutlineButton("Remove credit account", { showRemove = true }, Modifier.fillMaxWidth(), color = UsageColors.NegativeText)
+            Text(removeBody, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+            OutlineButton(stringResource(R.string.credit_remove), { showRemove = true }, Modifier.fillMaxWidth(), color = UsageColors.NegativeText)
         }
     }
 
@@ -103,13 +104,13 @@ fun CreditDetailScreen(
         AlertDialog(
             onDismissRequest = { showRemove = false },
             containerColor = UsageColors.Raised,
-            title = { Text("Remove credit account?", style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink) },
-            text = { Text(REMOVE_BODY, color = UsageColors.Muted) },
+            title = { Text(stringResource(R.string.credit_remove_title), style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink) },
+            text = { Text(removeBody, color = UsageColors.Muted) },
             confirmButton = {
-                TextButton(onClick = { showRemove = false; onRemove() }) { Text("Remove", color = UsageColors.NegativeText) }
+                TextButton(onClick = { showRemove = false; onRemove() }) { Text(stringResource(R.string.account_remove_confirm), color = UsageColors.NegativeText) }
             },
             dismissButton = {
-                TextButton(onClick = { showRemove = false }) { Text("Cancel", color = UsageColors.Muted) }
+                TextButton(onClick = { showRemove = false }) { Text(stringResource(R.string.action_cancel), color = UsageColors.Muted) }
             },
         )
     }

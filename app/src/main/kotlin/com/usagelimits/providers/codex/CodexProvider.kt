@@ -11,7 +11,9 @@ import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.network.ProviderEndpoints.Codex
 import com.usagelimits.core.network.ProviderException
+import com.usagelimits.core.oauth.EnglishLoopbackPageTexts
 import com.usagelimits.core.oauth.JwtClaims
+import com.usagelimits.core.oauth.LoopbackPageTexts
 import com.usagelimits.core.oauth.LoopbackServer
 import com.usagelimits.core.oauth.Pkce
 import com.usagelimits.core.oauth.PkceCodes
@@ -48,6 +50,7 @@ import java.util.UUID
 class CodexProvider(
     private val http: HttpClient,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val loginPageTexts: LoopbackPageTexts = EnglishLoopbackPageTexts,
 ) : UsageProvider, DeviceCodeLoginCapable {
 
     override val providerId = ProviderId.CODEX
@@ -64,7 +67,7 @@ class CodexProvider(
         // now — and answered with the device flow — rather than after the browser has minted
         // a code that then has nowhere to land.
         val boundServer = try {
-            LoopbackServer(Codex.REDIRECT_PORT).also { it.start() }
+            LoopbackServer(Codex.REDIRECT_PORT, loginPageTexts).also { it.start() }
         } catch (e: ProviderException) {
             return beginDeviceLogin()
         }
