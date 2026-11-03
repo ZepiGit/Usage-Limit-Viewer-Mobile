@@ -36,9 +36,9 @@ public enum FillState: Sendable, Equatable {
 
 /// Everything a surface needs to present one usage window, with no strings and no colours.
 ///
-/// One presentation per usage window, shared by every surface (ADR 0001), so the figure, the fill
-/// and the exhausted state cannot differ between them. Words, the percent sign and palettes stay
-/// with each surface.
+/// Every surface presents a usage window through this one value, never through its own copy of the
+/// rules, so the figure, the fill and the exhausted state cannot drift apart between surfaces.
+/// Words, the percent sign and palettes stay with each surface.
 public struct WindowPresentation: Equatable, Sendable {
     /// The figure the window shows in `side`; `PercentToken.unknown` when there is none.
     public let token: String

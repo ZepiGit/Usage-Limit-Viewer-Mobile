@@ -129,10 +129,16 @@ data class WidgetSnapshot(
      */
     val emptyProvider: ProviderId? = null,
 ) {
-    /** English wording of [emptyText], for code with no resources and the tests that pin it. */
+    /**
+     * The English reference [emptyText] is held equal to under `en` by WidgetTextsEnglishTest, and
+     * WidgetDataBuilderTest pins its wording; nothing on screen reads it.
+     */
     val emptyMessage: String? get() = emptyProvider?.let { "No ${it.displayName} account connected. Add one in the app." }
 
-    /** English wording of [statusLabel], for code with no resources and the tests that pin it. */
+    /**
+     * The English reference [statusLabel] is held equal to under `en` by WidgetTextsEnglishTest, and
+     * WidgetDataBuilderTest pins its wording; nothing on screen reads it.
+     */
     val selectionStatusLabel: String get() = if (accountCount > 1) "$accountCount accounts" else "Account"
     val hasPartialUpdate: Boolean get() = accounts.any { it.partialUpdate }
 
