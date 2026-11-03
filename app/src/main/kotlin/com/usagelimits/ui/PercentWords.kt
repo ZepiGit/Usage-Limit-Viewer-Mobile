@@ -9,25 +9,31 @@ import com.usagelimits.core.model.PercentDisplay
  * widgets, widget configuration — takes them from here, so a bare figure can never be captioned
  * differently on two screens.
  *
- * Each word has two forms: the pure English function, for code that has no resources and for the
- * tests that pin the wording, and a `…Res` twin giving the string resource a surface reads in the
- * user's language. A test keeps the two in step under `en`.
+ * Each word has two forms: a `…Res` function giving the string resource a surface reads in the
+ * user's language, and a pure English function that is its reference. Only the `…Res` form is read
+ * on screen. The English form stays because PercentResourcesEnglishTest holds it equal to the
+ * resource under `en` and PercentWordsTest pins its wording; without it nothing would notice a
+ * resource drifting away from the words every upgrade must keep.
  */
 
-/** The side word beside a figure: "left" / "used". */
+/** The English reference of [percentSideWordRes]: "left" / "used". Nothing on screen reads it. */
 fun percentSideWord(mode: PercentDisplay): String = when (mode) {
     PercentDisplay.LEFT -> "left"
     PercentDisplay.USED -> "used"
 }
 
-/** [percentSideWord] as a caption or leading label: "Left" / "Used". */
+/**
+ * The English reference of [percentSideCaptionRes], [percentSideWord] as a caption or leading label:
+ * "Left" / "Used". Nothing on screen reads it.
+ */
 fun percentSideCaption(mode: PercentDisplay): String = when (mode) {
     PercentDisplay.LEFT -> "Left"
     PercentDisplay.USED -> "Used"
 }
 
 /**
- * The clause a spoken description ends its figure with: "remaining" / "used".
+ * The English reference of [percentSpokenClauseRes], the clause a spoken description ends its figure
+ * with: "remaining" / "used". Nothing on screen reads it.
  *
  * It differs from [percentSideWord] in LEFT on purpose. The visible "left" is new with the display
  * mode, but the accessibility sentences already said "remaining" before it, and an upgrade must not
@@ -39,7 +45,10 @@ fun percentSpokenClause(mode: PercentDisplay): String = when (mode) {
     PercentDisplay.USED -> "used"
 }
 
-/** The action label of the tap that switches away from [mode]: it names where the tap goes. */
+/**
+ * The English reference of [percentFlipLabelRes], the action label of the tap that switches away
+ * from [mode]: it names where the tap goes. Nothing on screen reads it.
+ */
 fun percentFlipLabel(mode: PercentDisplay): String = when (mode) {
     PercentDisplay.LEFT -> "Show percentage used"
     PercentDisplay.USED -> "Show percentage left"

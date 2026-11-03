@@ -15,9 +15,9 @@ enum class FillState { DATA, STALE, NO_FILL }
 /**
  * Everything a surface needs to present one usage window, with no strings and no colours.
  *
- * One presentation per usage window, shared by every surface (ADR 0001), so the figure, the fill and
- * the exhausted state cannot differ between them. Words, the percent sign and palettes stay with
- * each surface.
+ * Every surface presents a usage window through this one value, never through its own copy of the
+ * rules, so the figure, the fill and the exhausted state cannot drift apart between surfaces. Words,
+ * the percent sign and palettes stay with each surface.
  */
 data class WindowPresentation(
     /** The figure the window shows in [side]; [PERCENT_TOKEN_UNKNOWN] when there is none. */

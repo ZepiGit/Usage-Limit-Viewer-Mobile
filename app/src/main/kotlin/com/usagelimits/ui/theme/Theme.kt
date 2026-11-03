@@ -59,6 +59,10 @@ object SeverityPalette {
      * Bar fill for a single window: the data hue at the true ratio, a grey when stale, and no
      * fill at all (track only) when the figure is unknown, failed or exhausted. Severity
      * decides over the percentage, so a blocker with a full-looking percentage stays empty.
+     *
+     * Kept as the LEFT reference: SeverityPaletteInkTest holds [barInkFor] in LEFT equal to it and
+     * StatusContrastTest pins its colours. No bar reads it; they take their ink from [barInkFor] or,
+     * for a window row, from the presentation's fill state through [fill].
      */
     fun barFill(severity: Severity): Color? = when (severity) {
         Severity.STALE -> UsageColors.StaleMark
@@ -92,6 +96,10 @@ object SeverityPalette {
         FillState.NO_FILL -> null
     }
 
+    /**
+     * The English reference [labelRes] is held equal to under `en` by PercentResourcesEnglishTest;
+     * nothing on screen reads it.
+     */
     fun label(severity: Severity) = when (severity) {
         Severity.HEALTHY -> "Healthy"
         Severity.MEDIUM -> "Moderate"

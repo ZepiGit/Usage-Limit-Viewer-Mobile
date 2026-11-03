@@ -139,6 +139,10 @@ data class WidgetStyle(
      * In USED mode an exhausted row IS the full bar (D4), so when the severity ink is null but
      * the row's displayed fraction is positive, the fill takes the data hue instead of
      * vanishing beside a "100%" figure. Raw exhaustion only — a stale reading keeps its grey.
+     *
+     * Kept as the reference WidgetBarEquivalenceTest holds the widgets' presentation-based fill
+     * equal to, and WidgetStyleTest pins its rules. The widgets paint from the row's presentation
+     * through [fill], so no widget calls this.
      */
     fun bar(row: WidgetRow, validity: Severity? = null, mode: PercentDisplay): Color? {
         val length = windowPresentation(row.remainingPercent, row.severity, ReadingValidity.CURRENT, mode).fill
