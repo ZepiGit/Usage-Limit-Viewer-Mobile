@@ -63,6 +63,11 @@ jobs:
       - name: Test
         working-directory: ios/UsageLimitsKit
         run: swift test --parallel
+      # Needs Apple's Foundation, so it cannot run in the Linux jobs. It does not depend on the Kit
+      # tests, so it still runs when they fail and each failure shows on its own.
+      - name: Localized percent signs resolve on the host
+        if: ${{ !cancelled() }}
+        run: ./ios/Tools/check-localized-percent.sh
 
   app-ios:
     name: iOS app (real SDK)

@@ -119,6 +119,37 @@ class CheckXcstringsTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("missing key", out)
 
+    # A literal without interpolation is looked up exactly as written, so its % stays single;
+    # Swift doubles the % only when it builds a key around an interpolation.
+    FIXED_PERCENT_SWIFT = SWIFT + '\nlet title = String(localized: "Above 80% used")'
+
+    def fixed_percent_catalog(self, key):
+        with_title = json.loads(json.dumps(GOOD))
+        with_title["strings"][key] = {"localizations": {"de": unit("Über 80 % verbraucht")}}
+        return with_title
+
+    def test_a_fixed_literal_with_a_percent_keeps_a_single_percent_key(self):
+        status, out = self.run_check(
+            self.fixed_percent_catalog("Above 80% used"), swift=self.FIXED_PERCENT_SWIFT)
+        self.assertEqual(status, 0, out)
+
+    def test_a_doubled_percent_key_for_a_fixed_literal_is_rejected(self):
+        status, out = self.run_check(
+            self.fixed_percent_catalog("Above 80%% used"), swift=self.FIXED_PERCENT_SWIFT)
+        self.assertEqual(status, 1, out)
+        self.assertIn("missing key 'Above 80% used'", out)
+        self.assertIn("unused key 'Above 80%% used'", out)
+
+    def test_an_interpolated_literal_still_doubles_its_percent(self):
+        parts, _ = check.parse_literal('"\\(a) · \\(b): less than 20% remaining"', 0)
+        self.assertEqual(check.key_of(parts), "%@ · %@: less than 20%% remaining")
+        parts, _ = check.parse_literal('"\\(token)%"', 0)
+        self.assertEqual(check.key_of(parts), "%@%%")
+
+    def test_a_fixed_literal_percent_is_not_doubled_by_key_of(self):
+        parts, _ = check.parse_literal('"Below 10% left"', 0)
+        self.assertEqual(check.key_of(parts), "Below 10% left")
+
     def test_a_literal_the_catalog_lacks_is_reported(self):
         status, out = self.run_check(GOOD, swift=SWIFT + '\nText("Brand new sentence")')
         self.assertEqual(status, 1)
