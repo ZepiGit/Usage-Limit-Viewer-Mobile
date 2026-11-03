@@ -90,7 +90,7 @@ private val SegmentColors = listOf(UsageColors.Data, UsageColors.Ink, UsageColor
  *
  * Fill length encodes the displayed figure: what is left in LEFT mode, so a long bar reads as
  * good — the battery-meter direction — and what is used in USED, where full means spent, as
- * Claude and Codex draw it (D4). The colour comes from the presentation's fill state in both
+ * Claude and Codex draw it. The colour comes from the presentation's fill state in both
  * modes: stale is grey and unknown, failed or exhausted is the bare track, except in USED, where
  * an exhausted window *is* full and its fill takes the data hue rather than vanishing next to a
  * "100" figure. Only the length animates.
@@ -232,8 +232,8 @@ fun UsageWindowRow(
             verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                 color = UsageColors.Muted, maxLines = 2)
-            // A value the provider never stated is a quiet dash, not a figure-sized one. R2: no
-            // bare percentage — the small word after the figure says which side it counts.
+            // A value the provider never stated is a quiet dash, not a figure-sized one. A bare
+            // percentage is ambiguous, so the small word after the figure says which side it counts.
             if (!p.hasFigure) {
                 Text(percent, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {

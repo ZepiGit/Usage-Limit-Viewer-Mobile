@@ -436,7 +436,7 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
             Text(stringResource(R.string.widget_config_preview_title, snapshot.accountCount), style = MaterialTheme.typography.labelMedium, color = style.textSecondary)
             if (snapshot.accounts.isEmpty()) Text(snapshot.emptyText(resources) ?: stringResource(R.string.widget_config_preview_empty), color = style.textSecondary)
             else if (kind.contains("Rings")) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                // R2: a ring alone does not say which side it counts; the placed widgets carry the same caption.
+                // A ring alone does not say which side it counts; the placed widgets carry the same caption.
                 Text(stringResource(percentSideCaptionRes(mode)), style = MaterialTheme.typography.labelSmall, color = style.textSecondary)
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     snapshot.accounts.take(4).forEach { account ->
@@ -465,7 +465,7 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                             (p.fill ?: 0.0).toFloat(),
                             style.fill(p.fillState), style.track, Modifier.weight(1f),
                         )
-                        // R2: the preview names the side as the placed widget does; a dash stays bare.
+                        // The preview names the side as the placed widget does; a dash stays bare.
                         Text(
                             if (!p.hasFigure) percent else "$percent ${stringResource(percentSideWordRes(mode))}",
                             style = UsageType.Figure, color = style.barText(row, account.dataValidity),

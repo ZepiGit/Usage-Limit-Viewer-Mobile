@@ -249,8 +249,8 @@ object NotificationEvaluator {
         }
 
         /**
-         * The wording follows the display mode (R2) while the threshold stays on remaining
-         * (§0 rule 4): "less than 20% remaining" and "more than 80% used" are the same crossing.
+         * The wording follows the display mode while the threshold stays on remaining:
+         * "less than 20% remaining" and "more than 80% used" are the same crossing.
          */
         fun message(
             texts: NotificationTexts,

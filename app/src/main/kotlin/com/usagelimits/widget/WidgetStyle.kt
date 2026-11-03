@@ -136,7 +136,7 @@ data class WidgetStyle(
      * reconnection — and outranks the row. Stale is grey; a failed or unknown reading and an
      * exhausted row draw no fill, whatever percentage they still report.
      *
-     * In USED mode an exhausted row IS the full bar (D4), so when the severity ink is null but
+     * In USED mode an exhausted row IS the full bar, so when the severity ink is null but
      * the row's displayed fraction is positive, the fill takes the data hue instead of
      * vanishing beside a "100%" figure. Raw exhaustion only — a stale reading keeps its grey.
      *

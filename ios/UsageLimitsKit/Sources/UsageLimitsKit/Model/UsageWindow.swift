@@ -166,7 +166,7 @@ public struct UsageWindow: Sendable, Codable, Equatable {
         }
     }
 
-    /// The fraction a bar or ring fills in `mode` (D4).
+    /// The fraction a bar or ring fills in `mode`.
     ///
     /// USED flips what full means: a window the provider calls exhausted fills completely,
     /// agreeing with its "100" label even when no usable percentage is behind it. A window with

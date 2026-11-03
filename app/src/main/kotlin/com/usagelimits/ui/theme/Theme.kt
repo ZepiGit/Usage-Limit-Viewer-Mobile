@@ -71,7 +71,7 @@ object SeverityPalette {
     }
 
     /**
-     * Bar fill ink for [severity] at the displayed [fraction], in [mode] (D4).
+     * Bar fill ink for [severity] at the displayed [fraction], in [mode].
      *
      * LEFT keeps the historical rendering exactly: severity decides over the percentage, so a
      * blocker with a full-looking percentage stays empty. USED flips what full means — an

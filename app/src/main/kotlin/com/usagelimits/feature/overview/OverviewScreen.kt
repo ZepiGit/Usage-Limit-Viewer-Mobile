@@ -263,9 +263,9 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
     val p = if (lead == null) WindowPresentation.absent(mode)
         else lead.window.presentation(lead.window.readingValidity(stale = lead.stale, fetchedAt = null, nowMs = nowMs), mode)
     val percent = percentFigureText(p.token)
-    // R2: the word beside the figure says which side it counts, and so does the spoken sentence.
+    // The word beside the figure says which side it counts, and so does the spoken sentence.
     val side = stringResource(percentSideWordRes(mode))
-    // R3: the figure flips the one global setting; the label names where it goes.
+    // The figure flips the one global setting; the label names where it goes.
     val flipTo = if (mode == PercentDisplay.USED) PercentDisplay.LEFT else PercentDisplay.USED
     val flipLabel = stringResource(percentFlipLabelRes(mode))
     val motionEnabled = LocalMotionEnabled.current
