@@ -7,12 +7,14 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.network.ProviderException
 import com.usagelimits.core.oauth.SignInKeepAliveService
 import com.usagelimits.core.sync.userMessage
+import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.providers.DeviceCodeLoginCapable
 import com.usagelimits.providers.LoginChallenge
 import com.usagelimits.providers.KeyLoginCapable
@@ -243,13 +245,13 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                 _state.value = AddAccountState.Success(providerId, account.label)
             } catch (e: ProviderException) {
                 _state.value = AddAccountState.Failed(
-                    providerId, e.userMessage(), keyAlternative, deviceCodeAlternative, withDeviceCode,
+                    providerId, storedMessageText(context.resources, e.userMessage()), keyAlternative, deviceCodeAlternative, withDeviceCode,
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _state.value = AddAccountState.Failed(
-                    providerId, "Sign-in failed", keyAlternative, deviceCodeAlternative, withDeviceCode,
+                    providerId, context.getString(R.string.add_signin_failed), keyAlternative, deviceCodeAlternative, withDeviceCode,
                 )
             } finally {
                 val lease = keepAlive

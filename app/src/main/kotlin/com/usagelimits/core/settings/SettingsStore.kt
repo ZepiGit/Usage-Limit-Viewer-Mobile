@@ -3,11 +3,13 @@ package com.usagelimits.core.settings
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.usagelimits.core.model.PercentDisplay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -58,6 +60,8 @@ data class AppSettings(
      */
     val mutedAccountIds: Set<String> = emptySet(),
     val providerIcons: Map<String, String> = emptyMap(),
+    /** Whether quota figures count down what is left or up what has been used. */
+    val percentDisplay: PercentDisplay = PercentDisplay.LEFT,
 ) {
     companion object {
         /**
@@ -168,6 +172,14 @@ class SettingsStore(context: Context) {
 
     suspend fun setShowRenewalTime(show: Boolean) = edit { it[Keys.SHOW_RENEWAL] = show }
 
+    /**
+     * Counts the figures down (LEFT) or up (USED). Widgets observe this like every other setting;
+     * the ViewModel additionally refreshes them so cold compositions repaint at once.
+     */
+    suspend fun setPercentDisplay(mode: PercentDisplay) = edit {
+        it[Keys.PERCENT_DISPLAY] = mode.name
+    }
+
     /** Silences one account, or lets it speak again. */
     suspend fun setAccountNotifications(accountId: String, enabled: Boolean) = edit { prefs ->
         val current = prefs[Keys.MUTED_ACCOUNTS] ?: emptySet()
@@ -206,6 +218,7 @@ internal fun Preferences.toSettings() = AppSettings(
     showRenewalTime = this[Keys.SHOW_RENEWAL] ?: false,
     mutedAccountIds = this[Keys.MUTED_ACCOUNTS] ?: emptySet(),
     providerIcons = this[Keys.PROVIDER_ICONS].orEmpty().filter { ":" in it }.associate { it.substringBefore(':') to it.substringAfter(':') },
+    percentDisplay = PercentDisplay.fromNameOrNull(this[Keys.PERCENT_DISPLAY]) ?: PercentDisplay.LEFT,
 )
 
 internal fun Preferences.toDiagnostics() = SyncDiagnostics(
@@ -236,6 +249,7 @@ private object Keys {
     val SHOW_TIER = booleanPreferencesKey("show_subscription_tier")
     val SHOW_RENEWAL = booleanPreferencesKey("show_renewal_time")
     val MUTED_ACCOUNTS = stringSetPreferencesKey("muted_account_ids")
+    val PERCENT_DISPLAY = stringPreferencesKey("percent_display")
     val LAST_SYNC_ATTEMPT = longPreferencesKey("last_sync_attempt_at")
     val LAST_SYNC_FINISHED = longPreferencesKey("last_sync_finished_at")
     val LAST_WIDGET_REFRESH = longPreferencesKey("last_widget_refresh_at")

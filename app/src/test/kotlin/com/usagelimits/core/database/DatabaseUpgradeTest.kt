@@ -109,6 +109,7 @@ class DatabaseUpgradeTest {
                 assertTrue("version $version lost its widget", widget != null)
                 assertEquals("kept-$version", widget!!.accountId)
                 assertEquals(100, widget.backgroundOpacity)
+                assertNull("version $version must follow the app mode", widget.percentDisplay)
                 assertEquals(current, upgraded.openHelper.readableDatabase.version)
             } finally {
                 upgraded.close()

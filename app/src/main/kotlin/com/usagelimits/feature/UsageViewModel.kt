@@ -5,16 +5,21 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.sync.publishAfterSync
 import com.usagelimits.core.model.CreditEntry
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.SyncDiagnostics
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.userMessage
+import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.core.network.ProviderException
 import com.usagelimits.widget.WidgetUpdater
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +47,9 @@ data class UpcomingReset(
      */
     val windowId: String,
     val windowLabel: String,
+    /** With [windowScope], what the screen needs to put an app-chosen [windowLabel] into the user's language. */
+    val windowCategory: WindowCategory,
+    val windowScope: UsageScope,
     val resetAt: Long,
     val severity: Severity,
 )
@@ -131,6 +139,8 @@ data class UsageUiState(
                     provider = usage.account.provider,
                     windowId = window.id,
                     windowLabel = window.label,
+                    windowCategory = window.category,
+                    windowScope = window.scope,
                     resetAt = resetAt,
                     severity = window.severity,
                 )
@@ -189,7 +199,7 @@ class UsageViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                transientMessage.value = "Could not save account order. Try again."
+                transientMessage.value = appContext.getString(R.string.message_order_save_failed)
             } finally {
                 reorderMutex.unlock()
             }
@@ -202,7 +212,7 @@ class UsageViewModel(
                 container.settingsStore.setProviderIcon(provider.id, iconId)
                 WidgetUpdater.refreshAll(appContext)
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { transientMessage.value = "Could not save the icon choice. Try again." }
+            catch (_: Exception) { transientMessage.value = appContext.getString(R.string.message_icon_save_failed) }
         }
     }
 
@@ -216,8 +226,8 @@ class UsageViewModel(
                 transientMessage.value = when {
                     outcomes.isEmpty() -> null
                     failures == 0 -> null
-                    failures == outcomes.size -> "Refresh failed"
-                    else -> "$failures of ${outcomes.size} accounts failed to refresh"
+                    failures == outcomes.size -> appContext.getString(R.string.message_refresh_failed)
+                    else -> appContext.getString(R.string.message_refresh_partly_failed, failures, outcomes.size)
                 }
                 container.publishAfterSync(appContext)
             } finally {
@@ -263,18 +273,18 @@ class UsageViewModel(
                 val outcome = container.syncEngine.syncAccount(account)
                 container.publishAfterSync(appContext)
                 transientMessage.value = if (outcome.success) {
-                    "Limit reset applied"
+                    appContext.getString(R.string.message_reset_applied)
                 } else {
-                    "Reset requested — the new limit will show on the next refresh"
+                    appContext.getString(R.string.message_reset_requested)
                 }
             } catch (e: CancellationException) {
                 // Not a failure, and not ours to swallow: the credit may already be spent, and
                 // the next sync will show whatever the provider did.
                 throw e
             } catch (e: ProviderException) {
-                transientMessage.value = e.userMessage()
+                transientMessage.value = storedMessageText(appContext.resources, e.userMessage())
             } catch (e: Exception) {
-                transientMessage.value = "Could not apply the reset"
+                transientMessage.value = appContext.getString(R.string.message_reset_failed)
             } finally {
                 _resetCreditInFlight.value = null
             }
@@ -290,7 +300,7 @@ class UsageViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                transientMessage.value = "Could not save the changes. Try again."
+                transientMessage.value = appContext.getString(R.string.message_changes_save_failed)
             }
         }
     }
@@ -302,7 +312,7 @@ class UsageViewModel(
                 try {
                     container.creditAccounts.remove(id)
                 } catch (_: Exception) {
-                    transientMessage.value = "Could not remove the credit account. Try again."
+                    transientMessage.value = appContext.getString(R.string.message_credit_remove_failed)
                 }
                 WidgetUpdater.refreshAll(appContext)
             }
@@ -363,6 +373,15 @@ class UsageViewModel(
 
     fun setShowRenewalTime(enabled: Boolean) {
         viewModelScope.launch { container.settingsStore.setShowRenewalTime(enabled) }
+    }
+
+    fun setPercentDisplay(mode: PercentDisplay) {
+        viewModelScope.launch {
+            container.settingsStore.setPercentDisplay(mode)
+            // Widgets render the mode from the observed settings; refresh so cold compositions
+            // repaint immediately rather than on their next tick.
+            WidgetUpdater.refreshAll(appContext)
+        }
     }
 
     fun setNotifyBelow20(enabled: Boolean) {

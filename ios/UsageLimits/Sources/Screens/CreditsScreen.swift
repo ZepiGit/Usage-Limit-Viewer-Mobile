@@ -12,6 +12,11 @@ struct CreditsScreen: View {
     @State private var editing: CreditEntry?
     @State private var removing: CreditEntry?
 
+    /// The name the confirmation uses for the balance being removed.
+    private var removalName: String {
+        removing?.account.label ?? String(localized: "this balance")
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 8) {
@@ -39,7 +44,7 @@ struct CreditsScreen: View {
         .sheet(isPresented: $isAdding) { AddCreditSheet() }
         .sheet(item: $editing) { entry in EditCreditSheet(entry: entry) }
         .confirmationDialog(
-            "Remove \(removing?.account.label ?? "this balance")?",
+            "Remove \(removalName)?",
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
             titleVisibility: .visible
         ) {
@@ -67,7 +72,7 @@ struct CreditCard: View {
 
     private func updatedText(since fetchedAt: Date) -> String {
         let seconds = Int(max(0, now.timeIntervalSince(fetchedAt)))
-        return seconds < 60 ? "Updated just now" : "Updated \(Countdown.format(seconds: seconds)) ago"
+        return Countdown.updatedLine(secondsAgo: seconds, texts: LocalizedCountdownTexts())
     }
 
     private var glance: GlanceCredit { GlanceCredit(entry: entry, now: now, staleAfter: staleAfter) }
@@ -144,7 +149,7 @@ private struct BalanceRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if balance.unlimited {
-                Text(verbatim: balance.label ?? "No limit")
+                Text(verbatim: DisplayText.creditBalanceLabel(balance.label ?? "No limit"))
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.ink)
                 Text("\(amount) spent this month")
@@ -158,18 +163,19 @@ private struct BalanceRow: View {
                         .usageFont(.money)
                         .foregroundStyle(UsageColors.ink)
                     if let total = balance.total {
-                        Text(verbatim: "of \(CreditFormat.string(total, currency: balance.currency))")
+                        Text(verbatim: String(localized: "of \(CreditFormat.string(total, currency: balance.currency))"))
                             .usageFont(.body)
                             .foregroundStyle(UsageColors.muted)
                     }
                     Spacer(minLength: 8)
                     if let label = balance.label {
-                        Text(verbatim: label)
+                        Text(verbatim: DisplayText.creditBalanceLabel(label))
                             .usageFont(.small)
                             .foregroundStyle(UsageColors.muted)
                     }
                 }
                 if let percent = balance.remainingPercent, let total = balance.total {
+                    // Money, not a quota window: the percentage toggle does not apply here.
                     UsageBar(remainingPercent: percent, severity: severity)
                         .accessibilityLabel("\(amount) of \(CreditFormat.string(total, currency: balance.currency)) left")
                 }
@@ -229,7 +235,7 @@ struct AddCreditSheet: View {
                                 Text(verbatim: option.displayName)
                                     .usageFont(.section)
                                     .foregroundStyle(UsageColors.ink)
-                                Text(verbatim: option.keyHint)
+                                Text(verbatim: DisplayText.creditKeyHint(option))
                                     .usageFont(.small)
                                     .foregroundStyle(UsageColors.muted)
                             }
@@ -252,14 +258,14 @@ struct AddCreditSheet: View {
                     Text(verbatim: option.displayName)
                         .usageFont(.section)
                         .foregroundStyle(UsageColors.faint)
-                    Text(verbatim: option.reason)
+                    Text(verbatim: DisplayText.creditUnavailableReason(option.reason))
                         .usageFont(.small)
                         .foregroundStyle(UsageColors.faint)
                 }
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(option.displayName): not available. \(option.reason)")
+                .accessibilityLabel(String(localized: "\(option.displayName): not available. \(DisplayText.creditUnavailableReason(option.reason))"))
             }
         }
     }
@@ -269,7 +275,7 @@ struct AddCreditSheet: View {
             Text(verbatim: provider.displayName)
                 .usageFont(.section)
                 .foregroundStyle(UsageColors.ink)
-            Text(verbatim: provider.keyHint)
+            Text(verbatim: DisplayText.creditKeyHint(provider))
                 .usageFont(.small)
                 .foregroundStyle(UsageColors.muted)
 
@@ -280,7 +286,7 @@ struct AddCreditSheet: View {
             if provider.hasRegion {
                 SegmentedRow(options: CreditProviderID.regions.map { option in
                     SegmentOption(
-                        id: CreditProviderID.regionLabel(option), title: CreditProviderID.regionLabel(option),
+                        id: CreditProviderID.regionLabel(option), title: DisplayText.creditRegionLabel(option),
                         selected: region == option) { region = option }
                 })
             }
@@ -328,7 +334,7 @@ struct AddCreditSheet: View {
 
     private func submit(_ provider: CreditProviderID) {
         guard let figure = CreditThresholdField.parse(threshold) else {
-            failure = "Enter the low-balance figure as a positive number, or leave it empty."
+            failure = String(localized: "Enter the low-balance figure as a positive number, or leave it empty.")
             return
         }
         isWorking = true
@@ -386,7 +392,7 @@ struct EditCreditSheet: View {
                     }
                     Button("Save") {
                         guard let figure = CreditThresholdField.parse(threshold) else {
-                            failure = "Enter a positive number, or leave it empty."
+                            failure = String(localized: "Enter a positive number, or leave it empty.")
                             return
                         }
                         Task {

@@ -99,7 +99,8 @@ final class UsageStore: ObservableObject {
     /// below it.
     var glance: GlanceSnapshot {
         GlanceModel.build(
-            accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons)
+            accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons,
+            percentDisplay: settings.percentDisplay)
     }
 
     /// The accounts in the order the overview should show them.
@@ -114,7 +115,7 @@ final class UsageStore: ObservableObject {
     /// user dragging a healthy account to the top must not thereby change what the headline
     /// reports about the fleet.
     var orderedAccounts: [GlanceAccount] {
-        let values = GlanceModel.build(accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons).accounts
+        let values = GlanceModel.build(accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay).accounts
         guard let order = pendingAccountOrder else { return values }
         let byID = Dictionary(uniqueKeysWithValues: values.map { ($0.id, $0) })
         return order.compactMap { byID[$0] } + values.filter { !order.contains($0.id) }
@@ -142,7 +143,7 @@ final class UsageStore: ObservableObject {
             } catch {
                 if self.orderGeneration == generation {
                     self.pendingAccountOrder = nil
-                    self.lastError = "Could not save account order. Try again."
+                    self.lastError = String(localized: "Could not save account order. Try again.")
                 }
             }
         }
@@ -194,7 +195,9 @@ final class UsageStore: ObservableObject {
         guard let renewsAt = longest.resetAt, renewsAt > now else { return nil }
         let soonest = windows.compactMap(\.resetAt).filter { $0 > now }.min()
         guard renewsAt != soonest else { return nil }
-        return "\(longest.label) renews \(Countdown.format(until: renewsAt, from: now))"
+        return Countdown.renewsLine(
+            label: DisplayText.windowLabel(longest.label, category: longest.category, scope: longest.scope),
+            until: renewsAt, from: now, texts: LocalizedCountdownTexts())
     }
 
     /// Every window that has a reset time, soonest first — the Resets screen.
@@ -231,7 +234,7 @@ final class UsageStore: ObservableObject {
             // Said here as well as in `refresh`, because a cold launch renders this screen before
             // anything is refreshed: without it the user sees an empty account list and the
             // explanation exists only behind a pull they have no reason to perform.
-            lastError = "This build cannot reach its shared storage."
+            lastError = String(localized: "This build cannot reach its shared storage.")
             return
         }
         // Before anything reads or writes an account. Keychain items outlive the app being
@@ -268,7 +271,7 @@ final class UsageStore: ObservableObject {
             // No shared container means the app group is missing from the entitlements, which is
             // a build fault rather than anything the user did — but it must still say so, since
             // the alternative is a screen that stays empty and explains nothing.
-            lastError = "This build cannot reach its shared storage."
+            lastError = String(localized: "This build cannot reach its shared storage.")
             return
         }
 
@@ -287,7 +290,7 @@ final class UsageStore: ObservableObject {
             // opens the app and pulls to refresh should hear about a limit that has just run
             // out; the ledger is what stops them hearing it twice when the background task
             // reaches the same conclusion later.
-            await NotificationScheduler.post(try await container.pendingNotifications())
+            await NotificationScheduler.post(try await container.pendingNotifications(texts: LocalizedNotificationTexts()))
         } catch is CancellationError {
             // The screen was closed. Not a failure, and not something to paint red.
         } catch {
@@ -370,7 +373,11 @@ final class UsageStore: ObservableObject {
         provider: CreditProviderID, key: String, label: String, region: ProviderRegion?,
         teamID: String?, lowThreshold: Decimal?
     ) async throws {
-        guard let container else { throw CreditError.unavailable("shared storage is missing") }
+        // The detail of "No balance could be read (…)", which the display translates whole
+        // (`StoredMessage.noBalance`); only the detail is worded here.
+        guard let container else {
+            throw CreditError.unavailable(String(localized: "shared storage is missing"))
+        }
         try await container.addCreditAccount(
             provider: provider, key: key, label: label, region: region, teamID: teamID, lowThreshold: lowThreshold)
         credits = await container.credits()

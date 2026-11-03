@@ -138,7 +138,7 @@ struct AddAccountSheet: View {
                 .usageFont(.body)
                 .foregroundStyle(UsageColors.muted)
             ForEach(ProviderRegion.options(for: provider), id: \.self) { option in
-                Button(option.label(for: provider)) {
+                Button(DisplayText.regionLabel(option, for: provider)) {
                     region = option
                     start(provider)
                 }
@@ -155,7 +155,7 @@ struct AddAccountSheet: View {
                 .usageFont(.section)
                 .foregroundStyle(UsageColors.ink)
             HStack(spacing: 8) {
-                if reduceMotion { Text("...") } else { ProgressView().tint(UsageColors.muted).controlSize(.small) }
+                if reduceMotion { Text(verbatim: "...") } else { ProgressView().tint(UsageColors.muted).controlSize(.small) }
                 Text("Asking \(provider.displayName) for a code…")
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)
@@ -186,7 +186,7 @@ struct AddAccountSheet: View {
                 .foregroundStyle(UsageColors.muted)
 
             HStack(spacing: 10) {
-                Button(copied ? "Copied" : "Copy code") {
+                Button(copied ? String(localized: "Copied") : String(localized: "Copy code")) {
                     UIPasteboard.general.string = challenge.userCode
                     copied = true
                 }
@@ -203,7 +203,7 @@ struct AddAccountSheet: View {
             }
 
             HStack(spacing: 8) {
-                if reduceMotion { Text("...") } else { ProgressView().tint(UsageColors.muted).controlSize(.small) }
+                if reduceMotion { Text(verbatim: "...") } else { ProgressView().tint(UsageColors.muted).controlSize(.small) }
                 Text("Waiting for you to approve it…")
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)
@@ -243,13 +243,12 @@ struct AddAccountSheet: View {
                 .usageFont(.section)
                 .foregroundStyle(UsageColors.ink)
 
-            Text("Create a key in your \(provider.displayName) console and paste it here. "
-                 + "It is stored on this device only, in the keychain with every other account.")
+            Text("Create a key in your \(provider.displayName) console and paste it here. It is stored on this device only, in the keychain with every other account.")
                 .usageFont(.body)
                 .foregroundStyle(UsageColors.muted)
 
             if let region {
-                Text(region.label(for: provider))
+                Text(verbatim: DisplayText.regionLabel(region, for: provider))
                     .usageFont(.small)
                     .foregroundStyle(UsageColors.faint)
             }
@@ -283,7 +282,7 @@ struct AddAccountSheet: View {
                     .usageFont(.section)
                     .foregroundStyle(UsageColors.ink)
             }
-            Text(verbatim: message)
+            Text(verbatim: DisplayText.stored(message))
                 .usageFont(.body)
                 .foregroundStyle(UsageColors.muted)
             HStack(spacing: 10) {
@@ -321,9 +320,9 @@ struct AddAccountSheet: View {
     /// Three styles now, so a binary check would call the pasted-key row a browser sign-in.
     private func signInHint(for provider: ProviderID) -> String {
         switch DeviceLoginSupport.style(for: provider) {
-        case .deviceCode: return "Shows a code to approve in your browser."
-        case .loopbackRedirect: return "Opens the provider's sign-in page."
-        case .pastedKey: return "Needs a key from the provider's console."
+        case .deviceCode: return String(localized: "Shows a code to approve in your browser.")
+        case .loopbackRedirect: return String(localized: "Opens the provider's sign-in page.")
+        case .pastedKey: return String(localized: "Needs a key from the provider's console.")
         }
     }
 
@@ -334,7 +333,7 @@ struct AddAccountSheet: View {
 
         login = Task {
             guard let container = UsageStore.sharedContainer else {
-                stage = .failed(provider, "This build cannot reach its shared storage.")
+                stage = .failed(provider, String(localized: "This build cannot reach its shared storage."))
                 return
             }
             do {
@@ -356,7 +355,7 @@ struct AddAccountSheet: View {
 
         login = Task {
             guard let container = UsageStore.sharedContainer else {
-                stage = .failed(provider, "This build cannot reach its shared storage.")
+                stage = .failed(provider, String(localized: "This build cannot reach its shared storage."))
                 return
             }
             do {

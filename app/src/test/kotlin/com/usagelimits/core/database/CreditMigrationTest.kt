@@ -76,7 +76,9 @@ class CreditMigrationTest {
         val upgraded = UsageLimitsDatabase.build(context)
         try {
             val sqlite = upgraded.openHelper.readableDatabase
-            assertEquals(11, sqlite.version)
+            // The current app migrates past 11, so the open lands on the newest exported version.
+            val current = schemaDir.listFiles()!!.maxOf { it.nameWithoutExtension.toInt() }
+            assertEquals(current, sqlite.version)
 
             // Existing rows, untouched.
             assertEquals("kept", upgraded.accountDao().getAll().single().localId)

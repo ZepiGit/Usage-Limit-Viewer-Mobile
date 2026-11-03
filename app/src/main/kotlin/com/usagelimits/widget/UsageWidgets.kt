@@ -45,10 +45,18 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import com.usagelimits.R
 import com.usagelimits.UsageLimitsActivity
+import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
-import com.usagelimits.core.model.percentLabel
+import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.time.Countdown
+import com.usagelimits.core.time.CountdownTexts
+import com.usagelimits.ui.percentSideCaptionRes
+import com.usagelimits.ui.percentSideWordRes
+import com.usagelimits.ui.text.ResourceCountdownTexts
+import com.usagelimits.ui.text.percentFigure
 import kotlinx.coroutines.flow.first
 
 /**
@@ -62,6 +70,13 @@ import kotlinx.coroutines.flow.first
 internal val LocalWidgetStyle = staticCompositionLocalOf { WidgetStyle() }
 
 /**
+ * The percent mode this widget renders its figures in. Provided once by each widget's
+ * composition root from the observed settings — never read at the call site, so no figure can
+ * drift from the mode its neighbours show.
+ */
+internal val LocalPercentMode = staticCompositionLocalOf { PercentDisplay.LEFT }
+
+/**
  * A usage bar.
  *
  * Glance's own LinearProgressIndicator fills the width it is given, so the bar is correct at
@@ -69,13 +84,18 @@ internal val LocalWidgetStyle = staticCompositionLocalOf { WidgetStyle() }
  * wider than a tile actually gets: the fill was clipped, and anything above roughly half
  * remaining painted as a full bar — a confidently wrong number on the home screen.
  *
- * The fill is the data hue, grey when stale; a failed, unknown or exhausted row is the bare track.
+ * The fill length follows the displayed figure: remaining in LEFT, used in USED, where an
+ * exhausted window is the full bar. The ink comes from the presentation's fill state — grey when
+ * stale, bare track when failed or unknown — except the USED exhausted case, which fills in the
+ * data hue rather than vanishing beside a "100%" figure.
  */
 @Composable
 internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier, validity: Severity? = null, height: Dp = 4.dp) {
     val style = LocalWidgetStyle.current
-    val fill = style.bar(row, validity)
-    val fraction = if (fill == null) 0f else ((row.remainingPercent ?: 0.0) / 100.0).coerceIn(0.0, 1.0).toFloat()
+    val mode = LocalPercentMode.current
+    val p = row.presentation(validity, mode)
+    val fill = style.fill(p.fillState)
+    val fraction = if (fill == null) 0f else (p.fill ?: 0.0).toFloat()
 
     LinearProgressIndicator(
         progress = fraction,
@@ -85,7 +105,13 @@ internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier,
     )
 }
 
-private fun percentText(row: WidgetRow): String = percentLabel(row.remainingPercent)
+/**
+ * Goes through the exhausted-aware token, not the bare remaining figure, so an exhausted window
+ * with no usable percentage still reads "100%" in USED beside the bar [UsageBar] fills for it.
+ */
+@Composable
+private fun percentText(row: WidgetRow): String =
+    percentFigure(row.presentation(null, LocalPercentMode.current).token, androidx.glance.LocalContext.current.resources)
 
 /** Text on a widget: sizes from the scale (11, 12, 14, 16, 22), figures in the system mono. */
 internal fun widgetText(color: Color, size: Int, weight: FontWeight = FontWeight.Normal, mono: Boolean = false) = TextStyle(
@@ -113,8 +139,8 @@ private fun TileDivider(height: Dp = 36.dp) {
 }
 
 /** "As of 14:50", or nothing when the widget has never been fed. */
-private fun asOf(updatedAt: Long?): String? =
-    updatedAt?.let { Countdown.asOfLabel(it, nowMs = System.currentTimeMillis()) }
+private fun asOf(updatedAt: Long?, texts: CountdownTexts): String? =
+    updatedAt?.let { Countdown.asOfLabel(it, nowMs = System.currentTimeMillis(), texts = texts) }
 
 /**
  * The refresh control both list widgets carry: a bare glyph in a touch target.
@@ -132,8 +158,8 @@ internal fun RefreshChip(touchSize: Dp) {
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            ImageProvider(com.usagelimits.R.drawable.ic_refresh),
-            "Refresh usage",
+            ImageProvider(R.drawable.ic_refresh),
+            androidx.glance.LocalContext.current.resources.getString(R.string.widget_refresh),
             modifier = GlanceModifier.size(16.dp),
             colorFilter = ColorFilter.tint(ColorProvider(style.textSecondary)),
         )
@@ -168,16 +194,17 @@ class CompactUsageWidget : GlanceAppWidget() {
             val width = LocalSize.current.width.value
             val fontScale = androidx.glance.LocalContext.current.resources.configuration.fontScale
             GlanceTheme {
-                CompositionLocalProvider(LocalWidgetStyle provides style) {
+                CompositionLocalProvider(LocalWidgetStyle provides style, LocalPercentMode provides view.percentDisplay) {
                     val root = GlanceModifier
                         .fillMaxSize()
                         .panelCorner()
                         .background(style.background.color)
                         .padding(10.dp)
                         .clickable(actionStartActivity<UsageLimitsActivity>())
-                    if (snapshot.emptyMessage != null) {
+                    val empty = snapshot.emptyText(context.resources)
+                    if (empty != null) {
                         Column(root) {
-                            Text(snapshot.emptyMessage, style = widgetText(style.textSecondary, 12))
+                            Text(empty, style = widgetText(style.textSecondary, 12))
                         }
                     } else when (WidgetLayout.compactLayout(width, fontScale)) {
                         WidgetLayout.CompactLayout.FOUR_TILES -> FourTileRow(root, snapshot, style)
@@ -192,10 +219,15 @@ class CompactUsageWidget : GlanceAppWidget() {
     /** The full row: 5h, the long horizon, next reset, overall status, refresh. */
     @Composable
     private fun FourTileRow(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
+        // Leading mode word on every quota label: the tile has no room for a suffix, and a
+        // bare figure could be read as either meaning.
+        val resources = androidx.glance.LocalContext.current.resources
+        val texts = ResourceCountdownTexts(resources)
+        val modeWord = resources.getString(percentSideCaptionRes(LocalPercentMode.current))
         Row(modifier = root, verticalAlignment = Alignment.CenterVertically) {
             Tile(
-                label = snapshot.headlineShort?.label ?: "5h limit",
-                value = snapshot.headlineShort?.let(::percentText) ?: "—",
+                label = "$modeWord · ${snapshot.headlineShort?.labelText(resources) ?: resources.getString(R.string.window_label_five_hour)}",
+                value = snapshot.headlineShort?.let { percentText(it) } ?: "—",
                 row = snapshot.headlineShort,
                 validity = snapshot.leadValidity,
                 showOwner = true,
@@ -209,8 +241,8 @@ class CompactUsageWidget : GlanceAppWidget() {
                 // spending against a reset days away that was actually a month
                 // away, while the larger widget beside it, using the row's own
                 // label, said "Monthly".
-                label = snapshot.headlineLong?.label ?: "Weekly",
-                value = snapshot.headlineLong?.let(::percentText) ?: "—",
+                label = "$modeWord · ${snapshot.headlineLong?.labelText(resources) ?: resources.getString(R.string.window_label_weekly)}",
+                value = snapshot.headlineLong?.let { percentText(it) } ?: "—",
                 row = snapshot.headlineLong,
                 validity = snapshot.leadValidity,
                 modifier = GlanceModifier.defaultWeight(),
@@ -220,13 +252,8 @@ class CompactUsageWidget : GlanceAppWidget() {
                 // A wall-clock instant rather than a countdown: a widget recomposes
                 // only when its worker runs, so "in 20m" rendered half an hour ago
                 // is not stale but wrong — the limit has already reset.
-                label = "Next reset",
-                value = snapshot.nextResetAt
-                    ?.let {
-                        Countdown.absoluteResetLabel(it, System.currentTimeMillis())
-                            ?.removePrefix("Resets ")
-                    }
-                    ?: "—",
+                label = resources.getString(R.string.widget_next_reset),
+                value = nextResetStamp(snapshot, texts) ?: "—",
                 row = null,
                 // One step down from the percentage tiles so "4:50 PM" stays whole at 420dp.
                 valueSize = 14,
@@ -234,12 +261,12 @@ class CompactUsageWidget : GlanceAppWidget() {
             )
             TileDivider()
             Tile(
-                label = snapshot.selectionStatusLabel,
-                value = statusWord(snapshot.overallSeverity),
+                label = snapshot.statusLabel(resources),
+                value = resources.getString(statusWordRes(snapshot.overallSeverity)),
                 row = null,
                 modifier = GlanceModifier.defaultWeight(),
                 dot = style.accent(snapshot.overallSeverity),
-                warning = if (snapshot.hasPartialUpdate) "Sync issue" else null,
+                warning = if (snapshot.hasPartialUpdate) resources.getString(R.string.widget_sync_issue) else null,
             )
             // No weight: the four tiles share the width and this takes what it
             // needs, rather than a fifth of the row for one glyph.
@@ -251,10 +278,12 @@ class CompactUsageWidget : GlanceAppWidget() {
     @Composable
     private fun TwoMetricRow(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
         val row = snapshot.headlineShort ?: snapshot.headlineLong
+        val resources = androidx.glance.LocalContext.current.resources
+        val modeWord = resources.getString(percentSideCaptionRes(LocalPercentMode.current))
         Row(modifier = root, verticalAlignment = Alignment.CenterVertically) {
             Tile(
-                label = row?.label ?: "Remaining",
-                value = row?.let(::percentText) ?: "—",
+                label = row?.let { "$modeWord · ${it.labelText(resources)}" } ?: modeWord,
+                value = row?.let { percentText(it) } ?: "—",
                 row = row,
                 validity = snapshot.leadValidity,
                 showOwner = true,
@@ -263,12 +292,12 @@ class CompactUsageWidget : GlanceAppWidget() {
             )
             TileDivider()
             Tile(
-                label = snapshot.selectionStatusLabel,
-                value = statusWord(snapshot.overallSeverity),
+                label = snapshot.statusLabel(resources),
+                value = resources.getString(statusWordRes(snapshot.overallSeverity)),
                 row = null,
                 modifier = GlanceModifier.defaultWeight(),
                 dot = style.accent(snapshot.overallSeverity),
-                warning = if (snapshot.hasPartialUpdate) "Sync issue" else null,
+                warning = if (snapshot.hasPartialUpdate) resources.getString(R.string.widget_sync_issue) else null,
             )
             RefreshChip(touchSize = 40.dp)
         }
@@ -279,10 +308,13 @@ class CompactUsageWidget : GlanceAppWidget() {
     private fun FocusReadout(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
         val lead = snapshot.accounts.firstOrNull()
         val row = snapshot.headlineShort ?: snapshot.headlineLong
+        val resources = androidx.glance.LocalContext.current.resources
+        val texts = ResourceCountdownTexts(resources)
+        val modeWord = resources.getString(percentSideCaptionRes(LocalPercentMode.current))
         Column(modifier = root) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = lead?.let { it.accountLabel ?: it.title } ?: "Usage Limits",
+                    text = lead?.let { it.accountLabel ?: it.title } ?: resources.getString(R.string.app_name),
                     style = widgetText(style.textPrimary, 14, FontWeight.Medium),
                     maxLines = 1,
                     modifier = GlanceModifier.defaultWeight(),
@@ -290,11 +322,11 @@ class CompactUsageWidget : GlanceAppWidget() {
                 RefreshChip(touchSize = 32.dp)
             }
             Text(
-                text = row?.label ?: "Remaining",
+                text = row?.let { "$modeWord · ${it.labelText(resources)}" } ?: modeWord,
                 style = widgetText(style.textSecondary, 11),
                 maxLines = 1,
             )
-            val value = row?.let(::percentText) ?: "—"
+            val value = row?.let { percentText(it) } ?: "—"
             Text(
                 text = value,
                 style = if (value == "—") widgetText(style.textSecondary, 12)
@@ -303,14 +335,13 @@ class CompactUsageWidget : GlanceAppWidget() {
                 maxLines = 1,
             )
             Spacer(GlanceModifier.height(4.dp))
-            UsageBar(row ?: WidgetRow("5h limit", com.usagelimits.core.model.WindowCategory.FIVE_HOUR, null, null, Severity.STALE),
+            UsageBar(row ?: WidgetRow("5h limit", WindowCategory.FIVE_HOUR, null, null, Severity.STALE),
                 GlanceModifier.fillMaxWidth(), validity = snapshot.leadValidity)
             Spacer(GlanceModifier.height(4.dp))
             Text(
                 text = listOfNotNull(
-                    snapshot.nextResetAt
-                        ?.let { Countdown.absoluteResetLabel(it, System.currentTimeMillis())?.removePrefix("Resets ") },
-                    "${snapshot.selectionStatusLabel}: ${statusWord(snapshot.overallSeverity)}",
+                    nextResetStamp(snapshot, texts),
+                    "${snapshot.statusLabel(resources)}: ${resources.getString(statusWordRes(snapshot.overallSeverity))}",
                 ).joinToString(" · ").ifEmpty { "—" },
                 style = widgetText(style.textSecondary, 11),
                 maxLines = 1,
@@ -319,7 +350,7 @@ class CompactUsageWidget : GlanceAppWidget() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SeverityDot(WidgetStyle.Amber)
                     Spacer(GlanceModifier.width(4.dp))
-                    Text("Sync issue", style = widgetText(style.textPrimary, 11))
+                    Text(resources.getString(R.string.widget_sync_issue), style = widgetText(style.textPrimary, 11))
                 }
             }
         }
@@ -392,18 +423,11 @@ class CompactUsageWidget : GlanceAppWidget() {
         }
     }
 
-    private fun statusWord(severity: Severity) = when (severity) {
-        Severity.HEALTHY -> "OK"
-        Severity.MEDIUM -> "Fair"
-        Severity.LOW -> "Low"
-        Severity.EXHAUSTED -> "Out"
-        Severity.STALE -> "Stale"
-        Severity.ERROR -> "Error"
-        Severity.UNKNOWN -> "Unknown"
-        Severity.LIMITED -> "Limited"
-    }
-
 }
+
+/** The soonest reset of the leading account as a bare stamp for a tile that says "Next reset" itself. */
+private fun nextResetStamp(snapshot: WidgetSnapshot, texts: CountdownTexts): String? =
+    snapshot.nextResetAt?.let { Countdown.absoluteResetStamp(it, System.currentTimeMillis(), texts = texts) }
 
 /**
  * The larger 2×4 widget: a header plus one block per account, each with its 5h and weekly bars.
@@ -422,7 +446,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
             val snapshot = view.snapshot
             val style = view.style
             GlanceTheme {
-                CompositionLocalProvider(LocalWidgetStyle provides style) {
+                CompositionLocalProvider(LocalWidgetStyle provides style, LocalPercentMode provides view.percentDisplay) {
                     Column(
                         GlanceModifier.fillMaxSize().panelCorner()
                             .background(style.background.color).padding(10.dp)
@@ -431,9 +455,12 @@ class DetailedUsageWidget : GlanceAppWidget() {
                         if (snapshot.accounts.size != 1) {
                             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Column(GlanceModifier.defaultWeight()) {
-                                    Text("Usage Limits", style = widgetText(style.textPrimary, 14, FontWeight.Medium))
+                                    Text(context.getString(R.string.app_name), style = widgetText(style.textPrimary, 14, FontWeight.Medium))
                                     Text(
-                                        listOfNotNull("${snapshot.accountCount} accounts", asOf(snapshot.updatedAt)).joinToString(" · "),
+                                        listOfNotNull(
+                                            context.resources.getQuantityString(R.plurals.widget_accounts_count, snapshot.accountCount, snapshot.accountCount),
+                                            asOf(snapshot.updatedAt, ResourceCountdownTexts(context.resources)),
+                                        ).joinToString(" · "),
                                         style = widgetText(style.textSecondary, 11), maxLines = 1,
                                     )
                                 }
@@ -443,7 +470,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
                         }
                         if (snapshot.accounts.isEmpty()) {
                             Text(
-                                snapshot.emptyMessage ?: "No matching accounts. Edit this widget to choose an account.",
+                                snapshot.emptyText(context.resources) ?: context.getString(R.string.widget_no_matching_accounts_edit),
                                 style = widgetText(style.textSecondary, 12),
                             )
                         } else {
@@ -477,7 +504,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
         val validity = account.dataValidity
         Column(GlanceModifier.fillMaxWidth().clickable(openAccount)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                com.usagelimits.core.model.ProviderId.fromId(account.providerId)?.let { provider ->
+                ProviderId.fromId(account.providerId)?.let { provider ->
                     WidgetLogo(provider, account.iconChoiceId, 20.dp)
                     Spacer(GlanceModifier.width(8.dp))
                 }
@@ -498,11 +525,11 @@ class DetailedUsageWidget : GlanceAppWidget() {
             }
             if (account.requiresReauthentication || account.severity == Severity.ERROR || account.severity == Severity.STALE) {
                 Text(
-                    when {
-                        account.requiresReauthentication -> "Reconnect account"
-                        account.severity == Severity.ERROR -> "Update failed · last known data"
-                        else -> "Data is out of date"
-                    },
+                    context.getString(when {
+                        account.requiresReauthentication -> R.string.widget_reconnect_account
+                        account.severity == Severity.ERROR -> R.string.widget_update_failed_last_known
+                        else -> R.string.widget_data_out_of_date
+                    }),
                     style = widgetText(style.textSecondary, 11),
                 )
             }
@@ -510,7 +537,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SeverityDot(WidgetStyle.Amber)
                     Spacer(GlanceModifier.width(6.dp))
-                    Text("Some limits could not be updated", style = widgetText(style.textPrimary, 11))
+                    Text(context.getString(R.string.widget_some_limits_not_updated), style = widgetText(style.textPrimary, 11))
                 }
             }
             AccountLimitRows(context, account.rows, validity)
@@ -533,11 +560,15 @@ class DetailedUsageWidget : GlanceAppWidget() {
                         Spacer(GlanceModifier.height(6.dp))
                         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                row.label, GlanceModifier.defaultWeight(), maxLines = 1,
+                                row.labelText(context.resources), GlanceModifier.defaultWeight(), maxLines = 1,
                                 style = widgetText(style.textSecondary, 12),
                             )
-                            val percent = percentText(row)
-                            Text(percent, style = if (percent == "—") widgetText(style.textSecondary, 12)
+                            // The figure carries its side ("73% left" / "27% used"); a dash stays bare.
+                            val p = row.presentation(null, LocalPercentMode.current)
+                            val percent = percentFigure(p.token, context.resources)
+                            val shown = if (!p.hasFigure) percent
+                                else "$percent ${context.getString(percentSideWordRes(LocalPercentMode.current))}"
+                            Text(shown, style = if (!p.hasFigure) widgetText(style.textSecondary, 12)
                                 else widgetText(style.barText(row, validity), 12, FontWeight.Medium, mono = true))
                         }
                         Spacer(GlanceModifier.height(3.dp))
@@ -561,7 +592,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
  * on one the mark is drawn in the panel's ink instead.
  */
 @Composable
-internal fun WidgetLogo(provider: com.usagelimits.core.model.ProviderId, iconChoiceId: String?, size: Dp) {
+internal fun WidgetLogo(provider: ProviderId, iconChoiceId: String?, size: Dp) {
     val style = LocalWidgetStyle.current
     Image(
         ImageProvider(com.usagelimits.ui.providerLogoResource(provider, iconChoiceId)), null, GlanceModifier.size(size),
@@ -570,7 +601,7 @@ internal fun WidgetLogo(provider: com.usagelimits.core.model.ProviderId, iconCho
 }
 
 private val WHITE_ARTWORK = setOf(
-    com.usagelimits.core.model.ProviderId.CODEX, com.usagelimits.core.model.ProviderId.XAI, com.usagelimits.core.model.ProviderId.KIMI,
+    ProviderId.CODEX, ProviderId.XAI, ProviderId.KIMI,
 )
 
 class CompactUsageWidgetReceiver : UsageWidgetReceiver() {

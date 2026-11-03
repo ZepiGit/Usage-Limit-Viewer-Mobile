@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Resources
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -20,6 +21,7 @@ import com.usagelimits.core.database.NotificationEventEntity
 import com.usagelimits.core.database.NotificationStateEntity
 import com.usagelimits.core.notifications.NotificationEvaluator
 import com.usagelimits.core.settings.SettingsStore
+import com.usagelimits.ui.text.ResourceNotificationTexts
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -66,6 +68,9 @@ class NotificationPublisher(
     suspend fun publishFor(accounts: List<AccountUsage>) {
         val settings = settingsStore.settings.first()
         val nowMs = now()
+        // Read per run, not held: the language can change between syncs, and a line is composed
+        // in whichever one is current when it is posted.
+        val texts = ResourceNotificationTexts(context.resources)
 
         val (outcome, claimed) = transactions.inTransaction {
             // Only accounts that still exist, decided INSIDE the transaction, so a delete
@@ -85,6 +90,7 @@ class NotificationPublisher(
                     )
                 },
                 nowMs = nowMs,
+                texts = texts,
             )
 
             // Claim first, and advance state, whether or not anything can be posted. Skipping
@@ -147,11 +153,11 @@ class NotificationPublisher(
 
         ensureChannel()
 
-        val title = if (findings.size == 1) findings.first() else "${findings.size} usage alerts"
+        val title = if (findings.size == 1) findings.first() else titleForCount(context.resources, findings.size)
         val style = NotificationCompat.InboxStyle().also { style ->
             findings.take(MAX_LINES).forEach(style::addLine)
             if (findings.size > MAX_LINES) {
-                style.setSummaryText("+${findings.size - MAX_LINES} more")
+                style.setSummaryText(overflowSummary(context.resources, findings.size - MAX_LINES))
             }
         }
 
@@ -189,10 +195,10 @@ class NotificationPublisher(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Usage alerts",
+            context.getString(R.string.notification_channel_name),
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "Low quota, exhausted limits and available reset credits"
+            description = context.getString(R.string.notification_channel_description)
         }
         context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
     }
@@ -226,6 +232,14 @@ class NotificationPublisher(
          */
         fun shouldPost(alerts: List<String>, standing: List<String>, lastStandingFingerprint: String?): Boolean =
             alerts.isNotEmpty() || (standing.isNotEmpty() && fingerprint(standing) != lastStandingFingerprint)
+
+        /** The title over several findings; one finding is its own title. Counts come from the caller. */
+        fun titleForCount(resources: Resources, count: Int): String =
+            resources.getQuantityString(R.plurals.notification_title_count, count, count)
+
+        /** The inbox summary for the lines cut off by [MAX_LINES]. */
+        fun overflowSummary(resources: Resources, hidden: Int): String =
+            resources.getString(R.string.notification_more, hidden)
 
         const val CHANNEL_ID = "usage_alerts"
 

@@ -111,14 +111,46 @@ public enum LoopbackRedirect {
     /// open waiting for more. It names no code, no state and no account: this is served over
     /// plain http and ends up in the browser's history.
     public static func successResponse(
-        title: String = "Signed in",
-        message: String = "You can close this page and return to Usage Limits."
+        title: String = EnglishLoopbackPageTexts().signedIn(),
+        message: String = EnglishLoopbackPageTexts().closeThisPage()
     ) -> String {
         response(status: "200 OK", title: title, message: message)
     }
 
-    public static func failureResponse(message: String) -> String {
-        response(status: "400 Bad Request", title: "Sign-in failed", message: message)
+    public static func failureResponse(
+        title: String = EnglishLoopbackPageTexts().signInFailed(),
+        message: String
+    ) -> String {
+        response(status: "400 Bad Request", title: title, message: message)
+    }
+
+    /// The page for what `interpret` decided, worded by `texts`.
+    ///
+    /// One function for every outcome, so the listener has no sentence of its own to forget to
+    /// translate, and so a test can prove the injected words reach the page without a socket.
+    /// A refusal is recognised by the sentence `interpret` wrote and re-worded; a message this
+    /// does not know is shown as it came.
+    public static func pageResponse(
+        for outcome: Outcome, texts: any LoopbackPageTexts = EnglishLoopbackPageTexts()
+    ) -> String {
+        switch outcome {
+        case .code:
+            return successResponse(title: texts.signedIn(), message: texts.closeThisPage())
+        case .ignored:
+            return failureResponse(title: texts.signInFailed(), message: texts.nothingToSee())
+        case .rejected(let message):
+            return failureResponse(
+                title: texts.signInFailed(), message: failureLine(for: message, texts: texts))
+        }
+    }
+
+    private static func failureLine(for message: String, texts: any LoopbackPageTexts) -> String {
+        switch StoredMessage.classify(message) {
+        case .signInRefused(let reason)?: return texts.providerRefused(reason: reason)
+        case .signInWithoutCode?: return texts.noAuthorisationCode()
+        case .signInUnreadable?: return texts.signInUnreadable()
+        default: return message
+        }
     }
 
     private static func response(status: String, title: String, message: String) -> String {

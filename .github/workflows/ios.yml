@@ -35,6 +35,25 @@ jobs:
         working-directory: ios/UsageLimitsKit
         run: swift test --parallel
 
+  # Python only, so a tiny runner instead of the Swift container. It proves the String Catalog and
+  # the call sites agree (every localized literal is a key, every key has German); compiling stays
+  # with the macOS job.
+  catalog:
+    name: String Catalog (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: The checker's own tests
+        run: python3 -m unittest discover -s ios/Tools -p 'test_check_xcstrings.py'
+      # MarketingDemo is DEBUG-only screenshot fixtures with fixed English text.
+      - name: The catalog and the app and widget sources agree
+        run: >-
+          python3 ios/Tools/check-xcstrings.py
+          --catalog ios/UsageLimits/Sources/Resources/Localizable.xcstrings
+          ios/UsageLimits/Sources
+          --exclude ios/UsageLimits/Sources/App/MarketingDemo.swift
+
   kit-macos:
     name: UsageLimitsKit (macOS)
     runs-on: macos-latest

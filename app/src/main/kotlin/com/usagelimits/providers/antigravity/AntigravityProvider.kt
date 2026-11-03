@@ -7,6 +7,8 @@ import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.network.ProviderEndpoints.Antigravity
 import com.usagelimits.core.network.ProviderException
+import com.usagelimits.core.oauth.EnglishLoopbackPageTexts
+import com.usagelimits.core.oauth.LoopbackPageTexts
 import com.usagelimits.core.oauth.LoopbackServer
 import com.usagelimits.core.oauth.Pkce
 import com.usagelimits.core.oauth.PkceCodes
@@ -36,6 +38,7 @@ import java.net.URLEncoder
 class AntigravityProvider(
     private val http: HttpClient,
     private val nowMs: () -> Long = System::currentTimeMillis,
+    private val loginPageTexts: LoopbackPageTexts = EnglishLoopbackPageTexts,
 ) : UsageProvider {
 
     override val providerId = ProviderId.ANTIGRAVITY
@@ -58,7 +61,7 @@ class AntigravityProvider(
         // Bind the port BEFORE the authorization URL is handed back, so a conflict is reported
         // instead of the browser being sent to mint a real authorization code that then has
         // nowhere to land — or worse, lands on whatever squatted the port.
-        val boundServer = LoopbackServer(Antigravity.REDIRECT_PORT).also { it.start() }
+        val boundServer = LoopbackServer(Antigravity.REDIRECT_PORT, loginPageTexts).also { it.start() }
 
         val codes = Pkce.generate()
         val state = Pkce.generateState()

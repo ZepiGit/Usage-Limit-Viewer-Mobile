@@ -11,6 +11,9 @@ cd "$(dirname "$0")/../.."
 SHIMS=ios/Tools/AppleShims
 KIT_SOURCES=$(find ios/UsageLimitsKit/Sources -name '*.swift')
 APP_SOURCES=$(find ios/UsageLimits/Sources -name '*.swift')
+# Linux-only `String(localized:)` stand-in. It joins the app compile only, never the kit or the
+# shim package; the file itself says what it does not reproduce.
+LOCALIZATION_COMPAT=$SHIMS/LocalizationCompatibility.swift
 KIT_MODULE=$(mktemp -d)
 trap 'rm -rf "$KIT_MODULE"' EXIT
 
@@ -44,6 +47,7 @@ echo "Type-checking $count app sources against the framework shims…"
 swiftc -typecheck "${ALIASES[@]}" \
   "$@" \
   -I "$SHIM_BUILD/Modules" -I "$SHIM_BUILD" -I "$KIT_MODULE" \
+  "$LOCALIZATION_COMPAT" \
   $APP_SOURCES
 
 echo "OK — every name resolves, every call site matches, and nothing violates main-actor isolation."

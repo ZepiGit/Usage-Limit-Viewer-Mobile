@@ -125,6 +125,15 @@ data class WidgetConfigEntity(
     /** One of [com.usagelimits.widget.WidgetTextTone]. */
     @androidx.room.ColumnInfo(defaultValue = "'AUTO'")
     val textTone: String = "AUTO",
+    /**
+     * One of [com.usagelimits.core.model.PercentDisplay], or null to follow the app setting.
+     *
+     * Version 12. Null is the stored answer "this widget never chose", not a missing value, so it
+     * has no default: a widget placed before the upgrade then keeps tracking the app setting
+     * instead of being pinned to whatever the setting happened to be. Read leniently at the
+     * read site like the other enum names here, so an unknown stored name follows the app too.
+     */
+    val percentDisplay: String? = null,
 )
 
 /**

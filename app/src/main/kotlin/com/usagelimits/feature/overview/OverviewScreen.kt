@@ -1,9 +1,18 @@
 package com.usagelimits.feature.overview
 import sh.calvin.reorderable.ReorderableItem
 
+import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.WindowPresentation
+import com.usagelimits.core.model.presentation
+import com.usagelimits.core.model.readingValidity
 import com.usagelimits.core.model.title
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,12 +42,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
@@ -46,6 +66,12 @@ import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.settings.AppIcon
 import com.usagelimits.feature.settings.AppIconTile
 import com.usagelimits.ui.AppIcons
+import com.usagelimits.ui.percentFlipLabelRes
+import com.usagelimits.ui.percentSideWordRes
+import com.usagelimits.ui.text.percentFigureText
+import com.usagelimits.ui.text.rememberCountdownTexts
+import com.usagelimits.ui.text.storedMessageText
+import com.usagelimits.ui.text.windowLabelRes
 import com.usagelimits.ui.components.Dot
 import com.usagelimits.ui.components.EmptyBox
 import com.usagelimits.ui.components.ErrorBlock
@@ -60,6 +86,7 @@ import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.components.UsageWindowRow
+import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageType
@@ -79,6 +106,7 @@ fun OverviewScreen(
     onAccountClick: (String) -> Unit,
     onAddAccount: () -> Unit,
     onReorder: (List<String>) -> Unit,
+    onPercentDisplayChange: (PercentDisplay) -> Unit,
     modifier: Modifier = Modifier,
     onCreditClick: (String) -> Unit = {},
     onAddCredit: () -> Unit = {},
@@ -97,10 +125,11 @@ fun OverviewScreen(
         val end = order.indexOfFirst { it.account.localId == to.key }
         if (start >= 0 && end >= 0 && start != end) { order.add(end, order.removeAt(start)); liveOrder = order }
     }
+    val orderSaveFailed = stringResource(R.string.message_order_save_failed)
     LaunchedEffect(state.accounts, dragging, state.message) {
         val pending = liveOrder ?: return@LaunchedEffect
         if (!dragging && (state.orderedAccounts(nowMs).map { it.account.localId } == pending.map { it.account.localId } ||
-                state.message == "Could not save account order. Try again.")) liveOrder = null
+                state.message == orderSaveFailed)) liveOrder = null
     }
 
     LazyColumn(
@@ -121,26 +150,27 @@ fun OverviewScreen(
             return@LazyColumn
         }
 
-        if (state.accounts.isNotEmpty()) item { LeadStrip(state, nowMs) }
+        if (state.accounts.isNotEmpty()) item { LeadStrip(state, nowMs, onPercentDisplayChange) }
 
         item {
             SectionHeader(
-                title = "Accounts",
+                title = stringResource(R.string.overview_section_accounts),
                 trailing = {
                     if (state.accounts.isNotEmpty()) {
-                        TextAction(if (reordering) "Done" else "Reorder", { reordering = !reordering }, color = UsageColors.Muted)
+                        TextAction(stringResource(if (reordering) R.string.action_done else R.string.overview_reorder), { reordering = !reordering }, color = UsageColors.Muted)
                     }
                 },
             )
         }
 
         if (state.accounts.isEmpty()) {
-            item { EmptyBox("No accounts yet. Add one to start tracking usage.") }
+            item { EmptyBox(stringResource(R.string.overview_no_accounts)) }
         }
 
         items(items = shown, key = { it.account.localId }) { usage ->
             ReorderableItem(reorderState, key = usage.account.localId) { isDragging ->
                 AccountCard(usage = usage, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
+                    percentDisplay = state.settings.percentDisplay,
                     showTier = state.settings.showSubscriptionTier, showRenewal = state.settings.showRenewalTime,
                     modifier = Modifier.zIndex(if (isDragging) 1f else 0f),
                     onRetry = onRefresh,
@@ -150,7 +180,7 @@ fun OverviewScreen(
                                 onDragStarted = { dragging = true; liveOrder = currentShown },
                                 onDragStopped = { dragging = false; liveOrder?.let { onReorder(it.map { item -> item.account.localId }) } },
                             ), contentAlignment = Alignment.Center) {
-                                Icon(AppIcons.DragHandle, "Move ${usage.account.label}", tint = UsageColors.Muted)
+                                Icon(AppIcons.DragHandle, stringResource(R.string.overview_move_account, usage.account.label), tint = UsageColors.Muted)
                             }
                         }
                     },
@@ -158,12 +188,12 @@ fun OverviewScreen(
             }
         }
 
-        item { AddButton("Add account", "Monitor another AI subscription", onAddAccount) }
+        item { AddButton(stringResource(R.string.overview_add_account), stringResource(R.string.overview_add_account_hint), onAddAccount) }
 
         // Prepaid balances sit below the usage accounts: a different kind of number (money left,
         // no windows, no reset), so they are not mixed into the ranked list above.
-        item { SectionHeader(title = "Credits") }
-        if (state.credits.isEmpty()) item { EmptyBox("No prepaid balances tracked.") }
+        item { SectionHeader(title = stringResource(R.string.overview_section_credits)) }
+        if (state.credits.isEmpty()) item { EmptyBox(stringResource(R.string.overview_no_credits)) }
         items(items = state.credits, key = { "credit-${it.id}" }) { entry ->
             com.usagelimits.feature.credits.CreditCard(
                 entry = entry, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
@@ -171,7 +201,7 @@ fun OverviewScreen(
                 onRetry = onRefresh,
             )
         }
-        item { AddButton("Add credit balance", "Track prepaid API credit", onAddCredit) }
+        item { AddButton(stringResource(R.string.overview_add_credit), stringResource(R.string.overview_add_credit_hint), onAddCredit) }
     }
 }
 
@@ -187,14 +217,15 @@ fun AddButton(label: String, hint: String, onClick: () -> Unit, modifier: Modifi
 
 @Composable
 private fun OverviewHeader(state: UsageUiState, nowMs: Long, onRefresh: () -> Unit) {
-    val count = "${state.accountCount} account${if (state.accountCount == 1) "" else "s"} monitored"
+    val count = pluralStringResource(R.plurals.overview_accounts_monitored, state.accountCount, state.accountCount)
+    val countdownTexts = rememberCountdownTexts()
     ScreenTitle(
-        title = "Usage Limits",
+        title = stringResource(R.string.app_name),
         // The stamp swaps text, not layout, while a refresh is in flight.
         stamp = when {
-            state.isRefreshing -> "Refreshing…"
+            state.isRefreshing -> stringResource(R.string.overview_refreshing)
             state.accounts.isEmpty() -> count
-            else -> "$count · ${Countdown.freshnessLabel(state.lastUpdated, nowMs)}"
+            else -> "$count · ${Countdown.freshnessLabel(state.lastUpdated, nowMs, countdownTexts)}"
         },
         action = {
             Box(
@@ -208,7 +239,7 @@ private fun OverviewHeader(state: UsageUiState, nowMs: Long, onRefresh: () -> Un
                 } else {
                     Icon(
                         imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh usage",
+                        contentDescription = stringResource(R.string.overview_refresh_usage),
                         tint = UsageColors.Muted,
                         modifier = Modifier.size(20.dp),
                     )
@@ -222,37 +253,82 @@ private fun OverviewHeader(state: UsageUiState, nowMs: Long, onRefresh: () -> Un
  * Keep the account, remaining quota and countdown together so the next reset is unambiguous.
  */
 @Composable
-private fun LeadStrip(state: UsageUiState, nowMs: Long) {
+private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: (PercentDisplay) -> Unit) {
     val lead = state.leadAt(nowMs)
     val window = lead?.window
+    val mode = state.settings.percentDisplay
     val context = LocalContext.current
     val appIcon = remember(context) { AppIcon.current(context) }
-    val percent = com.usagelimits.core.model.percentLabel(window?.remainingPercent)
+    // The view model already marks a lead whose window has reset as stale, so no fetch time is needed.
+    val p = if (lead == null) WindowPresentation.absent(mode)
+        else lead.window.presentation(lead.window.readingValidity(stale = lead.stale, fetchedAt = null, nowMs = nowMs), mode)
+    val percent = percentFigureText(p.token)
+    // The word beside the figure says which side it counts, and so does the spoken sentence.
+    val side = stringResource(percentSideWordRes(mode))
+    // The figure flips the one global setting; the label names where it goes.
+    val flipTo = if (mode == PercentDisplay.USED) PercentDisplay.LEFT else PercentDisplay.USED
+    val flipLabel = stringResource(percentFlipLabelRes(mode))
+    val motionEnabled = LocalMotionEnabled.current
     // A stale lead says how old it is instead of promising a reset the cache cannot vouch for.
-    val reset = if (lead?.stale == true) Countdown.freshnessLabel(lead.usage.snapshot?.fetchedAt, nowMs)
-        else Countdown.resetLabel(window?.resetAt, nowMs)
+    val countdownTexts = rememberCountdownTexts()
+    val reset = if (lead?.stale == true) Countdown.freshnessLabel(lead.usage.snapshot?.fetchedAt, nowMs, countdownTexts)
+        else Countdown.resetLabel(window?.resetAt, nowMs, countdownTexts)
+    // The window row below names it in the user's language, so the lead does too; a label the
+    // provider reported is shown as it came.
+    val windowLabel = window?.let { w ->
+        windowLabelRes(w.label, w.category, w.scope)?.let { stringResource(it) } ?: w.label
+    }
 
     UsageCard {
         Column(
             Modifier.semantics(mergeDescendants = true) {
                 contentDescription = listOfNotNull(
-                    lead?.let { "${it.usage.account.label}, ${it.window.label}, $percent left" }, reset,
+                    lead?.let { "${it.usage.account.label}, $windowLabel, $percent $side" }, reset,
                 ).joinToString(", ")
-            },
+                if (lead != null) {
+                    role = Role.Button
+                    onClick(label = flipLabel) {
+                        onPercentDisplayChange(flipTo)
+                        true
+                    }
+                }
+            }
+                // A keyboard or D-pad reaches the same action: the figure's tap is pointer-only.
+                .onKeyEvent { event ->
+                    val confirm = event.key == Key.Enter || event.key == Key.NumPadEnter || event.key == Key.DirectionCenter
+                    if (lead != null && confirm && event.type == KeyEventType.KeyUp) {
+                        onPercentDisplayChange(flipTo); true
+                    } else false
+                }
+                .focusable(enabled = lead != null),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (lead != null) {
                 val worst = lead.window
                 val severity = if (lead.stale) Severity.STALE else worst.severity
-                Text("${lead.usage.account.label} · ${worst.label}",
+                Text("${lead.usage.account.label} · $windowLabel",
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted, maxLines = 1)
-                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(percent, style = MaterialTheme.typography.headlineMedium,
-                        color = SeverityPalette.figureColor(severity))
-                    Text("left", Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
+                // The accessibility action lives on the card's merged node above, so a screen reader
+                // finds one button. `clickable` would add a second focus stop of its own; this tap
+                // is the finger's route to the same action and creates no semantics node.
+                Row(
+                    Modifier.pointerInput(flipTo, onPercentDisplayChange) { detectTapGestures { onPercentDisplayChange(flipTo) } },
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // No animation when the system has animations off: the figure just changes.
+                    Crossfade(
+                        targetState = percent,
+                        animationSpec = if (motionEnabled) tween(200) else snap(),
+                        label = "leadFigure",
+                    ) { shown ->
+                        Text(shown, style = MaterialTheme.typography.headlineMedium,
+                            color = SeverityPalette.figureColor(severity))
+                    }
+                    Text(side, Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
                 }
                 Spacer(Modifier.height(2.dp))
-                UsageBar(worst.remainingPercent, severity, Modifier.fillMaxWidth())
+                UsageBar(p, Modifier.fillMaxWidth())
                 if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {
                 Text("—", style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
@@ -262,7 +338,7 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long) {
         RuleDivider()
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            LeadStat("Connected accounts", "${state.healthyCountAt(nowMs)}/${state.accountCount}", UsageColors.Ink, Modifier.weight(1f))
+            LeadStat(stringResource(R.string.overview_connected_accounts), "${state.healthyCountAt(nowMs)}/${state.accountCount}", UsageColors.Ink, Modifier.weight(1f))
             AppIconTile(appIcon, size = 40.dp)
         }
     }
@@ -279,7 +355,8 @@ private fun LeadStat(label: String, value: String, color: androidx.compose.ui.gr
 /** The lead strip at its real size, in grey. */
 @Composable
 private fun LeadSkeleton() {
-    UsageCard(Modifier.semantics { contentDescription = "Loading usage" }) {
+    val loading = stringResource(R.string.overview_loading_usage)
+    UsageCard(Modifier.semantics { contentDescription = loading }) {
         SkeletonBar(12.dp, 0.3f)
         Spacer(Modifier.height(8.dp))
         SkeletonBar(30.dp, 0.2f)
@@ -322,6 +399,7 @@ private fun AccountSkeleton() {
  * Null when there is only one window, since then the renewal IS the next reset and printing it
  * twice under different names is worse than leaving it out.
  */
+@Composable
 private fun renewalLabel(usage: AccountUsage, nowMs: Long): String? {
     val windows = usage.snapshot?.windows.orEmpty()
     if (windows.size < 2) return null
@@ -331,7 +409,11 @@ private fun renewalLabel(usage: AccountUsage, nowMs: Long): String? {
     val soonest = windows.mapNotNull { it.resetAt }.filter { it > nowMs }.minOrNull()
     val renewsAt = longest.resetAt?.takeIf { it > nowMs } ?: return null
     if (renewsAt == soonest) return null
-    return "${longest.label} renews ${Countdown.format(renewsAt - nowMs)}"
+    // The same words the row of this window shows: the app's own names are translated, a label
+    // the provider reported is data.
+    val label = windowLabelRes(longest.label, longest.category, longest.scope)
+        ?.let { stringResource(it) } ?: longest.label
+    return stringResource(R.string.overview_renews, label, Countdown.format(renewsAt - nowMs, rememberCountdownTexts()))
 }
 
 /**
@@ -346,6 +428,8 @@ fun AccountCard(
     usage: AccountUsage,
     nowMs: Long,
     staleAfterMs: Long,
+    // Required, never defaulted: a defaulted mode would leave a caller silently in LEFT.
+    percentDisplay: PercentDisplay,
     showTier: Boolean = true,
     showRenewal: Boolean = false,
     // Before `onClick`, so the trailing-lambda call sites keep binding their lambda to the
@@ -357,6 +441,7 @@ fun AccountCard(
     onClick: () -> Unit,
 ) {
     val snapshot = usage.snapshot
+    val countdownTexts = rememberCountdownTexts()
     val severity = snapshot?.severityAt(nowMs, staleAfterMs) ?: Severity.STALE
     // A card that is old or failed keeps its figures, in grey.
     val stale = severity == Severity.STALE || severity == Severity.ERROR
@@ -374,7 +459,7 @@ fun AccountCard(
                 )
                 Text(
                     text = (usage.account.maskedEmail ?: usage.account.label) + " · " +
-                        Countdown.freshnessLabel(usage.measurementAt, nowMs),
+                        Countdown.freshnessLabel(usage.measurementAt, nowMs, countdownTexts),
                     style = MaterialTheme.typography.bodySmall,
                     color = UsageColors.Faint,
                     maxLines = 1,
@@ -391,7 +476,7 @@ fun AccountCard(
                 }
             }
             if (dragHandle != null) dragHandle() else {
-                StatusMark(severity, label = if (snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) "Reconnect" else null)
+                StatusMark(severity, label = if (snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) stringResource(R.string.status_reconnect) else null)
                 // Its own 24dp slot, so figures do not jump when a row has no chevron.
                 Box(Modifier.width(24.dp), contentAlignment = Alignment.CenterEnd) {
                     Icon(
@@ -409,7 +494,7 @@ fun AccountCard(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Dot(UsageColors.Warning, size = 6.dp)
                 Text(
-                    text = "Restricted: " + snapshot!!.restrictedWindows.joinToString { it.label },
+                    text = stringResource(R.string.restricted_windows, snapshot!!.restrictedWindows.joinToString { it.label }),
                     style = MaterialTheme.typography.bodyMedium,
                     color = UsageColors.Muted,
                 )
@@ -420,7 +505,7 @@ fun AccountCard(
         Spacer(Modifier.height(12.dp))
         if (windows.isEmpty()) {
             Text(
-                text = snapshot?.errorMessage ?: "No usage data yet",
+                text = snapshot?.errorMessage?.let { storedMessageText(it) } ?: stringResource(R.string.overview_no_usage_data),
                 style = MaterialTheme.typography.bodyMedium,
                 color = UsageColors.Muted,
             )
@@ -428,7 +513,7 @@ fun AccountCard(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 // Ungrouped windows first — they are the account's headline limits.
                 windows.filter { it.group == null }.take(4).forEach { window ->
-                    UsageWindowRow(window, nowMs, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                    UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale)
                 }
 
                 val groups = windows.filter { it.group != null }.groupBy { it.group!! }
@@ -440,7 +525,7 @@ fun AccountCard(
                         color = UsageColors.Muted,
                     )
                     groupWindows.forEach { window ->
-                        UsageWindowRow(window, nowMs, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                        UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale)
                     }
                 }
             }
@@ -454,13 +539,13 @@ fun AccountCard(
             RuleDivider()
             Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Reset credits",
+                    text = stringResource(R.string.reset_credits_title),
                     style = MaterialTheme.typography.bodyMedium,
                     color = UsageColors.Muted,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    text = "$creditCount available",
+                    text = stringResource(R.string.reset_credits_available_count, creditCount),
                     style = UsageType.Figure,
                     color = UsageColors.Ink,
                 )
@@ -470,7 +555,10 @@ fun AccountCard(
         if (snapshot?.errorMessage != null && windows.isNotEmpty()) {
             val partial = snapshot.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL
             ErrorBlock(
-                message = if (partial) "${snapshot.errorMessage} · partial update" else "${snapshot.errorMessage} · showing last known data",
+                message = stringResource(
+                    if (partial) R.string.error_partial_update else R.string.error_showing_last_known,
+                    storedMessageText(snapshot.errorMessage),
+                ),
                 modifier = Modifier.padding(top = 12.dp),
                 dot = if (partial) UsageColors.Warning else UsageColors.Negative,
                 onRetry = onRetry,

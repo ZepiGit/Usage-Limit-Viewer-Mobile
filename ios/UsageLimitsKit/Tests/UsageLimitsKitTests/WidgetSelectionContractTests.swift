@@ -59,6 +59,24 @@ final class WidgetSelectionContractTests: XCTestCase {
             ["healthy-soon", "low-middle", "exhausted-later"])
     }
 
+    /// Selection re-cuts the accounts a widget shows, never how the user reads them: a scope that
+    /// rebuilt the snapshot without the mode would show LEFT on a widget the user set to USED.
+    func testSelectingKeepsThePercentDisplayForEveryScope() {
+        let values = [account("a", used: 10, reset: now.addingTimeInterval(10)),
+            account("b", used: 90, reset: now.addingTimeInterval(500))]
+        let scopes: [GlanceScope] = [.allAccounts, .account, .provider, .custom, .mostCritical, .closestResets]
+
+        for mode in [PercentDisplay.left, .used] {
+            let export = GlanceModel.build(values, now: now, scope: .allAccounts, percentDisplay: mode)
+            for scope in scopes {
+                let selected = export.selecting(scope: scope, now: now, accountID: "a",
+                    providerID: ProviderID.codex.rawValue, customAccountIDs: ["b", "a"])
+                XCTAssertFalse(selected.accounts.isEmpty, "\(scope) selected nothing")
+                XCTAssertEqual(selected.percentDisplay, mode, "\(scope) lost the mode")
+            }
+        }
+    }
+
     /// The legacy tiles' contract is the account most in need of attention, read from the
     /// all-accounts export. Selection must also carry the LEAD's own clock: a critical lead
     /// whose reset is far away must not borrow the soonest account's reset instant.

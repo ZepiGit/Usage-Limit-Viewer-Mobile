@@ -90,7 +90,8 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(mixed.nextResettingRow(at: now), measuredRow)
         XCTAssertNil(unknown.nextResettingRow(at: now))
         let snapshot = GlanceSnapshot(accounts: [unknown, mixed], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .healthy, headlineShort: nil, headlineLong: nil)
+            nextResetAt: nil, overallSeverity: .healthy, headlineShort: nil, headlineLong: nil,
+            percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "measured")
     }
 
@@ -105,7 +106,8 @@ final class GlanceModelTests: XCTestCase {
             rows: [nearlyUsedRow], severity: .low, fetchedAt: now)
         XCTAssertEqual(blocked.nextResettingRow(at: now), blockedRow)
         let snapshot = GlanceSnapshot(accounts: [nearlyUsed, blocked], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil)
+            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil,
+            percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "blocked")
     }
 
@@ -133,7 +135,8 @@ final class GlanceModelTests: XCTestCase {
                 resetAt: now.addingTimeInterval(2 * 3_600), severity: .healthy)],
             severity: .healthy, fetchedAt: now)
         let snapshot = GlanceSnapshot(accounts: [tight, soon], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .low, headlineShort: nil, headlineLong: nil)
+            nextResetAt: nil, overallSeverity: .low, headlineShort: nil, headlineLong: nil,
+            percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "soon")
         XCTAssertEqual(snapshot.nextResettingAccount(at: now.addingTimeInterval(27 * 3_600))?.id, "tight")
         XCTAssertNil(GlanceSnapshot.empty.nextResettingAccount(at: now))
@@ -147,8 +150,49 @@ final class GlanceModelTests: XCTestCase {
             rows: [GlanceRow(label: "Weekly", category: .weekly, remainingPercent: nil,
                 resetAt: nil, severity: .exhausted)], severity: .exhausted, fetchedAt: now)
         let snapshot = GlanceSnapshot(accounts: [measured, exhausted], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil)
+            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil,
+            percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "exhausted")
+    }
+
+    // MARK: - Percent display mode
+
+    func testBuildCarriesTheRequestedPercentDisplayAndDefaultsToLeft() {
+        XCTAssertEqual(GlanceModel.build(all, now: now, scope: .allAccounts).percentDisplay, .left)
+        XCTAssertEqual(
+            GlanceModel.build(all, now: now, scope: .allAccounts, percentDisplay: .used).percentDisplay,
+            .used)
+    }
+
+    func testWithCreditsKeepsThePercentDisplay() {
+        // The publisher attaches credits to an already-built snapshot; losing the mode there
+        // would flip every widget back to LEFT on the next publish.
+        let built = GlanceModel.build(all, now: now, scope: .allAccounts, percentDisplay: .used)
+
+        XCTAssertEqual(built.with(credits: []).percentDisplay, .used)
+    }
+
+    func testWithPercentDisplayChangesOnlyTheMode() {
+        let built = GlanceModel.build(all, now: now, scope: .allAccounts, percentDisplay: .left)
+        let flipped = built.with(percentDisplay: .used)
+
+        XCTAssertEqual(flipped.percentDisplay, .used)
+        XCTAssertEqual(flipped.accounts, built.accounts)
+        XCTAssertEqual(flipped.accountCount, built.accountCount)
+        XCTAssertEqual(flipped.updatedAt, built.updatedAt)
+        XCTAssertEqual(flipped.nextResetAt, built.nextResetAt)
+        XCTAssertEqual(flipped.overallSeverity, built.overallSeverity)
+        XCTAssertEqual(flipped.headlineShort, built.headlineShort)
+        XCTAssertEqual(flipped.headlineLong, built.headlineLong)
+        XCTAssertEqual(flipped.staleAfter, built.staleAfter)
+        XCTAssertEqual(flipped.credits, built.credits)
+        XCTAssertEqual(flipped.with(percentDisplay: .left), built)
+        // The credits attach that follows must keep the new mode, not restore the old one.
+        XCTAssertEqual(flipped.with(credits: []).percentDisplay, .used)
+    }
+
+    func testTheEmptySnapshotReadsLeft() {
+        XCTAssertEqual(GlanceSnapshot.empty.percentDisplay, .left)
     }
 
     // MARK: - Scope selection
@@ -811,6 +855,19 @@ extension GlanceModelTests {
         XCTAssertEqual(account.representative(at: now)?.label, "Blocked")
     }
 
+    func testUsedModeReadsTheOpenWeeklyRowNotTheExhaustedWindowThatHasSinceReset() throws {
+        // The configured ring draws and speaks this one row's figure. A 5h window that reset
+        // since the fetch must not announce "100 used" beside an open weekly at 60 % left.
+        let account = try XCTUnwrap(GlanceModel.build([resetSinceFetch()], now: now, scope: .allAccounts).accounts.first)
+        let representative = try XCTUnwrap(account.representative(at: now))
+
+        XCTAssertEqual(representative.label, "Weekly")
+        XCTAssertEqual(
+            UsageWindow.percentToken(
+                representative.remainingPercent, exhausted: representative.severity == .exhausted, mode: .used),
+            "40")
+    }
+
     // MARK: - Exported before a reset, rendered after it
 
     /// Exported at `now`: the 5h window (0 % left, exhausted) resets in a minute, weekly is open at 80 % left.
@@ -894,7 +951,7 @@ extension GlanceModelTests {
         // Legacy tiles re-select before planning; configured tiles plan from the capture.
         XCTAssertEqual(Set(export.selecting(scope: .mostCritical, now: now).presentationBoundaries(after: now)), expected)
         let capture = ConfiguredWidgetCapture(source: .loaded(export), preset: .notRead, scope: .allAccounts,
-            accountID: nil, providerID: nil, transparent: false)
+            accountID: nil, providerID: nil, transparent: false, percentOverride: nil)
         XCTAssertEqual(Set(capture.presentationBoundaries(after: now)), expected)
 
         let account = try XCTUnwrap(export.accounts.first)

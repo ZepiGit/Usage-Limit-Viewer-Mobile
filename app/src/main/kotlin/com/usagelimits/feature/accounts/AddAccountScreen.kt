@@ -35,11 +35,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.annotation.StringRes
+import com.usagelimits.R
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.ui.AppIcons
@@ -53,6 +56,8 @@ import com.usagelimits.ui.components.ScreenTitle
 import com.usagelimits.ui.components.Spinner
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.UsageCard
+import com.usagelimits.ui.text.apiKeyHintRes
+import com.usagelimits.ui.text.providerRegionLabelRes
 import com.usagelimits.ui.theme.UsageColors
 
 /**
@@ -89,7 +94,7 @@ fun AddAccountScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        ScreenTitle("Add account")
+        ScreenTitle(stringResource(R.string.add_account_title))
 
         Crossfade(
             targetState = state,
@@ -105,7 +110,7 @@ fun AddAccountScreen(
                 when (val state = displayedState) {
                     is AddAccountState.PickProvider -> {
                         Text(
-                            text = "You can connect several accounts per provider.",
+                            text = stringResource(R.string.add_pick_intro),
                             style = MaterialTheme.typography.bodyMedium,
                             color = UsageColors.Muted,
                         )
@@ -121,13 +126,12 @@ fun AddAccountScreen(
                     is AddAccountState.ChoosingRegion -> {
                         UsageCard {
                             Text(
-                                text = "${state.provider.displayName} region",
+                                text = stringResource(R.string.add_region_title, state.provider.displayName),
                                 style = MaterialTheme.typography.titleMedium,
                                 color = UsageColors.Ink,
                             )
                             Text(
-                                text = "Keys and sign-ins only work on the service they were issued by. " +
-                                    "Pick the one your account is on.",
+                                text = stringResource(R.string.add_region_body),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = UsageColors.Muted,
                             )
@@ -135,17 +139,17 @@ fun AddAccountScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 ProviderRegion.options(state.provider).forEach { option ->
                                     OutlineButton(
-                                        option.label(state.provider),
+                                        providerRegionLabelRes(state.provider, option)?.let { stringResource(it) } ?: option.label(state.provider),
                                         { if (acceptsInput()) onChooseRegion(state.provider, option) },
                                         Modifier.fillMaxWidth(),
                                     )
                                 }
                             }
                         }
-                        TextAction("Cancel", { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
+                        TextAction(stringResource(R.string.action_cancel), { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
                     }
 
-                    is AddAccountState.Starting -> LoadingCard("Contacting ${state.provider.displayName}…")
+                    is AddAccountState.Starting -> LoadingCard(stringResource(R.string.add_starting, state.provider.displayName))
 
                     is AddAccountState.AwaitingDeviceCode -> {
                         // Reading the code off the screen and typing it into a browser on the same phone
@@ -163,13 +167,12 @@ fun AddAccountScreen(
 
                         UsageCard {
                             Text(
-                                text = "Enter this code",
+                                text = stringResource(R.string.add_enter_code),
                                 style = MaterialTheme.typography.titleMedium,
                                 color = UsageColors.Ink,
                             )
                             Text(
-                                text = "Your browser is opening ${state.verificationUri}. Paste the code " +
-                                    "there — this app never sees your password.",
+                                text = stringResource(R.string.add_code_body, state.verificationUri),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = UsageColors.Muted,
                             )
@@ -190,7 +193,7 @@ fun AddAccountScreen(
                             )
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                text = if (copied) "Copied to your clipboard" else "Tap the code to copy",
+                                text = stringResource(if (copied) R.string.add_code_copied else R.string.add_code_tap_to_copy),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = UsageColors.Faint,
                                 textAlign = TextAlign.Center,
@@ -198,18 +201,18 @@ fun AddAccountScreen(
                             )
                             Spacer(Modifier.height(14.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                InkButton("Copy code", { if (acceptsInput()) copy() }, Modifier.weight(1f))
+                                InkButton(stringResource(R.string.add_copy_code), { if (acceptsInput()) copy() }, Modifier.weight(1f))
                                 // The browser was opened once already. This is for the times it was not —
                                 // no default browser, the tab dismissed, the wrong profile — where the
                                 // flow is otherwise dead with a code and nowhere to put it.
-                                OutlineButton("Open page", { if (acceptsInput()) uriHandler.openUri(state.verificationUri) }, Modifier.weight(1f))
+                                OutlineButton(stringResource(R.string.add_open_page), { if (acceptsInput()) uriHandler.openUri(state.verificationUri) }, Modifier.weight(1f))
                             }
                             Spacer(Modifier.height(14.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Spinner()
                                 Spacer(Modifier.width(10.dp))
                                 Text(
-                                    text = "Waiting for approval…",
+                                    text = stringResource(R.string.add_waiting),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = UsageColors.Muted,
                                 )
@@ -219,9 +222,9 @@ fun AddAccountScreen(
                             if (state.keyAlternative) {
                                 // The flow is the default because it costs the user nothing. The key
                                 // is for when the flow's account cannot reach the API yet.
-                                TextAction("Use an API key instead", { if (acceptsInput()) onStartWithKey(state.provider) })
+                                TextAction(stringResource(R.string.add_use_api_key_instead), { if (acceptsInput()) onStartWithKey(state.provider) })
                             }
-                            TextAction("Cancel", { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
+                            TextAction(stringResource(R.string.action_cancel), { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
                         }
                     }
 
@@ -231,55 +234,52 @@ fun AddAccountScreen(
 
                         UsageCard {
                             Text(
-                                text = "Paste your ${state.provider.displayName} key",
+                                text = stringResource(R.string.add_paste_key_title, state.provider.displayName),
                                 style = MaterialTheme.typography.titleMedium,
                                 color = UsageColors.Ink,
                             )
                             Text(
-                                text = state.hint,
+                                text = apiKeyHintRes(state.provider)?.let { stringResource(it) } ?: state.hint,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = UsageColors.Muted,
                             )
                             Spacer(Modifier.height(14.dp))
                             LedgerField(
-                                label = "API key",
+                                label = stringResource(R.string.add_api_key_label),
                                 value = key,
                                 onValueChange = { if (acceptsInput()) key = it },
                             )
                             Spacer(Modifier.height(14.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                InkButton("Connect", { if (acceptsInput()) onSubmitApiKey(key) }, Modifier.weight(1f), enabled = key.isNotBlank())
-                                OutlineButton("Open console", { if (acceptsInput()) uriHandler.openUri(state.consoleUrl) }, Modifier.weight(1f))
+                                InkButton(stringResource(R.string.add_connect), { if (acceptsInput()) onSubmitApiKey(key) }, Modifier.weight(1f), enabled = key.isNotBlank())
+                                OutlineButton(stringResource(R.string.add_open_console), { if (acceptsInput()) uriHandler.openUri(state.consoleUrl) }, Modifier.weight(1f))
                             }
                         }
-                        TextAction("Cancel", { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
+                        TextAction(stringResource(R.string.action_cancel), { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
                     }
 
                     is AddAccountState.AwaitingBrowser -> {
                         val uriHandler = LocalUriHandler.current
-                        LoadingCard(
-                            "Complete the sign-in in your browser. You'll come straight back here.",
-                        )
+                        LoadingCard(stringResource(R.string.add_browser_wait))
                         if (state.deviceCodeAlternative) {
                             // The browser flow needs the browser to reach this app on
                             // localhost, and not every phone lets it. The code needs nothing
                             // of the sort, so it is offered right where the wait would
                             // otherwise run out the clock.
                             Text(
-                                text = "Browser not coming back? Sign in with a code instead — " +
-                                    "you type it on the provider's page and no redirect is needed.",
+                                text = stringResource(R.string.add_browser_not_returning),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = UsageColors.Muted,
                             )
                         }
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.Center) {
                             if (state.deviceCodeAlternative) {
-                                TextAction("Use a device code", { if (acceptsInput()) onStartWithDeviceCode(state.provider) })
+                                TextAction(stringResource(R.string.add_use_device_code), { if (acceptsInput()) onStartWithDeviceCode(state.provider) })
                             }
                             state.authorizationUrl?.let { url ->
-                                TextAction("Open page again", { if (acceptsInput()) uriHandler.openUri(url) })
+                                TextAction(stringResource(R.string.add_open_page_again), { if (acceptsInput()) uriHandler.openUri(url) })
                             }
-                            TextAction("Cancel", { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
+                            TextAction(stringResource(R.string.action_cancel), { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
                         }
                     }
 
@@ -288,18 +288,18 @@ fun AddAccountScreen(
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Dot(UsageColors.Positive)
                                 Text(
-                                    text = "Connected",
+                                    text = stringResource(R.string.add_connected),
                                     style = MaterialTheme.typography.titleMedium,
                                     color = UsageColors.Ink,
                                 )
                             }
                             Text(
-                                text = "${state.accountLabel} is now being monitored.",
+                                text = stringResource(R.string.add_now_monitored, state.accountLabel),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = UsageColors.Muted,
                             )
                         }
-                        InkButton("Done", { if (acceptsInput()) onDone() }, Modifier.fillMaxWidth())
+                        InkButton(stringResource(R.string.action_done), { if (acceptsInput()) onDone() }, Modifier.fillMaxWidth())
                     }
 
                     is AddAccountState.Failed -> {
@@ -307,7 +307,7 @@ fun AddAccountScreen(
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Dot(UsageColors.Negative)
                                 Text(
-                                    text = "Sign-in failed",
+                                    text = stringResource(R.string.add_signin_failed),
                                     style = MaterialTheme.typography.titleMedium,
                                     color = UsageColors.Ink,
                                 )
@@ -321,7 +321,7 @@ fun AddAccountScreen(
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.Center) {
                             state.provider?.let { provider ->
                                 InkButton(
-                                    "Try again",
+                                    stringResource(R.string.add_try_again),
                                     // The same way in as the attempt that failed: someone who
                                     // chose the code because the browser never came back
                                     // must not be sent back to the browser by "try again".
@@ -332,17 +332,17 @@ fun AddAccountScreen(
                                     },
                                 )
                                 if (state.keyAlternative) {
-                                    TextAction("Use an API key", { if (acceptsInput()) onStartWithKey(provider) })
+                                    TextAction(stringResource(R.string.add_use_api_key), { if (acceptsInput()) onStartWithKey(provider) })
                                 }
                                 if (state.deviceCodeAlternative) {
                                     if (state.viaDeviceCode) {
-                                        TextAction("Use the browser", { if (acceptsInput()) onStart(provider) })
+                                        TextAction(stringResource(R.string.add_use_browser), { if (acceptsInput()) onStart(provider) })
                                     } else {
-                                        TextAction("Use a device code", { if (acceptsInput()) onStartWithDeviceCode(provider) })
+                                        TextAction(stringResource(R.string.add_use_device_code), { if (acceptsInput()) onStartWithDeviceCode(provider) })
                                     }
                                 }
                             }
-                            TextAction("Back", { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
+                            TextAction(stringResource(R.string.action_back), { if (acceptsInput()) onCancel() }, color = UsageColors.Muted)
                         }
                     }
                 }
@@ -371,7 +371,7 @@ private fun ProviderRow(provider: ProviderId, onClick: () -> Unit) {
                 color = UsageColors.Ink,
             )
             Text(
-                text = loginHint(provider),
+                text = stringResource(loginHintRes(provider)),
                 style = MaterialTheme.typography.bodyMedium,
                 color = UsageColors.Muted,
             )
@@ -381,16 +381,17 @@ private fun ProviderRow(provider: ProviderId, onClick: () -> Unit) {
 }
 
 /** Sets expectations before the browser opens — device code versus a redirect back. */
-private fun loginHint(provider: ProviderId): String = when (provider) {
-    ProviderId.CODEX -> "Sign in in your browser"
-    ProviderId.XAI -> "Sign in with a device code"
-    ProviderId.CLAUDE -> "Sign in in your browser"
-    ProviderId.ANTIGRAVITY -> "Sign in with Google"
-    ProviderId.KIMI -> "Sign in with a device code"
-    ProviderId.DEVIN -> "Sign in in your browser"
-    ProviderId.META -> "Sign in with a device code"
-    ProviderId.ZAI -> "Paste an API key"
-    ProviderId.OPENCODE -> "Paste an API key"
+@StringRes
+private fun loginHintRes(provider: ProviderId): Int = when (provider) {
+    ProviderId.CODEX -> R.string.add_hint_browser
+    ProviderId.XAI -> R.string.add_hint_device_code
+    ProviderId.CLAUDE -> R.string.add_hint_browser
+    ProviderId.ANTIGRAVITY -> R.string.add_hint_google
+    ProviderId.KIMI -> R.string.add_hint_device_code
+    ProviderId.DEVIN -> R.string.add_hint_browser
+    ProviderId.META -> R.string.add_hint_device_code
+    ProviderId.ZAI -> R.string.add_hint_api_key
+    ProviderId.OPENCODE -> R.string.add_hint_api_key
 }
 
 @Composable

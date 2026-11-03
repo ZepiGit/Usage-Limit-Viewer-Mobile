@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -30,13 +32,17 @@ import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.theme.UsageColors
 
-enum class AppIcon(val alias: String, val label: String, @DrawableRes val foreground: Int) {
-    CURRENT(".MainActivity", "Default", R.drawable.ic_launcher_foreground),
-    GAUGE_COIN(".IconGaugeCoin", "Gauge Coin", R.mipmap.ic_launcher_gauge_coin_foreground),
-    AI_GAUGE(".IconAiGauge", "Gauge", R.mipmap.ic_launcher_ai_gauge_foreground),
-    AI_HOURGLASS(".IconAiHourglass", "Hourglass", R.mipmap.ic_launcher_ai_hourglass_foreground),
-    AI_REFRESH_RING(".IconAiRefreshRing", "Refresh Ring", R.mipmap.ic_launcher_ai_refresh_ring_foreground),
-    AI_BATTERY(".IconAiBattery", "Battery", R.mipmap.ic_launcher_ai_battery_foreground);
+enum class AppIcon(
+    val alias: String,
+    @StringRes val labelRes: Int,
+    @DrawableRes val foreground: Int,
+) {
+    CURRENT(".MainActivity", R.string.app_icon_default, R.drawable.ic_launcher_foreground),
+    GAUGE_COIN(".IconGaugeCoin", R.string.app_icon_gauge_coin, R.mipmap.ic_launcher_gauge_coin_foreground),
+    AI_GAUGE(".IconAiGauge", R.string.app_icon_gauge, R.mipmap.ic_launcher_ai_gauge_foreground),
+    AI_HOURGLASS(".IconAiHourglass", R.string.app_icon_hourglass, R.mipmap.ic_launcher_ai_hourglass_foreground),
+    AI_REFRESH_RING(".IconAiRefreshRing", R.string.app_icon_refresh_ring, R.mipmap.ic_launcher_ai_refresh_ring_foreground),
+    AI_BATTERY(".IconAiBattery", R.string.app_icon_battery, R.mipmap.ic_launcher_ai_battery_foreground);
 
     companion object {
         var pending: AppIcon? = null
@@ -88,7 +94,7 @@ fun AppIconSettings() {
     val context = LocalContext.current
     var selected by remember { mutableStateOf(AppIcon.pending ?: AppIcon.current(context)) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHeader("App icon")
+        SectionHeader(stringResource(R.string.settings_section_app_icon))
         UsageCard {
             Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 AppIcon.entries.chunked(3).forEach { row ->
@@ -102,7 +108,7 @@ fun AppIconSettings() {
                                 Box(if (selected == icon) Modifier.border(1.5.dp, UsageColors.Ink, RoundedCornerShape(14.dp)) else Modifier) {
                                     AppIconTile(icon)
                                 }
-                                Text(icon.label, style = MaterialTheme.typography.bodySmall, color = UsageColors.Ink)
+                                Text(stringResource(icon.labelRes), style = MaterialTheme.typography.bodySmall, color = UsageColors.Ink)
                             }
                         }
                     }

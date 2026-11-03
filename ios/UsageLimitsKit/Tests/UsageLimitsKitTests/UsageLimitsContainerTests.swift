@@ -159,6 +159,20 @@ final class UsageLimitsContainerTests: XCTestCase {
         XCTAssertEqual(published.accounts.first?.rows.first?.remainingPercent, 60)
     }
 
+    func testSavingTheUsedModeRepublishesItToTheWidget() async throws {
+        // The widget never reads settings, so the file is the only way a changed choice reaches
+        // the home screen — and it must arrive without waiting for the next sync.
+        let (subject, _) = container([(200, codexUsage), (200, #"{"credits": []}"#)])
+        try await subject.add(account())
+        XCTAssertEqual(GlanceSnapshotCodec.read(fromDirectory: directory).percentDisplay, .left)
+
+        try await subject.save(settings: AppSettings(percentDisplay: .used))
+
+        let published = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertEqual(published.percentDisplay, .used)
+        XCTAssertEqual(published.accountCount, 1)
+    }
+
     func testAnEmptyAccountListIsStillPublished() async throws {
         // The tile has no other way to learn an account was removed. Skipping the publish
         // because there is nothing to sync leaves the home screen showing an account the user
