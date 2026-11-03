@@ -17,11 +17,37 @@ At placement, choose closest resets, most critical, all accounts, one account, o
 
 Each usage widget has its own background color, opacity and text tone. Automatic text tone follows the selected panel color, including at zero opacity; it does not sample wallpaper. Choose light or dark text explicitly when needed on a transparent panel. Provider artwork follows the app's saved icon choices.
 
+The configuration screen also has Show percentages as, with App setting, Left and Used, for Usage Summary, Usage Bars, Account Rings and Mini Rings. The preview follows the choice. See [Percentages: left or used](#percentages-left-or-used).
+
 ## iOS setup
 
 Add Usage Limits from the Home Screen widget gallery. On iOS 17 and later, configurable Usage Bars, Account Rings and Mini Rings support account selection, provider selection and saved custom layouts. Edit a custom layout's accounts and order in app Settings; widgets using that layout share those choices. Content, transparency and text-tone choices belong to each widget.
 
-On iOS 16, Usage Limits tiles, Usage Limits (Clear), and Usage Ring use the app's ranking. Standard tiles have small, medium, large and rectangular Lock Screen forms; the ring has small and circular Lock Screen forms. These widgets use fixed layouts rather than scrolling lists.
+On iOS 16, Usage Limits tiles, Usage Limits (Clear), and Usage Ring use the app's ranking. Standard tiles have small, medium, large and rectangular Lock Screen forms; the ring has small and circular Lock Screen forms. These widgets use fixed layouts rather than scrolling lists. They are static widgets on every iOS version, so they always follow the app's percentage setting.
+
+## Percentages: left or used
+
+Settings → Overview has Show percentages as, with Left (the default) and Used. It applies to every percentage of a usage window: the Overview, Accounts and Resets screens, the widget configuration preview, notification texts and all usage widgets. Credits are money, not percentages, and are unchanged.
+
+- **Switching.** Tap the large figure in the Overview's lead strip to flip the same setting; it is announced as a button, such as “Show percentage used”. The figure crossfades, except when reduced motion is on.
+- **Every figure says which it is.** Rows read “73% left” or “27% used”. Where there is no room for a word next to each figure, such as Mini Rings, Account Rings and the small Lock Screen forms, a caption names the mode and the spoken description states it. Settings notification titles follow the mode, for example “Below 20% left” and “Above 80% used”; the thresholds themselves do not change.
+- **Fill follows the figure; meaning does not.** Bars and rings fill with the displayed value, so Used fills as the window is consumed. Colour, severity, account order, “most critical” ranking and notification thresholds are always decided by what is left, so a nearly exhausted limit is red in both modes.
+- **Exhausted, unknown and stale.** An exhausted limit reads 100% used with a full bar in Used mode. An unknown figure shows a dash and no fill in both modes. A stale reading, or one whose reset has passed, keeps its figure under a grey fill.
+- **The breakdown is always used.** A window's segment breakdown, such as “Opus usage: 20%”, counts what was used in both modes and is labeled that way.
+- **German.** On a device set to German the words become “übrig” and “verbraucht” and the percent sign is separated by a space (“73 %”). Window labels that a provider reports, and model names, are shown as reported.
+
+### Per-widget override
+
+Each configurable widget can keep its own choice: App setting (the default, which follows the app), Left or Used. Widgets that existed before this option follow the app setting.
+
+| Widget | Own choice |
+| --- | --- |
+| Android Usage Summary, Usage Bars, Account Rings, Mini Rings | Yes, in the widget configuration |
+| iOS 17 Usage Bars, Account Rings, Mini Rings | Yes, the Show percentages as option |
+| iOS Usage Limits, Usage Limits (Clear), Usage Ring | No; they always follow the app |
+| Credits (both platforms) | Not applicable |
+
+On Android a change in Settings repaints the widgets that follow the app. On iOS the app writes its choice into the widget snapshot and asks WidgetKit to reload, so delivery follows the timeline rules below.
 
 ## Refresh and reset times
 
