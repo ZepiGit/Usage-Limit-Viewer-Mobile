@@ -33,6 +33,14 @@ Some details that make it pleasant to live with:
 - **Honest when it doesn't know.** If a refresh fails, you keep the last numbers you had,
   clearly marked as old, instead of a blank screen. If a limit has reset since the last
   refresh, it is shown as "reset due", not as still used up.
+- **Left or used, your choice.** Settings → Overview has *Show percentages as*: **Left**
+  (the default) or **Used**. Every figure says which one it is, such as "73% left" or
+  "27% used". Tap the big figure at the top of the Overview to switch without opening
+  Settings. Bars and rings fill with the figure you chose, while colours, the order of
+  accounts and notification thresholds keep following what is left. Details in
+  [Percentages: left or used](docs/widgets.md#percentages-left-or-used).
+- **In German too.** The app and its widgets follow the device language and come in English
+  and German. Names the services report, such as model names, are shown as they arrive.
 - **No model calls.** The app only asks each service for your usage. It never sends a prompt,
   so checking your limits never costs you any of them.
 - **One look for everything.** Neutral colours for everything around your data, a single
@@ -118,6 +126,13 @@ own order. On Android you also choose the background colour, how see-through it 
 text colour. Widgets show the last numbers the app fetched; tapping refresh asks for new ones
 on Android and opens the app on iOS.
 
+Widgets show percentages the way the app does, left or used. A widget can also keep its own
+choice: **App setting** (the default), **Left** or **Used**. On Android this is in the widget's
+configuration for Usage Summary, Usage Bars, Account Rings and Mini Rings. On iOS 17 it is the
+*Show percentages as* option of Usage Bars, Account Rings and Mini Rings. The other iOS widgets
+(Usage Limits, Usage Limits (Clear) and Usage Ring) have no option of their own and always
+follow the app. Credits show money, so this does not apply to them.
+
 <p align="center"><a href="docs/01-terracotta/rings-multiaccount.png"><img src="docs/01-terracotta/rings-multiaccount.png" width="1000" alt="Account Rings and Mini Rings with personal and work accounts"></a></p>
 
 <details>
@@ -135,8 +150,9 @@ on Android and opens the app on iOS.
 | **Usage Limits (Clear)** | 16+ | The same tiles on a transparent background. |
 | **Usage Ring** | 16+ | One account as a ring, also as a round Lock Screen widget. |
 
-The iOS 16 widgets pick accounts by the app's own ranking. To choose accounts yourself, use
-the iOS 17 widgets.
+The iOS 16 widgets pick accounts by the app's own ranking. To choose accounts yourself, or to
+give a widget its own left/used choice, use the iOS 17 widgets. Usage Limits, Usage Limits
+(Clear) and Usage Ring always follow the app's setting, on every iOS version.
 
 </details>
 
