@@ -33,11 +33,12 @@ Some details that make it pleasant to live with:
 - **Honest when it doesn't know.** If a refresh fails, you keep the last numbers you had,
   clearly marked as old, instead of a blank screen. If a limit has reset since the last
   refresh, it is shown as "reset due", not as still used up.
-- **Left or used, your choice.** Settings → Overview has *Show percentages as*: **Left**
-  (the default) or **Used**. Every figure says which one it is, such as "73% left" or
-  "27% used". Tap the big figure at the top of the Overview to switch without opening
-  Settings. Bars and rings fill with the figure you chose, while colours, the order of
-  accounts and notification thresholds keep following what is left. Details in
+- **Left or used, your choice.** *Show percentages as* offers **Left** (the default) or
+  **Used** in Settings → Overview on Android and Settings → Display on iOS. Every figure
+  says which one it is, such as "73% left" or "27% used". Tap the big figure at the top of
+  the Overview to switch without opening Settings. Bar lengths and ring arcs follow the
+  figure you chose, while severity, account order and notification thresholds keep
+  following what is left. Existing ring-specific colours are preserved. Details in
   [Percentages: left or used](docs/widgets.md#percentages-left-or-used).
 - **In German too.** The app and its widgets follow the device language and come in English
   and German. Names the services report, such as model names, are shown as they arrive.
