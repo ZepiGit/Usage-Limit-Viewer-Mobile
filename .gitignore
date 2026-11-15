@@ -51,3 +51,8 @@ ios/Tools/AppleShims/.build/
 # Local agent tool state (research notes, design drafts). Machine-local, like .mimosa/.
 .omc/
 .taste-skill/
+/.omp
+AGENTS.md
+docs/agents/domain.md
+docs/agents/issue-tracker.md
+docs/agents/triage-labels.md
