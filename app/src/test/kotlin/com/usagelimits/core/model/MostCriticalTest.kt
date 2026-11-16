@@ -29,7 +29,7 @@ class MostCriticalTest {
             window("5h", usedPercent = null, exhausted = true),
         )
 
-        assertEquals("5h", snapshot.mostCritical?.id)
+        assertEquals("5h", snapshot.headlineAt(0)?.id)
     }
 
     @Test
@@ -40,6 +40,6 @@ class MostCriticalTest {
             window("loose", usedPercent = 10.0, exhausted = false),
         )
 
-        assertEquals("tight", snapshot.mostCritical?.id)
+        assertEquals("tight", snapshot.headlineAt(0)?.id)
     }
 }

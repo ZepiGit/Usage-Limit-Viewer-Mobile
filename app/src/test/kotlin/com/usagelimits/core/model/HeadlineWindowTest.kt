@@ -8,7 +8,7 @@ import org.junit.Test
 /**
  * Which window the summary card leads with, and which reset it shows beside it.
  *
- * `mostCritical` is the app's headline derivation — the number a user glances at and acts on —
+ * `headlineAt` is the app's headline derivation — the number a user glances at and acts on —
  * and it had no test at all. The configuration below is not invented: a live Codex account
  * observed through the gateway sat at a nearly untouched five-hour window alongside a weekly
  * one well past half spent. The values here are synthetic, the RELATIONSHIP is the one that
@@ -51,11 +51,11 @@ class HeadlineWindowTest {
         val fiveHour = window("5h", WindowCategory.FIVE_HOUR, 5.0, now + 3_600_000, 18_000)
         val weekly = window("weekly", WindowCategory.WEEKLY, 70.0, now + 400_000_000, 604_800)
 
-        val critical = snapshot(fiveHour, weekly).mostCritical
+        val critical = snapshot(fiveHour, weekly).headlineAt(now)
 
         // 30 % left beats 95 % left. Ordering in the list must not decide this.
         assertEquals("weekly", critical?.id)
-        assertEquals(snapshot(weekly, fiveHour).mostCritical?.id, critical?.id)
+        assertEquals(snapshot(weekly, fiveHour).headlineAt(now)?.id, critical?.id)
     }
 
     @Test
@@ -68,7 +68,7 @@ class HeadlineWindowTest {
         // them as though they described the same limit is how a card comes to read
         // "30 % left · resets in 1h" when that hour belongs to the window at 95 %.
         assertEquals(now + 3_600_000, snapshot.nextReset)
-        assertNotEquals(snapshot.nextReset, snapshot.mostCritical?.resetAt)
+        assertNotEquals(snapshot.nextReset, snapshot.headlineAt(now)?.resetAt)
     }
 
     @Test
@@ -78,12 +78,12 @@ class HeadlineWindowTest {
 
         // Leading with a window whose remaining is unknown would put a blank where the number
         // belongs, and hide the one figure that is known.
-        assertEquals("weekly", snapshot(unknown, weekly).mostCritical?.id)
+        assertEquals("weekly", snapshot(unknown, weekly).headlineAt(now)?.id)
     }
 
     @Test
     fun `with no windows at all there is no headline and no reset`() {
-        assertNull(snapshot().mostCritical)
+        assertNull(snapshot().headlineAt(now))
         assertNull(snapshot().nextReset)
     }
 }

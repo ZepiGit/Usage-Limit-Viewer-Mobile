@@ -738,7 +738,7 @@ extension GlanceModelTests {
         XCTAssertEqual(snapshot.nextResetAt, ahead)
     }
 
-    // MARK: - The most critical window
+    // MARK: - The account headline
 
     /// An explicitly exhausted window outranks everything, whatever its percentage says.
     /// Ranked by percentage alone, one the provider flagged exhausted but gave no figure for
@@ -753,7 +753,7 @@ extension GlanceModelTests {
                             periodSeconds: 18_000, resetAt: nil, exhausted: true),
             ])
 
-        XCTAssertEqual(snapshot.mostCritical?.id, "a")
+        XCTAssertEqual(snapshot.headline(at: now)?.id, "a")
     }
 
 }
