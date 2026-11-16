@@ -75,6 +75,11 @@ def show(name, light=False):
 
 def capture(name, light=False):
     show(name, light)
+    screen(name + "-labelled-app")
+    # Keep labelled activity evidence, but observe the system-owned bar over HOME.
+    # Some API35/36 emulator frames omit the entire overlay above target36 apps.
+    adb("shell", "input", "keyevent", "KEYCODE_HOME")
+    time.sleep(3)
     screen(name)
     dump(name)
     adb("shell", "cmd", "statusbar", "expand-notifications")
