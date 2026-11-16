@@ -40,6 +40,12 @@ def broadcast(command="post", **extras):
     if "result=0" not in response:
         raise RuntimeError(response)
     time.sleep(2)
+    if command in ("post", "update"):
+        active = adb("shell", "dumpsys", "notification", "--noredact")
+        present = set(re.findall(r"NotificationRecord\([^\n]*pkg=com\.usagelimits\.debug[^\n]*? id=(710[012])\b", active))
+        if present != {"7100", "7101", "7102"}:
+            save("rejected-post-notification.txt", active)
+            raise RuntimeError(f"Expected three actual posted prototype notifications; observed {present}")
 
 
 def screen(name):

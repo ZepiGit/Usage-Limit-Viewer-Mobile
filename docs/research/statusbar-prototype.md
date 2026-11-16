@@ -24,4 +24,6 @@ The driver captures full screenshots, exact top-strip crops, expanded shades, `d
 
 Always-on is best effort: a black sleeping screenshot does not prove AOD works; the corresponding power/dream dumps must show a real doze/AOD state. No screenshot is synthesized into emulator evidence. LOW visibility is observed with the emulator's current settings, not guaranteed against the user's hide-silent-icons preference. Cross-app order/overflow is observed, not controllable by sortKey.
 
+First emulator run `43972180341` exposed a real API 36 gotcha: a fixed 2023 `setWhen` timestamp caused NotificationService to reject the posts as `Ignored enqueue for old ... notification`, even with showWhen disabled. API 30 accepted them. The corrected entrypoint uses current time for new posts and preserves each original notification time on updates; the driver refuses to capture a baseline without all three actual posted records.
+
 Local generation and `:app:assembleDebug` completed successfully. Deprecation warnings in the throwaway activity concern legacy bar-color/tint setters retained for API 30 comparison; target-36 edge-to-edge behavior is checked from the screenshots rather than assumed.

@@ -102,7 +102,7 @@ class PrototypeStatusbarReceiver : BroadcastReceiver() {
                 .setOnlyAlertOnce(true)
                 .setLocalOnly(true)
                 .setShowWhen(false)
-                .setWhen(1700000000000L)
+                .setWhen(before.firstOrNull { it.id == id }?.notification?.`when` ?: System.currentTimeMillis())
                 .setSortKey("prototype-$index")
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setDeleteIntent(delete)
