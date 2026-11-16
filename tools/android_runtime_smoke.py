@@ -14,9 +14,11 @@ import os
 from pathlib import Path
 import re
 import statistics
+import struct
 import subprocess
 import time
 import xml.etree.ElementTree as ET
+import zlib
 
 
 PACKAGE = "com.usagelimits"
@@ -37,6 +39,85 @@ def bounds(node):
     if len(values) != 4 or values[2] <= values[0] or values[3] <= values[1]:
         return None
     return tuple(values)
+
+
+def png_frame(data, last_row):
+    """Rows 0..last_row of an 8-bit, non-interlaced RGB(A) PNG, the format `screencap -p` writes."""
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", "Not a PNG"
+    offset, header, compressed = 8, None, []
+    while offset < len(data):
+        length, kind = struct.unpack(">I4s", data[offset:offset + 8])
+        body = data[offset + 8:offset + 8 + length]
+        if kind == b"IHDR":
+            header = struct.unpack(">IIBBBBB", body)
+        elif kind == b"IDAT":
+            compressed.append(body)
+        elif kind == b"IEND":
+            break
+        offset += 12 + length
+    assert header is not None, "PNG has no header"
+    width, height, depth, color, _, _, interlace = header
+    assert depth == 8 and color in (2, 6) and interlace == 0, f"Unsupported PNG format: {header}"
+    channels = 4 if color == 6 else 3
+    stride = width * channels
+    raw = zlib.decompress(b"".join(compressed))
+    rows, previous = [], bytearray(stride)
+    for y in range(min(height, last_row + 1)):
+        start = y * (stride + 1)
+        kind, line = raw[start], bytearray(raw[start + 1:start + 1 + stride])
+        if kind == 1:
+            for i in range(channels, stride):
+                line[i] = (line[i] + line[i - channels]) & 255
+        elif kind == 2:
+            for i in range(stride):
+                line[i] = (line[i] + previous[i]) & 255
+        elif kind == 3:
+            for i in range(stride):
+                left = line[i - channels] if i >= channels else 0
+                line[i] = (line[i] + (left + previous[i]) // 2) & 255
+        elif kind == 4:
+            for i in range(stride):
+                a = line[i - channels] if i >= channels else 0
+                b, c = previous[i], previous[i - channels] if i >= channels else 0
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        else:
+            assert kind == 0, f"Unknown PNG filter {kind}"
+        rows.append(bytes(line))
+        previous = line
+    return width, channels, rows
+
+
+def png_bytes(width, height, channels, lines):
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+    header = struct.pack(">IIBBBBB", width, height, 8, 6 if channels == 4 else 2, 0, 0, 0)
+    pixels = zlib.compress(b"".join(b"\0" + line for line in lines), 6)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", pixels) + chunk(b"IEND", b"")
+
+
+def changed_pixels(before, after, box):
+    """Pixels inside box (x1, y1, x2, y2; exclusive ends) that differ between two decoded frames."""
+    _, channels, rows = before
+    x1, y1, x2, y2 = box
+    found = []
+    for y in range(y1, y2):
+        a, b = rows[y][x1 * channels:x2 * channels], after[2][y][x1 * channels:x2 * channels]
+        if a != b:
+            found += [(x1 + i // channels, y) for i in range(0, len(a), channels) if a[i:i + channels] != b[i:i + channels]]
+    return found
+
+
+def scaled_crop(frame, box, scale):
+    """A nearest-neighbour enlargement of box, so single pixels stay readable."""
+    _, channels, rows = frame
+    x1, y1, x2, y2 = box
+    lines = []
+    for y in range(y1, y2):
+        line = b"".join(rows[y][x * channels:(x + 1) * channels] * scale for x in range(x1, x2))
+        lines += [line] * scale
+    return png_bytes((x2 - x1) * scale, (y2 - y1) * scale, channels, lines)
 
 
 def matches(root, label):
@@ -924,6 +1005,100 @@ class Smoke:
         self.capture(name)
         assert self.adb("shell", "pidof", PACKAGE), "App process exited after navigation"
 
+    def verify_segment_press(self, name):
+        """#26: a held filter segment lights its rounded 32dp pill, not its 48dp touch target or the row frame.
+
+        Compares a frame during a held press with the frame at rest, only around the Accounts filter row so the
+        status-bar clock cannot interfere. Releasing on the same point selects the held segment, so every attempt
+        restores the default filter for the later tab checks.
+        """
+        held, default = "Needs attention", "All"
+        density = self.adb("shell", "wm", "density")
+        densities = dict(re.findall(r"^(Physical|Override) density: (\d+)$", density, re.M))
+        assert "Physical" in densities, f"Unrecognized density report: {density}"
+        px = int(densities.get("Override", densities["Physical"])) / 160
+
+        def dp(value):
+            return round(value * px)
+
+        report = {"result": "incomplete", "held": held, "restored": default, "pxPerDp": px, "attempts": [],
+                  "scope": "Accounts filter row with no accounts; the pill is the touch target inset by 8dp vertically."}
+
+        def record():
+            self.text(name + "-ripple.json", json.dumps(report, indent=2))
+
+        self.navigate("Accounts", "0 of 0 shown", name + "-accounts")
+        # Capture delays after the hold starts; an emulator frame can lag the press.
+        for attempt, delay in enumerate([0.7, 1.0, 1.4]):
+            root = self.capture(f"{name}-rest-{attempt}")
+            target, original = self.control(root, PACKAGE, label=held), self.control(root, PACKAGE, label=default)
+            assert target is not None and original is not None, "Missing the Accounts filter segments"
+            assert self.selected(original) and not self.selected(target), "The Accounts filter is not at its default"
+            node, other = bounds(target), bounds(original)
+            assert (node[1], node[3]) == (other[1], other[3]), "The filter segments are not in one row"
+            rest = (self.directory / f"{name}-rest-{attempt}.png").read_bytes()
+
+            x, y = str((node[0] + node[2]) // 2), str((node[1] + node[3]) // 2)
+            hold = subprocess.Popen(["adb", "-s", self.serial, "shell", "input", "swipe", x, y, x, y, "3000"],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            try:
+                time.sleep(delay)
+                pressed = self.adb("exec-out", "screencap", "-p", binary=True)
+            finally:
+                _, error = hold.communicate(timeout=30)
+            assert hold.returncode == 0, f"Held press failed: {error.decode().strip()}"
+            (self.directory / f"{name}-pressed-{attempt}.png").write_bytes(pressed)
+            released = self.control(self.capture(f"{name}-released-{attempt}"), PACKAGE, label=held)
+            self.tap(original)
+            self.wait_for(f"{name}-restored-{attempt}", lambda root: (
+                (restored := self.control(root, PACKAGE, label=default)) is not None and self.selected(restored)
+                and (other_node := self.control(root, PACKAGE, label=held)) is not None
+                and not self.selected(other_node)))
+
+            row = (min(node[0], other[0]) - dp(2), node[1], max(node[2], other[2]) + dp(2), node[3])
+            pill = (node[0], node[1] + dp(8), node[2], node[3] - dp(8))
+            before = png_frame(rest, row[3] + dp(24))
+            after = png_frame(pressed, row[3] + dp(24))
+            assert before[0] == after[0] and len(before[2]) == len(after[2]), "Rest and pressed frames differ in size"
+            region = (max(0, row[0] - dp(24)), max(0, row[1] - dp(24)),
+                      min(before[0], row[2] + dp(24)), min(len(before[2]), row[3] + dp(24)))
+            # One pixel of guard next to the pill edges, where its anti-aliased outline can change.
+            above = (row[0], row[1] - dp(8), row[2], pill[1] - 1)
+            below = (row[0], pill[3] + 1, row[2], row[3] + dp(8))
+            corners = [(pill[0] + 1, pill[1] + 1), (pill[2] - 2, pill[1] + 1),
+                       (pill[0] + 1, pill[3] - 2), (pill[2] - 2, pill[3] - 2)]
+            changed = set(changed_pixels(before, after, region))
+
+            def inside(box):
+                return sum(1 for cx, cy in changed if box[0] <= cx < box[2] and box[1] <= cy < box[3])
+
+            outside_pill = sorted(point for point in changed if not (
+                pill[0] <= point[0] < pill[2] and pill[1] <= point[1] < pill[3]))
+            measured = {
+                "attempt": attempt, "captureDelaySeconds": delay, "nodeBounds": node, "rowBounds": row,
+                "pill": pill, "comparedRegion": region, "bandAbove": above, "bandBelow": below,
+                "changedInNode": inside(node), "changedInPill": inside(pill),
+                "changedAbovePill": inside(above), "changedBelowPill": inside(below),
+                "changedPillCorners": [point for point in corners if point in changed],
+                "changedInRegionOutsidePill": len(outside_pill), "firstChangedOutsidePill": outside_pill[:8],
+                "heldSegmentSelectedAfterRelease": released is not None and self.selected(released),
+            }
+            report["attempts"].append(measured)
+            record()
+            (self.directory / (name + "-rest.png")).write_bytes(rest)
+            (self.directory / (name + "-pressed.png")).write_bytes(pressed)
+            (self.directory / (name + "-pressed-crop.png")).write_bytes(scaled_crop(after, region, 4))
+            if measured["changedInPill"] == 0:
+                continue
+            report["result"] = "passed" if not (measured["changedAbovePill"] or measured["changedBelowPill"]
+                                                or measured["changedPillCorners"]) else "spilled"
+            record()
+            assert report["result"] == "passed", f"The press highlight left the rounded pill; see {name}-ripple.json"
+            return
+        report["result"] = "no visible press"
+        record()
+        raise AssertionError(f"No press highlight in any captured frame; see {name}-ripple.json")
+
     def setting(self, name):
         for attempt in range(9):
             root = self.dump(f"{name}-{attempt}")
@@ -1060,6 +1235,7 @@ def main():
         assert digest(installed_apk) == new["sha256"], "Installed APK differs from CI artifact"
         installed_apk.unlink()
         smoke.launch("current-start")
+        smoke.verify_segment_press("segment")
         for tab, marker in [("Overview", "0 accounts monitored"), ("Accounts", "0 of 0 shown"),
                             ("Resets", "No upcoming resets"), ("Settings", "Provider icons")]:
             smoke.navigate(tab, marker, "current-" + tab.lower())
@@ -1084,9 +1260,9 @@ def main():
     smoke.assert_no_app_failures()
     smoke.text("result.json", json.dumps({"result": "passed", "commit": os.environ["GITHUB_SHA"],
         "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": ["Overview", "Accounts", "Resets", "Settings"],
-        "widgets": placed_widgets,
+        "widgets": placed_widgets, "segmentPress": "segment-ripple.json",
         "scope": "Empty-account release smoke with four launcher widgets; provider-authenticated quotas were not tested."}, indent=2))
-    print("Release APK upgrade, persisted setting, four tabs, four widgets, Mini Rings move/resize, night mode, process loss, launcher restart, reboot and offline/online checks passed; startup observations recorded.")
+    print("Release APK upgrade, persisted setting, four tabs, segment press highlight, four widgets, Mini Rings move/resize, night mode, process loss, launcher restart, reboot and offline/online checks passed; startup observations recorded.")
 
 
 if __name__ == "__main__":
