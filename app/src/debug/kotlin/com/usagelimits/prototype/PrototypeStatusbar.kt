@@ -107,9 +107,9 @@ class PrototypeStatusbarReceiver : BroadcastReceiver() {
                 .setLocalOnly(true)
                 .setShowWhen(false)
                 .setWhen(before.firstOrNull { it.id == id }?.notification?.`when` ?: System.currentTimeMillis())
-                .setSortKey("prototype-$index")
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setDeleteIntent(delete)
+            if (scenario != "a") builder.setSortKey("prototype-$index")
             when (scenario) {
                 "a" -> Unit
                 "c" -> builder.setGroup("prototype-all")
