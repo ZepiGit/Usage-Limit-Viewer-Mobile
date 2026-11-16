@@ -114,11 +114,10 @@ data class UsageUiState(
             val snapshot = usage.snapshot ?: return@mapNotNull null
             val next = snapshot.windows.filter { (it.remainingPercent != null || it.exhausted) && (it.resetAt ?: Long.MIN_VALUE) > nowMs }
                 .minByOrNull { it.resetAt!! }
-            val open = next ?: snapshot.copy(windows = snapshot.windows.filterNot { it.resetElapsedAt(snapshot.fetchedAt, nowMs) })
-                .mostCritical
+            val window = next ?: snapshot.headlineAt(nowMs) ?: return@mapNotNull null
             val trusted = snapshot.severityAt(nowMs, staleAfterMs) !in setOf(Severity.STALE, Severity.ERROR)
-            val window = open ?: snapshot.mostCritical ?: return@mapNotNull null
-            Lead(usage, window, stale = !trusted || open == null)
+            // A reset-due headline means every window has reset since the fetch: nothing current to lead with.
+            Lead(usage, window, stale = !trusted || window.resetElapsedAt(snapshot.fetchedAt, nowMs))
         }
         val pool = candidates.filterNot { it.stale }.ifEmpty { candidates }
         val upcoming = pool.filter { (it.window.remainingPercent != null || it.window.exhausted) && (it.window.resetAt ?: Long.MIN_VALUE) > nowMs }

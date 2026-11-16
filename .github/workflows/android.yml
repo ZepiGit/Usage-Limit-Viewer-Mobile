@@ -14,6 +14,7 @@ on:
       - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
       - 'tools/android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
+      - 'shared/**'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
@@ -26,6 +27,7 @@ on:
       - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
       - 'tools/android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
+      - 'shared/**'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 

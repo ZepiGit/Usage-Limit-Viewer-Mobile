@@ -20,8 +20,8 @@ class QuotaPolicyTest {
         """), 1L)
         val result = snapshot(windows)
         assertEquals("LIMITED", result.severity.name)
-        assertEquals("seven-day", result.mostCritical?.id)
-        assertEquals(37.0, result.mostCritical!!.remainingPercent!!, 0.0)
+        assertEquals("seven-day", result.headlineAt(1L)?.id)
+        assertEquals(37.0, result.headlineAt(1L)!!.remainingPercent!!, 0.0)
         assertEquals(0.0, windows.last().remainingPercent!!, 0.0)
     }
 
@@ -30,7 +30,7 @@ class QuotaPolicyTest {
             {"limits":[{"kind":"session","percent":100},{"kind":"weekly_all","percent":20}]}
         """), 1L)
         assertEquals(Severity.EXHAUSTED, snapshot(windows).severity)
-        assertEquals("five-hour", snapshot(windows).mostCritical?.id)
+        assertEquals("five-hour", snapshot(windows).headlineAt(1L)?.id)
     }
 
     @Test fun `unknown monthly billing cannot turn known weekly eighty remaining into Error`() {
@@ -39,7 +39,7 @@ class QuotaPolicyTest {
         """), 1L)
         val result = snapshot(windows)
         assertEquals(Severity.HEALTHY, result.severity)
-        assertEquals(80.0, result.mostCritical!!.remainingPercent!!, 0.0)
+        assertEquals(80.0, result.headlineAt(1L)!!.remainingPercent!!, 0.0)
         assertTrue(windows.none { it.id == "xai-monthly" })
     }
 

@@ -208,7 +208,6 @@ public struct UsageWindow: Sendable, Codable, Equatable {
 
     /// Reset passed after `fetchedAt`: the figure describes a closed window until a fetch confirms.
     public func resetElapsed(fetchedAt: Date, at now: Date) -> Bool {
-        guard let resetAt else { return false }
-        return resetAt <= now && fetchedAt < resetAt
+        resetDue(fetchedAt: fetchedAt, at: now)
     }
 }
