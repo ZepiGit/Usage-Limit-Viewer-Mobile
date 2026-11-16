@@ -7,7 +7,12 @@
 //  the main app writes into the shared App Group container; the widget itself never
 //  fetches anything.
 //
-//  Two invariants govern everything below:
+//  This file holds the timeline entry, the provider, the snapshot cache, the
+//  entry-view routers and the widget declarations. The views live beside it:
+//  UsageHomeViews, UsageRingView, UsageAccessoryViews, WidgetSharedViews and
+//  WidgetPresentation.
+//
+//  Two invariants govern every file in this directory:
 //
 //  1. A widget cannot tick. It re-renders only when WidgetKit asks it to, so
 //     nothing shown is phrased relative to "now": resets are absolute clock times,

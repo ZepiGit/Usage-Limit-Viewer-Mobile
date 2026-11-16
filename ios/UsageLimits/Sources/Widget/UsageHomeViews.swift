@@ -1,4 +1,4 @@
-// Home Screen list views and their shared rows and header.
+// Home Screen small, medium and large tiles, and the row and header they share.
 
 import Foundation
 import SwiftUI
