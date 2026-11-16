@@ -15,7 +15,7 @@ The one usage window that speaks for an account at a given moment: the most crit
 _Avoid_: Most critical window, representative, lead window
 
 **Sync**:
-An attempt to read an account's current state from its provider, started by a person or by the app in the background. A failed sync keeps the previous readings. "Refresh" is the word the interface uses for it.
+An attempt to read an account's current state from its provider, started by a person or by the app in the background. The interface calls it "refresh"; a failed sync keeps the previous readings.
 _Avoid_: Fetch, poll, update, reload
 
 **Reading**:
