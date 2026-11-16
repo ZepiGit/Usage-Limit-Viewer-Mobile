@@ -190,7 +190,7 @@ final class WindowPresentationTests: XCTestCase {
         for r in try Self.vectors().presentations {
             let p = WindowPresentation(
                 remaining: r.remaining, severity: r.severity, validity: r.validity, mode: r.mode)
-            XCTAssertEqual(r.token != "—", p.hasFigure, "\(r.name)")
+            XCTAssertEqual(r.token != "—", p.hasFigure, r.name)
         }
     }
 

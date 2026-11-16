@@ -156,7 +156,7 @@ class WindowPresentationTest {
     fun `the figure exists exactly when the token is not the dash`() {
         vectors().presentations.forEach { r ->
             val p = windowPresentation(r.remaining, r.severity.model, r.validity.model, r.mode.model)
-            assertEquals("${r.name}", r.token != "—", p.hasFigure)
+            assertEquals(r.name, r.token != "—", p.hasFigure)
         }
     }
 
