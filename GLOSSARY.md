@@ -10,6 +10,10 @@ An app and home-screen widgets that show how much of each AI provider allowance 
 One identity at one provider whose usage windows or credit balance the app reads.
 _Avoid_: Login, profile, subscription, connection
 
+**Headline**:
+The one usage window that speaks for an account at a given moment: the most critical one that is not reset due, with global windows ahead of model-specific ones.
+_Avoid_: Most critical window, representative, lead window
+
 **Sync**:
 Reading an account's current state from its provider and replacing what the app last knew. A refresh is the person's request for a sync, not the sync itself.
 _Avoid_: Fetch, poll, update, reload
