@@ -152,6 +152,7 @@ fun SettingsScreen(
         }
 
         item { SectionHeader(stringResource(R.string.settings_section_notifications)) }
+        item { NotificationPermissionSettings(settings.notificationPermissionAsked) }
         item {
             // The thresholds stay on remaining (the same two crossings); only their wording
             // follows the display mode, so the toggles read in the numbers the user is watching.

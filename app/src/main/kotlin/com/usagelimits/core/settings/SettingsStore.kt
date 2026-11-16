@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.map
 /** User-configurable preferences. */
 data class AppSettings(
     val syncIntervalMinutes: Int = DEFAULT_SYNC_INTERVAL_MINUTES,
+    /** Whether the optional Android notification permission has already been requested. */
+    val notificationPermissionAsked: Boolean = false,
     /** Warn once when a limit first drops below 20 % remaining. */
     val notifyBelow20Percent: Boolean = true,
     /** Escalate once when it drops below 10 %, even if the 20 % warning already fired. */
@@ -128,6 +130,8 @@ class SettingsStore(context: Context) {
         it[Keys.SYNC_INTERVAL] = minutes.coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES)
     }
 
+    suspend fun recordNotificationPermissionAsked() = edit { it[Keys.NOTIFICATION_PERMISSION_ASKED] = true }
+
     suspend fun setNotifyBelow20Percent(enabled: Boolean) = edit {
         it[Keys.NOTIFY_BELOW_20] = enabled
     }
@@ -201,6 +205,7 @@ internal fun Preferences.toSettings() = AppSettings(
     // interval below WorkManager's minimum, and the displayed interval must match scheduling.
     syncIntervalMinutes = (this[Keys.SYNC_INTERVAL] ?: AppSettings.DEFAULT_SYNC_INTERVAL_MINUTES)
         .coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES),
+    notificationPermissionAsked = this[Keys.NOTIFICATION_PERMISSION_ASKED] ?: false,
     // The legacy low-quota opt-out applies to both tiers, preserving the choice on upgrade.
     notifyBelow20Percent = this[Keys.NOTIFY_BELOW_20] ?: this[Keys.NOTIFY_LOW] ?: true,
     notifyBelow10Percent = this[Keys.NOTIFY_BELOW_10] ?: this[Keys.NOTIFY_LOW] ?: true,
@@ -234,6 +239,7 @@ internal fun Preferences.toDiagnostics() = SyncDiagnostics(
 private object Keys {
     val PROVIDER_ICONS = stringSetPreferencesKey("provider_icons")
     val SYNC_INTERVAL = intPreferencesKey("sync_interval_minutes")
+    val NOTIFICATION_PERMISSION_ASKED = booleanPreferencesKey("notification_permission_asked")
     /** Read only to carry a pre-tier opt-out forward; nothing writes it any more. */
     val NOTIFY_LOW = booleanPreferencesKey("notify_low_usage")
     val NOTIFY_BELOW_20 = booleanPreferencesKey("notify_below_20_percent")

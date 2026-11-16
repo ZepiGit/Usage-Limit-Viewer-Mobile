@@ -78,6 +78,11 @@
     <string name="settings_percent_display_title">Prozente anzeigen als</string>
     <string name="settings_percent_display_subtitle">Ob die Zahlen herunterzählen, was übrig ist, oder hochzählen, was du verbraucht hast.</string>
     <string name="settings_section_notifications">Benachrichtigungen</string>
+    <string name="settings_notifications_allowed">Benachrichtigungen erlaubt</string>
+    <string name="settings_notifications_not_allowed">Benachrichtigungen nicht erlaubt</string>
+    <string name="settings_notifications_blocked_note">Es werden keine Hinweise angezeigt, bis Benachrichtigungen erlaubt sind. Deine Benachrichtigungseinstellungen bleiben gespeichert.</string>
+    <string name="settings_allow_notifications">Benachrichtigungen erlauben</string>
+    <string name="settings_open_notification_settings">Benachrichtigungseinstellungen öffnen</string>
     <string name="settings_notify_below_left_title">Unter %1$s übrig</string>
     <string name="settings_notify_above_used_title">Über %1$s verbraucht</string>
     <string name="settings_notify_first_left_subtitle">Einmalig, sobald weniger als ein Fünftel eines Limits übrig ist</string>
