@@ -30,6 +30,8 @@ for i, (label, path) in enumerate(rows):
     with Image.open(path) as image:
         canvas.paste(image.convert("RGB"), (330, y))
 canvas.save(root / f"comparison-real-statusbars-{args.sha[:10]}.png")
+run_images = sorted(p for directory in root.glob(f"prototype-statusbar-api*-{args.sha}") for p in directory.glob("*.png"))
+(root / f"emulator-screenshot-absolute-paths-{args.sha[:10]}.txt").write_text("\n".join(str(p.resolve()) for p in run_images) + "\n")
 manifest = [str(p.resolve()) for p in sorted(root.rglob("*.png"))]
 (root / "all-png-absolute-paths.txt").write_text("\n".join(manifest) + "\n")
 print(f"Comparison rows: {len(rows)}; PNG manifest paths: {len(manifest)}")
