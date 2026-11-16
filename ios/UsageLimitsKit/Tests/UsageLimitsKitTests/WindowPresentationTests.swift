@@ -1,16 +1,25 @@
 import XCTest
 @testable import UsageLimitsKit
 
-/// The presentation parity vectors, shared row for row with `WindowPresentationTest.kt` on Android.
-/// Both tables are written out literally so they pin the rule's values instead of re-deriving them;
-/// agreement with the bar's own ink rule is proved by the reference equivalence tests at the bottom.
-/// When a row changes here, change it there in the same commit.
+/// Runs the same hand-written presentation and fill-state vectors as the Kotlin suite.
 final class WindowPresentationTests: XCTestCase {
 
-    // MARK: - Presentation table (rows 1-24; row 25 is `absent`, below)
+    private struct VectorFile: Decodable {
+        let description: String
+        let presentations: [Row]
+        let fillStates: [FillCase]
 
-    private struct Row {
-        let n: Int
+        init(from decoder: Decoder) throws {
+            try requireExactKeys(decoder, ["description", "presentations", "fillStates"])
+            let c = try decoder.container(keyedBy: Keys.self)
+            description = try c.decode(String.self, forKey: Keys("description"))
+            presentations = try c.decode([Row].self, forKey: Keys("presentations"))
+            fillStates = try c.decode([FillCase].self, forKey: Keys("fillStates"))
+        }
+    }
+
+    private struct Row: Decodable {
+        let name: String
         let remaining: Double?
         let severity: Severity
         let validity: ReadingValidity
@@ -20,55 +29,150 @@ final class WindowPresentationTests: XCTestCase {
         let fillState: FillState
         let exhausted: Bool
 
-        init(
-            _ n: Int, _ remaining: Double?, _ severity: Severity, _ validity: ReadingValidity,
-            _ mode: PercentDisplay, _ token: String, _ fill: Double?, _ fillState: FillState,
-            _ exhausted: Bool
-        ) {
-            self.n = n
-            self.remaining = remaining
-            self.severity = severity
-            self.validity = validity
-            self.mode = mode
-            self.token = token
-            self.fill = fill
-            self.fillState = fillState
-            self.exhausted = exhausted
+        init(from decoder: Decoder) throws {
+            try requireExactKeys(decoder, [
+                "name", "remaining", "severity", "validity", "mode", "token", "fill", "fillState", "exhausted",
+            ])
+            let c = try decoder.container(keyedBy: Keys.self)
+            name = try c.decode(String.self, forKey: Keys("name"))
+            remaining = try c.decodeIfPresent(Double.self, forKey: Keys("remaining"))
+            severity = try c.decode(VectorSeverity.self, forKey: Keys("severity")).model
+            validity = try c.decode(VectorValidity.self, forKey: Keys("validity")).model
+            mode = try c.decode(PercentDisplay.self, forKey: Keys("mode"))
+            token = try c.decode(String.self, forKey: Keys("token"))
+            fill = try c.decodeIfPresent(Double.self, forKey: Keys("fill"))
+            fillState = try c.decode(VectorFillState.self, forKey: Keys("fillState")).model
+            exhausted = try c.decode(Bool.self, forKey: Keys("exhausted"))
         }
     }
 
-    private let rows: [Row] = [
-        Row(1, 73.0, .healthy, .current, .left, "73", 0.73, .data, false),
-        Row(2, 73.0, .healthy, .current, .used, "27", 0.27, .data, false),
-        Row(3, 15.0, .exhausted, .current, .left, "15", 0.15, .noFill, true),
-        Row(4, 15.0, .exhausted, .current, .used, "100", 1.0, .data, true),
-        Row(5, nil, .exhausted, .current, .left, "—", nil, .noFill, true),
-        Row(6, nil, .exhausted, .current, .used, "100", 1.0, .data, true),
-        Row(7, 0.0, .exhausted, .current, .left, "0", 0.0, .noFill, true),
-        Row(8, 0.0, .exhausted, .current, .used, "100", 1.0, .data, true),
-        Row(9, nil, .unknown, .current, .left, "—", nil, .noFill, false),
-        Row(10, nil, .unknown, .current, .used, "—", nil, .noFill, false),
-        Row(11, 150.0, .unknown, .current, .left, "—", nil, .noFill, false),
-        Row(12, 150.0, .healthy, .current, .left, "—", nil, .data, false),
-        Row(13, -5.0, .healthy, .current, .used, "—", nil, .data, false),
-        Row(14, Double.nan, .healthy, .current, .used, "—", nil, .data, false),
-        Row(15, 73.0, .healthy, .stale, .left, "73", 0.73, .stale, false),
-        Row(16, 15.0, .exhausted, .stale, .used, "100", 1.0, .stale, true),
-        Row(17, 40.0, .medium, .resetDue, .used, "60", 0.60, .stale, false),
-        Row(18, 73.0, .healthy, .error, .left, "73", 0.73, .noFill, false),
-        Row(19, 73.0, .healthy, .error, .used, "27", 0.27, .noFill, false),
-        Row(20, 15.0, .exhausted, .error, .used, "100", 1.0, .noFill, true),
-        Row(21, 0.4, .low, .current, .used, ">99", 0.996, .data, false),
-        Row(22, 99.6, .healthy, .current, .used, "<1", 0.004, .data, false),
-        Row(23, 100.0, .healthy, .current, .used, "0", 0.0, .data, false),
-        Row(24, 5.0, .low, .current, .left, "5", 0.05, .data, false),
-    ]
+    private struct FillCase: Decodable {
+        let name: String
+        let validity: ReadingValidity
+        let severity: Severity
+        let fill: Double?
+        let mode: PercentDisplay
+        let expected: FillState
+
+        init(from decoder: Decoder) throws {
+            try requireExactKeys(decoder, ["name", "validity", "severity", "fill", "mode", "expected"])
+            let c = try decoder.container(keyedBy: Keys.self)
+            name = try c.decode(String.self, forKey: Keys("name"))
+            validity = try c.decode(VectorValidity.self, forKey: Keys("validity")).model
+            severity = try c.decode(VectorSeverity.self, forKey: Keys("severity")).model
+            fill = try c.decodeIfPresent(Double.self, forKey: Keys("fill"))
+            mode = try c.decode(PercentDisplay.self, forKey: Keys("mode"))
+            expected = try c.decode(VectorFillState.self, forKey: Keys("expected")).model
+        }
+    }
+
+    private enum VectorSeverity: String, Decodable {
+        case healthy, medium, low, limited, exhausted, unknown, stale, error
+
+        var model: Severity {
+            switch self {
+            case .healthy: return .healthy
+            case .medium: return .medium
+            case .low: return .low
+            case .limited: return .limited
+            case .exhausted: return .exhausted
+            case .unknown: return .unknown
+            case .stale: return .stale
+            case .error: return .error
+            }
+        }
+    }
+
+    private enum VectorValidity: String, Decodable {
+        case current, stale, resetDue, error
+
+        var model: ReadingValidity {
+            switch self {
+            case .current: return .current
+            case .stale: return .stale
+            case .resetDue: return .resetDue
+            case .error: return .error
+            }
+        }
+    }
+
+    private enum VectorFillState: String, Decodable {
+        case data, stale, noFill
+
+        var model: FillState {
+            switch self {
+            case .data: return .data
+            case .stale: return .stale
+            case .noFill: return .noFill
+            }
+        }
+    }
+
+    private static func parse(_ data: Data) throws -> VectorFile {
+        let vectors = try SharedVectors.parse(VectorFile.self, from: data)
+        guard !vectors.presentations.isEmpty else {
+            throw VectorFileError(description: "the presentation vector file holds no presentations")
+        }
+        guard !vectors.fillStates.isEmpty else {
+            throw VectorFileError(description: "the presentation vector file holds no fill states")
+        }
+        return vectors
+    }
+
+    private static let file = SharedVectors.file("window-presentation.json")
+
+    private static func vectors() throws -> VectorFile {
+        try parse(Data(contentsOf: file))
+    }
+
+    private static func changedDocument(
+        table: String? = nil, change: (inout [String: Any]) -> Void
+    ) throws -> Data {
+        var document = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        if let table {
+            var rows = try XCTUnwrap(document[table] as? [[String: Any]])
+            change(&rows[0])
+            document[table] = rows
+        } else {
+            change(&document)
+        }
+        return try JSONSerialization.data(withJSONObject: document)
+    }
+
+    func testUnknownFieldsFailAtEverySchemaLevel() throws {
+        for table: String? in [nil, "presentations", "fillStates"] {
+            let unknown = try Self.changedDocument(table: table) { $0["unexpected"] = true }
+            XCTAssertThrowsError(try Self.parse(unknown), "unknown field in \(String(describing: table))")
+        }
+    }
+
+    func testMissingFieldsFailIncludingNullableValues() throws {
+        let fields: [(String?, String)] = [(nil, "description"), ("presentations", "remaining"), ("fillStates", "fill")]
+        for (table, key) in fields {
+            let missing = try Self.changedDocument(table: table) { $0.removeValue(forKey: key) }
+            XCTAssertThrowsError(try Self.parse(missing), "missing \(key) in \(String(describing: table))")
+        }
+    }
+
+    func testEmptyDataFailsTheSuite() {
+        XCTAssertThrowsError(try Self.parse(Data()))
+    }
+
+    func testAnEmptyFillStateTableFailsTheSuite() throws {
+        let empty = try Self.changedDocument { $0["fillStates"] = [] }
+        XCTAssertThrowsError(try Self.parse(empty))
+    }
+
+    func testAnEmptyPresentationTableFailsTheSuite() throws {
+        let empty = try Self.changedDocument { $0["presentations"] = [] }
+        XCTAssertThrowsError(try Self.parse(empty))
+    }
 
     func testThePresentationTableHoldsRowForRow() throws {
-        for r in rows {
+        for r in try Self.vectors().presentations {
             let p = WindowPresentation(
                 remaining: r.remaining, severity: r.severity, validity: r.validity, mode: r.mode)
-            let at = "row \(r.n) (\(String(describing: r.remaining)), \(r.severity), \(r.validity), \(r.mode))"
+            let at = "\(r.name) (\(String(describing: r.remaining)), \(r.severity), \(r.validity), \(r.mode))"
             XCTAssertEqual(r.token, p.token, "\(at) token")
             XCTAssertEqual(r.mode, p.side, "\(at) side")
             XCTAssertEqual(r.fillState, p.fillState, "\(at) fillState")
@@ -82,11 +186,11 @@ final class WindowPresentationTests: XCTestCase {
         }
     }
 
-    func testTheFigureExistsExactlyWhenTheTokenIsNotTheDash() {
-        for r in rows {
+    func testTheFigureExistsExactlyWhenTheTokenIsNotTheDash() throws {
+        for r in try Self.vectors().presentations {
             let p = WindowPresentation(
                 remaining: r.remaining, severity: r.severity, validity: r.validity, mode: r.mode)
-            XCTAssertEqual(r.token != "—", p.hasFigure, "row \(r.n)")
+            XCTAssertEqual(r.token != "—", p.hasFigure, "\(r.name)")
         }
     }
 
@@ -109,61 +213,13 @@ final class WindowPresentationTests: XCTestCase {
         }
     }
 
-    // MARK: - Fill state table (S1-S22)
-
-    private struct FillCase {
-        let n: Int
-        let validity: ReadingValidity
-        let severity: Severity
-        let fill: Double?
-        let mode: PercentDisplay
-        let expected: FillState
-
-        init(
-            _ n: Int, _ validity: ReadingValidity, _ severity: Severity, _ fill: Double?,
-            _ mode: PercentDisplay, _ expected: FillState
-        ) {
-            self.n = n
-            self.validity = validity
-            self.severity = severity
-            self.fill = fill
-            self.mode = mode
-            self.expected = expected
-        }
-    }
-
-    private let fillCases: [FillCase] = [
-        FillCase(1, .stale, .healthy, 0.73, .left, .stale),
-        FillCase(2, .stale, .exhausted, 1.0, .used, .stale),
-        FillCase(3, .stale, .unknown, nil, .used, .stale),
-        FillCase(4, .resetDue, .medium, 0.6, .used, .stale),
-        FillCase(5, .resetDue, .exhausted, 0.15, .left, .stale),
-        FillCase(6, .error, .healthy, 0.73, .left, .noFill),
-        FillCase(7, .error, .healthy, 0.27, .used, .noFill),
-        FillCase(8, .error, .exhausted, 1.0, .used, .noFill),
-        FillCase(9, .current, .stale, 0.5, .left, .stale),
-        FillCase(10, .current, .error, 0.5, .used, .noFill),
-        FillCase(11, .current, .unknown, 0.5, .used, .noFill),
-        FillCase(12, .current, .unknown, nil, .left, .noFill),
-        FillCase(13, .current, .exhausted, 1.0, .used, .data),
-        FillCase(14, .current, .exhausted, 0.15, .used, .data),
-        FillCase(15, .current, .exhausted, 0.0, .used, .noFill),
-        FillCase(16, .current, .exhausted, nil, .used, .noFill),
-        FillCase(17, .current, .exhausted, 0.15, .left, .noFill),
-        FillCase(18, .current, .healthy, nil, .left, .data),
-        FillCase(19, .current, .medium, 0.4, .used, .data),
-        FillCase(20, .current, .low, 0.05, .left, .data),
-        FillCase(21, .current, .limited, 0.4, .used, .data),
-        FillCase(22, .current, .healthy, 0.0, .used, .data),
-    ]
-
-    func testTheFillStateTableHoldsRowForRow() {
-        for c in fillCases {
+    func testTheFillStateTableHoldsRowForRow() throws {
+        for c in try Self.vectors().fillStates {
             XCTAssertEqual(
                 c.expected,
                 WindowPresentation.fillState(
                     validity: c.validity, severity: c.severity, fill: c.fill, mode: c.mode),
-                "S\(c.n) (\(c.validity), \(c.severity), \(String(describing: c.fill)), \(c.mode))")
+                "\(c.name) (\(c.validity), \(c.severity), \(String(describing: c.fill)), \(c.mode))")
         }
     }
 
