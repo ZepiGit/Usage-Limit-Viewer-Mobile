@@ -10,7 +10,7 @@ Branch: `prototype/statusbar-icons`. Never merge this branch into main. There ar
 
 ## Regenerate contact sheets
 
-From this worktree run `bash tools/prototype_statusbar_contacts.sh`. It acquires `/tmp/ulv-gradle.lock`, runs only the prototype renderer with native Robolectric graphics, writes the sheets to `app/build/reports/statusbar-prototype/`, and copies the exact A/C source masks into debug-only assets. The checked-in masks are the actual masks used by the emulator; no second renderer guesses their appearance.
+From this worktree run `bash tools/prototype_statusbar_contacts.sh`. It acquires `/tmp/ulv-gradle.lock`, runs only the prototype renderer with native Robolectric graphics, writes the sheets to `app/build/reports/statusbar-prototype/`, and copies the exact A/C source masks into debug-only assets. The checked-in masks are the actual masks used by the emulator; no second renderer guesses their appearance. `docs/images/statusbar-prototype/` preserves the generated sheets on this throwaway branch as primary-source pixels, separate from ephemeral build output.
 
 Four intentionally different structures: A digits only; B glyph over digits; C corner provider glyph and digits; D ring around provider glyph. Claude uses the Code mascot source, Codex an intentionally simplified six-loop OpenAI knot, xAI the local LobeHub path. White source RGB has no meaning: only alpha survives SystemUI tinting. Normal single digits are zero-padded (`05`). Stale is `42` plus a separated corner dot, exhausted is a crossed circle, error is `!`. The prototype does not establish a production rule for 100; the design verdict must do so.
 
