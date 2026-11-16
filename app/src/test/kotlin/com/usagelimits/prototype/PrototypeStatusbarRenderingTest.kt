@@ -141,6 +141,29 @@ class PrototypeStatusbarRenderingTest {
             }
         }
         save(strip, "statusbar-strips-xxhdpi.png")
+        strip.recycle()
+        val accountsStrip = Bitmap.createBitmap(1240, 50 + variants.size * 220, Bitmap.Config.ARGB_8888)
+        val accountsCanvas = Canvas(accountsStrip)
+        accountsCanvas.drawColor(Color.rgb(229, 234, 240))
+        accountsCanvas.drawText("PROTOTYPE xxhdpi: three accounts, 15dp icons in 22dp slots (45px / 66px)", 18f, 30f, label)
+        for ((i, variant) in variants.withIndex()) {
+            accountsCanvas.drawText("$variant — Claude 5 / Codex 42 / xAI 87", 18f, 70f + i * 220f, label)
+            for (light in listOf(false, true)) {
+                val y = 90 + i * 220 + if (light) 80 else 0
+                accountsCanvas.drawRect(18f, y.toFloat(), 1222f, y + 72f, Paint().apply { color = if (light) Color.rgb(245, 245, 245) else Color.rgb(38, 41, 46) })
+                accountsCanvas.drawText("9:41", 48f, y + 51f, Paint(ink).apply { textAlign = Paint.Align.LEFT; textSize = 42f; color = if (light) Color.rgb(30, 30, 30) else Color.WHITE })
+                for ((p, provider) in providers.withIndex()) {
+                    val source = mask(i, provider, listOf("5", "42", "87")[p])
+                    val real = Bitmap.createScaledBitmap(source, 45, 45, true)
+                    tinted(accountsCanvas, real, 196 + p * 66, y + 13, light)
+                    source.recycle()
+                    real.recycle()
+                }
+                accountsCanvas.drawText("LTE   ▰  95%", 918f, y + 49f, Paint(ink).apply { textSize = 32f; color = if (light) Color.rgb(30, 30, 30) else Color.WHITE })
+            }
+        }
+        save(accountsStrip, "statusbar-three-accounts-xxhdpi.png")
+        accountsStrip.recycle()
         compositeSheets()
         stackedComparisonSheets()
     }
@@ -161,7 +184,7 @@ class PrototypeStatusbarRenderingTest {
         } else when (variant) {
             0 -> if (state == "100") glyph(canvas, provider, RectF(3f, 3f, 21f, 21f)) else digits(canvas, text, RectF(0.4f, 1.2f, 23.6f, 22.5f))
             1 -> {
-                val glyphBounds = if (state == "100" && stackedOption == "centered") RectF(5f, 5f, 19f, 19f) else RectF(7f, 0f, 17f, 9f)
+                val glyphBounds = if (state == "100" && stackedOption != "top") RectF(5f, 5f, 19f, 19f) else RectF(7f, 0f, 17f, 9f)
                 glyph(canvas, provider, glyphBounds)
                 if (state != "100") {
                     val single = stackedOption == "single"
@@ -180,7 +203,7 @@ class PrototypeStatusbarRenderingTest {
                 }
             }
             2 -> {
-                glyph(canvas, provider, RectF(0f, 0f, 8.5f, 8.5f))
+                glyph(canvas, provider, if (state == "100") RectF(5f, 5f, 19f, 19f) else RectF(0f, 0f, 8.5f, 8.5f))
                 if (state != "100") digits(canvas, text, RectF(1f, 7f, 24f, 24f))
             }
             3, 4 -> {
@@ -217,7 +240,7 @@ class PrototypeStatusbarRenderingTest {
         val choices = listOf(
             Triple("5 single", "5", "single"),
             Triple("05 padded", "5", "default"),
-            Triple("100 top glyph", "100", "default"),
+            Triple("100 top glyph", "100", "top"),
             Triple("100 centered glyph", "100", "centered"),
             Triple("stale dot below", "stale", "dot-below"),
             Triple("stale underline", "stale", "underline"),
