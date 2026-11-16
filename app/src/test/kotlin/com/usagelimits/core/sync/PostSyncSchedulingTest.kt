@@ -1,6 +1,11 @@
 package com.usagelimits.core.sync
 
+import android.Manifest
+import android.app.NotificationManager
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.ListenableWorker
+import androidx.work.testing.TestListenableWorkerBuilder
+import org.robolectric.Shadows.shadowOf
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.usagelimits.UsageLimitsApp
@@ -45,20 +50,72 @@ class PostSyncSchedulingTest {
     }
 
     @Test
-    fun `a foreground refresh schedules the next presentation boundary`() = runBlocking {
+    fun `a time boundary repaints without consuming an alert`() = runBlocking {
+        val repository = app.container.repository
+        val account = repository.upsertFromLogin(ProviderId.CODEX, "boundary", "test@example.com",
+            null, "Plus", emptyMap())
+        val now = System.currentTimeMillis()
+        repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.OK,
+            windows = listOf(UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR,
+                usedPercent = 95.0, resetAt = now + 3_600_000, periodSeconds = 18_000, exhausted = false))))
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val notifications = shadowOf(app.getSystemService(NotificationManager::class.java))
+        val worker = TestListenableWorkerBuilder<WidgetPresentationWorker>(app).build()
+
+        assertEquals(ListenableWorker.Result.success(), worker.doWork())
+
+        val pending = WorkManager.getInstance(app)
+            .getWorkInfosForUniqueWork(WidgetPresentationWorker.WORK_NAME).get()
+            .filter { it.state == WorkInfo.State.ENQUEUED }
+        assertEquals(1, pending.size)
+        assertEquals(0, notifications.allNotifications.size)
+        app.container.publication.cacheMoved()
+        assertEquals(1, notifications.allNotifications.size)
+    }
+
+    @Test
+    fun `presentation changed schedules a boundary without consuming an alert`() = runBlocking {
+        val repository = app.container.repository
+        val account = repository.upsertFromLogin(ProviderId.CODEX, "presentation", "test@example.com",
+            null, "Plus", emptyMap())
+        val now = System.currentTimeMillis()
+        repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.OK,
+            windows = listOf(UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR,
+                usedPercent = 95.0, resetAt = now + 3_600_000, periodSeconds = 18_000, exhausted = false))))
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val notifications = shadowOf(app.getSystemService(NotificationManager::class.java))
+
+        app.container.publication.presentationChanged()
+
+        val pending = WorkManager.getInstance(app)
+            .getWorkInfosForUniqueWork(WidgetPresentationWorker.WORK_NAME).get()
+            .filter { it.state == WorkInfo.State.ENQUEUED }
+        assertEquals(1, pending.size)
+        assertEquals(0, notifications.allNotifications.size)
+
+        // A repaint must not claim the edge either: the next cache event still announces it.
+        app.container.publication.cacheMoved()
+        assertEquals(1, notifications.allNotifications.size)
+    }
+
+    @Test
+    fun `cache moved schedules the next presentation boundary and publishes alerts`() = runBlocking {
         val repository = app.container.repository
         val account = repository.upsertFromLogin(ProviderId.CODEX, "fixture", "test@example.com",
             null, "Plus", emptyMap())
         val now = System.currentTimeMillis()
         repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.OK,
             windows = listOf(UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR,
-                usedPercent = 25.0, resetAt = now + 3_600_000, periodSeconds = 18_000, exhausted = false))))
+                usedPercent = 95.0, resetAt = now + 3_600_000, periodSeconds = 18_000, exhausted = false))))
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
 
-        app.container.publishAfterSync(app)
+        app.container.publication.cacheMoved()
 
         val pending = WorkManager.getInstance(app)
             .getWorkInfosForUniqueWork(WidgetPresentationWorker.WORK_NAME).get()
             .filter { it.state == WorkInfo.State.ENQUEUED }
         assertEquals(1, pending.size)
+        assertEquals(1, shadowOf(
+            app.getSystemService(NotificationManager::class.java)).allNotifications.size)
     }
 }

@@ -1,37 +1,43 @@
 package com.usagelimits.core.sync
 
 import android.content.Context
-import com.usagelimits.core.di.AppContainer
+import com.usagelimits.core.database.UsageRepository
 import com.usagelimits.widget.WidgetPresentationWorker
 import com.usagelimits.widget.WidgetUpdater
 
 /**
- * Everything that has to happen once a sync has moved the cache, wherever the sync came from.
+ * The two events that change what the app publishes outside its own screens.
  *
- * There were two answers to that question and only one of them was complete. The periodic
- * worker woke the widgets and then evaluated notifications; the manual refresh — the pull on
- * the overview, the per-account retry, the re-sync after spending a credit — woke the widgets
- * and stopped there. So a threshold crossed during a manual refresh said nothing at all:
+ * [cacheMoved] follows a sync, including an account's first reading and a failed attempt that
+ * retained cached readings. It repaints out-of-app surfaces, schedules their next presentation
+ * boundary, then evaluates and publishes alerts. The notification ledger deduplicates edges
+ * when foreground and background syncs observe the same reading.
  *
- *   the worker sees 25% left; the user pulls to refresh and it is 8%, silently; the limit
- *   resets before the next worker run, which then sees a healthy number. The dip the app
- *   observed, on the screen the user was looking at, was never announced.
+ * [presentationChanged] follows settings, ordering, removal, configuration or a time boundary.
+ * It repaints and reschedules without evaluating or claiming alerts: changing how a reading
+ * looks is not a new reading. Neither event requests data from a provider.
  *
- * One function for every entry point, so a new caller cannot forget half of it. It costs no
- * extra network round trip — the snapshots have already been written, and this only reads
- * them back.
- *
- * Calling it more often does not mean notifying more often: the evaluator's ledger keys each
- * edge and the publisher swallows a key it has already acted on, which is what lets the manual
- * path and the worker both run in the same window without saying anything twice.
+ * Callers name only the event. A new out-of-app surface belongs in this module, not at every
+ * call site. The application container supplies the adapter, so tests can substitute it at
+ * the same interface callers use.
  */
-suspend fun AppContainer.publishAfterSync(context: Context) {
-    // Widgets read the cache, so they only need waking once the cache has moved.
-    WidgetUpdater.refreshAll(context)
-    // New cache, new presentation boundaries: a reset or staleness threshold passing later is
-    // repainted from the cache, whether this sync came from the worker or the foreground.
-    WidgetPresentationWorker.scheduleNext(context)
+interface Publication {
+    suspend fun cacheMoved()
+    suspend fun presentationChanged()
+}
 
-    NotificationPublisher(context, settingsStore, notificationDao, transactions = transactions)
-        .publishFor(repository.accountUsageOnce())
+internal class OutOfAppPublication(
+    private val context: Context,
+    private val repository: UsageRepository,
+    private val notifications: NotificationPublisher,
+) : Publication {
+    override suspend fun cacheMoved() {
+        presentationChanged()
+        notifications.publishFor(repository.accountUsageOnce())
+    }
+
+    override suspend fun presentationChanged() {
+        WidgetUpdater.refreshAll(context)
+        WidgetPresentationWorker.scheduleNext(context)
+    }
 }

@@ -3,7 +3,9 @@ package com.usagelimits.widget
 import android.content.Context
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.await
 import androidx.work.WorkerParameters
 import androidx.work.CoroutineWorker
 import com.usagelimits.UsageLimitsApp
@@ -36,12 +38,8 @@ class WidgetPresentationWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        WidgetUpdater.refreshAll(applicationContext)
+        (applicationContext as UsageLimitsApp).container.publication.presentationChanged()
         SyncWorker.syncIfCacheAged(applicationContext)
-        // One boundary repainted; the next one needs its own reservation. APPEND rather than
-        // REPLACE from inside our own run: REPLACE cancels the work under this name, which is
-        // this very worker, mid-flight.
-        scheduleNext(applicationContext, ExistingWorkPolicy.APPEND_OR_REPLACE)
         return Result.success()
     }
 
@@ -69,9 +67,12 @@ class WidgetPresentationWorker(
         /**
          * (Re)computes the boundary across every cached account and reserves one repaint for
          * it. Coalesced under one unique name, so widgets, syncs and config saves all agree on
-         * a single next wake; REPLACE keeps the soonest request rather than stacking them.
+         * a single next wake. Outside a running boundary, REPLACE moves the pending reservation.
+         * While this unique work is RUNNING, APPEND_OR_REPLACE reserves its successor instead:
+         * REPLACE would cancel the very worker publishing the repaint before it can finish.
+         * WorkManager's Flow suspends for the state lookup rather than blocking a UI caller.
          */
-        suspend fun scheduleNext(context: Context, policy: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE) {
+        suspend fun scheduleNext(context: Context) {
             val app = context.applicationContext as? UsageLimitsApp ?: return
             val container = app.container
             val accounts = container.repository.observeAccountUsage().first()
@@ -88,21 +89,23 @@ class WidgetPresentationWorker(
             )
 
             val workManager = WorkManager.getInstance(context)
+            val running = workManager.getWorkInfosForUniqueWorkFlow(WORK_NAME).first()
+                .any { it.state == WorkInfo.State.RUNNING }
             if (boundary == null) {
                 // Nothing cached ages on its own — no accounts, or nothing fetched. The next
                 // sync will reschedule this when there is.
-                workManager.cancelUniqueWork(WORK_NAME)
+                if (!running) workManager.cancelUniqueWork(WORK_NAME).await()
                 return
             }
 
             val delay = (boundary - now).coerceIn(MIN_DELAY_MS, MAX_DELAY_MS)
             workManager.enqueueUniqueWork(
                 WORK_NAME,
-                policy,
+                if (running) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.REPLACE,
                 OneTimeWorkRequestBuilder<WidgetPresentationWorker>()
                     .setInitialDelay(delay, java.util.concurrent.TimeUnit.MILLISECONDS)
                     .build(),
-            )
+            ).await()
         }
     }
 }
