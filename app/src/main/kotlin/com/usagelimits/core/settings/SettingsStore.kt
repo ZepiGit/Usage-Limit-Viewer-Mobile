@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.map
 /** User-configurable preferences. */
 data class AppSettings(
     val syncIntervalMinutes: Int = DEFAULT_SYNC_INTERVAL_MINUTES,
-    /** Whether the optional Android notification permission has already been requested. */
+    /** Whether first-launch permission handling ran, including an existing Android grant. */
     val notificationPermissionAsked: Boolean = false,
     /** Warn once when a limit first drops below 20 % remaining. */
     val notifyBelow20Percent: Boolean = true,

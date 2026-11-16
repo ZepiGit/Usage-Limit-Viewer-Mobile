@@ -27,6 +27,11 @@ import kotlinx.coroutines.launch
 class UsageLimitsActivity : ComponentActivity() {
     private val requestedAccount = androidx.compose.runtime.mutableStateOf<String?>(null)
 
+    /** Lets activity-level tests await the decision, including the path that does not ask. */
+    @androidx.annotation.VisibleForTesting
+    internal var notificationPermissionCheck: kotlinx.coroutines.Job? = null
+        private set
+
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* optional */ }
 
@@ -45,13 +50,13 @@ class UsageLimitsActivity : ComponentActivity() {
         // Persist before opening the optional dialog: recreation must not ask again, even
         // while the first request is still awaiting a response. Settings offers the next try.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            lifecycleScope.launch {
+            notificationPermissionCheck = lifecycleScope.launch {
                 val settings = container.settingsStore.settings.first()
                 val granted = ContextCompat.checkSelfPermission(
                     this@UsageLimitsActivity, Manifest.permission.POST_NOTIFICATIONS,
                 ) == PackageManager.PERMISSION_GRANTED
+                if (!settings.notificationPermissionAsked) container.settingsStore.recordNotificationPermissionAsked()
                 if (shouldAskNotificationPermission(Build.VERSION.SDK_INT, settings.notificationPermissionAsked, granted)) {
-                    container.settingsStore.recordNotificationPermissionAsked()
                     notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }

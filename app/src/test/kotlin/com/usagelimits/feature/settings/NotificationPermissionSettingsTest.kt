@@ -4,8 +4,10 @@ import android.Manifest
 import android.app.Application
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -60,7 +62,12 @@ class NotificationPermissionSettingsTest {
         compose.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
-        compose.onNodeWithText("Notifications allowed").assertIsDisplayed()
+        compose.onNodeWithText("Notifications allowed").assertIsDisplayed().assert(
+            androidx.compose.ui.test.SemanticsMatcher.expectValue(
+                androidx.compose.ui.semantics.SemanticsProperties.LiveRegion,
+                androidx.compose.ui.semantics.LiveRegionMode.Polite,
+            ),
+        )
         compose.onNodeWithText("Open notification settings").assertDoesNotExist()
         compose.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
@@ -72,11 +79,14 @@ class NotificationPermissionSettingsTest {
     fun `an earlier denial can be allowed through the system dialog from Settings`() {
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
         shadowOf(app.packageManager).setShouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS, true)
-        render(AppSettings(notificationPermissionAsked = true))
+        var permissionAsked = false
+        render(AppSettings(notificationPermissionAsked = true), onNotificationPermissionAsked = { permissionAsked = true })
         scrollTo("Allow notifications")
         compose.onNodeWithText("Allow notifications").performClick()
+        org.junit.Assert.assertTrue(permissionAsked)
         compose.waitUntil(10_000) { shadowOf(compose.activity).lastRequestedPermission != null }
         val request = shadowOf(compose.activity).lastRequestedPermission
+        compose.onNodeWithText("Allow notifications").assertIsNotEnabled()
         org.junit.Assert.assertArrayEquals(arrayOf(Manifest.permission.POST_NOTIFICATIONS), request.requestedPermissions)
         compose.runOnIdle {
             shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
@@ -127,6 +137,27 @@ class NotificationPermissionSettingsTest {
     }
 
     @Test
+    fun `missing notification settings falls back to this app's details page`() {
+        shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val details = android.content.Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            android.net.Uri.fromParts("package", app.packageName, null))
+        val resolution = android.content.pm.ResolveInfo().apply {
+            activityInfo = android.content.pm.ActivityInfo().apply {
+                packageName = "android.settings"
+                name = "AppDetails"
+            }
+        }
+        shadowOf(app.packageManager).addResolveInfoForIntent(details, resolution)
+        shadowOf(app).checkActivities(true)
+        render(AppSettings(notificationPermissionAsked = true))
+        scrollTo("Open notification settings")
+        compose.onNodeWithText("Open notification settings").performClick()
+        val opened = shadowOf(compose.activity).nextStartedActivity
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, opened.action)
+        assertEquals("package:${app.packageName}", opened.data.toString())
+    }
+
+    @Test
     @Config(sdk = [32])
     fun `Android before 13 never presents notifications as blocked`() {
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
@@ -145,17 +176,22 @@ class NotificationPermissionSettingsTest {
         render()
         scrollTo("Benachrichtigungen nicht erlaubt")
         compose.onNodeWithText("Benachrichtigungen nicht erlaubt").assertIsDisplayed()
-        compose.onNodeWithText("Es werden keine Hinweise angezeigt, bis Benachrichtigungen erlaubt sind. Deine Benachrichtigungseinstellungen bleiben gespeichert.")
+        compose.onNodeWithText("Es werden keine Hinweise angezeigt, bis Benachrichtigungen erlaubt sind. Deine Auswahl unten bleibt gespeichert.")
             .assertIsDisplayed()
         compose.onNodeWithText("Benachrichtigungen erlauben").assertIsEnabled()
     }
 
-    private fun render(settings: AppSettings = AppSettings(), onNotifyBelow20: (Boolean) -> Unit = {}) {
+    private fun render(
+        settings: AppSettings = AppSettings(),
+        onNotifyBelow20: (Boolean) -> Unit = {},
+        onNotificationPermissionAsked: () -> Unit = {},
+    ) {
         compose.setContent {
             UsageLimitsTheme {
                 SettingsScreen(
                     state = UsageUiState(settings = settings),
                     onSyncIntervalChange = {},
+                    onNotificationPermissionAsked = onNotificationPermissionAsked,
                     onNotifyBelow20 = onNotifyBelow20,
                     onNotifyBelow10 = {},
                     onNotifyExhausted = {},

@@ -80,7 +80,7 @@
     <string name="settings_section_notifications">Benachrichtigungen</string>
     <string name="settings_notifications_allowed">Benachrichtigungen erlaubt</string>
     <string name="settings_notifications_not_allowed">Benachrichtigungen nicht erlaubt</string>
-    <string name="settings_notifications_blocked_note">Es werden keine Hinweise angezeigt, bis Benachrichtigungen erlaubt sind. Deine Benachrichtigungseinstellungen bleiben gespeichert.</string>
+    <string name="settings_notifications_blocked_note">Es werden keine Hinweise angezeigt, bis Benachrichtigungen erlaubt sind. Deine Auswahl unten bleibt gespeichert.</string>
     <string name="settings_allow_notifications">Benachrichtigungen erlauben</string>
     <string name="settings_open_notification_settings">Benachrichtigungseinstellungen öffnen</string>
     <string name="settings_notify_below_left_title">Unter %1$s übrig</string>
