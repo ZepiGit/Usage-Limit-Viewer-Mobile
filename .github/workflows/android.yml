@@ -13,6 +13,7 @@ on:
       - 'gradlew.bat'
       - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
       - 'tools/android_runtime_smoke.py'
+      - 'tools/test_android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
       - 'shared/**'
       - '.github/workflows/android.yml'
@@ -26,6 +27,7 @@ on:
       - 'gradlew.bat'
       - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
       - 'tools/android_runtime_smoke.py'
+      - 'tools/test_android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
       - 'shared/**'
       - '.github/workflows/android.yml'
@@ -53,6 +55,10 @@ jobs:
           java-version: '21'
 
       - uses: gradle/actions/setup-gradle@v4
+
+      # The emulator smoke's pixel logic, on synthetic frames; no device needed.
+      - name: Test the runtime smoke's own checks
+        run: python3 -m unittest discover -s tools -p 'test_android_runtime_smoke.py'
 
       - name: Test
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug
