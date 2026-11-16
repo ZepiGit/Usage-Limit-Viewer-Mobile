@@ -39,7 +39,8 @@ def broadcast(command="post", **extras):
     response = adb(*argv)
     if "result=0" not in response:
         raise RuntimeError(response)
-    time.sleep(2)
+    # API 36 GroupHelper applies sparse/singleton regrouping after a 3s delay.
+    time.sleep(5 if api >= 36 and command in ("post", "update") else 2)
     if command in ("post", "update"):
         active = adb("shell", "dumpsys", "notification", "--noredact")
         present = set(re.findall(r"NotificationRecord\([^\n]*pkg=com\.usagelimits\.debug[^\n]*? id=(710[012])\b", active))
@@ -97,7 +98,14 @@ adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 adb("shell", "wm", "dismiss-keyguard", check=False)
 adb("shell", "logcat", "-c")
 
-for scenario in ("a", "b", "c", "d", "e"):
+if api == 36:
+    for scenario in ("candidate-channels", "candidate-composite-bars", "candidate-composite-rings", "candidate-sections", "candidate-colorized", "candidate-summary-one", "candidate-valid-groups", "candidate-summary-three"):
+        broadcast("clear")
+        broadcast(variant="C", scenario=scenario)
+        capture(f"api{api}-{scenario}")
+    broadcast("clear")
+
+for scenario in (("a", "b") if api in (34, 35) else ("a", "b", "c", "d", "e")):
     for variant in ("A", "C"):
         # Competition runs last; the stable shell tags update rather than accumulating.
         name = f"api{api}-{variant}-{scenario}"
@@ -109,7 +117,7 @@ for scenario in ("a", "b", "c", "d", "e"):
                  + adb("shell", "cmd", "notification", "post", "-t", "Other package two", "prototype-other-2", "Second shell notification", check=False))
             time.sleep(2)
         capture(name)
-        if scenario == "b":
+        if scenario == "b" and api not in (34, 35):
             capture(name + "-light", light=True)
             broadcast(variant=variant, scenario=scenario, states="stale,exhausted,error")
             capture(name + "-states")
@@ -190,5 +198,5 @@ for scenario in ("a", "b", "c", "d", "e"):
 
 save("prototype-log.txt", adb("shell", "logcat", "-d", "-v", "threadtime", "-s", "PrototypeStatusbar:I", "*:S"))
 save("notification-events.txt", adb("shell", "logcat", "-b", "events", "-d", "-v", "threadtime"))
-save("capture-manifest.json", json.dumps({"api": api, "variants": ["A", "C"], "scenarios": ["a", "b", "c", "d", "e", "f-lock", "f-doze-attempt"], "screenshots": sorted(p.name for p in out.glob("*.png"))}, indent=2))
+save("capture-manifest.json", json.dumps({"api": api, "variants": ["A", "C"], "scenarios": (["a", "b"] if api in (34, 35) else ["a", "b", "c", "d", "e", "f-lock", "f-doze-attempt"]), "candidates": (["channels", "composite-bars", "composite-rings", "sections", "colorized", "summary-one", "valid-groups", "summary-three"] if api == 36 else []), "screenshots": sorted(p.name for p in out.glob("*.png"))}, indent=2))
 print(f"API {api}: captured {len(list(out.glob('*.png')))} PNGs to {out}")

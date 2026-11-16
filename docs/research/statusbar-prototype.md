@@ -2,6 +2,12 @@
 
 Branch: `prototype/statusbar-icons`. Never merge this branch into main. There are no new behavioral tests: the Robolectric runner is only a native-graphics PNG generator.
 
+## Extended experiments
+
+The owner corrected the design goal: provider glyph plus digits 0–99, and glyph alone at exactly 100. The renderer compares B's 5 vs 05 and usual-position vs centered 100, plus noncolliding stale dot/underline/hollow digits. Ring-around-digits E is local comparison only, not an emulator target. Composite F tests bars and concentric arcs for up to three ordered accounts, because one summary icon may be the honest fallback.
+
+API 34/35 add plain a/b capture lanes. API 36 also captures one channel per account; a valid shared summary carrying F bars/rings; DEFAULT/LOW/MIN section split; plain colorized (expected nonexempt); three summaries with one, two or three real quota-detail children each. The 1/2-child groups are sparse but below android16-release NMS's six-sparse-group threshold; 3 children avoid the sparse definition. No fake call, media, conversation, foreground service or UIJ is posted. Source exemptions and flag qualifications are in `statusbar-android16-grouping-exemptions.md`.
+
 ## Questions
 
 1. Which alpha-mask layout survives a 15 dp status-bar drawing slot?

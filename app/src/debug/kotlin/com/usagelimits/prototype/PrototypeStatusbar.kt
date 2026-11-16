@@ -75,6 +75,10 @@ class PrototypeStatusbarReceiver : BroadcastReceiver() {
         }
         val scenario = intent.getStringExtra("scenario") ?: "b"
         val variant = intent.getStringExtra("variant") ?: "A"
+        if (scenario.startsWith("candidate-")) {
+            postGroupingCandidate(context, manager, scenario)
+            return
+        }
         val channelId = if (scenario == "d") "prototype_default_silent" else "prototype_low"
         manager.createNotificationChannel(NotificationChannel(channelId, "PROTOTYPE ${if (scenario == "d") "DEFAULT silent" else "LOW"}",
             if (scenario == "d") NotificationManager.IMPORTANCE_DEFAULT else NotificationManager.IMPORTANCE_LOW).apply {
@@ -125,6 +129,72 @@ class PrototypeStatusbarReceiver : BroadcastReceiver() {
                 .build())
         val after = manager.activeNotifications.filter { it.id in 7100..7102 }
         Log.i(TAG, "$command variant=$variant scenario=$scenario before=${before.map { "${it.key}@${it.postTime}" }} after=${after.map { "${it.key}@${it.postTime}" }}")
+    }
+
+    private fun postGroupingCandidate(context: Context, manager: NotificationManager, scenario: String) {
+        val providers = listOf("claude", "codex", "xai")
+        val values = listOf("5", "42", "87")
+        fun smallIcon(name: String): Icon = context.assets.open("prototype/$name.png").use {
+            Icon.createWithBitmap(BitmapFactory.decodeStream(it))
+        }
+        fun channel(index: Int): String {
+            val split = scenario == "candidate-sections"
+            val id = if (scenario == "candidate-channels") "prototype-account-$index" else if (split) "prototype-section-$index" else "prototype-candidate-low"
+            val importance = if (split) listOf(NotificationManager.IMPORTANCE_DEFAULT, NotificationManager.IMPORTANCE_LOW, NotificationManager.IMPORTANCE_MIN)[index] else NotificationManager.IMPORTANCE_LOW
+            manager.createNotificationChannel(NotificationChannel(id, "PROTOTYPE $id", importance).apply {
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
+            })
+            return id
+        }
+        if (scenario.startsWith("candidate-composite-")) {
+            channel(0)
+            val composite = if (scenario.endsWith("bars")) "F-bars-5-42-87" else "F-rings-5-42-87"
+            manager.notify(7199, Notification.Builder(context, "prototype-candidate-low")
+                .setSmallIcon(smallIcon(composite))
+                .setContentTitle("PROTOTYPE three pinned accounts")
+                .setContentText("Composite summary: 05 · 42 · 87")
+                .setGroup("prototype-valid-composite").setGroupSummary(true)
+                .setOngoing(true).setOnlyAlertOnce(true).setLocalOnly(true).build())
+        }
+        for (index in 0..2) {
+            val channelId = channel(index)
+            val group = when (scenario) {
+                "candidate-composite-bars", "candidate-composite-rings" -> "prototype-valid-composite"
+                "candidate-valid-groups", "candidate-summary-one", "candidate-summary-three" -> "prototype-valid-${providers[index]}"
+                else -> "prototype-single-${providers[index]}"
+            }
+            val icon = smallIcon("C-${providers[index]}-${values[index]}")
+            val notification = Notification.Builder(context, channelId)
+                .setSmallIcon(icon)
+                .setContentTitle("PROTOTYPE ${providers[index]} ${values[index]}")
+                .setContentText(scenario)
+                .setGroup(group)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setLocalOnly(true)
+                .setShowWhen(false)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setColor(if (scenario == "candidate-colorized") Color.rgb(177, 93, 69) else Color.TRANSPARENT)
+                .setColorized(scenario == "candidate-colorized")
+                .build()
+            manager.notify(7100 + index, notification)
+            if (scenario in listOf("candidate-valid-groups", "candidate-summary-one", "candidate-summary-three")) {
+                // Only honest if each extra row conveys useful account quota detail.
+                val extraChildren = when (scenario) { "candidate-summary-one" -> 0; "candidate-summary-three" -> 2; else -> 1 }
+                repeat(extraChildren) { detail ->
+                    manager.notify(7200 + index * 10 + detail, Notification.Builder(context, channelId)
+                        .setSmallIcon(icon).setContentTitle("PROTOTYPE ${providers[index]} ${if (detail == 0) "reset" else "weekly quota"}")
+                        .setContentText("Quota detail row ${detail + 2} for grouping experiment")
+                        .setGroup(group).setOngoing(true).setOnlyAlertOnce(true).build())
+                }
+                manager.notify(7300 + index, Notification.Builder(context, channelId)
+                    .setSmallIcon(icon).setContentTitle("PROTOTYPE ${providers[index]} summary")
+                    .setGroup(group).setGroupSummary(true).setOngoing(true).setOnlyAlertOnce(true).build())
+            }
+        }
+        Log.i(TAG, "GROUPING_CANDIDATE $scenario active=${manager.activeNotifications.map { it.key }}")
     }
 
     companion object { private const val TAG = "PrototypeStatusbar" }

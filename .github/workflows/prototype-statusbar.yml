@@ -3,6 +3,12 @@ name: Prototype status bar pixels
 on:
   push:
     branches: [prototype/statusbar-icons]
+    paths:
+      - 'app/src/debug/**'
+      - 'app/src/test/kotlin/com/usagelimits/prototype/**'
+      - 'tools/prototype_statusbar*'
+      - 'tools/run_prototype_statusbar.sh'
+      - '.github/workflows/prototype-statusbar.yml'
 
 permissions:
   contents: read
@@ -17,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [36, 30]
+        api: [36, 35, 34, 30]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
