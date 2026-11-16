@@ -10,6 +10,7 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -107,6 +108,40 @@ def changed_pixels(before, after, box):
         if a != b:
             found += [(x1 + i // channels, y) for i in range(0, len(a), channels) if a[i:i + channels] != b[i:i + channels]]
     return found
+
+
+def rounded_rect_distance(box, radius, x, y):
+    """Signed distance in px from the centre of pixel (x, y) to a rounded rectangle's outline; negative inside."""
+    qx = abs(x + 0.5 - (box[0] + box[2]) / 2) - ((box[2] - box[0]) / 2 - radius)
+    qy = abs(y + 0.5 - (box[1] + box[3]) / 2) - ((box[3] - box[1]) / 2 - radius)
+    return math.hypot(max(qx, 0), max(qy, 0)) + min(max(qx, qy), 0) - radius
+
+
+def judge_press(changed, pill, radius, idle_pill, fringe=1.0):
+    """Sorts the pixels a held press changed by the rounded pill they must stay in.
+
+    Pixels whose centre lies within `fringe` px outside the outline count as its anti-aliased edge. Everything
+    further out is spill, including the pill rectangle's corners beyond the rounding. The idle pill belongs to the
+    segment that stays selected; any change there means the frame shows a release, not a press.
+    """
+    distance = {point: rounded_rect_distance(pill, radius, *point) for point in changed}
+    outside = sorted(point for point, value in distance.items() if value > fringe)
+
+    def in_box(point, box):
+        return box[0] <= point[0] < box[2] and box[1] <= point[1] < box[3]
+
+    corner_mask = [(x, y) for x in range(pill[0], pill[2]) for y in range(pill[1], pill[3])
+                   if (min(x - pill[0], pill[2] - 1 - x) < radius and min(y - pill[1], pill[3] - 1 - y) < radius
+                       and rounded_rect_distance(pill, radius, x, y) > fringe)]
+    return {
+        "changedInPill": sum(1 for value in distance.values() if value <= 0),
+        "changedInFringe": sum(1 for value in distance.values() if 0 < value <= fringe),
+        "changedOutsidePill": len(outside),
+        "cornerMaskPixels": len(corner_mask),
+        "changedInExcludedCorners": sum(1 for point in corner_mask if point in distance),
+        "changedInIdlePill": sum(1 for point in changed if in_box(point, idle_pill)),
+        "firstChangedOutsidePill": outside[:8],
+    }
 
 
 def scaled_crop(frame, box, scale):
@@ -1009,8 +1044,9 @@ class Smoke:
         """#26: a held filter segment lights its rounded 32dp pill, not its 48dp touch target or the row frame.
 
         Compares a frame during a held press with the frame at rest, only around the Accounts filter row so the
-        status-bar clock cannot interfere. Releasing on the same point selects the held segment, so every attempt
-        restores the default filter for the later tab checks.
+        status-bar clock cannot interfere. A frame counts only if its capture ended well before the hold could
+        release and the still-selected segment is unchanged; other attempts are retried. Releasing on the same
+        point selects the held segment, so every attempt restores the default filter for the later tab checks.
         """
         held, default = "Needs attention", "All"
         density = self.adb("shell", "wm", "density")
@@ -1021,6 +1057,7 @@ class Smoke:
         def dp(value):
             return round(value * px)
 
+        radius, hold_ms, margin_ms = 6 * px, 4000, 500
         report = {"result": "incomplete", "held": held, "restored": default, "pxPerDp": px, "attempts": [],
                   "scope": "Accounts filter row with no accounts; the pill is the touch target inset by 8dp vertically."}
 
@@ -1039,15 +1076,20 @@ class Smoke:
             rest = (self.directory / f"{name}-rest-{attempt}.png").read_bytes()
 
             x, y = str((node[0] + node[2]) // 2), str((node[1] + node[3]) // 2)
-            hold = subprocess.Popen(["adb", "-s", self.serial, "shell", "input", "swipe", x, y, x, y, "3000"],
+            # adb starts the hold no earlier than Popen returns, so it releases no earlier than hold_ms after
+            # swipe_start. A capture that ends inside the margin before that point cannot show the release.
+            swipe_start = time.monotonic()
+            hold = subprocess.Popen(["adb", "-s", self.serial, "shell", "input", "swipe", x, y, x, y, str(hold_ms)],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             try:
                 time.sleep(delay)
+                capture_start = time.monotonic()
                 pressed = self.adb("exec-out", "screencap", "-p", binary=True)
+                capture_end = time.monotonic()
+                (self.directory / f"{name}-pressed-{attempt}.png").write_bytes(pressed)
             finally:
                 _, error = hold.communicate(timeout=30)
             assert hold.returncode == 0, f"Held press failed: {error.decode().strip()}"
-            (self.directory / f"{name}-pressed-{attempt}.png").write_bytes(pressed)
             released = self.control(self.capture(f"{name}-released-{attempt}"), PACKAGE, label=held)
             self.tap(original)
             self.wait_for(f"{name}-restored-{attempt}", lambda root: (
@@ -1057,47 +1099,45 @@ class Smoke:
 
             row = (min(node[0], other[0]) - dp(2), node[1], max(node[2], other[2]) + dp(2), node[3])
             pill = (node[0], node[1] + dp(8), node[2], node[3] - dp(8))
+            idle_pill = (other[0], other[1] + dp(8), other[2], other[3] - dp(8))
             before = png_frame(rest, row[3] + dp(24))
             after = png_frame(pressed, row[3] + dp(24))
             assert before[0] == after[0] and len(before[2]) == len(after[2]), "Rest and pressed frames differ in size"
             region = (max(0, row[0] - dp(24)), max(0, row[1] - dp(24)),
                       min(before[0], row[2] + dp(24)), min(len(before[2]), row[3] + dp(24)))
-            # One pixel of guard next to the pill edges, where its anti-aliased outline can change.
-            above = (row[0], row[1] - dp(8), row[2], pill[1] - 1)
-            below = (row[0], pill[3] + 1, row[2], row[3] + dp(8))
-            corners = [(pill[0] + 1, pill[1] + 1), (pill[2] - 2, pill[1] + 1),
-                       (pill[0] + 1, pill[3] - 2), (pill[2] - 2, pill[3] - 2)]
-            changed = set(changed_pixels(before, after, region))
-
-            def inside(box):
-                return sum(1 for cx, cy in changed if box[0] <= cx < box[2] and box[1] <= cy < box[3])
-
-            outside_pill = sorted(point for point in changed if not (
-                pill[0] <= point[0] < pill[2] and pill[1] <= point[1] < pill[3]))
+            changed = changed_pixels(before, after, region)
             measured = {
-                "attempt": attempt, "captureDelaySeconds": delay, "nodeBounds": node, "rowBounds": row,
-                "pill": pill, "comparedRegion": region, "bandAbove": above, "bandBelow": below,
-                "changedInNode": inside(node), "changedInPill": inside(pill),
-                "changedAbovePill": inside(above), "changedBelowPill": inside(below),
-                "changedPillCorners": [point for point in corners if point in changed],
-                "changedInRegionOutsidePill": len(outside_pill), "firstChangedOutsidePill": outside_pill[:8],
+                "attempt": attempt, "holdSeconds": hold_ms / 1000, "captureDelaySeconds": delay,
+                "captureStartSeconds": capture_start - swipe_start, "captureEndSeconds": capture_end - swipe_start,
+                "latestCaptureEndSeconds": (hold_ms - margin_ms) / 1000,
+                "nodeBounds": node, "rowBounds": row, "pill": pill, "idlePill": idle_pill, "radiusPx": radius,
+                "fringePx": 1, "comparedRegion": region, "changedInRegion": len(changed),
+                **judge_press(changed, pill, radius, idle_pill),
                 "heldSegmentSelectedAfterRelease": released is not None and self.selected(released),
             }
+            if measured["captureEndSeconds"] > measured["latestCaptureEndSeconds"]:
+                measured["rejected"] = "capture ended too close to the release"
+            elif measured["changedInIdlePill"]:
+                measured["rejected"] = "the selected segment changed, so the frame follows a release"
+            elif measured["changedInPill"] == 0:
+                measured["rejected"] = "no visible press"
             report["attempts"].append(measured)
             record()
             (self.directory / (name + "-rest.png")).write_bytes(rest)
             (self.directory / (name + "-pressed.png")).write_bytes(pressed)
             (self.directory / (name + "-pressed-crop.png")).write_bytes(scaled_crop(after, region, 4))
-            if measured["changedInPill"] == 0:
+            if "rejected" in measured:
                 continue
-            report["result"] = "passed" if not (measured["changedAbovePill"] or measured["changedBelowPill"]
-                                                or measured["changedPillCorners"]) else "spilled"
+            report["result"] = "spilled" if measured["changedOutsidePill"] else "passed"
             record()
             assert report["result"] == "passed", f"The press highlight left the rounded pill; see {name}-ripple.json"
             return
-        report["result"] = "no visible press"
+        report["result"] = "no accepted press frame"
         record()
-        raise AssertionError(f"No press highlight in any captured frame; see {name}-ripple.json")
+        timings = [(round(item["captureStartSeconds"], 3), round(item["captureEndSeconds"], 3), item["rejected"])
+                   for item in report["attempts"]]
+        raise AssertionError(f"No accepted press frame (capture start/end s after the {hold_ms} ms hold began, "
+                             f"reason): {timings}; see {name}-ripple.json")
 
     def setting(self, name):
         for attempt in range(9):
