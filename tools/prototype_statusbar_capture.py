@@ -126,6 +126,22 @@ for scenario in ("a", "b", "c", "d", "e"):
             xml = adb("shell", "cat", "/sdcard/prototype-window.xml")
             root = ET.fromstring(xml[xml.index("<?xml"):])
             target = next((node for node in root.iter("node") if "PROTOTYPE codex 99" in node.get("text", "")), None)
+            if api >= 36:
+                # Android 16 force-groups even singleton app groups. Expand the actual
+                # summary so the swipe reaches one child, not all three accounts.
+                app_row = next((row for row in root.iter("node") if row.get("resource-id", "").endswith("/expandableNotificationRow") and
+                                any(n.get("text") == "Usage Limits" for n in row.iter("node"))), None)
+                expand = next((n for n in app_row.iter("node") if n.get("resource-id") == "android:id/expand_button" and n.get("content-desc") == "Expand"), None) if app_row is not None else None
+                if expand is not None:
+                    bounds = list(map(int, re.findall(r"\d+", expand.attrib["bounds"])))
+                    adb("shell", "input", "tap", str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
+                    time.sleep(2)
+                    screen(name + "-expanded-before-swipe-shade")
+                    adb("shell", "uiautomator", "dump", "/sdcard/prototype-window.xml", check=False)
+                    xml = adb("shell", "cat", "/sdcard/prototype-window.xml")
+                    save(name + "-expanded-before-swipe-window.xml", xml)
+                    root = ET.fromstring(xml[xml.index("<?xml"):])
+                    target = next((node for node in root.iter("node") if "PROTOTYPE codex 99" in node.get("text", "")), None)
             if target is not None:
                 coords = list(map(int, re.findall(r"\d+", target.attrib["bounds"])))
                 y = (coords[1] + coords[3]) // 2
@@ -137,7 +153,13 @@ for scenario in ("a", "b", "c", "d", "e"):
                 save(name + "-swipe.txt", "Codex title not visible; swipe not attempted.\n")
             screen(name + "-after-swipe-shade")
             dump(name + "-after-swipe")
-            save(name + "-prototype-log.txt", adb("shell", "logcat", "-d", "-v", "threadtime", "-s", "PrototypeStatusbar:I", "*:S"))
+            deletion_log = adb("shell", "logcat", "-d", "-v", "threadtime", "-s", "PrototypeStatusbar:I", "*:S")
+            save(name + "-prototype-log.txt", deletion_log)
+            if api >= 34:
+                after_swipe = (out / f"{name}-after-swipe-notification.txt").read_text()
+                remaining = set(re.findall(r"NotificationRecord\([^\n]*pkg=com\.usagelimits\.debug[^\n]*? id=(710[012])\b", after_swipe))
+                if remaining != {"7100", "7102"} or "DELETE_INTENT id=7101" not in deletion_log:
+                    raise RuntimeError(f"Expected only Codex dismissed with delete intent; remaining={remaining}")
             adb("shell", "cmd", "statusbar", "collapse", check=False)
             broadcast("clear")
             broadcast(variant=variant, scenario="b")
