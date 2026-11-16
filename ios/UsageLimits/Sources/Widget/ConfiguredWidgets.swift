@@ -285,10 +285,11 @@ private struct ConfiguredRingGrid: View {
                                     if mini {
                                         // Only room for the logo: the figure is the arc.
                                         logo(for: account).frame(width: 20, height: 20)
-                                    } else {
+                                    } else if let centre = PercentText.ringCentre(p) {
                                         // A ring this size reads best with its number inside; the
-                                        // logo goes beside the name instead.
-                                        Text(verbatim: figure)
+                                        // logo goes beside the name instead. A full allowance is
+                                        // the closed arc alone, an exhausted 100 has no sign.
+                                        Text(verbatim: centre)
                                             .usageFont(p.hasFigure ? .smallStrong : .small)
                                             .foregroundStyle(ink.figure(severity))
                                             .lineLimit(1)
@@ -323,10 +324,11 @@ private struct ConfiguredRingGrid: View {
     }
 
     /// LEFT is the sentence spoken before the mode existed, which reads the lowest figure across
-    /// every window. USED speaks `drawnFigure`, the very string the ring prints: an exhausted
-    /// 5h window whose reset has passed, beside an open weekly at 60% left, draws "40% used" from
-    /// the representative row, and a second derivation over all rows announced "100% used".
-    /// Taking the drawn figure in means the two cannot be computed apart again.
+    /// every window. USED speaks `drawnFigure`, the figure the ring draws, in its centre or, for a
+    /// closed ring at 100, by its arc alone: an exhausted 5h window whose reset has passed, beside
+    /// an open weekly at 60% left, draws "40% used" from the representative row, and a second
+    /// derivation over all rows announced "100% used". Taking the drawn figure in means the two
+    /// cannot be computed apart again.
     private func spoken(_ account: GlanceAccount, drawnFigure: String) -> String {
         let sentence: String
         if mode == .used {

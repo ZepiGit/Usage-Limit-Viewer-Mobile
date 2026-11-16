@@ -99,6 +99,81 @@ class WidgetAppearanceRenderingTest {
         }
     }
 
+    /**
+     * The ring scenes the owner judges the centre rule by (#38), exported at xxhdpi so a ring's
+     * centre is legible: Account Rings in Left at 100 and 42, Account Rings in Used with an
+     * exhausted window beside one at 42, and Mini Rings in Left at 100 and 42. Every scene is
+     * exported before any is checked, so a failing check still leaves all three pictures.
+     */
+    @Config(qualifiers = "xxhdpi")
+    @Test fun `ring scenes render a ring at one hundred beside one at forty two`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        val repository = app.container.repository
+        val now = System.currentTimeMillis()
+        suspend fun seed(name: String, used: Double, exhausted: Boolean = false): String {
+            val account = repository.upsertFromLogin(ProviderId.CLAUDE, "scene-$name",
+                "scene@example.invalid", name, "Pro", emptyMap())
+            repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.OK, windows = listOf(
+                UsageWindow("week", "Weekly", WindowCategory.WEEKLY, used, 604_800, now + 86_400_000, exhausted))))
+            return account.localId
+        }
+        val full = seed("At 100 left", 0.0)
+        val part = seed("At 42 left", 58.0)
+        val spent = seed("Exhausted", 100.0, exhausted = true)
+        val partUsed = seed("At 42 used", 42.0)
+        class Scene(val file: String, val widget: String, val receiver: Class<*>, val mode: PercentDisplay,
+            val ids: List<String>, val size: DpSize)
+        val scenes = listOf(
+            Scene("rings-account-left-100-and-42", "MinimalUsageWidget", MinimalUsageWidgetReceiver::class.java,
+                PercentDisplay.LEFT, listOf(full, part), DpSize(220.dp, 140.dp)),
+            Scene("rings-account-used-exhausted-and-42", "MinimalUsageWidget", MinimalUsageWidgetReceiver::class.java,
+                PercentDisplay.USED, listOf(spent, partUsed), DpSize(220.dp, 140.dp)),
+            Scene("rings-mini-left-100-and-42", "MiniRingsWidget", MiniRingsWidgetReceiver::class.java,
+                PercentDisplay.LEFT, listOf(full, part), DpSize(130.dp, 90.dp)),
+        )
+        val density = app.resources.displayMetrics.density
+        val manager = AppWidgetManager.getInstance(app)
+        val shown = mutableMapOf<String, Pair<List<String>, List<String>>>()
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            for ((index, scene) in scenes.withIndex()) {
+                val config = WidgetConfigEntity(400 + index, "CUSTOM", null, null, now,
+                    customAccountIdsJson = scene.ids.joinToString(prefix = "[", postfix = "]") { "\"$it\"" },
+                    percentDisplay = scene.mode.name)
+                app.container.widgetConfigDao.upsert(config)
+                shadowOf(manager).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
+                    provider = ComponentName(app, scene.receiver)
+                })
+                WidgetUpdater.allWidgets.first { it.name == scene.widget }.widget().runComposition(app,
+                    id = GlanceAppWidgetManager(app).getGlanceIdBy(config.appWidgetId), sizes = listOf(scene.size)).first { remote ->
+                    val host = AppWidgetHostView(app).apply { setAppWidget(config.appWidgetId, null) }
+                    val view = remote.apply(app, host)
+                    host.addView(view)
+                    remote.reapply(app, view)
+                    ShadowLooper.idleMainLooper()
+                    export(draw(view, (scene.size.width.value * density).toInt(), (scene.size.height.value * density).toInt()), scene.file)
+                    shown[scene.file] = textViews(view).map { it.text.toString() } to imageDescriptions(view)
+                    true
+                }
+            }
+        } finally {
+            Dispatchers.resetMain()
+        }
+        val (leftText, leftSaid) = shown.getValue(scenes[0].file)
+        assertTrue("Account Rings Left: the ring at 42 writes 42%, got $leftText", "42%" in leftText)
+        assertTrue("Account Rings Left: the full ring writes nothing, got $leftText", leftText.none { it.startsWith("100") })
+        assertTrue("Account Rings Left: the full ring still says it, got $leftSaid", leftSaid.any { "100% remaining" in it })
+        val (usedText, usedSaid) = shown.getValue(scenes[1].file)
+        assertTrue("Account Rings Used: the ring at 42 writes 42%, got $usedText", "42%" in usedText)
+        assertTrue("Account Rings Used: the exhausted ring writes a bare 100, got $usedText",
+            "100" in usedText && "100%" !in usedText)
+        assertTrue("Account Rings Used: the exhausted ring still says it, got $usedSaid", usedSaid.any { "100% used" in it })
+        val (miniText, miniSaid) = shown.getValue(scenes[2].file)
+        assertTrue("Mini Rings: no ring writes a figure, got $miniText", miniText.none { it.endsWith("%") || it == "100" })
+        assertEquals("Mini Rings: both rings are there, got $miniSaid",
+            2, miniSaid.count { "100% remaining" in it || "42% remaining" in it })
+    }
+
     @Test fun `saved panel and text survive theme changes resizing and host reapply for every widget`() = runTest {
         val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
         val repository = app.container.repository

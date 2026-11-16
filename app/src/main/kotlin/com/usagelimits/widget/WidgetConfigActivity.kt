@@ -450,7 +450,10 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                                 ).asImageBitmap(),
                                 ringDescription(resources, account, mode), Modifier.fillMaxSize(),
                             )
-                            ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
+                            // The centre the placed widget draws: Mini Rings the provider mark,
+                            // Account Rings the figure, through the same rule for a 100.
+                            if (kind == "Mini Rings") ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
+                            else ringCentreFigure(resources, p)?.let { Text(it, style = UsageType.Figure, color = style.textPrimary) }
                         }
                     }
                 }

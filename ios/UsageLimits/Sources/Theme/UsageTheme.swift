@@ -136,6 +136,16 @@ enum PercentText {
         token == PercentToken.unknown ? token : String(localized: "\(token)%")
     }
 
+    /// What a ring writes in its centre, or nil when it writes nothing (`RingCentre`): "42%", an
+    /// exhausted "100" without its sign. A ring adopts the rule by calling this instead of `figure`.
+    static func ringCentre(_ p: WindowPresentation) -> String? {
+        switch RingCentre.of(p) {
+        case .figure(let token): return figure(token: token)
+        case .bare(let token): return token
+        case .empty: return nil
+        }
+    }
+
     /// The caption a grid carries when its rings show no side word: "Left" or "Used".
     static func caption(_ mode: PercentDisplay) -> String {
         mode == .used ? String(localized: "Used") : String(localized: "Left")

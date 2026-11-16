@@ -25,6 +25,7 @@ import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.WindowPresentation
 import com.usagelimits.ui.percentSideCaptionRes
 import com.usagelimits.ui.percentSpokenClauseRes
 import com.usagelimits.ui.text.ResourceCountdownTexts
@@ -147,6 +148,27 @@ internal fun ringFigure(resources: android.content.res.Resources, account: Widge
     percentFigure(ringLimit(account).presentation(null, mode).token, resources)
 
 /**
+ * What a ring writes in its centre for [p]: the figure with its sign, the token alone, or nothing
+ * (null). A ring adopts the rule by calling this instead of [percentFigure].
+ *
+ * The owner's call (#38): in USED a 100 is the exhausted window and is written without its sign,
+ * which fits where "100%" does not; in LEFT a 100 is the full allowance, which the closed arc says
+ * by itself. Aged readings follow the same rule, because these widgets still draw their arc, only
+ * in grey. The presentation keeps its "100" token, so the description and every other surface
+ * still say the full figure. An unknown figure writes nothing: a ring centre has never shown the
+ * dash.
+ */
+internal fun ringCentreFigure(resources: android.content.res.Resources, p: WindowPresentation): String? = when {
+    !p.hasFigure -> null
+    p.token != FULL_RING_TOKEN -> percentFigure(p.token, resources)
+    p.side == PercentDisplay.USED -> p.token
+    else -> null
+}
+
+/** The token of a closed ring. ">99" is its own token, so this never swallows a rounded 99.6. */
+private const val FULL_RING_TOKEN = "100"
+
+/**
  * What a screen reader hears for one ring. Shared by the placed widgets and the configuration
  * preview so the preview cannot describe a ring differently from the widget it stands for.
  */
@@ -174,7 +196,8 @@ internal fun compactRingReset(context: Context, resetAt: Long): String {
 
 /**
  * One ring: the displayed share as a data-hue arc over a track. The big rings carry the % in
- * their centre; the 1x1 rings have no room for text, so they carry the provider mark instead.
+ * their centre, except where [ringCentreFigure] leaves it empty; the 1x1 rings have no room for
+ * text, so they carry the provider mark instead.
  * A partial update is a 6dp amber dot at the ring's 2 o'clock, outside the stroke.
  */
 @Composable
@@ -183,7 +206,6 @@ private fun RingMark(account: WidgetAccount, size: androidx.compose.ui.unit.Dp, 
     val mode = LocalPercentMode.current
     val p = ringLimit(account).presentation(null, mode)
     val resources = LocalContext.current.resources
-    val percent = percentFigure(p.token, resources)
     Box(GlanceModifier.size(size), contentAlignment = Alignment.Center) {
         Image(
             ImageProvider(UsageRing.draw(
@@ -196,8 +218,8 @@ private fun RingMark(account: WidgetAccount, size: androidx.compose.ui.unit.Dp, 
             ProviderId.fromId(account.providerId)?.let {
                 WidgetLogo(it, account.iconChoiceId, size * 0.46f)
             }
-        } else if (p.hasFigure) {
-            Text(percent, style = widgetText(style.textPrimary, 12, FontWeight.Bold, mono = true), maxLines = 1)
+        } else ringCentreFigure(resources, p)?.let {
+            Text(it, style = widgetText(style.textPrimary, 12, FontWeight.Bold, mono = true), maxLines = 1)
         }
         if (account.partialUpdate) {
             Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {
