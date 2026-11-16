@@ -1,0 +1,53 @@
+name: Prototype status bar pixels
+
+on:
+  push:
+    branches: [prototype/statusbar-icons]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prototype-statusbar-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pixels:
+    name: API ${{ matrix.api }} real status bar
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [36, 30]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+      - name: Build the debug-only prototype
+        run: ./gradlew --no-daemon --no-configuration-cache :app:assembleDebug
+      - name: Install screenshot crop dependency
+        run: python3 -m pip install Pillow
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Capture real SystemUI pixels and notification dumps
+        env:
+          PROTOTYPE_API: ${{ matrix.api }}
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_prototype_statusbar.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prototype-statusbar-api${{ matrix.api }}-${{ github.sha }}
+          path: runtime/statusbar-api${{ matrix.api }}
+          if-no-files-found: warn

@@ -4,6 +4,7 @@ name: Android
 
 on:
   push:
+    branches-ignore: [prototype/statusbar-icons]
     paths:
       - 'app/**'
       - 'gradle/**'
