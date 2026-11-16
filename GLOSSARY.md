@@ -11,11 +11,11 @@ One identity at one provider whose usage windows or credit balance the app reads
 _Avoid_: Login, profile, subscription, connection
 
 **Headline**:
-The one usage window that speaks for an account at a given moment: the most critical one that is not reset due, with global windows ahead of model-specific ones.
+The one usage window that speaks for an account at a given moment: the most critical one, with windows that are not reset due preferred when there are any and global windows ahead of model-specific ones. An account without usage windows has no headline.
 _Avoid_: Most critical window, representative, lead window
 
 **Sync**:
-Reading an account's current state from its provider and replacing what the app last knew. A refresh is the person's request for a sync, not the sync itself.
+An attempt to read an account's current state from its provider, started by a person or by the app in the background. A failed sync keeps the previous readings. "Refresh" is the word the interface uses for it.
 _Avoid_: Fetch, poll, update, reload
 
 **Reading**:
@@ -31,7 +31,7 @@ _Avoid_: Limit, quota, bucket (a "limit" appears only inside a window's label, e
 ### Reading states
 
 **Exhausted**:
-The provider's verdict that nothing is left in a usage window. It is taken as reported and never inferred from an aged or replaced state.
+Nothing is left in a usage window: the provider says so, or its reading shows zero remaining. It is never inferred from an aged or replaced state.
 _Avoid_: Empty, out, maxed
 
 **Stale reading**:
