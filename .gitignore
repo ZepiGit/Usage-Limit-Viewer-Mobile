@@ -56,3 +56,9 @@ AGENTS.md
 docs/agents/domain.md
 docs/agents/issue-tracker.md
 docs/agents/triage-labels.md
+/.scratch/
+
+# Local agent work directories: briefings, device dumps, review notes. Machine-local, and
+# one of them holds a 45 MB framework.jar that a careless `git add -A` would stage.
+/.omp-work/
+/.claude-work/
