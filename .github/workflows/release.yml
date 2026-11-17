@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload verification reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-android-checks
           path: |
@@ -121,7 +121,7 @@ jobs:
           sha256sum dist/app-release.apk > dist/app-release.apk.sha256
 
       - name: Upload the build outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-release
           path: dist
@@ -193,7 +193,7 @@ jobs:
         run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-*.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/apk/app-release.apk.sha256 --evidence runtime/evidence
       - name: Upload release runtime evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-android-runtime-evidence-${{ needs.metadata.outputs.version }}
           path: runtime/evidence
@@ -269,7 +269,7 @@ jobs:
           zip -q -r UsageLimits-ios-unsigned.xcarchive.zip UsageLimits.xcarchive RELEASE-README.txt
 
       - name: Upload the archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-archive
           path: ${{ runner.temp }}/UsageLimits-ios-unsigned.xcarchive.zip
@@ -308,7 +308,7 @@ jobs:
           printf 'Artifacts for v%s at `%s` are ready. Follow docs/release.md to verify and publish using the release owner account.\n' \
             "$RELEASE_VERSION" "$RELEASE_COMMIT" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the versioned release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-assets-${{ needs.metadata.outputs.version }}
           path: dist
