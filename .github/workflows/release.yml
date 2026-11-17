@@ -29,7 +29,7 @@ jobs:
       version_code: ${{ steps.version.outputs.version_code }}
       commit: ${{ steps.version.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Validate the version and pin the source commit
@@ -61,7 +61,7 @@ jobs:
       ANDROID_VERSION_NAME: ${{ needs.metadata.outputs.version }}
       ANDROID_VERSION_CODE: ${{ needs.metadata.outputs.version_code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.commit }}
           fetch-depth: 0
@@ -140,7 +140,7 @@ jobs:
     env:
       RELEASE_COMMIT: ${{ needs.metadata.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.commit }}
           persist-credentials: false
@@ -208,7 +208,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
       RELEASE_VERSION_CODE: ${{ needs.metadata.outputs.version_code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.metadata.outputs.commit }}
       - name: Test the shared package
