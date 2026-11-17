@@ -177,7 +177,9 @@ class GermanWidgetRenderTest {
             inspect("MinimalUsageWidget", id, DpSize(180.dp, 240.dp)) { view ->
                 val text = textViews(view).map { it.text.toString() }
                 assertTrue("$mode: the status line is German, got $text", "Kontingent unbekannt" in text)
-                if (mode == PercentDisplay.USED) assertTrue("USED: the centre reads 100 %, got $text", "100 %" in text)
+                // An exhausted 100 has no sign in a ring's centre (#38), so no locale's spacing either.
+                if (mode == PercentDisplay.USED) assertTrue("USED: the centre reads a bare 100, got $text",
+                    "100" in text && "100 %" !in text)
             }
         }
     }

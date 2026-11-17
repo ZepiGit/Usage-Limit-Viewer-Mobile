@@ -125,11 +125,7 @@ class WidgetConfigActivity : ComponentActivity() {
                                         percentDisplay = percentOverride,
                                         customAccountIdsJson = JSONArray(custom).toString(),
                                         layoutMetricsJson = (WidgetMetrics.fromJson(initial?.layoutMetricsJson ?: "{}") ?: placementMetrics).toJson()))
-                                    WidgetUpdater.refreshAll(this@WidgetConfigActivity)
-                                    // A saved configuration can change what the widget shows
-                                    // without new data; the next staleness/reset boundary moves
-                                    // with it, so recompute the one coalesced repaint.
-                                    WidgetPresentationWorker.scheduleNext(this@WidgetConfigActivity)
+                                    container.publication.presentationChanged()
                                     setResult(RESULT_OK, result); finish()
                                 } catch (_: Exception) { saving = false; error = getString(R.string.widget_config_save_failed) }
                             }
@@ -450,7 +446,10 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                                 ).asImageBitmap(),
                                 ringDescription(resources, account, mode), Modifier.fillMaxSize(),
                             )
-                            ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
+                            // The centre the placed widget draws: Mini Rings the provider mark,
+                            // Account Rings the figure, through the same rule for a 100.
+                            if (kind == "Mini Rings") ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
+                            else ringCentreFigure(resources, p)?.let { Text(it, style = UsageType.Figure, color = style.textPrimary) }
                         }
                     }
                 }

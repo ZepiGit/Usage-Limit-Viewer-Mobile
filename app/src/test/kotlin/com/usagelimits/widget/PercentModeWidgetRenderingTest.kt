@@ -271,12 +271,62 @@ class PercentModeWidgetRenderingTest {
                 val descriptions = descriptions(view)
                 assertTrue("$mode: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
                 if (mode == PercentDisplay.USED) {
-                    assertTrue("USED: the centre reads 100%, got $text", "100%" in text)
+                    // An exhausted 100 is written without its sign so it fits (#38).
+                    assertTrue("USED: the centre reads a bare 100, got $text", "100" in text && "100%" !in text)
                     assertTrue("USED: the ring says 100% used, got $descriptions", descriptions.any { "100% used" in it })
                     assertTrue("USED: the status still says the quota is unknown, got $text", "Quota unknown" in text)
                 } else {
                     assertTrue("LEFT: no 100% appears for an unknown remainder, got $text", text.none { it.contains("100%") })
                     assertTrue("LEFT: no figure at all is drawn in the centre, got $text", text.none { it.endsWith("%") })
+                }
+            }
+        }
+    }
+
+    @Test fun `account rings write no full allowance and an exhausted 100 without its sign`() = runTest {
+        // Owner's decision (#38): in LEFT a 100 is the full allowance, which the closed ring says
+        // by itself; in USED it is the exhausted window, written as a bare "100" so it fits. The
+        // rule follows the written figure, so it holds for aged readings too, whose arc is still
+        // drawn (grey); every other figure, including 0 and 99, keeps its sign.
+        val now = System.currentTimeMillis()
+        val future = now + 86_400_000
+        fun weekly(used: Double?, exhausted: Boolean = false, resetAt: Long = future) =
+            UsageWindow("week", "Weekly", WindowCategory.WEEKLY, used, 604_800, resetAt, exhausted)
+        val repository = app.container.repository
+        suspend fun seed(name: String, window: UsageWindow, fetchedAt: Long = now): String {
+            val account = repository.upsertFromLogin(ProviderId.CLAUDE, "centre-$name",
+                "$name@example.invalid", name, "Pro", emptyMap())
+            repository.saveSnapshot(UsageSnapshot(account.localId, fetchedAt, SnapshotStatus.OK, windows = listOf(window)))
+            return account.localId
+        }
+        val ids = listOf(
+            seed("Full", weekly(0.0)),
+            seed("Spent", weekly(100.0, exhausted = true)),
+            seed("Almost", weekly(1.0)),
+            seed("Most", weekly(99.0)),
+            seed("Unknown", weekly(null)),
+            // Two days old: past any stale threshold the sync interval can set.
+            seed("Old", weekly(0.0), fetchedAt = now - 2 * 86_400_000L),
+            // Fetched before a reset that has since passed: the spent window's reading.
+            seed("Due", weekly(100.0, exhausted = true, resetAt = now - 60_000), fetchedAt = now - 120_000),
+        )
+        val expected = mapOf(
+            PercentDisplay.LEFT to mapOf("Full" to null, "Spent" to "0%", "Almost" to "99%", "Most" to "1%",
+                "Unknown" to null, "Old" to null, "Due" to "0%"),
+            PercentDisplay.USED to mapOf("Full" to "0%", "Spent" to "100", "Almost" to "1%", "Most" to "99%",
+                "Unknown" to null, "Old" to "0%", "Due" to "100"),
+        )
+        val spokenFull = mapOf(PercentDisplay.LEFT to listOf("Full", "Old"), PercentDisplay.USED to listOf("Spent", "Due"))
+        inEachMode { mode ->
+            inspect("MinimalUsageWidget", ids, DpSize(180.dp, 900.dp)) { view ->
+                for ((name, figure) in expected.getValue(mode)) {
+                    val cell = accountCell(view, name)
+                    assertEquals("$mode $name: the figure written in the centre", listOfNotNull(figure), centreFigures(cell))
+                }
+                val clause = if (mode == PercentDisplay.USED) "100% used" else "100% remaining"
+                for (name in spokenFull.getValue(mode)) {
+                    val descriptions = descriptions(accountCell(view, name))
+                    assertTrue("$mode $name: the ring still says '$clause', got $descriptions", descriptions.any { clause in it })
                 }
             }
         }
@@ -546,6 +596,23 @@ class PercentModeWidgetRenderingTest {
         }
         return bottom
     }
+
+    /**
+     * The cell of the account labelled [label]: the nearest container around that label which also
+     * holds a ring, so its texts are this account's alone.
+     */
+    private fun accountCell(root: View, label: String): View {
+        var cell: View = textViews(root).singleOrNull { it.text.toString() == label }
+            ?: error("one '$label' label, got ${textViews(root).map { it.text }}")
+        while (descriptions(cell).none { " remaining" in it || " used" in it }) {
+            cell = cell.parent as? View ?: error("no ring around '$label'")
+        }
+        return cell
+    }
+
+    /** What a cell writes as a figure: a percentage, a bare number or the unknown dash. */
+    private fun centreFigures(cell: View): List<String> =
+        textViews(cell).map { it.text.toString() }.filter { it.endsWith("%") || (it.isNotEmpty() && it.all(Char::isDigit)) || it == "—" }
 
     private fun textViews(view: View): List<TextView> = buildList {
         if (view is TextView) add(view)

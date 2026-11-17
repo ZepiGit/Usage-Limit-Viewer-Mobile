@@ -22,7 +22,6 @@ import com.usagelimits.providers.codex.CodexProvider
 import com.usagelimits.providers.kimi.KimiProvider
 import com.usagelimits.providers.meta.MetaProvider
 import com.usagelimits.providers.xai.XaiProvider
-import com.usagelimits.widget.WidgetUpdater
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -237,9 +236,7 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
                 container.credentialStore.save(account.credentialReference, credentials)
 
                 container.syncEngine.syncAccount(account)
-                // A newly added account should appear on the home screen immediately, not at
-                // the next background pass.
-                WidgetUpdater.refreshAll(context.applicationContext)
+                container.publication.cacheMoved()
 
                 chosenRegion = null
                 _state.value = AddAccountState.Success(providerId, account.label)

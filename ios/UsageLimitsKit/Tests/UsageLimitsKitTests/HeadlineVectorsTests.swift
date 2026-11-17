@@ -74,19 +74,12 @@ final class HeadlineVectorsTests: XCTestCase {
     }
 
     private static func parse(_ data: Data) throws -> [Vector] {
-        let vectors = try JSONDecoder().decode(VectorFile.self, from: data).vectors
+        let vectors = try SharedVectors.parse(VectorFile.self, from: data).vectors
         guard !vectors.isEmpty else { throw VectorFileError(description: "the headline vector file holds no vectors") }
         return vectors
     }
 
-    /// `#filePath` is this source file; the vectors sit at the repository root.
-    private static let file = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent() // UsageLimitsKitTests
-        .deletingLastPathComponent() // Tests
-        .deletingLastPathComponent() // UsageLimitsKit
-        .deletingLastPathComponent() // ios
-        .deletingLastPathComponent() // repository root
-        .appendingPathComponent("shared/test-vectors/account-headline.json")
+    private static let file = SharedVectors.file("account-headline.json")
 
     func testEverySharedVectorPicksTheExpectedHeadline() throws {
         for vector in try Self.parse(Data(contentsOf: Self.file)) {
@@ -124,27 +117,6 @@ final class HeadlineVectorsTests: XCTestCase {
 
     func testAnEmptyVectorListFailsTheSuite() {
         XCTAssertThrowsError(try Self.parse(Data(#"{"description": "", "vectors": []}"#.utf8)))
-    }
-}
-
-private struct Keys: CodingKey {
-    let stringValue: String
-    var intValue: Int? { nil }
-    init(_ stringValue: String) { self.stringValue = stringValue }
-    init?(stringValue: String) { self.stringValue = stringValue }
-    init?(intValue: Int) { nil }
-}
-
-private struct VectorFileError: Error, CustomStringConvertible {
-    let description: String
-}
-
-/// Present-with-null counts as present: a key must be written out even when its value is null.
-private func requireExactKeys(_ decoder: Decoder, _ expected: Set<String>) throws {
-    let found = Set(try decoder.container(keyedBy: Keys.self).allKeys.map(\.stringValue))
-    guard found == expected else {
-        throw VectorFileError(description:
-            "keys \(found.sorted()) at \(decoder.codingPath.map(\.stringValue)) do not match \(expected.sorted())")
     }
 }
 
