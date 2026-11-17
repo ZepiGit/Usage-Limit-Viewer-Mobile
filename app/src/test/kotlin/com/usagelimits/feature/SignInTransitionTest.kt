@@ -108,6 +108,7 @@ class SignInTransitionTest {
                 Snapshot.sendApplyNotifications()
             }
             compose.mainClock.advanceTimeByFrame()
+            // 90 ms keeps the click inside the 180 ms crossfade while the outgoing node is attached.
             compose.mainClock.advanceTimeBy(90)
             compose.onNodeWithText("Contacting ${ProviderId.KIMI.displayName}…").assertExists()
             // A queued click belongs to the old step even after the next step appears.
