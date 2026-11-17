@@ -55,6 +55,9 @@ jobs:
           java-version: '21'
 
       - uses: gradle/actions/setup-gradle@v6
+        with:
+          # Enhanced caching has separate Terms of Use; keep the MIT cache provider.
+          cache-provider: basic
 
       # The emulator smoke's pixel logic, on synthetic frames; no device needed.
       - name: Test the runtime smoke's own checks
@@ -99,6 +102,9 @@ jobs:
           java-version: '17'
 
       - uses: gradle/actions/setup-gradle@v6
+        with:
+          # Enhanced caching has separate Terms of Use; keep the MIT cache provider.
+          cache-provider: basic
 
       # Debug APKs use the repository debug key; minified APKs use the release key when configured.
       - name: Decode the release signing key when configured
