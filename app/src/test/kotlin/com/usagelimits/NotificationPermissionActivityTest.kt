@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -24,6 +25,11 @@ import org.robolectric.shadows.ShadowLooper
 @Config(application = UsageLimitsApp::class, sdk = [34])
 class NotificationPermissionActivityTest {
     private val app = ApplicationProvider.getApplicationContext<Application>() as UsageLimitsApp
+
+    @Before
+    fun startBeforeFirstLaunch() = runBlocking {
+        app.container.settingsStore.clearNotificationPermissionHandled()
+    }
 
     @After
     fun drainStartupWork() {
@@ -41,7 +47,7 @@ class NotificationPermissionActivityTest {
             await { controller.get().notificationPermissionCheck?.isCompleted == true }
             assertArrayEquals(arrayOf(Manifest.permission.POST_NOTIFICATIONS),
                 shadowOf(controller.get()).lastRequestedPermission.requestedPermissions)
-            assertTrue(runBlocking { app.container.settingsStore.settings.first().notificationPermissionAsked })
+            assertTrue(runBlocking { app.container.settingsStore.settings.first().notificationPermissionHandled })
             controller.recreate()
             await { controller.get().notificationPermissionCheck?.isCompleted == true }
             assertNull(shadowOf(controller.get()).lastRequestedPermission)
@@ -51,7 +57,6 @@ class NotificationPermissionActivityTest {
     }
 
     @Test
-    @Config(sdk = [33])
     fun `a later launch completes its decision without asking again`() {
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val first = Robolectric.buildActivity(UsageLimitsActivity::class.java).create().start().resume()
@@ -70,14 +75,13 @@ class NotificationPermissionActivityTest {
     }
 
     @Test
-    @Config(sdk = [35])
     fun `revoking an existing grant does not make a later launch ask automatically`() {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val first = Robolectric.buildActivity(UsageLimitsActivity::class.java).create().start().resume()
         try {
             await { first.get().notificationPermissionCheck?.isCompleted == true }
             assertNull(shadowOf(first.get()).lastRequestedPermission)
-            assertTrue(runBlocking { app.container.settingsStore.settings.first().notificationPermissionAsked })
+            assertTrue(runBlocking { app.container.settingsStore.settings.first().notificationPermissionHandled })
         } finally {
             first.pause().stop().destroy()
         }
@@ -96,9 +100,9 @@ class NotificationPermissionActivityTest {
     fun `Android before 13 does not ask for notification permission or record a request`() {
         val controller = Robolectric.buildActivity(UsageLimitsActivity::class.java).create().start().resume()
         try {
-            ShadowLooper.idleMainLooper()
+            await { controller.get().notificationPermissionCheck?.isCompleted != false }
             assertNull(shadowOf(controller.get()).lastRequestedPermission)
-            org.junit.Assert.assertFalse(runBlocking { app.container.settingsStore.settings.first().notificationPermissionAsked })
+            org.junit.Assert.assertFalse(runBlocking { app.container.settingsStore.settings.first().notificationPermissionHandled })
         } finally {
             controller.pause().stop().destroy()
         }

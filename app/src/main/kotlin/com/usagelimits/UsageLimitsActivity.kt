@@ -55,8 +55,8 @@ class UsageLimitsActivity : ComponentActivity() {
                 val granted = ContextCompat.checkSelfPermission(
                     this@UsageLimitsActivity, Manifest.permission.POST_NOTIFICATIONS,
                 ) == PackageManager.PERMISSION_GRANTED
-                if (!settings.notificationPermissionAsked) container.settingsStore.recordNotificationPermissionAsked()
-                if (shouldAskNotificationPermission(Build.VERSION.SDK_INT, settings.notificationPermissionAsked, granted)) {
+                if (!settings.notificationPermissionHandled) container.settingsStore.recordNotificationPermissionAsked()
+                if (shouldAskNotificationPermission(Build.VERSION.SDK_INT, settings.notificationPermissionHandled, granted)) {
                     notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }

@@ -35,8 +35,8 @@ class SettingsMappingTest {
 
     @Test
     fun `the notification permission history survives settings reloads`() {
-        assertTrue(settingsFrom(booleanPreferencesKey("notification_permission_asked") to true).notificationPermissionAsked)
-        assertFalse(settingsFrom().notificationPermissionAsked)
+        assertTrue(settingsFrom(booleanPreferencesKey("notification_permission_asked") to true).notificationPermissionHandled)
+        assertFalse(settingsFrom().notificationPermissionHandled)
     }
 
     @Test

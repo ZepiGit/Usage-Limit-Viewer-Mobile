@@ -109,9 +109,7 @@ private fun openNotificationSettings(context: Context) {
         .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
     val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
         android.net.Uri.fromParts("package", context.packageName, null))
-    for (intent in listOf(notifications, details)) {
-        if (runCatching { context.startActivity(intent) }.isSuccess) return
-    }
+    context.startFirstAvailable(notifications, details)
 }
 
 private tailrec fun Context.activity(): Activity? = when (this) {

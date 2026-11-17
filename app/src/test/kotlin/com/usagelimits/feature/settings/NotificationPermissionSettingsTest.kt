@@ -53,7 +53,7 @@ class NotificationPermissionSettingsTest {
     @Test
     fun `returning from system settings rereads both grants and revocations`() {
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        render(AppSettings(notificationPermissionAsked = true))
+        render(AppSettings(notificationPermissionHandled = true))
         scrollTo("Notifications not allowed")
         compose.onNodeWithText("Open notification settings").assertIsEnabled().performClick()
         val intent = shadowOf(compose.activity).nextStartedActivity
@@ -80,7 +80,7 @@ class NotificationPermissionSettingsTest {
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
         shadowOf(app.packageManager).setShouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS, true)
         var permissionAsked = false
-        render(AppSettings(notificationPermissionAsked = true), onNotificationPermissionAsked = { permissionAsked = true })
+        render(AppSettings(notificationPermissionHandled = true), onNotificationPermissionAsked = { permissionAsked = true })
         scrollTo("Allow notifications")
         compose.onNodeWithText("Allow notifications").performClick()
         org.junit.Assert.assertTrue(permissionAsked)
@@ -101,7 +101,7 @@ class NotificationPermissionSettingsTest {
     fun `a second denial replaces the dialog action with app notification settings`() {
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
         shadowOf(app.packageManager).setShouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS, true)
-        render(AppSettings(notificationPermissionAsked = true))
+        render(AppSettings(notificationPermissionHandled = true))
         scrollTo("Allow notifications")
         compose.onNodeWithText("Allow notifications").performClick()
         compose.waitUntil(10_000) { shadowOf(compose.activity).lastRequestedPermission != null }
@@ -149,7 +149,7 @@ class NotificationPermissionSettingsTest {
         }
         shadowOf(app.packageManager).addResolveInfoForIntent(details, resolution)
         shadowOf(app).checkActivities(true)
-        render(AppSettings(notificationPermissionAsked = true))
+        render(AppSettings(notificationPermissionHandled = true))
         scrollTo("Open notification settings")
         compose.onNodeWithText("Open notification settings").performClick()
         val opened = shadowOf(compose.activity).nextStartedActivity
