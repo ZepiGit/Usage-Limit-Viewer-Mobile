@@ -71,7 +71,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     onProviderIconChange: (com.usagelimits.core.model.ProviderId, String) -> Unit = { _, _ -> },
     onStatusIconsChange: (Boolean) -> Unit = {},
-    onPinnedAccountChange: (String?) -> Unit = {},
+    onPinnedChange: (accountId: String, pinned: Boolean) -> Unit = { _, _ -> },
     onNotificationsAllowed: () -> Unit = {},
 ) {
     val settings = state.settings
@@ -239,10 +239,11 @@ fun SettingsScreen(
             StatusIconSettings(
                 enabled = settings.statusIconsEnabled,
                 pinnedAccountIds = settings.pinnedAccountIds,
+                pendingPins = state.pendingPins,
                 accounts = state.accounts,
                 permission = permission,
                 onEnabledChange = onStatusIconsChange,
-                onPinnedChange = onPinnedAccountChange,
+                onPinnedChange = onPinnedChange,
             )
         }
 

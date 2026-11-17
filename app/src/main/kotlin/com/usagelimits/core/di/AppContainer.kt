@@ -17,7 +17,9 @@ import com.usagelimits.core.sync.OutOfAppPublication
 import com.usagelimits.core.sync.Publication
 import com.usagelimits.providers.credits.CreditRegistry
 import com.usagelimits.providers.ProviderRegistry
+import com.usagelimits.statusicon.StatusIconChanges
 import com.usagelimits.statusicon.StatusIconPublisher
+import kotlinx.coroutines.flow.first
 import com.usagelimits.ui.text.ResourceLoopbackPageTexts
 
 /**
@@ -88,6 +90,18 @@ open class AppContainer(context: Context) {
 
     val statusIconPublisher by lazy {
         StatusIconPublisher(appContext, settingsStore, repository::accountUsageOnce)
+    }
+
+    /** Every switch and pin change of the status icons goes through here, in turn. */
+    val statusIconChanges by lazy {
+        StatusIconChanges(
+            readPinned = { settingsStore.settings.first().pinnedAccountIds },
+            writePinned = settingsStore::setPinnedAccounts,
+            writeEnabled = settingsStore::setStatusIconsEnabled,
+            usageAccountIds = { repository.accounts().map { it.localId } },
+            // The property, not a captured value, so a container that replaces it is used.
+            publish = { publication.presentationChanged() },
+        )
     }
 
     open val publication: Publication by lazy {

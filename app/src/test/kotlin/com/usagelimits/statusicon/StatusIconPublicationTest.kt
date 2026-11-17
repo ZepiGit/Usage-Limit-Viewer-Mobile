@@ -22,6 +22,7 @@ import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.sync.NotificationPublisher
 import com.usagelimits.core.sync.resetTestWorkManager
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -50,6 +51,7 @@ import kotlin.time.Duration.Companion.seconds
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [36])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class StatusIconPublicationTest {
 
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
@@ -201,6 +203,7 @@ class StatusIconPublicationTest {
      */
     private fun interleaved(change: (AppSettings) -> AppSettings) = runBlocking {
         var settings = app.container.settingsStore.settings.first()
+        var clock = System.currentTimeMillis()
         val accounts = app.container.repository.accountUsageOnce()
         val olderInRead = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
@@ -214,15 +217,23 @@ class StatusIconPublicationTest {
                 accounts
             },
             readSettings = { settings },
+            // Time on the test scheduler: the clock moves when the publisher waits for it.
+            now = { clock },
+            nextTick = { delay(1); clock += 1 },
+            shown = object : ShownSelection {
+                private var ids = emptyList<String>()
+                override fun read() = ids
+                override fun write(accountIds: List<String>) { ids = accountIds }
+            },
         )
 
         runTest(timeout = 30.seconds) {
-            val older = launch { publisher.publish() }
+            val older = launch { publisher.publish(restoreDismissed = true) }
             advanceUntilIdle()
             assertTrue("the older publication is held inside its account read", olderInRead.isCompleted && !older.isCompleted)
 
             settings = change(settings)
-            val newer = launch { publisher.publish() }
+            val newer = launch { publisher.publish(restoreDismissed = true) }
             advanceUntilIdle()
             release.complete(Unit)
             advanceUntilIdle()

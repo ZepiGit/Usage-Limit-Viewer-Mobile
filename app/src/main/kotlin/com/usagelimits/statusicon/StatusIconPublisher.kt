@@ -8,8 +8,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.graphics.drawable.IconCompat
 import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.database.AccountUsage
@@ -25,9 +27,12 @@ import com.usagelimits.core.model.readingValidity
 import com.usagelimits.core.model.statusIcon
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.SettingsStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Keeps one status notification group per pinned account in step with the cache and the settings.
@@ -40,9 +45,37 @@ import kotlinx.coroutines.sync.withLock
  * Both records sit at stable identities derived from the account, so a later publication replaces
  * them in place, and only-alert-once keeps a changing figure silent.
  *
- * Every publication posts the pinned accounts and cancels the group of any account that is no
- * longer pinned, so switching the feature off, clearing the choice or choosing another account
- * removes the previous icon at once.
+ * **What a publication posts.** Every publication cancels the group of an account that is no
+ * longer pinned. Which pinned accounts it posts depends on why it runs, because a person can
+ * swipe an icon away and Android gives the app no way to tell that apart from a reboot or from
+ * the permission being withdrawn; all three leave the group missing from the active list:
+ * - after a sync ([restoreDismissed]) every pinned account is posted, so a swiped icon returns
+ *   with the next sync, and so do icons lost to a reboot;
+ * - otherwise only groups still showing are updated, plus accounts that were not pinned the last
+ *   time a publication ran. Turning the feature on, pinning an account, or unpinning and pinning
+ *   it again therefore shows it; pinning another account, a display-mode change or a time
+ *   boundary does not bring back an icon the person swiped away.
+ *
+ * "The last time" is [ShownSelection], the list of accounts the previous publication meant to
+ * show. It is not a record of dismissals: nothing listens for a swipe.
+ *
+ * This holds for publications that run to their end. The spec's "Limits of the dismissal rule"
+ * name what it does not promise: a process that dies between storing the selection and posting
+ * leaves those icons missing until the next sync; a selection that was not stored can let a
+ * repaint bring a dismissed icon back early; a permission revoked and granted again with no
+ * publication in between may wait for the next sync.
+ *
+ * **Order.** A sort key does not order separate groups. Within one importance section Android
+ * ranks them by ranking time, newest first, and the status bar draws its icons in that order from
+ * the start edge. The ranking time is the notification's own `when` only if the platform takes
+ * it as set by the app: not in the future, and, on Android 16 with `sortSectionByTime`, not equal
+ * to the notification's `creationTime`, which the platform constructor stamps with the clock of
+ * the moment the notification is built. Each publication therefore posts the accounts in reverse
+ * account order and gives each account a real clock reading that is later than the previous
+ * account's and earlier than the moment its own notifications are built ([readingBeforeBuild]),
+ * so the first account is the newest and leads. A reorder in the app takes effect with the next
+ * publication. Whether a given device ranks this way is ticket 04's evidence; the cited sources
+ * are in its report.
  */
 class StatusIconPublisher(
     private val context: Context,
@@ -52,6 +85,15 @@ class StatusIconPublisher(
     private val now: () -> Long = System::currentTimeMillis,
     /** The current settings; one read of the store in the app. */
     private val readSettings: suspend () -> AppSettings = { settingsStore.settings.first() },
+    private val shown: ShownSelection = PreferencesShownSelection(context),
+    /**
+     * Waits a moment for [now] to move on; called only while it still shows the same millisecond.
+     * The app suspends for a millisecond of the wall clock on [Dispatchers.Default], because a
+     * caller's own dispatcher may keep time differently (a paused main looper in a test does).
+     */
+    private val nextTick: suspend () -> Unit = { withContext(Dispatchers.Default) { delay(1) } },
+    /** A clock that never jumps, to bound how long the order may be waited for. */
+    private val monotonic: () -> Long = SystemClock::elapsedRealtime,
 ) {
     private val manager get() = context.getSystemService(NotificationManager::class.java)
 
@@ -66,26 +108,82 @@ class StatusIconPublisher(
      */
     private val serial = Mutex()
 
-    suspend fun publish(): Unit = serial.withLock {
-        // Missing permission is Settings' to explain; posting would only throw.
-        if (!hasPermission()) return@withLock
+    /** [restoreDismissed] is true after a sync and false for every other publication. */
+    suspend fun publish(restoreDismissed: Boolean): Unit = serial.withLock {
+        // Missing permission is Settings' to explain; posting would only throw. Nothing is shown,
+        // so a publication after the permission is given counts every pinned account as new. If
+        // no publication ran while it was missing, restoration may wait for the next sync.
+        if (!hasPermission()) {
+            shown.write(emptyList())
+            return@withLock
+        }
         val settings = readSettings()
         val accounts = readAccounts()
         val pinned = pinnedAccountIds(settings.statusIconsEnabled, settings.pinnedAccountIds, accounts.map { it.account.localId })
+        val previouslyShown = shown.read().toSet()
 
         val wanted = pinned.map(::tagFor).toSet()
-        manager.activeNotifications
-            .filter { it.notification.channelId == CHANNEL_ID && it.tag !in wanted }
-            .forEach { manager.cancel(it.tag, it.id) }
-        if (pinned.isEmpty()) return@withLock
+        val active = manager.activeNotifications.filter { it.notification.channelId == CHANNEL_ID }
+        active.filter { it.tag !in wanted }.forEach { manager.cancel(it.tag, it.id) }
+        val showing = active.map { it.tag }.toSet()
+        shown.write(pinned)
+
+        val posting = pinned.filter { restoreDismissed || it !in previouslyShown || tagFor(it) in showing }
+        if (posting.isEmpty()) return@withLock
 
         val texts = ResourceStatusIconTexts(context.resources)
         ensureChannel(texts)
         val nowMs = now()
-        for (usage in accounts.filter { it.account.localId in pinned }) post(usage, settings, texts, nowMs)
+        val byId = accounts.associateBy { it.account.localId }
+        var previous: Long? = null
+        var ordered = true
+        for (id in posting.asReversed()) {
+            // Once the clock jumped back or stood still for too long, this publication posts the
+            // rest without the order guarantee rather than hold the lock and every caller behind it.
+            val reading = if (ordered) readingBeforeBuild(previous) else null
+            if (reading == null) ordered = false
+            val postedAt = reading ?: now()
+            post(byId.getValue(id), settings, texts, nowMs, postedAt)
+            previous = postedAt
+        }
     }
 
-    private fun post(usage: AccountUsage, settings: AppSettings, texts: StatusIconTexts, nowMs: Long) {
+    /**
+     * A real clock reading for one account's `when`, later than [previous] (the account posted
+     * before it) and earlier than the clock at which this account's notifications are then built;
+     * null when that cannot be had.
+     *
+     * Later than [previous], because two equal times would tie and leave the order to Android.
+     * Earlier than the build, because on Android 16 with `sortSectionByTime` a `when` equal to the
+     * notification's `creationTime` (the build's clock reading) counts as not set by the app and
+     * is ignored for ranking. Both by waiting for the clock to move on ([nextTick]), never by
+     * inventing a time.
+     *
+     * That holds for a normal clock, one that does not jump while the reading is taken and the
+     * notifications are built. The wait suspends the publication (it keeps the publisher's lock,
+     * not a thread) until the clock shows the next millisecond; nominally about two milliseconds
+     * per account, with no upper bound from the scheduler. It gives up, and returns null, when
+     * the clock moves backwards (an earlier reading is not progress, and waiting for the old time
+     * could take as long as the jump) or has not moved within [CLOCK_WAIT_LIMIT_MS] on the
+     * [monotonic] clock. A clock that jumps after the last check cannot be ruled out.
+     */
+    private suspend fun readingBeforeBuild(previous: Long?): Long? {
+        val deadline = monotonic() + CLOCK_WAIT_LIMIT_MS
+        var reading = now()
+        while (previous != null && reading <= previous) {
+            if (reading < previous || monotonic() >= deadline) return null
+            nextTick()
+            reading = now()
+        }
+        while (true) {
+            val later = now()
+            if (later > reading) return reading
+            if (later < reading || monotonic() >= deadline) return null
+            nextTick()
+        }
+    }
+
+    private fun post(usage: AccountUsage, settings: AppSettings, texts: StatusIconTexts, nowMs: Long, postedAt: Long) {
         val snapshot = usage.snapshot
         val headline = snapshot?.headlineAt(nowMs)
         val needsReauthentication = snapshot?.connectionStatus == ConnectionStatus.RECONNECT_REQUIRED
@@ -117,9 +215,6 @@ class StatusIconPublisher(
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        // An update keeps the time the record was first posted: Android 16 rejects a post whose
-        // time is long past, and a fresh time on every sync would only reshuffle the shade.
-        val postedAt = manager.activeNotifications.firstOrNull { it.tag == tag }?.notification?.`when` ?: nowMs
         for ((id, summary) in listOf(SUMMARY_ID to true, CHILD_ID to false)) {
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(IconCompat.createWithBitmap(bitmap))
@@ -133,6 +228,7 @@ class StatusIconPublisher(
                 .setLocalOnly(true)
                 .setSilent(true)
                 .setShowWhen(false)
+                // Real, and the account's place in the order: see the class comment.
                 .setWhen(postedAt)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build()
@@ -164,10 +260,47 @@ class StatusIconPublisher(
         /** Separate from the alert channel, so a person can silence one without the other. */
         const val CHANNEL_ID = "status_icons"
 
+        /**
+         * How long one account's time may wait for the clock to move on before the publication
+         * gives up the order guarantee. A normal clock needs about two milliseconds.
+         */
+        internal const val CLOCK_WAIT_LIMIT_MS = 20L
+
         /** The tag names the account; the two ids name the records inside its group. */
         private const val SUMMARY_ID = 2001
         private const val CHILD_ID = 2002
 
         private fun tagFor(accountId: String) = "status-icon:$accountId"
+    }
+}
+
+/**
+ * The pinned accounts the previous status publication meant to show, in order.
+ *
+ * Kept outside the notifications because they do not survive a reboot or a swipe, and the
+ * publisher has to know whether an account is newly pinned or merely missing from the active
+ * list. Survives a restart, so a reboot is not mistaken for every account being newly pinned.
+ */
+interface ShownSelection {
+    fun read(): List<String>
+    fun write(accountIds: List<String>)
+}
+
+/** [ShownSelection] in the app's private preferences. */
+internal class PreferencesShownSelection(context: Context) : ShownSelection {
+    private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    override fun read(): List<String> =
+        prefs.getString(KEY, null).orEmpty().split(SEPARATOR).filter { it.isNotBlank() }
+
+    override fun write(accountIds: List<String>) {
+        prefs.edit { putString(KEY, accountIds.joinToString(SEPARATOR)) }
+    }
+
+    private companion object {
+        const val PREFS = "usage_limits_status_icons"
+        const val KEY = "shown_account_ids"
+        /** Account ids are UUIDs and never contain a line break. */
+        const val SEPARATOR = "\n"
     }
 }

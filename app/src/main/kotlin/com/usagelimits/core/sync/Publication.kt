@@ -41,7 +41,8 @@ interface Publication {
 internal class OutOfAppPublication(
     private val repaint: suspend () -> Unit,
     private val scheduleBoundary: suspend () -> Unit,
-    private val publishStatusIcons: suspend () -> Unit,
+    /** Told whether the cache moved: only a sync restores status icons a person swiped away. */
+    private val publishStatusIcons: suspend (cacheMoved: Boolean) -> Unit,
     private val publishAlerts: suspend () -> Unit,
 ) : Publication {
     constructor(
@@ -66,19 +67,21 @@ internal class OutOfAppPublication(
     ) : this(
         repaint = { WidgetUpdater.refreshAll(context, settings) },
         scheduleBoundary = scheduleBoundary,
-        publishStatusIcons = statusIcons::publish,
+        publishStatusIcons = { cacheMoved -> statusIcons.publish(restoreDismissed = cacheMoved) },
         publishAlerts = { notifications.publishFor(repository.accountUsageOnce()) },
     )
 
     override suspend fun cacheMoved() {
-        presentationChanged()
+        publishPresentation(cacheMoved = true)
         bestEffort("alerts", publishAlerts)
     }
 
-    override suspend fun presentationChanged() {
+    override suspend fun presentationChanged() = publishPresentation(cacheMoved = false)
+
+    private suspend fun publishPresentation(cacheMoved: Boolean) {
         bestEffort("repaint", repaint)
         bestEffort("presentation boundary", scheduleBoundary)
-        bestEffort("status icons", publishStatusIcons)
+        bestEffort("status icons") { publishStatusIcons(cacheMoved) }
     }
 
     private suspend fun bestEffort(step: String, publish: suspend () -> Unit) {
