@@ -40,13 +40,36 @@ final class StatusIconGlyphsTests: XCTestCase {
         ])
     }
 
+    private struct Grammar: Decodable {
+        struct Case: Decodable { let name: String; let path: String }
+        let description: String
+        let accept: [Case]
+        let reject: [Case]
+    }
+
+    /// The same cases Android's StatusIconGlyphsTest reads, so both readers accept one grammar.
+    func testBothPlatformsAcceptAndRejectTheSharedGrammarCases() throws {
+        let grammar = try JSONDecoder().decode(Grammar.self,
+            from: Data(contentsOf: SharedVectors.file("glyph-path-grammar.json")))
+        XCTAssertFalse(grammar.accept.isEmpty)
+        XCTAssertFalse(grammar.reject.isEmpty)
+        for valid in grammar.accept {
+            XCTAssertNoThrow(try StatusIconGlyphs.path(valid.path), valid.name)
+        }
+        for invalid in grammar.reject {
+            XCTAssertThrowsError(try StatusIconGlyphs.path(invalid.path), invalid.name)
+        }
+    }
+
     func testAFileThatDoesNotMatchTheProvidersIsRejected() {
         let missing = #"{"grid": 24, "glyphs": {}, "fallback": "M0 0H1Z"}"#
         let extra = #"{"grid": 24, "glyphs": {"xai": "M0 0H1Z", "other": "M0 0H1Z"}, "fallback": "M0 0H1Z"}"#
         let relative = #"{"grid": 24, "glyphs": {"xai": "m0 0h1z"}, "fallback": "M0 0H1Z"}"#
         let grid = #"{"grid": 48, "glyphs": {"xai": "M0 0H1Z"}, "fallback": "M0 0H1Z"}"#
         let unknownKey = #"{"grid": 24, "glyphs": {"xai": "M0 0H1Z"}, "fallback": "M0 0H1Z", "x": 1}"#
-        for file in [missing, extra, relative, grid, unknownKey] {
+        let numberPath = #"{"grid": 24, "glyphs": {"xai": 12}, "fallback": "M0 0H1Z"}"#
+        let numberFallback = #"{"grid": 24, "glyphs": {"xai": "M0 0H1Z"}, "fallback": 12}"#
+        for file in [missing, extra, relative, grid, unknownKey, numberPath, numberFallback] {
             XCTAssertThrowsError(try StatusIconGlyphs.parse(Data(file.utf8), providers: ["xai"]), file)
         }
     }

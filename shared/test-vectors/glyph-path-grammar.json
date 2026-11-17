@@ -1,0 +1,25 @@
+{
+  "description": "Path data both status icon glyph readers accept or reject. Grammar: docs/provider-assets.md, 'Glyph path grammar'. Android (StatusIconGlyphsTest) and iOS (StatusIconGlyphsTests) read this file.",
+  "accept": [
+    { "name": "every command once", "path": "M2 2H8.5V4L22 22C1 2 3 4 5 6Z" },
+    { "name": "repeated pairs after a command", "path": "M0 0L1 1 2 2 3 3Z" },
+    { "name": "pairs after M continue as lines", "path": "M0 0 1 1 2 2Z" },
+    { "name": "commas and negative and decimal numbers", "path": "M0,0L-1.5,2.25 .5 3Z" },
+    { "name": "two subpaths", "path": "M0 0H1V1Z M2 2H3V3Z" }
+  ],
+  "reject": [
+    { "name": "unknown command", "path": "M0 0H1X2 2Z" },
+    { "name": "relative command", "path": "m0 0h1z" },
+    { "name": "valid SVG command outside the subset", "path": "M0 0Q1 1 2 2Z" },
+    { "name": "arc command", "path": "M0 0A1 1 0 0 1 2 2Z" },
+    { "name": "line with one operand", "path": "M0 0L1Z" },
+    { "name": "curve with five operands", "path": "M0 0C1 1 2 2 3Z" },
+    { "name": "move with one operand", "path": "M0Z" },
+    { "name": "number with an exponent", "path": "M1e1 0H1Z" },
+    { "name": "number with two points", "path": "M1.2.3 0H1Z" },
+    { "name": "operands before any command", "path": "0 0L1 1Z" },
+    { "name": "operands after close", "path": "M0 0H1Z 2 2" },
+    { "name": "not starting with a move", "path": "L1 1Z" },
+    { "name": "empty", "path": "" }
+  ]
+}
