@@ -103,7 +103,7 @@ class SignInTransitionTest {
         try {
             compose.runOnIdle { state.value = AddAccountState.Starting(ProviderId.KIMI) }
             compose.mainClock.advanceTimeByFrame()
-            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeBy(90)
             compose.onNodeWithText("Contacting ${ProviderId.KIMI.displayName}…").assertExists()
             // A queued click belongs to the old step even after the next step appears.
             compose.runOnIdle {
