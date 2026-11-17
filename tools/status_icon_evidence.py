@@ -390,9 +390,18 @@ class Evidence:
             if switch is not None:
                 break
             assert probe < 8, "Silent notification Settings title missing after eight scrolls"
-            containers = [node for node in root.iter("node") if node.get("scrollable") == "true" and bounds(node)]
+            containers = [node for node in root.iter("node") if node.get("package") == "com.android.settings"
+                          and node.get("resource-id") == "com.android.settings:id/recycler_view"
+                          and node.get("class") == "androidx.recyclerview.widget.RecyclerView"]
             assert len(containers) == 1, "Missing or ambiguous silent notification Settings scroll container"
-            x1, y1, x2, y2 = bounds(containers[0])
+            container = containers[0]
+            assert container.get("scrollable") == "true" and container.get("enabled") == "true" and bounds(container), "Invalid silent notification Settings scroll viewport"
+            parents = {child: parent for parent in root.iter() for child in parent}
+            parent = parents[container]
+            assert bounds(parent), "Missing silent notification Settings viewport parent bounds"
+            x1, y1, x2, y2 = bounds(container)
+            px1, py1, px2, py2 = bounds(parent)
+            assert px1 <= x1 < x2 <= px2 and py1 <= y1 < y2 <= py2, "Silent notification Settings viewport outside parent bounds"
             x, span = (x1 + x2) // 2, y2 - y1
             self.adb("shell", "input", "swipe", str(x), str(y2 - span // 4), str(x), str(y1 + span // 4), "300")
         if switch.get("checked") == "true":

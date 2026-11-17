@@ -125,17 +125,30 @@ class NotificationEvidenceTest(unittest.TestCase):
 
 
 class SilentIconEvidenceTest(unittest.TestCase):
-    def test_hidden_default_is_disabled_using_observed_settings_switch(self):
+    def test_hidden_default_scrolls_nested_settings_recycler_and_toggles_exact_switch(self):
         with tempfile.TemporaryDirectory() as directory:
             evidence = Evidence(directory)
             evidence.report["api"] = 37
             tapped = False
             scrolled = False
+            # Run44137851922 API37: the list viewport is nested inside a scrollable page.
+            viewport = '''<hierarchy>
+              <node package="com.android.settings" resource-id="com.android.settings:id/content_parent"
+                  class="android.widget.ScrollView" enabled="true" scrollable="true" bounds="[0,144][720,1476]">
+                <node resource-id="android:id/list_container" class="android.widget.FrameLayout" bounds="[0,242][720,1476]">
+                  <node package="com.android.settings" resource-id="com.android.settings:id/recycler_view"
+                      class="androidx.recyclerview.widget.RecyclerView" enabled="true" scrollable="true" bounds="[0,242][720,1476]">
+                    %s
+                  </node>
+                </node>
+              </node>
+            </hierarchy>'''
 
             def adb(*args, **kwargs):
                 nonlocal tapped, scrolled
                 if args[:3] == ("shell", "input", "swipe"):
-                    self.assertEqual(("shell", "input", "swipe", "360", "1075", "360", "425", "300"), args)
+                    self.assertEqual(("shell", "input", "swipe", "360", "1168", "360", "550", "300"), args)
+                    self.assertFalse(scrolled, "The observed list should reveal the exact title after one swipe")
                     scrolled = True
                 if args[:3] == ("shell", "input", "tap"):
                     self.assertEqual(("shell", "input", "tap", "640", "930"), args)
@@ -146,21 +159,58 @@ class SilentIconEvidenceTest(unittest.TestCase):
                     return "showSilentStatusIcons=" + str(tapped).lower()
                 if args[:2] == ("exec-out", "cat"):
                     if not scrolled:
-                        return '<hierarchy><node package="com.android.settings" scrollable="true" bounds="[0,100][720,1400]"/></hierarchy>'
-                    return '''<hierarchy><node package="com.android.settings" scrollable="true" bounds="[0,100][720,1400]">
+                        return viewport % '<node package="com.android.settings" text="Notifications"/>'
+                    return viewport % ('''
                       <node><node class="android.widget.Switch" checkable="true" checked="true" bounds="[1,1][20,20]"/></node>
                       <node class="android.widget.LinearLayout"><node resource-id="android:id/title" package="com.android.settings" text="Hide silent notifications in status bar"/>
-                        <node class="android.widget.Switch" checkable="true" enabled="true" checked="%s" bounds="[600,900][680,960]"/>
-                      </node></node></hierarchy>''' % str(not tapped).lower()
+                        <node class="android.widget.Switch" resource-id="android:id/switch_widget" checkable="true" enabled="true" checked="%s" bounds="[600,900][680,960]"/>
+                      </node>''' % str(not tapped).lower())
                 return ""
 
-            with patch.object(evidence, "adb", side_effect=adb), patch.object(evidence, "screen"):
+            with patch.object(evidence, "adb", side_effect=adb) as calls, patch.object(evidence, "screen"):
                 evidence.show_silent_icons()
+            self.assertTrue(scrolled)
             self.assertTrue(tapped)
+            self.assertEqual(1, sum(call.args[:3] == ("shell", "input", "tap") for call in calls.call_args_list))
+            calls.assert_called_with("shell", "input", "keyevent", "KEYCODE_HOME")
+            self.assertTrue(evidence.report["silentIconVisibility"]["allowedSilentVerified"])
             self.assertEqual(True, evidence.report["silentIconVisibility"]["defaultHidden"])
             self.assertEqual(True, evidence.report["silentIconVisibility"]["setupChanged"])
             self.assertIn('checked="false"', (evidence.directory / "silent-icons-after-0.xml").read_text())
             self.assertIn("hideSilentStatusBar=false", (evidence.directory / "silent-icons-after-0-notification.txt").read_text())
+
+    def test_unknown_ambiguous_or_invalid_settings_recyclers_never_scroll_or_tap(self):
+        recycler = '''<node package="com.android.settings" resource-id="com.android.settings:id/recycler_view"
+            class="androidx.recyclerview.widget.RecyclerView" enabled="true" scrollable="true" bounds="[0,242][720,1476]"/>'''
+        for nodes in (
+            "",
+            recycler.replace("com.android.settings:id/recycler_view", "com.android.settings:id/unknown"),
+            recycler.replace('package="com.android.settings"', 'package="other.app"'),
+            recycler.replace("androidx.recyclerview.widget.RecyclerView", "android.widget.ScrollView"),
+            recycler * 2,
+            recycler + recycler.replace('[0,242][720,1476]', ''),
+            recycler.replace('enabled="true"', 'enabled="false"'),
+            recycler.replace('scrollable="true"', 'scrollable="false"'),
+            recycler.replace('[0,242][720,1476]', ''),
+            recycler.replace('[0,242][720,1476]', '[0,100][720,1476]'),
+        ):
+            with self.subTest(nodes=nodes), tempfile.TemporaryDirectory() as directory:
+                evidence = Evidence(directory)
+                evidence.report["api"] = 37
+
+                def adb(*args, **kwargs):
+                    if args[:2] == ("exec-out", "cat"):
+                        return '''<hierarchy><node package="com.android.settings"
+                            resource-id="com.android.settings:id/content_parent" class="android.widget.ScrollView"
+                            enabled="true" scrollable="true" bounds="[0,144][720,1476]">''' + nodes + "</node></hierarchy>"
+                    return "hideSilentStatusBar=true showSilentStatusIcons=false"
+
+                with patch.object(evidence, "adb", side_effect=adb) as calls, patch.object(evidence, "screen"), \
+                        self.assertRaisesRegex(AssertionError, "silent|Silent"):
+                    evidence.show_silent_icons()
+                self.assertFalse(any(call.args[:2] == ("shell", "input") for call in calls.call_args_list))
+                self.assertFalse(evidence.report["silentIconVisibility"]["setupChanged"])
+                self.assertNotIn("allowedSilentVerified", evidence.report["silentIconVisibility"])
 
     def test_visible_default_and_api30_do_not_change_settings(self):
         for api, notification, default in ((36, "hideSilentStatusBar=false", False), (30, "old dump", None)):
