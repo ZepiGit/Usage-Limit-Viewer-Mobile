@@ -269,7 +269,7 @@ class WidgetDataBuilderTest {
         assertEquals("b", snapshot.accounts.first().accountId)
         assertEquals(10.0, snapshot.summaryLineShort!!.remainingPercent!!, 0.001)
         assertEquals(10.0, snapshot.summaryLineLong!!.remainingPercent!!, 0.001)
-        // And it is the same row the leading card itself shows.
+        // And it is the leading account's first five-hour row.
         assertEquals(
             snapshot.accounts.first().rows.first { it.category == WindowCategory.FIVE_HOUR },
             snapshot.summaryLineShort,
@@ -311,7 +311,7 @@ class WidgetDataBuilderTest {
     }
 
     @Test
-    fun `the next reset belongs to the account the headline describes`() {
+    fun `the next reset belongs to the account the summary describes`() {
         // Taken across every account this paired the headline state with an unrelated clock:
         // "0% left, resets in 12m", where the twelve minutes belonged to a healthy account's
         // five-hour window. Healthy five-hour windows reset constantly, so it was the common

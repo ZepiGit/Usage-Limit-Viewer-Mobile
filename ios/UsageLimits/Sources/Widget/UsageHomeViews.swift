@@ -7,7 +7,7 @@ import UsageLimitsKit
 
 /// One account line on the medium tile: title, one row's percentage, its bar.
 ///
-/// The row is handed in rather than chosen here, so the lead shows the kit's headline and
+/// The row is handed in rather than chosen here, so the lead shows the kit's summary row and
 /// every other account shows its first row in the kit's order.
 private struct MediumAccountRow: View {
 
@@ -169,10 +169,9 @@ struct UsageWidgetSmallView: View {
     }
 }
 
-/// systemMedium: the accounts that most need attention, at most three of them.
+/// systemMedium: up to three accounts in the kit's order.
 ///
-/// In the kit's order — most urgent first, as GlanceModel ranks them — everything past the
-/// third is counted ("+N more"),
+/// Everything past the third is counted ("+N more"),
 /// not drawn — a fourth cramped row helps nobody. At larger type sizes even three
 /// rows will not fit, so the limit drops to two; and no text anywhere is given a
 /// fixed height, so rows grow with the user's chosen size instead of being
@@ -190,7 +189,7 @@ struct UsageWidgetMediumView: View {
         entry.snapshot.accounts
     }
 
-    /// The lead shows the kit's headline row; every other account its own first row.
+    /// The lead shows the kit's summary row; every other account its own first row.
     private func row(for account: GlanceAccount) -> GlanceRow? {
         entry.snapshot.widgetRow(for: account)
     }
@@ -275,7 +274,7 @@ struct UsageWidgetLargeView: View {
         max(entry.snapshot.accounts.count - visibleAccounts.count, 0)
     }
 
-    /// The lead shows the kit's headline row; every other account its own first row. Same rule
+    /// The lead shows the kit's summary row; every other account its own first row. Same rule
     /// as the medium tile, and for the same reason — see `WidgetFocus`.
     private func row(for account: GlanceAccount) -> GlanceRow? {
         entry.snapshot.widgetRow(for: account)

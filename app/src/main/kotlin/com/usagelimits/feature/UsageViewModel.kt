@@ -166,15 +166,9 @@ class UsageViewModel(
     /** Account id whose reset credit is currently being spent, for a per-card spinner. */
     val resetCreditInFlight: StateFlow<String?> = _resetCreditInFlight.asStateFlow()
 
-    /**
-     * Persists the order the user dragged the cards into.
-     *
-     * Latches `accountsManuallyOrdered` at the same time, in the same coroutine: writing the
-     * order without the flag would store an arrangement the overview then ignores, which reads
-     * as the drag having done nothing.
-     */
     private val reorderMutex = kotlinx.coroutines.sync.Mutex()
 
+    /** Persists the dragged order and records the drag; the flag does not control ordering. */
     fun reorderAccounts(idsInOrder: List<String>) {
         viewModelScope.launch {
             reorderMutex.lock()

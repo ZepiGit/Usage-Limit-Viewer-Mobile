@@ -60,17 +60,16 @@ class OverviewOrderingTest {
     /** Repository order is retained before and after the user rearranges accounts. */
     @Test
     fun `overview uses the same stored order before and after manual arrangement`() {
-        // Deliberately handed over in the WRONG urgency order, as the repository would after a
-        // reorder: it returns rows by sortOrder.
+        // The repository returns rows by sortOrder, even when a healthy account comes first.
         val healthy = usageWith("healthy", 10.0)
         val exhausted = usageWith("exhausted", 100.0)
         val accounts = listOf(healthy, exhausted)
 
-        val ranked = UsageUiState(accounts = accounts, settings = AppSettings())
+        val ordered = UsageUiState(accounts = accounts, settings = AppSettings())
         assertEquals(
             "the overview and All accounts widgets share the stored order",
             listOf("healthy", "exhausted"),
-            ranked.orderedAccounts().map { it.account.localId },
+            ordered.orderedAccounts().map { it.account.localId },
         )
 
         val arranged = UsageUiState(
