@@ -500,6 +500,10 @@ public struct Alignment {
     public static let bottomTrailing = Alignment()
 }
 
+public enum TextAlignment {
+    case leading, center, trailing
+}
+
 public struct HorizontalAlignment {
     public static let leading = HorizontalAlignment(); public static let center = HorizontalAlignment()
     public static let trailing = HorizontalAlignment()
