@@ -234,6 +234,37 @@ def focused_widget(root, launcher, label):
                  for attribute in ("enabled", "focusable", "focused"))), None)
 
 
+def post_drop_frame(root, launcher, label, initial):
+    """The unique focused launcher ancestor of the resize frame enclosing the moved host."""
+    frames = [node for node in root.iter("node")
+              if node.get("resource-id") == launcher + ":id/widget_resize_frame"]
+    hosts = [node for node in root.iter("node") if node.get("package") == launcher
+             and node.get("class", "").endswith("AppWidgetHostView")
+             and node.get("content-desc") == label and bounds(node)]
+    assert len(frames) <= 1, "Ambiguous launcher resize frame"
+    assert len(hosts) <= 1, f"Ambiguous {label} host"
+    if not frames or not hosts:
+        return None
+    frame, host = frames[0], hosts[0]
+    box, moved = bounds(frame), bounds(host)
+    if frame.get("package") != launcher or frame.get("enabled") != "true" or not box or (
+        host.get("enabled") != "true" or moved == initial
+        or not (box[0] < moved[0] < moved[2] < box[2] and box[1] < moved[1] < moved[3] < box[3])
+    ):
+        return None
+    parents = {child: parent for parent in root.iter() for child in parent}
+    owners = []
+    node = parents.get(frame)
+    while node is not None:
+        if node.get("package") == launcher and bounds(node) == box and all(
+            node.get(attribute) == "true" for attribute in ("enabled", "focused")
+        ):
+            owners.append(node)
+        node = parents.get(node)
+    assert len(owners) <= 1, "Ambiguous launcher resize frame focus owner"
+    return next(iter(owners), None)
+
+
 class Smoke:
     def __init__(self, directory, serial):
         self.directory = directory
@@ -719,7 +750,9 @@ class Smoke:
             seen.add(target["text"])
         assert selected is not None, "No different observed move target on the original Home page"
         self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ENTER")
-        self.widget_capture("move-drop")
+        self.wait_for("move-drop-frame", lambda root: post_drop_frame(root, self.launcher, item["label"], initial) is not None)
+        assert post_drop_frame(self.widget_capture("move-drop"), self.launcher, item["label"], initial) is not None, (
+            "Dropped Mini Rings frame lost focus")
         self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ESCAPE")
         moved = observe("move-after", lambda box: size(box) == size(initial) and box[:2] != initial[:2])
         report["steps"].append({"action": "move", "target": selected, "before": initial, "after": moved})
