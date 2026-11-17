@@ -1,0 +1,31 @@
+# Weekly version checks for libraries and GitHub Actions.
+#
+# The build toolchain is left out on purpose: the Android Gradle Plugin, the Gradle wrapper, Kotlin,
+# KSP and the Compose compiler only work in certain combinations (AGP 9 needs Gradle 9.1 and a
+# different Kotlin plugin setup; Kotlin 2.3 needs the R8 that ships with AGP 8.13.2), and Dependabot
+# does not resolve those constraints. They move together, by hand, in one coordinated change.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "com.android.application"
+      - dependency-name: "com.android.tools.build:gradle"
+      - dependency-name: "gradle-wrapper"
+      - dependency-name: "org.jetbrains.kotlin.android"
+      - dependency-name: "org.jetbrains.kotlin.plugin.serialization"
+      - dependency-name: "org.jetbrains.kotlin.plugin.compose"
+      - dependency-name: "org.jetbrains.kotlin:*"
+      - dependency-name: "com.google.devtools.ksp"
+    groups:
+      androidx:
+        patterns:
+          - "androidx.*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
