@@ -110,6 +110,13 @@ android {
         )
     }
 
+    lint {
+        abortOnError = true
+        warningsAsErrors = false
+        htmlReport = true
+        xmlReport = true
+    }
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true

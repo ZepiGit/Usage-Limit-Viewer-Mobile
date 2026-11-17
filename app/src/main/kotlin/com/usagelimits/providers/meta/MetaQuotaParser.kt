@@ -28,8 +28,7 @@ object MetaQuotaParser {
      * same shape in `subscription_usage.subscription`. Both are accepted so a server rollout
      * does not turn a healthy account into an empty snapshot.
      */
-    @Suppress("UNUSED_PARAMETER")
-    fun parse(payload: JsonObject, nowMs: Long = System.currentTimeMillis()): List<UsageWindow> {
+    fun parse(payload: JsonObject): List<UsageWindow> {
         // CPAMC treats a valid key response without `subs_usage` as a successful observation
         // with unknown windows. Preserve that distinction: an empty list would look like a
         // transport failure to a caller that expects the provider to report its two meters.

@@ -30,6 +30,14 @@ Drop `--offline` only to resolve a new artifact. Do not raise the host's heap li
 
 On Windows, use `gradlew.bat`. The debug APK is `app/build/outputs/apk/debug/app-debug.apk`; its application ID is `com.usagelimits.debug`, so it installs separately from release builds. Release output is `app/build/outputs/apk/release/app-release.apk`.
 
+CI runs `:app:testDebugUnitTest :app:lintDebug`. Lint aborts on errors and writes HTML and XML reports under `app/build/reports/`. Existing warnings remain warnings, with no baseline hiding them.
+
+## Dependency updates
+
+The Android toolchain moves together, outside Dependabot: AGP, Gradle, Kotlin, KSP and the Compose compiler must remain compatible. The coordinated API 37 upgrade removes the first-wave AndroidX, Coroutines, Serialization and OkHttp version bounds now that their current stable versions pass the consumer tests. Library and security updates may advance normally; the coupled toolchain remains excluded. Room, WorkManager, Lifecycle, Glance and Compose updates stay grouped separately so unrelated libraries do not block each other.
+
+After upgrading CI actions, run the full Android and iOS workflows on a maintainer branch. Dependabot runs skip the signed API 37 release-upgrade smoke. The Android workflow uses `gradle/actions` v6 with `cache-provider: basic` to retain MIT-licensed caching without the separate Enhanced Caching terms. Basic caching does not provide Enhanced Caching's cleanup or deduplication. The release workflow remains uncached, and artifact uploads retain zipped, explicitly named artifacts for the existing download steps.
+
 ## Signing
 
 Supply all four values for a distribution build:

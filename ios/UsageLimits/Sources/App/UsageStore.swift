@@ -93,10 +93,8 @@ final class UsageStore: ObservableObject {
     /// What the Overview screen leads with.
     ///
     /// The staleness threshold follows the user's chosen sync interval rather than a constant:
-    /// at the three-hour setting the settings screen offers, a fixed hour marks every account
-    /// stale before the next refresh arrives, and a stale account sorts last — so the headline
-    /// would come from whichever healthy account happened to sort first while a card at 3 % sat
-    /// below it.
+    /// at the three-hour setting the settings screen offers, a fixed hour would mark accounts
+    /// stale before the next refresh arrives.
     var glance: GlanceSnapshot {
         GlanceModel.build(
             accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons,
@@ -105,15 +103,9 @@ final class UsageStore: ObservableObject {
 
     /// The accounts in the order the overview should show them.
     ///
-    /// Two orders, and which one applies is a choice the user has already made. Until anyone
-    /// drags a card the list is worst-first, which is what the app is for. Once someone has
-    /// arranged their accounts by hand that order wins and nothing re-ranks it — the repository
-    /// already returns them arranged, so the manual case is the list exactly as it arrived.
-    ///
-    /// Built separately from `glance` rather than reordering that, because the summary card's
-    /// headline and next reset come from whichever account LEADS the urgency ranking, and a
-    /// user dragging a healthy account to the top must not thereby change what the headline
-    /// reports about the fleet.
+    /// Uses repository order regardless of the manual-order flag, with a pending drag order
+    /// applied while it is being persisted. The glance summary and next reset are selected
+    /// separately from the displayed account list.
     var orderedAccounts: [GlanceAccount] {
         let values = GlanceModel.build(accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay).accounts
         guard let order = pendingAccountOrder else { return values }
@@ -262,18 +254,30 @@ final class UsageStore: ObservableObject {
         isLoadingSettings = false
     }
 
+    /// Serialises the passes below. A request made while one is running gets one more pass after
+    /// it rather than being dropped: the running pass read its account list when it started, so
+    /// an account signed in since then is synced, published and evaluated for alerts only by a
+    /// pass that starts later (#43). Lazy, because the pass captures `self`.
+    private lazy var refreshes = RefreshCoalescer { [weak self] in await self?.refreshPass() }
+
+    /// Syncs every account, and returns once a sync that started after this call has finished.
     func refresh() async {
         #if DEBUG
         if MarketingDemo.isEnabled { return }
         #endif
-        guard !isRefreshing else { return }
-        guard let container else {
+        guard container != nil else {
             // No shared container means the app group is missing from the entitlements, which is
             // a build fault rather than anything the user did — but it must still say so, since
             // the alternative is a screen that stays empty and explains nothing.
             lastError = String(localized: "This build cannot reach its shared storage.")
             return
         }
+        await refreshes.request().value
+    }
+
+    /// One sync, publish and alert claim. Only `refreshes` calls this, so two never overlap.
+    private func refreshPass() async {
+        guard let container else { return }
 
         isRefreshing = true
         defer { isRefreshing = false }
@@ -292,7 +296,8 @@ final class UsageStore: ObservableObject {
             // reaches the same conclusion later.
             await NotificationScheduler.post(try await container.pendingNotifications(texts: LocalizedNotificationTexts()))
         } catch is CancellationError {
-            // The screen was closed. Not a failure, and not something to paint red.
+            // A closed screen no longer cancels a pass, since others may be waiting on it, but a
+            // cancellation from below is still not a failure and not something to paint red.
         } catch {
             // Per-account failures never reach here — the engine records those on the accounts
             // themselves, which is where a user can act on them. This is the whole run failing.

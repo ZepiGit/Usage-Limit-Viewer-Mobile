@@ -33,7 +33,7 @@ class WidgetDataBuilderTest {
         assertTrue(data.hasPartialUpdate)
         assertTrue(data.accounts.single().partialUpdate)
         assertEquals(Severity.HEALTHY, data.accounts.single().severity)
-        assertEquals(80.0, data.headlineLong!!.remainingPercent!!, 0.001)
+        assertEquals(80.0, data.summaryLineLong!!.remainingPercent!!, 0.001)
         assertEquals(listOf("Weekly credits", "Monthly included"), data.accounts.single().rows.map { it.label })
     }
 
@@ -57,7 +57,7 @@ class WidgetDataBuilderTest {
             usage("other", ProviderId.CLAUDE, usedPercent = 20.0, status = SnapshotStatus.FAILED),
         ), now, WidgetScope.ALL_ACCOUNTS, null, null)
         assertEquals("2 accounts", data.selectionStatusLabel)
-        assertEquals(100.0, data.headlineLong!!.remainingPercent!!, 0.001)
+        assertEquals(100.0, data.summaryLineLong!!.remainingPercent!!, 0.001)
         assertEquals(Severity.ERROR, data.overallSeverity)
     }
 
@@ -80,7 +80,7 @@ class WidgetDataBuilderTest {
             listOf(withWindows(longWindow("fable", "Weekly (Fable)", WindowCategory.WEEKLY, 100.0))),
             now, WidgetScope.ALL_ACCOUNTS, null, null,
         )
-        assertEquals("Weekly (Fable)", data.headlineLong?.label)
+        assertEquals("Weekly (Fable)", data.summaryLineLong?.label)
     }
 
     @Test
@@ -261,25 +261,25 @@ class WidgetDataBuilderTest {
     }
 
     @Test
-    fun `the headline belongs to the leading account`() {
+    fun `the summary belongs to the leading account`() {
         // Not a pooled minimum. On a tile showing two of six accounts, a pooled figure could be
         // the sixth account's window — a number the reader cannot locate anywhere on screen.
         val snapshot = WidgetDataBuilder.build(all, now, WidgetScope.MOST_CRITICAL, null, null)
 
         assertEquals("b", snapshot.accounts.first().accountId)
-        assertEquals(10.0, snapshot.headlineShort!!.remainingPercent!!, 0.001)
-        assertEquals(10.0, snapshot.headlineLong!!.remainingPercent!!, 0.001)
-        // And it is the same row the leading card itself shows.
+        assertEquals(10.0, snapshot.summaryLineShort!!.remainingPercent!!, 0.001)
+        assertEquals(10.0, snapshot.summaryLineLong!!.remainingPercent!!, 0.001)
+        // And it is the leading account's first five-hour row.
         assertEquals(
             snapshot.accounts.first().rows.first { it.category == WindowCategory.FIVE_HOUR },
-            snapshot.headlineShort,
+            snapshot.summaryLineShort,
         )
     }
 
     @Test
     fun `one account's weekly window does not suppress another's monthly one`() {
         // Applying `weekly ?: monthly` to the pool meant any single weekly window hid every
-        // monthly one, so the headline could read 80% while a visible row read 3%.
+        // monthly one, so the summary could read 80% while a visible row read 3%.
         val monthlyOnly = AccountUsage(
             account = account("monthly", ProviderId.XAI),
             snapshot = UsageSnapshot(
@@ -306,12 +306,12 @@ class WidgetDataBuilderTest {
         )
 
         assertEquals("monthly", snapshot.accounts.first().accountId)
-        assertEquals(WindowCategory.MONTHLY, snapshot.headlineLong!!.category)
-        assertEquals(3.0, snapshot.headlineLong!!.remainingPercent!!, 0.001)
+        assertEquals(WindowCategory.MONTHLY, snapshot.summaryLineLong!!.category)
+        assertEquals(3.0, snapshot.summaryLineLong!!.remainingPercent!!, 0.001)
     }
 
     @Test
-    fun `the next reset belongs to the account the headline describes`() {
+    fun `the next reset belongs to the account the summary describes`() {
         // Taken across every account this paired the headline state with an unrelated clock:
         // "0% left, resets in 12m", where the twelve minutes belonged to a healthy account's
         // five-hour window. Healthy five-hour windows reset constantly, so it was the common
@@ -554,7 +554,7 @@ class WidgetDataBuilderTest {
             null,
         )
 
-        assertEquals("Weekly", data.headlineLong?.label)
+        assertEquals("Weekly", data.summaryLineLong?.label)
         assertEquals(listOf("Weekly", "Monthly"), data.accounts.single().rows.map { it.label })
     }
 
@@ -576,7 +576,7 @@ class WidgetDataBuilderTest {
             null,
         )
 
-        assertEquals("Weekly", data.headlineLong?.label)
+        assertEquals("Weekly", data.summaryLineLong?.label)
         assertEquals(listOf("Weekly", "Monthly"), data.accounts.single().rows.map { it.label })
     }
 

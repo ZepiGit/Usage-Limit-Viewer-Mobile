@@ -20,13 +20,13 @@ class WidgetSelectionContractTest {
     @Test fun `exhausted and low quota remain connected and are excluded from attention`() {
         val accounts = listOf(account("empty", 100.0, now + 100), account("low", 97.0, now + 200),
             account("revoked", 10.0, now + 300, ConnectionStatus.RECONNECT_REQUIRED))
-        assertEquals(2, UsageUiState(accounts).healthyCountAt(now))
+        assertEquals(2, UsageUiState(accounts).healthyCountAt())
         assertEquals(listOf("revoked"), accounts.filter { AccountFilter(onlyProblems = true).matches(it) }.map { it.account.localId })
     }
 
     @Test fun `missing data never asserts a valid connection`() {
         val unknown = account("unknown", 0.0, null).copy(snapshot = null)
-        assertEquals(0, UsageUiState(listOf(unknown)).healthyCountAt(now))
+        assertEquals(0, UsageUiState(listOf(unknown)).healthyCountAt())
         assertFalse(AccountFilter(onlyProblems = true).matches(unknown))
     }
 
@@ -63,7 +63,7 @@ class WidgetSelectionContractTest {
 
     @Test fun `all accounts matches overview and custom is an exact ordered subset`() {
         val accounts = listOf(account("c", 0.0, null), account("a", 100.0, null), account("b", 20.0, null))
-        assertEquals(listOf("c", "a", "b"), UsageUiState(accounts).orderedAccounts(now).map { it.account.localId })
+        assertEquals(listOf("c", "a", "b"), UsageUiState(accounts).orderedAccounts().map { it.account.localId })
         assertEquals(listOf("c", "a", "b"), WidgetDataBuilder.build(accounts, now, WidgetScope.ALL_ACCOUNTS, null, null).accounts.map { it.accountId })
         assertEquals(listOf("b", "c"), WidgetDataBuilder.build(accounts, now, WidgetScope.CUSTOM, null, null,
             customAccountIds = listOf("b", "deleted", "b", "c")).accounts.map { it.accountId })
@@ -75,7 +75,7 @@ class WidgetSelectionContractTest {
         val snapshot = WidgetDataBuilder.build(accounts, now, WidgetScope.ACCOUNT, "selected", null)
         assertEquals(1, snapshot.accountCount)
         assertEquals("selected", snapshot.accounts.single().accountId)
-        assertEquals(70.0, snapshot.headlineShort!!.remainingPercent!!, 0.01)
+        assertEquals(70.0, snapshot.summaryLineShort!!.remainingPercent!!, 0.01)
         assertTrue(WidgetDataBuilder.build(accounts, now, WidgetScope.ACCOUNT, "deleted", null).accounts.isEmpty())
     }
 

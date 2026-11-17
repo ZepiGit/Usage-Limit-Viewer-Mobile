@@ -87,7 +87,7 @@ final class WidgetSelectionContractTests: XCTestCase {
 
         let selected = export.selecting(scope: .mostCritical, now: now)
         XCTAssertEqual(selected.accounts.first?.id, "exhausted-later")
-        XCTAssertEqual(selected.headlineShort?.category, .fiveHour)
+        XCTAssertEqual(selected.summaryLineShort?.category, .fiveHour)
         XCTAssertEqual(selected.nextResetAt, now.addingTimeInterval(9000))
     }
 

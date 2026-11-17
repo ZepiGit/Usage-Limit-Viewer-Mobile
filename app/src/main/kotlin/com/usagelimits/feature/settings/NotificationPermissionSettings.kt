@@ -39,7 +39,7 @@ import com.usagelimits.ui.theme.UsageColors
 
 /** OS authorization is separate from the alert preferences, which remain editable when denied. */
 @Composable
-internal fun NotificationPermissionSettings(alreadyAsked: Boolean, onNotificationPermissionAsked: () -> Unit) {
+internal fun NotificationPermissionSettings(alreadyAsked: Boolean, onNotificationPermissionHandled: () -> Unit) {
     val context = LocalContext.current
     val activity = remember(context) { context.activity() }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -93,7 +93,7 @@ internal fun NotificationPermissionSettings(alreadyAsked: Boolean, onNotificatio
                     if (requestable) {
                         requesting = true
                         asked = true
-                        onNotificationPermissionAsked()
+                        onNotificationPermissionHandled()
                         launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } else {
                         openNotificationSettings(context)

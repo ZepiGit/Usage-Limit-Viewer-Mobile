@@ -167,13 +167,13 @@ internal fun RefreshChip(touchSize: Dp) {
 }
 
 /**
- * The compact 1×4 widget: a glanceable row of headline numbers.
+ * The compact 1×4 widget: a glanceable row of summary numbers.
  *
  * The launcher may supply any width from the declared 180 dp up, and four labelled tiles
  * cannot survive the narrow end — so the content is chosen by the width actually available
  * (see [WidgetLayout.compactLayout]): the full four tiles when they fit, two metrics when two
  * fit, and one focused readout below that. Every layout names the account its numbers come
- * from where the width allows: the headline belongs to the account leading the snapshot, and
+ * from where the width allows: the summary belongs to the account leading the snapshot, and
  * when that leadership legitimately changes — a closest-resets or most-critical scope follows
  * the data — a tile with no name on it makes the change look like the content swapped at
  * random.
@@ -226,9 +226,9 @@ class CompactUsageWidget : GlanceAppWidget() {
         val modeWord = resources.getString(percentSideCaptionRes(LocalPercentMode.current))
         Row(modifier = root, verticalAlignment = Alignment.CenterVertically) {
             Tile(
-                label = "$modeWord · ${snapshot.headlineShort?.labelText(resources) ?: resources.getString(R.string.window_label_five_hour)}",
-                value = snapshot.headlineShort?.let { percentText(it) } ?: "—",
-                row = snapshot.headlineShort,
+                label = "$modeWord · ${snapshot.summaryLineShort?.labelText(resources) ?: resources.getString(R.string.window_label_five_hour)}",
+                value = snapshot.summaryLineShort?.let { percentText(it) } ?: "—",
+                row = snapshot.summaryLineShort,
                 validity = snapshot.leadValidity,
                 showOwner = true,
                 owner = snapshot.accounts.firstOrNull()?.let { it.accountLabel ?: it.title },
@@ -241,9 +241,9 @@ class CompactUsageWidget : GlanceAppWidget() {
                 // spending against a reset days away that was actually a month
                 // away, while the larger widget beside it, using the row's own
                 // label, said "Monthly".
-                label = "$modeWord · ${snapshot.headlineLong?.labelText(resources) ?: resources.getString(R.string.window_label_weekly)}",
-                value = snapshot.headlineLong?.let { percentText(it) } ?: "—",
-                row = snapshot.headlineLong,
+                label = "$modeWord · ${snapshot.summaryLineLong?.labelText(resources) ?: resources.getString(R.string.window_label_weekly)}",
+                value = snapshot.summaryLineLong?.let { percentText(it) } ?: "—",
+                row = snapshot.summaryLineLong,
                 validity = snapshot.leadValidity,
                 modifier = GlanceModifier.defaultWeight(),
             )
@@ -274,10 +274,10 @@ class CompactUsageWidget : GlanceAppWidget() {
         }
     }
 
-    /** Two metrics when the width fits two tiles: the 5h headline and the overall status. */
+    /** Two metrics when the width fits two tiles: the short summary and the overall status. */
     @Composable
     private fun TwoMetricRow(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
-        val row = snapshot.headlineShort ?: snapshot.headlineLong
+        val row = snapshot.summaryLineShort ?: snapshot.summaryLineLong
         val resources = androidx.glance.LocalContext.current.resources
         val modeWord = resources.getString(percentSideCaptionRes(LocalPercentMode.current))
         Row(modifier = root, verticalAlignment = Alignment.CenterVertically) {
@@ -307,7 +307,7 @@ class CompactUsageWidget : GlanceAppWidget() {
     @Composable
     private fun FocusReadout(root: GlanceModifier, snapshot: WidgetSnapshot, style: WidgetStyle) {
         val lead = snapshot.accounts.firstOrNull()
-        val row = snapshot.headlineShort ?: snapshot.headlineLong
+        val row = snapshot.summaryLineShort ?: snapshot.summaryLineLong
         val resources = androidx.glance.LocalContext.current.resources
         val texts = ResourceCountdownTexts(resources)
         val modeWord = resources.getString(percentSideCaptionRes(LocalPercentMode.current))

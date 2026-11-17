@@ -90,7 +90,7 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(mixed.nextResettingRow(at: now), measuredRow)
         XCTAssertNil(unknown.nextResettingRow(at: now))
         let snapshot = GlanceSnapshot(accounts: [unknown, mixed], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .healthy, headlineShort: nil, headlineLong: nil,
+            nextResetAt: nil, overallSeverity: .healthy, summaryLineShort: nil, summaryLineLong: nil,
             percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "measured")
     }
@@ -106,7 +106,7 @@ final class GlanceModelTests: XCTestCase {
             rows: [nearlyUsedRow], severity: .low, fetchedAt: now)
         XCTAssertEqual(blocked.nextResettingRow(at: now), blockedRow)
         let snapshot = GlanceSnapshot(accounts: [nearlyUsed, blocked], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil,
+            nextResetAt: nil, overallSeverity: .exhausted, summaryLineShort: nil, summaryLineLong: nil,
             percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "blocked")
     }
@@ -135,7 +135,7 @@ final class GlanceModelTests: XCTestCase {
                 resetAt: now.addingTimeInterval(2 * 3_600), severity: .healthy)],
             severity: .healthy, fetchedAt: now)
         let snapshot = GlanceSnapshot(accounts: [tight, soon], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .low, headlineShort: nil, headlineLong: nil,
+            nextResetAt: nil, overallSeverity: .low, summaryLineShort: nil, summaryLineLong: nil,
             percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "soon")
         XCTAssertEqual(snapshot.nextResettingAccount(at: now.addingTimeInterval(27 * 3_600))?.id, "tight")
@@ -150,7 +150,7 @@ final class GlanceModelTests: XCTestCase {
             rows: [GlanceRow(label: "Weekly", category: .weekly, remainingPercent: nil,
                 resetAt: nil, severity: .exhausted)], severity: .exhausted, fetchedAt: now)
         let snapshot = GlanceSnapshot(accounts: [measured, exhausted], accountCount: 2, updatedAt: now,
-            nextResetAt: nil, overallSeverity: .exhausted, headlineShort: nil, headlineLong: nil,
+            nextResetAt: nil, overallSeverity: .exhausted, summaryLineShort: nil, summaryLineLong: nil,
             percentDisplay: .left)
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "exhausted")
     }
@@ -287,24 +287,24 @@ final class GlanceModelTests: XCTestCase {
             ["first", "second"])
     }
 
-    // MARK: - Headlines and staleness
+    // MARK: - Summary lines and staleness
 
-    func testTheHeadlineBelongsToTheLeadingAccount() throws {
+    func testTheSummaryBelongsToTheLeadingAccount() throws {
         // Not a pooled minimum. On a tile showing two of six accounts, a pooled figure could be
         // the sixth account's window — a number the reader cannot locate anywhere on screen.
         let snapshot = GlanceModel.build(all, now: now, scope: .mostCritical)
 
         let lead = try XCTUnwrap(snapshot.accounts.first)
         XCTAssertEqual(lead.id, "b")
-        XCTAssertEqual(try XCTUnwrap(snapshot.headlineShort?.remainingPercent), 10, accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(snapshot.headlineLong?.remainingPercent), 10, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(snapshot.summaryLineShort?.remainingPercent), 10, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(snapshot.summaryLineLong?.remainingPercent), 10, accuracy: 0.001)
         // And it is the same row the leading card itself shows.
-        XCTAssertEqual(snapshot.headlineShort, lead.rows.first { $0.category == .fiveHour })
+        XCTAssertEqual(snapshot.summaryLineShort, lead.rows.first { $0.category == .fiveHour })
     }
 
     func testOneAccountsWeeklyWindowDoesNotSuppressAnothersMonthlyOne() throws {
         // Applying `weekly ?? monthly` to the pool meant any single weekly window hid every
-        // monthly one, so the headline could read 80 % while a visible row read 3 %.
+        // monthly one, so the summary could read 80 % while a visible row read 3 %.
         let weeklyOnly = usage("weekly", .claude, usedPercent: 20)
         let monthlyOnly = AccountUsage(
             account: account("monthly", .xai),
@@ -319,13 +319,13 @@ final class GlanceModelTests: XCTestCase {
         let snapshot = GlanceModel.build(
             [weeklyOnly, monthlyOnly], now: now, scope: .mostCritical)
 
-        // The monthly-only account leads on 3 % remaining, and the headline is ITS window.
+        // The monthly-only account leads on 3 % remaining, and the summary is ITS window.
         XCTAssertEqual(snapshot.accounts.first?.id, "monthly")
-        XCTAssertEqual(snapshot.headlineLong?.category, .monthly)
-        XCTAssertEqual(try XCTUnwrap(snapshot.headlineLong?.remainingPercent), 3, accuracy: 0.001)
+        XCTAssertEqual(snapshot.summaryLineLong?.category, .monthly)
+        XCTAssertEqual(try XCTUnwrap(snapshot.summaryLineLong?.remainingPercent), 3, accuracy: 0.001)
     }
 
-    func testTheNextResetBelongsToTheAccountTheHeadlineDescribes() throws {
+    func testTheNextResetBelongsToTheAccountTheSummaryDescribes() throws {
         // Taken across every account this paired the headline state with an unrelated clock:
         // "0 % left · resets in 12m", where the twelve minutes belonged to a healthy account's
         // five-hour window. Healthy five-hour windows reset constantly, so it was the common
@@ -356,7 +356,7 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(snapshot.nextResetAt, now.addingTimeInterval(20 * 86_400))
     }
 
-    func testAnUnknownPercentageDoesNotHideAKnownHeadline() throws {
+    func testAnUnknownPercentageDoesNotHideAKnownSummaryLine() throws {
         // An optional unknown row must not hide a measured quota on a compact surface.
         let unreadable = AccountUsage(
             account: account("mixed", .codex),
@@ -373,8 +373,8 @@ final class GlanceModelTests: XCTestCase {
 
         let snapshot = GlanceModel.build([unreadable], now: now, scope: .mostCritical)
 
-        XCTAssertEqual(snapshot.headlineShort?.remainingPercent, 90)
-        XCTAssertEqual(snapshot.headlineShort?.severity, .healthy)
+        XCTAssertEqual(snapshot.summaryLineShort?.remainingPercent, 90)
+        XCTAssertEqual(snapshot.summaryLineShort?.severity, .healthy)
     }
 
     func testSubPointDriftDoesNotReorderTheTiles() {
@@ -420,9 +420,9 @@ final class GlanceModelTests: XCTestCase {
 
         let snapshot = GlanceModel.build([monthlyOnly], now: now, scope: .allAccounts)
 
-        XCTAssertEqual(snapshot.headlineLong?.label, "Monthly")
-        XCTAssertEqual(try XCTUnwrap(snapshot.headlineLong?.remainingPercent), 60, accuracy: 0.001)
-        XCTAssertNil(snapshot.headlineShort)
+        XCTAssertEqual(snapshot.summaryLineLong?.label, "Monthly")
+        XCTAssertEqual(try XCTUnwrap(snapshot.summaryLineLong?.remainingPercent), 60, accuracy: 0.001)
+        XCTAssertNil(snapshot.summaryLineShort)
     }
 
     func testAnOldSnapshotReportsAsStaleRatherThanHealthy() {
@@ -504,7 +504,7 @@ extension GlanceModelTests {
     func testTheStaleThresholdFollowsTheSyncIntervalRatherThanAConstant() throws {
         // At the three-hour interval the settings screen offers, a fixed one-hour threshold
         // marks a two-hour-old snapshot stale — and stale sorts LAST. The account at 3 % would
-        // be pushed below a healthy one, and the headline would read 80 % with a 3 % card under
+        // be pushed below a healthy one, and the summary would read 80 % with a 3 % card under
         // it. This is the whole reason the Kotlin builder takes the threshold as a parameter.
         let critical = parityUsage(
             "critical", used: 97, fetchedAt: parityNow.addingTimeInterval(-2 * 60 * 60))
@@ -516,7 +516,7 @@ extension GlanceModelTests {
             staleAfter: Severity.staleAfter(syncIntervalMinutes: 180))
 
         XCTAssertEqual(snapshot.accounts.first?.id, "critical")
-        XCTAssertEqual(snapshot.headlineShort?.remainingPercent, 3)
+        XCTAssertEqual(snapshot.summaryLineShort?.remainingPercent, 3)
     }
 
     func testTheDefaultThresholdStillMarksATrulyOldSnapshotStale() throws {
@@ -740,7 +740,7 @@ extension GlanceModelTests {
 }
 
 extension GlanceModelTests {
-    func testGlobalHeadlinesPreserveScopedWarningAndWindowLabel() {
+    func testGlobalSummaryLinesPreserveScopedWarningAndWindowLabel() {
         let data = withWindows([
             UsageWindow(id: "5h", label: "5h limit", category: .fiveHour, usedPercent: 0,
                         periodSeconds: 18_000, resetAt: nil, exhausted: false),
@@ -749,22 +749,22 @@ extension GlanceModelTests {
             UsageWindow(id: "fable", label: "Weekly (Fable)", category: .weekly, usedPercent: 100,
                         periodSeconds: 604_800, resetAt: nil, exhausted: true, scope: .model)])
         let glance = GlanceModel.build([data], now: now, scope: .allAccounts)
-        XCTAssertEqual(glance.headlineLong?.label, "Weekly credits")
-        XCTAssertEqual(glance.headlineLong?.remainingPercent, 37)
+        XCTAssertEqual(glance.summaryLineLong?.label, "Weekly credits")
+        XCTAssertEqual(glance.summaryLineLong?.remainingPercent, 37)
         XCTAssertEqual(glance.accounts.first?.severity, .limited)
         XCTAssertEqual(glance.accounts.first?.statusMessage, "Restricted: Weekly (Fable)")
     }
 
-    func testExplicitlyBlockedUnknownHeadlineBeatsKnownHealthyWindow() {
+    func testExplicitlyBlockedUnknownSummaryLineBeatsKnownHealthyWindow() {
         let data = withWindows([
             UsageWindow(id: "known", label: "Measured", category: .fiveHour, usedPercent: 0,
                         periodSeconds: 18_000, resetAt: nil, exhausted: false),
             UsageWindow(id: "blocked", label: "Blocked", category: .fiveHour, usedPercent: nil,
                         periodSeconds: 18_000, resetAt: nil, exhausted: true)])
         let glance = GlanceModel.build([data], now: now, scope: .allAccounts)
-        XCTAssertEqual(glance.headlineShort?.label, "Blocked")
-        XCTAssertEqual(glance.headlineShort?.severity, .exhausted)
-        XCTAssertNil(glance.headlineShort?.remainingPercent)
+        XCTAssertEqual(glance.summaryLineShort?.label, "Blocked")
+        XCTAssertEqual(glance.summaryLineShort?.severity, .exhausted)
+        XCTAssertNil(glance.summaryLineShort?.remainingPercent)
     }
 
     func testFirstFailedFetchDoesNotClaimAnUpdateTime() {
@@ -877,9 +877,9 @@ extension GlanceModelTests {
             "before the reset the exhausted account still leads")
     }
 
-    func testTheRepresentativeSurvivesTheExportOfOnlyTwoHeadlines() throws {
+    func testTheRepresentativeSurvivesTheExportOfOnlyTwoSummaryLines() throws {
         // Two short windows: 0 % (resets in a minute) and 10 % (open). The export keeps one
-        // short headline, so choosing among its rows after the reset picked the 80 % weekly.
+        // short summary line, so choosing among its rows after the reset picked the 80 % weekly.
         let usage = withWindows([
             UsageWindow(id: "5h-a", label: "5h limit", category: .fiveHour, usedPercent: 100,
                         periodSeconds: 18_000, resetAt: now.addingTimeInterval(60), exhausted: true),

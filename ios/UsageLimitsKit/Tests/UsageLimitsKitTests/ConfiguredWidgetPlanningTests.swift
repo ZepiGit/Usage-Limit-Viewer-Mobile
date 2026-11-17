@@ -132,8 +132,8 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
             XCTAssertEqual(used.updatedAt, left.updatedAt)
             XCTAssertEqual(used.nextResetAt, left.nextResetAt)
             XCTAssertEqual(used.overallSeverity, left.overallSeverity)
-            XCTAssertEqual(used.headlineShort, left.headlineShort)
-            XCTAssertEqual(used.headlineLong, left.headlineLong)
+            XCTAssertEqual(used.summaryLineShort, left.summaryLineShort)
+            XCTAssertEqual(used.summaryLineLong, left.summaryLineLong)
             XCTAssertEqual(used.staleAfter, left.staleAfter)
             XCTAssertEqual(used.credits, left.credits)
         }
