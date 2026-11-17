@@ -20,9 +20,12 @@ updates:
       - dependency-name: "org.jetbrains.kotlin.plugin.compose"
       - dependency-name: "org.jetbrains.kotlin:*"
       - dependency-name: "com.google.devtools.ksp"
-      # Keep patches on the current AndroidX lines while the toolchain is frozen. The latest
-      # group requires AGP 9.1 and compileSdk 37; intermediate minor lines are not validated.
+      # Hold these families on their current lines while the toolchain is frozen (in effect a
+      # freeze where a line has no newer patch). The latest group requires AGP 9.1 and
+      # compileSdk 37; intermediate minor lines are not validated.
       # Revisit these bounds in the coordinated toolchain upgrade, not in weekly update PRs.
+      # These ranges also block Dependabot security updates beyond the bound; a fix that only
+      # exists above it needs a manual upgrade.
       - dependency-name: "androidx.core:*"
         versions: ["[1.16.0,)"]
       - dependency-name: "androidx.compose:compose-bom"
@@ -37,8 +40,9 @@ updates:
         versions: ["[1.9.0,)"]
       - dependency-name: "androidx.datastore:*"
         versions: ["[1.2.0,)"]
-      # Coroutines 1.10 and serialization 1.8 moved to Kotlin 2.1; retain the Kotlin 2.0 lines.
-      # The proposed 1.11 / 1.13 fail KSP on Kotlin metadata 2.2 / 2.4 respectively.
+      # A conservative bound: coroutines 1.10 and serialization 1.8 were built with Kotlin 2.1 and
+      # are untested here. The proposed 1.11 / 1.13 are proven to fail KSP on Kotlin metadata
+      # 2.2 / 2.4 respectively.
       - dependency-name: "org.jetbrains.kotlinx:kotlinx-coroutines-*"
         versions: ["[1.10.0,)"]
       - dependency-name: "org.jetbrains.kotlinx:kotlinx-serialization-*"
