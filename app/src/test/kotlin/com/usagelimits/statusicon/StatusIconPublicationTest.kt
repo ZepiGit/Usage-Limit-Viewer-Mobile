@@ -3,6 +3,8 @@ package com.usagelimits.statusicon
 import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
+import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.service.notification.StatusBarNotification
@@ -20,10 +22,12 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.sync.NotificationPublisher
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -37,6 +41,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowLooper
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The status icon as a person sees it, through the publication module callers use: which
@@ -181,58 +186,76 @@ class StatusIconPublicationTest {
     }
 
     /**
-     * A publisher whose first cache read waits for [gate], so a test can hold an older
-     * publication between its read and its posts while a newer choice is published.
+     * The application context, counting the publisher's notification permission checks. That
+     * check is the first thing a publication does once it is allowed to run, so the count says
+     * whether a publication got past its entry or is still waiting at it.
      */
-    private fun pausingPublisher(entered: CompletableDeferred<Unit>, gate: CompletableDeferred<Unit>): StatusIconPublisher {
-        var first = true
-        return StatusIconPublisher(app, app.container.settingsStore, readAccounts = {
+    private class EntryProbe(base: Context) : ContextWrapper(base) {
+        val entries = AtomicInteger()
+
+        override fun checkPermission(permission: String, pid: Int, uid: Int): Int {
+            if (permission == Manifest.permission.POST_NOTIFICATIONS) entries.incrementAndGet()
+            return super.checkPermission(permission, pid, uid)
+        }
+    }
+
+    /**
+     * Holds an older publication after it has read the cache, applies [change], then lets a newer
+     * publication run as far as the publisher allows before the older one resumes.
+     *
+     * The newer one starts undispatched, so it runs on this thread up to its first suspension.
+     * While the older one holds the publisher's lock, that suspension is the lock itself and the
+     * newer one has not even checked the permission. If it got past its entry, nothing held it,
+     * and it is run to its end first: that is the order in which an older publication used to
+     * post the old choice over the newer cleanup. Either way the order is fixed before the older
+     * one is released; no sleep and no dispatcher luck decides it.
+     */
+    private fun interleaved(change: suspend () -> Unit) = runBlocking {
+        val probe = EntryProbe(app)
+        val reads = AtomicInteger()
+        val olderRead = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val publisher = StatusIconPublisher(probe, app.container.settingsStore, readAccounts = {
             val accounts = app.container.repository.accountUsageOnce()
-            if (first) {
-                first = false
-                entered.complete(Unit)
-                gate.await()
+            if (reads.incrementAndGet() == 1) {
+                olderRead.complete(Unit)
+                release.await()
             }
             accounts
         })
+
+        val older = launch(Dispatchers.Default) { publisher.publish() }
+        withTimeout(10_000) { olderRead.await() }
+        change()
+        val entriesBefore = probe.entries.get()
+        val newer = launch(start = CoroutineStart.UNDISPATCHED) { publisher.publish() }
+        if (probe.entries.get() > entriesBefore) withTimeout(10_000) { newer.join() }
+        release.complete(Unit)
+        withTimeout(10_000) { joinAll(older, newer) }
     }
 
     @Test
-    fun `an older publication that resumes after Off does not bring the icon back`() = runBlocking {
-        val claude = account(ProviderId.CLAUDE, "Claude", left = 42.0)
-        pin(claude)
-        val entered = CompletableDeferred<Unit>()
-        val gate = CompletableDeferred<Unit>()
-        val publisher = pausingPublisher(entered, gate)
+    fun `an older publication that resumes after Off does not bring the icon back`() {
+        pinBlocking(ProviderId.CLAUDE, "Claude", 42.0)
 
-        val older = launch(Dispatchers.Default) { publisher.publish() }
-        entered.await()
-        app.container.settingsStore.setStatusIconsEnabled(false)
-        val newer = launch(Dispatchers.Default) { publisher.publish() }
-        gate.complete(Unit)
-        joinAll(older, newer)
+        interleaved { app.container.settingsStore.setStatusIconsEnabled(false) }
 
         assertEquals("the switch says Off, so no icon may remain", 0, statusRecords().size)
     }
 
     @Test
-    fun `an older publication that resumes after another choice does not restore the previous account`() = runBlocking {
-        val claude = account(ProviderId.CLAUDE, "Claude", left = 42.0)
-        val codex = account(ProviderId.CODEX, "Codex", left = 87.0)
-        pin(claude)
-        val entered = CompletableDeferred<Unit>()
-        val gate = CompletableDeferred<Unit>()
-        val publisher = pausingPublisher(entered, gate)
+    fun `an older publication that resumes after another choice does not restore the previous account`() {
+        pinBlocking(ProviderId.CLAUDE, "Claude", 42.0)
+        val codex = runBlocking { account(ProviderId.CODEX, "Codex", left = 87.0) }
 
-        val older = launch(Dispatchers.Default) { publisher.publish() }
-        entered.await()
-        pin(codex)
-        val newer = launch(Dispatchers.Default) { publisher.publish() }
-        gate.complete(Unit)
-        joinAll(older, newer)
+        interleaved { pin(codex) }
 
         val titles = statusRecords().map { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }
         assertEquals("only the latest choice shows", listOf("Codex", "Codex"), titles)
+    }
+
+    private fun pinBlocking(provider: ProviderId, name: String, left: Double) = runBlocking {
+        pin(account(provider, name, left))
     }
 
     @Test
