@@ -1,0 +1,91 @@
+name: Status icon device evidence
+
+on:
+  push:
+    paths:
+      - 'app/src/main/kotlin/com/usagelimits/statusicon/**'
+      - 'app/src/test/kotlin/com/usagelimits/statusicon/**'
+      - 'app/src/main/res/values*/strings.xml'
+      - 'app/build.gradle.kts'
+      - 'gradle/**'
+      - '*.gradle.kts'
+      - 'gradle.properties'
+      - 'app/src/main/kotlin/com/usagelimits/core/sync/Publication.kt'
+      - 'app/src/main/kotlin/com/usagelimits/core/di/AppContainer.kt'
+      - 'app/src/main/kotlin/com/usagelimits/core/model/StatusIcon.kt'
+      - 'app/src/main/kotlin/com/usagelimits/core/settings/**'
+      - 'app/src/main/kotlin/com/usagelimits/feature/settings/**'
+      - 'app/src/debug/**'
+      - 'app/src/test/kotlin/com/usagelimits/evidence/**'
+      - 'tools/**'
+      - '.github/workflows/status-icons.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: status-icons-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    name: Status icons API ${{ matrix.api }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 36, 37]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          # Enhanced caching has separate Terms of Use; keep the MIT cache provider.
+          cache-provider: basic
+      - name: Check the evidence harness
+        run: |
+          python3 -m unittest discover -s tools -p 'test_status_icon_evidence.py'
+          bash -n tools/run_status_icon_evidence.sh
+      - name: Build debug driver and prove release manifest isolation
+        run: |
+          ./gradlew --no-daemon -Pkotlin.compiler.execution.strategy=in-process :app:assembleDebug :app:processReleaseMainManifest
+          mkdir -p runtime/status-icons-api${{ matrix.api }}
+          python3 tools/check_status_icon_release.py --build app/build --evidence runtime/status-icons-api${{ matrix.api }}
+      # Same command-line tools pin and licence handling as android.yml.
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+          cmdline-tools-version: '15859902'
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Capture production status icon scenarios
+        env:
+          STATUS_ICON_API: ${{ matrix.api }}
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_status_icon_evidence.sh
+      - name: Publish observed ranking and assertion summary
+        if: always()
+        run: |
+          summary=runtime/status-icons-api${{ matrix.api }}/summary.md
+          if [[ -f "$summary" ]]; then
+            cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'API ${{ matrix.api }}: scenario did not complete; inspect boot/build evidence.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload device evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: status-icons-api${{ matrix.api }}-${{ github.sha }}
+          path: runtime/status-icons-api${{ matrix.api }}
+          if-no-files-found: warn
