@@ -63,6 +63,8 @@ public enum WidgetBundleBuilder {
         _ a: W1, _ b: W2, _ c: W3) -> W1 { a }
     public static func buildBlock<W1: Widget, W2: Widget, W3: Widget, W4: Widget>(
         _ a: W1, _ b: W2, _ c: W3, _ d: W4) -> W1 { a }
+    public static func buildBlock<W1: Widget, W2: Widget, W3: Widget, W4: Widget, W5: Widget>(
+        _ a: W1, _ b: W2, _ c: W3, _ d: W4, _ e: W5) -> W1 { a }
 }
 
 public protocol WidgetBundle {

@@ -31,6 +31,8 @@ public struct AppSettings: Sendable, Equatable, Codable {
 
     /// Whether quota figures count down what is left or up what has been used.
     public var percentDisplay: PercentDisplay
+    public var statusIconsEnabled: Bool
+    public var pinnedAccountIDs: [String]
 
     public static let minimumSyncIntervalMinutes = 15
     public static let defaultSyncIntervalMinutes = 30
@@ -42,7 +44,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
         showSubscriptionTier: Bool = true,
         showRenewalTime: Bool = false,
         providerIcons: [String: String] = [:],
-        percentDisplay: PercentDisplay = .left
+        percentDisplay: PercentDisplay = .left,
+        statusIconsEnabled: Bool = false,
+        pinnedAccountIDs: [String] = []
     ) {
         self.syncIntervalMinutes = max(syncIntervalMinutes, AppSettings.minimumSyncIntervalMinutes)
         self.notifications = notifications
@@ -51,6 +55,8 @@ public struct AppSettings: Sendable, Equatable, Codable {
         self.showRenewalTime = showRenewalTime
         self.providerIcons = providerIcons
         self.percentDisplay = percentDisplay
+        self.statusIconsEnabled = statusIconsEnabled
+        self.pinnedAccountIDs = pinnedAccountIDs
     }
 
     /// Decoded leniently, for the same reason as `NotificationSettings`: a missing key is a
@@ -75,7 +81,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
             // Decoded through the raw String, so an unknown stored name reads as the default
             // instead of failing the whole decode and resetting every preference.
             percentDisplay: PercentDisplay.fromLoose(
-                raw: try container.decodeIfPresent(String.self, forKey: .percentDisplay)))
+                raw: try container.decodeIfPresent(String.self, forKey: .percentDisplay)),
+            statusIconsEnabled: try container.decodeIfPresent(Bool.self, forKey: .statusIconsEnabled) ?? false,
+            pinnedAccountIDs: try container.decodeIfPresent([String].self, forKey: .pinnedAccountIDs) ?? [])
     }
 
     /// Apply initializer rules to a copy so normalization preserves every other preference.

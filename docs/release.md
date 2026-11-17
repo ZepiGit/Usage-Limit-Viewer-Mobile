@@ -2,7 +2,17 @@
 
 ## Build Android
 
-Use JDK 21, Android SDK platform 36 and Build Tools 35 or later. Set `ANDROID_HOME` or `sdk.dir` in untracked `local.properties`. The wrapper pins Gradle 8.14.6 and its distribution checksum; the app uses AGP 8.10.1 and Java 17 bytecode. Packaging alone also supports JDK 17.
+Use JDK 21 for development and all CI jobs, Android SDK platform 37.0 and Build Tools 36.0.0 or later. Set `ANDROID_HOME` or `sdk.dir` in untracked `local.properties`. Install the platform and, for a phone emulator, the system image with:
+
+```sh
+sdkmanager 'platforms;android-37.0' 'system-images;android-37.0;default;x86_64'
+```
+
+Use command-line tools build `15859902` (22.0) for AVD creation. Older tools can misparse the dotted `37.0` image version and generate an `android-0` target. CI pins that tools build without changing the SDK setup action's major, records the selected tools and AVD metadata, and requires `target=android-37.0` before launch.
+
+The app has minSdk 26 and compiles and targets API 37. The wrapper pins Gradle 9.7.0 and its distribution checksum; the toolchain uses AGP 9.3.1, Kotlin 2.4.21, KSP 2.3.14 and Compose compiler 2.4.21. AGP's built-in Kotlin and new DSL stay enabled, without the `org.jetbrains.kotlin.android` plugin. AGP and Gradle require at least JDK 17, but the project uses JDK 21, including for Robolectric 4.18's API 37 support. Explicit older regression SDKs remain in tests. Java 17 bytecode is preserved.
+
+The versions are coordinated against the [AGP 9.3 compatibility table](https://developer.android.com/build/releases/agp-9-3-0-release-notes), [Kotlin's Gradle/AGP compatibility table](https://kotlinlang.org/docs/gradle-configure-project.html) and [KSP requirements](https://kotlinlang.org/docs/ksp-overview.html). The merged CI action upgrade uses `gradle/actions@v6` only with `cache-provider: basic`; do not enable its default enhanced cache.
 
 From the repository root:
 
@@ -16,9 +26,9 @@ CI runs `:app:testDebugUnitTest :app:lintDebug`. Lint aborts on errors and write
 
 ## Dependency updates
 
-The Android toolchain moves together, outside Dependabot: AGP, Gradle, Kotlin, KSP and the Compose compiler must remain compatible. `.github/dependabot.yml` holds the AndroidX families blocked in the first wave, Coroutines 1.9, Serialization 1.7 and OkHttp 4 on their current lines; where a line has no newer patch that is in effect a freeze. Revisit those bounds when upgrading the toolchain; they are conservative review limits, not claims that every intermediate release is incompatible. The bounds also stop Dependabot security updates beyond them, so a fix that only exists above a bound needs a manual upgrade. Room, WorkManager, Lifecycle, Glance and Compose updates are grouped separately so unrelated libraries do not block each other.
+The Android toolchain moves together, outside Dependabot: AGP, Gradle, Kotlin, KSP and the Compose compiler must remain compatible. The coordinated API 37 upgrade removes the first-wave AndroidX, Coroutines, Serialization and OkHttp version bounds now that their current stable versions pass the consumer tests. Library and security updates may advance normally; the coupled toolchain remains excluded. Room, WorkManager, Lifecycle, Glance and Compose updates stay grouped separately so unrelated libraries do not block each other.
 
-After upgrading CI actions, run the full Android and iOS workflows on a maintainer branch. Dependabot runs skip the signed API 36 release-upgrade smoke. The Android workflow uses `gradle/actions` v6 with `cache-provider: basic` to retain MIT-licensed caching without the separate Enhanced Caching terms. Basic caching does not provide Enhanced Caching's cleanup or deduplication. The release workflow remains uncached, and artifact uploads retain zipped, explicitly named artifacts for the existing download steps.
+After upgrading CI actions, run the full Android and iOS workflows on a maintainer branch. Dependabot runs skip the signed API 37 release-upgrade smoke. The Android workflow uses `gradle/actions` v6 with `cache-provider: basic` to retain MIT-licensed caching without the separate Enhanced Caching terms. Basic caching does not provide Enhanced Caching's cleanup or deduplication. The release workflow remains uncached, and artifact uploads retain zipped, explicitly named artifacts for the existing download steps.
 
 ## Signing
 
@@ -59,12 +69,18 @@ Download `release-assets-<version>` from the matching run. It contains versioned
 
 ## Device checklist
 
-Use the candidate artifact and repeat the relevant steps on Android and iOS with the account holder:
+Use the candidate artifact and repeat the relevant steps on Android and iOS with the account holder. Android 17 physical-device validation is still needed. For loopback OAuth, keep the browser in the same user or work profile as the app: Android 17 blocks cross-profile localhost access regardless of target SDK. Certificate Transparency is enabled by default; do not disable it.
 
 1. Open Overview, Accounts, Resets and Settings. Check rotation, split view, large text, screen readers, keyboard navigation and reduced motion. Place widgets, resize them, change appearance, save and cancel configuration, then reopen after process loss and reboot.
 2. Complete browser and device-code sign-in where offered, including cancellation and retry. Add two accounts on one provider and reconnect an existing account. Confirm account identity, quota direction and reset times against the provider's UI.
 3. Compare populated widgets with the app. Refresh offline, restore connectivity, and remove an account during refresh. Check retained data age, recovery, notifications and credential renewal after expiry.
 4. Install over the prior release without uninstalling. Confirm accounts, settings and widget selections remain. On iOS 17+, first place Usage Bars, Account Rings and Mini Rings with a display-mode override opposite to the app setting and nondefault selection and appearance. After upgrading, confirm they still render, retain those other choices, no longer offer a display-mode control and follow changes to the app setting after WidgetKit reloads. Record the OS and both builds: Linux checks cannot verify WidgetKit's decoding of a stored intent whose parameter was removed. Redeem a Codex reset credit only with the holder's explicit approval: it spends a real credit.
+5. On an Android 17 device, in this order:
+   1. Long-press a placed widget, confirm the resize frame opens, then drag its handles by touch. After release, confirm the new size holds and the widget keeps its content and configuration. CI checks only keyboard move and resize, not this touch path.
+   2. Add enough accounts to fill Account Rings. On a small or low-resolution display, place it in several sizes and in both orientations. Android 17 caps widget bitmap memory at about 6 × screen width × screen height bytes. A widget over the cap should show Glance's text-only error layout; a blank, stale or partly drawn widget is a failure. You do not need to cause an out-of-memory condition or turn off the cap.
+   3. On the Add credit balance screen, type an API key with a hardware keyboard. Confirm every character stays masked as you type.
+   4. Sign in to and refresh each provider. Each connection must succeed with Certificate Transparency on, and with Encrypted Client Hello where the device and server negotiate it. Do not turn off TLS checks, and use only accounts whose holders have agreed.
+   5. Put the device under memory pressure, for example by opening several large apps, then return to the app and its widgets. Confirm both recover normally and keep their configuration.
 
 ## Owner responsibilities
 
