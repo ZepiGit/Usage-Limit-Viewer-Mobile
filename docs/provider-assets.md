@@ -9,3 +9,22 @@ Z.ai, ChatGLM, OpenCode and the six credit marks come from [LobeHub icons v1.96.
 In Settings → Provider icons, choose a mark for each service. The selection applies throughout the app and its widgets on that device. Unknown choice IDs fall back to the default. Claude and Claude Code share an account identity, as do Antigravity and Gemini; changing artwork does not change authentication or quota.
 
 Credit providers each have one fixed mark: OpenRouter, DeepSeek, Moonshot, xAI, fal.ai and Novita. Packaged artwork uses transparent PNGs; monochrome marks render white for the dark interface. Vector sources remain available alongside the exported platform assets.
+
+## Status bar glyphs
+
+The status icons (`app/src/main/kotlin/com/usagelimits/statusicon/StatusIconRenderer.kt`) do not reuse the artwork above. The status bar draws the whole icon about 10 px high and keeps only its alpha, so a logo's thin strokes and small holes disappear. Each provider instead has one bold monochrome silhouette, drawn as path data on a 24-unit square. These paths were drawn for this app after the mark each row names; none is a copy of a source path. Some stay close to the mark (Claude, Antigravity, Kimi, OpenCode), the others are freer abstractions of it (Codex, Grok, Devin, Meta Muse, Z.ai). The provider marks remain their owners' trademarks.
+
+| Provider | Glyph | Drawn after | Licence of that source |
+|---|---|---|---|
+| Claude | The Claude Code mascot with thicker legs and the eyes cut out | `assets/providers/lobehub/claudecode.svg` | LobeHub icons, MIT, © 2023 LobeHub |
+| OpenAI Codex | A hexagon with a hexagonal hole, an abstraction of the OpenAI knot's six-fold shape | `assets/providers/lobehub/openai.svg` | LobeHub icons, MIT, © 2023 LobeHub |
+| Antigravity | A solid arch with flared feet | `assets/providers/lobehub/antigravity.svg` | LobeHub icons, MIT, © 2023 LobeHub |
+| Grok (xAI) | A bold symmetric X | `assets/providers/lobehub/xai.svg` | LobeHub icons, MIT, © 2023 LobeHub |
+| Kimi | A K with a dot at its upper right | `assets/providers/lobehub/kimi.svg` | LobeHub icons, MIT, © 2023 LobeHub |
+| Devin | Four solid hexagons in a diamond | `assets/providers/lobehub/devin.svg` | LobeHub icons, MIT, © 2023 LobeHub |
+| Meta Muse | Two rings side by side, standing for the infinity loop | `assets/providers/lobehub/meta-mono.svg` | Simple Icons, CC0 1.0 |
+| Z.ai GLM | A bold Z | `assets/providers/lobehub/zai.svg` | LobeHub icons, MIT, © 2023 LobeHub |
+| OpenCode Go | An upright frame around a hollow, the mark's frame redrawn with its edges half a unit further in | `assets/providers/lobehub/opencode.svg` | LobeHub icons, MIT, © 2023 LobeHub |
+| Unknown provider | A plain disc | Drawn for this app | No third-party source |
+
+The glyphs are judged at the size the status bar draws them, not at the size of the source. `StatusIconRenderingTest` writes a contact sheet and a true-size sheet per density to `app/build/reports/status-icons/`. In the true-size sheet each icon is scaled down to its 15 × 10 dp slot and enlarged ×8 without smoothing. The same test fails if two glyphs differ in fewer than 12 pixels at 280 dpi.

@@ -2,9 +2,9 @@
 
 Research for a planned glanceable "quota left" surface: at most three pinned accounts, each a simplified provider glyph plus a two-digit percent, refreshed after every usage sync. This app has no server.
 
-App targets, read from the repo on 16 November 2026:
+App targets, read from the repo on 16 November 2026 and updated on 17 November 2026 after the API 37 upgrade (#59):
 
-- Android `minSdk = 26`, `targetSdk = 36`, `compileSdk = 36` (`app/build.gradle.kts`).
+- Android `minSdk = 26`, `targetSdk = 37`, `compileSdk = 37` (`app/build.gradle.kts`). The research below was done while the app targeted 36.
 - iOS deployment target `16.0` (`ios/UsageLimits/project.yml`).
 
 Sources are developer.android.com, AOSP (`android.googlesource.com`, `main` as fetched on 16 November 2026), and developer.apple.com. Inferences are marked `[INFERENCE]`.
