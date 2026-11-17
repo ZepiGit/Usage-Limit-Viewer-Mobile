@@ -71,6 +71,73 @@ jobs:
         if: ${{ !cancelled() }}
         run: ./ios/Tools/check-localized-percent.sh
 
+  # The Pinned accounts widget's real views, rendered at the three accessory sizes with synthetic
+  # accounts in English and German for a person to look at. View renderings, not Lock Screen
+  # screenshots: placement and the system's vibrancy are a device check.
+  pinned-widget-renderings:
+    name: Pinned widget renderings (simulator)
+    needs: kit-linux
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install XcodeGen and generate the project
+        working-directory: ios/UsageLimits
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Render every family in English and German
+        working-directory: ios/UsageLimits
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | last | .udid')
+          test -n "$udid" && test "$udid" != "null"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+          out="$GITHUB_WORKSPACE/pinned-widget-renderings"
+          mkdir -p "$out"
+          {
+            echo "View renderings of the Pinned accounts widget at accessory sizes (160x72, 72x72, 234x26 pt)."
+            echo "NOT Lock Screen screenshots: drawn with ImageRenderer, white on black, no wallpaper or vibrancy."
+            echo "Synthetic accounts only. Source commit: $GITHUB_SHA"
+            xcodebuild -version | head -1
+            xcrun simctl list devices --json | jq -r --arg id "$udid" '.devices[][] | select(.udid == $id) | .name'
+          } > "$out/CAPTURE.txt"
+          xcodebuild build-for-testing \
+            -scheme UsageLimitsRendering \
+            -destination "platform=iOS Simulator,id=$udid" \
+            -derivedDataPath "$GITHUB_WORKSPACE/rendering-build" \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
+          for language in en de; do
+            region=$([ "$language" = de ] && echo DE || echo US)
+            TEST_RUNNER_PINNED_RENDERINGS="$out" TEST_RUNNER_PINNED_LANGUAGE="$language" \
+            xcodebuild test-without-building \
+              -scheme UsageLimitsRendering \
+              -destination "platform=iOS Simulator,id=$udid" \
+              -derivedDataPath "$GITHUB_WORKSPACE/rendering-build" \
+              -resultBundlePath "$GITHUB_WORKSPACE/rendering-$language.xcresult" \
+              -testLanguage "$language" -testRegion "$region" \
+              -parallel-testing-enabled NO \
+              -only-testing:UsageLimitsRenderingTests/PinnedAccountsRenderingTests
+          done
+          find "$out" -type f | sort
+      - name: Upload the renderings
+        uses: actions/upload-artifact@v7
+        with:
+          name: pinned-widget-renderings
+          path: pinned-widget-renderings
+          if-no-files-found: error
+          retention-days: 7
+      - name: Keep the test results if rendering fails
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pinned-widget-rendering-failure
+          path: rendering-*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
   app-ios:
     name: iOS app (real SDK)
     needs: kit-linux

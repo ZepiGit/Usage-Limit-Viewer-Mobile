@@ -63,7 +63,7 @@ enum PinnedAccountGlyphs {
 struct StatusIconGlyphShape: Shape {
     let elements: [StatusIconGlyphs.Element]
 
-    func path(in rect: CGRect) -> Path {
+    nonisolated func path(in rect: CGRect) -> Path {
         let scale = min(rect.width, rect.height) / StatusIconGlyphs.grid
         let originX = rect.midX - StatusIconGlyphs.grid / 2 * scale
         let originY = rect.midY - StatusIconGlyphs.grid / 2 * scale
@@ -85,7 +85,7 @@ struct StatusIconGlyphShape: Shape {
 
 /// The exhausted sign as Android draws it: a circle crossed from lower left to upper right.
 struct ExhaustedSignShape: Shape {
-    func path(in rect: CGRect) -> Path {
+    nonisolated func path(in rect: CGRect) -> Path {
         let side = min(rect.width, rect.height)
         let radius = side * 0.43
         let reach = side * 0.305
