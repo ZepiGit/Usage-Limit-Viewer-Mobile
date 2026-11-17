@@ -67,6 +67,9 @@ final class RefreshCoalescerTests: XCTestCase {
             await withCheckedContinuation { held[arrival] = $0 }
         }
 
+        /// How many requests have reached the gate, which is how many passes have begun.
+        var arrivalCount: Int { arrivals }
+
         /// Returns once `count` requests have reached the gate.
         func waitForArrival(_ count: Int = 1) async {
             guard arrivals < count else { return }
@@ -85,12 +88,6 @@ final class RefreshCoalescerTests: XCTestCase {
             held.values.forEach { $0.resume() }
             held = [:]
         }
-    }
-
-    /// Set once a caller's wait is over, so a test can see that it has NOT ended yet.
-    private actor Flag {
-        private(set) var isSet = false
-        func set() { isSet = true }
     }
 
     private struct GatedTransport: HTTPTransport {
@@ -150,92 +147,117 @@ final class RefreshCoalescerTests: XCTestCase {
         return (container, coalescer, gate, announcements)
     }
 
-    func testAnAccountAddedDuringARunningRefreshIsSyncedWithoutAnotherRequest() async throws {
-        let (container, coalescer, gate, announcements) = world()
-        try await container.add(account("old"))
+    /// What the new account looks like from outside: its reading, the widget's figure for it,
+    /// and whether an alert about it was claimed.
+    private struct NewAccountState: Equatable {
+        var usedPercent: Double?
+        var widgetRemainingPercent: Double?
+        var claimed: Bool
+    }
 
-        // A refresh is in flight and has already read its account list: it is waiting on the
-        // provider for the only account it knows about.
-        let running = await coalescer.request()
-        await gate.waitForArrival()
-
-        // Sign-in finishes, stores the new account, and asks for a refresh.
-        try await container.add(account("new"))
-        let requested = await coalescer.request()
-
-        // The sign-in's wait must not end while the pass that predates it is still running.
-        let endedEarly = expectation(description: "the sign-in's wait ended before any pass ran")
-        endedEarly.isInverted = true
-        let earlyWatch = Task { await requested.value; endedEarly.fulfill() }
-        await fulfillment(of: [endedEarly], timeout: 0.3)
-
-        // What the sign-in sees the moment its own wait ends, not after the whole run.
-        await gate.release()
-        await requested.value
-
+    private func newAccountState(
+        _ container: UsageLimitsContainer, _ announcements: Announcements
+    ) async -> NewAccountState {
         let usage = await container.usage()
-        XCTAssertEqual(
-            usage.first { $0.account.id == "new" }?.snapshot?.windows.first?.usedPercent, 95,
-            "the new account has a reading")
         let published = GlanceSnapshotCodec.read(fromDirectory: directory)
-        XCTAssertEqual(
-            published.accounts.first { $0.id == "new" }?.rows.first?.remainingPercent, 5,
-            "the widget data carries the new account's reading")
-        let claimed = await announcements.events.filter { $0.accountId == "new" }
-        XCTAssertFalse(claimed.isEmpty, "the new account's alert was claimed")
+        return NewAccountState(
+            usedPercent: usage.first { $0.account.id == "new" }?.snapshot?.windows.first?.usedPercent,
+            widgetRemainingPercent: published.accounts.first { $0.id == "new" }?.rows.first?.remainingPercent,
+            claimed: await announcements.events.contains { $0.accountId == "new" })
+    }
 
-        await earlyWatch.value
-        await running.value
+    /// The new account after a sync: 95 % used, 5 % left on the widget, its alert claimed.
+    private let synced = NewAccountState(usedPercent: 95, widgetRemainingPercent: 5, claimed: true)
+
+    /// Watches one caller's wait, the way the caller itself would: it awaits the task `request()`
+    /// returned and, the moment that returns, records what it can see — so a test reads what the
+    /// caller would render, not what the world looks like after later passes.
+    @MainActor
+    private final class Caller {
+        private(set) var sawOnRelease: NewAccountState?
+        var isReleased: Bool { sawOnRelease != nil }
+
+        init(_ wait: Task<Void, Never>, seeing look: @escaping @MainActor () async -> NewAccountState) {
+            Task { @MainActor in
+                await wait.value
+                self.sawOnRelease = await look()
+            }
+        }
+    }
+
+    func testAnAccountAddedDuringARunningRefreshIsSyncedWithoutAnotherRequest() async throws {
+        try await SerialScheduling.run {
+            let (container, coalescer, gate, announcements) = world()
+            let look = { await self.newAccountState(container, announcements) }
+            try await container.add(account("old"))
+
+            // A refresh is in flight and has already read its account list: it is waiting on
+            // the provider for the only account it knows about.
+            let launch = Caller(await coalescer.request(), seeing: look)
+            await SerialScheduling.settle()
+            let begun = await gate.arrivalCount
+            XCTAssertEqual(begun, 1, "the first pass is at the provider")
+
+            // Sign-in finishes, stores the new account, and asks for a refresh.
+            try await container.add(account("new"))
+            let signIn = Caller(await coalescer.request(), seeing: look)
+            await SerialScheduling.settle()
+            XCTAssertFalse(signIn.isReleased, "the sign-in waits while the first pass is held")
+            XCTAssertFalse(launch.isReleased)
+
+            await gate.release()
+            await SerialScheduling.settle()
+            XCTAssertTrue(launch.isReleased)
+            XCTAssertEqual(signIn.sawOnRelease, synced, "what the sign-in sees when its wait ends")
+        }
     }
 
     func testACallerIsReleasedByItsOwnPassNotByLaterOnes() async throws {
         // A sign-in that finishes during one refresh waits for the follow-up, and only for it: a
         // widget link tapped while that follow-up runs needs a third pass, and the sign-in sheet
         // must not stay open for it.
-        let (container, coalescer, gate, announcements) = world()
-        try await container.add(account("old"))
+        try await SerialScheduling.run {
+            let (container, coalescer, gate, announcements) = world()
+            let look = { await self.newAccountState(container, announcements) }
+            try await container.add(account("old"))
 
-        let running = await coalescer.request()
-        await gate.waitForArrival(1)
-        try await container.add(account("new"))
-        let signIn = await coalescer.request()
+            let launch = Caller(await coalescer.request(), seeing: look)
+            await SerialScheduling.settle()
+            let first = await gate.arrivalCount
+            XCTAssertEqual(first, 1, "pass 1 is held at the provider")
 
-        await gate.release(1)
-        await gate.waitForArrival(2)
-        let link = await coalescer.request()
-        let linkDone = Flag()
-        let linkWaiter = Task { await link.value; await linkDone.set() }
-        await gate.release(2)
+            try await container.add(account("new"))
+            let signIn = Caller(await coalescer.request(), seeing: look)
+            await SerialScheduling.settle()
+            XCTAssertFalse(launch.isReleased, "pass 1 is still held")
+            XCTAssertFalse(signIn.isReleased, "pass 1 is still held")
 
-        // The third pass is now held at the provider. The sign-in's own pass is not.
-        let signInDone = expectation(description: "the sign-in's wait ends after its own pass")
-        let directory = directory!
-        let signInWaiter = Task {
-            await signIn.value
-            let usage = await container.usage()
-            XCTAssertEqual(
-                usage.first { $0.account.id == "new" }?.snapshot?.windows.first?.usedPercent, 95,
-                "the new account has a reading when the sign-in's wait ends")
-            XCTAssertEqual(
-                GlanceSnapshotCodec.read(fromDirectory: directory)
-                    .accounts.first { $0.id == "new" }?.rows.first?.remainingPercent, 5,
-                "and the widget data carries it")
-            let claimed = await announcements.events.filter { $0.accountId == "new" }
-            XCTAssertFalse(claimed.isEmpty, "and its alert was claimed")
-            signInDone.fulfill()
+            // Pass 1 ends; pass 2, the sign-in's own, begins and is held in turn.
+            await gate.release(1)
+            await SerialScheduling.settle()
+            let second = await gate.arrivalCount
+            XCTAssertEqual(second, 2, "pass 2 is held at the provider")
+            XCTAssertTrue(launch.isReleased, "the launch refresh is released by pass 1")
+            XCTAssertFalse(signIn.isReleased, "the sign-in waits for pass 2, which is held")
+
+            let link = Caller(await coalescer.request(), seeing: look)
+            await SerialScheduling.settle()
+            XCTAssertFalse(link.isReleased)
+
+            // Pass 2 ends; pass 3, the link's, begins and stays held.
+            await gate.release(2)
+            await SerialScheduling.settle()
+            let third = await gate.arrivalCount
+            XCTAssertEqual(third, 3, "pass 3 is held at the provider")
+            XCTAssertEqual(signIn.sawOnRelease, synced, "the sign-in is released by pass 2")
+            XCTAssertFalse(link.isReleased, "the link asked during pass 2 waits for pass 3")
+
+            await gate.release()
+            await SerialScheduling.settle()
+            XCTAssertTrue(link.isReleased)
+            let passes = await announcements.passes
+            XCTAssertEqual(passes, 3)
         }
-        await fulfillment(of: [signInDone], timeout: 5)
-
-        await gate.waitForArrival(3)
-        let isLinkDone = await linkDone.isSet
-        XCTAssertFalse(isLinkDone, "the link asked during pass 2 waits for pass 3")
-
-        await gate.release()
-        await signInWaiter.value
-        await linkWaiter.value
-        await running.value
-        let passes = await announcements.passes
-        XCTAssertEqual(passes, 3)
     }
 
     func testRequestsDuringOnePassShareASingleFollowUp() async throws {
