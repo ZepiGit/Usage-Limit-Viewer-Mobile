@@ -1,65 +1,151 @@
 package com.usagelimits.core.model
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * The presentation parity vectors, shared row for row with `WindowPresentationTests.swift` in the
- * iOS UsageLimitsKit. Both tables are written out literally so they pin the rule's values instead of
- * re-deriving them; agreement with each surface's own bar rule is proved by the bar equivalence tests.
- */
+/** Runs the same hand-written presentation and fill-state vectors as the Swift suite. */
 class WindowPresentationTest {
 
+    @Serializable
+    private data class VectorFile(
+        val description: String,
+        val presentations: List<Row>,
+        val fillStates: List<State>,
+    )
+
+    private fun parse(text: String): VectorFile {
+        val vectors = SharedVectors.parse(text, VectorFile.serializer())
+        require(vectors.presentations.isNotEmpty()) { "the presentation vector file holds no presentations" }
+        require(vectors.fillStates.isNotEmpty()) { "the presentation vector file holds no fill states" }
+        return vectors
+    }
+
+    private fun vectors() = parse(SharedVectors.file("window-presentation.json").readText())
+
+    @Serializable
     private data class Row(
-        val n: Int,
+        val name: String,
         val remaining: Double?,
-        val severity: Severity,
-        val validity: ReadingValidity,
-        val mode: PercentDisplay,
+        val severity: VectorSeverity,
+        val validity: VectorValidity,
+        val mode: VectorMode,
         val token: String,
         val fill: Double?,
-        val fillState: FillState,
+        val fillState: VectorFillState,
         val exhausted: Boolean,
     )
 
-    private val rows = listOf(
-        Row(1, 73.0, Severity.HEALTHY, ReadingValidity.CURRENT, PercentDisplay.LEFT, "73", 0.73, FillState.DATA, false),
-        Row(2, 73.0, Severity.HEALTHY, ReadingValidity.CURRENT, PercentDisplay.USED, "27", 0.27, FillState.DATA, false),
-        Row(3, 15.0, Severity.EXHAUSTED, ReadingValidity.CURRENT, PercentDisplay.LEFT, "15", 0.15, FillState.NO_FILL, true),
-        Row(4, 15.0, Severity.EXHAUSTED, ReadingValidity.CURRENT, PercentDisplay.USED, "100", 1.0, FillState.DATA, true),
-        Row(5, null, Severity.EXHAUSTED, ReadingValidity.CURRENT, PercentDisplay.LEFT, "—", null, FillState.NO_FILL, true),
-        Row(6, null, Severity.EXHAUSTED, ReadingValidity.CURRENT, PercentDisplay.USED, "100", 1.0, FillState.DATA, true),
-        Row(7, 0.0, Severity.EXHAUSTED, ReadingValidity.CURRENT, PercentDisplay.LEFT, "0", 0.0, FillState.NO_FILL, true),
-        Row(8, 0.0, Severity.EXHAUSTED, ReadingValidity.CURRENT, PercentDisplay.USED, "100", 1.0, FillState.DATA, true),
-        Row(9, null, Severity.UNKNOWN, ReadingValidity.CURRENT, PercentDisplay.LEFT, "—", null, FillState.NO_FILL, false),
-        Row(10, null, Severity.UNKNOWN, ReadingValidity.CURRENT, PercentDisplay.USED, "—", null, FillState.NO_FILL, false),
-        Row(11, 150.0, Severity.UNKNOWN, ReadingValidity.CURRENT, PercentDisplay.LEFT, "—", null, FillState.NO_FILL, false),
-        Row(12, 150.0, Severity.HEALTHY, ReadingValidity.CURRENT, PercentDisplay.LEFT, "—", null, FillState.DATA, false),
-        Row(13, -5.0, Severity.HEALTHY, ReadingValidity.CURRENT, PercentDisplay.USED, "—", null, FillState.DATA, false),
-        Row(14, Double.NaN, Severity.HEALTHY, ReadingValidity.CURRENT, PercentDisplay.USED, "—", null, FillState.DATA, false),
-        Row(15, 73.0, Severity.HEALTHY, ReadingValidity.STALE, PercentDisplay.LEFT, "73", 0.73, FillState.STALE, false),
-        Row(16, 15.0, Severity.EXHAUSTED, ReadingValidity.STALE, PercentDisplay.USED, "100", 1.0, FillState.STALE, true),
-        Row(17, 40.0, Severity.MEDIUM, ReadingValidity.RESET_DUE, PercentDisplay.USED, "60", 0.60, FillState.STALE, false),
-        Row(18, 73.0, Severity.HEALTHY, ReadingValidity.ERROR, PercentDisplay.LEFT, "73", 0.73, FillState.NO_FILL, false),
-        Row(19, 73.0, Severity.HEALTHY, ReadingValidity.ERROR, PercentDisplay.USED, "27", 0.27, FillState.NO_FILL, false),
-        Row(20, 15.0, Severity.EXHAUSTED, ReadingValidity.ERROR, PercentDisplay.USED, "100", 1.0, FillState.NO_FILL, true),
-        Row(21, 0.4, Severity.LOW, ReadingValidity.CURRENT, PercentDisplay.USED, ">99", 0.996, FillState.DATA, false),
-        Row(22, 99.6, Severity.HEALTHY, ReadingValidity.CURRENT, PercentDisplay.USED, "<1", 0.004, FillState.DATA, false),
-        Row(23, 100.0, Severity.HEALTHY, ReadingValidity.CURRENT, PercentDisplay.USED, "0", 0.0, FillState.DATA, false),
-        Row(24, 5.0, Severity.LOW, ReadingValidity.CURRENT, PercentDisplay.LEFT, "5", 0.05, FillState.DATA, false),
+    @Serializable
+    private data class State(
+        val name: String,
+        val validity: VectorValidity,
+        val severity: VectorSeverity,
+        val fill: Double?,
+        val mode: VectorMode,
+        val expected: VectorFillState,
     )
+
+    @Serializable
+    private enum class VectorSeverity(val model: Severity) {
+        @SerialName("healthy") HEALTHY(Severity.HEALTHY),
+        @SerialName("medium") MEDIUM(Severity.MEDIUM),
+        @SerialName("low") LOW(Severity.LOW),
+        @SerialName("limited") LIMITED(Severity.LIMITED),
+        @SerialName("exhausted") EXHAUSTED(Severity.EXHAUSTED),
+        @SerialName("unknown") UNKNOWN(Severity.UNKNOWN),
+        @SerialName("stale") STALE(Severity.STALE),
+        @SerialName("error") ERROR(Severity.ERROR);
+    }
+
+    @Serializable
+    private enum class VectorValidity(val model: ReadingValidity) {
+        @SerialName("current") CURRENT(ReadingValidity.CURRENT),
+        @SerialName("stale") STALE(ReadingValidity.STALE),
+        @SerialName("resetDue") RESET_DUE(ReadingValidity.RESET_DUE),
+        @SerialName("error") ERROR(ReadingValidity.ERROR);
+    }
+
+    @Serializable
+    private enum class VectorMode(val model: PercentDisplay) {
+        @SerialName("left") LEFT(PercentDisplay.LEFT),
+        @SerialName("used") USED(PercentDisplay.USED);
+    }
+
+    @Serializable
+    private enum class VectorFillState(val model: FillState) {
+        @SerialName("data") DATA(FillState.DATA),
+        @SerialName("stale") STALE(FillState.STALE),
+        @SerialName("noFill") NO_FILL(FillState.NO_FILL);
+    }
+
+    private fun changedDocument(table: String? = null, change: MutableMap<String, JsonElement>.() -> Unit): String {
+        val document = Json.parseToJsonElement(SharedVectors.file("window-presentation.json").readText())
+            .jsonObject.toMutableMap()
+        if (table == null) {
+            document.change()
+        } else {
+            val rows = document.getValue(table).jsonArray.toMutableList()
+            rows[0] = JsonObject(rows[0].jsonObject.toMutableMap().apply(change))
+            document[table] = JsonArray(rows)
+        }
+        return JsonObject(document).toString()
+    }
+
+    @Test
+    fun `unknown fields fail at every schema level`() {
+        listOf(null, "presentations", "fillStates").forEach { table ->
+            val unknown = changedDocument(table) { put("unexpected", JsonPrimitive(true)) }
+            assertThrows("unknown field in $table", SerializationException::class.java) { parse(unknown) }
+        }
+    }
+
+    @Test
+    fun `missing fields fail including nullable values`() {
+        listOf(null to "description", "presentations" to "remaining", "fillStates" to "fill").forEach { (table, key) ->
+            val missing = changedDocument(table) { remove(key) }
+            assertThrows("missing $key in $table", SerializationException::class.java) { parse(missing) }
+        }
+    }
+
+    @Test
+    fun `empty data fails the suite`() {
+        assertThrows(SerializationException::class.java) { parse("") }
+    }
+
+    @Test
+    fun `an empty fill state table fails the suite`() {
+        val empty = changedDocument { put("fillStates", JsonArray(emptyList())) }
+        assertThrows(IllegalArgumentException::class.java) { parse(empty) }
+    }
+
+    @Test
+    fun `an empty presentation table fails the suite`() {
+        val empty = changedDocument { put("presentations", JsonArray(emptyList())) }
+        assertThrows(IllegalArgumentException::class.java) { parse(empty) }
+    }
 
     @Test
     fun `the presentation table holds row for row`() {
-        rows.forEach { r ->
-            val p = windowPresentation(r.remaining, r.severity, r.validity, r.mode)
-            val at = "row ${r.n} (${r.remaining}, ${r.severity}, ${r.validity}, ${r.mode})"
+        vectors().presentations.forEach { r ->
+            val p = windowPresentation(r.remaining, r.severity.model, r.validity.model, r.mode.model)
+            val at = "${r.name} (${r.remaining}, ${r.severity}, ${r.validity}, ${r.mode})"
             assertEquals("$at token", r.token, p.token)
-            assertEquals("$at side", r.mode, p.side)
-            assertEquals("$at fillState", r.fillState, p.fillState)
+            assertEquals("$at side", r.mode.model, p.side)
+            assertEquals("$at fillState", r.fillState.model, p.fillState)
             assertEquals("$at exhausted", r.exhausted, p.exhausted)
             if (r.fill == null) assertNull("$at fill", p.fill)
             else assertEquals("$at fill", r.fill, p.fill ?: Double.NaN, 1e-9)
@@ -68,45 +154,11 @@ class WindowPresentationTest {
 
     @Test
     fun `the figure exists exactly when the token is not the dash`() {
-        rows.forEach { r ->
-            val p = windowPresentation(r.remaining, r.severity, r.validity, r.mode)
-            assertEquals("row ${r.n}", r.token != "—", p.hasFigure)
+        vectors().presentations.forEach { r ->
+            val p = windowPresentation(r.remaining, r.severity.model, r.validity.model, r.mode.model)
+            assertEquals(r.name, r.token != "—", p.hasFigure)
         }
     }
-
-    private data class State(
-        val n: Int,
-        val validity: ReadingValidity,
-        val severity: Severity,
-        val fill: Double?,
-        val mode: PercentDisplay,
-        val expected: FillState,
-    )
-
-    private val states = listOf(
-        State(1, ReadingValidity.STALE, Severity.HEALTHY, 0.73, PercentDisplay.LEFT, FillState.STALE),
-        State(2, ReadingValidity.STALE, Severity.EXHAUSTED, 1.0, PercentDisplay.USED, FillState.STALE),
-        State(3, ReadingValidity.STALE, Severity.UNKNOWN, null, PercentDisplay.USED, FillState.STALE),
-        State(4, ReadingValidity.RESET_DUE, Severity.MEDIUM, 0.6, PercentDisplay.USED, FillState.STALE),
-        State(5, ReadingValidity.RESET_DUE, Severity.EXHAUSTED, 0.15, PercentDisplay.LEFT, FillState.STALE),
-        State(6, ReadingValidity.ERROR, Severity.HEALTHY, 0.73, PercentDisplay.LEFT, FillState.NO_FILL),
-        State(7, ReadingValidity.ERROR, Severity.HEALTHY, 0.27, PercentDisplay.USED, FillState.NO_FILL),
-        State(8, ReadingValidity.ERROR, Severity.EXHAUSTED, 1.0, PercentDisplay.USED, FillState.NO_FILL),
-        State(9, ReadingValidity.CURRENT, Severity.STALE, 0.5, PercentDisplay.LEFT, FillState.STALE),
-        State(10, ReadingValidity.CURRENT, Severity.ERROR, 0.5, PercentDisplay.USED, FillState.NO_FILL),
-        State(11, ReadingValidity.CURRENT, Severity.UNKNOWN, 0.5, PercentDisplay.USED, FillState.NO_FILL),
-        State(12, ReadingValidity.CURRENT, Severity.UNKNOWN, null, PercentDisplay.LEFT, FillState.NO_FILL),
-        State(13, ReadingValidity.CURRENT, Severity.EXHAUSTED, 1.0, PercentDisplay.USED, FillState.DATA),
-        State(14, ReadingValidity.CURRENT, Severity.EXHAUSTED, 0.15, PercentDisplay.USED, FillState.DATA),
-        State(15, ReadingValidity.CURRENT, Severity.EXHAUSTED, 0.0, PercentDisplay.USED, FillState.NO_FILL),
-        State(16, ReadingValidity.CURRENT, Severity.EXHAUSTED, null, PercentDisplay.USED, FillState.NO_FILL),
-        State(17, ReadingValidity.CURRENT, Severity.EXHAUSTED, 0.15, PercentDisplay.LEFT, FillState.NO_FILL),
-        State(18, ReadingValidity.CURRENT, Severity.HEALTHY, null, PercentDisplay.LEFT, FillState.DATA),
-        State(19, ReadingValidity.CURRENT, Severity.MEDIUM, 0.4, PercentDisplay.USED, FillState.DATA),
-        State(20, ReadingValidity.CURRENT, Severity.LOW, 0.05, PercentDisplay.LEFT, FillState.DATA),
-        State(21, ReadingValidity.CURRENT, Severity.LIMITED, 0.4, PercentDisplay.USED, FillState.DATA),
-        State(22, ReadingValidity.CURRENT, Severity.HEALTHY, 0.0, PercentDisplay.USED, FillState.DATA),
-    )
 
     @Test
     fun `no window presents the dash with no fill in both modes`() {
@@ -221,11 +273,11 @@ class WindowPresentationTest {
 
     @Test
     fun `the fill state table holds row for row`() {
-        states.forEach { s ->
+        vectors().fillStates.forEach { s ->
             assertEquals(
-                "S${s.n} (${s.validity}, ${s.severity}, ${s.fill}, ${s.mode})",
-                s.expected,
-                fillState(s.validity, s.severity, s.fill, s.mode),
+                "${s.name} (${s.validity}, ${s.severity}, ${s.fill}, ${s.mode})",
+                s.expected.model,
+                fillState(s.validity.model, s.severity.model, s.fill, s.mode.model),
             )
         }
     }

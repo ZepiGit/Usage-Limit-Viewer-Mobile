@@ -3,12 +3,10 @@ package com.usagelimits.core.model
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
 
 /**
  * The account headline, proven against the vector file the Swift suite reads too.
@@ -62,17 +60,13 @@ class HeadlineVectorsTest {
         @SerialName("unknown") UNKNOWN(UsageScope.UNKNOWN),
     }
 
-    /** Strict: an unknown key fails rather than being skipped. Every field is required. */
-    private val json = Json { ignoreUnknownKeys = false }
-
     private fun parse(text: String): List<Vector> {
-        val vectors = json.decodeFromString(VectorFile.serializer(), text).vectors
+        val vectors = SharedVectors.parse(text, VectorFile.serializer()).vectors
         require(vectors.isNotEmpty()) { "the headline vector file holds no vectors" }
         return vectors
     }
 
-    /** Repo-relative: Gradle runs unit tests from the module directory. */
-    private val file = File("../shared/test-vectors/account-headline.json")
+    private val file = SharedVectors.file("account-headline.json")
 
     @Test
     fun `every shared vector picks the expected headline`() {

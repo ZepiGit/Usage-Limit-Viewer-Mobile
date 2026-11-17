@@ -1,0 +1,447 @@
+{
+  "description": "Window presentation and fill-state parity. Expected values are the original hand-written Kotlin and Swift tables, not generated from either implementation. Remaining is a number or null; the string \"NaN\" preserves the non-finite-input case (row 14) in valid JSON.",
+  "presentations": [
+    {
+      "name": "row 1",
+      "remaining": 73.0,
+      "severity": "healthy",
+      "validity": "current",
+      "mode": "left",
+      "token": "73",
+      "fill": 0.73,
+      "fillState": "data",
+      "exhausted": false
+    },
+    {
+      "name": "row 2",
+      "remaining": 73.0,
+      "severity": "healthy",
+      "validity": "current",
+      "mode": "used",
+      "token": "27",
+      "fill": 0.27,
+      "fillState": "data",
+      "exhausted": false
+    },
+    {
+      "name": "row 3",
+      "remaining": 15.0,
+      "severity": "exhausted",
+      "validity": "current",
+      "mode": "left",
+      "token": "15",
+      "fill": 0.15,
+      "fillState": "noFill",
+      "exhausted": true
+    },
+    {
+      "name": "row 4",
+      "remaining": 15.0,
+      "severity": "exhausted",
+      "validity": "current",
+      "mode": "used",
+      "token": "100",
+      "fill": 1.0,
+      "fillState": "data",
+      "exhausted": true
+    },
+    {
+      "name": "row 5",
+      "remaining": null,
+      "severity": "exhausted",
+      "validity": "current",
+      "mode": "left",
+      "token": "—",
+      "fill": null,
+      "fillState": "noFill",
+      "exhausted": true
+    },
+    {
+      "name": "row 6",
+      "remaining": null,
+      "severity": "exhausted",
+      "validity": "current",
+      "mode": "used",
+      "token": "100",
+      "fill": 1.0,
+      "fillState": "data",
+      "exhausted": true
+    },
+    {
+      "name": "row 7",
+      "remaining": 0.0,
+      "severity": "exhausted",
+      "validity": "current",
+      "mode": "left",
+      "token": "0",
+      "fill": 0.0,
+      "fillState": "noFill",
+      "exhausted": true
+    },
+    {
+      "name": "row 8",
+      "remaining": 0.0,
+      "severity": "exhausted",
+      "validity": "current",
+      "mode": "used",
+      "token": "100",
+      "fill": 1.0,
+      "fillState": "data",
+      "exhausted": true
+    },
+    {
+      "name": "row 9",
+      "remaining": null,
+      "severity": "unknown",
+      "validity": "current",
+      "mode": "left",
+      "token": "—",
+      "fill": null,
+      "fillState": "noFill",
+      "exhausted": false
+    },
+    {
+      "name": "row 10",
+      "remaining": null,
+      "severity": "unknown",
+      "validity": "current",
+      "mode": "used",
+      "token": "—",
+      "fill": null,
+      "fillState": "noFill",
+      "exhausted": false
+    },
+    {
+      "name": "row 11",
+      "remaining": 150.0,
+      "severity": "unknown",
+      "validity": "current",
+      "mode": "left",
+      "token": "—",
+      "fill": null,
+      "fillState": "noFill",
+      "exhausted": false
+    },
+    {
+      "name": "row 12",
+      "remaining": 150.0,
+      "severity": "healthy",
+      "validity": "current",
+      "mode": "left",
+      "token": "—",
+      "fill": null,
+      "fillState": "data",
+      "exhausted": false
+    },
+    {
+      "name": "row 13",
+      "remaining": -5.0,
+      "severity": "healthy",
+      "validity": "current",
+      "mode": "used",
+      "token": "—",
+      "fill": null,
+      "fillState": "data",
+      "exhausted": false
+    },
+    {
+      "name": "row 14",
+      "remaining": "NaN",
+      "severity": "healthy",
+      "validity": "current",
+      "mode": "used",
+      "token": "—",
+      "fill": null,
+      "fillState": "data",
+      "exhausted": false
+    },
+    {
+      "name": "row 15",
+      "remaining": 73.0,
+      "severity": "healthy",
+      "validity": "stale",
+      "mode": "left",
+      "token": "73",
+      "fill": 0.73,
+      "fillState": "stale",
+      "exhausted": false
+    },
+    {
+      "name": "row 16",
+      "remaining": 15.0,
+      "severity": "exhausted",
+      "validity": "stale",
+      "mode": "used",
+      "token": "100",
+      "fill": 1.0,
+      "fillState": "stale",
+      "exhausted": true
+    },
+    {
+      "name": "row 17",
+      "remaining": 40.0,
+      "severity": "medium",
+      "validity": "resetDue",
+      "mode": "used",
+      "token": "60",
+      "fill": 0.6,
+      "fillState": "stale",
+      "exhausted": false
+    },
+    {
+      "name": "row 18",
+      "remaining": 73.0,
+      "severity": "healthy",
+      "validity": "error",
+      "mode": "left",
+      "token": "73",
+      "fill": 0.73,
+      "fillState": "noFill",
+      "exhausted": false
+    },
+    {
+      "name": "row 19",
+      "remaining": 73.0,
+      "severity": "healthy",
+      "validity": "error",
+      "mode": "used",
+      "token": "27",
+      "fill": 0.27,
+      "fillState": "noFill",
+      "exhausted": false
+    },
+    {
+      "name": "row 20",
+      "remaining": 15.0,
+      "severity": "exhausted",
+      "validity": "error",
+      "mode": "used",
+      "token": "100",
+      "fill": 1.0,
+      "fillState": "noFill",
+      "exhausted": true
+    },
+    {
+      "name": "row 21",
+      "remaining": 0.4,
+      "severity": "low",
+      "validity": "current",
+      "mode": "used",
+      "token": ">99",
+      "fill": 0.996,
+      "fillState": "data",
+      "exhausted": false
+    },
+    {
+      "name": "row 22",
+      "remaining": 99.6,
+      "severity": "healthy",
+      "validity": "current",
+      "mode": "used",
+      "token": "<1",
+      "fill": 0.004,
+      "fillState": "data",
+      "exhausted": false
+    },
+    {
+      "name": "row 23",
+      "remaining": 100.0,
+      "severity": "healthy",
+      "validity": "current",
+      "mode": "used",
+      "token": "0",
+      "fill": 0.0,
+      "fillState": "data",
+      "exhausted": false
+    },
+    {
+      "name": "row 24",
+      "remaining": 5.0,
+      "severity": "low",
+      "validity": "current",
+      "mode": "left",
+      "token": "5",
+      "fill": 0.05,
+      "fillState": "data",
+      "exhausted": false
+    }
+  ],
+  "fillStates": [
+    {
+      "name": "S1",
+      "validity": "stale",
+      "severity": "healthy",
+      "fill": 0.73,
+      "mode": "left",
+      "expected": "stale"
+    },
+    {
+      "name": "S2",
+      "validity": "stale",
+      "severity": "exhausted",
+      "fill": 1.0,
+      "mode": "used",
+      "expected": "stale"
+    },
+    {
+      "name": "S3",
+      "validity": "stale",
+      "severity": "unknown",
+      "fill": null,
+      "mode": "used",
+      "expected": "stale"
+    },
+    {
+      "name": "S4",
+      "validity": "resetDue",
+      "severity": "medium",
+      "fill": 0.6,
+      "mode": "used",
+      "expected": "stale"
+    },
+    {
+      "name": "S5",
+      "validity": "resetDue",
+      "severity": "exhausted",
+      "fill": 0.15,
+      "mode": "left",
+      "expected": "stale"
+    },
+    {
+      "name": "S6",
+      "validity": "error",
+      "severity": "healthy",
+      "fill": 0.73,
+      "mode": "left",
+      "expected": "noFill"
+    },
+    {
+      "name": "S7",
+      "validity": "error",
+      "severity": "healthy",
+      "fill": 0.27,
+      "mode": "used",
+      "expected": "noFill"
+    },
+    {
+      "name": "S8",
+      "validity": "error",
+      "severity": "exhausted",
+      "fill": 1.0,
+      "mode": "used",
+      "expected": "noFill"
+    },
+    {
+      "name": "S9",
+      "validity": "current",
+      "severity": "stale",
+      "fill": 0.5,
+      "mode": "left",
+      "expected": "stale"
+    },
+    {
+      "name": "S10",
+      "validity": "current",
+      "severity": "error",
+      "fill": 0.5,
+      "mode": "used",
+      "expected": "noFill"
+    },
+    {
+      "name": "S11",
+      "validity": "current",
+      "severity": "unknown",
+      "fill": 0.5,
+      "mode": "used",
+      "expected": "noFill"
+    },
+    {
+      "name": "S12",
+      "validity": "current",
+      "severity": "unknown",
+      "fill": null,
+      "mode": "left",
+      "expected": "noFill"
+    },
+    {
+      "name": "S13",
+      "validity": "current",
+      "severity": "exhausted",
+      "fill": 1.0,
+      "mode": "used",
+      "expected": "data"
+    },
+    {
+      "name": "S14",
+      "validity": "current",
+      "severity": "exhausted",
+      "fill": 0.15,
+      "mode": "used",
+      "expected": "data"
+    },
+    {
+      "name": "S15",
+      "validity": "current",
+      "severity": "exhausted",
+      "fill": 0.0,
+      "mode": "used",
+      "expected": "noFill"
+    },
+    {
+      "name": "S16",
+      "validity": "current",
+      "severity": "exhausted",
+      "fill": null,
+      "mode": "used",
+      "expected": "noFill"
+    },
+    {
+      "name": "S17",
+      "validity": "current",
+      "severity": "exhausted",
+      "fill": 0.15,
+      "mode": "left",
+      "expected": "noFill"
+    },
+    {
+      "name": "S18",
+      "validity": "current",
+      "severity": "healthy",
+      "fill": null,
+      "mode": "left",
+      "expected": "data"
+    },
+    {
+      "name": "S19",
+      "validity": "current",
+      "severity": "medium",
+      "fill": 0.4,
+      "mode": "used",
+      "expected": "data"
+    },
+    {
+      "name": "S20",
+      "validity": "current",
+      "severity": "low",
+      "fill": 0.05,
+      "mode": "left",
+      "expected": "data"
+    },
+    {
+      "name": "S21",
+      "validity": "current",
+      "severity": "limited",
+      "fill": 0.4,
+      "mode": "used",
+      "expected": "data"
+    },
+    {
+      "name": "S22",
+      "validity": "current",
+      "severity": "healthy",
+      "fill": 0.0,
+      "mode": "used",
+      "expected": "data"
+    }
+  ]
+}

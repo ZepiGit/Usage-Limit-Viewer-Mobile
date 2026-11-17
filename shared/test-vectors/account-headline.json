@@ -1,5 +1,5 @@
 {
-  "description": "The account headline: the one usage window that speaks for an account at a moment. Rule: (1) drop windows whose reset is due (resetAt <= now and the reading was taken before resetAt; with no fetch time any passed reset is due); if that leaves none, keep all. (2) If any remaining window is global, only global windows compete; otherwise all compete. (3) An exhausted window (provider flag, or no remaining at all) wins; otherwise the lowest remaining percentage wins; an unknown percentage loses to any known one. Ties go to the first window in provider order. (4) No windows, no headline. Times are epoch milliseconds. Expected ids are written by hand from the rule, never generated from an implementation.",
+  "description": "The account headline: the one usage window that speaks for an account at a moment. Rule: (1) drop windows whose reset is due (resetAt <= now and the reading was taken before resetAt; with no fetch time any passed reset is due); if that leaves none, keep all. (2) If any remaining window is global, only global windows compete; otherwise all compete. (3) An exhausted window (provider flag, or no remaining at all) wins; otherwise the lowest remaining percentage wins; an unknown percentage loses to any known one. A remaining percentage that is missing, non-finite or outside 0-100 is unknown; only exactly 0 counts as nothing left. Ties go to the first window in provider order. (4) No windows, no headline. Times are epoch milliseconds. Expected ids are written by hand from the rule, never generated from an implementation.",
   "vectors": [
     {
       "name": "a global window beats a tighter scoped one",
@@ -201,6 +201,66 @@
         { "id": "credits", "scope": "global", "remainingPercent": null, "exhausted": false, "resetAt": null }
       ],
       "expected": "included"
+    },
+    {
+      "name": "a provider-flagged exhausted window first ties with one with nothing left",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "flagged-first", "scope": "global", "remainingPercent": 80, "exhausted": true, "resetAt": null },
+        { "id": "empty-second", "scope": "global", "remainingPercent": 0, "exhausted": false, "resetAt": null }
+      ],
+      "expected": "flagged-first"
+    },
+    {
+      "name": "two flagged-exhausted windows tie regardless of percentage, first wins",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "flagged-first", "scope": "global", "remainingPercent": 80, "exhausted": true, "resetAt": null },
+        { "id": "flagged-second", "scope": "global", "remainingPercent": 20, "exhausted": true, "resetAt": null }
+      ],
+      "expected": "flagged-first"
+    },
+    {
+      "name": "an unknown global percentage beats a measured model-scoped window",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "measured-model", "scope": "model", "remainingPercent": 5, "exhausted": false, "resetAt": null },
+        { "id": "unknown-global", "scope": "global", "remainingPercent": null, "exhausted": false, "resetAt": null }
+      ],
+      "expected": "unknown-global"
+    },
+    {
+      "name": "without a fetch time and with every reset passed, all windows compete again",
+      "fetchedAt": null,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1799999700000 },
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1799999800000 }
+      ],
+      "expected": "5h"
+    },
+    {
+      "name": "a reset exactly at both the reading and now is not due",
+      "fetchedAt": 1800000000000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1800000000000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800400000000 }
+      ],
+      "expected": "5h"
+    },
+    {
+      "name": "an out-of-range percentage becomes unknown and loses to a known one",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "invalid", "scope": "global", "remainingPercent": -5, "exhausted": false, "resetAt": null },
+        { "id": "known", "scope": "global", "remainingPercent": 100, "exhausted": false, "resetAt": null }
+      ],
+      "expected": "known"
     },
     {
       "name": "no windows, no headline",
