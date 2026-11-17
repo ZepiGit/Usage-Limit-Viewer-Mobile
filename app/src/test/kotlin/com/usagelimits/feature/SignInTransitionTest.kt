@@ -2,6 +2,7 @@ package com.usagelimits.feature
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -103,7 +104,10 @@ class SignInTransitionTest {
             .fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
         compose.mainClock.autoAdvance = false
         try {
-            compose.runOnIdle { state.value = AddAccountState.Starting(ProviderId.KIMI) }
+            compose.runOnUiThread {
+                state.value = AddAccountState.Starting(ProviderId.KIMI)
+                Snapshot.sendApplyNotifications()
+            }
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeBy(90)
             println("[DEBUG-api37-clock] state=${state.value} time=${compose.mainClock.currentTime}")
