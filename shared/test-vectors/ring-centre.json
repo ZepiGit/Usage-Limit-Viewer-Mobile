@@ -1,0 +1,18 @@
+{
+  "description": "What a ring writes in its centre for a known figure token (the presentation's token and side, and whether the ring draws its arc). Rule: (1) A token of 100 in Used is the exhausted window: it is written bare, without the percent sign, whether or not the arc is drawn. (2) A token of 100 in Left is the full allowance: nothing is written when the ring draws its arc, because the closed ring says it; when the ring draws no arc for that presentation, it is written bare, without the percent sign, never with it. (3) Every other token is written with its percent sign. arcDrawn is what the ring surface paints: iOS Account Rings paint the arc when the presentation has a fill and its fill state is not no-fill; Android ring widgets paint any fill. The tokens >99 and <1 are their own and never count as 100. The unknown dash is outside this file: Android rings write nothing for it, iOS rings write the dash. Expected values are written by hand from this rule, never generated from an implementation.",
+  "vectors": [
+    { "name": "a full allowance under its closed arc writes nothing", "token": "100", "side": "left", "arcDrawn": true, "expected": "nothing" },
+    { "name": "a full allowance with no arc drawn writes a bare 100", "token": "100", "side": "left", "arcDrawn": false, "expected": "bare" },
+    { "name": "an exhausted window in Used writes a bare 100", "token": "100", "side": "used", "arcDrawn": true, "expected": "bare" },
+    { "name": "an exhausted window in Used with no arc drawn still writes a bare 100", "token": "100", "side": "used", "arcDrawn": false, "expected": "bare" },
+    { "name": "a partial ring in Left writes its figure with the sign", "token": "42", "side": "left", "arcDrawn": true, "expected": "signed" },
+    { "name": "a partial ring in Used writes its figure with the sign", "token": "42", "side": "used", "arcDrawn": true, "expected": "signed" },
+    { "name": "nothing left writes 0 with the sign", "token": "0", "side": "left", "arcDrawn": false, "expected": "signed" },
+    { "name": "nothing used writes 0 with the sign", "token": "0", "side": "used", "arcDrawn": true, "expected": "signed" },
+    { "name": "99 left is not a full allowance", "token": "99", "side": "left", "arcDrawn": true, "expected": "signed" },
+    { "name": "99 used is not exhausted", "token": "99", "side": "used", "arcDrawn": true, "expected": "signed" },
+    { "name": "a near-full reading keeps its own token in Left", "token": ">99", "side": "left", "arcDrawn": true, "expected": "signed" },
+    { "name": "a near-exhausted reading keeps its own token in Used", "token": ">99", "side": "used", "arcDrawn": true, "expected": "signed" },
+    { "name": "under one percent keeps its own token", "token": "<1", "side": "left", "arcDrawn": true, "expected": "signed" }
+  ]
+}

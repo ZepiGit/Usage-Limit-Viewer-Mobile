@@ -80,6 +80,14 @@ struct LocalizedNotificationTexts: NotificationTexts {
     }
 }
 
+/// A percentage's words from the catalog, for the kit's ring text; see `PercentTexts`. The keys
+/// are `PercentText`'s own, so a ring says a figure exactly as every other surface does.
+struct LocalizedPercentTexts: PercentTexts {
+
+    func withSign(_ token: String) -> String { PercentText.figure(token: token) }
+    func spoken(_ figure: String, _ mode: PercentDisplay) -> String { PercentText.spoken(figure, mode) }
+}
+
 /// The page the sign-in leaves in the browser, from the catalog. The kit's `LoopbackListener`
 /// serves it and has no bundle of its own; see `LoopbackPageTexts`.
 ///
