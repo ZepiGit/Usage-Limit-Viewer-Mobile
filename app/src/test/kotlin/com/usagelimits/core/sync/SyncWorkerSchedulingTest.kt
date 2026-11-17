@@ -42,7 +42,7 @@ class SyncWorkerSchedulingTest {
      */
     @After
     fun closeWorkManager() {
-        WorkManagerTestInitHelper.closeWorkDatabase()
+        resetTestWorkManager()
     }
 
     private fun oneShots(): List<WorkInfo> =

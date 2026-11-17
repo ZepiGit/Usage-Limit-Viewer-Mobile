@@ -34,6 +34,12 @@ class SettingsMappingTest {
     }
 
     @Test
+    fun `the notification permission history survives settings reloads`() {
+        assertTrue(settingsFrom(booleanPreferencesKey("notification_permission_asked") to true).notificationPermissionHandled)
+        assertFalse(settingsFrom().notificationPermissionHandled)
+    }
+
+    @Test
     fun `a pre-split opt-out silences BOTH low-quota tiers, not just one`() {
         // The legacy low-quota opt-out must suppress both tiers after upgrade.
         val settings = settingsFrom(booleanPreferencesKey("notify_low_usage") to false)

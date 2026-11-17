@@ -27,10 +27,10 @@ import org.robolectric.shadows.ShadowLooper
  * deterministic and reachable from here.
  */
 @RunWith(RobolectricTestRunner::class)
-// The ONE test that runs the real Application. Every other Robolectric test gets a plain
-// `android.app.Application` from robolectric.properties, because the real one launches
-// background work — WorkManager, its database — that outlives the test and races the native
-// runtime set-up of whichever sandbox comes next; see UsageLimitsApp.startupJob.
+// Application- and activity-level tests opt into the real Application and drain their work.
+// Other Robolectric tests get a plain `android.app.Application` from robolectric.properties:
+// WorkManager's database otherwise outlives the test and races the next sandbox's native
+// runtime set-up; see UsageLimitsApp.startupJob.
 @Config(application = UsageLimitsApp::class, sdk = [34])
 class AppLaunchTest {
 

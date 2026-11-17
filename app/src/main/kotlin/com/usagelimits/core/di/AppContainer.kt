@@ -12,6 +12,9 @@ import com.usagelimits.core.credits.CreditAccountService
 import com.usagelimits.core.database.CreditRepository
 import com.usagelimits.core.sync.CreditSyncEngine
 import com.usagelimits.core.sync.SyncEngine
+import com.usagelimits.core.sync.NotificationPublisher
+import com.usagelimits.core.sync.OutOfAppPublication
+import com.usagelimits.core.sync.Publication
 import com.usagelimits.providers.credits.CreditRegistry
 import com.usagelimits.providers.ProviderRegistry
 import com.usagelimits.ui.text.ResourceLoopbackPageTexts
@@ -33,7 +36,7 @@ open class AppContainer(context: Context) {
 
     val httpClient: HttpClient by lazy { HttpClient() }
 
-    val credentialStore: CredentialStore by lazy { KeystoreCredentialStore(appContext) }
+    open val credentialStore: CredentialStore by lazy { KeystoreCredentialStore(appContext) }
 
     private val database: UsageLimitsDatabase by lazy { UsageLimitsDatabase.build(appContext) }
 
@@ -68,7 +71,7 @@ open class AppContainer(context: Context) {
         CreditRepository(database.creditDao(), transactions = transactions)
     }
 
-    val creditRegistry: CreditRegistry by lazy { CreditRegistry(httpClient) }
+    open val creditRegistry: CreditRegistry by lazy { CreditRegistry(httpClient) }
 
     val creditSyncEngine: CreditSyncEngine by lazy {
         CreditSyncEngine(creditRepository, credentialStore, creditRegistry)
@@ -76,5 +79,10 @@ open class AppContainer(context: Context) {
 
     val creditAccounts: CreditAccountService by lazy {
         CreditAccountService(creditRepository, credentialStore, creditRegistry)
+    }
+
+    open val publication: Publication by lazy {
+        OutOfAppPublication(appContext, repository, creditRepository, settingsStore,
+            NotificationPublisher(appContext, settingsStore, notificationDao, transactions = transactions))
     }
 }

@@ -112,6 +112,29 @@ class WidgetConfigPreviewTest {
     }
 
     @Test
+    fun `an account rings preview writes the centre figure as the placed widget does`() {
+        fun ringAt(id: String, remaining: Double, severity: Severity = Severity.HEALTHY): WidgetAccount {
+            val row = WidgetRow("Weekly", WindowCategory.WEEKLY, remaining, null, severity)
+            return account().copy(accountId = id, rows = listOf(row), representative = row)
+        }
+        val accounts = snapshot(ringAt("full", 100.0), ringAt("part", 42.0), ringAt("spent", 0.0, Severity.EXHAUSTED))
+        preview(accounts, "Account Rings", PercentDisplay.LEFT)
+        assertEquals("LEFT: the ring at 42 writes it", 1, texts("42%").size)
+        assertEquals("LEFT: the exhausted ring writes 0%", 1, texts("0%").size)
+        assertTrue("LEFT: the full allowance writes nothing", texts("100%").isEmpty() && texts("100").isEmpty())
+        assertEquals("LEFT: the full ring still says it", 1, spoken("100% remaining").size)
+        preview(accounts, "Account Rings", PercentDisplay.USED)
+        assertEquals("USED: the full allowance is 0 used and writes it", 1, texts("0%").size)
+        assertEquals("USED: the ring at 42 left writes 58", 1, texts("58%").size)
+        assertEquals("USED: the exhausted ring writes a bare 100", 1, texts("100").size)
+        assertTrue("USED: never 100% in the centre", texts("100%").isEmpty())
+        assertEquals("USED: the exhausted ring still says it", 1, spoken("100% used").size)
+        // Mini Rings carry the provider mark, never a figure, in the preview as on the home screen.
+        preview(accounts, "Mini Rings", PercentDisplay.LEFT)
+        assertTrue("Mini Rings write no figure", texts("42%").isEmpty() && texts("100%").isEmpty())
+    }
+
+    @Test
     fun `a ring preview describes a partial update the way the placed widget does`() {
         preview(snapshot(account(partialUpdate = true)), "Account Rings", PercentDisplay.USED)
         assertEquals(1, spoken("Claude, fixture@example.invalid, 40% used, some limits could not be updated").size)

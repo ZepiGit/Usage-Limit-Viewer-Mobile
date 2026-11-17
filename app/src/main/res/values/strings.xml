@@ -78,6 +78,11 @@
     <string name="settings_percent_display_title">Show percentages as</string>
     <string name="settings_percent_display_subtitle">Whether figures count down what is left or up what you have used.</string>
     <string name="settings_section_notifications">Notifications</string>
+    <string name="settings_notifications_allowed">Notifications allowed</string>
+    <string name="settings_notifications_not_allowed">Notifications not allowed</string>
+    <string name="settings_notifications_blocked_note">No alerts will be shown until notifications are allowed. Your alert preferences are kept.</string>
+    <string name="settings_allow_notifications">Allow notifications</string>
+    <string name="settings_open_notification_settings">Open notification settings</string>
     <string name="settings_notify_below_left_title">Below %1$s left</string>
     <string name="settings_notify_above_used_title">Above %1$s used</string>
     <string name="settings_notify_first_left_subtitle">Once, the first time a limit drops under a fifth remaining</string>
