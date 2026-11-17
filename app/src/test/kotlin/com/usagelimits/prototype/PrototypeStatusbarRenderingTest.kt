@@ -166,6 +166,130 @@ class PrototypeStatusbarRenderingTest {
         accountsStrip.recycle()
         compositeSheets()
         stackedComparisonSheets()
+        glyphLeftSheets()
+    }
+
+    private fun glyphLeftMask(variant: String, provider: String, state: String): Bitmap {
+        val width = when (variant) { "Gwide" -> 384; "GthreeTwo" -> 288; else -> 192 }
+        val bitmap = Bitmap.createBitmap(width, 192, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.scale(8f, 8f)
+        val center = width / 16f
+        ink.color = Color.WHITE
+        ink.style = Paint.Style.FILL
+        when (state) {
+            "100" -> glyph(canvas, provider, RectF(center - 9f, 3f, center + 9f, 21f))
+            "exhausted" -> {
+                ink.style = Paint.Style.STROKE
+                ink.strokeWidth = 2.6f
+                canvas.drawCircle(center, 12f, 8.5f, ink)
+                canvas.drawLine(center - 6.5f, 18.5f, center + 6.5f, 5.5f, ink)
+                ink.style = Paint.Style.FILL
+            }
+            "error" -> digits(canvas, "!", RectF(center - 3f, 2f, center + 3f, 22f))
+            else -> {
+                val glyphBounds: RectF
+                val digitBounds: RectF
+                when (variant) {
+                    "Gwide" -> { glyphBounds = RectF(2f, 3f, 20f, 21f); digitBounds = RectF(24f, 2f, 46f, 21f) }
+                    "GthreeTwo" -> { glyphBounds = RectF(1f, 5f, 15f, 19f); digitBounds = RectF(17f, 2f, 35f, 21f) }
+                    "Gcondensed" -> { glyphBounds = RectF(1f, 9.5f, 6f, 14.5f); digitBounds = RectF(8f, 1f, 22f, 21f) }
+                    else -> { glyphBounds = RectF(1f, 8f, 9f, 16f); digitBounds = RectF(10f, 3f, 23f, 21f) }
+                }
+                glyph(canvas, provider, glyphBounds)
+                digits(canvas, if (state == "stale") "42" else state, digitBounds)
+                if (state == "stale") canvas.drawRect(digitBounds.left, 22f, digitBounds.right, 23.5f, ink)
+            }
+        }
+        return bitmap
+    }
+
+    private fun glyphLeftFit(source: Bitmap, size: Int): Bitmap {
+        val target = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val scale = size.toFloat() / maxOf(source.width, source.height)
+        val width = source.width * scale
+        val height = source.height * scale
+        Canvas(target).drawBitmap(source, null, RectF((size - width) / 2f, (size - height) / 2f, (size + width) / 2f, (size + height) / 2f), Paint(Paint.FILTER_BITMAP_FLAG))
+        return target
+    }
+
+    private fun glyphLeftSheets() {
+        val choices = listOf("Gsquare", "Gwide", "GthreeTwo", "Gcondensed")
+        val gStates = listOf("5", "42", "87", "100", "stale", "exhausted", "error")
+        val sourceSheet = Bitmap.createBitmap(190 + gStates.size * 790, 110 + choices.size * providers.size * 236, Bitmap.Config.ARGB_8888)
+        val sourceCanvas = Canvas(sourceSheet)
+        sourceCanvas.drawColor(Color.rgb(229, 234, 240))
+        sourceCanvas.drawText("G authored sources, unscaled, dark / light; target sheets use API36 long-side fit 15dp", 18f, 28f, label)
+        sourceCanvas.drawText("API30 CENTER scaling is source-size dependent; see emulator pixels", 18f, (100 + choices.size * providers.size * 236).toFloat(), label)
+        for ((column, state) in gStates.withIndex()) sourceCanvas.drawText(state, (190 + column * 790).toFloat(), 62f, label)
+        for ((v, variant) in choices.withIndex()) for ((p, provider) in providers.withIndex()) {
+            val y = 80 + (v * providers.size + p) * 236
+            sourceCanvas.drawText(variant, 12f, y + 28f, label)
+            sourceCanvas.drawText(provider, 12f, y + 52f, label)
+            for ((column, state) in gStates.withIndex()) {
+                val source = glyphLeftMask(variant, provider, state)
+                save(source, "masks/$variant-$provider-$state.png")
+                val x = 190 + column * 790
+                tinted(sourceCanvas, source, x, y, false)
+                tinted(sourceCanvas, source, x + 394, y, true)
+                source.recycle()
+            }
+        }
+        save(sourceSheet, "G-source-authored.png")
+        sourceSheet.recycle()
+        for ((density, size) in densities) {
+            val cellW = size * 16 + 38
+            val rowH = size * 9 + 70
+            val sheet = Bitmap.createBitmap(190 + gStates.size * cellW, 120 + choices.size * providers.size * rowH, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(sheet)
+            canvas.drawColor(Color.rgb(229, 234, 240))
+            canvas.drawText("G $density — API36 long-side fit 15dp (${size}px); true square draw area + exact nearest ×8, dark / light", 18f, 28f, label)
+            canvas.drawText("API30 CENTER scaling is source-size dependent; see emulator pixels", 18f, (105 + choices.size * providers.size * rowH).toFloat(), label)
+            for ((column, state) in gStates.withIndex()) canvas.drawText(state, (190 + column * cellW).toFloat(), 62f, label)
+            for ((v, variant) in choices.withIndex()) for ((p, provider) in providers.withIndex()) {
+                val y = 80 + (v * providers.size + p) * rowH
+                canvas.drawText(variant, 12f, y + 28f, label)
+                canvas.drawText(provider, 12f, y + 52f, label)
+                for ((column, state) in gStates.withIndex()) {
+                    val x = 190 + column * cellW
+                    val source = glyphLeftMask(variant, provider, state)
+                    val real = glyphLeftFit(source, size)
+                    val zoom = Bitmap.createScaledBitmap(real, size * 8, size * 8, false)
+                    tinted(canvas, real, x, y, false)
+                    tinted(canvas, real, x + size + 12, y, true)
+                    tinted(canvas, zoom, x, y + size + 16, false)
+                    tinted(canvas, zoom, x + size * 8 + 12, y + size + 16, true)
+                    source.recycle()
+                    real.recycle()
+                    zoom.recycle()
+                }
+            }
+            save(sheet, "G-density-$density.png")
+            sheet.recycle()
+        }
+        val strip = Bitmap.createBitmap(1240, 90 + choices.size * 220, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(strip)
+        canvas.drawColor(Color.rgb(229, 234, 240))
+        canvas.drawText("G API36 long-side fit 15dp: three accounts, 45px square draw areas in 66px slots", 18f, 30f, label)
+        canvas.drawText("API30 CENTER scaling is source-size dependent; see emulator pixels", 18f, (75 + choices.size * 220).toFloat(), label)
+        for ((v, variant) in choices.withIndex()) {
+            canvas.drawText("$variant — Claude 5 / Codex 42 / xAI 87", 18f, 70f + v * 220f, label)
+            for (light in listOf(false, true)) {
+                val y = 90 + v * 220 + if (light) 80 else 0
+                canvas.drawRect(18f, y.toFloat(), 1222f, y + 72f, Paint().apply { color = if (light) Color.rgb(245, 245, 245) else Color.rgb(38, 41, 46) })
+                canvas.drawText("9:41", 48f, y + 51f, Paint(ink).apply { textAlign = Paint.Align.LEFT; textSize = 42f; color = if (light) Color.rgb(30, 30, 30) else Color.WHITE })
+                for ((p, provider) in providers.withIndex()) {
+                    val source = glyphLeftMask(variant, provider, listOf("5", "42", "87")[p])
+                    val real = glyphLeftFit(source, 45)
+                    tinted(canvas, real, 206 + p * 66, y + 13, light)
+                    source.recycle()
+                    real.recycle()
+                }
+                canvas.drawText("LTE   ▰  95%", 918f, y + 49f, Paint(ink).apply { textSize = 32f; color = if (light) Color.rgb(30, 30, 30) else Color.WHITE })
+            }
+        }
+        save(strip, "G-three-accounts-xxhdpi.png")
+        strip.recycle()
     }
 
     private fun mask(variant: Int, provider: String, state: String, stackedOption: String = "default"): Bitmap {

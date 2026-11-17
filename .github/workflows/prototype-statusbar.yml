@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [36, 35, 34, 30]
+        api: [36, 30]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -50,6 +50,7 @@ jobs:
       - name: Capture real SystemUI pixels and notification dumps
         env:
           PROTOTYPE_API: ${{ matrix.api }}
+          PROTOTYPE_MODE: wide
         run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_prototype_statusbar.sh
       - uses: actions/upload-artifact@v4
         if: always()

@@ -31,6 +31,12 @@ class PrototypeStatusbarActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val light = intent.getBooleanExtra("light", false)
+        if (intent.getBooleanExtra("measure", false)) {
+            window.statusBarColor = Color.BLACK
+            window.decorView.systemUiVisibility = 0
+            setContentView(TextView(this).apply { setBackgroundColor(Color.BLACK) })
+            return
+        }
         window.statusBarColor = if (light) Color.rgb(245, 245, 245) else Color.rgb(38, 41, 46)
         window.decorView.systemUiVisibility = if (light) View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR else 0
         setContentView(TextView(this).apply {
@@ -75,6 +81,10 @@ class PrototypeStatusbarReceiver : BroadcastReceiver() {
         }
         val scenario = intent.getStringExtra("scenario") ?: "b"
         val variant = intent.getStringExtra("variant") ?: "A"
+        if (scenario == "wide") {
+            postWideIcons(context, manager, variant, intent.getStringExtra("states")?.split(",") ?: listOf("5", "42", "87"), intent.getStringExtra("measure_index")?.toInt() ?: -1, intent.getStringExtra("blank") == "true")
+            return
+        }
         if (scenario.startsWith("candidate-")) {
             postGroupingCandidate(context, manager, scenario)
             return
@@ -129,6 +139,33 @@ class PrototypeStatusbarReceiver : BroadcastReceiver() {
                 .build())
         val after = manager.activeNotifications.filter { it.id in 7100..7102 }
         Log.i(TAG, "$command variant=$variant scenario=$scenario before=${before.map { "${it.key}@${it.postTime}" }} after=${after.map { "${it.key}@${it.postTime}" }}")
+    }
+
+    private fun postWideIcons(context: Context, manager: NotificationManager, variant: String, states: List<String>, measureIndex: Int, blank: Boolean) {
+        val channelId = "prototype-wide-low"
+        manager.createNotificationChannel(NotificationChannel(channelId, "PROTOTYPE glyph-left", NotificationManager.IMPORTANCE_LOW).apply {
+            setSound(null, null)
+            enableVibration(false)
+            setShowBadge(false)
+        })
+        for ((index, provider) in listOf("claude", "codex", "xai").withIndex()) {
+            if (measureIndex >= 0 && index != measureIndex) continue
+            val source = context.assets.open("prototype/$variant-$provider-${states[index]}.png").use { BitmapFactory.decodeStream(it) }
+            val bitmap = if (blank) android.graphics.Bitmap.createBitmap(source.width, source.height, android.graphics.Bitmap.Config.ARGB_8888) else source
+            val icon = Icon.createWithBitmap(bitmap)
+            val group = "prototype-wide-$provider"
+            // Real summary+child, as established by the grouping experiment.
+            for (summary in listOf(true, false)) {
+                manager.notify((if (summary) 7300 else 7100) + index, Notification.Builder(context, channelId)
+                    .setSmallIcon(icon)
+                    .setContentTitle("PROTOTYPE $variant $provider ${states[index]}")
+                    .setContentText("${bitmap.width}×${bitmap.height}px source · ${if (summary) "summary" else "account detail"}")
+                    .setGroup(group).setGroupSummary(summary)
+                    .setOngoing(true).setOnlyAlertOnce(true).setLocalOnly(true)
+                    .setShowWhen(false).setVisibility(Notification.VISIBILITY_PUBLIC).build())
+            }
+            Log.i(TAG, "WIDE variant=$variant provider=$provider state=${states[index]} source=${bitmap.width}x${bitmap.height}")
+        }
     }
 
     private fun postGroupingCandidate(context: Context, manager: NotificationManager, scenario: String) {

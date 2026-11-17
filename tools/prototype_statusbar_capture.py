@@ -2,6 +2,7 @@
 """Throwaway real-emulator experiment. Images are observations, not assertions."""
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -102,6 +103,62 @@ adb("shell", "svc", "power", "stayon", "true")
 adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 adb("shell", "wm", "dismiss-keyguard", check=False)
 adb("shell", "logcat", "-c")
+
+if os.environ.get("PROTOTYPE_MODE") == "wide":
+    measurement_rows = []
+    variants = ("B", "Gsquare", "Gwide", "GthreeTwo", "Gcondensed")
+    for variant in variants:
+        broadcast("clear")
+        broadcast(variant=variant, scenario="wide")
+        capture(f"api{api}-wide-{variant}")
+        for surface in ("statusbar", "shade"):
+            path = out / f"api{api}-wide-{variant}-{surface}.png"
+            with Image.open(path) as image:
+                image.resize((image.width * 4, image.height * 4), Image.Resampling.NEAREST).save(out / f"api{api}-wide-{variant}-{surface}-x4.png")
+        # Same stable black activity for baseline and each single-account probe.
+        # Pixel bounds are observed alpha coverage, not the Android square slot size.
+        for index, provider in enumerate(("claude", "codex", "xai")):
+            broadcast("clear")
+            adb("shell", "am", "start", "-f", "0x10008000", "-n", activity, "--ez", "measure", "true")
+            time.sleep(3)
+            # Transparent small icon occupies exactly the same slot, preserving all
+            # other system-icon positions for a direct per-pixel alpha difference.
+            argv = ["shell", "am", "broadcast", "-n", receiver, "--es", "command", "post", "--es", "scenario", "wide", "--es", "variant", variant, "--es", "measure_index", str(index)]
+            adb(*argv, "--es", "blank", "true")
+            time.sleep(5)
+            before = Image.open(__import__("io").BytesIO(adb("exec-out", "screencap", "-p", binary=True))).convert("RGB")
+            adb(*argv)
+            time.sleep(5)
+            after = Image.open(__import__("io").BytesIO(adb("exec-out", "screencap", "-p", binary=True))).convert("RGB")
+            before.save(out / f"api{api}-wide-{variant}-{provider}-baseline.png")
+            after.save(out / f"api{api}-wide-{variant}-{provider}-probe.png")
+            if provider == "codex":
+                save(f"api{api}-wide-{variant}-probe-systemui.txt", adb("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService"))
+                save(f"api{api}-wide-{variant}-probe-notification.txt", adb("shell", "dumpsys", "notification", "--noredact"))
+            # Ignore the clock and right-hand system cluster. Require a dark->light
+            # transition, so old system icons moved by slot insertion are not counted.
+            bounds = (100, 0, 400, 55)
+            points = []
+            for y in range(bounds[1], bounds[3]):
+                for x in range(bounds[0], bounds[2]):
+                    old, new = before.getpixel((x, y)), after.getpixel((x, y))
+                    if min(new) > 30 and min(new) - max(old) > 20:
+                        points.append((x, y))
+            # Same-slot transparent baseline means all changed coverage belongs
+            # to this bitmap; do not pre-crop to a square and assume the answer.
+            bbox = None
+            if points:
+                left = min(x for x, y in points)
+                bbox = [left, min(y for x, y in points), max(x for x, y in points) + 1, max(y for x, y in points) + 1]
+                crop = after.crop((max(0, left - 5), 0, bbox[2] + 5, 55))
+                crop.save(out / f"api{api}-wide-{variant}-{provider}-icon-crop.png")
+                crop.resize((crop.width * 4, crop.height * 4), Image.Resampling.NEAREST).save(out / f"api{api}-wide-{variant}-{provider}-icon-crop-x4.png")
+            measurement_rows.append({"api": api, "variant": variant, "provider": provider, "state": ("5", "42", "87")[index], "alpha_bbox": bbox, "width": bbox[2]-bbox[0] if bbox else None, "height": bbox[3]-bbox[1] if bbox else None, "note": "Observed >20-level alpha difference against transparent same-ID slot baseline, excluding clock/right-system cluster; null means overlay unavailable"})
+    save("wide-icon-measurements.json", json.dumps(measurement_rows, indent=2))
+    save("wide-prototype-log.txt", adb("shell", "logcat", "-d", "-v", "threadtime", "-s", "PrototypeStatusbar:I", "*:S"))
+    save("capture-manifest.json", json.dumps({"api": api, "mode": "wide", "variants": variants, "screenshots": sorted(p.name for p in out.glob("*.png"))}, indent=2))
+    print(f"API {api}: wide-icon capture complete")
+    raise SystemExit(0)
 
 if api == 36:
     for scenario in ("candidate-channels", "candidate-composite-bars", "candidate-composite-rings", "candidate-sections", "candidate-colorized", "candidate-summary-one", "candidate-valid-groups", "candidate-summary-three"):
