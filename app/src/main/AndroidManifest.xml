@@ -196,6 +196,11 @@
           Removing it and declaring the Application as `Configuration.Provider` makes
           initialisation deterministic, ordered after `onCreate`, and reachable from a test — which
           is how the failure above was found in the first place.
+
+          Removing the whole provider also disables other libraries' Startup initializers.
+          UsageLimitsApp.onCreate explicitly calls OkHttp.initialize(this) before creating clients,
+          so OkHttp's Android public-suffix asset can be read. Any new Startup initializer needs
+          equivalent manual initialisation in the Application.
         -->
         <provider
             android:name="androidx.startup.InitializationProvider"
