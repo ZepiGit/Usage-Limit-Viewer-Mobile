@@ -179,7 +179,7 @@ extension View {
     public func cornerRadius(_ radius: Any) -> Self { self }
     public func contentShape(_ shape: Any) -> Self { self }
     public func fixedSize(horizontal: Bool = false, vertical: Bool = false) -> Self { self }
-    public func multilineTextAlignment(_ value: Any) -> Self { self }
+    public func multilineTextAlignment(_ value: TextAlignment) -> Self { self }
     public func textCase(_ value: Any?) -> Self { self }
     public func monospacedDigit() -> Self { self }
     public func textSelection(_ value: TextSelectability) -> Self { self }

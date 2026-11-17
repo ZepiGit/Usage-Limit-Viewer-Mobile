@@ -245,6 +245,28 @@ final class GlanceSnapshotCodecTests: XCTestCase {
         XCTAssertEqual(GlanceSnapshotCodec.load(fromDirectory: directory), .loaded(snapshot()))
     }
 
+    func testCreditsOnlyLoadKeepsEmptyBuildDefaultsAndRawPins() throws {
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let credit = GlanceCredit(id: "credit", title: "DeepSeek", providerID: "deepseek",
+            balances: [CreditBalance(currency: "USD", amount: 8)], severity: .healthy,
+            baseSeverity: .healthy, fetchedAt: now, statusMessage: nil)
+        let pins = ["gone", "other", "gone", "third", "fourth"]
+        let source = GlanceModel.build([], now: now, scope: .allAccounts, staleAfter: 17,
+            percentDisplay: .used, statusIconsEnabled: true, pinnedAccountIDs: pins)
+            .with(credits: [credit])
+        let expected = GlanceSnapshot(
+            accounts: [], accountCount: 0, updatedAt: nil, nextResetAt: nil,
+            overallSeverity: .stale, summaryLineShort: nil, summaryLineLong: nil,
+            staleAfter: Severity.staleAfter, credits: [credit], percentDisplay: .left,
+            statusIconsEnabled: true, pinnedAccountIDs: pins)
+
+        try GlanceSnapshotCodec.write(source, toDirectory: directory)
+
+        XCTAssertEqual(GlanceSnapshotCodec.loadCredits(fromDirectory: directory), .loaded(expected))
+        XCTAssertEqual(GlanceSnapshotCodec.load(fromDirectory: directory), .empty)
+    }
+
     func testUndecodableContentIsCorruptRatherThanEmpty() throws {
         // A build whose format this one does not understand, or a truncated write. Reporting
         // it as "no accounts yet" invites the user to add accounts they already have.

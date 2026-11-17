@@ -437,6 +437,14 @@ public enum GlanceModel {
             selected = all
         }
 
+        guard !selected.isEmpty else {
+            return GlanceSnapshot(
+                accounts: [], accountCount: 0, updatedAt: nil, nextResetAt: nil,
+                overallSeverity: .stale, summaryLineShort: nil, summaryLineLong: nil,
+                percentDisplay: .left,
+                statusIconsEnabled: statusIconsEnabled, pinnedAccountIDs: pinnedAccountIDs)
+        }
+
         let accounts = selected.map { glanceAccount($0, now: now, staleAfter: staleAfter, providerIcons: providerIcons) }
         let ordered: [GlanceAccount]
         if scope == .mostCritical { ordered = sortedByUrgency(accounts, now: now) }

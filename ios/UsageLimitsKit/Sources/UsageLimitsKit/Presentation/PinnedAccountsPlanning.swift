@@ -11,6 +11,19 @@ public struct PinnedAccountEntry: Sendable, Equatable, Identifiable {
 public struct PinnedAccountsCapture: Sendable, Equatable {
     public let date: Date
     public let accounts: [PinnedAccountEntry]
+    public let outcome: ConfiguredSelectionOutcome
+
+    public static func capture(source: GlanceSnapshotCodec.Load, at date: Date) -> PinnedAccountsCapture {
+        switch source {
+        case .loaded(let snapshot): return capture(snapshot: snapshot, at: date)
+        case .unreadable:
+            return PinnedAccountsCapture(date: date, accounts: [], outcome: .sourceUnavailable)
+        case .corrupt:
+            return PinnedAccountsCapture(date: date, accounts: [], outcome: .corruptSource)
+        case .empty, .missing:
+            return PinnedAccountsCapture(date: date, accounts: [], outcome: .noAccounts)
+        }
+    }
 
     public static func capture(snapshot: GlanceSnapshot, at date: Date) -> PinnedAccountsCapture {
         let selected = selectedSnapshot(snapshot, at: date)
@@ -23,7 +36,8 @@ public struct PinnedAccountsCapture: Sendable, Equatable {
                 needsReauthentication: account.connectionStatus == .reconnectRequired)
             return PinnedAccountEntry(account: account, presentation: presentation, content: content)
         }
-        return PinnedAccountsCapture(date: date, accounts: entries)
+        return PinnedAccountsCapture(date: date, accounts: entries,
+            outcome: entries.isEmpty ? .noAccounts : .ready)
     }
 
     public static func entryDates(snapshot: GlanceSnapshot, after now: Date) -> [Date] {

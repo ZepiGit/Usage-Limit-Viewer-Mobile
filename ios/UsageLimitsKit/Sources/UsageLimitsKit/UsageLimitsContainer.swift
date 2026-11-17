@@ -558,7 +558,7 @@ public actor UsageLimitsContainer {
         var settings = await settingsStore.settings()
         if settings.pinnedAccountIDs.contains(id) {
             settings.pinnedAccountIDs.removeAll { $0 == id }
-            try await settingsStore.save(settings)
+            _ = try? await settingsStore.save(settings)
         }
 
         // The ledger is cleared too. Its keys embed the account id, so an account removed and

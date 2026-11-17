@@ -10,22 +10,26 @@ struct PinnedAccountsWidgetEntry: TimelineEntry {
 }
 
 struct PinnedAccountsProvider: TimelineProvider {
+    private static let routineReloadInterval: TimeInterval = 4 * 60 * 60
+    private static let overdueReloadInterval: TimeInterval = 15 * 60
+
     func placeholder(in context: Context) -> PinnedAccountsWidgetEntry {
         PinnedAccountsWidgetEntry(capture: .capture(snapshot: .empty, at: Date()))
     }
 
     func getSnapshot(in context: Context, completion: @escaping (PinnedAccountsWidgetEntry) -> Void) {
-        let snapshot = SnapshotCache.load()
-        completion(PinnedAccountsWidgetEntry(capture: .capture(snapshot: snapshot, at: Date())))
+        let source = SnapshotCache.loadResult()
+        completion(PinnedAccountsWidgetEntry(capture: .capture(source: source, at: Date())))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<PinnedAccountsWidgetEntry>) -> Void) {
-        let snapshot = SnapshotCache.load()
+        let source = SnapshotCache.loadResult()
         let now = Date()
-        let entries = PinnedAccountsCapture.entryDates(snapshot: snapshot, after: now).map { date in
-            PinnedAccountsWidgetEntry(capture: .capture(snapshot: snapshot, at: date))
+        let entries = PinnedAccountsCapture.entryDates(snapshot: source.snapshot, after: now).map { date in
+            PinnedAccountsWidgetEntry(capture: .capture(source: source, at: date))
         }
-        completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(4 * 60 * 60))))
+        let interval = source == .unreadable ? Self.overdueReloadInterval : Self.routineReloadInterval
+        completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(interval))))
     }
 }
 
@@ -34,7 +38,17 @@ struct PinnedAccountsWidgetView: View {
 
     var body: some View {
         Group {
-            if entry.capture.accounts.isEmpty {
+            if entry.capture.outcome == .sourceUnavailable {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Locked").font(.headline)
+                    Text("Unlock this device to see how much quota is left").font(.caption2)
+                }
+            } else if entry.capture.outcome == .corruptSource {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Can't read usage").font(.headline)
+                    Text("Open UsageLimits to rebuild the data").font(.caption2)
+                }
+            } else if entry.capture.accounts.isEmpty {
                 Text("Pin an account in Settings")
                     .font(.caption)
             } else {
@@ -65,7 +79,7 @@ private struct PinnedAccountCell: View {
                         Rectangle().frame(height: 1).offset(y: 3)
                     }
                 }
-            if let contentText {
+            if let contentText = PinnedAccountText.cellText(entry) {
                 if entry.content.outdated {
                     Text(verbatim: contentText).underline()
                 } else {
@@ -80,16 +94,6 @@ private struct PinnedAccountCell: View {
         .accessibilityLabel(spokenText)
     }
 
-    private var contentText: String? {
-        switch entry.content.content {
-        case .figure(let value): return String(value)
-        case .none: return nil
-        case .unknown: return PercentToken.unknown
-        case .error: return "!"
-        case .exhausted: return "⊗"
-        }
-    }
-
     @ViewBuilder
     private var glyph: some View {
         if let assetName = entry.account.iconAssetName {
@@ -102,14 +106,7 @@ private struct PinnedAccountCell: View {
     }
 
     private var spokenText: String {
-        PinnedAccountText.spoken(
-            entry: entry,
-            texts: LocalizedPercentTexts(),
-            error: entry.account.connectionStatus == .reconnectRequired
-                ? String(localized: "Sign-in expired") : String(localized: "Error"),
-            exhausted: String(localized: "Exhausted"),
-            unknown: String(localized: "Unknown"),
-            outdated: String(localized: "Stale"))
+        PinnedAccountText.spoken(entry: entry, texts: LocalizedPinnedAccountTexts())
     }
 }
 

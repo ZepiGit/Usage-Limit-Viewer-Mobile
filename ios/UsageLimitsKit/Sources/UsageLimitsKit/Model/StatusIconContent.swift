@@ -25,7 +25,7 @@ public struct StatusIconContent: Sendable, Equatable {
     }
 
     /// Primitive presentation inputs also let both platforms read the exact shared vectors.
-    public static func of(token: String?, exhausted: Bool, validity: ReadingValidity,
+    static func of(token: String?, exhausted: Bool, validity: ReadingValidity,
         needsReauthentication: Bool) -> StatusIconContent {
         let content: Content
         if needsReauthentication || validity == .error { content = .error }

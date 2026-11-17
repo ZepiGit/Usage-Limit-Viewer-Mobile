@@ -606,6 +606,47 @@ final class UsageLimitsContainerTests: XCTestCase {
         XCTAssertTrue(accounts.isEmpty)
     }
 
+    func testAFailedPinSaveStillRemovesTheAccountClearsItsLedgerAndPublishes() async throws {
+        let (subject, credentials) = container([
+            (200, codexLow), (200, #"{"credits": []}"#),
+            (200, codexLow), (200, #"{"credits": []}"#),
+        ])
+        try await subject.add(account())
+        _ = try await subject.refresh()
+        try await subject.save(settings: AppSettings(
+            statusIconsEnabled: true, pinnedAccountIDs: ["a"]))
+        let settings = await subject.settings()
+        XCTAssertEqual(settings.pinnedAccountIDs, ["a"])
+        let before = try await subject.pendingNotifications()
+        XCTAssertFalse(before.isEmpty)
+        XCTAssertEqual(GlanceSnapshotCodec.read(fromDirectory: directory).accounts.map(\.id), ["a"])
+
+        // Fail the pin write after preferences are cached, without blocking the other files.
+        let settingsFile = directory.appendingPathComponent("settings.json")
+        try FileManager.default.removeItem(at: settingsFile)
+        try FileManager.default.createDirectory(at: settingsFile, withIntermediateDirectories: false)
+
+        do {
+            try await subject.remove(id: "a")
+        } catch {
+            XCTFail("pin cleanup must not fail an otherwise completed removal: \(error)")
+        }
+
+        let usage = await subject.usage()
+        XCTAssertTrue(usage.isEmpty)
+        let credential = try await credentials.load(reference: "ref-a")
+        XCTAssertNil(credential)
+        XCTAssertTrue(GlanceSnapshotCodec.read(fromDirectory: directory).accounts.isEmpty)
+
+        try await credentials.save(
+            OAuthCredentials(accessToken: "synthetic-access", refreshToken: "synthetic-refresh"),
+            reference: "ref-a")
+        try await subject.add(account())
+        _ = try await subject.refresh()
+        let after = try await subject.pendingNotifications()
+        XCTAssertFalse(after.isEmpty, "ledger cleanup must let a re-added account announce its low quota")
+    }
+
     func testAFailedCredentialDeleteLeavesTheAccountVisible() async throws {
         // The recoverable order. If the delete fails the user still sees the account and can
         // try again; the other order leaves an orphaned credential nothing can ever reach.

@@ -91,6 +91,6 @@ final class PinnedAccountsPlanningTests: XCTestCase {
             statusIconsEnabled: true, pinnedAccountIDs: ["gone"])
         XCTAssertTrue(source.statusIconsEnabled)
         XCTAssertEqual(source.pinnedAccountIDs, ["gone"])
-        XCTAssertEqual(source.percentDisplay, .used)
+        XCTAssertEqual(source.percentDisplay, .left)
     }
 }
