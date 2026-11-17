@@ -320,6 +320,8 @@ class UsageViewModel(
                     container.credentialStore.delete(account.credentialReference)
                     container.repository.deleteAccount(accountId)
                 }
+                // Its pin goes with it, so it no longer counts against the three a person may pin.
+                container.settingsStore.releasePin(accountId)
                 // A widget pinned to this account would otherwise render the empty snapshot
                 // for ever; dropping its config returns it to the automatic scope.
                 // Keep the widget's exact scope. A removed account must leave an empty
@@ -373,12 +375,12 @@ class UsageViewModel(
     }
 
     /**
-     * Pins [accountId] as the one account with a status icon, or pins none for null. Choosing
-     * another account replaces the previous one; the stored form is already the ordered list.
+     * Stores the pinned accounts as Settings lists them. Settings refuses a fourth pin; the
+     * selection the icons are published from cuts at three in any case.
      */
-    fun setPinnedAccount(accountId: String?) {
+    fun setPinnedAccounts(accountIds: List<String>) {
         viewModelScope.launch {
-            container.settingsStore.setPinnedAccounts(listOfNotNull(accountId))
+            container.settingsStore.setPinnedAccounts(accountIds)
             container.publication.presentationChanged()
         }
     }

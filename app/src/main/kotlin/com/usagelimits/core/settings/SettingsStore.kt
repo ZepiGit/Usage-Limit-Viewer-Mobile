@@ -200,6 +200,15 @@ class SettingsStore(context: Context) {
         it[Keys.PINNED_ACCOUNTS] = ids.distinct().joinToString(PINNED_SEPARATOR)
     }
 
+    /**
+     * Drops a removed account's pin, keeping the others in their order. Read and written in one
+     * edit, so a pin set at the same moment is not lost.
+     */
+    suspend fun releasePin(accountId: String) = edit { prefs ->
+        val stored = prefs[Keys.PINNED_ACCOUNTS].orEmpty().split(PINNED_SEPARATOR).filter { it.isNotBlank() }
+        if (accountId in stored) prefs[Keys.PINNED_ACCOUNTS] = (stored - accountId).joinToString(PINNED_SEPARATOR)
+    }
+
     /** Silences one account, or lets it speak again. */
     suspend fun setAccountNotifications(accountId: String, enabled: Boolean) = edit { prefs ->
         val current = prefs[Keys.MUTED_ACCOUNTS] ?: emptySet()

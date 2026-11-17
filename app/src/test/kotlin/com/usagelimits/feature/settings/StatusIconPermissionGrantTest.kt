@@ -124,7 +124,7 @@ class StatusIconPermissionGrantTest {
                     onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {},
                     onNotificationPermissionHandled = vm::recordNotificationPermissionHandled,
                     onStatusIconsChange = vm::setStatusIcons,
-                    onPinnedAccountChange = vm::setPinnedAccount,
+                    onPinnedAccountsChange = vm::setPinnedAccounts,
                     onNotificationsAllowed = {
                         allowedEvents++
                         vm.notificationsAllowed()

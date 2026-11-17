@@ -7,8 +7,6 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
-import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -24,6 +22,10 @@ import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import com.usagelimits.core.model.CreditAccount
+import com.usagelimits.core.model.CreditProviderId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -44,10 +46,17 @@ class StatusIconSettingsTest {
         ProviderAccount(id, provider, "ext-$id", null, name, null, "cred-$id", 0L, null), snapshot = null,
     )
 
-    private val accounts = listOf(usage("a", "Claude work", ProviderId.CLAUDE), usage("b", "Codex home", ProviderId.CODEX))
+    private val accounts = listOf(
+        usage("a", "Claude work", ProviderId.CLAUDE),
+        usage("b", "Codex home", ProviderId.CODEX),
+        usage("c", "Grok side", ProviderId.XAI),
+        usage("d", "Kimi spare", ProviderId.KIMI),
+    )
+
+    private val credit = CreditEntry(CreditAccount("credit-1", CreditProviderId.DEEPSEEK, "DeepSeek balance", "credit:credit-1"), snapshot = null)
 
     private var enabled: Boolean? = null
-    private var pinned: String? = "untouched"
+    private var pinned: List<String>? = null
 
     private fun render(settings: AppSettings, credits: List<CreditEntry> = emptyList()) {
         compose.setContent {
@@ -58,7 +67,7 @@ class StatusIconSettingsTest {
                     onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
                     onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {},
                     onStatusIconsChange = { enabled = it },
-                    onPinnedAccountChange = { pinned = it },
+                    onPinnedAccountsChange = { pinned = it },
                 )
             }
         }
@@ -79,23 +88,55 @@ class StatusIconSettingsTest {
     }
 
     @Test
-    fun `choosing an account replaces the previous choice and choosing it again clears it`() {
+    fun `pinning adds an account after the others and unpinning removes only that one`() {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        render(AppSettings(statusIconsEnabled = true, pinnedAccountIds = listOf("a")))
+        render(AppSettings(statusIconsEnabled = true, pinnedAccountIds = listOf("b")))
+        scrollTo("Claude work")
+        compose.onNodeWithContentDescription("Pin Codex home").assertIsOn()
+        compose.onNodeWithContentDescription("Pin Claude work").assertIsOff().performClick()
+        assertEquals(listOf("b", "a"), pinned)
+        // The screen is stateless: it still shows only Codex pinned, so unpinning it leaves none.
         scrollTo("Codex home")
-        compose.onNodeWithText("Claude work").assertIsSelected()
-        compose.onNodeWithText("Codex home").assertIsNotSelected().performClick()
-        assertEquals("b", pinned)
-        compose.onNodeWithText("Claude work").performClick()
-        assertEquals("tapping the chosen account clears the choice", null, pinned)
+        compose.onNodeWithContentDescription("Pin Codex home").performClick()
+        assertEquals(emptyList<String>(), pinned)
     }
 
     @Test
-    fun `credit accounts are not offered and the choice is hidden while the feature is off`() {
+    fun `with three pinned the section says so and refuses a fourth`() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        render(AppSettings(statusIconsEnabled = true, pinnedAccountIds = listOf("a", "b", "c")))
+        scrollTo("3 of 3 pinned")
+        compose.onNodeWithText("3 of 3 pinned").assertIsDisplayed()
+        scrollTo("Kimi spare")
+        compose.onNodeWithContentDescription("Pin Kimi spare").assertIsOff().assertIsNotEnabled().performClick()
+        assertEquals("a fourth pin is refused", null, pinned)
+        compose.onNodeWithContentDescription("Pin Grok side").assertIsOn().assertIsEnabled()
+    }
+
+    @Test
+    fun `a credit account is never offered for pinning`() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        render(AppSettings(statusIconsEnabled = true), credits = listOf(credit))
+        scrollTo("Kimi spare")
+        compose.onNodeWithContentDescription("Pin Kimi spare").assertExists()
+        compose.onNodeWithContentDescription("Pin DeepSeek balance").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the account list is hidden while the feature is off`() {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         render(AppSettings(statusIconsEnabled = false))
         scrollTo("Show status bar icons")
-        compose.onNodeWithText("Claude work").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Pin Claude work").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the section states the platform's limits`() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        render(AppSettings(statusIconsEnabled = true))
+        val note = "Android decides how many icons fit, and its setting that hides silent notification icons hides these too."
+        scrollTo(note)
+        compose.onNodeWithText(note).assertIsDisplayed()
     }
 
     @Test
@@ -130,13 +171,16 @@ class StatusIconSettingsTest {
 
     @Test
     @Config(qualifiers = "de")
-    fun `German Settings offers the section and its blocked note`() {
+    fun `German Settings offers the section, its blocked note, the pins and the limit`() {
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
-        render(AppSettings(statusIconsEnabled = true, pinnedAccountIds = listOf("b")))
+        render(AppSettings(statusIconsEnabled = true, pinnedAccountIds = listOf("a", "b", "c")))
         scrollTo("Statusleisten-Symbole können erst angezeigt werden, wenn Benachrichtigungen erlaubt sind.")
         compose.onNodeWithContentDescription("Statusleisten-Symbole anzeigen").assertIsOn()
         compose.onNodeWithText("Statusleisten-Symbole können erst angezeigt werden, wenn Benachrichtigungen erlaubt sind.").assertIsDisplayed()
-        scrollTo("Codex home")
-        compose.onNodeWithText("Codex home").assertIsSelected()
+        scrollTo("3 von 3 angeheftet")
+        compose.onNodeWithText("3 von 3 angeheftet").assertIsDisplayed()
+        scrollTo("Kimi spare")
+        compose.onNodeWithContentDescription("Codex home anheften").assertIsOn()
+        compose.onNodeWithContentDescription("Kimi spare anheften").assertIsOff().assertIsNotEnabled()
     }
 }

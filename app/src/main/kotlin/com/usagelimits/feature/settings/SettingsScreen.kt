@@ -71,7 +71,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     onProviderIconChange: (com.usagelimits.core.model.ProviderId, String) -> Unit = { _, _ -> },
     onStatusIconsChange: (Boolean) -> Unit = {},
-    onPinnedAccountChange: (String?) -> Unit = {},
+    onPinnedAccountsChange: (List<String>) -> Unit = {},
     onNotificationsAllowed: () -> Unit = {},
 ) {
     val settings = state.settings
@@ -242,7 +242,7 @@ fun SettingsScreen(
                 accounts = state.accounts,
                 permission = permission,
                 onEnabledChange = onStatusIconsChange,
-                onPinnedChange = onPinnedAccountChange,
+                onPinnedChange = onPinnedAccountsChange,
             )
         }
 

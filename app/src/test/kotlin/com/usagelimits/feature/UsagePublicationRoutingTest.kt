@@ -133,6 +133,18 @@ class UsagePublicationRoutingTest {
         }
     }
 
+    @Test fun `removing an account releases its pin and keeps the others in order`() = runBlocking {
+        val kept = container.repository.upsertFromLogin(ProviderId.CODEX, "kept", null, null, "Plus", emptyMap())
+        val removed = container.repository.upsertFromLogin(ProviderId.CODEX, "removed", null, null, "Plus", emptyMap())
+        val other = container.repository.upsertFromLogin(ProviderId.CODEX, "other", null, null, "Plus", emptyMap())
+        container.settingsStore.setPinnedAccounts(listOf(other.localId, removed.localId, kept.localId))
+
+        vm.removeAccount(removed.localId)
+        assertEquals("presentation changed", withTimeoutOrNull(5_000) { events.receive() })
+
+        assertEquals(listOf(other.localId, kept.localId), container.settingsStore.settings.first().pinnedAccountIds)
+    }
+
     @Test fun `presentation edits publish only presentation changed`() = runBlocking {
         val account = container.repository.upsertFromLogin(ProviderId.CODEX, "fixture", "test@example.com",
             null, "Plus", emptyMap())
@@ -147,7 +159,7 @@ class UsagePublicationRoutingTest {
             "credit edit" to { vm.updateCredit(credit.id, "Work", BigDecimal.TEN) },
             "credit removal" to { vm.removeCredit(credit.id) },
             "status icons on" to { vm.setStatusIcons(true) },
-            "pinned account" to { vm.setPinnedAccount(account.localId) },
+            "pinned accounts" to { vm.setPinnedAccounts(listOf(account.localId)) },
             "notifications allowed" to { vm.notificationsAllowed() },
             "account removal" to { vm.removeAccount(account.localId) },
         )

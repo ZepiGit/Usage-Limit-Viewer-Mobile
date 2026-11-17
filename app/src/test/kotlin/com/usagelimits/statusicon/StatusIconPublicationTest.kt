@@ -214,15 +214,20 @@ class StatusIconPublicationTest {
                 accounts
             },
             readSettings = { settings },
+            shown = object : ShownSelection {
+                private var ids = emptyList<String>()
+                override fun read() = ids
+                override fun write(accountIds: List<String>) { ids = accountIds }
+            },
         )
 
         runTest(timeout = 30.seconds) {
-            val older = launch { publisher.publish() }
+            val older = launch { publisher.publish(restoreDismissed = true) }
             advanceUntilIdle()
             assertTrue("the older publication is held inside its account read", olderInRead.isCompleted && !older.isCompleted)
 
             settings = change(settings)
-            val newer = launch { publisher.publish() }
+            val newer = launch { publisher.publish(restoreDismissed = true) }
             advanceUntilIdle()
             release.complete(Unit)
             advanceUntilIdle()
