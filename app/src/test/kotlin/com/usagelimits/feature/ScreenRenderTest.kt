@@ -242,6 +242,7 @@ class ScreenRenderTest {
             SettingsScreen(
                 state = state(usage()),
                 onSyncIntervalChange = {},
+                onNotificationPermissionAsked = {},
                 onNotifyBelow20 = { toggled = true },
                 onNotifyBelow10 = {},
                 onNotifyExhausted = {},
@@ -289,6 +290,7 @@ class ScreenRenderTest {
         SettingsScreen(
             state = UsageUiState(accounts = listOf(usage()), settings = AppSettings(percentDisplay = mode)),
             onSyncIntervalChange = {},
+            onNotificationPermissionAsked = {},
             onNotifyBelow20 = {},
             onNotifyBelow10 = {},
             onNotifyExhausted = {},
@@ -348,6 +350,7 @@ class ScreenRenderTest {
             SettingsScreen(
                 state = state(usage()),
                 onSyncIntervalChange = {},
+                onNotificationPermissionAsked = {},
                 onNotifyBelow20 = {},
                 onNotifyBelow10 = {},
                 onNotifyExhausted = {},
