@@ -111,6 +111,9 @@ targets:
       - path: Sources/Assets.xcassets
       - path: Sources/Resources/Localizable.xcstrings
         buildPhase: resources
+      # The status icon silhouettes, the same file Android's status bar draws from.
+      - path: ../../shared/glyphs/status-icon-glyphs.json
+        buildPhase: resources
     dependencies:
       - package: UsageLimitsKit
     settings:

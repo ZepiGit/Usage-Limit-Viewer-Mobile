@@ -315,6 +315,8 @@ public struct Text: View {
     public init(verbatim: String) {}
     public init(_ date: Date, style: Any) {}
     public var body: some View { ShimLeaf() }
+    /// Joined runs stay one `Text`, which is what a single-line accessory needs.
+    public static func + (lhs: Text, rhs: Text) -> Text { lhs }
 }
 
 public struct Image: View {
@@ -702,6 +704,46 @@ public struct CGSize {
 }
 
 public typealias CGFloat = Double
+
+/// Shadows Foundation's, like `CGSize` above, so geometry stays in this module's `CGFloat`.
+public struct CGPoint {
+    public var x: Double
+    public var y: Double
+    public init(x: Double, y: Double) { self.x = x; self.y = y }
+}
+
+public struct CGRect {
+    public var origin: CGPoint
+    public var size: CGSize
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        origin = CGPoint(x: x, y: y); size = CGSize(width: width, height: height)
+    }
+    public var width: Double { size.width }
+    public var height: Double { size.height }
+    public var midX: Double { origin.x + size.width / 2 }
+    public var midY: Double { origin.y + size.height / 2 }
+}
+
+/// A drawn outline: the calls the glyph and sign shapes make.
+public struct Path {
+    public init() {}
+    public mutating func move(to point: CGPoint) {}
+    public mutating func addLine(to point: CGPoint) {}
+    public mutating func addCurve(to end: CGPoint, control1: CGPoint, control2: CGPoint) {}
+    public mutating func addEllipse(in rect: CGRect) {}
+    public mutating func closeSubpath() {}
+}
+
+/// A view drawn from a path, as SwiftUI declares it: conformers write only `path(in:)`.
+/// `path(in:)` is nonisolated in SwiftUI too; only `body` is on the main actor.
+public protocol Shape: View {
+    nonisolated func path(in rect: CGRect) -> Path
+}
+
+@MainActor
+extension Shape {
+    public var body: some View { ShimLeaf() }
+}
 
 
 /// Foundation constants the app uses that swift-corelibs does not surface here.
