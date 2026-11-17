@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upgrade and navigate the actual release APK on an empty API 36 CI emulator.
+"""Upgrade and navigate the actual release APK on an empty API 37 CI emulator.
 
 Uses only adb and the Python standard library. No accounts, credentials or provider calls.
 https://developer.android.com/tools/adb documents install -r, am start and screencap.
@@ -40,6 +40,49 @@ def bounds(node):
     if len(values) != 4 or values[2] <= values[0] or values[3] <= values[1]:
         return None
     return tuple(values)
+
+
+def picker_geometry(root, launcher, home):
+    """The API 37 Browse list and its unobscured viewport, or None during picker transitions."""
+    namespace = launcher + ".widgetpicker:id/"
+
+    def unique(scope, name, scrollable=False):
+        found = [node for node in scope.iter("node") if node.get("resource-id") == namespace + name
+                 and (not scrollable or node.get("scrollable") == "true")]
+        assert len(found) <= 1, f"Ambiguous picker {name}"
+        return next((node for node in found if node.get("package") == launcher
+                     and node.get("enabled") == "true" and bounds(node)), None)
+
+    catalog = unique(root, "widgets_catalog")
+    if catalog is None:
+        return None
+    picker = unique(catalog, "personal_widgets_list", scrollable=True)
+    featured = unique(catalog, "featured_widgets_tab")
+    browse = unique(catalog, "personal_widgets_tab")
+    if picker is None or featured is None or browse is None:
+        return None
+    if browse.get("checked") != "true" or featured.get("checked") != "false":
+        return None
+    parents = {child: parent for parent in catalog.iter() for child in parent}
+    row = parents.get(featured)
+    assert row is not None and row is parents.get(browse), "Cannot identify the observed floating picker tab row"
+    overlay = parents.get(row)
+    assert overlay is not None and overlay is not catalog and all(
+        node.get("package") == launcher and node.get("enabled") == "true" and bounds(node)
+        for node in (row, overlay)
+    ), "Cannot identify the observed floating picker tab wrapper"
+    box, overlay_box = bounds(picker), bounds(overlay)
+    assert all(overlay_box[0] <= tab[0] < tab[2] <= overlay_box[2]
+               and overlay_box[1] <= tab[1] < tab[3] <= overlay_box[3]
+               for tab in (bounds(featured), bounds(browse))), "Floating picker wrapper does not contain its tabs"
+    assert box[0] <= overlay_box[0] < overlay_box[2] <= box[2] and (
+        box[1] < overlay_box[1] < overlay_box[3] <= box[3]
+    ), "Floating picker wrapper is outside the Browse list"
+    # The observed wrapper includes background padding above the tabs; exclude it across the full list width.
+    visible = (max(home[0], box[0]), max(home[1], box[1]),
+               min(home[2], box[2]), min(home[3], box[3], overlay_box[1]))
+    assert visible[2] > visible[0] and visible[3] > visible[1], "No observed picker content viewport"
+    return picker, visible
 
 
 def png_frame(data, last_row):
@@ -181,6 +224,47 @@ def selected_tab(root, label):
     return target is not None and target.get("selected") == "true"
 
 
+def focused_widget(root, launcher, label):
+    """The unique placed launcher host, only when it can receive keyboard input."""
+    hosts = [node for node in root.iter("node") if node.get("package") == launcher
+             and node.get("class", "").endswith("AppWidgetHostView")
+             and node.get("content-desc") == label and bounds(node)]
+    assert len(hosts) <= 1, f"Ambiguous {label} host"
+    return next((node for node in hosts if all(node.get(attribute) == "true"
+                 for attribute in ("enabled", "focusable", "focused"))), None)
+
+
+def post_drop_frame(root, launcher, label, initial):
+    """The unique focused launcher ancestor of the resize frame enclosing the moved host."""
+    frames = [node for node in root.iter("node")
+              if node.get("resource-id") == launcher + ":id/widget_resize_frame"]
+    hosts = [node for node in root.iter("node") if node.get("package") == launcher
+             and node.get("class", "").endswith("AppWidgetHostView")
+             and node.get("content-desc") == label and bounds(node)]
+    assert len(frames) <= 1, "Ambiguous launcher resize frame"
+    assert len(hosts) <= 1, f"Ambiguous {label} host"
+    if not frames or not hosts:
+        return None
+    frame, host = frames[0], hosts[0]
+    box, moved = bounds(frame), bounds(host)
+    if frame.get("package") != launcher or frame.get("enabled") != "true" or not box or (
+        host.get("enabled") != "true" or moved == initial
+        or not (box[0] < moved[0] < moved[2] < box[2] and box[1] < moved[1] < moved[3] < box[3])
+    ):
+        return None
+    parents = {child: parent for parent in root.iter() for child in parent}
+    owners = []
+    node = parents.get(frame)
+    while node is not None:
+        if node.get("package") == launcher and bounds(node) == box and all(
+            node.get(attribute) == "true" for attribute in ("enabled", "focused")
+        ):
+            owners.append(node)
+        node = parents.get(node)
+    assert len(owners) <= 1, "Ambiguous launcher resize frame focus owner"
+    return next(iter(owners), None)
+
+
 class Smoke:
     def __init__(self, directory, serial):
         self.directory = directory
@@ -201,9 +285,13 @@ class Smoke:
         self.text(name + ".xml", xml)
         return ET.fromstring(xml)
 
+    def write_screenshot(self, name, data):
+        (self.directory / (name + ".png")).write_bytes(data)
+        png_frame(data, 0)
+
     def capture(self, name):
         root = self.dump(name)
-        (self.directory / (name + ".png")).write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
+        self.write_screenshot(name, self.adb("exec-out", "screencap", "-p", binary=True))
         return root
 
     @staticmethod
@@ -213,7 +301,7 @@ class Smoke:
 
     def widget_capture(self, name):
         # Keep transition/failure pixels if UIAutomator hangs, then capture the settled UI too.
-        (self.directory / (name + "-before-dump.png")).write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
+        self.write_screenshot(name + "-before-dump", self.adb("exec-out", "screencap", "-p", binary=True))
         root = self.capture(name)
         self.assert_no_system_error(root)
         return root
@@ -265,7 +353,7 @@ class Smoke:
                                  if node.get("package") == self.launcher
                                  and node.get("resource-id") == self.launcher + ":id/workspace"
                                  and node.get("enabled") == "true" and bounds(node)]
-                    (self.directory / (attempt + ".png")).write_bytes(probe("exec-out", "screencap", "-p", binary=True))
+                    self.write_screenshot(attempt, probe("exec-out", "screencap", "-p", binary=True))
                     if focused and expanded(focused[1]) == expanded(component) and len(workspace) == 1:
                         check_anr(attempt + "-ready-last-anr.txt")
                         report["result"] = "passed"
@@ -313,43 +401,39 @@ class Smoke:
             else:
                 target = self.control(root, package, label, resource_id)
             scroll_down = False
-            if target is not None and scroll and package == self.launcher:
-                picker = next((node for node in root.iter("node")
-                               if node.get("resource-id") == self.launcher + ":id/primary_widgets_list_view"
-                               and node.get("scrollable") == "true" and bounds(node)), None)
-                if picker is not None:
-                    search = [node for node in root.iter("node")
-                              if node.get("resource-id") == self.launcher + ":id/search_bar_container" and bounds(node)]
-                    assert len(search) == 1, "Cannot identify the observed picker search overlay"
-                    home = self.launcher_content_viewport
-                    box = bounds(picker)
-                    visible = (max(home[0], box[0]), max(home[1], box[1], bounds(search[0])[3]),
-                               min(home[2], box[2]), min(home[3], box[3]))
-                    assert visible[2] > visible[0] and visible[3] > visible[1], "No observed picker content viewport"
-                    original = bounds(target)
-                    clipped = (max(original[0], visible[0]), max(original[1], visible[1]),
-                               min(original[2], visible[2]), min(original[3], visible[3]))
-                    # Accessibility bounds may include pixels behind search/navigation.
-                    # Tap the visible intersection, including controls at the list end.
-                    if clipped[2] > clipped[0] and clipped[3] > clipped[1]:
-                        target = copy.deepcopy(target)
-                        target.set("bounds", f"[{clipped[0]},{clipped[1]}][{clipped[2]},{clipped[3]}]")
-                        self.text(f"{name}-{attempt}-tap.json", json.dumps({
-                            "target": label or resource_id, "original": original,
-                            "visiblePicker": visible, "tapBounds": clipped}))
-                    else:
-                        scroll_down = original[3] <= visible[1]
-                        target = None
+            visible = None
+            if scroll and package == self.launcher:
+                geometry = picker_geometry(root, self.launcher, self.launcher_content_viewport)
+                if geometry is None:
+                    target = None
+                else:
+                    _, visible = geometry
+                    if target is not None:
+                        original = bounds(target)
+                        clipped = (max(original[0], visible[0]), max(original[1], visible[1]),
+                                   min(original[2], visible[2]), min(original[3], visible[3]))
+                        # Accessibility bounds may include pixels behind the floating tabs or navigation.
+                        if clipped[2] > clipped[0] and clipped[3] > clipped[1]:
+                            target = copy.deepcopy(target)
+                            target.set("bounds", f"[{clipped[0]},{clipped[1]}][{clipped[2]},{clipped[3]}]")
+                            self.text(f"{name}-{attempt}-tap.json", json.dumps({
+                                "target": label or resource_id, "original": original,
+                                "visiblePicker": visible, "tapBounds": clipped}))
+                        else:
+                            scroll_down = original[3] <= visible[1]
+                            target = None
             if target is not None:
                 return target
             if scroll:
-                scrollables = [node for node in root.iter("node") if node.get("package") == package
-                               and node.get("scrollable") == "true" and bounds(node)
-                               and (node.get("resource-id") == self.launcher + ":id/primary_widgets_list_view"
-                                    if package == self.launcher else bool(matches(root, "Save widget")))]
-                if scrollables:
-                    x1, y1, x2, y2 = max((bounds(node) for node in scrollables),
-                                          key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
+                if package != self.launcher:
+                    scrollables = [node for node in root.iter("node") if node.get("package") == package
+                                   and node.get("scrollable") == "true" and bounds(node)
+                                   and bool(matches(root, "Save widget"))]
+                    if scrollables:
+                        visible = max((bounds(node) for node in scrollables),
+                                      key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
+                if visible is not None:
+                    x1, y1, x2, y2 = visible
                     x = str((x1 + x2) // 2)
                     start, end = y1 + (y2 - y1) * 3 // 4, y1 + (y2 - y1) // 4
                     if scroll_down:
@@ -395,6 +479,8 @@ class Smoke:
         x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
         self.adb("shell", "input", "swipe", x, y, x, y, "1000")
         self.tap(self.widget_control(name + "-menu", self.launcher, label="Widgets"))
+        # The API 37 picker opens on Featured rather than the app list.
+        self.tap(self.widget_control(name + "-browse", self.launcher, label="Browse widgets"))
         self.tap(self.widget_control(name + "-app", self.launcher, label="Usage Limits", scroll=True))
 
     @staticmethod
@@ -471,8 +557,7 @@ class Smoke:
             name = f"previous-widget-{index}"
             self.open_widget_picker(name)
             self.tap(self.widget_control(name + "-preview", self.launcher, label=label, scroll=True))
-            self.tap(self.widget_control(name + "-add", self.launcher,
-                                         resource_id=self.launcher + ":id/widget_add_button", scroll=True))
+            self.tap(self.widget_control(name + "-add", self.launcher, label=f"Add {label} widget", scroll=True))
             self.widget_configuration(name + "-config", label, color, save=True)
             self.find_placed_widget(name + "-placed", label)
             bindings = self.widget_bindings(name)
@@ -511,8 +596,7 @@ class Smoke:
             x1, y1, x2, y2 = bounds(host)
             x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
             self.adb("shell", "input", "swipe", x, y, x, y, "1000")
-            self.tap(self.widget_control(name + "-edit", self.launcher,
-                                         resource_id=self.launcher + ":id/widget_reconfigure_button"))
+            self.tap(self.widget_control(name + "-edit", self.launcher, label="Settings"))
             self.widget_configuration(name + "-config", item["label"], item["color"], save=False)
             assert self.widget_bindings(name + "-verified") == expected, "Reconfigure replaced a widget ID"
         self.text(phase + "-widgets-verified.json", json.dumps({"result": "passed", "phase": phase, "widgets": verified,
@@ -527,34 +611,44 @@ class Smoke:
         item = fixtures[0]
         expected = {entry["component"]: entry["id"] for entry in placed}
         assert len(expected) == 4, "Move/resize must retain all four placed widgets"
-        frame_description = "Widget Resize Frame for " + item["label"]
         resize_labels = {"Increase width", "Decrease width", "Increase height", "Decrease height"}
-        report = {"result": "incomplete", "widget": item, "retainedWidgetIds": expected, "steps": []}
+        report = {"result": "incomplete", "widget": item, "retainedWidgetIds": expected,
+                  "widgetFocus": [], "steps": []}
 
         def record():
             self.text("widgets-move-resize.json", json.dumps(report, indent=2))
 
-        def frame(root):
-            self.assert_no_system_error(root)
-            found = [node for node in root.iter("node") if node.get("package") == self.launcher
-                     and node.get("content-desc") == frame_description
-                     and node.get("class") == "android.widget.LinearLayout" and bounds(node)]
-            assert len(found) <= 1, "Ambiguous Mini Rings resize frame"
-            return next((node for node in found if node.get("focused") == "true"
-                         and node.get("enabled") == "true"), None)
-
-        def open_frame(name):
-            host = self.find_placed_widget(name + "-locate", item["label"])
-            x1, y1, x2, y2 = bounds(host)
-            x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
-            self.adb("shell", "input", "swipe", x, y, x, y, "1000")
-            self.wait_for(name, lambda root: frame(root) is not None)
-            assert frame(self.widget_capture(name)) is not None, "Mini Rings resize frame lost focus"
+        def focus_widget(name):
+            selected = bounds(self.find_placed_widget(name + "-locate", item["label"]))
+            focus_report = {"action": name, "selectedBounds": selected, "steps": []}
+            report["widgetFocus"].append(focus_report)
+            record()
+            # API 37 keyboard shortcuts require the actual ItemInfo-bearing host, not its null-named Compose frame.
+            for index in range(41):
+                capture = f"{name}-focus-{index}"
+                root = self.widget_capture(capture)
+                host = focused_widget(root, self.launcher, item["label"])
+                focus_report["steps"].append({
+                    "capture": capture, "key": None if index == 0 else "TAB",
+                    "focusedNodes": [{key: node.get(key, "") for key in (
+                        "package", "class", "resource-id", "text", "content-desc", "bounds",
+                        "enabled", "focusable", "focused")}
+                        for node in root.iter("node") if node.get("focused") == "true"],
+                })
+                record()
+                assert host_box(root) == selected, "Mini Rings host moved, lost content or remained behind launcher action UI during focus traversal"
+                if host is not None:
+                    assert bounds(host) == selected, "Keyboard focus belongs to a different Mini Rings host"
+                    return
+                if index < 40:
+                    self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_TAB")
+            raise AssertionError("Mini Rings launcher host did not acquire input focus within 40 TAB keys")
 
         def host_box(root):
             self.assert_no_system_error(root)
             # Wait for the actual unobscured host after the launcher closes its action UI.
-            if any(node.get("content-desc") == frame_description
+            if any(node.get("resource-id") in (self.launcher + ":id/widget_resize_frame",
+                                                self.launcher + ":id/system_shortcuts_container")
                    or (node.get("resource-id") == self.launcher + ":id/bubble_text"
                        and node.get("text") in resize_labels)
                    or (node.get("resource-id") == self.launcher + ":id/label"
@@ -605,7 +699,7 @@ class Smoke:
         initial = observe("move-resize-before", lambda box: True)
         report["beforeBounds"] = initial
         record()
-        open_frame("move-frame")
+        focus_widget("move")
         self.adb("shell", "input", "keyboard", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_M")
         self.wait_for("move-target-loaded", lambda root: move_target(root) is not None)
         original_target = move_target(self.widget_capture("move-target-original"))
@@ -656,9 +750,9 @@ class Smoke:
             seen.add(target["text"])
         assert selected is not None, "No different observed move target on the original Home page"
         self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ENTER")
-        # Quickstep opens the resize frame after a resizable widget is dropped.
-        self.wait_for("move-drop-frame", lambda root: frame(root) is not None)
-        assert frame(self.widget_capture("move-drop-frame")) is not None, "Dropped Mini Rings frame lost focus"
+        self.wait_for("move-drop-frame", lambda root: post_drop_frame(root, self.launcher, item["label"], initial) is not None)
+        assert post_drop_frame(self.widget_capture("move-drop"), self.launcher, item["label"], initial) is not None, (
+            "Dropped Mini Rings frame lost focus")
         self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ESCAPE")
         moved = observe("move-after", lambda box: size(box) == size(initial) and box[:2] != initial[:2])
         report["steps"].append({"action": "move", "target": selected, "before": initial, "after": moved})
@@ -672,9 +766,11 @@ class Smoke:
                 label = action + " " + dimension
                 name = "resize-" + action.lower() + "-" + dimension
                 before = current
-                open_frame(name + "-frame")
+                focus_widget(name)
                 self.adb("shell", "input", "keyboard", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_R")
                 self.tap(self.widget_control(name + "-option", self.launcher, label=label))
+                self.widget_capture(name + "-selected")
+                self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ESCAPE")
                 def resized(box):
                     after_size, before_size = size(box), size(before)
                     return after_size[1 - axis] == before_size[1 - axis] and (
@@ -1086,7 +1182,7 @@ class Smoke:
                 capture_start = time.monotonic()
                 pressed = self.adb("exec-out", "screencap", "-p", binary=True)
                 capture_end = time.monotonic()
-                (self.directory / f"{name}-pressed-{attempt}.png").write_bytes(pressed)
+                self.write_screenshot(f"{name}-pressed-{attempt}", pressed)
             finally:
                 _, error = hold.communicate(timeout=30)
             assert hold.returncode == 0, f"Held press failed: {error.decode().strip()}"
@@ -1142,9 +1238,8 @@ class Smoke:
     def setting(self, name):
         for attempt in range(9):
             root = self.dump(f"{name}-{attempt}")
-            target = next((node for node in matches(root, SETTING)
-                           if node.get("checkable") == "true" and bounds(node)), None)
-            if target is not None:
+            target = self.control(root, PACKAGE, label=SETTING)
+            if target is not None and target.get("checkable") == "true":
                 return target
             self.scroll(root, up=True)
         raise AssertionError(f"Could not reach {SETTING}")
@@ -1162,8 +1257,9 @@ class Smoke:
 
     def setting_is_disabled(self, name):
         self.setting(name)
-        self.wait_for(name + "-loaded", lambda root: any(node.get("checked") == "false"
-            for node in matches(root, SETTING) if node.get("checkable") == "true"))
+        self.wait_for(name + "-loaded", lambda root:
+            (target := self.control(root, PACKAGE, label=SETTING)) is not None
+            and target.get("checkable") == "true" and target.get("checked") == "false")
 
     def installed(self, name):
         package = self.adb("shell", "dumpsys", "package", PACKAGE)
@@ -1230,7 +1326,7 @@ def main():
     assert len(devices) == 1 and devices[0].startswith("emulator-"), "Requires exactly one CI emulator"
     smoke = Smoke(args.evidence, devices[0])
     assert smoke.adb("shell", "getprop", "ro.kernel.qemu") == "1", "Refusing to modify a physical device"
-    assert smoke.adb("shell", "getprop", "ro.build.version.sdk") == "36", "Expected API 36"
+    assert smoke.adb("shell", "getprop", "ro.build.version.sdk") == "37", "Expected API 37"
     environment = {
         "commit": os.environ["GITHUB_SHA"], "runId": os.environ["GITHUB_RUN_ID"], "serial": devices[0],
         "previousApk": old, "currentApk": new,
@@ -1255,7 +1351,9 @@ def main():
         setting = smoke.setting("previous-setting")
         assert setting.get("checked") == "true", "Fresh baseline setting did not have its documented default"
         smoke.tap(setting)
-        smoke.wait_for("previous-setting-changed", lambda root: any(node.get("checked") == "false" for node in matches(root, SETTING) if node.get("checkable") == "true"))
+        smoke.wait_for("previous-setting-changed", lambda root:
+            (target := smoke.control(root, PACKAGE, label=SETTING)) is not None
+            and target.get("checkable") == "true" and target.get("checked") == "false")
         smoke.capture("previous-setting-changed")
         smoke.adb("shell", "am", "force-stop", PACKAGE)
         smoke.launch("previous-relaunch")
@@ -1291,7 +1389,7 @@ def main():
     except Exception:
         try:
             smoke.capture("failure")
-        except (subprocess.SubprocessError, ET.ParseError):
+        except (subprocess.SubprocessError, ET.ParseError, AssertionError, struct.error, zlib.error, IndexError):
             pass
         raise
     finally:

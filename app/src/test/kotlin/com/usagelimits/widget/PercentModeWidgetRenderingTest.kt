@@ -66,7 +66,7 @@ import org.robolectric.shadows.ShadowLooper
  */
 @OptIn(ExperimentalGlanceApi::class, ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(application = UsageLimitsApp::class, sdk = [36], qualifiers = "mdpi")
+@Config(application = UsageLimitsApp::class, sdk = [36, 37], qualifiers = "mdpi")
 class PercentModeWidgetRenderingTest {
     private var nextWidgetId = 300
 

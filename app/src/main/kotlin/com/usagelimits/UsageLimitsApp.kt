@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import okhttp3.OkHttp
 
 class UsageLimitsApp : Application(), Configuration.Provider {
 
@@ -52,6 +53,7 @@ class UsageLimitsApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        OkHttp.initialize(this)
         container = AppContainer(this)
 
         startupJob = appScope.launch {

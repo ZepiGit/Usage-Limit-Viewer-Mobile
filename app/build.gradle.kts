@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.ksp)
@@ -31,12 +30,12 @@ if (releaseSigningConfigured) {
 
 android {
     namespace = "com.usagelimits"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.usagelimits"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         // Supplied by the workflows; otherwise the commit count, which rises with the history
         // on every machine that builds the same commit. A hardcoded 1 made every build a
         // sideways install — fine for `adb install -r`, but an installer that sees the same
@@ -98,10 +97,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -147,8 +142,8 @@ tasks.withType<Test>().configureEach {
 
 dependencies {
     implementation("sh.calvin.reorderable:reorderable:3.1.0")
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.core)
+    implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
 
@@ -168,10 +163,9 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
 
     implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
     implementation(libs.androidx.browser)
@@ -185,6 +179,8 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.junit)
+    // Compose's transitive Espresso floor predates API 37.
+    testImplementation(libs.androidx.test.espresso.core)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.androidx.room.testing)

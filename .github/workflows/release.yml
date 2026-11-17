@@ -128,7 +128,7 @@ jobs:
           if-no-files-found: error
 
   android-runtime:
-    name: Verify the release APK on API 36
+    name: Verify the release APK on API 37
     needs: [metadata, android]
     runs-on: ubuntu-latest
     # Eight rounds revisit all four widget configurations, plus placement and geometry checks.
@@ -160,9 +160,11 @@ jobs:
             --json tagName -q '.[].tagName' | grep -vxF "v$RELEASE_VERSION" | head -n 1)
           gh release download "$baseline_tag" --repo "$GITHUB_REPOSITORY" \
             --pattern 'UsageLimits-*.apk' --dir runtime/previous
+      # Pin tools that parse the decimal API 37.0 image target correctly.
       - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
+          cmdline-tools-version: '15859902'
       - name: Record release APK identity and signatures
         run: |
           set -euo pipefail
@@ -176,12 +178,12 @@ jobs:
           "$build_tools/apksigner" verify --verbose --print-certs runtime/apk/app-release.apk > runtime/evidence/apk-signature.txt
           "$build_tools/apksigner" verify --verbose --print-certs runtime/previous/UsageLimits-*.apk > runtime/evidence/apk-previous-signature.txt
           cp runtime/apk/app-release.apk.sha256 runtime/evidence/apk-sha256.txt
-      - name: Check the AOSP API 36 image is available
+      - name: Check the AOSP API 37 image is available
         run: |
           set -euo pipefail
           sdkmanager --list > runtime/evidence/sdk-packages.txt
-          if ! grep -Eq '^[[:space:]]*system-images;android-36;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
-            echo '::error::The SDK repository does not list the required AOSP API 36 x86_64 image.' >&2
+          if ! grep -Eq '^[[:space:]]*system-images;android-37\.0;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 37 x86_64 image.' >&2
             exit 1
           fi
       - name: Enable KVM
