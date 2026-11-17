@@ -142,16 +142,19 @@ def parse_alert_events(events):
     return observations
 
 
-def dump_section(text, heading, *, end_heading=None):
+def dump_section(text, heading, *, end_heading=None, indent_fallback=None):
     matches = list(re.finditer(r"(?m)^([ \t]*)" + heading + r"[ \t]*$", text))
     assert len(matches) == 1, "Missing/ambiguous dump section: " + heading
     match = matches[0]
     section = text[match.end():]
+    if end_heading is not None:
+        end = re.search(r"(?m)^[ \t]*" + re.escape(end_heading) + r"[ \t]*$", section)
+        if end is not None:
+            return section[:end.start()].rstrip("\n")
+        assert match[0].strip() == indent_fallback, "Missing dump section boundary: " + end_heading
     indent = len(match[1].expandtabs(4))
     lines = []
     for line in section.splitlines():
-        if line.strip() == end_heading:
-            break
         expanded = line.expandtabs(4)
         if re.fullmatch(r"\s*-+\s*", line):
             continue
@@ -163,9 +166,10 @@ def dump_section(text, heading, *, end_heading=None):
 
 def assert_no_heads_up(systemui, records):
     """Only the manager's active entries are authoritative; other sections repeat keys."""
-    # API36 can outdent this heading without outdenting its sibling.
+    # API36/37 can outdent the heading or a field independently of the sibling.
     section = dump_section(systemui, r"HeadsUpManager(?:Phone)? state:",
-                           end_heading="ShadeTouchableRegionManager state:")
+                           end_heading="ShadeTouchableRegionManager state:",
+                           indent_fallback="HeadsUpManagerPhone state:")
     keys = {record["key"] for record in records if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL}
     assert not any(key in section for key in keys), "Status record in active heads-up manager entry"
     known = (r"mTouchAcceptanceDelay=\d+", r"mSnoozeLengthMs=\d+", r"now=\d+", r"mUser=\d+",
@@ -801,6 +805,16 @@ class Evidence:
                 aliases = {local: alias for alias, local in entry["driver"]["localIds"].items()}
                 lines += ["", "Dump account order (not visible icon order), " + entry["name"] + ": " + ", ".join(aliases.get(local, local) for local in entry["accountDumpOrder"]), ""]
                 if entry["name"] in ("03-enabled", "05-reordered"):
+                    account_order = [alias for alias in entry["driver"].get("accounts", []) if alias in entry["expectedAccounts"]]
+                    if account_order:
+                        lines.append("- App account order: " + ", ".join(account_order))
+                    headers = entry.get("providerHeaders", {})
+                    positions = [(box[1], alias) for alias, row in headers.items() if len(row["titleBounds"]) == 1
+                                 if (box := bounds({"bounds": row["titleBounds"][0] or ""}))]
+                    if positions and len({y for y, _ in positions}) == len(headers):
+                        lines.append("- Shade order from XML: " + ", ".join(alias for _, alias in sorted(positions)))
+                    else:
+                        lines.append("- Shade row order not resolved from XML; inspect the shade screenshot.")
                     model = entry.get("visibleIcons", {})
                     if model.get("status") == "verified":
                         key_aliases = {record["key"]: aliases.get(record["tag"].removeprefix("status-icon:"), record["key"]) for record in entry["ranking"] if record["tag"]}

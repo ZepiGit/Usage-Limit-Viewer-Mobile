@@ -174,16 +174,16 @@ class DefaultEvidenceParserTest(unittest.TestCase):
         import status_icon_evidence as subject
         records = parse_notifications(dump())
         key = records[0]["key"]
-        empty = "    HeadsUpManager state:\n      mTouchAcceptanceDelay=700\n      mSnoozeLengthMs=60000\n      now=123\n      mUser=0\n      snoozed packages: 0\n      mBarState=0\n      mTouchableRegion=SkRegion()\n    Other state:\n      key=" + key
+        sibling = "    StatusBarTouchableRegionManager state:"
+        empty = "    HeadsUpManagerPhone state:\n      mTouchAcceptanceDelay=700\n      mSnoozeLengthMs=60000\n      now=123\n      mUser=0\n      snoozed packages: 0\n      mBarState=0\n      mTouchableRegion=SkRegion()\n" + sibling + "\n      key=" + key
         subject.assert_no_heads_up(empty, records)
-        subject.assert_no_heads_up(empty.replace("HeadsUpManager state:", "HeadsUpManagerPhone state:"), records)
         for active in ("      HeadsUpEntry\n        mEntry=" + key + "\n", "      mAlertEntries={" + key + "=entry}\n"):
             with self.subTest(active=active), self.assertRaisesRegex(AssertionError, "heads.up|Heads.up"):
-                subject.assert_no_heads_up(empty.replace("    Other state:", active + "    Other state:"), records)
-        with self.assertRaises(AssertionError):
-            subject.assert_no_heads_up("HeadsUpManager state:\n  unknownActiveRepresentation=empty", records)
+                subject.assert_no_heads_up(empty.replace(sibling, active + sibling), records)
+        with self.assertRaisesRegex(AssertionError, "Missing dump section boundary"):
+            subject.assert_no_heads_up(empty.replace("HeadsUpManagerPhone state:", "HeadsUpManager state:"), records)
 
-    def test_heads_up_stops_at_shade_touchable_region_manager_after_outdented_heading(self):
+    def test_heads_up_uses_shade_touchable_region_manager_bound_despite_outdents(self):
         import status_icon_evidence as subject
         records = parse_notifications(dump())
         key = records[1]["key"]
@@ -204,17 +204,21 @@ class DefaultEvidenceParserTest(unittest.TestCase):
             "            NotificationIconContainer\n"
             f"              StatusBarIconView(notification=StatusBarNotification(key={key}))\n"
         )
-        report = subject.assert_no_heads_up(flags + manager + later, records)
-        self.assertEqual([], report["activeStatusKeys"])
-        self.assertEqual(["false"], report["presentationFlags"])
+        outdented_field = "    " + manager.replace("      snoozed packages: 0", "  snoozed packages: 0")
+        for api, dump_section in ((36, manager), (37, outdented_field)):
+            with self.subTest(api=api):
+                report = subject.assert_no_heads_up(flags + dump_section + later, records)
+                self.assertEqual([], report["activeStatusKeys"])
+                self.assertEqual(["false"], report["presentationFlags"])
 
         for entry, error in (
-            (f"      mAlertEntries={{{key}=entry}}\n", "Status record in active heads-up manager entry"),
-            ("      unknownActiveRepresentation=empty\n", "Unrecognized heads-up active section"),
-            ("      ShadeTouchableRegionManager state: unknown\n", "Unrecognized heads-up active section"),
+            (f"  mAlertEntries={{{key}=entry}}\n", "Status record in active heads-up manager entry"),
+            ("  unknownActiveRepresentation=empty\n", "Unrecognized heads-up active section"),
+            ("    OtherManager state:\n", "Unrecognized heads-up active section"),
+            ("  ShadeTouchableRegionManager state: unknown\n", "Unrecognized heads-up active section"),
         ):
             with self.subTest(entry=entry), self.assertRaisesRegex(AssertionError, error):
-                subject.assert_no_heads_up(flags + manager + entry + later, records)
+                subject.assert_no_heads_up(flags + outdented_field + entry + later, records)
         with self.assertRaisesRegex(AssertionError, "Active heads-up presentation flag"):
             subject.assert_no_heads_up(flags.replace("false", "true") + manager + later, records)
 
@@ -278,7 +282,7 @@ class DefaultEvidenceParserTest(unittest.TestCase):
                          for account, title, provider in accounts)
         children = [record["key"] for record in parse_notifications(dump(posted)) if not record["summary"]]
         systemui = ("HeadsUpManager state:\n  mTouchAcceptanceDelay=700\n  mSnoozeLengthMs=60000\n  now=123\n  mUser=0\n"
-                    "  snoozed packages: 0\nShadeListBuilder shade notifications:\n" +
+                    "  snoozed packages: 0\n    ShadeTouchableRegionManager state:\nShadeListBuilder shade notifications:\n" +
                     "".join(f"  [{i}] {key} (parent=<root>) rank={i} section=Alerting\n" for i, key in enumerate(children)))
         shade = '''<hierarchy>
           <node package="com.android.systemui" resource-id="android:id/status_bar_latest_event_content">
@@ -324,6 +328,8 @@ class DefaultEvidenceParserTest(unittest.TestCase):
                             self.assertEqual("Usage Limits · Claude", headers["evidence-claude"]["shadeNodes"][0]["content-desc"])
                             self.assertEqual("not_exposed", headers["evidence-codex"]["shadeStatus"])
                             self.assertEqual("Antigravity", headers["evidence-gemini"]["shadeNodes"][0]["text"])
+                            self.assertIn("Shade order from XML: evidence-gemini, evidence-claude, evidence-codex",
+                                          (evidence.directory / "summary.md").read_text())
 
     def test_same_provider_rows_require_reading_titles_and_distinct_names(self):
         import status_icon_evidence as subject
