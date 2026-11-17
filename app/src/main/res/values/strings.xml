@@ -491,6 +491,8 @@
     <string name="status_icon_channel_description">A silent icon with the figure of each pinned account</string>
     <!-- %1$s is the figure with its percent sign, %2$s the side word ("left" / "used"). -->
     <string name="status_icon_text_figure">%1$s %2$s</string>
+    <!-- The same, for an underlined icon: the reading is stale or its reset is due. -->
+    <string name="status_icon_text_figure_outdated">%1$s %2$s, may be out of date</string>
     <string name="status_icon_text_unknown">No percentage reported</string>
     <string name="status_icon_text_reconnect">Reconnect required</string>
     <string name="status_icon_text_refresh_failed">Refresh failed</string>

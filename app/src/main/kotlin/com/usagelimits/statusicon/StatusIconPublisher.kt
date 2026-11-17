@@ -203,7 +203,7 @@ class StatusIconPublisher(
         val line = when {
             needsReauthentication -> texts.reconnectRequired()
             icon.content == StatusIconContent.Error -> texts.refreshFailed()
-            else -> texts.reading(icon.content, headline, presentation ?: WindowPresentation.absent(settings.percentDisplay), nowMs)
+            else -> texts.reading(icon, headline, presentation ?: WindowPresentation.absent(settings.percentDisplay), nowMs)
         }
         val bitmap = StatusIconRenderer.render(usage.account.provider, icon, context.resources.displayMetrics.density)
         val tag = tagFor(usage.account.localId)

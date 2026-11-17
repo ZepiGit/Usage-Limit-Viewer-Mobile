@@ -2,6 +2,7 @@ package com.usagelimits.statusicon
 
 import android.content.res.Resources
 import com.usagelimits.R
+import com.usagelimits.core.model.StatusIcon
 import com.usagelimits.core.model.StatusIconContent
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowPresentation
@@ -18,7 +19,8 @@ import com.usagelimits.ui.text.windowLabelRes
  * A shade row has the account name as its title and one line of text. For a reading that line is
  * the figure in words with its side, the window's label and the next reset ("42% left · 5h limit ·
  * Resets 14:05"). The figure is the presentation's token, never the icon's shortened number, so
- * "<1%" and ">99%" are said as they are.
+ * "<1%", ">99%" and "100%" are said as they are. An underlined icon adds that the reading may be
+ * out of date; the signs that replace a figure are named ("Exhausted", "No percentage reported").
  */
 interface StatusIconTexts {
     fun channelName(): String
@@ -30,8 +32,8 @@ interface StatusIconTexts {
     /** The line of an account whose last sync failed. */
     fun refreshFailed(): String
 
-    /** The line of an account with a reading, whose icon shows [content] (never an error). */
-    fun reading(content: StatusIconContent, headline: UsageWindow?, presentation: WindowPresentation, nowMs: Long): String
+    /** The line of an account with a reading, whose icon is [icon] (never an error). */
+    fun reading(icon: StatusIcon, headline: UsageWindow?, presentation: WindowPresentation, nowMs: Long): String
 }
 
 /** [StatusIconTexts] from `strings.xml`, in the language of the given [resources]. */
@@ -46,12 +48,12 @@ class ResourceStatusIconTexts(private val resources: Resources) : StatusIconText
 
     override fun refreshFailed(): String = resources.getString(R.string.status_icon_text_refresh_failed)
 
-    override fun reading(content: StatusIconContent, headline: UsageWindow?, presentation: WindowPresentation, nowMs: Long): String {
-        val state = when (content) {
+    override fun reading(icon: StatusIcon, headline: UsageWindow?, presentation: WindowPresentation, nowMs: Long): String {
+        val state = when (icon.content) {
             StatusIconContent.Exhausted -> resources.getString(R.string.severity_exhausted)
             StatusIconContent.Unknown -> resources.getString(R.string.status_icon_text_unknown)
             else -> resources.getString(
-                R.string.status_icon_text_figure,
+                if (icon.outdated) R.string.status_icon_text_figure_outdated else R.string.status_icon_text_figure,
                 percentFigure(presentation.token, resources),
                 resources.getString(percentSideWordRes(presentation.side)),
             )
