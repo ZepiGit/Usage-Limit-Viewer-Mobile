@@ -162,7 +162,7 @@ class VisibilityEvidence(Evidence):
                 len(entry.get("alertEvents", [])), entry["result"])) + " |")
         lines += ["", "## Observed tradeoffs", "", json.dumps(self.report["observations"], indent=2),
                   "", "## Structural failures", "", json.dumps(self.report["failures"], indent=2), "",
-                  "Lock-screen captures use sleep/wake without keyguard dismissal. Policy is observed, not forced; no AOD claim.",
+                  "Lock-screen captures separately enable a non-secure swipe keyguard only when the fresh AVD disables it, then restore that state. Notification privacy/silent-icon policies are untouched; no secure-phone or AOD claim.",
                   "Human screenshot review is required for icons, chips, heads-up peeks, shade sections and lock-screen content.",
                   "The cache step deliberately observes the existing quota lifecycle. Restoring a dismissed promoted notification conflicts with Live Update guidance; it is a measured cost, not a recommended behavior."]
         self.save("summary.md", "\n".join(lines))
@@ -280,8 +280,17 @@ class VisibilityEvidence(Evidence):
 
     def lockscreen(self):
         name = "01-posted-lockscreen"
+        self.home()
+        # The first run's fresh AVD woke straight to HOME. Enable only its non-secure
+        # swipe keyguard for this separate lock-screen comparison, then restore it.
+        disabled = self.adb("shell", "locksettings", "get-disabled").strip()
+        self.save(name + "-original-disabled.txt", disabled)
+        assert disabled in ("true", "false"), "Unrecognized keyguard disabled state"
+        changed = disabled == "true"
         try:
-            self.home()
+            if changed:
+                self.save(name + "-enable-swipe.txt", self.adb("shell", "locksettings", "set-disabled", "false"))
+                assert self.adb("shell", "locksettings", "get-disabled").strip() == "false", "Swipe keyguard did not enable"
             self.adb("shell", "input", "keyevent", "KEYCODE_SLEEP")
             time.sleep(0.5)
             self.adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
@@ -300,16 +309,20 @@ class VisibilityEvidence(Evidence):
                 policy[suffix] = self.adb(*command)
                 self.save(name + "-" + suffix + ".txt", policy[suffix])
             combined = "\n".join(policy.values())
-            showing = re.findall(r"\b(?:mKeyguardShowing|isKeyguardShowing|keyguardShowing)=(true|false)\b", policy["window-policy"])
+            showing = re.findall(r"\b(?:mKeyguardShowing|isKeyguardShowing|keyguardShowing)=(true|false)\b", policy["window"])
             self.report["lockscreen"] = {
                 "keyguardShowingObserved": (showing[0] == "true") if showing and len(set(showing)) == 1 else None,
                 "keyguardShowingValues": showing,
+                "configuredSwipeKeyguard": changed,
+                "originalKeyguardDisabled": disabled,
                 "policyLines": [line for line in combined.splitlines() if re.search(r"keyguard|secure|credential|deviceLocked|deviceSecure|mShowingLockscreen|isStatusBarKeyguard", line, re.I)],
                 "interpretation": "Sleep/wake without dismissal; if keyguard showing is not verified, this is wake policy evidence, not a verified locked-content capture. No AOD claim.",
             }
             self.save(name + "-policy.json", json.dumps(self.report["lockscreen"], indent=2))
         finally:
             self.adb("shell", "wm", "dismiss-keyguard")
+            if changed:
+                self.save(name + "-restore-swipe.txt", self.adb("shell", "locksettings", "set-disabled", "true"))
             self.home()
 
     def lifecycle(self, pin_count):
@@ -387,12 +400,19 @@ def write_summary(evidence, report):
               "## Interpretation limits", "",
               "Inspect HOME/statusbar, shade and sleep/wake screenshots for actual presentation. Early observer frames and SystemUI/window logs cover transient heads-up peeks; finite samples cannot prove no transient ever occurred.",
               "notification_alert buzz/beep/blink and NMS sound/vibration/light fields are observations, not a claim about heard sound on a no-audio emulator.",
-              "Keyguard showing, secure/credential state and content policy are retained in lock-screen window/policy/trust dumps; a swipe-only AVD may wake unlocked. No AOD or forced private-content claim.",
+              "Keyguard showing, secure/credential state and content policy are retained in lock-screen window/policy/trust dumps. If the AVD originally disables keyguard, a separate non-secure swipe setup is enabled for that capture and restored afterward; notification policies remain untouched. No secure-phone, AOD or forced private-content claim.",
               "Grouped core violations fail the run, but candidates continue. Retained promoted dismissals and ungrouped auto-group policy are reported as tradeoffs.",
               "Fresh-channel experiments do not prove an existing installation can raise a channel's importance."]
     if report.get("error"):
         lines += ["", "Failure: " + report["error"]]
     evidence.save("summary.md", "\n".join(lines))
+
+
+def parse_package_uid(text):
+    """Read the full installed UID from cmd package list packages -U, not appId."""
+    uids = re.findall(r"(?m)^package:" + re.escape(PACKAGE) + r" uid:([0-9]+)[ \t]*$", text)
+    assert len(uids) == 1, "Missing/ambiguous installed fixture UID"
+    return uids[0]
 
 
 def run(evidence, apk, report):
@@ -418,14 +438,15 @@ def run(evidence, apk, report):
     package_dump = evidence.adb("shell", "dumpsys", "package", PACKAGE)
     evidence.save("package-permissions.txt", package_dump)
     evidence.save("appops.txt", evidence.adb("shell", "cmd", "appops", "get", PACKAGE))
-    uid = re.search(r"\buserId=(\d+)", package_dump)
-    assert uid, "Missing installed fixture UID"
+    package_uids = evidence.adb("shell", "cmd", "package", "list", "packages", "-U", PACKAGE)
+    evidence.save("package-uids.txt", package_uids)
+    uid = parse_package_uid(package_uids)
     candidates = CANDIDATES + (LEGACY_CONTROLS if api == 36 else [])
     local_ids = None
     for name, recipe, pin_count in candidates:
         item = {"name": name, "recipe": recipe, "pinCount": pin_count, "result": "incomplete"}
         report["candidates"].append(item)
-        candidate = VisibilityEvidence(evidence.directory / name, recipe, api, uid[1])
+        candidate = VisibilityEvidence(evidence.directory / name, recipe, api, uid)
         if api == 30 and "promoted" in recipe:
             item.update(result="unsupported", detail="API30 has no native promoted ongoing API")
             candidate.report.update(result="unsupported", reason=item["detail"])

@@ -1,7 +1,9 @@
 """Prototype visibility observation seam; fixtures need no device or APK."""
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import prototype_visibility_capture as capture
 from prototype_visibility_capture import ACCOUNTS, PACKAGE, VisibilityEvidence, observe_snapshot, parse_observations
 
 
@@ -97,6 +99,79 @@ class VisibilityObservationTest(unittest.TestCase):
         alert = dict(parse_observations(dump())[0], channel="usage_alerts")
         report = observe_snapshot([alert], [], "prototype_status_promoted", False)
         self.assertIn("Unexpected app usage_alerts records", report["violations"])
+
+
+class InstalledFixtureUidTest(unittest.TestCase):
+    def test_package_uid_parser_accepts_standard_api_outputs_as_strings(self):
+        for api, output, expected in (
+            (30, "package:com.usagelimits.debug uid:10123\n", "10123"),
+            (36, "package:com.usagelimits.debug uid:10150\n", "10150"),
+            (37, "package:com.usagelimits.debug uid:10156\n", "10156"),
+            (37, "package:com.usagelimits.debug uid:1010156\n", "1010156"),
+        ):
+            with self.subTest(api=api, output=output):
+                self.assertEqual(expected, capture.parse_package_uid(output))
+
+    def test_package_uid_parser_requires_one_exact_package_line(self):
+        exact = "package:com.usagelimits.debug uid:10156\n"
+        self.assertEqual("10156", capture.parse_package_uid(
+            "package:com.usagelimits.debug.extra uid:10999\n" + exact))
+        for output in ("", "userId=10156\n", "appId=10156\n",
+                       "permission uid=1000\n", "package:com.usagelimits.debug.extra uid:10156\n",
+                       "package:com.usagelimits.debug uid:not-a-uid\n",
+                       exact + exact, exact + "package:com.usagelimits.debug uid:1010156\n"):
+            with self.subTest(output=output):
+                with self.assertRaisesRegex(AssertionError, "Missing/ambiguous installed fixture UID"):
+                    capture.parse_package_uid(output)
+
+    def test_run_uses_package_uid_and_retains_both_raw_package_sources(self):
+        class FixtureEvidence(capture.Evidence):
+            def adb(self, *args, **kwargs):
+                self.commands.append(args)
+                if args == ("shell", "getprop", "ro.build.version.sdk"):
+                    return str(self.api)
+                if args == ("shell", "dumpsys", "package", PACKAGE):
+                    return self.package_dump
+                if args == ("shell", "cmd", "package", "list", "packages", "-U", PACKAGE):
+                    return self.uid_output
+                return ""
+
+        class FixtureCandidate(VisibilityEvidence):
+            def lifecycle(self, pin_count):
+                self.state = {"localIds": {}}
+                observed_uids.append(self.uid)
+                events = "I notification_alert: [" + self.uid + ",1,0,1]"
+                observed = observe_snapshot([], [], capture.CHANNELS[self.recipe], self.grouped, events, (self.uid,))
+                observed_events.extend(observed["alertEvents"])
+
+            def summary(self):
+                pass
+
+        for api, field, app_id, uid in ((30, "userId", "10123", "10123"),
+                                        (36, "appId", "10150", "10150"),
+                                        (37, "appId", "10156", "1010156")):
+            with self.subTest(api=api), tempfile.TemporaryDirectory() as directory:
+                evidence = FixtureEvidence(directory)
+                evidence.api = api
+                evidence.commands = []
+                evidence.package_dump = ("Packages:\n  Package [com.usagelimits.debug]:\n    "
+                                         + field + "=" + app_id + "\n    permission uid=1000")
+                evidence.uid_output = "package:com.usagelimits.debug uid:" + uid
+                observed_uids, observed_events = [], []
+                report = {"result": "incomplete", "candidates": []}
+                with patch.object(capture, "VisibilityEvidence", FixtureCandidate), \
+                        patch.object(capture, "CANDIDATES", [("low", "low", 3)]), \
+                        patch.object(capture, "LEGACY_CONTROLS", []):
+                    capture.run(evidence, "fixture.apk", report)
+                self.assertEqual("passed", report["result"])
+                self.assertEqual([uid], observed_uids)
+                self.assertEqual([uid], [event["uid"] for event in observed_events])
+                self.assertIn(("shell", "cmd", "package", "list", "packages", "-U", PACKAGE),
+                              evidence.commands)
+                self.assertEqual(evidence.package_dump + "\n",
+                                 (evidence.directory / "package-permissions.txt").read_text())
+                self.assertEqual(evidence.uid_output + "\n",
+                                 (evidence.directory / "package-uids.txt").read_text())
 
 
 class DismissalLifecycleTest(unittest.TestCase):
