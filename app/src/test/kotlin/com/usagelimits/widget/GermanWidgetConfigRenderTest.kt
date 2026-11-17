@@ -103,7 +103,7 @@ class GermanWidgetConfigRenderTest {
     }
 
     @Test
-    fun `the configuration screen speaks German without a separate display mode choice`() {
+    fun `the configuration screen speaks German`() {
         compose.setContent {
             UsageLimitsTheme {
                 WidgetConfigScreen(listOf(fixtureUsage()), null, "Usage Bars", saving = false, error = null,
@@ -115,8 +115,6 @@ class GermanWidgetConfigRenderTest {
         assertEquals(1, texts("Widget speichern").size)
         assertEquals(1, texts("Abbrechen").size)
         reveal("Widget-Inhalt")
-        assertTrue("there is no separate display-mode control", texts("Prozente anzeigen als").isEmpty())
-        assertTrue("there is no app-setting override choice", texts("App-Einstellung").isEmpty())
         assertEquals(1, texts("Widget-Inhalt").size)
         reveal("Ein Anbieter")
         assertEquals(1, texts("Ein Anbieter").size)

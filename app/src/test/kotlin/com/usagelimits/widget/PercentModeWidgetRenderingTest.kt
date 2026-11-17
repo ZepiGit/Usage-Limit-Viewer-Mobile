@@ -4,6 +4,7 @@ import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
+import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.view.View
 import android.view.ViewGroup
@@ -515,10 +516,17 @@ class PercentModeWidgetRenderingTest {
         val bitmap = (ringImages(view).single().drawable as BitmapDrawable).bitmap
         val style = WidgetStyle()
         // The representative Weekly window is 37% left / 63% used. Six o'clock is outside
-        // the former arc and inside the latter; inspect the bitmap the hosted image received.
+        // the former arc and inside the latter. Find the stroke in the hosted bitmap so the
+        // sample stays inside it when the ring size or stroke width changes.
+        val centreX = bitmap.width / 2
+        var innerStrokeY = bitmap.height / 2
+        while (innerStrokeY < bitmap.height && Color.alpha(bitmap.getPixel(centreX, innerStrokeY)) == 0) innerStrokeY++
+        assertTrue("$mode: the ring has a stroke at six o'clock", innerStrokeY < bitmap.height)
+        var outerStrokeY = bitmap.height - 1
+        while (Color.alpha(bitmap.getPixel(centreX, outerStrokeY)) == 0) outerStrokeY--
         assertEquals("$mode: the ring fill follows the app mode",
             if (mode == PercentDisplay.USED) style.data.toArgb() else style.trackArgb,
-            bitmap.getPixel(80, 151))
+            bitmap.getPixel(centreX, (innerStrokeY + outerStrokeY) / 2))
     }
 
     /** The rings: images whose description ends in a figure clause, which a provider logo's never does. */

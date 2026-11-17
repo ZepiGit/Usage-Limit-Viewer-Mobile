@@ -191,10 +191,12 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
         }
 
         /**
-         * A placed widget may keep its own choice of showing percentages as left or used.
+         * Version 12 allowed a placed widget to keep its own choice of showing percentages as
+         * left or used. Version 13 removed this choice.
          *
-         * Nullable with no default, matching the entity: null means "follow the app setting", so
-         * every widget already on a home screen keeps tracking it rather than being pinned.
+         * The column was nullable with no default, matching the entity: null meant "follow the
+         * app setting", so every widget already on a home screen kept tracking it rather than
+         * being pinned.
          */
         private val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {

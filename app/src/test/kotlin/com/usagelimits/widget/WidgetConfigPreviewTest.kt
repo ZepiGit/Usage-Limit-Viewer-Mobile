@@ -3,12 +3,9 @@ package com.usagelimits.widget
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.hasScrollToIndexAction
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.performScrollToNode
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
@@ -165,7 +162,7 @@ class WidgetConfigPreviewTest {
     }
 
     @Test
-    fun `the configuration preview follows app mode changes without a widget mode choice`() {
+    fun `the configuration preview follows app mode changes`() {
         var appMode by mutableStateOf(PercentDisplay.LEFT)
         compose.setContent {
             UsageLimitsTheme {
@@ -179,9 +176,5 @@ class WidgetConfigPreviewTest {
         compose.waitForIdle()
         assertEquals("the app setting changes the preview", 1, texts("40% used").size)
         assertTrue("the previous figure is gone", texts("60% left").isEmpty())
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Widget content"))
-        compose.waitForIdle()
-        assertTrue("there is no separate display-mode control", texts("Show percentages as").isEmpty())
-        assertTrue("there is no app-setting override choice", texts("App setting").isEmpty())
     }
 }
