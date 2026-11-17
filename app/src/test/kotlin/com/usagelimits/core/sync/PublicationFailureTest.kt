@@ -34,10 +34,10 @@ class PublicationFailureTest {
         }
     }
 
-    // A separate sandbox keeps another class's initialized WorkManager from hiding this failure.
-    @org.robolectric.annotation.Config(application = android.app.Application::class, sdk = [35])
+    @org.robolectric.annotation.Config(application = android.app.Application::class)
     @Test fun `an unavailable WorkManager does not stop repainting or alerts`() = runBlocking {
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        resetTestWorkManager()
         val completed = mutableListOf<String>()
         val publication: Publication = OutOfAppPublication(
             repaint = { completed += "repaint" },
