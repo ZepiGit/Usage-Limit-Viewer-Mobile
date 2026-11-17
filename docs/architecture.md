@@ -38,6 +38,6 @@ Android encrypts credentials with a Keystore key and stores account metadata, re
 
 Sync isolates failures per account. Token renewal is serialized per credential reference, re-reading credentials inside the lock to protect rotating refresh tokens. Removal and credential replacement are checked before saving results. Cancellation does not become an account error.
 
-Foreground actions use the sync engine directly. Android background work uses WorkManager with a connected-network constraint and a minimum 15-minute periodic interval. Repeated queued refresh requests collapse into one pass. iOS background refresh follows system scheduling.
+Foreground actions use the sync engine directly. Android background work uses WorkManager with a connected-network constraint and a minimum 15-minute periodic interval. Repeated queued refresh requests collapse into one pass. On iOS, `RefreshCoalescer` runs the app's refreshes one at a time: requests made while a refresh runs share one follow-up refresh, so an account signed in mid-refresh still gets its first reading, widget data and alert evaluation. iOS background refresh follows system scheduling.
 
 Cache changes request widget updates and notification evaluation. Presentation updates also handle stale data and elapsed resets without inventing a new measurement. Both platforms honor reduced-motion settings. [Widgets](widgets.md) describes selection and refresh behavior.
