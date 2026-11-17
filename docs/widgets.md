@@ -17,7 +17,7 @@ At placement, choose closest resets, most critical, all accounts, one account, o
 
 Each usage widget has its own background color, opacity and text tone. Automatic text tone follows the selected panel color, including at zero opacity; it does not sample wallpaper. Choose light or dark text explicitly when needed on a transparent panel. Provider artwork follows the app's saved icon choices.
 
-The configuration screen also has Show percentages as, with App setting, Left and Used, for Usage Summary, Usage Bars, Account Rings and Mini Rings. The preview follows the choice. See [Percentages: left or used](#percentages-left-or-used).
+The configuration preview and every usage widget follow the app's display mode. See [Percentages: left or used](#percentages-left-or-used).
 
 ## iOS setup
 
@@ -36,18 +36,9 @@ Show percentages as is in Settings → Overview on Android and Settings → Disp
 - **The breakdown is always used.** A window's segment breakdown, such as “Opus usage: 20%”, counts what was used in both modes and is labeled that way.
 - **German.** On a device set to German the words become “übrig” and “verbraucht” and the percent sign is separated by a space (“73 %”). Window labels that a provider reports, and model names, are shown as reported.
 
-### Per-widget override
+Every usage widget follows the app setting, including widgets that previously had their own Left or Used choice. There is no separate widget display-mode setting. Credits show money and are unchanged.
 
-Each configurable widget can keep its own choice: App setting (the default, which follows the app), Left or Used. Widgets that existed before this option follow the app setting.
-
-| Widget | Own choice |
-| --- | --- |
-| Android Usage Summary, Usage Bars, Account Rings, Mini Rings | Yes, in the widget configuration |
-| iOS 17 Usage Bars, Account Rings, Mini Rings | Yes, the Show percentages as option |
-| iOS Usage Limits, Usage Limits (Clear), Usage Ring | No; they always follow the app |
-| Credits (both platforms) | Not applicable |
-
-On Android a change in Settings repaints the widgets that follow the app. On iOS the app writes its choice into the widget snapshot and asks WidgetKit to reload, so delivery follows the timeline rules below.
+On Android a change in Settings repaints every usage widget. On iOS the app writes its choice into the widget snapshot and asks WidgetKit to reload, so delivery follows the timeline rules below.
 
 ## Refresh and reset times
 
