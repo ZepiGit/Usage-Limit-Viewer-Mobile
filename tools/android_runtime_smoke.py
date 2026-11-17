@@ -201,9 +201,13 @@ class Smoke:
         self.text(name + ".xml", xml)
         return ET.fromstring(xml)
 
+    def write_screenshot(self, name, data):
+        (self.directory / (name + ".png")).write_bytes(data)
+        png_frame(data, 0)
+
     def capture(self, name):
         root = self.dump(name)
-        (self.directory / (name + ".png")).write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
+        self.write_screenshot(name, self.adb("exec-out", "screencap", "-p", binary=True))
         return root
 
     @staticmethod
@@ -213,7 +217,7 @@ class Smoke:
 
     def widget_capture(self, name):
         # Keep transition/failure pixels if UIAutomator hangs, then capture the settled UI too.
-        (self.directory / (name + "-before-dump.png")).write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
+        self.write_screenshot(name + "-before-dump", self.adb("exec-out", "screencap", "-p", binary=True))
         root = self.capture(name)
         self.assert_no_system_error(root)
         return root
@@ -265,7 +269,7 @@ class Smoke:
                                  if node.get("package") == self.launcher
                                  and node.get("resource-id") == self.launcher + ":id/workspace"
                                  and node.get("enabled") == "true" and bounds(node)]
-                    (self.directory / (attempt + ".png")).write_bytes(probe("exec-out", "screencap", "-p", binary=True))
+                    self.write_screenshot(attempt, probe("exec-out", "screencap", "-p", binary=True))
                     if focused and expanded(focused[1]) == expanded(component) and len(workspace) == 1:
                         check_anr(attempt + "-ready-last-anr.txt")
                         report["result"] = "passed"
@@ -1086,7 +1090,7 @@ class Smoke:
                 capture_start = time.monotonic()
                 pressed = self.adb("exec-out", "screencap", "-p", binary=True)
                 capture_end = time.monotonic()
-                (self.directory / f"{name}-pressed-{attempt}.png").write_bytes(pressed)
+                self.write_screenshot(f"{name}-pressed-{attempt}", pressed)
             finally:
                 _, error = hold.communicate(timeout=30)
             assert hold.returncode == 0, f"Held press failed: {error.decode().strip()}"
@@ -1291,7 +1295,7 @@ def main():
     except Exception:
         try:
             smoke.capture("failure")
-        except (subprocess.SubprocessError, ET.ParseError):
+        except (subprocess.SubprocessError, ET.ParseError, AssertionError, struct.error, zlib.error, IndexError):
             pass
         raise
     finally:

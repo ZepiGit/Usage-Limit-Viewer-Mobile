@@ -1,8 +1,12 @@
 """The runtime smoke's pixel logic on synthetic frames: python3 -m unittest discover -s tools"""
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
+import xml.etree.ElementTree as ET
 
-from android_runtime_smoke import changed_pixels, judge_press, png_bytes, png_frame, rounded_rect_distance, scaled_crop
+from android_runtime_smoke import Smoke, changed_pixels, judge_press, png_bytes, png_frame, rounded_rect_distance, scaled_crop
 
 # The CI emulator's 280 dpi: 1.75 px per dp, so the 6dp pill radius is 10.5 px.
 RADIUS = 10.5
@@ -79,6 +83,18 @@ class JudgePressTest(unittest.TestCase):
 
     def test_changes_outside_the_compared_region_are_not_seen(self):
         self.assertEqual([], changed_pixels(REST, frame(lambda x, y: y < REGION[1]), REGION))
+
+
+class CaptureTest(unittest.TestCase):
+    def test_malformed_screenshot_fails_and_retains_raw_bytes(self):
+        malformed = b"Assertion failed! rcEnc featureInfo hasReadColorBufferDma\nAborted"
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "dump", return_value=ET.fromstring("<hierarchy/>")), \
+                    patch.object(smoke, "adb", return_value=malformed):
+                with self.assertRaisesRegex(AssertionError, "Not a PNG"):
+                    smoke.capture("raw")
+            self.assertEqual(malformed, (Path(directory) / "raw.png").read_bytes())
 
 
 class PngTest(unittest.TestCase):
