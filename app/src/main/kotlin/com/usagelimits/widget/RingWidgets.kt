@@ -147,26 +147,45 @@ internal fun ringLimit(account: WidgetAccount): WidgetRow? = account.representat
 internal fun ringFigure(resources: android.content.res.Resources, account: WidgetAccount, mode: PercentDisplay): String =
     percentFigure(ringLimit(account).presentation(null, mode).token, resources)
 
+/** What a ring writes in its centre: the figure with its sign, the figure alone, or nothing. */
+internal enum class RingCentre { SIGNED, BARE, NOTHING }
+
 /**
- * What a ring writes in its centre for [p]: the figure with its sign, the token alone, or nothing
- * (null). A ring adopts the rule by calling this instead of [percentFigure].
+ * The centre for a presentation's [token] and [side] on a ring that does or does not draw its arc
+ * (#38). In USED a 100 is the exhausted window and is written bare, which fits where "100%" does
+ * not. In LEFT a 100 is the full allowance: under its closed arc nothing is written, and where no
+ * arc is drawn it is written bare, never with the sign. Every other token keeps its sign.
  *
- * The owner's call (#38): in USED a 100 is the exhausted window and is written without its sign,
- * which fits where "100%" does not; in LEFT a 100 is the full allowance, which the closed arc says
- * by itself. Aged readings follow the same rule, because these widgets still draw their arc, only
- * in grey. The presentation keeps its "100" token, so the description and every other surface
- * still say the full figure. An unknown figure writes nothing: a ring centre has never shown the
- * dash.
+ * The same rule, on the same inputs, is the iOS kit's `RingCentre`; both are held to
+ * `shared/test-vectors/ring-centre.json`. The presentation keeps its "100" token, so the
+ * description and every other surface still say the full figure.
  */
-internal fun ringCentreFigure(resources: android.content.res.Resources, p: WindowPresentation): String? = when {
-    !p.hasFigure -> null
-    p.token != FULL_RING_TOKEN -> percentFigure(p.token, resources)
-    p.side == PercentDisplay.USED -> p.token
-    else -> null
+internal fun ringCentre(token: String, side: PercentDisplay, arcDrawn: Boolean): RingCentre = when {
+    token != FULL_RING_TOKEN -> RingCentre.SIGNED
+    side == PercentDisplay.LEFT && arcDrawn -> RingCentre.NOTHING
+    else -> RingCentre.BARE
 }
 
 /** The token of a closed ring. ">99" is its own token, so this never swallows a rounded 99.6. */
 private const val FULL_RING_TOKEN = "100"
+
+/**
+ * What an Android ring writes in its centre for [p], or null for nothing. A ring adopts
+ * [ringCentre] by calling this instead of [percentFigure].
+ *
+ * [UsageRing.draw] paints the presentation's fill whatever its fill state says (the grey of an
+ * aged or failed reading is [ringAccent]'s), so the arc is drawn whenever there is a fill. A full
+ * allowance therefore always writes nothing here, even where the presentation reads "no fill".
+ * An unknown figure writes nothing: an Android ring centre has never shown the dash.
+ */
+internal fun ringCentreFigure(resources: android.content.res.Resources, p: WindowPresentation): String? {
+    if (!p.hasFigure) return null
+    return when (ringCentre(p.token, p.side, arcDrawn = p.fill != null)) {
+        RingCentre.SIGNED -> percentFigure(p.token, resources)
+        RingCentre.BARE -> p.token
+        RingCentre.NOTHING -> null
+    }
+}
 
 /**
  * What a screen reader hears for one ring. Shared by the placed widgets and the configuration
