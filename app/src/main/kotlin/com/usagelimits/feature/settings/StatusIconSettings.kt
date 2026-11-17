@@ -94,7 +94,12 @@ internal fun StatusIconSettings(
                     subtitle = usage.account.title(),
                     checked = isPinned,
                     onChange = { pin -> onPinnedChange(if (pin) pinned + id else pinned - id) },
-                    description = stringResource(R.string.settings_status_icons_pin, usage.account.label),
+                    // A disabled fourth switch says why, so a screen reader does not just hear "dimmed".
+                    description = if (full && !isPinned) {
+                        stringResource(R.string.settings_status_icons_pin_full, usage.account.label, MAX_PINNED_ACCOUNTS)
+                    } else {
+                        stringResource(R.string.settings_status_icons_pin, usage.account.label)
+                    },
                     enabled = isPinned || !full,
                 )
             }

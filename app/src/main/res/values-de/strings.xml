@@ -494,6 +494,7 @@
     <string name="settings_status_icons_choose">Angeheftete Konten</string>
     <string name="settings_status_icons_pinned_count">%1$d von %2$d angeheftet</string>
     <string name="settings_status_icons_pin">%1$s anheften</string>
+    <string name="settings_status_icons_pin_full">%1$s anheften. %2$d von %2$d sind angeheftet; löse zuerst eines.</string>
     <string name="settings_status_icons_no_accounts">Füge ein Konto hinzu, um sein Symbol anzuzeigen.</string>
     <string name="settings_status_icons_note">Android entscheidet, wie viele Symbole Platz haben, und die Einstellung, die Symbole lautloser Benachrichtigungen ausblendet, blendet auch diese aus.</string>
 

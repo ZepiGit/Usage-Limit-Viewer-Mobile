@@ -108,7 +108,8 @@ class StatusIconSettingsTest {
         scrollTo("3 of 3 pinned")
         compose.onNodeWithText("3 of 3 pinned").assertIsDisplayed()
         scrollTo("Kimi spare")
-        compose.onNodeWithContentDescription("Pin Kimi spare").assertIsOff().assertIsNotEnabled().performClick()
+        compose.onNodeWithContentDescription("Pin Kimi spare. 3 of 3 are pinned; unpin one first.")
+            .assertIsOff().assertIsNotEnabled().performClick()
         assertEquals("a fourth pin is refused", null, pinned)
         compose.onNodeWithContentDescription("Pin Grok side").assertIsOn().assertIsEnabled()
     }
@@ -181,6 +182,7 @@ class StatusIconSettingsTest {
         compose.onNodeWithText("3 von 3 angeheftet").assertIsDisplayed()
         scrollTo("Kimi spare")
         compose.onNodeWithContentDescription("Codex home anheften").assertIsOn()
-        compose.onNodeWithContentDescription("Kimi spare anheften").assertIsOff().assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Kimi spare anheften. 3 von 3 sind angeheftet; löse zuerst eines.")
+            .assertIsOff().assertIsNotEnabled()
     }
 }

@@ -30,6 +30,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.withLock
 
 /** A reset event on the Resets timeline. */
 data class UpcomingReset(
@@ -320,13 +321,16 @@ class UsageViewModel(
                     container.credentialStore.delete(account.credentialReference)
                     container.repository.deleteAccount(accountId)
                 }
-                // Its pin goes with it, so it no longer counts against the three a person may pin.
-                container.settingsStore.releasePin(accountId)
+                // Its pin goes with it, so it no longer counts against the three a person may pin;
+                // in turn with the other status icon changes (see statusIconChanges).
                 // A widget pinned to this account would otherwise render the empty snapshot
                 // for ever; dropping its config returns it to the automatic scope.
                 // Keep the widget's exact scope. A removed account must leave an empty
                 // widget, rather than silently exposing other accounts through auto mode.
-                container.publication.presentationChanged()
+                statusIconChanges.withLock {
+                    container.settingsStore.releasePin(accountId)
+                    container.publication.presentationChanged()
+                }
             }
         }
     }
@@ -366,24 +370,35 @@ class UsageViewModel(
         }
     }
 
-    /** Turns the status icons on or off; the publication posts or cancels them at once. */
-    fun setStatusIcons(enabled: Boolean) {
+    /**
+     * Each change to which accounts have status icons is stored and then published before the
+     * next such change is stored.
+     *
+     * The status icon step tells "turned on again" and "pinned again" from "unchanged" by what the
+     * previous publication showed, so it must see each intermediate value. Two quick taps, off
+     * then on, were two jobs: the second could store "on" while the first one's publication was
+     * still repainting widgets, and no status step ever read "off", so an icon the person had
+     * swiped away stayed away.
+     */
+    private val statusIconChanges = kotlinx.coroutines.sync.Mutex()
+
+    private fun changeStatusIcons(store: suspend () -> Unit) {
         viewModelScope.launch {
-            container.settingsStore.setStatusIconsEnabled(enabled)
-            container.publication.presentationChanged()
+            statusIconChanges.withLock {
+                store()
+                container.publication.presentationChanged()
+            }
         }
     }
+
+    /** Turns the status icons on or off; the publication posts or cancels them at once. */
+    fun setStatusIcons(enabled: Boolean) = changeStatusIcons { container.settingsStore.setStatusIconsEnabled(enabled) }
 
     /**
      * Stores the pinned accounts as Settings lists them. Settings refuses a fourth pin; the
      * selection the icons are published from cuts at three in any case.
      */
-    fun setPinnedAccounts(accountIds: List<String>) {
-        viewModelScope.launch {
-            container.settingsStore.setPinnedAccounts(accountIds)
-            container.publication.presentationChanged()
-        }
-    }
+    fun setPinnedAccounts(accountIds: List<String>) = changeStatusIcons { container.settingsStore.setPinnedAccounts(accountIds) }
 
     /**
      * Notifications became allowed, through the dialog or the system's settings.

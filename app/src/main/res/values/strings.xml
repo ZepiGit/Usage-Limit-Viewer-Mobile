@@ -501,6 +501,8 @@
     <!-- %1$d accounts pinned out of at most %2$d. Not a plural: "pinned" after a count does not inflect, as in accounts_shown. -->
     <string name="settings_status_icons_pinned_count" tools:ignore="PluralsCandidate">%1$d of %2$d pinned</string>
     <string name="settings_status_icons_pin">Pin %1$s</string>
+    <!-- Spoken by a disabled pin switch; %2$d is the limit, so the count is always several. -->
+    <string name="settings_status_icons_pin_full" tools:ignore="PluralsCandidate">Pin %1$s. %2$d of %2$d are pinned; unpin one first.</string>
     <string name="settings_status_icons_no_accounts">Add an account to show its icon.</string>
     <string name="settings_status_icons_note">Android decides how many icons fit, and its setting that hides silent notification icons hides these too.</string>
 

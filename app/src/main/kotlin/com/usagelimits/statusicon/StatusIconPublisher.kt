@@ -26,10 +26,12 @@ import com.usagelimits.core.model.readingValidity
 import com.usagelimits.core.model.statusIcon
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.SettingsStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Keeps one status notification group per pinned account in step with the cache and the settings.
@@ -58,11 +60,15 @@ import kotlinx.coroutines.sync.withLock
  *
  * **Order.** A sort key does not order separate groups. Within one importance section Android
  * ranks them by ranking time, newest first, and the status bar draws its icons in that order from
- * the start edge. A notification's own `when` is its ranking time when it is not in the future,
- * also on an update. Each publication therefore posts the accounts in reverse account order, each
- * with a real clock reading later than the one before, so the first account is the newest and
- * leads. A reorder in the app takes effect with the next publication. Whether a given device
- * ranks this way is ticket 04's evidence; the cited sources are in its report.
+ * the start edge. The ranking time is the notification's own `when` only if the platform takes
+ * it as set by the app: not in the future, and, on Android 16 with `sortSectionByTime`, not equal
+ * to the notification's `creationTime`, which the platform constructor stamps with the clock of
+ * the moment the notification is built. Each publication therefore posts the accounts in reverse
+ * account order and gives each account a real clock reading that is later than the previous
+ * account's and earlier than the moment its own notifications are built ([readingBeforeBuild]),
+ * so the first account is the newest and leads. A reorder in the app takes effect with the next
+ * publication. Whether a given device ranks this way is ticket 04's evidence; the cited sources
+ * are in its report.
  */
 class StatusIconPublisher(
     private val context: Context,
@@ -73,6 +79,12 @@ class StatusIconPublisher(
     /** The current settings; one read of the store in the app. */
     private val readSettings: suspend () -> AppSettings = { settingsStore.settings.first() },
     private val shown: ShownSelection = PreferencesShownSelection(context),
+    /**
+     * Waits a moment for [now] to move on; called only while it still shows the same millisecond.
+     * The app suspends for a millisecond of the wall clock on [Dispatchers.Default], because a
+     * caller's own dispatcher may keep time differently (a paused main looper in a test does).
+     */
+    private val nextTick: suspend () -> Unit = { withContext(Dispatchers.Default) { delay(1) } },
 ) {
     private val manager get() = context.getSystemService(NotificationManager::class.java)
 
@@ -115,23 +127,31 @@ class StatusIconPublisher(
         val byId = accounts.associateBy { it.account.localId }
         var postedAt: Long? = null
         for (id in posting.asReversed()) {
-            postedAt = laterThan(postedAt)
+            postedAt = readingBeforeBuild(postedAt)
             post(byId.getValue(id), settings, texts, nowMs, postedAt)
         }
     }
 
     /**
-     * A real clock reading later than [previous]: two posts in the same millisecond would tie,
-     * and their order would be Android's to choose. Waits out the rest of the millisecond rather
-     * than inventing a time. A clock set back since [previous] is taken as it is.
+     * A real clock reading for one account's `when`, later than [previous] (the account posted
+     * before it) and earlier than the clock at which this account's notifications are then built.
+     *
+     * Later than [previous], because two equal times would tie and leave the order to Android.
+     * Earlier than the build, because on Android 16 with `sortSectionByTime` a `when` equal to the
+     * notification's `creationTime` (the build's clock reading) counts as not set by the app and
+     * is ignored for ranking. Both by waiting for the clock to move on ([nextTick]), never by
+     * inventing a time. The wait suspends the publication (it keeps the publisher's lock, not a
+     * thread) until the clock shows the next millisecond, so three accounts cost at most about six
+     * milliseconds. A clock set back in between is taken as it is.
      */
-    private suspend fun laterThan(previous: Long?): Long {
-        var time = now()
-        while (time == previous) {
-            delay(1)
-            time = now()
+    private suspend fun readingBeforeBuild(previous: Long?): Long {
+        var reading = now()
+        while (reading == previous) {
+            nextTick()
+            reading = now()
         }
-        return time
+        while (now() == reading) nextTick()
+        return reading
     }
 
     private fun post(usage: AccountUsage, settings: AppSettings, texts: StatusIconTexts, nowMs: Long, postedAt: Long) {

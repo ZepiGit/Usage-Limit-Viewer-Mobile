@@ -299,6 +299,52 @@ class StatusIconLifecycleTest {
             second.getValue("Gamma") > second.getValue("Alpha") && second.getValue("Alpha") > second.getValue("Beta"))
     }
 
+    /**
+     * Android 16 with `sortSectionByTime` ranks by an account's `when` only if the platform takes
+     * it as set by the app, that is, if it is not the `creationTime` the platform constructor
+     * stamps from the clock when the notification is built. On a device the publisher's clock and
+     * the constructor's are the same `System.currentTimeMillis()`, so the publisher must not build
+     * an account's notifications until that clock has moved past the account's `when`.
+     *
+     * Robolectric cannot show this on the platform's own field: inside the framework classes its
+     * clock is a separate fake that starts at 100, while app code reads the host's clock. So the
+     * test gives the publisher a clock it records, and checks the order of events on that clock:
+     * each account's `when` is followed by a strictly later reading before the next account's
+     * notifications go out. The two notifications of one account are built and posted at once.
+     */
+    @Test
+    fun `each account's time has passed on the clock before its notifications are built`() = runBlocking {
+        val a = account("Alpha", 42.0)
+        val b = account("Beta", 87.0)
+        val c = account("Gamma", 5.0)
+        store.setPinnedAccounts(listOf(a.localId, b.localId, c.localId))
+        store.setStatusIconsEnabled(true)
+
+        // The real clock, each reading noted with how many status records were posted by then.
+        // Robolectric posts synchronously, so a reading made before an account's notifications
+        // were built carries the count from before they appeared.
+        val readings = mutableListOf<Pair<Long, Int>>()
+        val clock = { System.currentTimeMillis().also { readings += it to statusRecords().size } }
+        val publisher = StatusIconPublisher(app, store, app.container.repository::accountUsageOnce, now = clock,
+            shown = object : ShownSelection {
+                override fun read() = emptyList<String>()
+                override fun write(accountIds: List<String>) = Unit
+            })
+        publisher.publish(restoreDismissed = true)
+
+        // Accounts are posted Gamma, Beta, Alpha; each adds two records.
+        val order = listOf("Gamma", "Beta", "Alpha")
+        val whenOf = statusRecords().groupBy { it.title() }.mapValues { (_, r) -> r.first().notification.`when` }
+        for ((index, name) in order.withIndex()) {
+            val time = whenOf.getValue(name)
+            val before = index * 2
+            val readingsBeforeBuild = readings.filter { (_, posted) -> posted == before }.map { it.first }
+            assertTrue("$name's when $time is a reading taken before its notifications were built: $readings", time in readingsBeforeBuild)
+            assertTrue("$name: the clock read later than its when, still before its build: $readings",
+                readingsBeforeBuild.any { it > time })
+        }
+    }
+
     @Test
     fun `removing an account releases its pin and removes its icon`() = runBlocking {
         val a = account("Alpha", 42.0)
