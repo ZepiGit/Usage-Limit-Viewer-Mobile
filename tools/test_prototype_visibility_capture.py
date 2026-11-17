@@ -175,6 +175,45 @@ class InstalledFixtureUidTest(unittest.TestCase):
 
 
 class DismissalLifecycleTest(unittest.TestCase):
+    def test_ungrouped_aggregate_dismissal_is_observed_without_hiding_alert_leaks(self):
+        class FixtureEvidence(VisibilityEvidence):
+            notification = dump("")
+
+            def home(self):
+                pass
+
+            def settled(self):
+                pass
+
+            def screen(self, name, crop=False):
+                pass
+
+            def xml(self, name):
+                pass
+
+            def summary(self):
+                pass
+
+            def adb(self, *args, **kwargs):
+                return self.notification if args == ("shell", "dumpsys", "notification", "--noredact") else ""
+
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = FixtureEvidence(directory, "promoted-ungrouped", 36, "10123")
+            evidence.state = {"localIds": {alias: alias for alias in ACCOUNTS},
+                              "pins": ACCOUNTS[:3], "channel": "prototype_status_promoted"}
+            evidence.report["dismissalEvidence"] = {"result": "gesture-performed"}
+            evidence.capture("04-postswipe", ACCOUNTS[1:3], allow_dismiss_difference=True)
+            entry = evidence.report["scenarios"][-1]
+            self.assertEqual([], entry["violations"])
+            self.assertEqual({"expected": ACCOUNTS[1:3], "observed": [],
+                              "scope": "platform-regrouped-control"}, entry["dismissalDifference"])
+            self.assertEqual(ACCOUNTS[:3], evidence.report["dismissalEvidence"]["accountsRemoved"])
+            self.assertEqual("platform-regrouped-control", evidence.report["dismissalEvidence"]["scope"])
+            evidence.notification = dump(PAIR.split("    NotificationRecord(0x124:")[0]
+                                         .replace("prototype_status_promoted", "usage_alerts"))
+            evidence.capture("04-postswipe-alert", ACCOUNTS[1:3], allow_dismiss_difference=True)
+            self.assertIn("Unexpected app usage_alerts records", evidence.report["scenarios"][-1]["violations"])
+
     def test_unexercised_swipe_fails_evidence_but_finishes_remaining_lifecycle(self):
         class FixtureEvidence(VisibilityEvidence):
             def command(self, command, account=None):

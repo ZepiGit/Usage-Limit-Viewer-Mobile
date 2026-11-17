@@ -249,10 +249,18 @@ class VisibilityEvidence(Evidence):
             entry.update(observe_snapshot(records, local_ids, self.state.get("channel", CHANNELS[self.recipe]),
                                           self.grouped, raw["events"], (self.uid,)))
             observed = self.accounts_in(records)
-            if allow_dismiss_difference and set(observed) ^ set(expected) == {ACCOUNTS[0]}:
+            difference = set(observed) ^ set(expected)
+            if allow_dismiss_difference and difference and (not self.grouped or difference == {ACCOUNTS[0]}):
                 entry["dismissalDifference"] = {"expected": expected, "observed": observed}
+                if not self.grouped:
+                    scope = "platform-regrouped-control"
+                    entry["dismissalDifference"]["scope"] = scope
+                    self.report["dismissalEvidence"].update(
+                        scope=scope, accountsRemoved=[account for account in self.state["pins"] if account not in observed],
+                        accountsRemaining=observed,
+                        interpretation="Observed control dismissal scope, not proof of independent account dismissal")
                 self.report["observations"].append({"step": name, "dismissalDifference": entry["dismissalDifference"]})
-                # A retained promoted row is a tradeoff, not a malformed account group.
+                # Keep structural checks, but do not require independent dismissal from OS-regrouped controls.
                 actual_local = [self.state["localIds"][account] for account in observed]
                 entry.update(observe_snapshot(records, actual_local, self.state.get("channel", CHANNELS[self.recipe]),
                                               self.grouped, raw["events"], (self.uid,)))

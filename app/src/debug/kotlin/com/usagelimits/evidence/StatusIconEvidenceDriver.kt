@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -79,7 +80,11 @@ internal class StatusIconEvidenceDriver(
                 "cache" -> container.publication.cacheMoved()
             }
         } catch (_: TimeoutCancellationException) {
-            failure = "Empty-install startup sync did not finish within 45 seconds; clear app data and retry"
+            failure = if (command == "seed") {
+                "Empty-install startup sync did not finish within 45 seconds; clear app data and retry"
+            } else {
+                "Evidence command '$command' timed out"
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -92,8 +97,15 @@ internal class StatusIconEvidenceDriver(
         val recipe = requireNotNull(PrototypeStatusIconRecipe.entries.firstOrNull { it.value == value }) { "Unknown recipe: $value" }
         check(!container.settingsStore.settings.first().statusIconsEnabled) { "Disable status icons before changing recipe" }
         val manager = app.getSystemService(NotificationManager::class.java)
-        check(manager.activeNotifications.none { it.notification.channelId in PrototypeStatusIconRecipe.channels }) {
-            "Disable status icons and wait for experiment records to be removed before changing recipe"
+        // Cancellation is asynchronous in Android; observe the existing OFF publication without retrying it.
+        val cleared = withTimeoutOrNull(5_000L) {
+            while (manager.activeNotifications.any { it.notification.channelId in PrototypeStatusIconRecipe.channels }) {
+                delay(25)
+            }
+            true
+        }
+        check(cleared == true) {
+            "Experiment records did not clear within 5 seconds while status icons were disabled; recipe unchanged"
         }
         recipe.store(app)
     }
