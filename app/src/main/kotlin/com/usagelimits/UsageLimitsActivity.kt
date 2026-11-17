@@ -1,7 +1,7 @@
 package com.usagelimits
 
-import androidx.compose.runtime.collectAsState
 import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -12,15 +12,25 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import androidx.compose.runtime.collectAsState
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.usagelimits.core.notifications.shouldAskNotificationPermission
 import com.usagelimits.feature.settings.AppIcon
 import com.usagelimits.core.oauth.SignInKeepAliveService
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.navigation.UsageLimitsNavigation
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class UsageLimitsActivity : ComponentActivity() {
     private val requestedAccount = androidx.compose.runtime.mutableStateOf<String?>(null)
 
+    /** Lets activity-level tests await the decision, including the path that does not ask. */
+    @androidx.annotation.VisibleForTesting
+    internal var notificationPermissionCheck: kotlinx.coroutines.Job? = null
+        private set
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* optional */ }
@@ -37,10 +47,19 @@ class UsageLimitsActivity : ComponentActivity() {
 
         val container = (application as UsageLimitsApp).container
 
-        // Notifications are an optional convenience, so this is asked for once and never
-        // blocks any part of the app when declined.
+        // Persist before opening the optional dialog: recreation must not ask again, even
+        // while the first request is still awaiting a response. Settings offers the next try.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            notificationPermissionCheck = lifecycleScope.launch {
+                val settings = container.settingsStore.settings.first()
+                val granted = ContextCompat.checkSelfPermission(
+                    this@UsageLimitsActivity, Manifest.permission.POST_NOTIFICATIONS,
+                ) == PackageManager.PERMISSION_GRANTED
+                if (!settings.notificationPermissionHandled) container.settingsStore.recordNotificationPermissionAsked()
+                if (shouldAskNotificationPermission(Build.VERSION.SDK_INT, settings.notificationPermissionHandled, granted)) {
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
         }
 
         setContent {
