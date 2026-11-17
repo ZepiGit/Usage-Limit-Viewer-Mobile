@@ -101,7 +101,8 @@ jobs:
             echo "View renderings of the Pinned accounts widget at accessory sizes (160x72, 72x72, 234x26 pt)."
             echo "NOT Lock Screen screenshots: drawn with ImageRenderer, white on black, no wallpaper or vibrancy."
             echo "Synthetic accounts only. Source commit: $GITHUB_SHA"
-            xcodebuild -version | head -1
+            # Whole, not piped into head: under pipefail a closed pipe aborts xcodebuild.
+            xcodebuild -version
             xcrun simctl list devices --json | jq -r --arg id "$udid" '.devices[][] | select(.udid == $id) | .name'
           } > "$out/CAPTURE.txt"
           xcodebuild build-for-testing \
