@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
-import com.usagelimits.core.sync.publishAfterSync
 import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
@@ -21,7 +20,6 @@ import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.userMessage
 import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.core.network.ProviderException
-import com.usagelimits.widget.WidgetUpdater
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -194,7 +192,7 @@ class UsageViewModel(
             try {
                 container.repository.reorderAccounts(idsInOrder.distinct())
                 container.settingsStore.setAccountsManuallyOrdered(true)
-                WidgetUpdater.refreshAll(appContext)
+                container.publication.presentationChanged()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -209,7 +207,7 @@ class UsageViewModel(
         viewModelScope.launch {
             try {
                 container.settingsStore.setProviderIcon(provider.id, iconId)
-                WidgetUpdater.refreshAll(appContext)
+                container.publication.presentationChanged()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { transientMessage.value = appContext.getString(R.string.message_icon_save_failed) }
         }
@@ -228,7 +226,7 @@ class UsageViewModel(
                     failures == outcomes.size -> appContext.getString(R.string.message_refresh_failed)
                     else -> appContext.getString(R.string.message_refresh_partly_failed, failures, outcomes.size)
                 }
-                container.publishAfterSync(appContext)
+                container.publication.cacheMoved()
             } finally {
                 refreshing.value = false
             }
@@ -240,7 +238,7 @@ class UsageViewModel(
             refreshing.value = true
             try {
                 container.syncEngine.syncAccount(accountId)
-                container.publishAfterSync(appContext)
+                container.publication.cacheMoved()
             } finally {
                 refreshing.value = false
             }
@@ -270,7 +268,7 @@ class UsageViewModel(
                 // message must not say "applied" over a card still showing the pre-spend quota
                 // and an unspent-looking credit, or the user will try again.
                 val outcome = container.syncEngine.syncAccount(account)
-                container.publishAfterSync(appContext)
+                container.publication.cacheMoved()
                 transientMessage.value = if (outcome.success) {
                     appContext.getString(R.string.message_reset_applied)
                 } else {
@@ -295,7 +293,7 @@ class UsageViewModel(
         viewModelScope.launch {
             try {
                 container.creditAccounts.update(id, label, lowThreshold)
-                WidgetUpdater.refreshAll(appContext)
+                container.publication.presentationChanged()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -313,7 +311,7 @@ class UsageViewModel(
                 } catch (_: Exception) {
                     transientMessage.value = appContext.getString(R.string.message_credit_remove_failed)
                 }
-                WidgetUpdater.refreshAll(appContext)
+                container.publication.presentationChanged()
             }
         }
     }
@@ -343,7 +341,7 @@ class UsageViewModel(
                 // for ever; dropping its config returns it to the automatic scope.
                 // Keep the widget's exact scope. A removed account must leave an empty
                 // widget, rather than silently exposing other accounts through auto mode.
-                WidgetUpdater.refreshAll(appContext)
+                container.publication.presentationChanged()
             }
         }
     }
@@ -355,7 +353,7 @@ class UsageViewModel(
             // rather than starting an immediate pass.
             SyncWorker.schedulePeriodic(appContext, minutes)
             // Staleness uses this interval at render time, so repaint widgets when it changes.
-            WidgetUpdater.refreshAll(appContext)
+            container.publication.presentationChanged()
         }
     }
 
@@ -379,7 +377,7 @@ class UsageViewModel(
             container.settingsStore.setPercentDisplay(mode)
             // Widgets render the mode from the observed settings; refresh so cold compositions
             // repaint immediately rather than on their next tick.
-            WidgetUpdater.refreshAll(appContext)
+            container.publication.presentationChanged()
         }
     }
 

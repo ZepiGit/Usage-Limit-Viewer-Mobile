@@ -10,7 +10,6 @@ import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.providers.credits.CreditError
 import com.usagelimits.ui.text.storedMessageText
-import com.usagelimits.widget.WidgetUpdater
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -55,8 +54,7 @@ class AddCreditViewModel(
                     provider = provider, key = key, label = label, region = region, teamId = teamId,
                     lowThreshold = (threshold as? ThresholdInput.Value)?.amount,
                 )
-                // The first read is already stored; the widgets only need telling.
-                WidgetUpdater.refreshAll(appContext)
+                container.publication.cacheMoved()
                 AddCreditState.Added(account.label)
             } catch (e: CancellationException) {
                 throw e

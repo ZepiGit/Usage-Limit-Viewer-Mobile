@@ -62,7 +62,7 @@ object WidgetUpdater {
      * Refresh each widget independently so a failure cannot skip sibling widgets.
      * Log failures for diagnosis; rethrow cancellation because the calling worker is stopping.
      */
-    suspend fun refreshAll(context: Context) {
+    suspend fun refreshAll(context: Context, settings: com.usagelimits.core.settings.SettingsStore) {
         for (placed in allWidgets) {
             try {
                 refresh(context, placed)
@@ -72,8 +72,7 @@ object WidgetUpdater {
                 Log.w(TAG, "refresh of ${placed.name} failed", e)
             }
         }
-        (context.applicationContext as? UsageLimitsApp)?.container?.settingsStore
-            ?.recordWidgetRefresh(System.currentTimeMillis())
+        settings.recordWidgetRefresh(System.currentTimeMillis())
     }
 
     /**

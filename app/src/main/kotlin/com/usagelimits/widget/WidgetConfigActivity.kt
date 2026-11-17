@@ -125,11 +125,7 @@ class WidgetConfigActivity : ComponentActivity() {
                                         percentDisplay = percentOverride,
                                         customAccountIdsJson = JSONArray(custom).toString(),
                                         layoutMetricsJson = (WidgetMetrics.fromJson(initial?.layoutMetricsJson ?: "{}") ?: placementMetrics).toJson()))
-                                    WidgetUpdater.refreshAll(this@WidgetConfigActivity)
-                                    // A saved configuration can change what the widget shows
-                                    // without new data; the next staleness/reset boundary moves
-                                    // with it, so recompute the one coalesced repaint.
-                                    WidgetPresentationWorker.scheduleNext(this@WidgetConfigActivity)
+                                    container.publication.presentationChanged()
                                     setResult(RESULT_OK, result); finish()
                                 } catch (_: Exception) { saving = false; error = getString(R.string.widget_config_save_failed) }
                             }
