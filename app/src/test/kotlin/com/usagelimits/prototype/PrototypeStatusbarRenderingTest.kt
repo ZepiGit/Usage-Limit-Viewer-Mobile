@@ -166,6 +166,11 @@ class PrototypeStatusbarRenderingTest {
         accountsStrip.recycle()
         compositeSheets()
         stackedComparisonSheets()
+    }
+
+    @Test
+    fun generateGlyphLeftContactSheets() {
+        output.mkdirs()
         glyphLeftSheets()
     }
 
@@ -219,8 +224,8 @@ class PrototypeStatusbarRenderingTest {
         val sourceSheet = Bitmap.createBitmap(190 + gStates.size * 790, 110 + choices.size * providers.size * 236, Bitmap.Config.ARGB_8888)
         val sourceCanvas = Canvas(sourceSheet)
         sourceCanvas.drawColor(Color.rgb(229, 234, 240))
-        sourceCanvas.drawText("G authored sources, unscaled, dark / light; target sheets use API36 long-side fit 15dp", 18f, 28f, label)
-        sourceCanvas.drawText("API30 CENTER scaling is source-size dependent; see emulator pixels", 18f, (100 + choices.size * providers.size * 236).toFloat(), label)
+        sourceCanvas.drawText("G authored sources, unscaled, dark / light; target sheets use API30/36 long-side fit 15dp", 18f, 28f, label)
+        sourceCanvas.drawText("22dp slot stays fixed; wide source reduces height", 18f, (100 + choices.size * providers.size * 236).toFloat(), label)
         for ((column, state) in gStates.withIndex()) sourceCanvas.drawText(state, (190 + column * 790).toFloat(), 62f, label)
         for ((v, variant) in choices.withIndex()) for ((p, provider) in providers.withIndex()) {
             val y = 80 + (v * providers.size + p) * 236
@@ -243,8 +248,8 @@ class PrototypeStatusbarRenderingTest {
             val sheet = Bitmap.createBitmap(190 + gStates.size * cellW, 120 + choices.size * providers.size * rowH, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(sheet)
             canvas.drawColor(Color.rgb(229, 234, 240))
-            canvas.drawText("G $density — API36 long-side fit 15dp (${size}px); true square draw area + exact nearest ×8, dark / light", 18f, 28f, label)
-            canvas.drawText("API30 CENTER scaling is source-size dependent; see emulator pixels", 18f, (105 + choices.size * providers.size * rowH).toFloat(), label)
+            canvas.drawText("G $density — API30/36 long-side fit 15dp (${size}px); true square draw area + exact nearest ×8, dark / light", 18f, 28f, label)
+            canvas.drawText("22dp slot stays fixed; wide source reduces height", 18f, (105 + choices.size * providers.size * rowH).toFloat(), label)
             for ((column, state) in gStates.withIndex()) canvas.drawText(state, (190 + column * cellW).toFloat(), 62f, label)
             for ((v, variant) in choices.withIndex()) for ((p, provider) in providers.withIndex()) {
                 val y = 80 + (v * providers.size + p) * rowH
@@ -270,8 +275,8 @@ class PrototypeStatusbarRenderingTest {
         val strip = Bitmap.createBitmap(1240, 90 + choices.size * 220, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(strip)
         canvas.drawColor(Color.rgb(229, 234, 240))
-        canvas.drawText("G API36 long-side fit 15dp: three accounts, 45px square draw areas in 66px slots", 18f, 30f, label)
-        canvas.drawText("API30 CENTER scaling is source-size dependent; see emulator pixels", 18f, (75 + choices.size * 220).toFloat(), label)
+        canvas.drawText("G API30/36 long-side fit 15dp: three accounts, 45px square draw areas in 66px slots", 18f, 30f, label)
+        canvas.drawText("22dp slot stays fixed; wide source reduces height", 18f, (75 + choices.size * 220).toFloat(), label)
         for ((v, variant) in choices.withIndex()) {
             canvas.drawText("$variant — Claude 5 / Codex 42 / xAI 87", 18f, 70f + v * 220f, label)
             for (light in listOf(false, true)) {
