@@ -49,7 +49,7 @@ import kotlin.time.Duration.Companion.seconds
  * tapping opens the account, and that switching off or choosing another account removes it.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(application = UsageLimitsApp::class, sdk = [36])
+@Config(application = UsageLimitsApp::class, sdk = [36, 37])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class StatusIconPublicationTest {

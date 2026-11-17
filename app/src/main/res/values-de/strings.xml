@@ -485,8 +485,9 @@
     <string name="status_icon_channel_name">Statusleisten-Symbole</string>
     <string name="status_icon_channel_description">Ein lautloses Symbol mit dem Wert jedes angehefteten Kontos</string>
     <string name="status_icon_text_figure">%1$s %2$s</string>
+    <string name="status_icon_text_figure_outdated">%1$s %2$s, möglicherweise veraltet</string>
     <string name="status_icon_text_unknown">Kein Prozentwert gemeldet</string>
-    <string name="status_icon_text_reconnect">Neu verbinden erforderlich</string>
+    <string name="status_icon_text_reconnect">Neuverbindung erforderlich</string>
     <string name="status_icon_text_refresh_failed">Aktualisierung fehlgeschlagen</string>
     <string name="settings_section_status_icons">Statusleisten-Symbole</string>
     <string name="settings_status_icons_switch">Statusleisten-Symbole anzeigen</string>

@@ -63,7 +63,7 @@ import org.robolectric.shadows.ShadowLooper
  * icon is the grant itself.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(application = UsageLimitsApp::class, sdk = [34])
+@Config(application = UsageLimitsApp::class, sdk = [34, 37])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class StatusIconPermissionGrantTest {
     @get:Rule
