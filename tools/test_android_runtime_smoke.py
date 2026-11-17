@@ -282,6 +282,132 @@ class FocusedWidgetTest(unittest.TestCase):
             runtime_smoke.focused_widget(root, self.launcher, "Mini Rings")
 
 
+class PostDropFrameTest(unittest.TestCase):
+    launcher = "com.android.launcher3"
+    initial = (567, 163, 705, 377)
+
+    def dropped_widget(self):
+        # The real API 37 capture has Compose wrappers between the frame ID and its focus owner.
+        return ET.fromstring(f"""<hierarchy>
+          <node package="{self.launcher}" class="android.widget.FrameLayout"
+                enabled="true" focused="false" bounds="[0,0][720,1560]">
+            <node package="{self.launcher}" class="android.view.ViewGroup"
+                  enabled="true" focused="false" bounds="[15,163][705,1234]">
+              <node package="{self.launcher}" class="com.android.launcher3.widget.LauncherAppWidgetHostView"
+                    content-desc="Mini Rings" enabled="true" focusable="true" focused="false"
+                    bounds="[429,377][567,591]"/>
+            </node>
+            <node package="{self.launcher}" class="android.widget.LinearLayout"
+                  content-desc="Widget Resize Frame for null" enabled="true" focusable="true" focused="true"
+                  bounds="[345,293][651,675]">
+              <node package="{self.launcher}" class="androidx.compose.ui.platform.ComposeView"
+                    enabled="true" focused="false" bounds="[345,293][651,675]">
+                <node package="{self.launcher}" class="android.view.View"
+                      enabled="true" focused="false" bounds="[345,293][651,675]">
+                  <node package="{self.launcher}" class="android.view.View"
+                        enabled="true" focused="false" bounds="[345,293][651,675]">
+                    <node package="{self.launcher}" class="android.view.View"
+                          resource-id="{self.launcher}:id/widget_resize_frame"
+                          enabled="true" focused="false" bounds="[345,293][651,675]"/>
+                  </node>
+                </node>
+              </node>
+            </node>
+          </node>
+        </hierarchy>""")
+
+    def test_captured_null_named_frame_owns_the_unique_moved_host_by_containment(self):
+        root = self.dropped_widget()
+        owner = runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial)
+        self.assertIs(root[0][1], owner)
+        self.assertEqual((345, 293, 651, 675), bounds(owner))
+
+    def test_focused_owner_without_the_frame_marker_does_not_qualify(self):
+        root = self.dropped_widget()
+        wrapper = root[0][1][0][0][0]
+        wrapper.remove(wrapper[0])
+        self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_unfocused_disabled_or_foreign_frame_owner_does_not_qualify(self):
+        for attribute, value in (("focused", "false"), ("enabled", "false"),
+                                 ("package", "com.example.other")):
+            with self.subTest(attribute=attribute):
+                root = self.dropped_widget()
+                root[0][1].set(attribute, value)
+                self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_disabled_foreign_or_unbounded_frame_marker_does_not_qualify(self):
+        for attribute, value in (("enabled", "false"), ("package", "com.example.other"),
+                                 ("bounds", "[345,293][345,293]")):
+            with self.subTest(attribute=attribute):
+                root = self.dropped_widget()
+                root[0][1][0][0][0][0].set(attribute, value)
+                self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_frame_must_strictly_contain_the_mini_rings_host_on_every_edge(self):
+        for box in ("[567,163][705,377]", "[345,293][651,675]", "[345,377][567,591]", "[429,293][567,591]",
+                    "[429,377][651,591]", "[429,377][567,675]"):
+            with self.subTest(bounds=box):
+                root = self.dropped_widget()
+                root[0][0][0].set("bounds", box)
+                self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_focused_fullscreen_shell_cannot_replace_the_unfocused_frame_owner(self):
+        root = self.dropped_widget()
+        root[0].set("focused", "true")
+        root[0][1].set("focused", "false")
+        self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_focused_same_box_node_must_own_the_frame_not_just_overlap_it(self):
+        root = self.dropped_widget()
+        owner = root[0][1]
+        wrapper = owner[0]
+        owner.remove(wrapper)
+        root[0].append(wrapper)
+        self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_two_focused_same_box_owners_fail_closed(self):
+        root = self.dropped_widget()
+        root[0][1][0].set("focused", "true")
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*resize frame.*owner"):
+            runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial)
+
+    def test_owner_is_not_selected_by_its_class_or_null_description(self):
+        root = self.dropped_widget()
+        root[0][1].set("class", "android.view.ViewGroup")
+        root[0][1].set("content-desc", "")
+        self.assertIs(root[0][1], runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_two_resize_frames_fail_closed_even_with_only_one_focused_owner(self):
+        root = self.dropped_widget()
+        duplicate = ET.fromstring(ET.tostring(root[0][1]))
+        duplicate.set("focused", "false")
+        root[0].append(duplicate)
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*resize frame"):
+            runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial)
+
+    def test_unchanged_host_is_rejected_even_when_its_frame_has_focus(self):
+        root = self.dropped_widget()
+        self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", (429, 377, 567, 591)))
+
+    def test_ambiguous_mini_rings_hosts_fail_even_when_only_one_is_enclosed(self):
+        root = self.dropped_widget()
+        duplicate = ET.fromstring(ET.tostring(root[0][0][0]))
+        duplicate.set("bounds", "[567,163][705,377]")
+        root[0][0].append(duplicate)
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*Mini Rings.*host"):
+            runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial)
+
+    def test_disabled_foreign_or_non_host_mini_rings_nodes_do_not_qualify(self):
+        for attribute, value in (("enabled", "false"), ("package", "com.usagelimits"),
+                                 ("class", "android.widget.LinearLayout"),
+                                 ("bounds", "[429,377][429,377]")):
+            with self.subTest(attribute=attribute):
+                root = self.dropped_widget()
+                root[0][0][0].set(attribute, value)
+                self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+
 class PngTest(unittest.TestCase):
     def test_written_frames_decode_unchanged_and_crops_scale_by_nearest_neighbour(self):
         width, channels, rows = frame(rounded(0))
