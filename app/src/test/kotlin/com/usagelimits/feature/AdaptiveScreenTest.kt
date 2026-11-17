@@ -15,7 +15,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34, 36], qualifiers = "w568dp-h320dp-land")
+@Config(sdk = [34, 36, 37], qualifiers = "w568dp-h320dp-land")
 class AdaptiveScreenTest {
     @get:Rule val compose = createComposeRule()
 

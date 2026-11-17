@@ -35,7 +35,7 @@ android {
     defaultConfig {
         applicationId = "com.usagelimits"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         // Supplied by the workflows; otherwise the commit count, which rises with the history
         // on every machine that builds the same commit. A hardcoded 1 made every build a
         // sideways install — fine for `adb install -r`, but an installer that sees the same
