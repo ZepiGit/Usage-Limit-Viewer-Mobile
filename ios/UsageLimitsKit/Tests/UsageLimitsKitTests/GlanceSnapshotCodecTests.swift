@@ -1,5 +1,4 @@
 import XCTest
-import Testing
 @testable import UsageLimitsKit
 
 /// The contract between the app process and the widget process.
@@ -289,31 +288,31 @@ final class GlanceSnapshotCodecTests: XCTestCase {
     }
 }
 
-struct GlanceSnapshotWireTests {
-    @Test func summaryPropertiesKeepLegacyWireKeys() throws {
+final class GlanceSnapshotWireTests: XCTestCase {
+    func testSummaryPropertiesKeepLegacyWireKeys() throws {
         let legacy = Data("""
         {"accounts":[],"accountCount":0,"overallSeverity":0,
          "headlineShort":{"label":"5h limit","category":"fiveHour","remainingPercent":12.5,"severity":2},
          "headlineLong":{"label":"Weekly","category":"weekly","remainingPercent":80,"severity":0}}
         """.utf8)
         let decoded = GlanceSnapshotCodec.decode(legacy)
-        #expect(decoded.summaryLineShort?.remainingPercent == 12.5)
-        #expect(decoded.summaryLineLong?.remainingPercent == 80)
+        XCTAssertEqual(decoded.summaryLineShort?.remainingPercent, 12.5)
+        XCTAssertEqual(decoded.summaryLineLong?.remainingPercent, 80)
 
         let encoded = try GlanceSnapshotCodec.encode(decoded)
-        let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        let short = try #require(json["headlineShort"] as? [String: Any])
-        let long = try #require(json["headlineLong"] as? [String: Any])
-        #expect(short["remainingPercent"] as? Double == 12.5)
-        #expect(long["remainingPercent"] as? Double == 80)
-        #expect(json["summaryLineShort"] == nil)
-        #expect(json["summaryLineLong"] == nil)
-        #expect(GlanceSnapshotCodec.decode(encoded) == decoded)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let short = try XCTUnwrap(json["headlineShort"] as? [String: Any])
+        let long = try XCTUnwrap(json["headlineLong"] as? [String: Any])
+        XCTAssertEqual(short["remainingPercent"] as? Double, 12.5)
+        XCTAssertEqual(long["remainingPercent"] as? Double, 80)
+        XCTAssertNil(json["summaryLineShort"])
+        XCTAssertNil(json["summaryLineLong"])
+        XCTAssertEqual(GlanceSnapshotCodec.decode(encoded), decoded)
     }
 }
 
-struct GlanceRowBoundaryTests {
-    @Test func constructionAndDecodingSanitiseRemainingPercent() throws {
+final class GlanceRowBoundaryTests: XCTestCase {
+    func testConstructionAndDecodingSanitiseRemainingPercent() throws {
         let decoder = JSONDecoder()
         decoder.nonConformingFloatDecodingStrategy = .convertFromString(
             positiveInfinity: "Infinity", negativeInfinity: "-Infinity", nan: "NaN")
@@ -331,14 +330,14 @@ struct GlanceRowBoundaryTests {
         for value in cases {
             let constructed = GlanceRow(label: "Weekly", category: .weekly,
                 remainingPercent: value.raw, resetAt: nil, severity: .healthy)
-            #expect(constructed.remainingPercent == value.expected,
+            XCTAssertEqual(constructed.remainingPercent, value.expected,
                 "Direct construction with \(value.json)")
 
             let json = Data("""
             {"label":"Weekly","category":"weekly","remainingPercent":\(value.json),"severity":0}
             """.utf8)
             let decoded = try decoder.decode(GlanceRow.self, from: json)
-            #expect(decoded.remainingPercent == value.expected,
+            XCTAssertEqual(decoded.remainingPercent, value.expected,
                 "Direct decoding with \(value.json)")
         }
     }
