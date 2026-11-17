@@ -381,6 +381,10 @@ class UsageViewModel(
         }
     }
 
+    fun recordNotificationPermissionAsked() {
+        viewModelScope.launch { container.settingsStore.recordNotificationPermissionAsked() }
+    }
+
     fun setNotifyBelow20(enabled: Boolean) {
         viewModelScope.launch { container.settingsStore.setNotifyBelow20Percent(enabled) }
     }
