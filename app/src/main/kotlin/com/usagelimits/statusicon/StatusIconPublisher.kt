@@ -46,10 +46,12 @@ import kotlinx.coroutines.sync.withLock
  */
 class StatusIconPublisher(
     private val context: Context,
-    private val settingsStore: SettingsStore,
+    settingsStore: SettingsStore,
     /** The cached accounts in the app's order; the repository's one-shot read in the app. */
     private val readAccounts: suspend () -> List<AccountUsage>,
     private val now: () -> Long = System::currentTimeMillis,
+    /** The current settings; one read of the store in the app. */
+    private val readSettings: suspend () -> AppSettings = { settingsStore.settings.first() },
 ) {
     private val manager get() = context.getSystemService(NotificationManager::class.java)
 
@@ -67,7 +69,7 @@ class StatusIconPublisher(
     suspend fun publish(): Unit = serial.withLock {
         // Missing permission is Settings' to explain; posting would only throw.
         if (!hasPermission()) return@withLock
-        val settings = settingsStore.settings.first()
+        val settings = readSettings()
         val accounts = readAccounts()
         val pinned = pinnedAccountIds(settings.statusIconsEnabled, settings.pinnedAccountIds, accounts.map { it.account.localId })
 
