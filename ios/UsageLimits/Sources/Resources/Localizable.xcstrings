@@ -3374,6 +3374,17 @@
         }
       }
     },
+    "iOS decides when to refresh and may refresh less often." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS entscheidet, wann aktualisiert wird, und aktualisiert möglicherweise seltener."
+          }
+        }
+      }
+    },
     "left" : {
       "extractionState" : "manual",
       "localizations" : {

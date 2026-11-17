@@ -6,10 +6,7 @@ import Foundation
 /// evaluator, and bound to by the settings screen without three of them drifting apart.
 public struct AppSettings: Sendable, Equatable, Codable {
 
-    /// How often the background refresh runs, in minutes.
-    ///
-    /// The floor is what the platform will actually honour for periodic work; going below it
-    /// buys nothing but a schedule the system quietly ignores.
+    /// Requested background refresh interval, in minutes. iOS decides when refreshes run.
     public var syncIntervalMinutes: Int
 
     public var notifications: NotificationSettings
@@ -32,7 +29,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
     /// Whether quota figures count down what is left or up what has been used.
     public var percentDisplay: PercentDisplay
 
-    public static let minimumSyncIntervalMinutes = 15
+    public static let minimumSyncIntervalMinutes = 5
     public static let defaultSyncIntervalMinutes = 30
 
     public init(
@@ -55,8 +52,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
 
     /// Decoded leniently, for the same reason as `NotificationSettings`: a missing key is a
     /// version difference, not a corrupt file, and treating it as corrupt resets everything the
-    /// user chose. The floor is applied here too, so a hand-edited or downgraded file cannot
-    /// install an interval the platform will silently ignore.
+    /// user chose. The supported minimum is applied to decoded intervals too.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let minutes = try container.decodeIfPresent(Int.self, forKey: .syncIntervalMinutes)

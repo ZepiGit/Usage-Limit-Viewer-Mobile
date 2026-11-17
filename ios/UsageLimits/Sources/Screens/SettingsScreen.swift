@@ -10,7 +10,7 @@ struct SettingsScreen: View {
 
     @EnvironmentObject private var store: UsageStore
 
-    private let intervals = [15, 30, 60, 180]
+    private let intervals = [5, 15, 30, 60, 180]
 
     var body: some View {
         NavigationStack {
@@ -21,6 +21,9 @@ struct SettingsScreen: View {
                             Text(label(for: minutes)).tag(minutes)
                         }
                     }
+                    Text("iOS decides when to refresh and may refresh less often.")
+                        .usageFont(.small)
+                        .foregroundStyle(UsageColors.muted)
                     Text(stalenessNote)
                         .usageFont(.small)
                         .foregroundStyle(UsageColors.muted)

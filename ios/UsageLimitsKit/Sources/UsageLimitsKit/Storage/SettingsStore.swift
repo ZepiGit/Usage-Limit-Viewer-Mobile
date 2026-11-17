@@ -30,15 +30,11 @@ public actor SettingsStore {
 
     /// Saves, and reports what was actually stored.
     ///
-    /// `AppSettings.init` floors the sync interval at what the platform will honour, so the
-    /// value that comes back can differ from the one that went in. Returning it means the
-    /// settings screen shows what will happen rather than what was asked for.
+    /// The interval is normalised to the supported minimum, so the returned value may differ
+    /// from the input. The settings screen uses the returned value.
     @discardableResult
     public func save(_ settings: AppSettings) throws -> AppSettings {
-        // Normalised so the floor is applied to a value arriving from anywhere — a decoded file
-        // included, since a hand-edited or downgraded file could otherwise install an interval
-        // the system silently ignores. `normalised()` copies and adjusts rather than rebuilding
-        // from named fields, so a preference added later cannot be dropped on the way through.
+        // Copy-based normalization preserves every preference, including fields added later.
         let normalised = settings.normalised()
 
         let encoder = JSONEncoder()
