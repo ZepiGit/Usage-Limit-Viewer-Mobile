@@ -38,6 +38,9 @@ class PublicationFailureTest {
     @Test fun `an unavailable WorkManager does not stop repainting or alerts`() = runBlocking {
         val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
         resetTestWorkManager()
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+            androidx.work.WorkManager.getInstance(context)
+        }
         val completed = mutableListOf<String>()
         val publication: Publication = OutOfAppPublication(
             repaint = { completed += "repaint" },
