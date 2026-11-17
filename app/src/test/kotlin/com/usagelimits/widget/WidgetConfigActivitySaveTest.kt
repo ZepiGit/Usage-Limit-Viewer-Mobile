@@ -13,6 +13,8 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.WidgetConfigEntity
+import com.usagelimits.core.model.PercentDisplay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -22,12 +24,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/**
- * The per-widget percent mode survives the trip from the config screen into the widget's row (R5).
- *
- * The screen tests pin what is handed to `onSave`; this pins that the Activity writes it, since a
- * dropped argument there would leave every screen test green and every placed widget on the app mode.
- */
+/** Saving a widget keeps its appearance and selection without changing the app's display mode. */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [36])
 class WidgetConfigActivitySaveTest {
@@ -42,10 +39,11 @@ class WidgetConfigActivitySaveTest {
         runBlocking { app.startupJob?.join() }
     }
 
-    private fun storedMode(widgetId: Int): String? = runBlocking { dao.get(widgetId)?.percentDisplay }
+    private fun storedConfig(widgetId: Int): WidgetConfigEntity? = runBlocking { dao.get(widgetId) }
 
-    private fun openConfigFor(widgetId: Int, percentDisplay: String?): ActivityScenario<WidgetConfigActivity> {
-        runBlocking { dao.upsert(WidgetConfigEntity(widgetId, "CLOSEST_RESETS", null, null, 1L, percentDisplay = percentDisplay)) }
+    private fun openConfigFor(config: WidgetConfigEntity): ActivityScenario<WidgetConfigActivity> {
+        runBlocking { dao.upsert(config) }
+        val widgetId = config.appWidgetId
         val scenario = ActivityScenario.launch<WidgetConfigActivity>(
             Intent(app, WidgetConfigActivity::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId),
         )
@@ -60,22 +58,39 @@ class WidgetConfigActivitySaveTest {
     }
 
     @Test
-    fun `saving writes the chosen mode into the widget row`() {
-        openConfigFor(41, percentDisplay = null).use {
-            choose("Used")
-            compose.onNodeWithText("Save widget").performClick()
-            compose.waitUntil(10_000) { storedMode(41) == "USED" }
-            assertEquals("USED", storedMode(41))
+    fun `saving preserves the widget appearance while the app displays used`() {
+        val originalMode = runBlocking { app.container.settingsStore.settings.first().percentDisplay }
+        runBlocking { app.container.settingsStore.setPercentDisplay(PercentDisplay.USED) }
+        val config = WidgetConfigEntity(41, "CLOSEST_RESETS", null, null, 1L,
+            transparent = true, layoutMetricsJson = WidgetMetrics().toJson(),
+            backgroundArgb = 0xFF16213A.toInt(), backgroundOpacity = 0, textTone = "LIGHT")
+        try {
+            openConfigFor(config).use {
+                compose.onNodeWithText("Save widget").performClick()
+                compose.waitUntil(10_000) { (storedConfig(41)?.updatedAt ?: 0L) > config.updatedAt }
+                val stored = storedConfig(41)!!
+                assertEquals(config.copy(updatedAt = stored.updatedAt), stored)
+                assertEquals(PercentDisplay.USED, runBlocking { app.container.settingsStore.settings.first().percentDisplay })
+            }
+        } finally {
+            runBlocking { app.container.settingsStore.setPercentDisplay(originalMode) }
         }
     }
 
     @Test
-    fun `choosing the app setting again clears a stored mode`() {
-        openConfigFor(42, percentDisplay = "USED").use {
-            choose("App setting")
-            compose.onNodeWithText("Save widget").performClick()
-            compose.waitUntil(10_000) { storedMode(42) == null }
-            assertEquals(null, storedMode(42))
+    fun `saving a different account selection leaves the app display mode alone`() {
+        val originalMode = runBlocking { app.container.settingsStore.settings.first().percentDisplay }
+        runBlocking { app.container.settingsStore.setPercentDisplay(PercentDisplay.LEFT) }
+        try {
+            openConfigFor(WidgetConfigEntity(42, "CLOSEST_RESETS", null, null, 1L)).use {
+                choose("All accounts")
+                compose.onNodeWithText("Save widget").performClick()
+                compose.waitUntil(10_000) { storedConfig(42)?.scope == "ALL_ACCOUNTS" }
+                assertEquals("ALL_ACCOUNTS", storedConfig(42)!!.scope)
+                assertEquals(PercentDisplay.LEFT, runBlocking { app.container.settingsStore.settings.first().percentDisplay })
+            }
+        } finally {
+            runBlocking { app.container.settingsStore.setPercentDisplay(originalMode) }
         }
     }
 }
