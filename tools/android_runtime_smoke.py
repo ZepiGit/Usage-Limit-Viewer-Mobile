@@ -555,8 +555,7 @@ class Smoke:
             x1, y1, x2, y2 = bounds(host)
             x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
             self.adb("shell", "input", "swipe", x, y, x, y, "1000")
-            self.tap(self.widget_control(name + "-edit", self.launcher,
-                                         resource_id=self.launcher + ":id/widget_reconfigure_button"))
+            self.tap(self.widget_control(name + "-edit", self.launcher, label="Settings"))
             self.widget_configuration(name + "-config", item["label"], item["color"], save=False)
             assert self.widget_bindings(name + "-verified") == expected, "Reconfigure replaced a widget ID"
         self.text(phase + "-widgets-verified.json", json.dumps({"result": "passed", "phase": phase, "widgets": verified,
