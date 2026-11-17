@@ -12,6 +12,12 @@ From the repository root:
 
 On Windows, use `gradlew.bat`. The debug APK is `app/build/outputs/apk/debug/app-debug.apk`; its application ID is `com.usagelimits.debug`, so it installs separately from release builds. Release output is `app/build/outputs/apk/release/app-release.apk`.
 
+## Dependency updates
+
+The Android toolchain moves together, outside Dependabot: AGP, Gradle, Kotlin, KSP and the Compose compiler must remain compatible. `.github/dependabot.yml` holds the AndroidX families blocked in the first wave, Coroutines 1.9, Serialization 1.7 and OkHttp 4 on their current lines; where a line has no newer patch that is in effect a freeze. Revisit those bounds when upgrading the toolchain; they are conservative review limits, not claims that every intermediate release is incompatible. The bounds also stop Dependabot security updates beyond them, so a fix that only exists above a bound needs a manual upgrade. Room, WorkManager, Lifecycle, Glance and Compose updates are grouped separately so unrelated libraries do not block each other.
+
+After upgrading CI actions, run the full Android and iOS workflows on a maintainer branch. Dependabot runs skip the signed API 36 release-upgrade smoke. The Android workflow uses `gradle/actions` v6 with `cache-provider: basic` to retain MIT-licensed caching without the separate Enhanced Caching terms. Basic caching does not provide Enhanced Caching's cleanup or deduplication. The release workflow remains uncached, and artifact uploads retain zipped, explicitly named artifacts for the existing download steps.
+
 ## Signing
 
 Supply all four values for a distribution build:

@@ -16,7 +16,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check screenshot export names
         run: python3 -m unittest discover -s ios/Tools -p 'test_export_screenshots.py'
@@ -86,7 +86,7 @@ jobs:
             ipad-overview
 
       - name: Upload the screenshots
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-marketing-screenshots
           path: ios-marketing-screenshots
@@ -95,7 +95,7 @@ jobs:
 
       - name: Keep test evidence if a capture fails
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-marketing-capture-failure
           path: |
