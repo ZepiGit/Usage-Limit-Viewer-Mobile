@@ -262,18 +262,30 @@ final class UsageStore: ObservableObject {
         isLoadingSettings = false
     }
 
+    /// Serialises the passes below. A request made while one is running gets one more pass after
+    /// it rather than being dropped: the running pass read its account list when it started, so
+    /// an account signed in since then is synced, published and evaluated for alerts only by a
+    /// pass that starts later (#43). Lazy, because the pass captures `self`.
+    private lazy var refreshes = RefreshCoalescer { [weak self] in await self?.refreshPass() }
+
+    /// Syncs every account, and returns once a sync that started after this call has finished.
     func refresh() async {
         #if DEBUG
         if MarketingDemo.isEnabled { return }
         #endif
-        guard !isRefreshing else { return }
-        guard let container else {
+        guard container != nil else {
             // No shared container means the app group is missing from the entitlements, which is
             // a build fault rather than anything the user did — but it must still say so, since
             // the alternative is a screen that stays empty and explains nothing.
             lastError = String(localized: "This build cannot reach its shared storage.")
             return
         }
+        await refreshes.request().value
+    }
+
+    /// One sync, publish and alert claim. Only `refreshes` calls this, so two never overlap.
+    private func refreshPass() async {
+        guard let container else { return }
 
         isRefreshing = true
         defer { isRefreshing = false }
@@ -292,7 +304,8 @@ final class UsageStore: ObservableObject {
             // reaches the same conclusion later.
             await NotificationScheduler.post(try await container.pendingNotifications(texts: LocalizedNotificationTexts()))
         } catch is CancellationError {
-            // The screen was closed. Not a failure, and not something to paint red.
+            // A closed screen no longer cancels a pass, since others may be waiting on it, but a
+            // cancellation from below is still not a failure and not something to paint red.
         } catch {
             // Per-account failures never reach here — the engine records those on the accounts
             // themselves, which is where a user can act on them. This is the whole run failing.
