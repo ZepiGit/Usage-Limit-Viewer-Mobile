@@ -70,10 +70,15 @@ class WidgetPresentationWorker(
          * WorkManager's Flow suspends for the state lookup rather than blocking a UI caller.
          *
          * The lookup and enqueue are not atomic with WorkManager starting a worker. Concurrent
-         * events can briefly append more than one successor, or replace a worker that just
-         * started. The next non-running publication coalesces those reservations. The worker
-         * requests its confirming sync first, but a start/replace race can still interrupt it;
-         * the periodic sync remains the fallback. Avoiding this requires a different scheduling
+         * events can append more than one successor, or replace a worker that just started.
+         * Each appended delay counts from its predecessor's end, so an extra entry can delay
+         * later reservations until a publication finds nothing running (the periodic sync when
+         * online, otherwise the next user action) and replaces the chain. A caller whose cache
+         * read predates another caller's write can also replace or cancel that caller's
+         * reservation, including when the stale read finds no boundary. The next publication
+         * recomputes it, and the system widget tick bounds the visible delay. The worker requests
+         * its confirming sync first, but a start/replace race can still interrupt it; the
+         * periodic sync remains the fallback. Avoiding this requires a different scheduling
          * protocol, not a caller-supplied flag on the two-event publication interface.
          */
         suspend fun scheduleNext(context: Context, boundary: Long?, now: Long) {

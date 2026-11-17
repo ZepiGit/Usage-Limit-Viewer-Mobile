@@ -111,7 +111,7 @@ class DevinQuotaParserTest {
 
     @Test
     fun `missing status and alternate snake case names are handled`() {
-        assertTrue(DevinQuotaParser.parse(JsonSupport.parseObject("{}"), 0).isEmpty())
+        assertTrue(DevinQuotaParser.parse(JsonSupport.parseObject("{}")).isEmpty())
 
         val snake = JsonSupport.parseObject(
             """{ "user_status": { "plan_status": {

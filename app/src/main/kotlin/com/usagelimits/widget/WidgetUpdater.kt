@@ -19,6 +19,7 @@ import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.WidgetScope
+import com.usagelimits.core.settings.SettingsStore
 import com.usagelimits.core.sync.SyncWorker
 
 /**
@@ -62,7 +63,7 @@ object WidgetUpdater {
      * Refresh each widget independently so a failure cannot skip sibling widgets.
      * Log failures for diagnosis; rethrow cancellation because the calling worker is stopping.
      */
-    suspend fun refreshAll(context: Context, settings: com.usagelimits.core.settings.SettingsStore) {
+    suspend fun refreshAll(context: Context, settings: SettingsStore) {
         for (placed in allWidgets) {
             try {
                 refresh(context, placed)

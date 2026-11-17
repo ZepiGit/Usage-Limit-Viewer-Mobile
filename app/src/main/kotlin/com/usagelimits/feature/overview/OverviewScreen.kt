@@ -117,7 +117,7 @@ fun OverviewScreen(
     var dragging by remember { mutableStateOf(false) }
     var liveOrder by remember { mutableStateOf<List<AccountUsage>?>(null) }
     val shown = liveOrder?.mapNotNull { pending -> state.accounts.firstOrNull { it.account.localId == pending.account.localId } }
-        ?: state.orderedAccounts(nowMs)
+        ?: state.orderedAccounts()
     val currentShown by androidx.compose.runtime.rememberUpdatedState(shown)
     val reorderState = sh.calvin.reorderable.rememberReorderableLazyListState(listState) { from, to ->
         val order = currentShown.toMutableList()
@@ -128,7 +128,7 @@ fun OverviewScreen(
     val orderSaveFailed = stringResource(R.string.message_order_save_failed)
     LaunchedEffect(state.accounts, dragging, state.message) {
         val pending = liveOrder ?: return@LaunchedEffect
-        if (!dragging && (state.orderedAccounts(nowMs).map { it.account.localId } == pending.map { it.account.localId } ||
+        if (!dragging && (state.orderedAccounts().map { it.account.localId } == pending.map { it.account.localId } ||
                 state.message == orderSaveFailed)) liveOrder = null
     }
 
@@ -338,7 +338,7 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
         RuleDivider()
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            LeadStat(stringResource(R.string.overview_connected_accounts), "${state.healthyCountAt(nowMs)}/${state.accountCount}", UsageColors.Ink, Modifier.weight(1f))
+            LeadStat(stringResource(R.string.overview_connected_accounts), "${state.healthyCountAt()}/${state.accountCount}", UsageColors.Ink, Modifier.weight(1f))
             AppIconTile(appIcon, size = 40.dp)
         }
     }

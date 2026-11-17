@@ -51,8 +51,8 @@ extension GlanceSnapshot {
             updatedAt: selected.compactMap(\.fetchedAt).max(),
             nextResetAt: lead?.resetDates.filter { $0 > now }.min(),
             overallSeverity: selected.map { $0.severity(at: now, staleAfter: staleAfter) }.max() ?? .stale,
-            headlineShort: lead?.rows.first { $0.category == .fiveHour },
-            headlineLong: lead?.rows.first { $0.category != .fiveHour }, staleAfter: staleAfter,
+            summaryLineShort: lead?.rows.first { $0.category == .fiveHour },
+            summaryLineLong: lead?.rows.first { $0.category != .fiveHour }, staleAfter: staleAfter,
             // Selection re-cuts the accounts, never the user's reading of them: dropping the
             // mode here would flip a configured widget to LEFT while the rest of the app says USED.
             percentDisplay: percentDisplay)

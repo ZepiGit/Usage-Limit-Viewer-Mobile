@@ -93,10 +93,8 @@ final class UsageStore: ObservableObject {
     /// What the Overview screen leads with.
     ///
     /// The staleness threshold follows the user's chosen sync interval rather than a constant:
-    /// at the three-hour setting the settings screen offers, a fixed hour marks every account
-    /// stale before the next refresh arrives, and a stale account sorts last — so the headline
-    /// would come from whichever healthy account happened to sort first while a card at 3 % sat
-    /// below it.
+    /// at the three-hour setting the settings screen offers, a fixed hour would mark accounts
+    /// stale before the next refresh arrives.
     var glance: GlanceSnapshot {
         GlanceModel.build(
             accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons,
@@ -105,15 +103,9 @@ final class UsageStore: ObservableObject {
 
     /// The accounts in the order the overview should show them.
     ///
-    /// Two orders, and which one applies is a choice the user has already made. Until anyone
-    /// drags a card the list is worst-first, which is what the app is for. Once someone has
-    /// arranged their accounts by hand that order wins and nothing re-ranks it — the repository
-    /// already returns them arranged, so the manual case is the list exactly as it arrived.
-    ///
-    /// Built separately from `glance` rather than reordering that, because the summary card's
-    /// headline and next reset come from whichever account LEADS the urgency ranking, and a
-    /// user dragging a healthy account to the top must not thereby change what the headline
-    /// reports about the fleet.
+    /// Uses repository order regardless of the manual-order flag, with a pending drag order
+    /// applied while it is being persisted. The glance summary and next reset are selected
+    /// separately from the displayed account list.
     var orderedAccounts: [GlanceAccount] {
         let values = GlanceModel.build(accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay).accounts
         guard let order = pendingAccountOrder else { return values }
