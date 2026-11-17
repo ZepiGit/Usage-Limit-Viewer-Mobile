@@ -13,7 +13,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.database.AccountUsage
-import com.usagelimits.core.database.UsageRepository
 import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
@@ -27,6 +26,8 @@ import com.usagelimits.core.model.statusIcon
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.SettingsStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Keeps one status notification group per pinned account in step with the cache and the settings.
@@ -46,23 +47,35 @@ import kotlinx.coroutines.flow.first
 class StatusIconPublisher(
     private val context: Context,
     private val settingsStore: SettingsStore,
-    private val repository: UsageRepository,
+    /** The cached accounts in the app's order; the repository's one-shot read in the app. */
+    private val readAccounts: suspend () -> List<AccountUsage>,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val manager get() = context.getSystemService(NotificationManager::class.java)
 
-    suspend fun publish() {
+    /**
+     * One publication at a time, from its reads through its last post.
+     *
+     * A sync in the background and a switch in Settings publish independently. Without this, a
+     * publication that read "on, Claude" and then waited on the cache could finish after the
+     * person switched Off, and post Claude again over the cleanup the newer publication did.
+     * Serialised, the later one always reads after the earlier one has written, so the records
+     * end up matching the latest choice.
+     */
+    private val serial = Mutex()
+
+    suspend fun publish(): Unit = serial.withLock {
         // Missing permission is Settings' to explain; posting would only throw.
-        if (!hasPermission()) return
+        if (!hasPermission()) return@withLock
         val settings = settingsStore.settings.first()
-        val accounts = repository.accountUsageOnce()
+        val accounts = readAccounts()
         val pinned = pinnedAccountIds(settings.statusIconsEnabled, settings.pinnedAccountIds, accounts.map { it.account.localId })
 
         val wanted = pinned.map(::tagFor).toSet()
         manager.activeNotifications
             .filter { it.notification.channelId == CHANNEL_ID && it.tag !in wanted }
             .forEach { manager.cancel(it.tag, it.id) }
-        if (pinned.isEmpty()) return
+        if (pinned.isEmpty()) return@withLock
 
         val texts = ResourceStatusIconTexts(context.resources)
         ensureChannel(texts)

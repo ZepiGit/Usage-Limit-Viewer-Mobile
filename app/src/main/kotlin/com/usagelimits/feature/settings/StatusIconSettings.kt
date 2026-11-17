@@ -1,10 +1,5 @@
 package com.usagelimits.feature.settings
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,22 +13,14 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.title
@@ -52,53 +39,20 @@ import com.usagelimits.ui.theme.UsageColors
  * The stored form is already an ordered list of up to three ids; this section chooses one at a
  * time, and choosing another replaces it.
  *
- * Turning the switch on while notifications are not allowed starts the same permission flow as
- * the notification card: the system dialog while Android still offers it, otherwise this app's
- * notification settings. The switch itself is stored either way, so the icons appear as soon as
- * the permission is given.
+ * Turning the switch on while notifications are not allowed asks through [permission], the
+ * same flow the notification card uses. The switch itself is stored either way; once the
+ * permission is given, the screen publishes the cached state and the icon appears. The section
+ * says, politely announced, whether icons can be shown.
  */
 @Composable
 internal fun StatusIconSettings(
     enabled: Boolean,
     pinnedAccountIds: List<String>,
     accounts: List<AccountUsage>,
-    permissionAlreadyAsked: Boolean,
-    onPermissionAsked: () -> Unit,
+    permission: NotificationPermissionState,
     onEnabledChange: (Boolean) -> Unit,
     onPinnedChange: (String?) -> Unit,
 ) {
-    val context = LocalContext.current
-    val activity = remember(context) { context.activity() }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    fun allowed() = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
-        context, Manifest.permission.POST_NOTIFICATIONS,
-    ) == PackageManager.PERMISSION_GRANTED
-    var notificationsAllowed by remember { mutableStateOf(allowed()) }
-    var asked by remember(permissionAlreadyAsked) { mutableStateOf(permissionAlreadyAsked) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        notificationsAllowed = allowed()
-    }
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) notificationsAllowed = allowed()
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
-
-    fun requestPermission() {
-        val requestable = !asked || activity?.let {
-            ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.POST_NOTIFICATIONS)
-        } == true
-        if (requestable) {
-            asked = true
-            onPermissionAsked()
-            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            openNotificationSettings(context)
-        }
-    }
-
     UsageCard {
         ToggleRow(
             title = stringResource(R.string.settings_status_icons_switch),
@@ -106,16 +60,16 @@ internal fun StatusIconSettings(
             checked = enabled,
             onChange = { on ->
                 onEnabledChange(on)
-                if (on && !allowed()) requestPermission()
+                if (on && !permission.allowed) permission.request()
             },
         )
-        if (!notificationsAllowed) {
-            Text(
-                stringResource(R.string.settings_status_icons_blocked),
-                style = MaterialTheme.typography.bodyMedium,
-                color = UsageColors.Warning,
-            )
-        }
+        Text(
+            stringResource(if (permission.allowed) R.string.settings_status_icons_allowed
+                else R.string.settings_status_icons_blocked),
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (permission.allowed) UsageColors.Muted else UsageColors.Warning,
+        )
         if (enabled) {
             RuleDivider()
             Text(

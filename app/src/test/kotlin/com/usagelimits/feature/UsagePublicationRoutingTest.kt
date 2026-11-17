@@ -143,6 +143,9 @@ class UsagePublicationRoutingTest {
             "sync interval" to { vm.setSyncInterval(60) },
             "credit edit" to { vm.updateCredit(credit.id, "Work", BigDecimal.TEN) },
             "credit removal" to { vm.removeCredit(credit.id) },
+            "status icons on" to { vm.setStatusIcons(true) },
+            "pinned account" to { vm.setPinnedAccount(account.localId) },
+            "notifications allowed" to { vm.notificationsAllowed() },
             "account removal" to { vm.removeAccount(account.localId) },
         )
         for ((label, change) in changes) {

@@ -499,6 +499,7 @@
     <string name="settings_status_icons_switch">Show status bar icons</string>
     <string name="settings_status_icons_subtitle">A small icon with the account\'s figure next to the clock, updated after every refresh</string>
     <string name="settings_status_icons_blocked">Status bar icons cannot be shown until notifications are allowed.</string>
+    <string name="settings_status_icons_allowed">Status bar icons can be shown.</string>
     <string name="settings_status_icons_choose">Account</string>
     <string name="settings_status_icons_no_accounts">Add an account to show its icon.</string>
     <string name="settings_status_icons_note">Android decides how many icons fit, and its setting that hides silent notification icons hides these too.</string>

@@ -19,6 +19,10 @@ import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.sync.NotificationPublisher
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -174,6 +178,61 @@ class StatusIconPublicationTest {
         app.container.settingsStore.setStatusIconsEnabled(false)
         app.container.publication.presentationChanged()
         assertEquals(0, statusRecords().size)
+    }
+
+    /**
+     * A publisher whose first cache read waits for [gate], so a test can hold an older
+     * publication between its read and its posts while a newer choice is published.
+     */
+    private fun pausingPublisher(entered: CompletableDeferred<Unit>, gate: CompletableDeferred<Unit>): StatusIconPublisher {
+        var first = true
+        return StatusIconPublisher(app, app.container.settingsStore, readAccounts = {
+            val accounts = app.container.repository.accountUsageOnce()
+            if (first) {
+                first = false
+                entered.complete(Unit)
+                gate.await()
+            }
+            accounts
+        })
+    }
+
+    @Test
+    fun `an older publication that resumes after Off does not bring the icon back`() = runBlocking {
+        val claude = account(ProviderId.CLAUDE, "Claude", left = 42.0)
+        pin(claude)
+        val entered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val publisher = pausingPublisher(entered, gate)
+
+        val older = launch(Dispatchers.Default) { publisher.publish() }
+        entered.await()
+        app.container.settingsStore.setStatusIconsEnabled(false)
+        val newer = launch(Dispatchers.Default) { publisher.publish() }
+        gate.complete(Unit)
+        joinAll(older, newer)
+
+        assertEquals("the switch says Off, so no icon may remain", 0, statusRecords().size)
+    }
+
+    @Test
+    fun `an older publication that resumes after another choice does not restore the previous account`() = runBlocking {
+        val claude = account(ProviderId.CLAUDE, "Claude", left = 42.0)
+        val codex = account(ProviderId.CODEX, "Codex", left = 87.0)
+        pin(claude)
+        val entered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val publisher = pausingPublisher(entered, gate)
+
+        val older = launch(Dispatchers.Default) { publisher.publish() }
+        entered.await()
+        pin(codex)
+        val newer = launch(Dispatchers.Default) { publisher.publish() }
+        gate.complete(Unit)
+        joinAll(older, newer)
+
+        val titles = statusRecords().map { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }
+        assertEquals("only the latest choice shows", listOf("Codex", "Codex"), titles)
     }
 
     @Test

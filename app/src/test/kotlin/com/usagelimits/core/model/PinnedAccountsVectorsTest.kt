@@ -53,8 +53,24 @@ class PinnedAccountsVectorsTest {
     @Test
     fun `the vector file covers every case the rule names`() {
         val vectors = parse(file.readText())
-        assertTrue(vectors.size >= 12)
         assertEquals("names must be unique", vectors.size, vectors.map { it.name }.toSet().size)
+        val usageIds = { v: Vector -> v.usageAccounts.map { it.id }.toSet() }
+        // Read from the inputs alone, so the check never consults the function under test.
+        val scenarios: Map<String, (Vector) -> Boolean> = mapOf(
+            "nothing stored" to { it.enabled && it.pinned.isEmpty() },
+            "feature off with pins stored" to { !it.enabled && it.pinned.isNotEmpty() },
+            "four or more stored ids" to { it.enabled && it.pinned.size >= 4 },
+            "a stored id whose account is gone" to { v -> v.enabled && v.pinned.any { it !in usageIds(v) && it !in v.creditAccounts } },
+            "a credit account id" to { v -> v.enabled && v.pinned.any { it in v.creditAccounts } },
+            "a pinned usage account without a reading" to { v -> v.enabled && v.usageAccounts.any { !it.hasReading && it.id in v.pinned } },
+            "pin order differing from account order" to { v ->
+                val kept = v.pinned.filter { it in usageIds(v) }.distinct()
+                v.enabled && kept != v.usageAccounts.map { it.id }.filter { it in kept }
+            },
+            "an id stored twice" to { it.enabled && it.pinned.size != it.pinned.toSet().size },
+        )
+        for ((name, holds) in scenarios) assertTrue("no vector for $name", vectors.any(holds))
+        for (count in 1..3) assertTrue("no vector selecting $count", vectors.any { it.expected.size == count })
     }
 
     @Test

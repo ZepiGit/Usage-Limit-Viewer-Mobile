@@ -400,6 +400,17 @@ class UsageViewModel(
         }
     }
 
+    /**
+     * Notifications became allowed, through the dialog or the system's settings.
+     *
+     * Nothing could be posted before, so the status icons of the accounts already chosen appear
+     * now, from the cache. A presentation change, not a cache move: no reading is new, so alerts
+     * are not evaluated, and no provider is asked.
+     */
+    fun notificationsAllowed() {
+        viewModelScope.launch { container.publication.presentationChanged() }
+    }
+
     fun recordNotificationPermissionAsked() {
         viewModelScope.launch { container.settingsStore.recordNotificationPermissionAsked() }
     }

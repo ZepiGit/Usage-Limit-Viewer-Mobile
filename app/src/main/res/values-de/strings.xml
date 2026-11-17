@@ -493,6 +493,7 @@
     <string name="settings_status_icons_switch">Statusleisten-Symbole anzeigen</string>
     <string name="settings_status_icons_subtitle">Ein kleines Symbol mit dem Wert des Kontos neben der Uhr, nach jeder Aktualisierung neu</string>
     <string name="settings_status_icons_blocked">Statusleisten-Symbole können erst angezeigt werden, wenn Benachrichtigungen erlaubt sind.</string>
+    <string name="settings_status_icons_allowed">Statusleisten-Symbole können angezeigt werden.</string>
     <string name="settings_status_icons_choose">Konto</string>
     <string name="settings_status_icons_no_accounts">Füge ein Konto hinzu, um sein Symbol anzuzeigen.</string>
     <string name="settings_status_icons_note">Android entscheidet, wie viele Symbole Platz haben, und die Einstellung, die Symbole lautloser Benachrichtigungen ausblendet, blendet auch diese aus.</string>

@@ -72,9 +72,17 @@ fun SettingsScreen(
     onProviderIconChange: (com.usagelimits.core.model.ProviderId, String) -> Unit = { _, _ -> },
     onStatusIconsChange: (Boolean) -> Unit = {},
     onPinnedAccountChange: (String?) -> Unit = {},
+    onNotificationsAllowed: () -> Unit = {},
 ) {
     val settings = state.settings
     val uriHandler = LocalUriHandler.current
+    // One permission flow for the screen: the notification card and the status icon section ask,
+    // read and announce it the same way, and a grant from either reaches the publication.
+    val permission = rememberNotificationPermission(
+        alreadyAsked = settings.notificationPermissionHandled,
+        onAsked = onNotificationPermissionAsked,
+        onAllowed = onNotificationsAllowed,
+    )
 
     LazyColumn(
         modifier = modifier
@@ -155,7 +163,7 @@ fun SettingsScreen(
         }
 
         item { SectionHeader(stringResource(R.string.settings_section_notifications)) }
-        item { NotificationPermissionSettings(settings.notificationPermissionHandled, onNotificationPermissionAsked) }
+        item { NotificationPermissionSettings(permission) }
         item {
             // The thresholds stay on remaining (the same two crossings); only their wording
             // follows the display mode, so the toggles read in the numbers the user is watching.
@@ -232,8 +240,7 @@ fun SettingsScreen(
                 enabled = settings.statusIconsEnabled,
                 pinnedAccountIds = settings.pinnedAccountIds,
                 accounts = state.accounts,
-                permissionAlreadyAsked = settings.notificationPermissionHandled,
-                onPermissionAsked = onNotificationPermissionAsked,
+                permission = permission,
                 onEnabledChange = onStatusIconsChange,
                 onPinnedChange = onPinnedAccountChange,
             )

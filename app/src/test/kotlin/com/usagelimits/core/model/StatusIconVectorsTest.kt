@@ -90,12 +90,47 @@ class StatusIconVectorsTest {
         }
     }
 
+    /**
+     * Which precedence rows of the rule an input satisfies, read from the input alone, so the
+     * check below never consults the function under test.
+     */
+    private fun Vector.rows(): Set<Kind> = buildSet {
+        if (needsReauthentication || validity == Validity.ERROR) add(Kind.ERROR)
+        if (headline?.exhausted == true) add(Kind.EXHAUSTED)
+        if (headline == null || headline.token == PERCENT_TOKEN_UNKNOWN) add(Kind.UNKNOWN)
+        if (headline?.token == "100") add(Kind.NONE)
+        if (headline != null && headline.token != PERCENT_TOKEN_UNKNOWN && headline.token != "100") add(Kind.FIGURE)
+    }
+
     @Test
-    fun `the vector file covers every case the rule names`() {
-        // A floor, not a count to keep in step: a file truncated by a bad merge must not pass.
+    fun `every pair of rows that can meet in one input has a vector where the earlier one wins`() {
         val vectors = parse(file.readText())
-        assertTrue(vectors.size >= 30)
         assertEquals("names must be unique", vectors.size, vectors.map { it.name }.toSet().size)
+        // Rows in precedence order. A full allowance and a figure exclude each other and the dash
+        // by their tokens; every other pair can meet, and the earlier row must be seen to win.
+        val order = listOf(Kind.ERROR, Kind.EXHAUSTED, Kind.UNKNOWN, Kind.NONE, Kind.FIGURE)
+        val exclusive = setOf(setOf(Kind.UNKNOWN, Kind.NONE), setOf(Kind.UNKNOWN, Kind.FIGURE), setOf(Kind.NONE, Kind.FIGURE))
+        for ((i, winner) in order.withIndex()) for (loser in order.drop(i + 1)) {
+            if (setOf(winner, loser) in exclusive) continue
+            assertTrue(
+                "no vector shows $winner winning over $loser",
+                vectors.any { it.rows().containsAll(listOf(winner, loser)) && it.expected.content == winner },
+            )
+        }
+        // Every input also lands in one token row (dash, glyph alone or figure), so only those
+        // can stand alone; error and exhausted are covered by the pairs above.
+        for (row in listOf(Kind.UNKNOWN, Kind.NONE, Kind.FIGURE)) {
+            assertTrue("no vector for $row alone", vectors.any { it.rows() == setOf(row) && it.expected.content == row })
+        }
+        // The underline both on and off where it may appear.
+        for (row in listOf(Kind.FIGURE, Kind.NONE)) for (validity in listOf(Validity.STALE, Validity.RESET_DUE)) {
+            assertTrue("no $validity $row", vectors.any { it.expected.content == row && it.validity == validity && it.expected.outdated })
+        }
+        for (row in listOf(Kind.ERROR, Kind.EXHAUSTED, Kind.UNKNOWN)) {
+            assertTrue("no aged $row without an underline", vectors.any {
+                it.expected.content == row && it.validity in setOf(Validity.STALE, Validity.RESET_DUE) && !it.expected.outdated
+            })
+        }
     }
 
     @Test
