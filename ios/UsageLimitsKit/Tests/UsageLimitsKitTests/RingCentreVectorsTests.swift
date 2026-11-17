@@ -10,10 +10,10 @@ final class RingCentreVectorsTests: XCTestCase {
         let vectors: [Vector]
 
         init(from decoder: Decoder) throws {
-            try requireRingCentreVectorKeys(decoder, ["description", "vectors"])
-            let c = try decoder.container(keyedBy: RingCentreVectorKeys.self)
-            _ = try c.decode(String.self, forKey: RingCentreVectorKeys("description"))
-            vectors = try c.decode([Vector].self, forKey: RingCentreVectorKeys("vectors"))
+            try requireExactKeys(decoder, ["description", "vectors"])
+            let c = try decoder.container(keyedBy: Keys.self)
+            _ = try c.decode(String.self, forKey: Keys("description"))
+            vectors = try c.decode([Vector].self, forKey: Keys("vectors"))
         }
     }
 
@@ -25,28 +25,28 @@ final class RingCentreVectorsTests: XCTestCase {
         let expected: RingCentre
 
         init(from decoder: Decoder) throws {
-            try requireRingCentreVectorKeys(decoder, ["name", "token", "side", "arcDrawn", "expected"])
-            let c = try decoder.container(keyedBy: RingCentreVectorKeys.self)
-            name = try c.decode(String.self, forKey: RingCentreVectorKeys("name"))
-            token = try c.decode(String.self, forKey: RingCentreVectorKeys("token"))
-            switch try c.decode(String.self, forKey: RingCentreVectorKeys("side")) {
+            try requireExactKeys(decoder, ["name", "token", "side", "arcDrawn", "expected"])
+            let c = try decoder.container(keyedBy: Keys.self)
+            name = try c.decode(String.self, forKey: Keys("name"))
+            token = try c.decode(String.self, forKey: Keys("token"))
+            switch try c.decode(String.self, forKey: Keys("side")) {
             case "left": side = .left
             case "used": side = .used
-            case let other: throw RingCentreVectorFileError(description: "unknown side \(other)")
+            case let other: throw VectorFileError(description: "unknown side \(other)")
             }
-            arcDrawn = try c.decode(Bool.self, forKey: RingCentreVectorKeys("arcDrawn"))
-            switch try c.decode(String.self, forKey: RingCentreVectorKeys("expected")) {
+            arcDrawn = try c.decode(Bool.self, forKey: Keys("arcDrawn"))
+            switch try c.decode(String.self, forKey: Keys("expected")) {
             case "signed": expected = .signed
             case "bare": expected = .bare
             case "nothing": expected = .nothing
-            case let other: throw RingCentreVectorFileError(description: "unknown expectation \(other)")
+            case let other: throw VectorFileError(description: "unknown expectation \(other)")
             }
         }
     }
 
     private static func parse(_ data: Data) throws -> [Vector] {
         let vectors = try JSONDecoder().decode(VectorFile.self, from: data).vectors
-        guard !vectors.isEmpty else { throw RingCentreVectorFileError(description: "the ring centre vector file holds no vectors") }
+        guard !vectors.isEmpty else { throw VectorFileError(description: "the ring centre vector file holds no vectors") }
         return vectors
     }
 
@@ -88,26 +88,5 @@ final class RingCentreVectorsTests: XCTestCase {
 
     func testAnEmptyVectorListFailsTheSuite() {
         XCTAssertThrowsError(try Self.parse(Data(#"{"description": "", "vectors": []}"#.utf8)))
-    }
-}
-
-private struct RingCentreVectorKeys: CodingKey {
-    let stringValue: String
-    var intValue: Int? { nil }
-    init(_ stringValue: String) { self.stringValue = stringValue }
-    init?(stringValue: String) { self.stringValue = stringValue }
-    init?(intValue: Int) { nil }
-}
-
-private struct RingCentreVectorFileError: Error, CustomStringConvertible {
-    let description: String
-}
-
-/// Present-with-null counts as present: a key must be written out even when its value is null.
-private func requireRingCentreVectorKeys(_ decoder: Decoder, _ expected: Set<String>) throws {
-    let found = Set(try decoder.container(keyedBy: RingCentreVectorKeys.self).allKeys.map(\.stringValue))
-    guard found == expected else {
-        throw RingCentreVectorFileError(description:
-            "keys \(found.sorted()) at \(decoder.codingPath.map(\.stringValue)) do not match \(expected.sorted())")
     }
 }
