@@ -1,8 +1,14 @@
-"""The runtime smoke's pixel logic on synthetic frames: python3 -m unittest discover -s tools"""
+"""Runtime smoke pixel, picker geometry, host focus and setting checks: python3 -m unittest discover -s tools"""
 
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
+import xml.etree.ElementTree as ET
 
-from android_runtime_smoke import changed_pixels, judge_press, png_bytes, png_frame, rounded_rect_distance, scaled_crop
+import android_runtime_smoke as runtime_smoke
+from android_runtime_smoke import Smoke, bounds, changed_pixels, judge_press, png_bytes, png_frame, rounded_rect_distance, scaled_crop
 
 # The CI emulator's 280 dpi: 1.75 px per dp, so the 6dp pill radius is 10.5 px.
 RADIUS = 10.5
@@ -79,6 +85,327 @@ class JudgePressTest(unittest.TestCase):
 
     def test_changes_outside_the_compared_region_are_not_seen(self):
         self.assertEqual([], changed_pixels(REST, frame(lambda x, y: y < REGION[1]), REGION))
+
+
+class CaptureTest(unittest.TestCase):
+    def test_malformed_screenshot_fails_and_retains_raw_bytes(self):
+        malformed = b"Assertion failed! rcEnc featureInfo hasReadColorBufferDma\nAborted"
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "dump", return_value=ET.fromstring("<hierarchy/>")), \
+                    patch.object(smoke, "adb", return_value=malformed):
+                with self.assertRaisesRegex(AssertionError, "Not a PNG"):
+                    smoke.capture("raw")
+            self.assertEqual(malformed, (Path(directory) / "raw.png").read_bytes())
+
+
+class SettingTest(unittest.TestCase):
+    def setting_tree(self, checked):
+        return ET.fromstring(f"""<hierarchy>
+          <node package="com.usagelimits" text="Show subscription tier" enabled="true"
+                checkable="false" checked="false" clickable="false" bounds="[56,551][540,635]"/>
+          <node package="com.usagelimits" enabled="true" checkable="true" checked="{checked}"
+                clickable="true" bounds="[573,551][664,635]">
+            <node package="com.usagelimits" content-desc="Show subscription tier" enabled="true"
+                  checkable="false" checked="false" clickable="false" bounds="[573,565][664,621]"/>
+          </node>
+        </hierarchy>""")
+
+    def test_setting_returns_the_checkable_parent_without_scrolling_past_it(self):
+        for checked in ("true", "false"):
+            with self.subTest(checked=checked), TemporaryDirectory() as directory:
+                smoke = Smoke(Path(directory), "test-device")
+                with patch.object(smoke, "dump", return_value=self.setting_tree(checked)), \
+                        patch.object(smoke, "scroll", side_effect=AssertionError("Visible setting scrolled past")):
+                    target = smoke.setting("persisted")
+                self.assertEqual((573, 551, 664, 635), bounds(target))
+                self.assertEqual("true", target.get("checkable"))
+                self.assertEqual(checked, target.get("checked"))
+
+    def test_setting_is_disabled_waits_for_the_parent_not_the_unchecked_label_child(self):
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "dump", side_effect=[self.setting_tree("true"),
+                    self.setting_tree("true"), self.setting_tree("false")]) as dump, \
+                    patch.object(smoke, "scroll", side_effect=AssertionError("Visible setting scrolled past")), \
+                    patch("android_runtime_smoke.time.sleep"):
+                smoke.setting_is_disabled("persisted")
+            self.assertEqual([("persisted-0",), ("persisted-loaded",), ("persisted-loaded",)],
+                             [call.args for call in dump.call_args_list])
+
+
+class PickerGeometryTest(unittest.TestCase):
+    launcher = "com.android.launcher3"
+    namespace = launcher + ".widgetpicker:id/"
+    home = (0, 50, 720, 1510)
+
+    def picker(self, target=""):
+        # The Browse capture's list, tab row and padded floating wrapper, not a legacy launcher list.
+        return ET.fromstring(f"""<hierarchy>
+          <node package="{self.launcher}" resource-id="{self.namespace}widgets_catalog"
+                enabled="true" bounds="[0,0][720,1560]">
+            <node package="{self.launcher}" enabled="true" bounds="[18,144][702,1476]">
+              <node package="{self.launcher}" resource-id="{self.namespace}personal_widgets_list"
+                    enabled="true" scrollable="true" bounds="[18,403][702,1476]">{target}</node>
+              <node package="{self.launcher}" enabled="true" bounds="[169,1350][551,1462]">
+                <node package="{self.launcher}" enabled="true" bounds="[169,1364][551,1448]">
+                  <node package="{self.launcher}" resource-id="{self.namespace}featured_widgets_tab"
+                        enabled="true" checkable="true" checked="false" bounds="[183,1364][341,1448]"/>
+                  <node package="{self.launcher}" resource-id="{self.namespace}personal_widgets_tab"
+                        enabled="true" checkable="true" checked="true" bounds="[341,1364][537,1448]"/>
+                </node>
+              </node>
+            </node>
+          </node>
+        </hierarchy>""")
+
+    def test_browse_viewport_excludes_the_padded_floating_tabs_and_home_edges(self):
+        root = self.picker()
+        picker, visible = runtime_smoke.picker_geometry(root, self.launcher, self.home)
+        self.assertEqual(self.namespace + "personal_widgets_list", picker.get("resource-id"))
+        self.assertEqual((18, 403, 702, 1350), visible)
+        self.assertEqual((30, 450, 690, 1300), runtime_smoke.picker_geometry(
+            root, self.launcher, (30, 450, 690, 1300))[1])
+
+    def test_nested_non_scrollable_list_id_preserves_viewport_and_control_scrolling(self):
+        root = self.picker(f"""
+          <node package="{self.launcher}" text="Usage Limits" enabled="true"
+                clickable="true" bounds="[18,1242][702,1300]"/>
+          <node package="{self.launcher}" resource-id="{self.namespace}personal_widgets_list"
+                enabled="true" scrollable="false" bounds="[18,1345][702,1476]"/>
+        """)
+        picker, visible = runtime_smoke.picker_geometry(root, self.launcher, self.home)
+        self.assertIs(root[0][0][0], picker)
+        self.assertEqual((18, 403, 702, 1350), visible)
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            smoke.launcher = self.launcher
+            smoke.launcher_content_viewport = self.home
+            with patch.object(smoke, "widget_capture", side_effect=[self.picker(), self.picker(), root]), \
+                    patch.object(smoke, "adb") as adb, patch("android_runtime_smoke.time.sleep"):
+                found = smoke.widget_control("browse", self.launcher, label="Usage Limits", scroll=True)
+            self.assertEqual([
+                ("shell", "input", "swipe", "360", "1113", "360", "639", "400"),
+                ("shell", "input", "swipe", "360", "1113", "360", "639", "400"),
+            ], [call.args for call in adb.call_args_list])
+            self.assertEqual((18, 1242, 702, 1300), bounds(found))
+            self.assertEqual([18, 403, 702, 1350], json.loads(
+                (Path(directory) / "browse-2-tap.json").read_text())["visiblePicker"])
+
+    def test_unready_browse_waits_and_duplicate_lists_fail_closed(self):
+        for change in ("missing", "disabled", "foreign", "unbounded", "non-scrollable", "featured"):
+            with self.subTest(change=change):
+                root = self.picker()
+                catalog = root[0]
+                picker = catalog.find(f".//node[@resource-id='{self.namespace}personal_widgets_list']")
+                if change == "missing":
+                    catalog[0].remove(picker)
+                elif change == "disabled":
+                    picker.set("enabled", "false")
+                elif change == "foreign":
+                    picker.set("package", "com.example.other")
+                elif change == "unbounded":
+                    picker.set("bounds", "[18,403][18,403]")
+                elif change == "non-scrollable":
+                    picker.set("scrollable", "false")
+                else:
+                    catalog.find(f".//node[@resource-id='{self.namespace}personal_widgets_tab']").set("checked", "false")
+                self.assertIsNone(runtime_smoke.picker_geometry(root, self.launcher, self.home))
+        root = self.picker()
+        root[0][0].append(ET.fromstring(ET.tostring(root[0][0][0])))
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*personal_widgets_list"):
+            runtime_smoke.picker_geometry(root, self.launcher, self.home)
+
+    def test_widget_control_scrolls_and_clips_only_the_unobscured_browse_content(self):
+        def target(box):
+            return (f'<node package="{self.launcher}" text="Usage Limits" enabled="true" '
+                    f'clickable="true" bounds="{box}"/>')
+
+        for first, start, end in (("", "1113", "639"),
+                                  (target("[18,1356][702,1440]"), "1113", "639"),
+                                  (target("[18,300][702,400]"), "639", "1113")):
+            with self.subTest(first=first), TemporaryDirectory() as directory:
+                smoke = Smoke(Path(directory), "test-device")
+                smoke.launcher = self.launcher
+                smoke.launcher_content_viewport = self.home
+                final = self.picker(target("[18,1320][702,1440]"))
+                with patch.object(smoke, "widget_capture", side_effect=[self.picker(first), final]), \
+                        patch.object(smoke, "adb") as adb, patch("android_runtime_smoke.time.sleep"):
+                    found = smoke.widget_control("browse", self.launcher, label="Usage Limits", scroll=True)
+                adb.assert_called_once_with("shell", "input", "swipe", "360", start, "360", end, "400")
+                self.assertEqual((18, 1320, 702, 1350), bounds(found))
+                self.assertEqual((18, 1320, 702, 1440), bounds(Smoke.control(final, self.launcher, label="Usage Limits")))
+                self.assertEqual([18, 403, 702, 1350], json.loads(
+                    (Path(directory) / "browse-1-tap.json").read_text())["visiblePicker"])
+
+
+class FocusedWidgetTest(unittest.TestCase):
+    launcher = "com.android.launcher3"
+
+    def widget(self):
+        return ET.fromstring(f"""<hierarchy>
+          <node package="{self.launcher}" class="com.android.launcher3.widget.LauncherAppWidgetHostView"
+                content-desc="Mini Rings" enabled="true" focusable="true" focused="true"
+                bounds="[567,163][705,377]">
+            <node package="com.usagelimits" class="android.widget.TextView"
+                  content-desc="Mini Rings" enabled="true" focusable="true" focused="true"
+                  text="No matching accounts" bounds="[585,181][687,359]"/>
+          </node>
+        </hierarchy>""")
+
+    def test_focused_launcher_host_not_its_description_child_owns_keyboard_input(self):
+        root = self.widget()
+        host = runtime_smoke.focused_widget(root, self.launcher, "Mini Rings")
+        self.assertIs(root[0], host)
+        self.assertEqual((567, 163, 705, 377), bounds(host))
+        root[0].set("focused", "false")
+        self.assertIsNone(runtime_smoke.focused_widget(root, self.launcher, "Mini Rings"))
+
+    def test_unready_foreign_or_non_host_nodes_do_not_qualify(self):
+        for attribute, value in (("enabled", "false"), ("focusable", "false"),
+                                 ("focused", "false"), ("package", "com.usagelimits"),
+                                 ("class", "android.widget.LinearLayout"),
+                                 ("content-desc", "Widget Resize Frame for NULL"),
+                                 ("bounds", "[15,818][15,818]")):
+            with self.subTest(attribute=attribute):
+                root = self.widget()
+                root[0].set(attribute, value)
+                self.assertIsNone(runtime_smoke.focused_widget(root, self.launcher, "Mini Rings"))
+
+    def test_duplicate_mini_rings_hosts_fail_even_when_only_one_is_focused(self):
+        root = self.widget()
+        duplicate = ET.fromstring(ET.tostring(root[0]))
+        duplicate.set("focused", "false")
+        duplicate.set("bounds", "[360,818][690,1157]")
+        root.append(duplicate)
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*Mini Rings.*host"):
+            runtime_smoke.focused_widget(root, self.launcher, "Mini Rings")
+
+
+class PostDropFrameTest(unittest.TestCase):
+    launcher = "com.android.launcher3"
+    initial = (567, 163, 705, 377)
+
+    def dropped_widget(self):
+        # The real API 37 capture has Compose wrappers between the frame ID and its focus owner.
+        return ET.fromstring(f"""<hierarchy>
+          <node package="{self.launcher}" class="android.widget.FrameLayout"
+                enabled="true" focused="false" bounds="[0,0][720,1560]">
+            <node package="{self.launcher}" class="android.view.ViewGroup"
+                  enabled="true" focused="false" bounds="[15,163][705,1234]">
+              <node package="{self.launcher}" class="com.android.launcher3.widget.LauncherAppWidgetHostView"
+                    content-desc="Mini Rings" enabled="true" focusable="true" focused="false"
+                    bounds="[429,377][567,591]"/>
+            </node>
+            <node package="{self.launcher}" class="android.widget.LinearLayout"
+                  content-desc="Widget Resize Frame for null" enabled="true" focusable="true" focused="true"
+                  bounds="[345,293][651,675]">
+              <node package="{self.launcher}" class="androidx.compose.ui.platform.ComposeView"
+                    enabled="true" focused="false" bounds="[345,293][651,675]">
+                <node package="{self.launcher}" class="android.view.View"
+                      enabled="true" focused="false" bounds="[345,293][651,675]">
+                  <node package="{self.launcher}" class="android.view.View"
+                        enabled="true" focused="false" bounds="[345,293][651,675]">
+                    <node package="{self.launcher}" class="android.view.View"
+                          resource-id="{self.launcher}:id/widget_resize_frame"
+                          enabled="true" focused="false" bounds="[345,293][651,675]"/>
+                  </node>
+                </node>
+              </node>
+            </node>
+          </node>
+        </hierarchy>""")
+
+    def test_captured_null_named_frame_owns_the_unique_moved_host_by_containment(self):
+        root = self.dropped_widget()
+        owner = runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial)
+        self.assertIs(root[0][1], owner)
+        self.assertEqual((345, 293, 651, 675), bounds(owner))
+
+    def test_focused_owner_without_the_frame_marker_does_not_qualify(self):
+        root = self.dropped_widget()
+        wrapper = root[0][1][0][0][0]
+        wrapper.remove(wrapper[0])
+        self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_unfocused_disabled_or_foreign_frame_owner_does_not_qualify(self):
+        for attribute, value in (("focused", "false"), ("enabled", "false"),
+                                 ("package", "com.example.other")):
+            with self.subTest(attribute=attribute):
+                root = self.dropped_widget()
+                root[0][1].set(attribute, value)
+                self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_disabled_foreign_or_unbounded_frame_marker_does_not_qualify(self):
+        for attribute, value in (("enabled", "false"), ("package", "com.example.other"),
+                                 ("bounds", "[345,293][345,293]")):
+            with self.subTest(attribute=attribute):
+                root = self.dropped_widget()
+                root[0][1][0][0][0][0].set(attribute, value)
+                self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_frame_must_strictly_contain_the_mini_rings_host_on_every_edge(self):
+        for box in ("[567,163][705,377]", "[345,293][651,675]", "[345,377][567,591]", "[429,293][567,591]",
+                    "[429,377][651,591]", "[429,377][567,675]"):
+            with self.subTest(bounds=box):
+                root = self.dropped_widget()
+                root[0][0][0].set("bounds", box)
+                self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_focused_fullscreen_shell_cannot_replace_the_unfocused_frame_owner(self):
+        root = self.dropped_widget()
+        root[0].set("focused", "true")
+        root[0][1].set("focused", "false")
+        self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_focused_same_box_node_must_own_the_frame_not_just_overlap_it(self):
+        root = self.dropped_widget()
+        owner = root[0][1]
+        wrapper = owner[0]
+        owner.remove(wrapper)
+        root[0].append(wrapper)
+        self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_two_focused_same_box_owners_fail_closed(self):
+        root = self.dropped_widget()
+        root[0][1][0].set("focused", "true")
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*resize frame.*owner"):
+            runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial)
+
+    def test_owner_is_not_selected_by_its_class_or_null_description(self):
+        root = self.dropped_widget()
+        root[0][1].set("class", "android.view.ViewGroup")
+        root[0][1].set("content-desc", "")
+        self.assertIs(root[0][1], runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+    def test_two_resize_frames_fail_closed_even_with_only_one_focused_owner(self):
+        root = self.dropped_widget()
+        duplicate = ET.fromstring(ET.tostring(root[0][1]))
+        duplicate.set("focused", "false")
+        root[0].append(duplicate)
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*resize frame"):
+            runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial)
+
+    def test_unchanged_host_is_rejected_even_when_its_frame_has_focus(self):
+        root = self.dropped_widget()
+        self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", (429, 377, 567, 591)))
+
+    def test_ambiguous_mini_rings_hosts_fail_even_when_only_one_is_enclosed(self):
+        root = self.dropped_widget()
+        duplicate = ET.fromstring(ET.tostring(root[0][0][0]))
+        duplicate.set("bounds", "[567,163][705,377]")
+        root[0][0].append(duplicate)
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*Mini Rings.*host"):
+            runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial)
+
+    def test_disabled_foreign_or_non_host_mini_rings_nodes_do_not_qualify(self):
+        for attribute, value in (("enabled", "false"), ("package", "com.usagelimits"),
+                                 ("class", "android.widget.LinearLayout"),
+                                 ("bounds", "[429,377][429,377]")):
+            with self.subTest(attribute=attribute):
+                root = self.dropped_widget()
+                root[0][0][0].set(attribute, value)
+                self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
 
 
 class PngTest(unittest.TestCase):

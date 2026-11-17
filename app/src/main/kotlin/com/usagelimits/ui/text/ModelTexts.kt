@@ -135,7 +135,7 @@ fun storedMessageText(resources: Resources, message: String): String {
     for (entry in STORED_MESSAGES) {
         val match = entry.pattern.matchEntire(message) ?: continue
         val args = match.groupValues.drop(1).map { argument -> argument.toIntOrNull() ?: argument }
-        return resources.getString(entry.res, *args.toTypedArray())
+        return resources.getString(entry.res, *args.toTypedArray<Any>())
     }
     return message
 }

@@ -11,7 +11,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(application = Application::class, sdk = [36])
+@Config(application = Application::class, sdk = [36, 37])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class UsageRingRenderingTest {
     @Test fun `unknown quota never paints the healthy foreground`() {

@@ -1,6 +1,8 @@
 # Device compatibility
 
-Android requires Android 8.0 (API 26) or later. The app compiles and targets API 36 with AGP 8.10.1, Gradle 8.14.6 and Java 17 bytecode. Use JDK 21 and Android SDK 36 for development. Notification permission is requested on Android 13 and later; quota viewing works without it.
+Android requires Android 8.0 (API 26) or later. The app compiles and targets API 37 with AGP 9.3.1, Gradle 9.7.0 and Java 17 bytecode. Use JDK 21 and Android SDK 37.0 for development. Notification permission is requested on Android 13 and later; quota viewing works without it.
+
+On Android 17, keep the browser in the same user or work profile as the app for loopback OAuth: cross-profile localhost access is blocked regardless of target SDK. Certificate Transparency is enabled by default; do not disable this security protection. Physical-device validation is still needed.
 
 Android uses bottom navigation below 600 dp and a side rail in wider windows. Content is capped at 720 dp. Activities support resizing and rotation, including split-screen. Usage widgets resize to the launcher's available space.
 
