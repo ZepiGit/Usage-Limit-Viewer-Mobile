@@ -183,6 +183,41 @@ class DefaultEvidenceParserTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             subject.assert_no_heads_up("HeadsUpManager state:\n  unknownActiveRepresentation=empty", records)
 
+    def test_heads_up_stops_at_shade_touchable_region_manager_after_outdented_heading(self):
+        import status_icon_evidence as subject
+        records = parse_notifications(dump())
+        key = records[1]["key"]
+        flags = "      mHeadsUpPinnedMode=false\n"
+        manager = """HeadsUpManager state:
+      mTouchAcceptanceDelay=700
+      mSnoozeLengthMs=60000
+      now=139930
+      mUser=0
+      snoozed packages: 0
+      mBarState=1
+      mTouchableRegion=SkRegion()
+"""
+        later = (
+            "    ShadeTouchableRegionManager state:\n"
+            "      mTouchableRegion=SkRegion((0,0,720,21)(0,21,798,144)(653,144,798,165))\n"
+            "    CentralSurfacesImpl:\n"
+            "            NotificationIconContainer\n"
+            f"              StatusBarIconView(notification=StatusBarNotification(key={key}))\n"
+        )
+        report = subject.assert_no_heads_up(flags + manager + later, records)
+        self.assertEqual([], report["activeStatusKeys"])
+        self.assertEqual(["false"], report["presentationFlags"])
+
+        for entry, error in (
+            (f"      mAlertEntries={{{key}=entry}}\n", "Status record in active heads-up manager entry"),
+            ("      unknownActiveRepresentation=empty\n", "Unrecognized heads-up active section"),
+            ("      ShadeTouchableRegionManager state: unknown\n", "Unrecognized heads-up active section"),
+        ):
+            with self.subTest(entry=entry), self.assertRaisesRegex(AssertionError, error):
+                subject.assert_no_heads_up(flags + manager + entry + later, records)
+        with self.assertRaisesRegex(AssertionError, "Active heads-up presentation flag"):
+            subject.assert_no_heads_up(flags.replace("false", "true") + manager + later, records)
+
     def test_shade_requires_every_account_child_in_alerting(self):
         import status_icon_evidence as subject
         records = parse_notifications(dump())
@@ -442,6 +477,55 @@ class SwipeEvidenceTest(unittest.TestCase):
                         patch("status_icon_evidence.time.sleep"), patch("status_icon_evidence.png_frame", return_value=(720, 4, [])):
                     evidence.swipe_claude(parse_notifications(dump()))
                 adb.assert_called_with("shell", "input", "swipe", "194", "810", "718", "810", "300")
+
+
+class TransitionEvidenceTest(unittest.TestCase):
+    def test_shade_is_saved_but_does_not_arm_observer_or_post(self):
+        shade = ('<hierarchy><node package="com.android.systemui" enabled="true" '
+                 'resource-id="com.android.systemui:id/notification_stack_scroller" '
+                 'bounds="[0,0][720,1560]"/></hierarchy>')
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Evidence(directory)
+            evidence.report["preflight"] = {"component": "com.android.launcher3/.Launcher"}
+
+            def adb(*args, **kwargs):
+                return shade if args == ("exec-out", "cat", "/sdcard/status-icon-evidence.xml") else ""
+
+            with patch.object(evidence, "adb", side_effect=adb), patch.object(evidence, "command") as command, \
+                    patch.object(evidence, "screen", side_effect=AssertionError("Observer armed before HOME was verified")) as screen:
+                with self.assertRaisesRegex(AssertionError, "Pre-command HOME must expose exactly one enabled launcher workspace with bounds"):
+                    evidence.transition("enable", "03-enabled-default")
+                screen.assert_not_called()
+                command.assert_not_called()
+            self.assertEqual(shade + "\n", (evidence.directory / "03-enabled-default-early-precommand-home.xml").read_text())
+
+    def test_verified_home_hierarchy_precedes_observer_frame_and_post(self):
+        home = ('<hierarchy><node package="example.launcher" enabled="true" '
+                'resource-id="example.launcher:id/workspace" bounds="[0,0][720,1560]"/></hierarchy>')
+        stage = "04-updated"
+        observations = []
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Evidence(directory)
+            evidence.report["preflight"] = {"component": "example.launcher/.Home"}
+
+            def adb(*args, **kwargs):
+                if args == ("shell", "input", "keyevent", "KEYCODE_HOME"):
+                    observations.append("HOME key")
+                if args == ("exec-out", "cat", "/sdcard/status-icon-evidence.xml"):
+                    observations.append("HOME hierarchy")
+                    return home
+                return ""
+
+            def screen(name, *, crop):
+                if name == stage + "-early-0000ms-home":
+                    observations.append("pre-command frame")
+
+            with patch.object(evidence, "adb", side_effect=adb), patch.object(evidence, "screen", side_effect=screen), \
+                    patch.object(evidence, "command", side_effect=observations.append), patch("status_icon_evidence.time.sleep"):
+                evidence.transition("update", stage)
+
+            self.assertEqual(["HOME key", "HOME hierarchy", "pre-command frame", "update"], observations)
+            self.assertEqual(home + "\n", (evidence.directory / (stage + "-early-precommand-home.xml")).read_text())
 
 
 class PreflightEvidenceTest(unittest.TestCase):

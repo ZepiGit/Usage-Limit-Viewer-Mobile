@@ -142,7 +142,7 @@ def parse_alert_events(events):
     return observations
 
 
-def dump_section(text, heading):
+def dump_section(text, heading, *, end_heading=None):
     matches = list(re.finditer(r"(?m)^([ \t]*)" + heading + r"[ \t]*$", text))
     assert len(matches) == 1, "Missing/ambiguous dump section: " + heading
     match = matches[0]
@@ -150,6 +150,8 @@ def dump_section(text, heading):
     indent = len(match[1].expandtabs(4))
     lines = []
     for line in section.splitlines():
+        if line.strip() == end_heading:
+            break
         expanded = line.expandtabs(4)
         if re.fullmatch(r"\s*-+\s*", line):
             continue
@@ -161,7 +163,9 @@ def dump_section(text, heading):
 
 def assert_no_heads_up(systemui, records):
     """Only the manager's active entries are authoritative; other sections repeat keys."""
-    section = dump_section(systemui, r"HeadsUpManager(?:Phone)? state:")
+    # API36 can outdent this heading without outdenting its sibling.
+    section = dump_section(systemui, r"HeadsUpManager(?:Phone)? state:",
+                           end_heading="ShadeTouchableRegionManager state:")
     keys = {record["key"] for record in records if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL}
     assert not any(key in section for key in keys), "Status record in active heads-up manager entry"
     known = (r"mTouchAcceptanceDelay=\d+", r"mSnoozeLengthMs=\d+", r"now=\d+", r"mUser=\d+",
@@ -315,6 +319,13 @@ class SystemDialog(RuntimeError):
     pass
 
 
+def _has_launcher_workspace(root, package):
+    workspace_id = package + ":id/workspace"
+    return sum(1 for node in root.iter("node")
+               if node.get("package") == package and node.get("resource-id") == workspace_id
+               and node.get("enabled") == "true" and bounds(node)) == 1
+
+
 class Evidence:
     def __init__(self, directory):
         self.directory = Path(directory)
@@ -422,8 +433,7 @@ class Evidence:
                 expanded = package + "/" + (package + activity if activity.startswith(".") else activity)
                 focuses = re.findall(r"(?m)^\s*mCurrentFocus=Window\{[^\n]* u\d+ ([^\s{}]+/[^\s{}]+)\}", window)
                 focuses = [pkg + "/" + (pkg + act if act.startswith(".") else act) for pkg, act in (focus.split("/", 1) for focus in focuses)]
-                workspaces = [node for node in root.iter("node") if node.get("package") == package and node.get("resource-id") == package + ":id/workspace" and node.get("enabled") == "true" and bounds(node)]
-                if focuses == [expanded] and len(workspaces) == 1:
+                if focuses == [expanded] and _has_launcher_workspace(root, package):
                     self.screen("preflight-home", crop=True)
                     ready_anr = self.adb("shell", "dumpsys", "activity", "lastanr", timeout=8)
                     self.save("preflight-ready-lastanr.txt", ready_anr)
@@ -587,7 +597,13 @@ class Evidence:
             self.save(name + "-early-timing.json", json.dumps({key: value for key, value in timing.items() if key not in ("window", "systemui", "logcat", "events")}, indent=2))
 
     def transition(self, command, name):
+        self.report["lastAssertion"] = name + ": pre-command HOME readiness"
         self.home()
+        root = self.xml(name + "-early-precommand-home")
+        package = self.report["preflight"]["component"].split("/", 1)[0]
+        assert _has_launcher_workspace(root, package), (
+            "Pre-command HOME must expose exactly one enabled launcher workspace with bounds"
+        )
         ready, start, timing = threading.Event(), threading.Event(), {}
         observer = threading.Thread(target=self.early_frames, args=(name, ready, start, timing), daemon=True)
         observer.start()
