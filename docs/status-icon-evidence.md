@@ -50,6 +50,14 @@ Protocol aliases are compatibility names, **not provider identities**. Account t
 
 `update` changes Claude to 87% left and publishes `cacheMoved`. `reorder` stores Antigravity, Claude, Codex, xAI, Kimi, Devin and publishes `presentationChanged`. `states` makes the first three fixtures Claude exhausted, Codex stale (5 underlined), and Antigravity an error, then publishes `cacheMoved`. `reset-readings` restores initial readings without changing settings, pins or order. `presentation` and `cache` invoke only the corresponding production publication event. No command posts, cancels or dismisses a notification directly.
 
+## Silent-icon visibility is a device precondition
+
+The API 37 AOSP image defaults to hiding silent status-bar icons. Run 44133402554 retained six valid account records and three shade rows but showed **zero account icons** on HOME: Notification Manager reported `hideSilentStatusBar=true`, SystemUI `showSilentStatusIcons=false`. API 30/36 images in that run showed three icons. This is a user/system setting, not evidence that publication failed.
+
+Keep a capture and dump of the initial device setting before changing it. For the visible-icon scenario, use Settings → Notifications → turn **Hide silent notifications in status bar** off, then verify `hideSilentStatusBar=false` and `showSilentStatusIcons=true`. There is no `cmd notification` verb or secure-settings key for this policy; the harness uses the actual Settings switch. Do not alter production channel importance or bypass the setting.
+
+Sources: [API 37 default policy](https://android.googlesource.com/platform/frameworks/base/+/android-17.0.0_r1/services/core/java/com/android/server/notification/PreferencesHelper.java), [Settings switch](https://android.googlesource.com/platform/packages/apps/Settings/+/android-17.0.0_r1/src/com/android/settings/notification/SilentStatusBarPreferenceController.java), [shell-command surface](https://android.googlesource.com/platform/frameworks/base/+/android-17.0.0_r1/services/core/java/com/android/server/notification/NotificationShellCmd.java). The same default changed on Android 16 between release tags r3 and r4; do not generalize one emulator image to every device.
+
 ## What counts as evidence
 
 Capture the status bar, expanded shade and magnified status-bar crop after each scenario step. Save notification ranking dumps alongside captures, sampled at least three seconds after publication. Three selected accounts require six status-channel records in three groups, each one summary and one child, with no `Aggregate_*` or `ranker_group` grouping. Count alert and system records separately. An update or reorder must not add alert records; unpinning one account from a full state leaves four status records.

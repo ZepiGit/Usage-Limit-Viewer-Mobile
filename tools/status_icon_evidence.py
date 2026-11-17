@@ -337,6 +337,83 @@ class Evidence:
         self.summary()
         return records
 
+    def show_silent_icons(self):
+        """Allow silent icons through the user preference, retaining the default evidence."""
+        visibility = self.report["silentIconVisibility"] = {"defaultHidden": None, "setupChanged": False}
+
+        def dumps(name):
+            notification = self.adb("shell", "dumpsys", "notification", "--noredact")
+            systemui = self.adb("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")
+            self.save(name + "-notification.txt", notification)
+            self.save(name + "-systemui.txt", systemui)
+            flags = re.findall(r"\bhideSilentStatusBar=(true|false)\b", notification)
+            showing = re.findall(r"\bshowSilentStatusIcons=(true|false)\b", systemui)
+            return flags, showing[0] == "true" if len(showing) == 1 else None
+
+        flags, showing = dumps("silent-icons-before")
+        visibility["systemuiDefaultShowing"] = showing if self.report["api"] == 37 else "unsupported dump field"
+        if self.report["api"] == 30:
+            visibility["observation"] = "API30 NMS visibility dump unsupported; Run1 default icons observed visible; no setting change. Inspect current 03-enabled-default screenshots separately."
+            return
+        assert len(flags) == 1, "Missing or ambiguous hideSilentStatusBar dump field"
+        visibility["defaultHidden"] = flags[0] == "true"
+        if not visibility["defaultHidden"]:
+            if self.report["api"] == 37:
+                assert showing is True, "SystemUI must explicitly show silent icons when API37 NMS allows them"
+                visibility["allowedSilentVerified"] = True
+            return
+        assert self.report["api"] == 37, "Only API37 hidden-default Settings setup is supported"
+        self.report["lastAssertion"] = "allow silent icons through observed Settings switch"
+        self.adb("shell", "am", "start", "-a", "android.settings.NOTIFICATION_SETTINGS")
+
+        def control(root):
+            titles = [node for node in root.iter("node") if node.get("text") == "Hide silent notifications in status bar" and node.get("package") == "com.android.settings"]
+            assert len(titles) <= 1, "Ambiguous silent notification Settings title"
+            if not titles:
+                return None
+            parents = {child: parent for parent in root.iter() for child in parent}
+            row = parents.get(titles[0])
+            while row is not None and row.tag == "node" and row.get("scrollable") != "true":
+                switches = [node for node in row.iter("node") if node.get("checkable") == "true" and node.get("class", "").endswith("Switch")]
+                if switches:
+                    assert len(switches) == 1 and bounds(switches[0]) and switches[0].get("enabled") == "true", "Ambiguous or disabled silent notification switch"
+                    assert switches[0].get("checked") in ("true", "false"), "Missing silent notification switch state"
+                    return switches[0]
+                row = parents.get(row)
+            raise AssertionError("Silent notification title has no same-row switch")
+
+        for probe in range(9):
+            name = f"silent-icons-before-{probe}"
+            root = self.xml(name)
+            self.screen(name)
+            switch = control(root)
+            if switch is not None:
+                break
+            assert probe < 8, "Silent notification Settings title missing after eight scrolls"
+            containers = [node for node in root.iter("node") if node.get("scrollable") == "true" and bounds(node)]
+            assert len(containers) == 1, "Missing or ambiguous silent notification Settings scroll container"
+            x1, y1, x2, y2 = bounds(containers[0])
+            x, span = (x1 + x2) // 2, y2 - y1
+            self.adb("shell", "input", "swipe", str(x), str(y2 - span // 4), str(x), str(y1 + span // 4), "300")
+        if switch.get("checked") == "true":
+            x1, y1, x2, y2 = bounds(switch)
+            self.adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+            visibility["setupChanged"] = True
+        deadline = time.monotonic() + 5
+        for probe in range(10):
+            name = f"silent-icons-after-{probe}"
+            root = self.xml(name)
+            self.screen(name)
+            switch = control(root)
+            flags, showing = dumps(name)
+            if switch is not None and switch.get("checked") == "false" and flags == ["false"] and showing:
+                visibility["allowedSilentVerified"] = True
+                self.adb("shell", "input", "keyevent", "KEYCODE_HOME")
+                return
+            assert time.monotonic() < deadline, "Silent icon setting failed UI/NMS/SystemUI verification"
+            time.sleep(0.5)
+        raise AssertionError("Silent icon setting failed bounded verification")
+
     def swipe_claude(self, records):
         titles = {record["title"] for record in records if record["package"] == PACKAGE and record["tag"] == "status-icon:" + self.state["localIds"][ACCOUNTS[0]]}
         assert len(titles) == 1 and None not in titles, "Cannot resolve Claude notification title from dump"
@@ -352,10 +429,16 @@ class Evidence:
             if node.get("text") != title or node.get("package") != "com.android.systemui":
                 continue
             row = None
+            content = None
             while node is not None:
                 if node.get("resource-id", "").endswith("/expandableNotificationRow") and bounds(node):
                     row = node
+                if self.report["api"] == 30 and content is None and node.get("resource-id") == "android:id/status_bar_latest_event_content" and bounds(node):
+                    content = node
                 node = parents.get(node)
+            # API30's observed hierarchy omits row IDs; keep modern outer account groups.
+            if row is None:
+                row = content
             if row is not None:
                 rows[bounds(row)] = row
         assert len(rows) == 1, "Expected one observed Claude shade row; refusing guessed swipe coordinates"
@@ -392,7 +475,9 @@ class Evidence:
             self.capture(f"02-pin-off-{index + 1}", "OFF; add " + account + " in Codex,Antigravity,Claude pin order", [])
         self.command("enable")
         assert self.state["enabled"], "Feature did not enable"
-        full = self.capture("03-enabled", "OFF with three pins -> ON; initial app order Claude,Codex,Antigravity differs pin order", ACCOUNTS[:3])
+        default = self.capture("03-enabled-default", "OFF with three pins -> ON; unchanged platform silent-icon preference", ACCOUNTS[:3])
+        self.show_silent_icons()
+        full = self.capture("03-enabled", "Allowed-silent scenario; initial app order Claude,Codex,Antigravity differs pin order; no app event during Settings setup", ACCOUNTS[:3], baseline=default)
         self.command("update")
         full = self.capture("04-updated", "full six; Claude42 ->87 through repository/cacheMoved", ACCOUNTS[:3], baseline=full)
         self.command("reorder")
@@ -424,7 +509,7 @@ class Evidence:
         lines = ["# Status-icon device evidence — API " + str(self.report.get("api", "preflight")), "", "Result: " + self.report["result"], "", "Last assertion: " + self.report["lastAssertion"], "", self.report["visualAcceptance"], "", "| Scenario | Starting state | Status records | App alert records | System records | Result |", "|---|---|---:|---:|---:|---|"]
         for entry in self.report["scenarios"]:
             lines.append("| " + " | ".join(str(value).replace("|", "\\|") for value in (entry["name"], entry["startingState"], entry.get("statusCount", "?"), entry.get("alertCount", "?"), entry.get("systemCount", "?"), entry["result"])) + " |")
-        lines += ["", "## Ranking observations"]
+        lines += ["", "## Silent icon visibility", "", "Inspected baseline run44133402554: API37 had 0 status icons, 6 active status records and 3 shade rows with hideSilentStatusBar=true/showSilentStatusIcons=false; API30 and API36 showed 3 status icons.", "", "The current platform default is preserved in 03-enabled-default. API37 default may hide all silent icons; the conditional allowed-silent scenario uses user Setting off (Hide silent notifications in status bar), not an unchanged-default claim.", "", json.dumps(self.report.get("silentIconVisibility", {}), sort_keys=True), "", "Default and allowed-silent captures are separate; unchanged notification keys are compared across setup, with no toggle when the platform already allows silent icons.", "", "## Ranking observations"]
         for entry in self.report["scenarios"]:
             if "accountDumpOrder" in entry:
                 aliases = {local: alias for alias, local in entry["driver"]["localIds"].items()}

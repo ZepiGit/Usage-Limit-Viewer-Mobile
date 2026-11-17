@@ -124,6 +124,164 @@ class NotificationEvidenceTest(unittest.TestCase):
             self.assertEqual(["evidence-codex", "evidence-gemini"], swipe_accounts(api))
 
 
+class SilentIconEvidenceTest(unittest.TestCase):
+    def test_hidden_default_is_disabled_using_observed_settings_switch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Evidence(directory)
+            evidence.report["api"] = 37
+            tapped = False
+            scrolled = False
+
+            def adb(*args, **kwargs):
+                nonlocal tapped, scrolled
+                if args[:3] == ("shell", "input", "swipe"):
+                    self.assertEqual(("shell", "input", "swipe", "360", "1075", "360", "425", "300"), args)
+                    scrolled = True
+                if args[:3] == ("shell", "input", "tap"):
+                    self.assertEqual(("shell", "input", "tap", "640", "930"), args)
+                    tapped = True
+                if args == ("shell", "dumpsys", "notification", "--noredact"):
+                    return "hideSilentStatusBar=" + str(not tapped).lower()
+                if args == ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService"):
+                    return "showSilentStatusIcons=" + str(tapped).lower()
+                if args[:2] == ("exec-out", "cat"):
+                    if not scrolled:
+                        return '<hierarchy><node package="com.android.settings" scrollable="true" bounds="[0,100][720,1400]"/></hierarchy>'
+                    return '''<hierarchy><node package="com.android.settings" scrollable="true" bounds="[0,100][720,1400]">
+                      <node><node class="android.widget.Switch" checkable="true" checked="true" bounds="[1,1][20,20]"/></node>
+                      <node class="android.widget.LinearLayout"><node resource-id="android:id/title" package="com.android.settings" text="Hide silent notifications in status bar"/>
+                        <node class="android.widget.Switch" checkable="true" enabled="true" checked="%s" bounds="[600,900][680,960]"/>
+                      </node></node></hierarchy>''' % str(not tapped).lower()
+                return ""
+
+            with patch.object(evidence, "adb", side_effect=adb), patch.object(evidence, "screen"):
+                evidence.show_silent_icons()
+            self.assertTrue(tapped)
+            self.assertEqual(True, evidence.report["silentIconVisibility"]["defaultHidden"])
+            self.assertEqual(True, evidence.report["silentIconVisibility"]["setupChanged"])
+            self.assertIn('checked="false"', (evidence.directory / "silent-icons-after-0.xml").read_text())
+            self.assertIn("hideSilentStatusBar=false", (evidence.directory / "silent-icons-after-0-notification.txt").read_text())
+
+    def test_visible_default_and_api30_do_not_change_settings(self):
+        for api, notification, default in ((36, "hideSilentStatusBar=false", False), (30, "old dump", None)):
+            with self.subTest(api=api), tempfile.TemporaryDirectory() as directory:
+                evidence = Evidence(directory)
+                evidence.report["api"] = api
+                with patch.object(evidence, "adb", side_effect=[notification, "showSilentStatusIcons=true"]) as adb:
+                    evidence.show_silent_icons()
+                self.assertEqual(2, adb.call_count)
+                self.assertEqual(default, evidence.report["silentIconVisibility"]["defaultHidden"])
+                self.assertFalse(evidence.report["silentIconVisibility"]["setupChanged"])
+
+    def test_api37_visible_default_requires_explicit_systemui_agreement(self):
+        for systemui, expected in (("showSilentStatusIcons=true", True), ("showSilentStatusIcons=false", False), ("missing field", None)):
+            with self.subTest(systemui=systemui), tempfile.TemporaryDirectory() as directory:
+                evidence = Evidence(directory)
+                evidence.report["api"] = 37
+                with patch.object(evidence, "adb", side_effect=["hideSilentStatusBar=false", systemui]) as adb:
+                    if expected is True:
+                        evidence.show_silent_icons()
+                        self.assertTrue(evidence.report["silentIconVisibility"]["allowedSilentVerified"])
+                    else:
+                        with self.assertRaisesRegex(AssertionError, "SystemUI"):
+                            evidence.show_silent_icons()
+                self.assertEqual(2, adb.call_count)
+                self.assertIs(expected, evidence.report["silentIconVisibility"]["systemuiDefaultShowing"])
+                self.assertFalse(evidence.report["silentIconVisibility"]["setupChanged"])
+
+    def test_missing_or_ambiguous_settings_title_never_taps(self):
+        for titles in ("", '<node package="com.android.settings" text="Hide silent notifications in status bar"/>' * 2):
+            with self.subTest(titles=titles), tempfile.TemporaryDirectory() as directory:
+                evidence = Evidence(directory)
+                evidence.report["api"] = 37
+
+                def adb(*args, **kwargs):
+                    if args[:2] == ("exec-out", "cat"):
+                        return "<hierarchy>" + titles + "</hierarchy>"
+                    return "hideSilentStatusBar=true showSilentStatusIcons=false"
+
+                with patch.object(evidence, "adb", side_effect=adb) as calls, patch.object(evidence, "screen"), \
+                        self.assertRaisesRegex(AssertionError, "silent|Silent"):
+                    evidence.show_silent_icons()
+                self.assertFalse(any(call.args[:3] == ("shell", "input", "tap") for call in calls.call_args_list))
+
+    def test_failed_toggle_does_not_claim_allowed_silent_scenario(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Evidence(directory)
+            evidence.report["api"] = 37
+
+            def adb(*args, **kwargs):
+                if args[:2] == ("exec-out", "cat"):
+                    return '''<hierarchy><node><node package="com.android.settings" text="Hide silent notifications in status bar"/>
+                        <node class="android.widget.Switch" checkable="true" enabled="true" checked="true" bounds="[600,900][680,960]"/>
+                        </node></hierarchy>'''
+                return "hideSilentStatusBar=true showSilentStatusIcons=false"
+
+            with patch.object(evidence, "adb", side_effect=adb), patch.object(evidence, "screen"), \
+                    patch("status_icon_evidence.time.monotonic", side_effect=[0, 6]), \
+                    self.assertRaisesRegex(AssertionError, "silent|Silent"):
+                evidence.show_silent_icons()
+            self.assertIn("hideSilentStatusBar=true", (evidence.directory / "silent-icons-after-0-notification.txt").read_text())
+
+
+class SwipeEvidenceTest(unittest.TestCase):
+    def test_api30_swipes_observed_content_without_expandable_row_id(self):
+        # Run44133402554 API30 swipe-before-shade.xml: no expandableNotificationRow.
+        root = ET.fromstring('''<hierarchy><node package="com.android.systemui"
+            resource-id="com.android.systemui:id/notification_stack_scroller" bounds="[0,0][720,1420]">
+          <node package="com.android.systemui" class="android.widget.FrameLayout"
+              resource-id="com.android.systemui:id/expanded" bounds="[7,762][713,947]">
+            <node package="com.android.systemui" class="android.widget.FrameLayout"
+                resource-id="android:id/status_bar_latest_event_content" bounds="[7,762][713,947]">
+              <node package="com.android.systemui" resource-id="android:id/notification_main_column"
+                  bounds="[35,843][685,912]">
+                <node package="com.android.systemui" resource-id="android:id/line1" bounds="[35,843][685,877]">
+                  <node package="com.android.systemui" resource-id="android:id/title"
+                      text="Claude (synthetic)" bounds="[35,843][685,877]"/>
+                </node>
+              </node>
+            </node>
+          </node>
+        </node></hierarchy>''')
+        records = parse_notifications(dump(PAIR.replace("Claude", "Claude (synthetic)")))
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Evidence(directory)
+            evidence.report["api"] = 30
+            evidence.state = {"localIds": {"evidence-claude": "uuid-claude"}}
+            (evidence.directory / "swipe-before-shade.png").write_bytes(b"synthetic screenshot")
+            with patch.object(evidence, "adb") as adb, patch.object(evidence, "xml", return_value=root), \
+                    patch.object(evidence, "screen"), patch.object(evidence, "settled"), \
+                    patch("status_icon_evidence.time.sleep"), patch("status_icon_evidence.png_frame", return_value=(720, 4, [])):
+                evidence.swipe_claude(records)
+            self.assertEqual([
+                (("shell", "cmd", "statusbar", "expand-notifications"), {}),
+                (("shell", "input", "swipe", "183", "854", "718", "854", "300"), {}),
+            ], adb.call_args_list)
+
+
+    def test_modern_swipe_keeps_outer_account_group_instead_of_inner_content(self):
+        for api in (36, 37):
+            with self.subTest(api=api), tempfile.TemporaryDirectory() as directory:
+                root = ET.fromstring('''<hierarchy>
+                  <node package="com.android.systemui" resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[28,737][692,883]">
+                    <node package="com.android.systemui" resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[28,751][692,877]">
+                      <node package="com.android.systemui" resource-id="android:id/status_bar_latest_event_content" bounds="[28,751][692,877]">
+                        <node package="com.android.systemui" resource-id="android:id/title" text="Claude" bounds="[119,772][320,806]"/>
+                      </node>
+                    </node>
+                  </node>
+                </hierarchy>''')
+                evidence = Evidence(directory)
+                evidence.report["api"] = api
+                evidence.state = {"localIds": {"evidence-claude": "uuid-claude"}}
+                (evidence.directory / "swipe-before-shade.png").write_bytes(b"synthetic screenshot")
+                with patch.object(evidence, "adb") as adb, patch.object(evidence, "xml", return_value=root), \
+                        patch.object(evidence, "screen"), patch.object(evidence, "settled"), \
+                        patch("status_icon_evidence.time.sleep"), patch("status_icon_evidence.png_frame", return_value=(720, 4, [])):
+                    evidence.swipe_claude(parse_notifications(dump()))
+                adb.assert_called_with("shell", "input", "swipe", "194", "810", "718", "810", "300")
+
+
 class PreflightEvidenceTest(unittest.TestCase):
     def test_clean_lastanr_requires_exact_dialog_and_dropbox_process_proof(self):
         # Captured issue66 startup ANR: lastanr stays clean while DropBox retains it.
