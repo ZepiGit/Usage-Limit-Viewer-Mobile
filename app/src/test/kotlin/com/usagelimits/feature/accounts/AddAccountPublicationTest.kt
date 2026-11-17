@@ -85,6 +85,7 @@ class AddAccountPublicationTest {
                 else com.usagelimits.core.sync.OutOfAppPublication(
                     repaint = { com.usagelimits.widget.WidgetUpdater.refreshAll(app, settingsStore) },
                     scheduleBoundary = { throw IllegalStateException("WorkManager unavailable") },
+                    publishStatusIcons = {},
                     publishAlerts = {
                         com.usagelimits.core.sync.NotificationPublisher(app, settingsStore, notificationDao,
                             transactions = transactions).publishFor(repository.accountUsageOnce())

@@ -70,6 +70,8 @@ fun SettingsScreen(
     onNotificationPermissionAsked: () -> Unit,
     modifier: Modifier = Modifier,
     onProviderIconChange: (com.usagelimits.core.model.ProviderId, String) -> Unit = { _, _ -> },
+    onStatusIconsChange: (Boolean) -> Unit = {},
+    onPinnedAccountChange: (String?) -> Unit = {},
 ) {
     val settings = state.settings
     val uriHandler = LocalUriHandler.current
@@ -222,6 +224,19 @@ fun SettingsScreen(
                     onChange = onNotifyAuthExpired,
                 )
             }
+        }
+
+        item { SectionHeader(stringResource(R.string.settings_section_status_icons)) }
+        item {
+            StatusIconSettings(
+                enabled = settings.statusIconsEnabled,
+                pinnedAccountIds = settings.pinnedAccountIds,
+                accounts = state.accounts,
+                permissionAlreadyAsked = settings.notificationPermissionHandled,
+                onPermissionAsked = onNotificationPermissionAsked,
+                onEnabledChange = onStatusIconsChange,
+                onPinnedChange = onPinnedAccountChange,
+            )
         }
 
         item { SectionHeader(stringResource(R.string.settings_section_thresholds)) }

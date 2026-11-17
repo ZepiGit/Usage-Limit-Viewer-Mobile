@@ -6,6 +6,7 @@ import com.usagelimits.core.database.CreditRepository
 import com.usagelimits.core.database.UsageRepository
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.settings.SettingsStore
+import com.usagelimits.statusicon.StatusIconPublisher
 import com.usagelimits.widget.WidgetPresentationWorker
 import com.usagelimits.widget.WidgetUpdater
 import kotlinx.coroutines.CancellationException
@@ -16,8 +17,9 @@ import kotlinx.coroutines.flow.first
  *
  * [cacheMoved] follows a sync, including an account's first reading and a failed attempt that
  * retained cached readings. It repaints out-of-app surfaces, schedules their next presentation
- * boundary, then evaluates and publishes alerts. The notification ledger deduplicates edges
- * when foreground and background syncs observe the same reading.
+ * boundary, repaints the status icons of pinned accounts, then evaluates and publishes alerts. The
+ * notification ledger deduplicates edges when foreground and background syncs observe the same
+ * reading.
  *
  * [presentationChanged] follows settings, ordering, removal, configuration or a time boundary.
  * It repaints and reschedules without evaluating or claiming alerts: changing how a reading
@@ -39,6 +41,7 @@ interface Publication {
 internal class OutOfAppPublication(
     private val repaint: suspend () -> Unit,
     private val scheduleBoundary: suspend () -> Unit,
+    private val publishStatusIcons: suspend () -> Unit,
     private val publishAlerts: suspend () -> Unit,
 ) : Publication {
     constructor(
@@ -47,6 +50,7 @@ internal class OutOfAppPublication(
         credits: CreditRepository,
         settings: SettingsStore,
         notifications: NotificationPublisher,
+        statusIcons: StatusIconPublisher,
     ) : this(
         repaint = { WidgetUpdater.refreshAll(context, settings) },
         scheduleBoundary = {
@@ -61,6 +65,7 @@ internal class OutOfAppPublication(
                 nowMs = now,
             ), now)
         },
+        publishStatusIcons = statusIcons::publish,
         publishAlerts = { notifications.publishFor(repository.accountUsageOnce()) },
     )
 
@@ -72,6 +77,7 @@ internal class OutOfAppPublication(
     override suspend fun presentationChanged() {
         bestEffort("repaint", repaint)
         bestEffort("presentation boundary", scheduleBoundary)
+        bestEffort("status icons", publishStatusIcons)
     }
 
     private suspend fun bestEffort(step: String, publish: suspend () -> Unit) {

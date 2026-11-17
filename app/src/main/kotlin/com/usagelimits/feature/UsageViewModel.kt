@@ -381,6 +381,25 @@ class UsageViewModel(
         }
     }
 
+    /** Turns the status icons on or off; the publication posts or cancels them at once. */
+    fun setStatusIcons(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.setStatusIconsEnabled(enabled)
+            container.publication.presentationChanged()
+        }
+    }
+
+    /**
+     * Pins [accountId] as the one account with a status icon, or pins none for null. Choosing
+     * another account replaces the previous one; the stored form is already the ordered list.
+     */
+    fun setPinnedAccount(accountId: String?) {
+        viewModelScope.launch {
+            container.settingsStore.setPinnedAccounts(listOfNotNull(accountId))
+            container.publication.presentationChanged()
+        }
+    }
+
     fun recordNotificationPermissionAsked() {
         viewModelScope.launch { container.settingsStore.recordNotificationPermissionAsked() }
     }

@@ -47,3 +47,9 @@ _Avoid_: Reset pending, expired window
 **Display mode**:
 Which side of a usage window the percentages count: **Left** (what remains) or **Used** (what has been spent).
 _Avoid_: Percent mode, toggle, view mode
+
+**Pinned account**:
+An account the person chose to keep visible through a status icon. At most three; credit accounts cannot be pinned.
+
+**Status icon**:
+The small persistent mark for one pinned account: its provider glyph and the figure of its headline.

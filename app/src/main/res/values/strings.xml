@@ -487,6 +487,22 @@
     </plurals>
     <string name="notification_more" tools:ignore="PluralsCandidate">+%1$d more</string>
 
+    <!-- Status icons for pinned accounts: channel and shade row (statusicon/StatusIconTexts.kt). -->
+    <string name="status_icon_channel_name">Status bar icons</string>
+    <string name="status_icon_channel_description">A silent icon with the figure of each pinned account</string>
+    <!-- %1$s is the figure with its percent sign, %2$s the side word ("left" / "used"). -->
+    <string name="status_icon_text_figure">%1$s %2$s</string>
+    <string name="status_icon_text_unknown">No percentage reported</string>
+    <string name="status_icon_text_reconnect">Reconnect required</string>
+    <string name="status_icon_text_refresh_failed">Refresh failed</string>
+    <string name="settings_section_status_icons">Status bar icons</string>
+    <string name="settings_status_icons_switch">Show status bar icons</string>
+    <string name="settings_status_icons_subtitle">A small icon with the account\'s figure next to the clock, updated after every refresh</string>
+    <string name="settings_status_icons_blocked">Status bar icons cannot be shown until notifications are allowed.</string>
+    <string name="settings_status_icons_choose">Account</string>
+    <string name="settings_status_icons_no_accounts">Add an account to show its icon.</string>
+    <string name="settings_status_icons_note">Android decides how many icons fit, and its setting that hides silent notification icons hides these too.</string>
+
     <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
     <string name="loopback_signed_in">Signed in</string>
     <string name="loopback_sign_in_failed">Sign-in failed</string>

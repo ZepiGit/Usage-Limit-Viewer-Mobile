@@ -104,7 +104,8 @@ internal fun NotificationPermissionSettings(alreadyAsked: Boolean, onNotificatio
     }
 }
 
-private fun openNotificationSettings(context: Context) {
+/** Also the route the status icon switch takes once Android stops offering the dialog. */
+internal fun openNotificationSettings(context: Context) {
     val notifications = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
         .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
     val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
@@ -112,7 +113,7 @@ private fun openNotificationSettings(context: Context) {
     context.startFirstAvailable(notifications, details)
 }
 
-private tailrec fun Context.activity(): Activity? = when (this) {
+internal tailrec fun Context.activity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.activity()
     else -> null

@@ -17,6 +17,7 @@ import com.usagelimits.core.sync.OutOfAppPublication
 import com.usagelimits.core.sync.Publication
 import com.usagelimits.providers.credits.CreditRegistry
 import com.usagelimits.providers.ProviderRegistry
+import com.usagelimits.statusicon.StatusIconPublisher
 import com.usagelimits.ui.text.ResourceLoopbackPageTexts
 
 /**
@@ -83,6 +84,7 @@ open class AppContainer(context: Context) {
 
     open val publication: Publication by lazy {
         OutOfAppPublication(appContext, repository, creditRepository, settingsStore,
-            NotificationPublisher(appContext, settingsStore, notificationDao, transactions = transactions))
+            NotificationPublisher(appContext, settingsStore, notificationDao, transactions = transactions),
+            StatusIconPublisher(appContext, settingsStore, repository))
     }
 }
