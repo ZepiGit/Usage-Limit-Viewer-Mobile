@@ -10,13 +10,21 @@ sdkmanager 'platforms;android-37.0' 'system-images;android-37.0;default;x86_64'
 
 The app has minSdk 26 and compiles and targets API 37. The wrapper pins Gradle 9.7.0 and its distribution checksum; the toolchain uses AGP 9.3.1, Kotlin 2.4.21, KSP 2.3.14 and Compose compiler 2.4.21. AGP's built-in Kotlin and new DSL stay enabled, without the `org.jetbrains.kotlin.android` plugin. AGP and Gradle require at least JDK 17, but the project uses JDK 21, including for Robolectric 4.18's API 37 support. Explicit older regression SDKs remain in tests. Java 17 bytecode is preserved.
 
-The versions are coordinated against the [AGP 9.3 compatibility table](https://developer.android.com/build/releases/agp-9-3-0-release-notes), [Kotlin's Gradle/AGP compatibility table](https://kotlinlang.org/docs/gradle-configure-project.html) and [KSP requirements](https://kotlinlang.org/docs/ksp-overview.html). Do not upgrade `gradle/actions` to v6 without owner approval; this ticket freezes its major version.
+The versions are coordinated against the [AGP 9.3 compatibility table](https://developer.android.com/build/releases/agp-9-3-0-release-notes), [Kotlin's Gradle/AGP compatibility table](https://kotlinlang.org/docs/gradle-configure-project.html) and [KSP requirements](https://kotlinlang.org/docs/ksp-overview.html). This upgrade leaves `gradle/actions` at its existing major. The separately reviewed action upgrade requires `cache-provider: basic`; do not enable its default enhanced cache.
 
 From the repository root:
 
 ```sh
-./gradlew :app:assembleDebug :app:assembleRelease
+./gradlew --no-daemon -Pkotlin.compiler.execution.strategy=in-process :app:assembleDebug :app:assembleRelease
 ```
+
+On the shared Linux development host, serialize all Gradle and Swift work with `/tmp/ulv-gradle.lock`, keep the Kotlin compiler in-process, and use `--offline` once dependencies are cached:
+
+```sh
+flock /tmp/ulv-gradle.lock env JAVA_HOME=$HOME/.jdks/jdk-21.0.13+9 LC_ALL=C.UTF-8 LANG=C.UTF-8 ./gradlew --offline --no-daemon -Pkotlin.compiler.execution.strategy=in-process :app:testDebugUnitTest :app:lintDebug
+```
+
+Drop `--offline` only to resolve a new artifact. Do not raise the host's heap limits to accommodate this upgrade; use CI if the in-process compiler cannot fit.
 
 On Windows, use `gradlew.bat`. The debug APK is `app/build/outputs/apk/debug/app-debug.apk`; its application ID is `com.usagelimits.debug`, so it installs separately from release builds. Release output is `app/build/outputs/apk/release/app-release.apk`.
 
@@ -36,7 +44,7 @@ A nonblank `ANDROID_*` environment value takes precedence, followed by the `USAG
 With every signing value absent, release builds use the debug key for local installation. Partial settings fail instead of falling back. Distribution requires the existing release key. Keep that key, passwords and provisioning credentials outside the repository and under owner control. Disable Gradle's configuration cache for signed builds.
 
 ```sh
-./gradlew --no-configuration-cache :app:bundleRelease :app:assembleRelease
+./gradlew --no-daemon -Pkotlin.compiler.execution.strategy=in-process --no-configuration-cache :app:bundleRelease :app:assembleRelease
 ```
 
 The bundle is `app/build/outputs/bundle/release/app-release.aab`. Retain the matching R8 `mapping.txt` with the minified APK and AAB. Set `ANDROID_VERSION_NAME` and `ANDROID_VERSION_CODE` for distribution; local defaults are the source version name and reachable commit count.

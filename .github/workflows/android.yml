@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Robolectric Android 16 requires JDK 21; app bytecode still targets Java 17.
+      # Robolectric Android 16/17 requires JDK 21; app bytecode still targets Java 17.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
