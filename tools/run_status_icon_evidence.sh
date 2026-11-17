@@ -6,7 +6,11 @@ case "$api" in 30|36|37) ;; *) echo "Unsupported API: $api" >&2; exit 2 ;; esac
 : "${ANDROID_HOME:?Android SDK setup is required}"
 : "${RUNNER_TEMP:?A dedicated CI runner is required}"
 : "${DISPLAY:?Run under xvfb-run}"
-evidence="runtime/status-icons-api$api"
+if [[ "${STATUS_ICON_EXPERIMENT:-}" == visibility ]]; then
+  evidence="runtime/prototype-visibility-api$api"
+else
+  evidence="runtime/status-icons-api$api"
+fi
 mkdir -p "$evidence"
 script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 export ANDROID_SERIAL=emulator-5554
@@ -159,6 +163,10 @@ PY
   done
   printf '%s\n' "$attempt" > "$evidence/installed-on-boot.txt"
   # No retry path exists beyond this point, even if installation or the scenario fails.
-  python3 "$script_directory/status_icon_evidence.py" --apk app/build/outputs/apk/debug/app-debug.apk --evidence "$evidence"
+  capture_script=status_icon_evidence.py
+  if [[ "${STATUS_ICON_EXPERIMENT:-}" == visibility ]]; then
+    capture_script=prototype_visibility_capture.py
+  fi
+  python3 "$script_directory/$capture_script" --apk app/build/outputs/apk/debug/app-debug.apk --evidence "$evidence"
   exit 0
 done

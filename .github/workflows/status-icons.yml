@@ -1,7 +1,8 @@
-name: Status icon device evidence
+name: Prototype status icon visibility
 
 on:
   push:
+    branches: ['prototype/statusbar-api37-visibility']
     paths:
       - 'app/src/main/kotlin/com/usagelimits/statusicon/**'
       - 'app/src/test/kotlin/com/usagelimits/statusicon/**'
@@ -30,7 +31,7 @@ concurrency:
 
 jobs:
   evidence:
-    name: Status icons API ${{ matrix.api }}
+    name: Prototype visibility API ${{ matrix.api }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -52,12 +53,13 @@ jobs:
       - name: Check the evidence harness
         run: |
           python3 -m unittest discover -s tools -p 'test_status_icon_evidence.py'
+          python3 -m unittest discover -s tools -p 'test_prototype_visibility_capture.py'
           bash -n tools/run_status_icon_evidence.sh
       - name: Build debug driver and prove release manifest isolation
         run: |
           ./gradlew --no-daemon -Pkotlin.compiler.execution.strategy=in-process :app:assembleDebug :app:processReleaseMainManifest
-          mkdir -p runtime/status-icons-api${{ matrix.api }}
-          python3 tools/check_status_icon_release.py --build app/build --evidence runtime/status-icons-api${{ matrix.api }}
+          mkdir -p runtime/prototype-visibility-api${{ matrix.api }}
+          python3 tools/check_status_icon_release.py --build app/build --evidence runtime/prototype-visibility-api${{ matrix.api }}
       # Same command-line tools pin and licence handling as android.yml.
       - name: Set up Android SDK tools
         uses: android-actions/setup-android@v4
@@ -69,14 +71,15 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Capture production status icon scenarios
+      - name: Capture untouched-default notification candidates
         env:
           STATUS_ICON_API: ${{ matrix.api }}
+          STATUS_ICON_EXPERIMENT: visibility
         run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_status_icon_evidence.sh
       - name: Publish observed ranking and assertion summary
         if: always()
         run: |
-          summary=runtime/status-icons-api${{ matrix.api }}/summary.md
+          summary=runtime/prototype-visibility-api${{ matrix.api }}/summary.md
           if [[ -f "$summary" ]]; then
             cat "$summary" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -86,6 +89,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: status-icons-api${{ matrix.api }}-${{ github.sha }}
-          path: runtime/status-icons-api${{ matrix.api }}
+          name: prototype-visibility-api${{ matrix.api }}-${{ github.sha }}
+          path: runtime/prototype-visibility-api${{ matrix.api }}
           if-no-files-found: warn

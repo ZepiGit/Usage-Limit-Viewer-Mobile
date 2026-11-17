@@ -1,6 +1,9 @@
 package com.usagelimits.evidence
 
 import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationManager
+import android.os.Build
 import android.util.AtomicFile
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -13,6 +16,7 @@ import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.statusicon.PrototypeStatusIconRecipe
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -40,11 +44,13 @@ internal class StatusIconEvidenceDriver(
         try {
             require(!token.isNullOrBlank()) { "A unique token is required" }
             require(command in COMMANDS) { "Unknown command: $command" }
-            require(account == null || FIXTURES.any { it.alias == account }) { "Unknown account: $account" }
+            require(command == "recipe" || account == null || FIXTURES.any { it.alias == account }) { "Unknown account: $account" }
             require(command == "seed" || seeded) { "Seed a clean installation first; clear app data after process restart" }
             when (command) {
                 "seed" -> seed()
                 "enable" -> container.statusIconChanges.setEnabled(true)
+                "disable" -> container.statusIconChanges.setEnabled(false)
+                "recipe" -> selectRecipe(account)
                 "pin", "unpin" -> {
                     val selected = fixtureAccount(requireNotNull(account) { "An account alias is required" })
                     check(container.statusIconChanges.setPinned(selected.localId, command == "pin")) { "Pin rejected for $account" }
@@ -82,6 +88,16 @@ internal class StatusIconEvidenceDriver(
         writeCompletion(command, token, failure)
     }
 
+    private suspend fun selectRecipe(value: String?) {
+        val recipe = requireNotNull(PrototypeStatusIconRecipe.entries.firstOrNull { it.value == value }) { "Unknown recipe: $value" }
+        check(!container.settingsStore.settings.first().statusIconsEnabled) { "Disable status icons before changing recipe" }
+        val manager = app.getSystemService(NotificationManager::class.java)
+        check(manager.activeNotifications.none { it.notification.channelId in PrototypeStatusIconRecipe.channels }) {
+            "Disable status icons and wait for experiment records to be removed before changing recipe"
+        }
+        recipe.store(app)
+    }
+
     private suspend fun seed() {
         if (!seeded) {
             check(repository.accounts().isEmpty() && container.creditRepository.entriesOnce().isEmpty()) {
@@ -91,6 +107,7 @@ internal class StatusIconEvidenceDriver(
         }
         val changes = container.statusIconChanges
         changes.setEnabled(false)
+        selectRecipe("low")
         for (id in container.settingsStore.settings.first().pinnedAccountIds) {
             check(changes.setPinned(id, false))
         }
@@ -142,6 +159,9 @@ internal class StatusIconEvidenceDriver(
         }
         val byId = aliases.associate { (alias, id) -> id to alias }
         val settings = container.settingsStore.settings.first()
+        val recipe = PrototypeStatusIconRecipe.read(app)
+        val manager = app.getSystemService(NotificationManager::class.java)
+        val records = manager.activeNotifications.filter { it.notification.channelId in PrototypeStatusIconRecipe.channels }
         val completion = JSONObject()
             .put("token", token ?: JSONObject.NULL)
             .put("command", command ?: JSONObject.NULL)
@@ -150,6 +170,23 @@ internal class StatusIconEvidenceDriver(
             .put("pins", JSONArray(settings.pinnedAccountIds.mapNotNull { byId[it] }))
             .put("enabled", settings.statusIconsEnabled)
             .put("localIds", JSONObject(aliases.toMap()))
+            .put("recipe", recipe.value)
+            .put("channel", recipe.channel)
+            .put("grouped", recipe.grouped)
+            .put("promotionAllowed", if (Build.VERSION.SDK_INT >= 36) manager.canPostPromotedNotifications() else JSONObject.NULL)
+            .put("activeRecords", JSONArray(records.map { record ->
+                val notification = record.notification
+                JSONObject()
+                    .put("tag", record.tag)
+                    .put("id", record.id)
+                    .put("channel", notification.channelId)
+                    .put("group", notification.group ?: JSONObject.NULL)
+                    .put("summary", notification.flags and Notification.FLAG_GROUP_SUMMARY != 0)
+                    .put("flags", notification.flags)
+                    .put("requested", notification.extras.getBoolean("android.requestPromotedOngoing"))
+                    .put("actual", notification.flags and Notification.FLAG_PROMOTED_ONGOING != 0)
+                    .put("hasPromotableCharacteristics", if (Build.VERSION.SDK_INT >= 36) notification.hasPromotableCharacteristics() else JSONObject.NULL)
+            }))
         if (error != null) completion.put("error", error)
         val file = AtomicFile(File(app.filesDir, "status-icon-evidence.json"))
         val output = file.startWrite()
@@ -165,7 +202,7 @@ internal class StatusIconEvidenceDriver(
     private data class Fixture(val alias: String, val provider: ProviderId, val left: Double)
 
     private companion object {
-        val COMMANDS = setOf("seed", "enable", "pin", "unpin", "update", "reorder", "states", "reset-readings", "presentation", "cache")
+        val COMMANDS = setOf("seed", "enable", "disable", "recipe", "pin", "unpin", "update", "reorder", "states", "reset-readings", "presentation", "cache")
         val FIXTURES = listOf(
             Fixture("evidence-claude", ProviderId.CLAUDE, 42.0),
             Fixture("evidence-codex", ProviderId.CODEX, 5.0),

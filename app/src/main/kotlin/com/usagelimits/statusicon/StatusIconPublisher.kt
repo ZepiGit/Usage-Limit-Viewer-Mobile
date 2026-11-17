@@ -1,6 +1,7 @@
 package com.usagelimits.statusicon
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -122,8 +123,9 @@ class StatusIconPublisher(
         val pinned = pinnedAccountIds(settings.statusIconsEnabled, settings.pinnedAccountIds, accounts.map { it.account.localId })
         val previouslyShown = shown.read().toSet()
 
+        val recipe = PrototypeStatusIconRecipe.read(context)
         val wanted = pinned.map(::tagFor).toSet()
-        val active = manager.activeNotifications.filter { it.notification.channelId == CHANNEL_ID }
+        val active = manager.activeNotifications.filter { it.notification.channelId in PrototypeStatusIconRecipe.channels }
         active.filter { it.tag !in wanted }.forEach { manager.cancel(it.tag, it.id) }
         val showing = active.map { it.tag }.toSet()
         shown.write(pinned)
@@ -132,7 +134,7 @@ class StatusIconPublisher(
         if (posting.isEmpty()) return@withLock
 
         val texts = ResourceStatusIconTexts(context.resources)
-        ensureChannel(texts)
+        ensureChannel(texts, recipe)
         val nowMs = now()
         val byId = accounts.associateBy { it.account.localId }
         var previous: Long? = null
@@ -143,7 +145,7 @@ class StatusIconPublisher(
             val reading = if (ordered) readingBeforeBuild(previous) else null
             if (reading == null) ordered = false
             val postedAt = reading ?: now()
-            post(byId.getValue(id), settings, texts, nowMs, postedAt)
+            post(byId.getValue(id), settings, texts, nowMs, postedAt, recipe)
             previous = postedAt
         }
     }
@@ -183,7 +185,14 @@ class StatusIconPublisher(
         }
     }
 
-    private fun post(usage: AccountUsage, settings: AppSettings, texts: StatusIconTexts, nowMs: Long, postedAt: Long) {
+    private fun post(
+        usage: AccountUsage,
+        settings: AppSettings,
+        texts: StatusIconTexts,
+        nowMs: Long,
+        postedAt: Long,
+        recipe: PrototypeStatusIconRecipe,
+    ) {
         val snapshot = usage.snapshot
         val headline = snapshot?.headlineAt(nowMs)
         val needsReauthentication = snapshot?.connectionStatus == ConnectionStatus.RECONNECT_REQUIRED
@@ -215,23 +224,37 @@ class StatusIconPublisher(
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        for ((id, summary) in listOf(SUMMARY_ID to true, CHILD_ID to false)) {
-            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val records = if (recipe.grouped) listOf(SUMMARY_ID to true, CHILD_ID to false) else listOf(CHILD_ID to false)
+        for ((id, summary) in records) {
+            val builder = NotificationCompat.Builder(context, recipe.channel)
                 .setSmallIcon(IconCompat.createWithBitmap(bitmap))
                 .setContentTitle(usage.account.label)
                 .setContentText(line)
                 .setContentIntent(open)
-                .setGroup(tag)
-                .setGroupSummary(summary)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setLocalOnly(true)
-                .setSilent(true)
                 .setShowWhen(false)
                 // Real, and the account's place in the order: see the class comment.
                 .setWhen(postedAt)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .build()
+                .setPriority(if (recipe == PrototypeStatusIconRecipe.LOW) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_DEFAULT)
+            if (recipe.grouped) builder.setGroup(tag).setGroupSummary(summary)
+            // setSilent can regroup ungrouped records and forces the gentle section.
+            if (recipe == PrototypeStatusIconRecipe.LOW) builder.setSilent(true)
+            if (recipe.promoted) {
+                builder.setRequestPromotedOngoing(!summary)
+                if (!summary) builder.setShortCriticalText("${presentation?.token ?: "—"}%")
+            }
+            var notification = builder.build()
+            if (recipe.promoted && !summary && Build.VERSION.SDK_INT >= 36) {
+                // ProgressStyle is a plumbing control, not semantic Live Update eligibility.
+                notification = Notification.Builder.recoverBuilder(context, notification)
+                    .setStyle(Notification.ProgressStyle()
+                        .setProgressSegments(listOf(Notification.ProgressStyle.Segment(100)))
+                        .setProgress(presentation?.token?.toIntOrNull()?.coerceIn(0, 100) ?: 0))
+                    .setColorized(recipe.legacyColorized && Build.VERSION.SDK_INT == 36)
+                    .build()
+            }
             try {
                 manager.notify(tag, id, notification)
             } catch (_: SecurityException) {
@@ -241,12 +264,13 @@ class StatusIconPublisher(
         }
     }
 
-    private fun ensureChannel(texts: StatusIconTexts) {
+    private fun ensureChannel(texts: StatusIconTexts, recipe: PrototypeStatusIconRecipe) {
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, texts.channelName(), NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(recipe.channel, texts.channelName(), recipe.importance).apply {
                 description = texts.channelDescription()
                 setSound(null, null)
                 enableVibration(false)
+                if (recipe != PrototypeStatusIconRecipe.LOW) enableLights(false)
                 setShowBadge(false)
             },
         )
