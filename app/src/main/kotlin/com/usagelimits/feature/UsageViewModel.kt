@@ -331,10 +331,11 @@ class UsageViewModel(
 
     fun setSyncInterval(minutes: Int) {
         viewModelScope.launch {
-            container.settingsStore.setSyncInterval(minutes)
-            // Apply interval changes immediately. UPDATE preserves the existing schedule
-            // rather than starting an immediate pass.
-            SyncWorker.schedulePeriodic(appContext, minutes)
+            withContext(NonCancellable) {
+                container.settingsStore.setSyncInterval(minutes)
+                // Read the persisted choice during scheduling so an older caller cannot undo it.
+                SyncWorker.scheduleBackgroundSync(appContext)
+            }
             // Staleness uses this interval at render time, so repaint widgets when it changes.
             container.publication.presentationChanged()
         }

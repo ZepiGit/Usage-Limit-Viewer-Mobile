@@ -69,7 +69,7 @@
     <string name="settings_title">Einstellungen</string>
     <string name="settings_section_sync">Synchronisierung</string>
     <string name="settings_interval_title">Intervall der Hintergrundaktualisierung</string>
-    <string name="settings_interval_subtitle">Android kann Hintergrundaufgaben verzögern, um Akku zu sparen. Das Intervall ist daher ein Zielwert, keine Garantie.</string>
+    <string name="settings_interval_subtitle">Android aktualisiert im Ruhemodus oder Energiesparmodus möglicherweise seltener.</string>
     <string name="settings_section_overview">Übersicht</string>
     <string name="settings_show_tier_title">Abo-Stufe anzeigen</string>
     <string name="settings_show_tier_subtitle">Plus, Pro, Max – neben dem Anbieternamen</string>

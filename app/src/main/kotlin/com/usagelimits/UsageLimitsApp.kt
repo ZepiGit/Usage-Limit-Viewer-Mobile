@@ -4,12 +4,10 @@ import android.app.Application
 import android.util.Log
 import androidx.work.Configuration
 import com.usagelimits.core.di.AppContainer
-import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.sync.SyncWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import okhttp3.OkHttp
 
@@ -57,16 +55,13 @@ class UsageLimitsApp : Application(), Configuration.Provider {
         container = AppContainer(this)
 
         startupJob = appScope.launch {
-            val interval = runCatching { container.settingsStore.settings.first().syncIntervalMinutes }
-                .getOrDefault(AppSettings.DEFAULT_SYNC_INTERVAL_MINUTES)
-
             // Contained, and logged rather than swallowed. This runs in a SupervisorJob, so a
             // throw here does not crash the app — it simply means the background refresh is
             // never scheduled, silently, for the life of the install. That is the worse failure
             // of the two, and it deserves a line in the log rather than an uncaught exception
             // nobody sees.
             runCatching {
-                SyncWorker.schedulePeriodic(this@UsageLimitsApp, interval)
+                SyncWorker.scheduleBackgroundSync(this@UsageLimitsApp)
 
                 // Refresh on launch so the first screen is current rather than however stale the
                 // last background pass left it.

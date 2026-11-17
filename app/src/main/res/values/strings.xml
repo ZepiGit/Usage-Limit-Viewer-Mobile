@@ -69,7 +69,7 @@
     <string name="settings_title">Settings</string>
     <string name="settings_section_sync">Sync</string>
     <string name="settings_interval_title">Background refresh interval</string>
-    <string name="settings_interval_subtitle">Android may delay background work to save battery, so this is a target rather than a guarantee.</string>
+    <string name="settings_interval_subtitle">Android may refresh less often in Doze or battery saver.</string>
     <string name="settings_section_overview">Overview</string>
     <string name="settings_show_tier_title">Show subscription tier</string>
     <string name="settings_show_tier_subtitle">Plus, Pro, Max — beside the provider name</string>

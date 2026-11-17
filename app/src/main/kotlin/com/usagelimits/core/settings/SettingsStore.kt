@@ -63,12 +63,8 @@ data class AppSettings(
     val percentDisplay: PercentDisplay = PercentDisplay.LEFT,
 ) {
     companion object {
-        /**
-         * 15 minutes is the floor WorkManager enforces for periodic work, and also about the
-         * fastest cadence that stays polite to the providers.
-         */
         const val DEFAULT_SYNC_INTERVAL_MINUTES = 30
-        const val MIN_SYNC_INTERVAL_MINUTES = 15
+        const val MIN_SYNC_INTERVAL_MINUTES = 5
         const val DEFAULT_RESET_LEAD_MINUTES = 30
 
         /** A day: long enough to act on, short enough not to be background noise. */
@@ -200,8 +196,7 @@ class SettingsStore(context: Context) {
  * Internal so preference fallback and upgrade rules can be tested without a Context.
  */
 internal fun Preferences.toSettings() = AppSettings(
-    // Clamp reads as well as writes: restored or downgraded preferences can contain an
-    // interval below WorkManager's minimum, and the displayed interval must match scheduling.
+    // Restored or downgraded preferences can contain an interval below the supported minimum.
     syncIntervalMinutes = (this[Keys.SYNC_INTERVAL] ?: AppSettings.DEFAULT_SYNC_INTERVAL_MINUTES)
         .coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES),
     notificationPermissionHandled = this[Keys.NOTIFICATION_PERMISSION_ASKED] ?: false,

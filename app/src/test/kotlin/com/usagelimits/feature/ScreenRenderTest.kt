@@ -1,5 +1,7 @@
 package com.usagelimits.feature
 
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
@@ -7,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.model.PercentDisplay
@@ -286,10 +289,24 @@ class ScreenRenderTest {
             .let { assertTrue("the Security section should be gone", it.isEmpty()) }
     }
 
-    private fun renderSettings(mode: PercentDisplay) = render {
+    @Test
+    @Config(qualifiers = "w393dp-h873dp")
+    fun `settings offers five minutes and explains background delays`() {
+        var chosen: Int? = null
+        renderSettings(PercentDisplay.LEFT) { chosen = it }
+
+        val caption = "Android may refresh less often in Doze or battery saver."
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(caption))
+        compose.onNodeWithText(caption).assertIsDisplayed()
+        compose.onNodeWithText("5m").assertIsDisplayed()
+            .performSemanticsAction(SemanticsActions.OnClick) { it() }
+        assertEquals(5, chosen)
+    }
+
+    private fun renderSettings(mode: PercentDisplay, onSyncIntervalChange: (Int) -> Unit = {}) = render {
         SettingsScreen(
             state = UsageUiState(accounts = listOf(usage()), settings = AppSettings(percentDisplay = mode)),
-            onSyncIntervalChange = {},
+            onSyncIntervalChange = onSyncIntervalChange,
             onNotificationPermissionHandled = {},
             onNotifyBelow20 = {},
             onNotifyBelow10 = {},
@@ -365,7 +382,7 @@ class ScreenRenderTest {
         }
 
         compose.onNode(hasScrollToNodeAction())
-            .performScrollToNode(hasText("Show percentages as", substring = true))
+            .performScrollToNode(hasText("Used"))
         compose.onNodeWithText("Used").performClick()
         assertEquals(PercentDisplay.USED, chosen)
     }

@@ -27,6 +27,7 @@ class SettingsMappingTest {
         val settings = settingsFrom()
 
         assertEquals(AppSettings(), settings)
+        assertEquals(30, settings.syncIntervalMinutes)
         assertTrue(settings.showSubscriptionTier)
         assertFalse(settings.showRenewalTime)
         assertFalse(settings.accountsManuallyOrdered)
@@ -82,12 +83,19 @@ class SettingsMappingTest {
     }
 
     @Test
-    fun `a stored interval below the platform floor is raised on the way out`() {
+    fun `five minutes survives reload and older interval choices stay unchanged`() {
+        for (minutes in listOf(5, 15, 30, 60, 180)) {
+            assertEquals(minutes, settingsFrom(intPreferencesKey("sync_interval_minutes") to minutes).syncIntervalMinutes)
+        }
+    }
+
+    @Test
+    fun `a stored interval below the supported minimum is raised on the way out`() {
         val settings = settingsFrom(intPreferencesKey("sync_interval_minutes") to 1)
 
         assertEquals(
-            "an interval the platform ignores must not survive a read",
-            AppSettings.MIN_SYNC_INTERVAL_MINUTES,
+            "a stored interval below five minutes must normalize on read",
+            5,
             settings.syncIntervalMinutes,
         )
     }
