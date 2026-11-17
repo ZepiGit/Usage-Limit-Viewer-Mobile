@@ -224,6 +224,16 @@ def selected_tab(root, label):
     return target is not None and target.get("selected") == "true"
 
 
+def focused_widget(root, launcher, label):
+    """The unique placed launcher host, only when it can receive keyboard input."""
+    hosts = [node for node in root.iter("node") if node.get("package") == launcher
+             and node.get("class", "").endswith("AppWidgetHostView")
+             and node.get("content-desc") == label and bounds(node)]
+    assert len(hosts) <= 1, f"Ambiguous {label} host"
+    return next((node for node in hosts if all(node.get(attribute) == "true"
+                 for attribute in ("enabled", "focusable", "focused"))), None)
+
+
 class Smoke:
     def __init__(self, directory, serial):
         self.directory = directory
@@ -570,48 +580,44 @@ class Smoke:
         item = fixtures[0]
         expected = {entry["component"]: entry["id"] for entry in placed}
         assert len(expected) == 4, "Move/resize must retain all four placed widgets"
-        frame_description = "Widget Resize Frame for " + item["label"]
         resize_labels = {"Increase width", "Decrease width", "Increase height", "Decrease height"}
-        report = {"result": "incomplete", "widget": item, "retainedWidgetIds": expected, "steps": []}
+        report = {"result": "incomplete", "widget": item, "retainedWidgetIds": expected,
+                  "widgetFocus": [], "steps": []}
 
         def record():
             self.text("widgets-move-resize.json", json.dumps(report, indent=2))
 
-        def frame(root):
-            self.assert_no_system_error(root)
-            found = [node for node in root.iter("node") if node.get("package") == self.launcher
-                     and node.get("content-desc") == frame_description
-                     and node.get("class") == "android.widget.LinearLayout" and bounds(node)]
-            assert len(found) <= 1, "Ambiguous Mini Rings resize frame"
-            return next((node for node in found if node.get("focused") == "true"
-                         and node.get("enabled") == "true"), None)
-
-        def open_frame(name):
-            host = self.find_placed_widget(name + "-locate", item["label"])
-            x1, y1, x2, y2 = bounds(host)
-            x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
-            self.adb("shell", "input", "swipe", x, y, x, y, "1000")
-            root = self.widget_capture(name + "-longpress")
-            popups = [node for node in root.iter("node")
-                      if node.get("resource-id") == self.launcher + ":id/system_shortcuts_container"]
-            assert len(popups) <= 1, "Ambiguous launcher widget shortcuts popup"
-            if popups:
-                popup = popups[0]
-                assert popup.get("package") == self.launcher and popup.get("enabled") == "true" and bounds(popup), (
-                    "Launcher widget shortcuts popup is not ready")
-                assert all(self.control(popup, self.launcher, label=label) is not None
-                           for label in ("Remove", "Settings")), "Unrecognized launcher widget shortcuts popup"
-                # Dismiss only the observed top popup; the focused resize frame must still be proved below.
-                self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_BACK")
-                self.widget_capture(name + "-popup-dismissed")
-            self.wait_for(name, lambda root: frame(root) is not None)
-            assert frame(self.widget_capture(name)) is not None, "Mini Rings resize frame lost focus"
+        def focus_widget(name):
+            selected = bounds(self.find_placed_widget(name + "-locate", item["label"]))
+            focus_report = {"action": name, "selectedBounds": selected, "steps": []}
+            report["widgetFocus"].append(focus_report)
+            record()
+            # API 37 keyboard shortcuts require the actual ItemInfo-bearing host, not its null-named Compose frame.
+            for index in range(41):
+                capture = f"{name}-focus-{index}"
+                root = self.widget_capture(capture)
+                host = focused_widget(root, self.launcher, item["label"])
+                focus_report["steps"].append({
+                    "capture": capture, "key": None if index == 0 else "TAB",
+                    "focusedNodes": [{key: node.get(key, "") for key in (
+                        "package", "class", "resource-id", "text", "content-desc", "bounds",
+                        "enabled", "focusable", "focused")}
+                        for node in root.iter("node") if node.get("focused") == "true"],
+                })
+                record()
+                assert host_box(root) == selected, "Mini Rings host moved, lost content or remained behind launcher action UI during focus traversal"
+                if host is not None:
+                    assert bounds(host) == selected, "Keyboard focus belongs to a different Mini Rings host"
+                    return
+                if index < 40:
+                    self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_TAB")
+            raise AssertionError("Mini Rings launcher host did not acquire input focus within 40 TAB keys")
 
         def host_box(root):
             self.assert_no_system_error(root)
             # Wait for the actual unobscured host after the launcher closes its action UI.
-            if any(node.get("content-desc") == frame_description
-                   or node.get("resource-id") == self.launcher + ":id/system_shortcuts_container"
+            if any(node.get("resource-id") in (self.launcher + ":id/widget_resize_frame",
+                                                self.launcher + ":id/system_shortcuts_container")
                    or (node.get("resource-id") == self.launcher + ":id/bubble_text"
                        and node.get("text") in resize_labels)
                    or (node.get("resource-id") == self.launcher + ":id/label"
@@ -662,7 +668,7 @@ class Smoke:
         initial = observe("move-resize-before", lambda box: True)
         report["beforeBounds"] = initial
         record()
-        open_frame("move-frame")
+        focus_widget("move")
         self.adb("shell", "input", "keyboard", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_M")
         self.wait_for("move-target-loaded", lambda root: move_target(root) is not None)
         original_target = move_target(self.widget_capture("move-target-original"))
@@ -713,9 +719,7 @@ class Smoke:
             seen.add(target["text"])
         assert selected is not None, "No different observed move target on the original Home page"
         self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ENTER")
-        # Quickstep opens the resize frame after a resizable widget is dropped.
-        self.wait_for("move-drop-frame", lambda root: frame(root) is not None)
-        assert frame(self.widget_capture("move-drop-frame")) is not None, "Dropped Mini Rings frame lost focus"
+        self.widget_capture("move-drop")
         self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ESCAPE")
         moved = observe("move-after", lambda box: size(box) == size(initial) and box[:2] != initial[:2])
         report["steps"].append({"action": "move", "target": selected, "before": initial, "after": moved})
@@ -729,9 +733,11 @@ class Smoke:
                 label = action + " " + dimension
                 name = "resize-" + action.lower() + "-" + dimension
                 before = current
-                open_frame(name + "-frame")
+                focus_widget(name)
                 self.adb("shell", "input", "keyboard", "keycombination", "KEYCODE_CTRL_LEFT", "KEYCODE_R")
                 self.tap(self.widget_control(name + "-option", self.launcher, label=label))
+                self.widget_capture(name + "-selected")
+                self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_ESCAPE")
                 def resized(box):
                     after_size, before_size = size(box), size(before)
                     return after_size[1 - axis] == before_size[1 - axis] and (

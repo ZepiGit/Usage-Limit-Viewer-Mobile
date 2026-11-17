@@ -1,4 +1,4 @@
-"""Runtime smoke pixel, picker geometry and setting state checks: python3 -m unittest discover -s tools"""
+"""Runtime smoke pixel, picker geometry, host focus and setting checks: python3 -m unittest discover -s tools"""
 
 import json
 from pathlib import Path
@@ -237,6 +237,49 @@ class PickerGeometryTest(unittest.TestCase):
                 self.assertEqual((18, 1320, 702, 1440), bounds(Smoke.control(final, self.launcher, label="Usage Limits")))
                 self.assertEqual([18, 403, 702, 1350], json.loads(
                     (Path(directory) / "browse-1-tap.json").read_text())["visiblePicker"])
+
+
+class FocusedWidgetTest(unittest.TestCase):
+    launcher = "com.android.launcher3"
+
+    def widget(self):
+        return ET.fromstring(f"""<hierarchy>
+          <node package="{self.launcher}" class="com.android.launcher3.widget.LauncherAppWidgetHostView"
+                content-desc="Mini Rings" enabled="true" focusable="true" focused="true"
+                bounds="[567,163][705,377]">
+            <node package="com.usagelimits" class="android.widget.TextView"
+                  content-desc="Mini Rings" enabled="true" focusable="true" focused="true"
+                  text="No matching accounts" bounds="[585,181][687,359]"/>
+          </node>
+        </hierarchy>""")
+
+    def test_focused_launcher_host_not_its_description_child_owns_keyboard_input(self):
+        root = self.widget()
+        host = runtime_smoke.focused_widget(root, self.launcher, "Mini Rings")
+        self.assertIs(root[0], host)
+        self.assertEqual((567, 163, 705, 377), bounds(host))
+        root[0].set("focused", "false")
+        self.assertIsNone(runtime_smoke.focused_widget(root, self.launcher, "Mini Rings"))
+
+    def test_unready_foreign_or_non_host_nodes_do_not_qualify(self):
+        for attribute, value in (("enabled", "false"), ("focusable", "false"),
+                                 ("focused", "false"), ("package", "com.usagelimits"),
+                                 ("class", "android.widget.LinearLayout"),
+                                 ("content-desc", "Widget Resize Frame for NULL"),
+                                 ("bounds", "[15,818][15,818]")):
+            with self.subTest(attribute=attribute):
+                root = self.widget()
+                root[0].set(attribute, value)
+                self.assertIsNone(runtime_smoke.focused_widget(root, self.launcher, "Mini Rings"))
+
+    def test_duplicate_mini_rings_hosts_fail_even_when_only_one_is_focused(self):
+        root = self.widget()
+        duplicate = ET.fromstring(ET.tostring(root[0]))
+        duplicate.set("focused", "false")
+        duplicate.set("bounds", "[360,818][690,1157]")
+        root.append(duplicate)
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*Mini Rings.*host"):
+            runtime_smoke.focused_widget(root, self.launcher, "Mini Rings")
 
 
 class PngTest(unittest.TestCase):
