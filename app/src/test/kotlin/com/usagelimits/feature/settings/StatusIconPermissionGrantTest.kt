@@ -132,7 +132,11 @@ class StatusIconPermissionGrantTest {
                 )
             }
         }
-        compose.waitUntil(10_000) { vm.state.value.loaded && vm.state.value.accounts.isNotEmpty() }
+        // Room/DataStore results resume on the paused Android looper, not the Compose clock.
+        compose.waitUntil(10_000) {
+            ShadowLooper.idleMainLooper()
+            vm.state.value.loaded && vm.state.value.accounts.isNotEmpty()
+        }
     }
 
     /**
