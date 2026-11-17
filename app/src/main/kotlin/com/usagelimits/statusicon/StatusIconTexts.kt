@@ -1,0 +1,64 @@
+package com.usagelimits.statusicon
+
+import android.content.res.Resources
+import com.usagelimits.R
+import com.usagelimits.core.model.StatusIconContent
+import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WindowPresentation
+import com.usagelimits.core.time.Countdown
+import com.usagelimits.ui.percentSideWordRes
+import com.usagelimits.ui.text.ResourceCountdownTexts
+import com.usagelimits.ui.text.percentFigure
+import com.usagelimits.ui.text.windowLabelRes
+
+/**
+ * The words of a status notification, handed to [StatusIconPublisher] the way
+ * [com.usagelimits.core.notifications.NotificationTexts] is handed to the alerts.
+ *
+ * A shade row has the account name as its title and one line of text. For a reading that line is
+ * the figure in words with its side, the window's label and the next reset ("42% left · 5h limit ·
+ * Resets 14:05"). The figure is the presentation's token, never the icon's shortened number, so
+ * "<1%" and ">99%" are said as they are.
+ */
+interface StatusIconTexts {
+    fun channelName(): String
+    fun channelDescription(): String
+
+    /** The line of an account that needs signing in again. */
+    fun reconnectRequired(): String
+
+    /** The line of an account whose last sync failed. */
+    fun refreshFailed(): String
+
+    /** The line of an account with a reading, whose icon shows [content] (never an error). */
+    fun reading(content: StatusIconContent, headline: UsageWindow?, presentation: WindowPresentation, nowMs: Long): String
+}
+
+/** [StatusIconTexts] from `strings.xml`, in the language of the given [resources]. */
+class ResourceStatusIconTexts(private val resources: Resources) : StatusIconTexts {
+    private val countdown = ResourceCountdownTexts(resources)
+
+    override fun channelName(): String = resources.getString(R.string.status_icon_channel_name)
+
+    override fun channelDescription(): String = resources.getString(R.string.status_icon_channel_description)
+
+    override fun reconnectRequired(): String = resources.getString(R.string.status_icon_text_reconnect)
+
+    override fun refreshFailed(): String = resources.getString(R.string.status_icon_text_refresh_failed)
+
+    override fun reading(content: StatusIconContent, headline: UsageWindow?, presentation: WindowPresentation, nowMs: Long): String {
+        val state = when (content) {
+            StatusIconContent.Exhausted -> resources.getString(R.string.severity_exhausted)
+            StatusIconContent.Unknown -> resources.getString(R.string.status_icon_text_unknown)
+            else -> resources.getString(
+                R.string.status_icon_text_figure,
+                percentFigure(presentation.token, resources),
+                resources.getString(percentSideWordRes(presentation.side)),
+            )
+        }
+        if (headline == null) return state
+        val label = windowLabelRes(headline.label, headline.category, headline.scope)?.let(resources::getString) ?: headline.label
+        val reset = Countdown.absoluteResetLabel(headline.resetAt, nowMs, locale = resources.configuration.locales[0], texts = countdown)
+        return listOfNotNull(state, label, reset).joinToString(" · ")
+    }
+}

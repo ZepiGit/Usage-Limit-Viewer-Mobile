@@ -12,9 +12,12 @@ import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
 class PublicationFailureTest {
+    private fun steps(cacheMoved: Boolean) =
+        if (cacheMoved) listOf("repaint", "schedule", "status icons", "alerts") else listOf("repaint", "schedule", "status icons")
+
     @Test fun `a failed publication step never skips the remaining effects or fails a committed change`() = runBlocking {
         for (cacheMoved in listOf(false, true)) {
-            val expected = if (cacheMoved) listOf("repaint", "schedule", "alerts") else listOf("repaint", "schedule")
+            val expected = steps(cacheMoved)
             for (failedStep in expected) {
                 val attempted = mutableListOf<String>()
                 suspend fun effect(step: String) {
@@ -24,6 +27,7 @@ class PublicationFailureTest {
                 val publication: Publication = OutOfAppPublication(
                     repaint = { effect("repaint") },
                     scheduleBoundary = { effect("schedule") },
+                    publishStatusIcons = { effect("status icons") },
                     publishAlerts = { effect("alerts") },
                 )
 
@@ -45,13 +49,14 @@ class PublicationFailureTest {
                 com.usagelimits.widget.WidgetPresentationWorker.scheduleNext(context,
                     System.currentTimeMillis() + 60_000, System.currentTimeMillis())
             },
+            publishStatusIcons = { completed += "status icons" },
             publishAlerts = { completed += "alerts" },
         )
 
         publication.presentationChanged()
         publication.cacheMoved()
 
-        assertEquals(listOf("repaint", "repaint", "alerts"), completed)
+        assertEquals(listOf("repaint", "status icons", "repaint", "status icons", "alerts"), completed)
         assertEquals(2, org.robolectric.shadows.ShadowLog.getLogsForTag("Publication").count {
             it.msg == "presentation boundary publication failed" && it.throwable is IllegalStateException
         })
@@ -59,7 +64,7 @@ class PublicationFailureTest {
 
     @Test fun `cancellation stops publication and still reaches its caller`() = runBlocking {
         for (cacheMoved in listOf(false, true)) {
-            val steps = if (cacheMoved) listOf("repaint", "schedule", "alerts") else listOf("repaint", "schedule")
+            val steps = steps(cacheMoved)
             for ((index, cancelledStep) in steps.withIndex()) {
                 val cancelled = CancellationException("worker stopped")
                 val attempted = mutableListOf<String>()
@@ -70,6 +75,7 @@ class PublicationFailureTest {
                 val publication: Publication = OutOfAppPublication(
                     repaint = { effect("repaint") },
                     scheduleBoundary = { effect("schedule") },
+                    publishStatusIcons = { effect("status icons") },
                     publishAlerts = { effect("alerts") },
                 )
                 try {

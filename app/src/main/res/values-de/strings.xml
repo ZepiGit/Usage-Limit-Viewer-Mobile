@@ -482,6 +482,22 @@
     </plurals>
     <string name="notification_more">+%1$d weitere</string>
 
+    <!-- Status icons for pinned accounts: channel and shade row (statusicon/StatusIconTexts.kt). -->
+    <string name="status_icon_channel_name">Statusleisten-Symbole</string>
+    <string name="status_icon_channel_description">Ein lautloses Symbol mit dem Wert jedes angehefteten Kontos</string>
+    <string name="status_icon_text_figure">%1$s %2$s</string>
+    <string name="status_icon_text_unknown">Kein Prozentwert gemeldet</string>
+    <string name="status_icon_text_reconnect">Neu verbinden erforderlich</string>
+    <string name="status_icon_text_refresh_failed">Aktualisierung fehlgeschlagen</string>
+    <string name="settings_section_status_icons">Statusleisten-Symbole</string>
+    <string name="settings_status_icons_switch">Statusleisten-Symbole anzeigen</string>
+    <string name="settings_status_icons_subtitle">Ein kleines Symbol mit dem Wert des Kontos neben der Uhr, nach jeder Aktualisierung neu</string>
+    <string name="settings_status_icons_blocked">Statusleisten-Symbole können erst angezeigt werden, wenn Benachrichtigungen erlaubt sind.</string>
+    <string name="settings_status_icons_allowed">Statusleisten-Symbole können angezeigt werden.</string>
+    <string name="settings_status_icons_choose">Konto</string>
+    <string name="settings_status_icons_no_accounts">Füge ein Konto hinzu, um sein Symbol anzuzeigen.</string>
+    <string name="settings_status_icons_note">Android entscheidet, wie viele Symbole Platz haben, und die Einstellung, die Symbole lautloser Benachrichtigungen ausblendet, blendet auch diese aus.</string>
+
     <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
     <string name="loopback_signed_in">Angemeldet</string>
     <string name="loopback_sign_in_failed">Anmeldung fehlgeschlagen</string>

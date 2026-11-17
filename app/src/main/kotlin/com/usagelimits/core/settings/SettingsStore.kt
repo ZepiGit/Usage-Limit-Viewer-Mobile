@@ -64,6 +64,16 @@ data class AppSettings(
     val providerIcons: Map<String, String> = emptyMap(),
     /** Whether quota figures count down what is left or up what has been used. */
     val percentDisplay: PercentDisplay = PercentDisplay.LEFT,
+    /** Off until the person turns it on: the app puts nothing into the status bar on its own. */
+    val statusIconsEnabled: Boolean = false,
+    /**
+     * The pinned account ids as stored, in the order they were pinned.
+     *
+     * Raw on purpose: which of them count, and in which order they show, is
+     * [com.usagelimits.core.model.pinnedAccountIds]'s decision against the live account list, so
+     * a removed account or a stored fourth id never needs a write to stop mattering.
+     */
+    val pinnedAccountIds: List<String> = emptyList(),
 ) {
     companion object {
         /**
@@ -188,6 +198,13 @@ class SettingsStore(context: Context) {
         it[Keys.PERCENT_DISPLAY] = mode.name
     }
 
+    suspend fun setStatusIconsEnabled(enabled: Boolean) = edit { it[Keys.STATUS_ICONS_ENABLED] = enabled }
+
+    /** Replaces the stored pin list; [ids] keep their order. */
+    suspend fun setPinnedAccounts(ids: List<String>) = edit {
+        it[Keys.PINNED_ACCOUNTS] = ids.distinct().joinToString(PINNED_SEPARATOR)
+    }
+
     /** Silences one account, or lets it speak again. */
     suspend fun setAccountNotifications(accountId: String, enabled: Boolean) = edit { prefs ->
         val current = prefs[Keys.MUTED_ACCOUNTS] ?: emptySet()
@@ -228,7 +245,15 @@ internal fun Preferences.toSettings() = AppSettings(
     mutedAccountIds = this[Keys.MUTED_ACCOUNTS] ?: emptySet(),
     providerIcons = this[Keys.PROVIDER_ICONS].orEmpty().filter { ":" in it }.associate { it.substringBefore(':') to it.substringAfter(':') },
     percentDisplay = PercentDisplay.fromNameOrNull(this[Keys.PERCENT_DISPLAY]) ?: PercentDisplay.LEFT,
+    statusIconsEnabled = this[Keys.STATUS_ICONS_ENABLED] ?: false,
+    pinnedAccountIds = this[Keys.PINNED_ACCOUNTS].orEmpty().split(PINNED_SEPARATOR).filter { it.isNotBlank() },
 )
+
+/**
+ * Preferences have no ordered list, and a string set loses the order, so the pins are one string.
+ * Account ids are UUIDs and never contain a line break.
+ */
+private const val PINNED_SEPARATOR = "\n"
 
 internal fun Preferences.toDiagnostics() = SyncDiagnostics(
     lastSyncAttemptAt = this[Keys.LAST_SYNC_ATTEMPT],
@@ -260,6 +285,8 @@ private object Keys {
     val SHOW_RENEWAL = booleanPreferencesKey("show_renewal_time")
     val MUTED_ACCOUNTS = stringSetPreferencesKey("muted_account_ids")
     val PERCENT_DISPLAY = stringPreferencesKey("percent_display")
+    val STATUS_ICONS_ENABLED = booleanPreferencesKey("status_icons_enabled")
+    val PINNED_ACCOUNTS = stringPreferencesKey("pinned_account_ids")
     val LAST_SYNC_ATTEMPT = longPreferencesKey("last_sync_attempt_at")
     val LAST_SYNC_FINISHED = longPreferencesKey("last_sync_finished_at")
     val LAST_WIDGET_REFRESH = longPreferencesKey("last_widget_refresh_at")

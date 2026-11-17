@@ -107,6 +107,25 @@ class SettingsMappingTest {
     }
 
     @Test
+    fun `status icons are off with nothing pinned until someone turns them on`() {
+        val settings = settingsFrom()
+
+        assertFalse(settings.statusIconsEnabled)
+        assertEquals(emptyList<String>(), settings.pinnedAccountIds)
+    }
+
+    @Test
+    fun `the status icon switch and the pinned ids read back in their stored order`() {
+        val settings = settingsFrom(
+            booleanPreferencesKey("status_icons_enabled") to true,
+            stringPreferencesKey("pinned_account_ids") to "acct-2\nacct-1",
+        )
+
+        assertTrue(settings.statusIconsEnabled)
+        assertEquals(listOf("acct-2", "acct-1"), settings.pinnedAccountIds)
+    }
+
+    @Test
     fun `diagnostics timestamps live beside the settings without changing them`() {
         // They share the file, so a sync writing its timestamp must not alter what
         // `toSettings` reads — the widgets observe that mapping.
