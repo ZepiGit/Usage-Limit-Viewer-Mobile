@@ -188,9 +188,10 @@ struct PinnedAccountsRectangularView: View {
 }
 
 /// The locked, unreadable and empty states of the rectangular family: two short lines at most,
-/// scaled down rather than clipped. At accessibility type sizes the detail line goes and the title
-/// alone stays, wrapped, because one word at that size is all the family holds; VoiceOver still
-/// reads both.
+/// scaled down rather than clipped. At accessibility type sizes the symbol and the detail line go
+/// and the title alone stays, wrapped, with its type capped at AX2, because one word at that size
+/// is all the family holds (at AX5 "Gesperrt" with its symbol was cut to "Gesp…"); VoiceOver
+/// still reads title and detail.
 private struct PinnedAccountsNotice: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -200,15 +201,17 @@ private struct PinnedAccountsNotice: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
-            Image(systemName: symbol)
-                .font(.headline)
-                .accessibilityHidden(true)
+            if !largeType || title == nil {
+                Image(systemName: symbol)
+                    .font(.headline)
+                    .accessibilityHidden(true)
+            }
             VStack(alignment: .leading, spacing: 1) {
                 if let title {
                     Text(verbatim: title)
                         .font(.headline)
                         .lineLimit(largeType ? 2 : 1)
-                        .minimumScaleFactor(0.6)
+                        .minimumScaleFactor(0.5)
                 }
                 if title == nil || !largeType {
                     Text(verbatim: detail)
@@ -219,6 +222,7 @@ private struct PinnedAccountsNotice: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title.map { "\($0), \(detail)" } ?? detail)
     }
