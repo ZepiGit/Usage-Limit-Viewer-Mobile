@@ -120,8 +120,6 @@ android {
         warningsAsErrors = false
         htmlReport = true
         xmlReport = true
-        textReport = false
-        sarifReport = false
     }
 
     testOptions {
