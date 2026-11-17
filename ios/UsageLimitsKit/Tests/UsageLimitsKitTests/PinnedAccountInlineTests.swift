@@ -1,11 +1,10 @@
 import XCTest
 @testable import UsageLimitsKit
 
-/// The inline accessory is one row: the system shows a single line of text and at most one image
-/// there (WidgetKit, `WidgetFamily.accessoryInline`). The first pinned account's glyph is that
-/// image; these pin down the text beside it for one, two and three accounts, how it shortens, how
-/// an outdated figure is marked without an underline, and that the reload interval follows the
-/// capture.
+/// The inline accessory shows the first pinned account only (owner's decision, question package
+/// 010): its glyph as the family's one image and its figure with the side as text. These pin down
+/// that text in English and German, how an outdated figure is marked without an underline, and
+/// that the reload interval follows the capture.
 final class PinnedAccountInlineTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_757_000_000)
 
@@ -23,13 +22,13 @@ final class PinnedAccountInlineTests: XCTestCase {
     }
 
     private func entry(_ provider: String?, title: String = "Account", remaining: Double?,
-        mode: PercentDisplay = .left, severity: Severity = .healthy,
-        validity: ReadingValidity = .current) -> PinnedAccountEntry {
+        mode: PercentDisplay = .left, severity: Severity = .healthy, validity: ReadingValidity = .current,
+        connectionStatus: ConnectionStatus = .unknown) -> PinnedAccountEntry {
         let p = WindowPresentation(remaining: remaining, severity: severity, validity: validity, mode: mode)
         return PinnedAccountEntry(account: GlanceAccount(id: provider ?? title, title: title, subtitle: nil,
-            rows: [], severity: severity, providerID: provider), presentation: p,
+            rows: [], severity: severity, providerID: provider, connectionStatus: connectionStatus), presentation: p,
             content: .of(headline: remaining == nil && severity != .exhausted ? nil : p, validity: validity,
-                needsReauthentication: false))
+                needsReauthentication: connectionStatus == .reconnectRequired))
     }
 
     private func english(_ entries: [PinnedAccountEntry]) -> PinnedAccountText.InlineRow? {
@@ -44,69 +43,41 @@ final class PinnedAccountInlineTests: XCTestCase {
         XCTAssertNil(english([]))
     }
 
-    func testOneAccountIsItsGlyphAndItsFullFigureWithSide() {
-        XCTAssertEqual(english([entry("claude", remaining: 42)]),
-            .init(glyphProviderID: "claude", text: "42% left"))
+    func testTheRowIsTheFirstAccountsGlyphAndItsFullFigureWithSide() {
+        XCTAssertEqual(english([entry("claude", remaining: 42)]), .init(glyphProviderID: "claude", text: "42% left"))
+        XCTAssertEqual(german([entry("claude", remaining: 42)]), .init(glyphProviderID: "claude", text: "42 % übrig"))
         XCTAssertEqual(english([entry("claude", remaining: 42, mode: .used)])?.text, "58% used")
+        XCTAssertEqual(german([entry("claude", remaining: 42, mode: .used)])?.text, "58 % verbraucht")
         XCTAssertEqual(english([entry("codex", remaining: 0.4)])?.text, "<1% left")
+        XCTAssertEqual(english([entry("codex", remaining: 99.6)])?.text, ">99% left")
         XCTAssertEqual(english([entry("kimi", remaining: 100)])?.text, "100% left")
-        XCTAssertEqual(german([entry("claude", remaining: 42)])?.text, "42 % übrig")
-        XCTAssertEqual(german([entry("devin", remaining: 0, severity: .exhausted)])?.text, "Aufgebraucht")
-    }
-
-    func testTheGlyphIsTheFirstAccountsAndOthersFollowByName() {
-        XCTAssertEqual(english([entry("claude", remaining: 42), entry("codex", remaining: 87)]),
-            .init(glyphProviderID: "claude", text: "42 · Codex 87"))
-        XCTAssertEqual(english([entry("devin", remaining: 0, severity: .exhausted), entry("codex", remaining: 87)])?.text,
-            "Exhausted · Codex 87")
-        XCTAssertEqual(german([entry("zai", remaining: 42, validity: .error), entry("codex", remaining: 87)])?.text,
-            "Fehler · Codex 87")
-        XCTAssertEqual(english([entry("claude", remaining: 42), entry("codex", remaining: 7),
-            entry("kimi", remaining: 100)])?.text, "42 · Codex 7 · Kimi 100")
         // A provider this build does not know leads with the fallback disc.
-        XCTAssertEqual(english([entry(nil, title: "Mistral Le Chat", remaining: 42), entry("codex", remaining: 5)]),
-            .init(glyphProviderID: nil, text: "42 · Codex 5"))
+        XCTAssertEqual(english([entry(nil, title: "Mistral", remaining: 42)])?.glyphProviderID, nil)
     }
 
-    func testAnOutdatedFigureIsMarkedWithATildeBecauseInlineDropsTheUnderline() {
-        XCTAssertEqual(english([entry("claude", remaining: 42, validity: .stale)])?.text, "~42% left")
-        XCTAssertEqual(english([entry("claude", remaining: 42), entry("codex", remaining: 7, validity: .resetDue),
-            entry("kimi", remaining: 100, validity: .stale)])?.text, "42 · Codex ~7 · Kimi ~100")
-        XCTAssertEqual(german([entry("claude", remaining: 42, validity: .stale)])?.text, "~42 % übrig")
+    func testFurtherAccountsAreLeftOut() {
+        let three = [entry("claude", remaining: 42), entry("codex", remaining: 7), entry("kimi", remaining: 100)]
+        XCTAssertEqual(english(three), .init(glyphProviderID: "claude", text: "42% left"))
+        XCTAssertEqual(german(three), .init(glyphProviderID: "claude", text: "42 % übrig"))
     }
 
-    func testARowTextLongerThanTwentyEightCharactersUsesTheIconSignsInsteadOfWords() {
-        let three = [entry("xai", remaining: 99.6), entry("devin", remaining: 0, severity: .exhausted),
-            entry("meta", remaining: nil)]
-        // ">99 · Devin Exhausted · Muse Unknown" would be 36 characters.
-        XCTAssertEqual(english(three)?.text, ">99 · Devin ⊘ · Muse —")
-        XCTAssertEqual(german(three)?.text, ">99 · Devin ⊘ · Muse —")
-        // Exactly twenty-eight characters keep their words.
-        XCTAssertEqual(english([entry("zai", remaining: 42, validity: .error), entry("devin", remaining: 0,
-            severity: .exhausted)])?.text, "Error · Devin Exhausted")
-        XCTAssertEqual(english([entry("claude", remaining: 42), entry("meta", remaining: nil),
-            entry("kimi", remaining: 100)])?.text, "42 · Muse Unknown · Kimi 100")
+    func testStatesWithoutANumberAreWords() {
+        XCTAssertEqual(english([entry("devin", remaining: 0, severity: .exhausted)])?.text, "Exhausted")
+        XCTAssertEqual(german([entry("devin", remaining: 0, severity: .exhausted)])?.text, "Aufgebraucht")
+        XCTAssertEqual(english([entry("zai", remaining: 42, validity: .error)])?.text, "Error")
+        XCTAssertEqual(german([entry("zai", remaining: 42, validity: .error)])?.text, "Fehler")
+        XCTAssertEqual(english([entry("zai", remaining: 42, connectionStatus: .reconnectRequired)])?.text,
+            "Sign-in expired")
+        XCTAssertEqual(german([entry("zai", remaining: 42, connectionStatus: .reconnectRequired)])?.text,
+            "Anmeldung abgelaufen")
+        XCTAssertEqual(english([entry("meta", remaining: nil)])?.text, "Unknown")
+        XCTAssertEqual(german([entry("meta", remaining: nil)])?.text, "Unbekannt")
     }
 
-    func testNamesAfterTheGlyphAreCutToTheBudgetOfTheirCount() {
-        // Two accounts: 10 characters; three: 6. A longer name keeps one character fewer than its
-        // budget and ends in an ellipsis, so it is exactly the budget long.
-        XCTAssertEqual(english([entry("claude", remaining: 42), entry("antigravity", remaining: 5)])?.text,
-            "42 · Antigravi… 5")
-        XCTAssertEqual(english([entry("claude", remaining: 42), entry("antigravity", remaining: 5),
-            entry("opencode", remaining: 7)])?.text, "42 · Antig… 5 · OpenC… 7")
-        // A provider this build does not know is named by the first word of the account title.
-        XCTAssertEqual(english([entry("claude", remaining: 42), entry(nil, title: "Mistral Le Chat", remaining: 5)])?.text,
-            "42 · Mistral 5")
-    }
-
-    func testSpokenListReadsEveryAccountWithItsFullFigure() {
-        let entries = [entry("claude", title: "Claude Pro", remaining: 0.4),
-            entry("codex", title: "OpenAI Codex Plus", remaining: 42, validity: .stale)]
-        XCTAssertEqual(PinnedAccountText.spokenList(entries, texts: EnglishPinnedAccountTexts()),
-            "Claude Pro, <1% remaining; OpenAI Codex Plus, 42% remaining, Stale")
-        XCTAssertEqual(PinnedAccountText.spokenList(entries, texts: German()),
-            "Claude Pro, <1 % übrig; OpenAI Codex Plus, 42 % übrig, Veraltet")
+    func testAnOutdatedFigureSaysSoInWordsBecauseInlineDropsTheUnderline() {
+        XCTAssertEqual(english([entry("claude", remaining: 42, validity: .stale)])?.text, "42% left · Stale")
+        XCTAssertEqual(german([entry("claude", remaining: 42, validity: .resetDue)])?.text, "42 % übrig · Veraltet")
+        XCTAssertEqual(english([entry("kimi", remaining: 100, validity: .stale)])?.text, "100% left · Stale")
     }
 
     func testOnlyAnUnreadableSnapshotAsksForAnEarlyReload() {
