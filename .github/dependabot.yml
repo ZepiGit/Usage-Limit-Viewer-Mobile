@@ -1,9 +1,10 @@
 # Weekly version checks for libraries and GitHub Actions.
 #
-# AGP, Gradle, Kotlin, KSP and the Compose compiler move together in coordinated manual updates.
+# AGP, the Gradle wrapper, Kotlin, KSP and the Compose compiler require coordinated manual updates.
 # Kotlin 2.4.21's fully supported ranges end at AGP 9.3.1 and Gradle 9.7.0; Dependabot does not
-# resolve these compatibility constraints. Keep the Kotlin Android plugin excluded even though AGP's
-# built-in Kotlin replaces it. See https://kotlinlang.org/docs/gradle-configure-project.html.
+# resolve these compatibility constraints. See https://kotlinlang.org/docs/gradle-configure-project.html.
+# Unbounded kotlinx-coroutines and kotlinx-serialization releases can use Kotlin metadata newer than
+# the pinned compiler supports; CI consumer checks guard against incompatible updates.
 version: 2
 updates:
   - package-ecosystem: gradle
@@ -15,7 +16,6 @@ updates:
       - dependency-name: "com.android.application"
       - dependency-name: "com.android.tools.build:gradle"
       - dependency-name: "gradle-wrapper"
-      - dependency-name: "org.jetbrains.kotlin.android"
       - dependency-name: "org.jetbrains.kotlin.plugin.serialization"
       - dependency-name: "org.jetbrains.kotlin.plugin.compose"
       - dependency-name: "org.jetbrains.kotlin:*"
