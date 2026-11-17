@@ -12,7 +12,7 @@ Credit providers each have one fixed mark: OpenRouter, DeepSeek, Moonshot, xAI, 
 
 ## Status bar glyphs
 
-The status icons (`app/src/main/kotlin/com/usagelimits/statusicon/StatusIconRenderer.kt`) do not reuse the artwork above. The status bar draws the whole icon about 10 px high and keeps only its alpha, so a logo's thin strokes and small holes disappear. Each provider instead has one bold monochrome silhouette, drawn as path data on a 24-unit square. These paths were drawn for this app after the mark each row names; none is a copy of a source path. Some stay close to the mark (Claude, Antigravity, Kimi, OpenCode), the others are freer abstractions of it (Codex, Grok, Devin, Meta Muse, Z.ai). The provider marks remain their owners' trademarks.
+The status icons on Android (`app/src/main/kotlin/com/usagelimits/statusicon/StatusIconRenderer.kt`) and the iOS Pinned accounts Lock Screen widget do not reuse the artwork above. Both draw the path data from one file, `shared/glyphs/status-icon-glyphs.json`; changing a glyph means changing that file only, and both platforms' tests read it. The status bar draws the whole icon about 10 px high and keeps only its alpha, so a logo's thin strokes and small holes disappear. Each provider instead has one bold monochrome silhouette, drawn as path data on a 24-unit square. These paths were drawn for this app after the mark each row names; none is a copy of a source path. Some stay close to the mark (Claude, Antigravity, Kimi, OpenCode), the others are freer abstractions of it (Codex, Grok, Devin, Meta Muse, Z.ai). The provider marks remain their owners' trademarks.
 
 | Provider | Glyph | Drawn after | Licence of that source |
 |---|---|---|---|
