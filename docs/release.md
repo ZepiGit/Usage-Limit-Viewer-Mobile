@@ -17,16 +17,8 @@ The versions are coordinated against the [AGP 9.3 compatibility table](https://d
 From the repository root:
 
 ```sh
-./gradlew --no-daemon -Pkotlin.compiler.execution.strategy=in-process :app:assembleDebug :app:assembleRelease
+./gradlew :app:assembleDebug :app:assembleRelease
 ```
-
-On the shared Linux development host, serialize all Gradle and Swift work with `/tmp/ulv-gradle.lock`, keep the Kotlin compiler in-process, and use `--offline` once dependencies are cached:
-
-```sh
-flock /tmp/ulv-gradle.lock env JAVA_HOME=$HOME/.jdks/jdk-21.0.13+9 LC_ALL=C.UTF-8 LANG=C.UTF-8 ./gradlew --offline --no-daemon -Pkotlin.compiler.execution.strategy=in-process :app:testDebugUnitTest :app:lintDebug
-```
-
-Drop `--offline` only to resolve a new artifact. Do not raise the host's heap limits to accommodate this upgrade; use CI if the in-process compiler cannot fit.
 
 On Windows, use `gradlew.bat`. The debug APK is `app/build/outputs/apk/debug/app-debug.apk`; its application ID is `com.usagelimits.debug`, so it installs separately from release builds. Release output is `app/build/outputs/apk/release/app-release.apk`.
 
@@ -54,7 +46,7 @@ A nonblank `ANDROID_*` environment value takes precedence, followed by the `USAG
 With every signing value absent, release builds use the debug key for local installation. Partial settings fail instead of falling back. Distribution requires the existing release key. Keep that key, passwords and provisioning credentials outside the repository and under owner control. Disable Gradle's configuration cache for signed builds.
 
 ```sh
-./gradlew --no-daemon -Pkotlin.compiler.execution.strategy=in-process --no-configuration-cache :app:bundleRelease :app:assembleRelease
+./gradlew --no-configuration-cache :app:bundleRelease :app:assembleRelease
 ```
 
 The bundle is `app/build/outputs/bundle/release/app-release.aab`. Retain the matching R8 `mapping.txt` with the minified APK and AAB. Set `ANDROID_VERSION_NAME` and `ANDROID_VERSION_CODE` for distribution; local defaults are the source version name and reachable commit count.
@@ -83,6 +75,12 @@ Use the candidate artifact and repeat the relevant steps on Android and iOS with
 2. Complete browser and device-code sign-in where offered, including cancellation and retry. Add two accounts on one provider and reconnect an existing account. Confirm account identity, quota direction and reset times against the provider's UI.
 3. Compare populated widgets with the app. Refresh offline, restore connectivity, and remove an account during refresh. Check retained data age, recovery, notifications and credential renewal after expiry.
 4. Install over the prior release without uninstalling. Confirm accounts, settings and widget selections remain. On iOS 17+, first place Usage Bars, Account Rings and Mini Rings with a display-mode override opposite to the app setting and nondefault selection and appearance. After upgrading, confirm they still render, retain those other choices, no longer offer a display-mode control and follow changes to the app setting after WidgetKit reloads. Record the OS and both builds: Linux checks cannot verify WidgetKit's decoding of a stored intent whose parameter was removed. Redeem a Codex reset credit only with the holder's explicit approval: it spends a real credit.
+5. On an Android 17 device, in this order:
+   1. Long-press a placed widget, confirm the resize frame opens, then drag its handles by touch. After release, confirm the new size holds and the widget keeps its content and configuration. CI checks only keyboard move and resize, not this touch path.
+   2. Add enough accounts to fill Account Rings. On a small or low-resolution display, place it in several sizes and in both orientations. Android 17 caps widget bitmap memory at about 6 × screen width × screen height bytes. A widget over the cap should show Glance's text-only error layout; a blank, stale or partly drawn widget is a failure. You do not need to cause an out-of-memory condition or turn off the cap.
+   3. On the Add credit balance screen, type an API key with a hardware keyboard. Confirm every character stays masked as you type.
+   4. Sign in to and refresh each provider. Each connection must succeed with Certificate Transparency on, and with Encrypted Client Hello where the device and server negotiate it. Do not turn off TLS checks, and use only accounts whose holders have agreed.
+   5. Put the device under memory pressure, for example by opening several large apps, then return to the app and its widgets. Confirm both recover normally and keep their configuration.
 
 ## Owner responsibilities
 
