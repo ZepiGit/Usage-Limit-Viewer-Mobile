@@ -49,15 +49,14 @@ class PresentationSchedulingTest {
 
     @After fun tearDown() {
         manager.cancelAllWork().result.get()
-        WorkManagerTestInitHelper.closeWorkDatabase()
-        androidx.work.impl.WorkManagerImpl.setDelegate(null)
+        com.usagelimits.core.sync.resetTestWorkManager()
     }
 
     @Test fun `scheduling outside a running boundary replaces the pending repaint`() = runBlocking {
-        WidgetPresentationWorker.scheduleNext(app)
+        app.container.publication.presentationChanged()
         val first = manager.getWorkInfosForUniqueWork(WidgetPresentationWorker.WORK_NAME).get().single().id
 
-        WidgetPresentationWorker.scheduleNext(app)
+        app.container.publication.presentationChanged()
 
         val work = manager.getWorkInfosForUniqueWork(WidgetPresentationWorker.WORK_NAME).get()
         val previous = manager.getWorkInfoById(first).get()

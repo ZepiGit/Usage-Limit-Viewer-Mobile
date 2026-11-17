@@ -26,9 +26,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
 
 /**
- * A foreground refresh — the in-app button, a per-account retry — moves the cache without the
- * worker, so the presentation boundary must be scheduled from the shared post-sync step too.
- * Otherwise a reset passing later is never repainted on the home screen.
+ * Cache changes schedule the next repaint and evaluate alerts. Presentation changes schedule
+ * the same repaint without consuming an alert, including when a time-boundary worker fires.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [36])

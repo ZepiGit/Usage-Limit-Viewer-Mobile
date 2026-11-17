@@ -9,7 +9,6 @@ import androidx.work.await
 import androidx.work.WorkerParameters
 import androidx.work.CoroutineWorker
 import com.usagelimits.UsageLimitsApp
-import com.usagelimits.core.model.Severity
 import com.usagelimits.core.sync.SyncWorker
 import kotlinx.coroutines.flow.first
 
@@ -27,10 +26,10 @@ import kotlinx.coroutines.flow.first
  * views also age every timestamp themselves when they do render.
  *
  * A reset boundary is the one case a cache-only repaint cannot get right: the number the
- * provider now reports is not in the cache. So after repainting — the rows concerned now
- * read "reset due" rather than a spent figure in a confident colour — this asks for a sync,
- * through the same aged-cache check the system's widget tick uses, so the confirmation
- * arrives as soon as the network allows.
+ * provider now reports is not in the cache. This requests the confirming sync before the
+ * cache-only publication, through the same aged-cache check the system's widget tick uses.
+ * The repaint can show "reset due" while the network request waits, and a slow or failed
+ * presentation reservation cannot prevent the sync request.
  */
 class WidgetPresentationWorker(
     context: Context,
@@ -38,8 +37,8 @@ class WidgetPresentationWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        (applicationContext as UsageLimitsApp).container.publication.presentationChanged()
         SyncWorker.syncIfCacheAged(applicationContext)
+        (applicationContext as UsageLimitsApp).container.publication.presentationChanged()
         return Result.success()
     }
 
@@ -65,29 +64,19 @@ class WidgetPresentationWorker(
         ): Long? = (fetchedAtMs.map { it + staleAfterMs } + resetAtMs).filter { it > nowMs }.minOrNull()
 
         /**
-         * (Re)computes the boundary across every cached account and reserves one repaint for
-         * it. Coalesced under one unique name, so widgets, syncs and config saves all agree on
-         * a single next wake. Outside a running boundary, REPLACE moves the pending reservation.
-         * While this unique work is RUNNING, APPEND_OR_REPLACE reserves its successor instead:
-         * REPLACE would cancel the very worker publishing the repaint before it can finish.
+         * Reserves a repaint for the boundary computed from the publication module's cache.
+         * Outside a running boundary, REPLACE moves the pending reservation. While this unique
+         * work is RUNNING, APPEND_OR_REPLACE avoids cancelling the worker publishing the repaint.
          * WorkManager's Flow suspends for the state lookup rather than blocking a UI caller.
+         *
+         * The lookup and enqueue are not atomic with WorkManager starting a worker. Concurrent
+         * events can briefly append more than one successor, or replace a worker that just
+         * started. The next non-running publication coalesces those reservations. The worker
+         * requests its confirming sync first, but a start/replace race can still interrupt it;
+         * the periodic sync remains the fallback. Avoiding this requires a different scheduling
+         * protocol, not a caller-supplied flag on the two-event publication interface.
          */
-        suspend fun scheduleNext(context: Context) {
-            val app = context.applicationContext as? UsageLimitsApp ?: return
-            val container = app.container
-            val accounts = container.repository.observeAccountUsage().first()
-            val settings = container.settingsStore.settings.first()
-            val now = System.currentTimeMillis()
-            val staleAfter = Severity.staleAfterMs(settings.syncIntervalMinutes)
-
-            val boundary = nextPresentationBoundary(
-                fetchedAtMs = accounts.mapNotNull { it.snapshot?.fetchedAt } +
-                    container.creditRepository.entriesOnce().mapNotNull { it.snapshot?.fetchedAt },
-                resetAtMs = accounts.flatMap { it.snapshot?.windows.orEmpty().mapNotNull { w -> w.resetAt } },
-                staleAfterMs = staleAfter,
-                nowMs = now,
-            )
-
+        suspend fun scheduleNext(context: Context, boundary: Long?, now: Long) {
             val workManager = WorkManager.getInstance(context)
             val running = workManager.getWorkInfosForUniqueWorkFlow(WORK_NAME).first()
                 .any { it.state == WorkInfo.State.RUNNING }

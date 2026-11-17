@@ -41,6 +41,7 @@ import org.robolectric.shadows.ShadowLooper
 class AddAccountPublicationTest {
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
     private val viewModels = ViewModelStore()
+    private var failBoundary = false
 
     @Before fun setUp() = runBlocking {
         app.startupJob?.join()
@@ -56,7 +57,14 @@ class AddAccountPublicationTest {
         Dispatchers.resetMain()
     }
 
-    @Test fun `adding an account publishes an alert-worthy first reading`() = runBlocking {
+    @Test fun `adding an account publishes an alert-worthy first reading`() = addAccount()
+
+    @Test fun `adding an account succeeds and alerts even when boundary scheduling fails`() {
+        failBoundary = true
+        addAccount()
+    }
+
+    private fun addAccount() = runBlocking {
         val provider = object : UsageProvider {
             override val providerId = ProviderId.CLAUDE
             override suspend fun beginLogin() = LoginChallenge.ApiKey("https://example.test", "Key")
@@ -72,6 +80,17 @@ class AddAccountPublicationTest {
         val container = object : AppContainer(app) {
             override val credentialStore = MemoryCredentialStore()
             override val providerRegistry = ProviderRegistry(mapOf(ProviderId.CLAUDE to provider))
+            override val publication by lazy {
+                if (!failBoundary) super.publication
+                else com.usagelimits.core.sync.OutOfAppPublication(
+                    repaint = { com.usagelimits.widget.WidgetUpdater.refreshAll(app, settingsStore) },
+                    scheduleBoundary = { throw IllegalStateException("WorkManager unavailable") },
+                    publishAlerts = {
+                        com.usagelimits.core.sync.NotificationPublisher(app, settingsStore, notificationDao,
+                            transactions = transactions).publishFor(repository.accountUsageOnce())
+                    },
+                )
+            }
         }
         val vm = AddAccountViewModel(container)
         viewModels.put("add", vm)
@@ -85,5 +104,11 @@ class AddAccountPublicationTest {
         val alerts = shadowOf(app.getSystemService(NotificationManager::class.java)).allNotifications
             .filter { it.channelId == "usage_alerts" }
         assertEquals("The first low reading must not wait for another sync", 1, alerts.size)
+        if (failBoundary) {
+            assertTrue("The broken scheduler must exercise failure containment",
+                org.robolectric.shadows.ShadowLog.getLogsForTag("Publication").any {
+                    it.msg == "presentation boundary publication failed" && it.throwable != null
+                })
+        }
     }
 }

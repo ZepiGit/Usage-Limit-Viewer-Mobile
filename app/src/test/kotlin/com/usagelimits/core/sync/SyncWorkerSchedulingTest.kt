@@ -42,8 +42,7 @@ class SyncWorkerSchedulingTest {
      */
     @After
     fun closeWorkManager() {
-        WorkManagerTestInitHelper.closeWorkDatabase()
-        androidx.work.impl.WorkManagerImpl.setDelegate(null)
+        resetTestWorkManager()
     }
 
     private fun oneShots(): List<WorkInfo> =

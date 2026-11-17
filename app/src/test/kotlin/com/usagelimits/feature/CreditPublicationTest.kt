@@ -8,7 +8,6 @@ import com.usagelimits.core.credits.MemoryCredentialStore
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.ProviderRegion
-import com.usagelimits.core.sync.Publication
 import com.usagelimits.feature.credits.AddCreditState
 import com.usagelimits.feature.credits.AddCreditViewModel
 import com.usagelimits.providers.credits.CreditRegistry
@@ -49,16 +48,11 @@ class CreditPublicationTest {
         Dispatchers.resetMain()
     }
 
-    @Test fun `adding a credit balance publishes its first stored reading as cache moved`() = runBlocking {
-        val events = mutableListOf<String>()
+    @Test fun `adding a credit balance reserves its first staleness repaint without usage accounts`() = runBlocking {
         val container = object : AppContainer(app) {
             override val credentialStore = MemoryCredentialStore()
             override val creditRegistry = CreditRegistry(scriptedHttp(
                 200 to """{"is_available":true,"balance_infos":[{"currency":"USD","total_balance":"1.00"}]}"""))
-            override val publication = object : Publication {
-                override suspend fun cacheMoved() { events += "cache moved" }
-                override suspend fun presentationChanged() { events += "presentation changed" }
-            }
         }
         val vm = AddCreditViewModel(container, app)
         viewModels.put("add", vm)
@@ -67,6 +61,10 @@ class CreditPublicationTest {
         val finished = vm.state.first { it is AddCreditState.Added || it is AddCreditState.Failed }
 
         assertTrue("Credit validation must succeed: $finished", finished is AddCreditState.Added)
-        assertEquals(listOf("cache moved"), events)
+        val pending = WorkManager.getInstance(app)
+            .getWorkInfosForUniqueWork(com.usagelimits.widget.WidgetPresentationWorker.WORK_NAME).get()
+            .filter { it.state == androidx.work.WorkInfo.State.ENQUEUED }
+        assertEquals(1, pending.size)
+        assertTrue("The new balance must reserve a future repaint", pending.single().initialDelayMillis > 0)
     }
 }

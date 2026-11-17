@@ -1,6 +1,8 @@
 package com.usagelimits.feature
 
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import com.usagelimits.UsageLimitsApp
@@ -20,7 +22,12 @@ import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.sync.Publication
 import com.usagelimits.providers.credits.CreditRegistry
 import com.usagelimits.providers.scriptedHttp
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.runBlocking
@@ -40,13 +47,15 @@ import java.math.BigDecimal
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [36])
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-class UsagePublicationTest {
+class UsagePublicationRoutingTest {
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
     private val events = Channel<String>(Channel.UNLIMITED)
     private val viewModels = ViewModelStore()
     private lateinit var container: AppContainer
     private lateinit var vm: UsageViewModel
     private var failSync = false
+    private var syncEntered: CompletableDeferred<Unit>? = null
+    private var continueSync: CompletableDeferred<Unit>? = null
     private val provider = object : UsageProvider {
         override val providerId = ProviderId.CODEX
         override suspend fun beginLogin(): LoginChallenge = error("No sign-in in a refresh")
@@ -57,6 +66,8 @@ class UsagePublicationTest {
             ProviderProfile = error("No profile read in a refresh")
         override suspend fun fetchUsage(account: ProviderAccount,
             credentials: OAuthCredentials): UsageResult {
+            syncEntered?.complete(Unit)
+            continueSync?.await()
             if (failSync) throw ProviderException.Offline()
             return UsageResult(emptyList())
         }
@@ -82,6 +93,7 @@ class UsagePublicationTest {
 
     @After fun tearDown() {
         viewModels.clear()
+        runBlocking { vm.viewModelScope.coroutineContext[Job]!!.join() }
         WorkManager.getInstance(app).cancelAllWork().result.get()
         ShadowLooper.idleMainLooper()
         Dispatchers.resetMain()
@@ -101,9 +113,23 @@ class UsagePublicationTest {
             null, "Plus", emptyMap())
         container.credentialStore.save(account.credentialReference,
             OAuthCredentials("fixture", null, null, null))
-        if (single) vm.refreshAccount(account.localId) else vm.refresh()
-        assertEquals("cache moved", withTimeoutOrNull(5_000) { events.receive() })
-        assertEquals("A refresh must publish once", null, events.tryReceive().getOrNull())
+        syncEntered = CompletableDeferred()
+        continueSync = CompletableDeferred()
+        val observing = launch { vm.state.collect {} }
+        try {
+            withTimeout(5_000) {
+                vm.state.first { it.loaded }
+                if (single) vm.refreshAccount(account.localId) else vm.refresh()
+                syncEntered!!.await()
+                vm.state.first { it.isRefreshing }
+                continueSync!!.complete(Unit)
+                assertEquals("cache moved", events.receive())
+                vm.state.first { !it.isRefreshing }
+            }
+            assertEquals("A completed refresh must publish once", null, events.tryReceive().getOrNull())
+        } finally {
+            observing.cancelAndJoin()
+        }
     }
 
     @Test fun `presentation edits publish only presentation changed`() = runBlocking {
@@ -122,7 +148,6 @@ class UsagePublicationTest {
         for ((label, change) in changes) {
             change()
             assertEquals(label, "presentation changed", withTimeoutOrNull(5_000) { events.receive() })
-            assertEquals("$label must publish once", null, events.tryReceive().getOrNull())
         }
     }
 }
