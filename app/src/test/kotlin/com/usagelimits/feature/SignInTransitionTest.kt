@@ -1,5 +1,6 @@
 package com.usagelimits.feature
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -8,6 +9,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.feature.accounts.AddAccountScreen
 import com.usagelimits.feature.accounts.AddAccountState
+import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import org.junit.Rule
 import org.junit.Test
@@ -86,21 +88,30 @@ class SignInTransitionTest {
         var starts = 0
         compose.setContent {
             UsageLimitsTheme {
-                AddAccountScreen(
-                    state = state.value, providers = listOf(ProviderId.KIMI),
-                    onStart = { starts++ }, onCancel = {}, onDone = {}, onSubmitApiKey = {},
-                )
+                CompositionLocalProvider(LocalMotionEnabled provides true) {
+                    AddAccountScreen(
+                        state = state.value, providers = listOf(ProviderId.KIMI),
+                        onStart = { starts++ }, onCancel = {}, onDone = {}, onSubmitApiKey = {},
+                    )
+                }
             }
         }
         compose.onNodeWithText(ProviderId.KIMI.displayName).assertExists()
         val outgoingClick = compose.onNodeWithText(ProviderId.KIMI.displayName)
             .fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
-        compose.runOnIdle { state.value = AddAccountState.Starting(ProviderId.KIMI) }
-        compose.onNodeWithText("Contacting ${ProviderId.KIMI.displayName}…").assertExists()
-        // A queued click belongs to the old step even if delivered after it stops rendering.
-        compose.runOnIdle {
-            outgoingClick()
-            assertEquals(0, starts)
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnIdle { state.value = AddAccountState.Starting(ProviderId.KIMI) }
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeByFrame()
+            compose.onNodeWithText("Contacting ${ProviderId.KIMI.displayName}…").assertExists()
+            // A queued click belongs to the old step even after the next step appears.
+            compose.runOnIdle {
+                outgoingClick()
+                assertEquals(0, starts)
+            }
+        } finally {
+            compose.mainClock.autoAdvance = true
         }
     }
 }
