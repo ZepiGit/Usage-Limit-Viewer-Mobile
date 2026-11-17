@@ -1,0 +1,38 @@
+import Foundation
+
+public struct PinnedAccountEntry: Sendable, Equatable, Identifiable {
+    public let account: GlanceAccount
+    public let presentation: WindowPresentation
+    public let content: StatusIconContent
+    public var id: String { account.id }
+}
+
+/// Derived from one published snapshot, at the date WidgetKit will display the entry.
+public struct PinnedAccountsCapture: Sendable, Equatable {
+    public let date: Date
+    public let accounts: [PinnedAccountEntry]
+
+    public static func capture(snapshot: GlanceSnapshot, at date: Date) -> PinnedAccountsCapture {
+        let selected = selectedSnapshot(snapshot, at: date)
+        let entries = selected.accounts.map { account in
+            let headline = account.representative(at: date)
+            let presentation = account.presentation(of: headline, at: date,
+                staleAfter: snapshot.staleAfter, mode: snapshot.percentDisplay)
+            let content = StatusIconContent.of(headline: headline == nil ? nil : presentation,
+                validity: account.readingValidity(of: headline, at: date, staleAfter: snapshot.staleAfter),
+                needsReauthentication: account.connectionStatus == .reconnectRequired)
+            return PinnedAccountEntry(account: account, presentation: presentation, content: content)
+        }
+        return PinnedAccountsCapture(date: date, accounts: entries)
+    }
+
+    public static func entryDates(snapshot: GlanceSnapshot, after now: Date) -> [Date] {
+        [now] + selectedSnapshot(snapshot, at: now).presentationBoundaries(after: now)
+    }
+
+    private static func selectedSnapshot(_ snapshot: GlanceSnapshot, at date: Date) -> GlanceSnapshot {
+        let ids = PinnedAccounts.select(enabled: snapshot.statusIconsEnabled,
+            pinnedIDs: snapshot.pinnedAccountIDs, usageAccountIDs: snapshot.accounts.map(\.id))
+        return snapshot.selecting(scope: .custom, now: date, customAccountIDs: ids)
+    }
+}

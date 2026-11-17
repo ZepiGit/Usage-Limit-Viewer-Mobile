@@ -266,6 +266,8 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
     /// is the only thing it knows about the app. Deliberately not defaulted in the initialiser,
     /// so a new construction site cannot silently drop the user's choice back to `left`.
     public let percentDisplay: PercentDisplay
+    public let statusIconsEnabled: Bool
+    public let pinnedAccountIDs: [String]
 
     public init(
         accounts: [GlanceAccount],
@@ -277,8 +279,12 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         summaryLineLong: GlanceRow?,
         staleAfter: TimeInterval = Severity.staleAfter,
         credits: [GlanceCredit] = [],
-        percentDisplay: PercentDisplay
+        percentDisplay: PercentDisplay,
+        statusIconsEnabled: Bool = false,
+        pinnedAccountIDs: [String] = []
     ) {
+        self.statusIconsEnabled = statusIconsEnabled
+        self.pinnedAccountIDs = pinnedAccountIDs
         self.percentDisplay = percentDisplay
         self.credits = credits
         self.staleAfter = staleAfter
@@ -296,7 +302,7 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         // Keep the shared snapshot readable by app and widget builds from before the rename.
         case summaryLineShort = "headlineShort"
         case summaryLineLong = "headlineLong"
-        case staleAfter, credits, percentDisplay
+        case staleAfter, credits, percentDisplay, statusIconsEnabled, pinnedAccountIDs
     }
 
     /// Lenient on `staleAfter` and `percentDisplay`, which older files do not have. The
@@ -316,6 +322,8 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         staleAfter = try c.decodeIfPresent(TimeInterval.self, forKey: .staleAfter)
             ?? Severity.staleAfter
         credits = try c.decodeIfPresent([GlanceCredit].self, forKey: .credits) ?? []
+        statusIconsEnabled = try c.decodeIfPresent(Bool.self, forKey: .statusIconsEnabled) ?? false
+        pinnedAccountIDs = try c.decodeIfPresent([String].self, forKey: .pinnedAccountIDs) ?? []
         percentDisplay = PercentDisplay.fromLoose(
             raw: try c.decodeIfPresent(String.self, forKey: .percentDisplay))
     }
@@ -341,7 +349,8 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
             accounts: accounts, accountCount: accountCount, updatedAt: updatedAt,
             nextResetAt: nextResetAt, overallSeverity: overallSeverity,
             summaryLineShort: summaryLineShort, summaryLineLong: summaryLineLong,
-            staleAfter: staleAfter, credits: credits, percentDisplay: percentDisplay)
+            staleAfter: staleAfter, credits: credits, percentDisplay: percentDisplay,
+            statusIconsEnabled: statusIconsEnabled, pinnedAccountIDs: pinnedAccountIDs)
     }
 
     /// The instants after `date` at which this snapshot's presentation changes on its own:
@@ -411,7 +420,9 @@ public enum GlanceModel {
         staleAfter: TimeInterval = Severity.staleAfter,
         customAccountIDs: [String] = [],
         providerIcons: [String: String] = [:],
-        percentDisplay: PercentDisplay = .left
+        percentDisplay: PercentDisplay = .left,
+        statusIconsEnabled: Bool = false,
+        pinnedAccountIDs: [String] = []
     ) -> GlanceSnapshot {
         let selected: [AccountUsage]
         switch scope {
@@ -425,8 +436,6 @@ public enum GlanceModel {
         case .allAccounts, .mostCritical, .closestResets:
             selected = all
         }
-
-        guard !selected.isEmpty else { return .empty }
 
         let accounts = selected.map { glanceAccount($0, now: now, staleAfter: staleAfter, providerIcons: providerIcons) }
         let ordered: [GlanceAccount]
@@ -470,7 +479,8 @@ public enum GlanceModel {
             summaryLineShort: lead?.rows.first { $0.category == .fiveHour },
             summaryLineLong: lead?.rows.first { $0.category != .fiveHour },
             staleAfter: staleAfter,
-            percentDisplay: percentDisplay)
+            percentDisplay: percentDisplay,
+            statusIconsEnabled: statusIconsEnabled, pinnedAccountIDs: pinnedAccountIDs)
     }
 
     /// Worst first, with the tightest number breaking a tie — coarsely.

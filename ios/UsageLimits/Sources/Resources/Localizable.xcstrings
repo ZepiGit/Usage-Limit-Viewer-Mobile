@@ -388,6 +388,24 @@
         }
       }
     },
+    "%lld of %lld pinned" : {
+      "comment" : "Settings pin count: selected usage accounts, then the maximum of three.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld angeheftet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld of %2$lld pinned"
+          }
+        }
+      }
+    },
     "%lld reset credits" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2185,6 +2203,40 @@
         }
       }
     },
+    "Pin an account in Settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hefte ein Konto in den Einstellungen an"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin an account in Settings"
+          }
+        }
+      }
+    },
+    "Pinned accounts" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Angeheftete Konten"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pinned accounts"
+          }
+        }
+      }
+    },
     "Port %lld is in use, so the sign-in cannot be received. Close whatever is using it and try again." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2581,6 +2633,23 @@
         }
       }
     },
+    "Show pinned accounts" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Angeheftete Konten anzeigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show pinned accounts"
+          }
+        }
+      }
+    },
     "Show renewal time" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2599,6 +2668,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abo-Stufe anzeigen"
+          }
+        }
+      }
+    },
+    "Show up to three pinned usage accounts in the Lock Screen widget." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeige bis zu drei angeheftete Nutzungskonten im Sperrbildschirm-Widget."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show up to three pinned usage accounts in the Lock Screen widget."
           }
         }
       }
@@ -3314,6 +3400,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Konten in deiner Reihenfolge. Wähle ein Konto, einen Anbieter oder ein eigenes Layout."
+          }
+        }
+      }
+    },
+    "Your pinned usage accounts on the Lock Screen." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine angehefteten Nutzungskonten auf dem Sperrbildschirm."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your pinned usage accounts on the Lock Screen."
           }
         }
       }

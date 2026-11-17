@@ -55,7 +55,8 @@ extension GlanceSnapshot {
             summaryLineLong: lead?.rows.first { $0.category != .fiveHour }, staleAfter: staleAfter,
             // Selection re-cuts the accounts, never the user's reading of them: dropping the
             // mode here would flip a configured widget to LEFT while the rest of the app says USED.
-            percentDisplay: percentDisplay)
+            percentDisplay: percentDisplay,
+            statusIconsEnabled: statusIconsEnabled, pinnedAccountIDs: pinnedAccountIDs)
     }
 }
 

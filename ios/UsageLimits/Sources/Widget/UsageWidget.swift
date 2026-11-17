@@ -365,6 +365,7 @@ struct UsageWidgets: WidgetBundle {
         UsageWidget()
         UsageClearWidget()
         UsageRingWidget()
+        PinnedAccountsWidget()
         CreditsWidget()
     }
 }

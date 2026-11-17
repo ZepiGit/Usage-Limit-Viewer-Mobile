@@ -555,6 +555,12 @@ public actor UsageLimitsContainer {
         }
         try await repository.remove(id: id)
 
+        var settings = await settingsStore.settings()
+        if settings.pinnedAccountIDs.contains(id) {
+            settings.pinnedAccountIDs.removeAll { $0 == id }
+            try await settingsStore.save(settings)
+        }
+
         // The ledger is cleared too. Its keys embed the account id, so an account removed and
         // added back under the same id would inherit records saying every one of its edges had
         // already been announced — and go silent while genuinely low. Best-effort: a ledger that
@@ -648,7 +654,8 @@ public actor UsageLimitsContainer {
         try? GlanceSnapshotCodec.write(
             GlanceModel.build(
                 usage, now: time, scope: .allAccounts, staleAfter: settings.staleAfter,
-                providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay)
+                providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay,
+                statusIconsEnabled: settings.statusIconsEnabled, pinnedAccountIDs: settings.pinnedAccountIDs)
                 .with(credits: GlanceModel.buildCredits(credits, now: time, staleAfter: settings.staleAfter)),
             toDirectory: containerDirectory)
 

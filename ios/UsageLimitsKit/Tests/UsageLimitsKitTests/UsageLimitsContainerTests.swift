@@ -173,6 +173,60 @@ final class UsageLimitsContainerTests: XCTestCase {
         XCTAssertEqual(published.accountCount, 1)
     }
 
+    func testSavingPinnedAccountsRepublishesTheirSettingsWithoutARefresh() async throws {
+        let (subject, _) = container([])
+        try await subject.add(account("a"))
+        try await subject.add(account("b"))
+        let initial = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertFalse(initial.statusIconsEnabled)
+        XCTAssertEqual(initial.pinnedAccountIDs, [])
+
+        var settings = AppSettings(
+            percentDisplay: .used, statusIconsEnabled: true, pinnedAccountIDs: ["b", "a"])
+        try await subject.save(settings: settings)
+
+        let enabled = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertTrue(enabled.statusIconsEnabled)
+        XCTAssertEqual(enabled.pinnedAccountIDs, ["b", "a"])
+        XCTAssertEqual(enabled.percentDisplay, .used)
+        XCTAssertEqual(enabled.accountCount, 2)
+
+        settings.statusIconsEnabled = false
+        try await subject.save(settings: settings)
+
+        let disabled = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertFalse(disabled.statusIconsEnabled)
+        XCTAssertEqual(disabled.pinnedAccountIDs, ["b", "a"])
+    }
+
+    func testRemovingAnAccountReleasesOnlyItsPinInSettingsAndTheWidget() async throws {
+        let (subject, credentials) = container([])
+        try await subject.add(account("a"))
+        try await subject.add(account("b"))
+        try await subject.save(settings: AppSettings(
+            percentDisplay: .used, statusIconsEnabled: true, pinnedAccountIDs: ["b", "a", "a"]))
+
+        try await subject.remove(id: "a")
+
+        let settings = await subject.settings()
+        XCTAssertTrue(settings.statusIconsEnabled)
+        XCTAssertEqual(settings.pinnedAccountIDs, ["b"])
+        XCTAssertEqual(settings.percentDisplay, .used)
+        let published = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertTrue(published.statusIconsEnabled)
+        XCTAssertEqual(published.pinnedAccountIDs, ["b"])
+        XCTAssertEqual(published.accounts.map(\.id), ["b"])
+
+        let restarted = UsageLimitsContainer(
+            directory: directory, credentials: credentials,
+            transport: Transport([]), now: { [now] in now })
+        let reopened = await restarted.settings()
+        XCTAssertEqual(reopened.pinnedAccountIDs, ["b"])
+
+        try await restarted.add(account("a"))
+        XCTAssertEqual(GlanceSnapshotCodec.read(fromDirectory: directory).pinnedAccountIDs, ["b"])
+    }
+
     func testAnEmptyAccountListIsStillPublished() async throws {
         // The tile has no other way to learn an account was removed. Skipping the publish
         // because there is nothing to sync leaves the home screen showing an account the user
