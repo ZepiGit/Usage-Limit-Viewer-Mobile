@@ -23,7 +23,7 @@ public struct GlanceRow: Sendable, Equatable, Codable {
     public let resetAt: Date?
     public let severity: Severity
     /// Carried so the representative can prefer global windows among those still open at
-    /// render time, as Android's `mostCritical` does, instead of fixing the pool at export.
+    /// render time, as the account headline does, instead of fixing the pool at export.
     public let scope: UsageScope
     public let segments: [UsageSegment]
 
@@ -215,16 +215,11 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
             mode: mode)
     }
 
-    /// The one row that stands for the account (ring, ordering): an exhausted row first, then the
-    /// lowest percentage, among global rows whose reset has not passed since the fetch — scoped
-    /// rows stand in only once no open global one is left. When every row has reset they all
-    /// stay candidates, drawn as "reset due". Android's `representative`: windows reset since
-    /// the fetch drop out FIRST, then `mostCritical` prefers globals among what remains.
+    /// The one row that stands for the account (ring, ordering): the account headline
+    /// (`Array.headline(fetchedAt:at:)`) among every window it reports. When every row has reset
+    /// they all stay candidates, drawn as "reset due".
     public func representative(at date: Date) -> GlanceRow? {
-        let open = candidates.filter { !$0.resetPending(at: date, fetchedAt: fetchedAt) }
-        let pool = open.isEmpty ? candidates : open
-        let global = pool.filter { $0.scope == .global }
-        return (global.isEmpty ? pool : global).min { Self.rank($0) < Self.rank($1) }
+        candidates.headline(fetchedAt: fetchedAt, at: date)
     }
 
     public func nextResettingRow(at date: Date) -> GlanceRow? {
@@ -232,13 +227,9 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
             .min { $0.resetAt! < $1.resetAt! }
     }
 
-    private static func rank(_ row: GlanceRow) -> Double {
-        row.severity == .exhausted ? -1 : (row.remainingPercent ?? .greatestFiniteMagnitude)
-    }
-
     /// The tightest number this block actually shows. Used only for ordering.
     func tightestRemaining(at date: Date) -> Double {
-        representative(at: date).map(Self.rank) ?? .greatestFiniteMagnitude
+        representative(at: date).map { headlineRank($0) } ?? .greatestFiniteMagnitude
     }
 }
 
@@ -396,11 +387,11 @@ public extension GlanceRow {
     /// `fetchedAt` is the OWNING account's fetch instant: a reading taken after the reset
     /// (a fresh snapshot that simply reports a passed resetAt) is confirmed, not pending.
     func resetPending(at date: Date, fetchedAt: Date?) -> Bool {
-        guard let resetAt, resetAt <= date else { return false }
-        guard let fetchedAt else { return true }
-        return fetchedAt < resetAt
+        resetDue(fetchedAt: fetchedAt, at: date)
     }
 }
+
+extension GlanceRow: HeadlineCandidate {}
 
 /// Reduces the cache to what one surface needs.
 ///

@@ -55,7 +55,7 @@ class QuotaValidationTest {
              "code_review_rate_limit":{"primary_window":{"used_percent":100,"limit_window_seconds":604800}}}
         """), 0)
         val snapshot = UsageSnapshot("synthetic", 0, SnapshotStatus.OK, windows)
-        assertEquals(80.0, snapshot.mostCritical!!.remainingPercent!!, 0.0)
+        assertEquals(80.0, snapshot.headlineAt(0)!!.remainingPercent!!, 0.0)
         assertEquals(Severity.LIMITED, snapshot.severity)
         assertEquals(UsageScope.MODEL, windows.last().scope)
     }

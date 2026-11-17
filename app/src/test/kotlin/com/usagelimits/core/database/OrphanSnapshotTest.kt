@@ -204,7 +204,7 @@ class OrphanSnapshotTest {
                 com.usagelimits.core.model.UsageScope.MODEL, com.usagelimits.core.model.UsageScope.UNKNOWN),
             restored.windows.map { it.scope },
         )
-        assertEquals(37.0, restored.mostCritical!!.remainingPercent!!, 0.0)
+        assertEquals(37.0, restored.headlineAt(restored.fetchedAt)!!.remainingPercent!!, 0.0)
         assertEquals(com.usagelimits.core.model.Severity.LIMITED, restored.severity)
         assertEquals(now, restored.lastAttemptAt)
     }

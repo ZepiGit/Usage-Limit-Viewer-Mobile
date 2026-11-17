@@ -133,6 +133,9 @@ tasks.withType<Test>().configureEach {
     if (System.getProperty("os.name").startsWith("Windows")) forkEvery = 1
     // RedesignCaptureTest writes PNGs only when -PcaptureDir=<abs path> is given.
     providers.gradleProperty("captureDir").orNull?.let { systemProperty("capture.dir", it) }
+    // The cross-platform vectors are read from outside the module; without this a changed
+    // vector file would leave the test task up to date, or served from the build cache.
+    inputs.dir(rootProject.file("shared/test-vectors")).withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 dependencies {

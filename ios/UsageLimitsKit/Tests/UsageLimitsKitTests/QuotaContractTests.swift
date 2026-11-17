@@ -33,7 +33,7 @@ final class QuotaContractTests: XCTestCase {
         let value = snapshot([window("5h", used: 0), window("Weekly", used: 63),
                               window("Weekly (Fable)", used: 100, scope: .model)])
         XCTAssertEqual(value.severity, .limited)
-        XCTAssertEqual(value.mostCritical?.remainingPercent, 37)
+        XCTAssertEqual(value.headline(at: now)?.remainingPercent, 37)
         XCTAssertEqual(value.restrictedWindows.map(\.label), ["Weekly (Fable)"])
     }
 
@@ -44,7 +44,7 @@ final class QuotaContractTests: XCTestCase {
     func testUnknownOptionalQuotaDoesNotOverrideKnownCreditBalance() {
         let value = snapshot([window("Weekly credits", used: 20), window("Monthly included", used: nil)])
         XCTAssertEqual(value.severity, .healthy)
-        XCTAssertEqual(value.mostCritical?.remainingPercent, 80)
+        XCTAssertEqual(value.headline(at: now)?.remainingPercent, 80)
         XCTAssertEqual(snapshot([window("Monthly included", used: nil)]).severity, .unknown)
     }
 

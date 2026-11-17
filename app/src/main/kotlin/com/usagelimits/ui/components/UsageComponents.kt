@@ -24,6 +24,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +53,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -492,10 +495,18 @@ fun SegmentedRow(modifier: Modifier = Modifier, content: @Composable () -> Unit)
 
 @Composable
 fun Segment(label: String, selected: Boolean, onClick: () -> Unit) {
+    // The touch target takes the press; the pill draws it, so the ripple has the pill's size and corners.
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .widthIn(min = 48.dp)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .selectable(
+                selected = selected,
+                interactionSource = interaction,
+                indication = null,
+                role = Role.RadioButton,
+                onClick = onClick,
+            )
             // 8dp each side keeps the 48dp touch target at the base height and grows with the cell.
             .padding(vertical = 8.dp),
         contentAlignment = Alignment.Center,
@@ -505,6 +516,7 @@ fun Segment(label: String, selected: Boolean, onClick: () -> Unit) {
                 .heightIn(min = 32.dp)
                 .clip(MaterialTheme.shapes.small)
                 .background(if (selected) UsageColors.Raised else Color.Transparent)
+                .indication(interaction, ripple())
                 .padding(horizontal = 14.dp),
             contentAlignment = Alignment.Center,
         ) {
