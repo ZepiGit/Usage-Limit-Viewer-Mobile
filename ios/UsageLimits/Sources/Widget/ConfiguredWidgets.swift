@@ -269,14 +269,14 @@ private struct ConfiguredRingGrid: View {
                             let severity = account.displaySeverity(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter)
                             // Built from the raw row; the aged `severity` above only colours the figure.
                             let p = account.presentation(of: limit, at: entry.date, staleAfter: entry.snapshot.staleAfter, mode: mode)
-                            let figure = PercentText.figure(p)
                             HStack(spacing: 8) {
                                 ZStack {
                                     // Reduce track opacity in accented/monochrome modes: the host can recolor both
                                     // circles white, so opacity must distinguish the track from the amount.
                                     Circle().stroke(ink.track, lineWidth: mini ? 4 : 5).opacity(trackOpacity)
                                     // No fraction, no arc: an unknown figure must not become a ring
-                                    // drawn from "100 − 0".
+                                    // drawn from "100 − 0". `ConfiguredRingText.arcDrawn` states the
+                                    // same condition for the centre.
                                     if let fill = p.fill, let arc = ink.fill(p.fillState) {
                                         Circle().trim(from: 0, to: CGFloat(fill))
                                             .stroke(arc, style: StrokeStyle(lineWidth: mini ? 4 : 5, lineCap: .round))
@@ -285,10 +285,12 @@ private struct ConfiguredRingGrid: View {
                                     if mini {
                                         // Only room for the logo: the figure is the arc.
                                         logo(for: account).frame(width: 20, height: 20)
-                                    } else {
+                                    } else if let centre = ConfiguredRingText.centre(p, texts: LocalizedPercentTexts()) {
                                         // A ring this size reads best with its number inside; the
-                                        // logo goes beside the name instead.
-                                        Text(verbatim: figure)
+                                        // logo goes beside the name instead. A full allowance under
+                                        // its arc writes nothing, and a 100 the arc does not show
+                                        // has no sign (`RingCentre`).
+                                        Text(verbatim: centre)
                                             .usageFont(p.hasFigure ? .smallStrong : .small)
                                             .foregroundStyle(ink.figure(severity))
                                             .lineLimit(1)
@@ -314,29 +316,12 @@ private struct ConfiguredRingGrid: View {
                                         }
                                     }.foregroundStyle(ink.primary)
                                 }
-                            }.accessibilityLabel(spoken(account, drawnFigure: figure))
+                            }.accessibilityLabel(ConfiguredRingText.spoken(account, presentation: p, texts: LocalizedPercentTexts()))
                         }
                     }
                 }
             }
         }
-    }
-
-    /// LEFT is the sentence spoken before the mode existed, which reads the lowest figure across
-    /// every window. USED speaks `drawnFigure`, the very string the ring prints: an exhausted
-    /// 5h window whose reset has passed, beside an open weekly at 60% left, draws "40% used" from
-    /// the representative row, and a second derivation over all rows announced "100% used".
-    /// Taking the drawn figure in means the two cannot be computed apart again.
-    private func spoken(_ account: GlanceAccount, drawnFigure: String) -> String {
-        let sentence: String
-        if mode == .used {
-            sentence = PercentText.spoken(drawnFigure, .used)
-        } else {
-            let lowest = account.rows.map(\.remainingPercent).compactMap { $0 }.min()
-            let token = UsageWindow.percentToken(lowest, exhausted: false, mode: .left)
-            sentence = PercentText.spoken(PercentText.figure(token: token), .left)
-        }
-        return "\(account.title), \(account.subtitle ?? ""), \(sentence)"
     }
 
     /// The provider's mark, drawn in the ink's own colour when the tile sits on a light

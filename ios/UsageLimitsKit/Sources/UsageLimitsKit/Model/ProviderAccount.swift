@@ -278,20 +278,6 @@ public struct UsageSnapshot: Sendable, Codable, Equatable {
         }.count
     }
 
-    /// The window closest to running out — what a summary leads with.
-    public var mostCritical: UsageWindow? {
-        // An explicitly exhausted window outranks everything, whatever its percentage says.
-        // Ranked by percentage alone, a window the provider flagged exhausted but gave no
-        // figure for sorted LAST — unknown reads as "infinitely much left" — and the summary
-        // led with a 10 %-remaining neighbour while the real emergency sat below it.
-        let global = windows.filter { $0.scope == .global }
-        return (global.isEmpty ? windows : global).min { Self.rank($0) < Self.rank($1) }
-    }
-
-    private static func rank(_ window: UsageWindow) -> Double {
-        window.exhausted ? -1 : (window.remainingPercent ?? .greatestFiniteMagnitude)
-    }
-
     public var restrictedWindows: [UsageWindow] {
         windows.filter { $0.scope != .global && $0.severity == .exhausted }
     }

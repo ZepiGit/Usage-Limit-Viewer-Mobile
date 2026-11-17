@@ -1,0 +1,273 @@
+{
+  "description": "The account headline: the one usage window that speaks for an account at a moment. Rule: (1) drop windows whose reset is due (resetAt <= now and the reading was taken before resetAt; with no fetch time any passed reset is due); if that leaves none, keep all. (2) If any remaining window is global, only global windows compete; otherwise all compete. (3) An exhausted window (provider flag, or no remaining at all) wins; otherwise the lowest remaining percentage wins; an unknown percentage loses to any known one. A remaining percentage that is missing, non-finite or outside 0-100 is unknown; only exactly 0 counts as nothing left. Ties go to the first window in provider order. (4) No windows, no headline. Times are epoch milliseconds. Expected ids are written by hand from the rule, never generated from an implementation.",
+  "vectors": [
+    {
+      "name": "a global window beats a tighter scoped one",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "fable-weekly", "scope": "model", "remainingPercent": 5, "exhausted": false, "resetAt": 1800003600000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 }
+      ],
+      "expected": "weekly"
+    },
+    {
+      "name": "an exhausted scoped window still loses to a global one",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "fable-weekly", "scope": "model", "remainingPercent": 0, "exhausted": true, "resetAt": 1800003600000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 90, "exhausted": false, "resetAt": 1800003600000 }
+      ],
+      "expected": "weekly"
+    },
+    {
+      "name": "without a global window, model and unknown scopes compete",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "pool-a", "scope": "model", "remainingPercent": 60, "exhausted": false, "resetAt": null },
+        { "id": "legacy", "scope": "unknown", "remainingPercent": 20, "exhausted": false, "resetAt": null },
+        { "id": "pool-b", "scope": "model", "remainingPercent": 35, "exhausted": false, "resetAt": null }
+      ],
+      "expected": "legacy"
+    },
+    {
+      "name": "an exhausted window beats a lower percentage",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "5h", "scope": "global", "remainingPercent": 10, "exhausted": false, "resetAt": 1800003600000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 30, "exhausted": true, "resetAt": 1800003600000 }
+      ],
+      "expected": "weekly"
+    },
+    {
+      "name": "an exhausted window with unknown percentage still wins",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "weekly", "scope": "global", "remainingPercent": 10, "exhausted": false, "resetAt": null },
+        { "id": "5h", "scope": "global", "remainingPercent": null, "exhausted": true, "resetAt": null }
+      ],
+      "expected": "5h"
+    },
+    {
+      "name": "the lowest remaining percentage wins regardless of order",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "5h", "scope": "global", "remainingPercent": 95, "exhausted": false, "resetAt": 1800003600000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 30, "exhausted": false, "resetAt": 1800400000000 }
+      ],
+      "expected": "weekly"
+    },
+    {
+      "name": "an unknown percentage loses even to a full window",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "credits", "scope": "global", "remainingPercent": null, "exhausted": false, "resetAt": null },
+        { "id": "weekly", "scope": "global", "remainingPercent": 100, "exhausted": false, "resetAt": null }
+      ],
+      "expected": "weekly"
+    },
+    {
+      "name": "a reset-due window is dropped",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1799999700000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800400000000 }
+      ],
+      "expected": "weekly"
+    },
+    {
+      "name": "a reset-due global window drops out before globals are preferred",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1799999700000 },
+        { "id": "fable-weekly", "scope": "model", "remainingPercent": 60, "exhausted": false, "resetAt": 1800400000000 }
+      ],
+      "expected": "fable-weekly"
+    },
+    {
+      "name": "a reset exactly at now is due",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1800000000000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800400000000 }
+      ],
+      "expected": "weekly"
+    },
+    {
+      "name": "a reset that passed before the reading is not due",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1799999000000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800400000000 }
+      ],
+      "expected": "5h"
+    },
+    {
+      "name": "a reset at the very moment of the reading is not due",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1799999400000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800400000000 }
+      ],
+      "expected": "5h"
+    },
+    {
+      "name": "when every window is reset due, all of them compete again",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1799999700000 },
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1799999800000 }
+      ],
+      "expected": "5h"
+    },
+    {
+      "name": "when every window is reset due, a global one is still preferred",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "fable-weekly", "scope": "model", "remainingPercent": 10, "exhausted": false, "resetAt": 1799999700000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1799999800000 }
+      ],
+      "expected": "weekly"
+    },
+    {
+      "name": "without a fetch time, a passed reset counts as due",
+      "fetchedAt": null,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1799999700000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800400000000 }
+      ],
+      "expected": "weekly"
+    },
+    {
+      "name": "without a fetch time, windows with future or no resets compete normally",
+      "fetchedAt": null,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800400000000 },
+        { "id": "monthly", "scope": "global", "remainingPercent": 15, "exhausted": false, "resetAt": null }
+      ],
+      "expected": "monthly"
+    },
+    {
+      "name": "a tie goes to the first window in provider order",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "first", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800400000000 },
+        { "id": "second", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 }
+      ],
+      "expected": "first"
+    },
+    {
+      "name": "the same tie in the other provider order goes the other way",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "second", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 },
+        { "id": "first", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800400000000 }
+      ],
+      "expected": "second"
+    },
+    {
+      "name": "a provider-flagged exhausted window and one with nothing left tie, first wins",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "empty", "scope": "global", "remainingPercent": 0, "exhausted": false, "resetAt": null },
+        { "id": "flagged", "scope": "global", "remainingPercent": 20, "exhausted": true, "resetAt": null }
+      ],
+      "expected": "empty"
+    },
+    {
+      "name": "two unknown percentages tie, first wins",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "included", "scope": "global", "remainingPercent": null, "exhausted": false, "resetAt": null },
+        { "id": "credits", "scope": "global", "remainingPercent": null, "exhausted": false, "resetAt": null }
+      ],
+      "expected": "included"
+    },
+    {
+      "name": "a provider-flagged exhausted window first ties with one with nothing left",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "flagged-first", "scope": "global", "remainingPercent": 80, "exhausted": true, "resetAt": null },
+        { "id": "empty-second", "scope": "global", "remainingPercent": 0, "exhausted": false, "resetAt": null }
+      ],
+      "expected": "flagged-first"
+    },
+    {
+      "name": "two flagged-exhausted windows tie regardless of percentage, first wins",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "flagged-first", "scope": "global", "remainingPercent": 80, "exhausted": true, "resetAt": null },
+        { "id": "flagged-second", "scope": "global", "remainingPercent": 20, "exhausted": true, "resetAt": null }
+      ],
+      "expected": "flagged-first"
+    },
+    {
+      "name": "an unknown global percentage beats a measured model-scoped window",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "measured-model", "scope": "model", "remainingPercent": 5, "exhausted": false, "resetAt": null },
+        { "id": "unknown-global", "scope": "global", "remainingPercent": null, "exhausted": false, "resetAt": null }
+      ],
+      "expected": "unknown-global"
+    },
+    {
+      "name": "without a fetch time and with every reset passed, all windows compete again",
+      "fetchedAt": null,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1799999700000 },
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1799999800000 }
+      ],
+      "expected": "5h"
+    },
+    {
+      "name": "a reset exactly at both the reading and now is not due",
+      "fetchedAt": 1800000000000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "5h", "scope": "global", "remainingPercent": 2, "exhausted": false, "resetAt": 1800000000000 },
+        { "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800400000000 }
+      ],
+      "expected": "5h"
+    },
+    {
+      "name": "an out-of-range percentage becomes unknown and loses to a known one",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [
+        { "id": "invalid", "scope": "global", "remainingPercent": -5, "exhausted": false, "resetAt": null },
+        { "id": "known", "scope": "global", "remainingPercent": 100, "exhausted": false, "resetAt": null }
+      ],
+      "expected": "known"
+    },
+    {
+      "name": "no windows, no headline",
+      "fetchedAt": 1799999400000,
+      "now": 1800000000000,
+      "windows": [],
+      "expected": null
+    }
+  ]
+}

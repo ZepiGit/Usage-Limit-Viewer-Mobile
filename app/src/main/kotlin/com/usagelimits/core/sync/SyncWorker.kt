@@ -59,7 +59,7 @@ class SyncWorker(
                 (container.syncEngine.syncAll() + container.creditSyncEngine.syncAll())
                     .also { container.settingsStore.recordSyncFinished(System.currentTimeMillis()) }
             },
-            publish = { container.publishAfterSync(applicationContext) },
+            publish = { container.publication.cacheMoved() },
         )
 
         return resultFor(outcomes, periodic = inputData.getBoolean(KEY_PERIODIC, false))

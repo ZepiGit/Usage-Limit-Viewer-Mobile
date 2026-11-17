@@ -13,7 +13,9 @@ on:
       - 'gradlew.bat'
       - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
       - 'tools/android_runtime_smoke.py'
+      - 'tools/test_android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
+      - 'shared/**'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
@@ -25,7 +27,9 @@ on:
       - 'gradlew.bat'
       - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
       - 'tools/android_runtime_smoke.py'
+      - 'tools/test_android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
+      - 'shared/**'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -51,6 +55,10 @@ jobs:
           java-version: '21'
 
       - uses: gradle/actions/setup-gradle@v4
+
+      # The emulator smoke's pixel logic, on synthetic frames; no device needed.
+      - name: Test the runtime smoke's own checks
+        run: python3 -m unittest discover -s tools -p 'test_android_runtime_smoke.py'
 
       - name: Test
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug
@@ -210,8 +218,11 @@ jobs:
   runtime:
     name: API 36 release upgrade smoke
     needs: assemble
-    # Fork PRs cannot access release signing. A debug-signed build cannot update the published release.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Fork PRs cannot access release signing, and neither can Dependabot's (it only gets Dependabot
+    # secrets). A debug-signed build cannot update the published release.
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     # Eight rounds revisit all four widget configurations, plus placement and geometry checks.
     # Individual UI/control deadlines remain bounded in the smoke script.

@@ -71,9 +71,35 @@ data class UsageWindow(
     val severity: Severity
         get() = Severity.fromRemainingPercent(remainingPercent, exhausted)
 
-    /** Reset passed after [fetchedAt]: the figure describes a closed window until a fetch confirms. */
-    fun resetElapsedAt(fetchedAt: Long, nowMs: Long): Boolean =
-        resetAt != null && resetAt <= nowMs && fetchedAt < resetAt
+    /**
+     * Reset passed after [fetchedAt]: the figure describes a closed window until a fetch confirms.
+     * Without a fetch instant there is no proof the reading is newer than the reset, so any
+     * passed reset counts, as on iOS.
+     */
+    fun resetElapsedAt(fetchedAt: Long?, nowMs: Long): Boolean =
+        resetAt != null && resetAt <= nowMs && (fetchedAt == null || fetchedAt < resetAt)
+}
+
+/**
+ * The account headline: the one window that speaks for the account at [nowMs].
+ *
+ * Windows whose reset is due drop out first — their figure belongs to a window that has ended —
+ * unless that leaves none, when all stay so the account still says something. Among what
+ * remains, global windows alone compete if there are any: a scoped pool running dry does not
+ * block the account. An exhausted window wins, then the lowest remaining percentage; an unknown
+ * percentage loses to any known one, because leading with a blank would hide the figure that is
+ * known. A tie goes to the first window in provider order.
+ *
+ * [fetchedAt] is nullable only so the shared vectors can state a reading with no fetch time;
+ * every snapshot has one, and [UsageSnapshot.headlineAt] is what callers use.
+ * `HeadlineVectorsTest` proves this against the vector file the Swift `headline` runs too.
+ */
+fun List<UsageWindow>.headlineAt(fetchedAt: Long?, nowMs: Long): UsageWindow? {
+    val pool = filterNot { it.resetElapsedAt(fetchedAt, nowMs) }.ifEmpty { this }
+    // minByOrNull keeps the earlier element on a tie, which is the documented tie-break.
+    return pool.filter { it.scope == UsageScope.GLOBAL }.ifEmpty { pool }.minByOrNull {
+        if (it.severity == Severity.EXHAUSTED) -1.0 else it.remainingPercent ?: Double.MAX_VALUE
+    }
 }
 
 /** Why a snapshot looks the way it does. Drives the "stale"/"failed" banners. */
@@ -138,14 +164,8 @@ data class UsageSnapshot(
     val spendableResetCredits: Int
         get() = spendableResetCreditsAt(System.currentTimeMillis())
 
-    /** Global constraints lead summaries; model restrictions remain separate named rows. */
-    val mostCritical: UsageWindow?
-        get() {
-            val global = windows.filter { it.scope == UsageScope.GLOBAL }
-            return (global.ifEmpty { windows }).minByOrNull {
-                if (it.severity == Severity.EXHAUSTED) -1.0 else it.remainingPercent ?: Double.MAX_VALUE
-            }
-        }
+    /** The account headline at [nowMs], judged against this snapshot's own [fetchedAt]. */
+    fun headlineAt(nowMs: Long): UsageWindow? = windows.headlineAt(fetchedAt, nowMs)
 
     val restrictedWindows: List<UsageWindow>
         get() = windows.filter { it.scope != UsageScope.GLOBAL && it.severity == Severity.EXHAUSTED }
