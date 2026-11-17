@@ -31,6 +31,7 @@ import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.sync.NotificationPublisher
+import com.usagelimits.core.sync.resetTestWorkManager
 import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.statusicon.StatusIconPublisher
 import com.usagelimits.ui.theme.UsageLimitsTheme
@@ -78,7 +79,7 @@ class StatusIconPermissionGrantTest {
         WorkManager.getInstance(app).cancelAllWork().result.get()
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val store = app.container.settingsStore
-        store.recordNotificationPermissionAsked()
+        store.recordNotificationPermissionHandled()
         store.setStatusIconsEnabled(true)
         store.setPinnedAccounts(listOf(account().localId))
         vm = UsageViewModel(app.container, app)
@@ -89,10 +90,12 @@ class StatusIconPermissionGrantTest {
         assertEquals("nothing can be posted before the grant", 0, statusRecords().size + alertRecords().size)
     }
 
+    /** Nothing this class started may outlive it: see `resetTestWorkManager`. */
     @After
     fun drain() {
         WorkManager.getInstance(app).cancelAllWork().result.get()
         ShadowLooper.idleMainLooper()
+        resetTestWorkManager()
     }
 
     /** Claude with 5 % left: a reading that crosses the alert threshold the first time it is evaluated. */
@@ -119,7 +122,7 @@ class StatusIconPermissionGrantTest {
                     onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {},
                     onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
                     onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {},
-                    onNotificationPermissionAsked = vm::recordNotificationPermissionAsked,
+                    onNotificationPermissionHandled = vm::recordNotificationPermissionHandled,
                     onStatusIconsChange = vm::setStatusIcons,
                     onPinnedAccountChange = vm::setPinnedAccount,
                     onNotificationsAllowed = {

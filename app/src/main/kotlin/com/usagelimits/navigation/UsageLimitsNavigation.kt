@@ -270,7 +270,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                         SettingsScreen(
                             state = state,
                             onSyncIntervalChange = viewModel::setSyncInterval,
-                            onNotificationPermissionAsked = viewModel::recordNotificationPermissionAsked,
+                            onNotificationPermissionHandled = viewModel::recordNotificationPermissionHandled,
                             onProviderIconChange = viewModel::setProviderIcon,
                             onStatusIconsChange = viewModel::setStatusIcons,
                             onPinnedAccountChange = viewModel::setPinnedAccount,

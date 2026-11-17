@@ -12,6 +12,14 @@ From the repository root:
 
 On Windows, use `gradlew.bat`. The debug APK is `app/build/outputs/apk/debug/app-debug.apk`; its application ID is `com.usagelimits.debug`, so it installs separately from release builds. Release output is `app/build/outputs/apk/release/app-release.apk`.
 
+CI runs `:app:testDebugUnitTest :app:lintDebug`. Lint aborts on errors and writes HTML and XML reports under `app/build/reports/`. Existing warnings remain warnings, with no baseline hiding them.
+
+## Dependency updates
+
+The Android toolchain moves together, outside Dependabot: AGP, Gradle, Kotlin, KSP and the Compose compiler must remain compatible. `.github/dependabot.yml` holds the AndroidX families blocked in the first wave, Coroutines 1.9, Serialization 1.7 and OkHttp 4 on their current lines; where a line has no newer patch that is in effect a freeze. Revisit those bounds when upgrading the toolchain; they are conservative review limits, not claims that every intermediate release is incompatible. The bounds also stop Dependabot security updates beyond them, so a fix that only exists above a bound needs a manual upgrade. Room, WorkManager, Lifecycle, Glance and Compose updates are grouped separately so unrelated libraries do not block each other.
+
+After upgrading CI actions, run the full Android and iOS workflows on a maintainer branch. Dependabot runs skip the signed API 36 release-upgrade smoke. The Android workflow uses `gradle/actions` v6 with `cache-provider: basic` to retain MIT-licensed caching without the separate Enhanced Caching terms. Basic caching does not provide Enhanced Caching's cleanup or deduplication. The release workflow remains uncached, and artifact uploads retain zipped, explicitly named artifacts for the existing download steps.
+
 ## Signing
 
 Supply all four values for a distribution build:
@@ -56,7 +64,7 @@ Use the candidate artifact and repeat the relevant steps on Android and iOS with
 1. Open Overview, Accounts, Resets and Settings. Check rotation, split view, large text, screen readers, keyboard navigation and reduced motion. Place widgets, resize them, change appearance, save and cancel configuration, then reopen after process loss and reboot.
 2. Complete browser and device-code sign-in where offered, including cancellation and retry. Add two accounts on one provider and reconnect an existing account. Confirm account identity, quota direction and reset times against the provider's UI.
 3. Compare populated widgets with the app. Refresh offline, restore connectivity, and remove an account during refresh. Check retained data age, recovery, notifications and credential renewal after expiry.
-4. Install over the prior release without uninstalling. Confirm accounts, settings and widget selections remain. Redeem a Codex reset credit only with the holder's explicit approval: it spends a real credit.
+4. Install over the prior release without uninstalling. Confirm accounts, settings and widget selections remain. On iOS 17+, first place Usage Bars, Account Rings and Mini Rings with a display-mode override opposite to the app setting and nondefault selection and appearance. After upgrading, confirm they still render, retain those other choices, no longer offer a display-mode control and follow changes to the app setting after WidgetKit reloads. Record the OS and both builds: Linux checks cannot verify WidgetKit's decoding of a stored intent whose parameter was removed. Redeem a Codex reset credit only with the holder's explicit approval: it spends a real credit.
 
 ## Owner responsibilities
 

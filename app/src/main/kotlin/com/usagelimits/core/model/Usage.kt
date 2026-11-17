@@ -33,17 +33,17 @@ enum class WindowCategory {
     }
 }
 
+/** Whether exhausting this window blocks the entire account or only a model/pool. */
+enum class UsageScope { GLOBAL, MODEL, UNKNOWN }
+
+data class UsageSegment(val label: String, val usedPercent: Double)
+
 /**
  * One quota bar in the UI, normalised from whatever shape the provider used.
  *
  * [usedPercent] is the sole stored percentage; [remainingPercent] is derived once.
  * Providers normalize explicit percentages or compatible amount/capacity ratios here.
  */
-/** Whether exhausting this window blocks the entire account or only a model/pool. */
-enum class UsageScope { GLOBAL, MODEL, UNKNOWN }
-
-data class UsageSegment(val label: String, val usedPercent: Double)
-
 data class UsageWindow(
     val id: String,
     val label: String,
@@ -237,12 +237,3 @@ data class ResetCredit(
     val status: String,
 )
 
-/**
- * Display rounding never turns a positive remainder into zero, or a partial quota into full.
- *
- * A thin wrapper over [percentToken] in the historical LEFT reading, keeping the `%`-suffixed
- * strings existing call sites render; new surfaces take the token and compose it with a locale
- * template, so the wording lives in resources rather than here.
- */
-fun percentLabel(remaining: Double?): String =
-    withPercentSign(percentToken(remaining, exhausted = false, mode = PercentDisplay.LEFT))

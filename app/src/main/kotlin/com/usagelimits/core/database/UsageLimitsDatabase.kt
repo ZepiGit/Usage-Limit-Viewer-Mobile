@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CreditAccountEntity::class,
         CreditSnapshotEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class UsageLimitsDatabase : RoomDatabase() {
@@ -191,14 +191,53 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
         }
 
         /**
-         * A placed widget may keep its own choice of showing percentages as left or used.
+         * Version 12 allowed a placed widget to keep its own choice of showing percentages as
+         * left or used. Version 13 removed this choice.
          *
-         * Nullable with no default, matching the entity: null means "follow the app setting", so
-         * every widget already on a home screen keeps tracking it rather than being pinned.
+         * The column was nullable with no default, matching the entity: null meant "follow the
+         * app setting", so every widget already on a home screen kept tracking it rather than
+         * being pinned.
          */
         private val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE widget_configs ADD COLUMN percentDisplay TEXT")
+            }
+        }
+
+        /** Every widget follows the app mode; recreate the table for SQLite on minSdk 26. */
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE widget_configs_new (
+                        appWidgetId INTEGER NOT NULL,
+                        scope TEXT NOT NULL,
+                        accountId TEXT,
+                        provider TEXT,
+                        updatedAt INTEGER NOT NULL,
+                        transparent INTEGER NOT NULL DEFAULT 0,
+                        customAccountIdsJson TEXT NOT NULL DEFAULT '[]',
+                        layoutMetricsJson TEXT NOT NULL DEFAULT '{}',
+                        backgroundArgb INTEGER NOT NULL DEFAULT -15790322,
+                        backgroundOpacity INTEGER NOT NULL DEFAULT 100,
+                        textTone TEXT NOT NULL DEFAULT 'AUTO',
+                        PRIMARY KEY(appWidgetId)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO widget_configs_new (
+                        appWidgetId, scope, accountId, provider, updatedAt, transparent,
+                        customAccountIdsJson, layoutMetricsJson, backgroundArgb, backgroundOpacity, textTone
+                    )
+                    SELECT appWidgetId, scope, accountId, provider, updatedAt, transparent,
+                        customAccountIdsJson, layoutMetricsJson, backgroundArgb, backgroundOpacity, textTone
+                    FROM widget_configs
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE widget_configs")
+                db.execSQL("ALTER TABLE widget_configs_new RENAME TO widget_configs")
             }
         }
 
@@ -215,6 +254,7 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             MIGRATION_9_10,
             MIGRATION_10_11,
             MIGRATION_11_12,
+            MIGRATION_12_13,
             ).build()
     }
 }

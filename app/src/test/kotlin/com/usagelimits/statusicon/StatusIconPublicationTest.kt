@@ -20,6 +20,7 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.sync.NotificationPublisher
+import com.usagelimits.core.sync.resetTestWorkManager
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
@@ -65,10 +66,12 @@ class StatusIconPublicationTest {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
     }
 
+    /** Nothing this class started may outlive it: see `resetTestWorkManager`. */
     @After
     fun drain() {
         WorkManager.getInstance(app).cancelAllWork().result.get()
         ShadowLooper.idleMainLooper()
+        resetTestWorkManager()
     }
 
     private suspend fun account(provider: ProviderId, name: String, left: Double): ProviderAccount {

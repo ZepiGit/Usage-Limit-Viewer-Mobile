@@ -26,6 +26,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.channels.Channel
@@ -136,6 +137,8 @@ class UsagePublicationRoutingTest {
         val account = container.repository.upsertFromLogin(ProviderId.CODEX, "fixture", "test@example.com",
             null, "Plus", emptyMap())
         val credit = container.creditAccounts.add(CreditProviderId.DEEPSEEK, "fixture")
+        // The stateIn observer lives until the ViewModel is cleared; only join edit jobs.
+        val backgroundJobs = vm.viewModelScope.coroutineContext[Job]!!.children.toSet()
         val changes: List<Pair<String, () -> Unit>> = listOf(
             "reorder" to { vm.reorderAccounts(listOf(account.localId)) },
             "provider icon" to { vm.setProviderIcon(ProviderId.CODEX, "openai") },
@@ -152,5 +155,10 @@ class UsagePublicationRoutingTest {
             change()
             assertEquals(label, "presentation changed", withTimeoutOrNull(5_000) { events.receive() })
         }
+        withTimeout(5_000) {
+            vm.viewModelScope.coroutineContext[Job]!!.children
+                .filterNot { it in backgroundJobs }.toList().joinAll()
+        }
+        assertEquals("Presentation edits must not publish an extra event", null, events.tryReceive().getOrNull())
     }
 }

@@ -35,11 +35,8 @@ data class AppSettings(
     val notifyOnResetCreditExpiring: Boolean = true,
     val resetCreditExpiryLeadMinutes: Int = DEFAULT_CREDIT_LEAD_MINUTES,
     /**
-     * Whether the overview follows the order the user dragged the accounts into.
-     *
-     * False until they drag one. Until then the list is ranked by urgency, which is what the
-     * app is for — but once someone has arranged their accounts deliberately, rearranging them
-     * again on every sync is the app overruling them.
+     * Records whether the user has dragged an account to change the order.
+     * The overview uses the stored order regardless of this flag.
      */
     val accountsManuallyOrdered: Boolean = false,
     /** Show the plan tier — Plus, Pro, Max — beside the provider name. */
@@ -140,7 +137,7 @@ class SettingsStore(context: Context) {
         it[Keys.SYNC_INTERVAL] = minutes.coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES)
     }
 
-    suspend fun recordNotificationPermissionAsked() = edit { it[Keys.NOTIFICATION_PERMISSION_ASKED] = true }
+    suspend fun recordNotificationPermissionHandled() = edit { it[Keys.NOTIFICATION_PERMISSION_ASKED] = true }
 
     /** Robolectric reuses this DataStore across classes within an SDK sandbox. */
     @androidx.annotation.VisibleForTesting
@@ -177,10 +174,8 @@ class SettingsStore(context: Context) {
     }
 
     /**
-     * Latched the first time an account is dragged, and never cleared on its own.
-     *
-     * Once someone has arranged their accounts deliberately, re-ranking them by urgency on the
-     * next sync would be the app overruling a choice they made by hand.
+     * Records a user drag; the flag does not control account ordering.
+     * It is set on reorder and is not cleared automatically.
      */
     suspend fun setAccountsManuallyOrdered(ordered: Boolean) = edit {
         it[Keys.ACCOUNTS_MANUAL_ORDER] = ordered

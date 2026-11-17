@@ -78,21 +78,10 @@ data class UsageUiState(
      */
     val staleAfterMs: Long get() = Severity.staleAfterMs(settings.syncIntervalMinutes)
 
-    /**
-     * The accounts in the order this screen should show them.
-     *
-     * Two orders, and which one applies is a choice the user has already made. Until anyone
-     * drags a card, the list is ranked most-urgent-first — that ranking is what the app is for,
-     * and it uses `urgency` rather than `Severity`'s declaration order, which put stale and
-     * never-fetched cards above exhausted ones.
-     *
-     * Once someone has arranged their accounts by hand, that order wins and nothing re-ranks
-     * it. The repository already returns rows `ORDER BY sortOrder`, so the manual case is the
-     * list exactly as it arrived.
-     */
-    fun orderedAccounts(nowMs: Long): List<AccountUsage> = accounts
+    /** Accounts retain repository order: sort position, then creation time. New accounts join the end. */
+    fun orderedAccounts(): List<AccountUsage> = accounts
 
-    fun healthyCountAt(nowMs: Long): Int =
+    fun healthyCountAt(): Int =
         accounts.count { it.snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.CONNECTED }
 
     /** Newest data wins for the "last updated" line — it describes the screen as a whole. */
@@ -177,15 +166,9 @@ class UsageViewModel(
     /** Account id whose reset credit is currently being spent, for a per-card spinner. */
     val resetCreditInFlight: StateFlow<String?> = _resetCreditInFlight.asStateFlow()
 
-    /**
-     * Persists the order the user dragged the cards into.
-     *
-     * Latches `accountsManuallyOrdered` at the same time, in the same coroutine: writing the
-     * order without the flag would store an arrangement the overview then ignores, which reads
-     * as the drag having done nothing.
-     */
     private val reorderMutex = kotlinx.coroutines.sync.Mutex()
 
+    /** Persists the dragged order and records the drag; the flag does not control ordering. */
     fun reorderAccounts(idsInOrder: List<String>) {
         viewModelScope.launch {
             reorderMutex.lock()
@@ -411,8 +394,8 @@ class UsageViewModel(
         viewModelScope.launch { container.publication.presentationChanged() }
     }
 
-    fun recordNotificationPermissionAsked() {
-        viewModelScope.launch { container.settingsStore.recordNotificationPermissionAsked() }
+    fun recordNotificationPermissionHandled() {
+        viewModelScope.launch { container.settingsStore.recordNotificationPermissionHandled() }
     }
 
     fun setNotifyBelow20(enabled: Boolean) {

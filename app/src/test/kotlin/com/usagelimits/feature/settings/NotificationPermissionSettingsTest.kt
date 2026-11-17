@@ -80,7 +80,7 @@ class NotificationPermissionSettingsTest {
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
         shadowOf(app.packageManager).setShouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS, true)
         var permissionAsked = false
-        render(AppSettings(notificationPermissionHandled = true), onNotificationPermissionAsked = { permissionAsked = true })
+        render(AppSettings(notificationPermissionHandled = true), onNotificationPermissionHandled = { permissionAsked = true })
         scrollTo("Allow notifications")
         compose.onNodeWithText("Allow notifications").performClick()
         org.junit.Assert.assertTrue(permissionAsked)
@@ -184,14 +184,14 @@ class NotificationPermissionSettingsTest {
     private fun render(
         settings: AppSettings = AppSettings(),
         onNotifyBelow20: (Boolean) -> Unit = {},
-        onNotificationPermissionAsked: () -> Unit = {},
+        onNotificationPermissionHandled: () -> Unit = {},
     ) {
         compose.setContent {
             UsageLimitsTheme {
                 SettingsScreen(
                     state = UsageUiState(settings = settings),
                     onSyncIntervalChange = {},
-                    onNotificationPermissionAsked = onNotificationPermissionAsked,
+                    onNotificationPermissionHandled = onNotificationPermissionHandled,
                     onNotifyBelow20 = onNotifyBelow20,
                     onNotifyBelow10 = {},
                     onNotifyExhausted = {},

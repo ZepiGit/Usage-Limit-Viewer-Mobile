@@ -54,7 +54,7 @@ class StatusIconSettingsTest {
             UsageLimitsTheme {
                 SettingsScreen(
                     state = UsageUiState(accounts = accounts, settings = settings, credits = credits),
-                    onSyncIntervalChange = {}, onNotificationPermissionAsked = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
+                    onSyncIntervalChange = {}, onNotificationPermissionHandled = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
                     onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
                     onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {},
                     onStatusIconsChange = { enabled = it },

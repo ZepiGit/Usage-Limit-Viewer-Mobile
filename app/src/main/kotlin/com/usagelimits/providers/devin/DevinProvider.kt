@@ -302,7 +302,7 @@ class DevinProvider(
         }
 
         val payload = fetchStatusPayload(token)
-        val windows = DevinQuotaParser.parse(payload, nowMs())
+        val windows = DevinQuotaParser.parse(payload)
         if (windows.isEmpty()) {
             throw ProviderException.MalformedPayload("Devin response had no quota windows")
         }

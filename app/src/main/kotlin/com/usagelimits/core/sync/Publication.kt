@@ -51,9 +51,7 @@ internal class OutOfAppPublication(
         settings: SettingsStore,
         notifications: NotificationPublisher,
         statusIcons: StatusIconPublisher,
-    ) : this(
-        repaint = { WidgetUpdater.refreshAll(context, settings) },
-        scheduleBoundary = {
+        scheduleBoundary: suspend () -> Unit = {
             val accounts = repository.accountUsageOnce()
             val balances = credits.entriesOnce()
             val interval = settings.settings.first().syncIntervalMinutes
@@ -65,6 +63,9 @@ internal class OutOfAppPublication(
                 nowMs = now,
             ), now)
         },
+    ) : this(
+        repaint = { WidgetUpdater.refreshAll(context, settings) },
+        scheduleBoundary = scheduleBoundary,
         publishStatusIcons = statusIcons::publish,
         publishAlerts = { notifications.publishFor(repository.accountUsageOnce()) },
     )

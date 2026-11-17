@@ -82,9 +82,15 @@ open class AppContainer(context: Context) {
         CreditAccountService(creditRepository, credentialStore, creditRegistry)
     }
 
+    val notificationPublisher by lazy {
+        NotificationPublisher(appContext, settingsStore, notificationDao, transactions = transactions)
+    }
+
+    val statusIconPublisher by lazy {
+        StatusIconPublisher(appContext, settingsStore, repository::accountUsageOnce)
+    }
+
     open val publication: Publication by lazy {
-        OutOfAppPublication(appContext, repository, creditRepository, settingsStore,
-            NotificationPublisher(appContext, settingsStore, notificationDao, transactions = transactions),
-            StatusIconPublisher(appContext, settingsStore, repository::accountUsageOnce))
+        OutOfAppPublication(appContext, repository, creditRepository, settingsStore, notificationPublisher, statusIconPublisher)
     }
 }
