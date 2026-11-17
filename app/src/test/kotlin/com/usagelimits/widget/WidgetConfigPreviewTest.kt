@@ -66,8 +66,8 @@ class WidgetConfigPreviewTest {
         updatedAt = null,
         nextResetAt = null,
         overallSeverity = Severity.HEALTHY,
-        headlineShort = null,
-        headlineLong = weekly,
+        summaryLineShort = null,
+        summaryLineLong = weekly,
     )
 
     private class Shown(val snapshot: WidgetSnapshot, val kind: String, val mode: PercentDisplay)

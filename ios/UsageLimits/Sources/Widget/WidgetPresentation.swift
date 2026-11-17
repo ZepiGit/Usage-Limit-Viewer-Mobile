@@ -7,11 +7,11 @@ import UsageLimitsKit
 
 // MARK: - Snapshot lead
 
-/// Use the kit's leading account, headline rows and reset together so the reading
+/// Use the kit's leading account, summary rows and reset together so the reading
 /// and its reset always belong to the same account.
 struct WidgetFocus {
     let account: GlanceAccount
-    /// The kit's headline for the lead: the five-hour row when it has one, else the longer.
+    /// The kit's summary for the lead: the five-hour row when it has one, else the longer.
     let row: GlanceRow?
 
     init?(snapshot: GlanceSnapshot) {
@@ -22,12 +22,12 @@ struct WidgetFocus {
 }
 
 extension GlanceSnapshot {
-    /// The row a tile shows for one account: the kit's headline for the LEAD, and every other
+    /// The row a tile shows for one account: the kit's summary for the LEAD, and every other
     /// account's own first row. Stated once — three views spelled it out separately, and the
     /// precedence decides which number a user sees.
     func widgetRow(for account: GlanceAccount) -> GlanceRow? {
         if account.id == accounts.first?.id {
-            return headlineShort ?? headlineLong ?? account.rows.first
+            return summaryLineShort ?? summaryLineLong ?? account.rows.first
         }
         return account.rows.first
     }

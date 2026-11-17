@@ -59,8 +59,8 @@ class GermanWidgetConfigRenderTest {
         updatedAt = null,
         nextResetAt = null,
         overallSeverity = Severity.HEALTHY,
-        headlineShort = null,
-        headlineLong = weekly,
+        summaryLineShort = null,
+        summaryLineLong = weekly,
     )
 
     private fun texts(value: String) = compose.onAllNodesWithText(value).fetchSemanticsNodes()

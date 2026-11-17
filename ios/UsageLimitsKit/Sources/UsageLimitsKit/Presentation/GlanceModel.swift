@@ -17,7 +17,7 @@ public enum GlanceScope: String, Sendable, Codable {
 /// One bar.
 public struct GlanceRow: Sendable, Equatable, Codable {
     public let label: String
-    /// Carried so a headline can be chosen by horizon rather than by position in `rows`.
+    /// Carried so a summary line can be chosen by horizon rather than by position in `rows`.
     public let category: WindowCategory
     public let remainingPercent: Double?
     public let resetAt: Date?
@@ -38,7 +38,9 @@ public struct GlanceRow: Sendable, Equatable, Codable {
     ) {
         self.label = label
         self.category = category
-        self.remainingPercent = remainingPercent
+        self.remainingPercent = remainingPercent.flatMap {
+            $0.isFinite && (0...100).contains($0) ? $0 : nil
+        }
         self.resetAt = resetAt
         self.severity = severity
         self.scope = scope
@@ -53,13 +55,14 @@ public struct GlanceRow: Sendable, Equatable, Codable {
     /// pool already, so reading it as global keeps its behaviour.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        label = try c.decode(String.self, forKey: .label)
-        category = try c.decode(WindowCategory.self, forKey: .category)
-        remainingPercent = try c.decodeIfPresent(Double.self, forKey: .remainingPercent)
-        resetAt = try c.decodeIfPresent(Date.self, forKey: .resetAt)
-        severity = try c.decode(Severity.self, forKey: .severity)
-        scope = try c.decodeIfPresent(UsageScope.self, forKey: .scope) ?? .global
-        segments = try c.decodeIfPresent([UsageSegment].self, forKey: .segments) ?? []
+        self.init(
+            label: try c.decode(String.self, forKey: .label),
+            category: try c.decode(WindowCategory.self, forKey: .category),
+            remainingPercent: try c.decodeIfPresent(Double.self, forKey: .remainingPercent),
+            resetAt: try c.decodeIfPresent(Date.self, forKey: .resetAt),
+            severity: try c.decode(Severity.self, forKey: .severity),
+            scope: try c.decodeIfPresent(UsageScope.self, forKey: .scope) ?? .global,
+            segments: try c.decodeIfPresent([UsageSegment].self, forKey: .segments) ?? [])
     }
 }
 
@@ -93,7 +96,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     public let baseSeverityAfterResets: [GlanceSeverityStep]
 
     /// Every window the account reports, scoped ones included, unlike `rows`, which keeps one
-    /// short and one long headline. The representative is chosen among these at render time.
+    /// short and one long summary line. The representative is chosen among these at render time.
     public let candidates: [GlanceRow]
 
     /// The fetch instant lets each timeline entry evaluate freshness at its display date.
@@ -243,8 +246,8 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
     public let updatedAt: Date?
     public let nextResetAt: Date?
     public let overallSeverity: Severity
-    public let headlineShort: GlanceRow?
-    public let headlineLong: GlanceRow?
+    public let summaryLineShort: GlanceRow?
+    public let summaryLineLong: GlanceRow?
 
     /// How old a reading may be before it reads as stale.
     ///
@@ -270,8 +273,8 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         updatedAt: Date?,
         nextResetAt: Date?,
         overallSeverity: Severity,
-        headlineShort: GlanceRow?,
-        headlineLong: GlanceRow?,
+        summaryLineShort: GlanceRow?,
+        summaryLineLong: GlanceRow?,
         staleAfter: TimeInterval = Severity.staleAfter,
         credits: [GlanceCredit] = [],
         percentDisplay: PercentDisplay
@@ -284,13 +287,16 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         self.updatedAt = updatedAt
         self.nextResetAt = nextResetAt
         self.overallSeverity = overallSeverity
-        self.headlineShort = headlineShort
-        self.headlineLong = headlineLong
+        self.summaryLineShort = summaryLineShort
+        self.summaryLineLong = summaryLineLong
     }
 
     private enum CodingKeys: String, CodingKey {
         case accounts, accountCount, updatedAt, nextResetAt, overallSeverity
-        case headlineShort, headlineLong, staleAfter, credits, percentDisplay
+        // Keep the shared snapshot readable by app and widget builds from before the rename.
+        case summaryLineShort = "headlineShort"
+        case summaryLineLong = "headlineLong"
+        case staleAfter, credits, percentDisplay
     }
 
     /// Lenient on `staleAfter` and `percentDisplay`, which older files do not have. The
@@ -305,8 +311,8 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
         nextResetAt = try c.decodeIfPresent(Date.self, forKey: .nextResetAt)
         overallSeverity = try c.decode(Severity.self, forKey: .overallSeverity)
-        headlineShort = try c.decodeIfPresent(GlanceRow.self, forKey: .headlineShort)
-        headlineLong = try c.decodeIfPresent(GlanceRow.self, forKey: .headlineLong)
+        summaryLineShort = try c.decodeIfPresent(GlanceRow.self, forKey: .summaryLineShort)
+        summaryLineLong = try c.decodeIfPresent(GlanceRow.self, forKey: .summaryLineLong)
         staleAfter = try c.decodeIfPresent(TimeInterval.self, forKey: .staleAfter)
             ?? Severity.staleAfter
         credits = try c.decodeIfPresent([GlanceCredit].self, forKey: .credits) ?? []
@@ -334,7 +340,7 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         GlanceSnapshot(
             accounts: accounts, accountCount: accountCount, updatedAt: updatedAt,
             nextResetAt: nextResetAt, overallSeverity: overallSeverity,
-            headlineShort: headlineShort, headlineLong: headlineLong,
+            summaryLineShort: summaryLineShort, summaryLineLong: summaryLineLong,
             staleAfter: staleAfter, credits: credits, percentDisplay: percentDisplay)
     }
 
@@ -343,7 +349,7 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         GlanceSnapshot(
             accounts: accounts, accountCount: accountCount, updatedAt: updatedAt,
             nextResetAt: nextResetAt, overallSeverity: overallSeverity,
-            headlineShort: headlineShort, headlineLong: headlineLong,
+            summaryLineShort: summaryLineShort, summaryLineLong: summaryLineLong,
             staleAfter: staleAfter, credits: credits, percentDisplay: percentDisplay)
     }
 
@@ -360,7 +366,7 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
 
     public static let empty = GlanceSnapshot(
         accounts: [], accountCount: 0, updatedAt: nil, nextResetAt: nil,
-        overallSeverity: .stale, headlineShort: nil, headlineLong: nil, percentDisplay: .left)
+        overallSeverity: .stale, summaryLineShort: nil, summaryLineLong: nil, percentDisplay: .left)
 }
 
 /// An account and its latest snapshot, as the cache hands them over.
@@ -443,13 +449,13 @@ public enum GlanceModel {
             ordered = indexed.sorted { $0.2 == $1.2 ? $0.0 < $1.0 : $0.2 < $1.2 }.map { $0.1 }
         } else { ordered = accounts }
 
-        // The headline belongs to ONE account — the one leading the list — not to a pool.
+        // The summary belongs to ONE account — the one leading the list — not to a pool.
         //
         // Reducing across every account produced a number attributed to nobody. On a tile
         // showing two of six accounts, "5h: 3 %" could be the sixth account's window, so the
         // user read a figure they could not locate. Worse, `weekly ?? monthly` applied to the
         // pool meant any one account having a weekly window suppressed every monthly one, so
-        // the headline could read 80 % while a visible row read 3 %.
+        // the summary could read 80 % while a visible row read 3 %.
         let lead = ordered.first
 
         return GlanceSnapshot(
@@ -457,7 +463,7 @@ public enum GlanceModel {
             accountCount: selected.count,
             updatedAt: ordered.compactMap(\.fetchedAt).max(),
             // The soonest reset OF THE LEADING ACCOUNT. Taken across all accounts it paired the
-            // headline state with an unrelated account's clock: "0 % left · resets in 12m",
+            // summary state with an unrelated account's clock: "0 % left · resets in 12m",
             // where the twelve minutes belonged to a healthy account's five-hour window. And
             // because healthy five-hour windows reset constantly, that was the common case.
             // And one still AHEAD. A snapshot keeps a window's reset instant until the next
@@ -470,8 +476,8 @@ public enum GlanceModel {
             // and it is the only thing that still surfaces a broken account once the ordering
             // below stops letting rowless accounts occupy a two-slot widget.
             overallSeverity: ordered.map(\.severity).max() ?? .stale,
-            headlineShort: lead?.rows.first { $0.category == .fiveHour },
-            headlineLong: lead?.rows.first { $0.category != .fiveHour },
+            summaryLineShort: lead?.rows.first { $0.category == .fiveHour },
+            summaryLineLong: lead?.rows.first { $0.category != .fiveHour },
             staleAfter: staleAfter,
             percentDisplay: percentDisplay)
     }
@@ -545,7 +551,7 @@ public enum GlanceModel {
     /// The tightest window of a category — the number worth surfacing in one row.
     ///
     /// Known blocks lead, then measured quotas; unknown optional figures stay available in details.
-    private static func headline(
+    private static func summaryLine(
         _ windows: [UsageWindow],
         _ category: WindowCategory
     ) -> GlanceRow? {
@@ -573,8 +579,8 @@ public enum GlanceModel {
     /// better-understood category — which keeps `.other`, whose duration no provider documents,
     /// a last resort among equals rather than one that can never appear.
     ///
-    /// Kotlin's `WidgetDataBuilder.longHeadline` is the same rule; the two must agree.
-    private static func longHeadline(_ windows: [UsageWindow]) -> GlanceRow? {
+    /// Kotlin's `WidgetDataBuilder.longSummaryLine` is the same rule; the two must agree.
+    private static func longSummaryLine(_ windows: [UsageWindow]) -> GlanceRow? {
         windows
             .filter { $0.category != .fiveHour }
             .min { lhs, rhs in
@@ -606,8 +612,8 @@ public enum GlanceModel {
         // Two horizons, not every window an account reports: a tile has room for about two
         // rows before it stops being readable at a glance, which is the entire point of it.
         let rows = [
-            headline(windows, .fiveHour),
-            longHeadline(windows),
+            summaryLine(windows, .fiveHour),
+            longSummaryLine(windows),
         ].compactMap { $0 }
         let resets = Set((usage.snapshot?.windows ?? []).compactMap(\.resetAt).filter { $0 > now })
         let afterResets = resets.sorted().compactMap { at in

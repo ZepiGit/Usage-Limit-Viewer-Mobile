@@ -75,7 +75,7 @@ class WidgetSelectionContractTest {
         val snapshot = WidgetDataBuilder.build(accounts, now, WidgetScope.ACCOUNT, "selected", null)
         assertEquals(1, snapshot.accountCount)
         assertEquals("selected", snapshot.accounts.single().accountId)
-        assertEquals(70.0, snapshot.headlineShort!!.remainingPercent!!, 0.01)
+        assertEquals(70.0, snapshot.summaryLineShort!!.remainingPercent!!, 0.01)
         assertTrue(WidgetDataBuilder.build(accounts, now, WidgetScope.ACCOUNT, "deleted", null).accounts.isEmpty())
     }
 
