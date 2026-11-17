@@ -8,6 +8,7 @@
 // would otherwise be ambiguous with Foundation's.
 
 import SwiftUI
+import UIKit
 import WidgetKit
 import UsageLimitsKit
 
@@ -240,8 +241,10 @@ struct PinnedAccountsCircularView: View {
     }
 }
 
-/// One text row: the system draws this family as a single line beside the date, so there are no
-/// glyphs here by design. What the row says, and how it shortens, is `PinnedAccountText.inline`.
+/// One row: the system shows a single line of text and at most one image in this family, in its
+/// own font and tint (WidgetKit, `WidgetFamily.accessoryInline`; WWDC22 "Complications and
+/// widgets: Reloaded"). The image is the first pinned account's glyph; what the text says and how
+/// it shortens is `PinnedAccountText.inlineRow`.
 struct PinnedAccountsInlineView: View {
     let capture: PinnedAccountsCapture
 
@@ -250,23 +253,33 @@ struct PinnedAccountsInlineView: View {
             Label(String(localized: "Locked"), systemImage: "lock.fill")
         } else if capture.outcome == .corruptSource {
             Label(String(localized: "Can't read usage"), systemImage: "exclamationmark.triangle")
-        } else if capture.accounts.isEmpty {
-            Label(String(localized: "Pin in Settings"), systemImage: "pin")
+        } else if let row = PinnedAccountText.inlineRow(capture.accounts, texts: LocalizedPinnedAccountTexts()) {
+            Label {
+                Text(verbatim: row.text)
+            } icon: {
+                Image(uiImage: InlineGlyphImage.image(for: row.glyphProviderID))
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(PinnedAccountText.spokenList(capture.accounts, texts: LocalizedPinnedAccountTexts()))
         } else {
-            row
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .accessibilityLabel(PinnedAccountText.spokenList(capture.accounts, texts: LocalizedPinnedAccountTexts()))
+            Label(String(localized: "Pin in Settings"), systemImage: "pin")
         }
     }
+}
 
-    private var row: Text {
-        let parts = PinnedAccountText.inlineParts(capture.accounts, texts: LocalizedPinnedAccountTexts())
-        var text = Text(verbatim: "")
-        for (index, part) in parts.enumerated() {
-            if index > 0 { text = text + Text(verbatim: " · ") }
-            text = text + Text(verbatim: "\(part.name) ") + Text(verbatim: part.value).underline(part.outdated)
+/// The glyph as a small template bitmap, drawn from the shared path data. An image rather than a
+/// shape, because the inline family keeps images and text and drops other views; a template, so
+/// the system tints it like the text. Small on purpose: the slot does not shrink a large image.
+enum InlineGlyphImage {
+    static let side: CGFloat = 14
+
+    static func image(for providerID: String?) -> UIImage {
+        let path = StatusIconGlyphShape(elements: PinnedAccountGlyphs.glyph(for: providerID))
+            .path(in: CGRect(x: 0, y: 0, width: side, height: side))
+        let drawn = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            UIColor.black.setFill()
+            UIBezierPath(cgPath: path.cgPath).fill()
         }
-        return text
+        return drawn.withRenderingMode(.alwaysTemplate)
     }
 }

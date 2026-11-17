@@ -340,6 +340,7 @@ public struct Button: View {
 
 public struct Label: View {
     public init(_ title: String, systemImage: String) {}
+    public init(@ViewBuilder title: () -> any View, @ViewBuilder icon: () -> any View) {}
     public var body: some View { ShimLeaf() }
 }
 
@@ -700,6 +701,7 @@ public struct Font {
 public struct CGSize {
     public var width: Double
     public var height: Double
+    public init(width: Double, height: Double) { self.width = width; self.height = height }
     public static let zero = CGSize(width: 0, height: 0)
 }
 
@@ -732,7 +734,11 @@ public struct Path {
     public mutating func addCurve(to end: CGPoint, control1: CGPoint, control2: CGPoint) {}
     public mutating func addEllipse(in rect: CGRect) {}
     public mutating func closeSubpath() {}
+    /// Core Graphics' path, for UIKit drawing; opaque here.
+    public var cgPath: CGPathShim { CGPathShim() }
 }
+
+public struct CGPathShim { public init() {} }
 
 /// A view drawn from a path, as SwiftUI declares it: conformers write only `path(in:)`.
 /// `path(in:)` is nonisolated in SwiftUI too; only `body` is on the main actor.

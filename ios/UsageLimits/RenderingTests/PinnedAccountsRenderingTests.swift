@@ -68,8 +68,9 @@ final class PinnedAccountsRenderingTests: XCTestCase {
             } else {
                 spoken.append("  inline: " + PinnedAccountText.spokenList(scenario.capture.accounts,
                     texts: LocalizedPinnedAccountTexts()))
-                spoken.append("  inline text: " + PinnedAccountText.inline(scenario.capture.accounts,
-                    texts: LocalizedPinnedAccountTexts()))
+                if let row = PinnedAccountText.inlineRow(scenario.capture.accounts, texts: LocalizedPinnedAccountTexts()) {
+                    spoken.append("  inline row: [glyph \(row.glyphProviderID ?? "fallback")] \(row.text)")
+                }
             }
         }
         rows.append(SheetRow(title: "every glyph (circular, 42)", images: try glyphRow()))
@@ -188,8 +189,9 @@ private struct ContactSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(verbatim: "Pinned accounts widget, language \(language): view renderings at accessory sizes "
-                + "(160×72, 72×72, 234×26 pt), white on black. NOT Lock Screen screenshots: "
-                + "no wallpaper, vibrancy or system inline font (the system sets inline text in its own size).")
+                + "(160×72, 72×72, 234×26 pt), white on black. NOT Lock Screen screenshots: no wallpaper or "
+                + "vibrancy. The third column is SwiftUI drawing the inline view, NOT the Lock Screen's inline "
+                + "slot, which keeps one text line and one image and sets them in the system's own font.")
                 .font(.system(size: 13, weight: .semibold))
                 .frame(width: 900, alignment: .leading)
             ForEach(rows.indices, id: \.self) { index in
