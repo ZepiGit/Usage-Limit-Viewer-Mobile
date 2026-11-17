@@ -43,7 +43,7 @@ import org.robolectric.shadows.ShadowLooper
 /** Host-applied RemoteViews, including their persisted style. No launcher is simulated here. */
 @OptIn(ExperimentalGlanceApi::class, ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(application = UsageLimitsApp::class, sdk = [36], qualifiers = "mdpi")
+@Config(application = UsageLimitsApp::class, sdk = [36, 37], qualifiers = "mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class WidgetAppearanceRenderingTest {
     @Before fun initializeApplication() {

@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import kotlinx.coroutines.runBlocking
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,6 +60,13 @@ class AppLaunchTest {
         // The manifest removes `InitializationProvider`, so this resolving at all proves the
         // Application's own `Configuration.Provider` is what supplies it.
         assertNotNull(WorkManager.getInstance(app()))
+    }
+
+    @Test
+    fun `public suffix domains are available after application startup`() {
+        app()
+
+        assertEquals("example.co.uk", "https://sub.example.co.uk".toHttpUrl().topPrivateDomain())
     }
 
     @Test
