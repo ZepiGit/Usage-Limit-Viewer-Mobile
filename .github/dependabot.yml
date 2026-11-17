@@ -69,3 +69,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Review action runtime and artifact changes together, then run the maintainer smoke gate.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
