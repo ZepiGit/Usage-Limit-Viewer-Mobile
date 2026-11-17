@@ -4,7 +4,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.semantics.SemanticsActions
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.feature.accounts.AddAccountScreen
@@ -104,6 +106,9 @@ class SignInTransitionTest {
             compose.runOnIdle { state.value = AddAccountState.Starting(ProviderId.KIMI) }
             compose.mainClock.advanceTimeByFrame()
             compose.mainClock.advanceTimeBy(90)
+            println("[DEBUG-api37-clock] state=${state.value} time=${compose.mainClock.currentTime}")
+            println("[DEBUG-api37-clock] merged="+compose.onRoot().printToString())
+            println("[DEBUG-api37-clock] unmerged="+compose.onRoot(useUnmergedTree=true).printToString())
             compose.onNodeWithText("Contacting ${ProviderId.KIMI.displayName}…").assertExists()
             // A queued click belongs to the old step even after the next step appears.
             compose.runOnIdle {
