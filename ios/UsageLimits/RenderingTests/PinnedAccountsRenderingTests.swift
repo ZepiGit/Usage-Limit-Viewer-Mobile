@@ -65,12 +65,9 @@ final class PinnedAccountsRenderingTests: XCTestCase {
             }
             if scenario.capture.accounts.isEmpty {
                 spoken.append("  " + noticeWords(scenario.capture.outcome))
-            } else {
-                spoken.append("  inline: " + PinnedAccountText.spokenList(scenario.capture.accounts,
-                    texts: LocalizedPinnedAccountTexts()))
-                if let row = PinnedAccountText.inlineRow(scenario.capture.accounts, texts: LocalizedPinnedAccountTexts()) {
-                    spoken.append("  inline row: [glyph \(row.glyphProviderID ?? "fallback")] \(row.text)")
-                }
+            } else if let row = PinnedAccountText.inlineRow(scenario.capture.accounts, texts: LocalizedPinnedAccountTexts()) {
+                spoken.append("  inline row: [glyph \(row.glyphProviderID ?? "fallback")] \(row.text)")
+                spoken.append("  inline row without its glyph reads: \(row.text)")
             }
         }
         rows.append(SheetRow(title: "every glyph (circular, 42)", images: try glyphRow()))
@@ -112,8 +109,13 @@ final class PinnedAccountsRenderingTests: XCTestCase {
                 capture: capture([figure], mode: .left, pinned: false)),
             Scenario(name: "locked", title: "locked (before first unlock)",
                 capture: .capture(source: .unreadable, at: now)),
-            Scenario(name: "locked-largest-text", title: "locked, Dynamic Type accessibility 3",
-                capture: .capture(source: .unreadable, at: now), typeSize: .accessibility3),
+            Scenario(name: "locked-ax5", title: "locked, Dynamic Type AX5 (largest)",
+                capture: .capture(source: .unreadable, at: now), typeSize: .accessibility5),
+            Scenario(name: "three-figure-outdated-full-ax5", title: "three: 42 · 7 outdated · 100, Dynamic Type AX5",
+                capture: capture(first, mode: .left), typeSize: .accessibility5),
+            Scenario(name: "three-exhausted-error-unknown-ax5",
+                title: "three: exhausted · error · unknown (circular: exhausted), Dynamic Type AX5",
+                capture: capture(second, mode: .used), typeSize: .accessibility5),
             Scenario(name: "corrupt", title: "unreadable snapshot", capture: .capture(source: .corrupt, at: now)),
         ]
     }
@@ -147,7 +149,7 @@ final class PinnedAccountsRenderingTests: XCTestCase {
     private func noticeWords(_ outcome: ConfiguredSelectionOutcome) -> String {
         switch outcome {
         case .sourceUnavailable:
-            return String(localized: "Locked") + ", " + String(localized: "Unlock to see your quota")
+            return String(localized: "Locked") + ", " + String(localized: "Unlock to see usage")
                 + " | inline: " + String(localized: "Locked")
         case .corruptSource:
             return String(localized: "Can't read usage") + ", " + String(localized: "Open UsageLimits to rebuild the data")
@@ -190,8 +192,9 @@ private struct ContactSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(verbatim: "Pinned accounts widget, language \(language): view renderings at accessory sizes "
                 + "(160×72, 72×72, 234×26 pt), white on black. NOT Lock Screen screenshots: no wallpaper or "
-                + "vibrancy. The third column is SwiftUI drawing the inline view, NOT the Lock Screen's inline "
-                + "slot, which keeps one text line and one image and sets them in the system's own font.")
+                + "vibrancy. The third column is SwiftUI drawing the inline view (first account only), NOT the "
+                + "Lock Screen's inline slot, which keeps one text line and one image in the system's own font "
+                + "and size. AX5 rows: the inline view is drawn into its fixed 26 pt box, which the real slot is not.")
                 .font(.system(size: 13, weight: .semibold))
                 .frame(width: 900, alignment: .leading)
             ForEach(rows.indices, id: \.self) { index in

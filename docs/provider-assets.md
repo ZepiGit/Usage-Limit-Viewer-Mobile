@@ -27,4 +27,16 @@ The status icons on Android (`app/src/main/kotlin/com/usagelimits/statusicon/Sta
 | OpenCode Go | An upright frame around a hollow, the mark's frame redrawn with its edges half a unit further in | `assets/providers/lobehub/opencode.svg` | LobeHub icons, MIT, © 2023 LobeHub |
 | Unknown provider | A plain disc | Drawn for this app | No third-party source |
 
+### Glyph path grammar
+
+Both readers (Android `StatusIconGlyphs.kt`, iOS `StatusIconGlyphs.swift`) accept exactly this subset of SVG path data and reject anything else before drawing:
+
+- Commands, absolute only: `M` (2 numbers), `L` (2), `H` (1), `V` (1), `C` (6), `Z` (none). Lower-case relative commands, `Q`, `S`, `T`, `A` and any other letter are rejected.
+- A path starts with `M`. A command repeats while numbers follow it; pairs after `M` continue as `L`. Numbers after `Z` without a new command are rejected.
+- Numbers: an optional `-`, then digits with at most one decimal point (`12`, `1.5`, `.5`, `-0.4`). No `+`, no exponent.
+- Separators: spaces and commas.
+- The file holds string values only: `grid` is 24, `glyphs` names exactly the providers this build knows, `fallback` is the disc.
+
+`shared/test-vectors/glyph-path-grammar.json` lists accepted and rejected cases, and both platforms' tests read it. The fallback disc is drawn from four cubic segments on both platforms, so it is no longer pixel-identical to Android's earlier `addCircle` disc. A malformed file fails Android's status-icon step, which the publication logs and skips, and it makes the iOS widget draw the disc for every account.
+
 The glyphs are judged at the size the status bar draws them, not at the size of the source. `StatusIconRenderingTest` writes a contact sheet and a true-size sheet per density to `app/build/reports/status-icons/`. In the true-size sheet each icon is scaled down to its 15 × 10 dp slot and enlarged ×8 without smoothing. The same test fails if two glyphs differ in fewer than 12 pixels at 280 dpi.

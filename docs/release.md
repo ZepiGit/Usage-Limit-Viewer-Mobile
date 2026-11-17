@@ -82,6 +82,8 @@ Use the candidate artifact and repeat the relevant steps on Android and iOS with
    4. Sign in to and refresh each provider. Each connection must succeed with Certificate Transparency on, and with Encrypted Client Hello where the device and server negotiate it. Do not turn off TLS checks, and use only accounts whose holders have agreed.
    5. Put the device under memory pressure, for example by opening several large apps, then return to the app and its widgets. Confirm both recover normally and keep their configuration.
 
+6. On an iPhone, add the Pinned accounts widget in all three Lock Screen forms with three accounts pinned, in English and German. **Release gate:** the inline form shows the provider glyph on a real Lock Screen, also after a timeline reload; if it does not, the release waits for the owner's choice between a bundled template image and a self-identifying text. Then check the rest, which CI renders only as views: the glyphs and the crossed circle are tinted by the system against a real wallpaper; the circular form shows its system background; the cells keep every mark whole at the largest text size (Settings → Accessibility → Larger Text); a locked device after a restart shows "Locked" and fills in after unlocking.
+
 ## Owner responsibilities
 
 Before public distribution, obtain provider permission and review terms for first-party OAuth registrations, internal usage endpoints and compatibility headers. Resolve Kimi's permission to use the `UsageLimits` identity. Use supported integration routes; TLS fingerprint imitation, bot-challenge bypasses and borrowed application identities are outside project policy. Vertex quota belongs to cloud projects and service-account/IAM access rather than personal subscription windows.

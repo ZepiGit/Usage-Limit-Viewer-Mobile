@@ -163,7 +163,8 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
 
-      # Building the extension alone does not prove it is embedded in the app.
+      # Building the extension alone does not prove it is embedded in the app, or that it carries
+      # the shared glyph file.
       - name: The widget is embedded in the app bundle
         working-directory: ios/UsageLimits
         run: |
@@ -193,6 +194,13 @@ jobs:
           echo "extension point: $point"
           [ "$point" = "com.apple.widgetkit-extension" ] || {
             echo "::error::wrong NSExtensionPointIdentifier: $point" >&2; exit 1; }
+          # The status icon glyphs ship inside the extension, byte for byte the shared file. The
+          # rendering test bundles its own copy, so it cannot prove this one is there.
+          glyphs="$appex/status-icon-glyphs.json"
+          if ! cmp -s "$glyphs" "$GITHUB_WORKSPACE/shared/glyphs/status-icon-glyphs.json"; then
+            echo "::error::$glyphs is missing or differs from shared/glyphs/status-icon-glyphs.json" >&2
+            exit 1
+          fi
 
       # Discover an installed iPhone simulator; fail if none is available.
       - name: Pick and boot a simulator

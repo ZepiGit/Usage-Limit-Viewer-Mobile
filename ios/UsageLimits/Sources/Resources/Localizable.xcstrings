@@ -3129,13 +3129,13 @@
         }
       }
     },
-    "Unlock to see your quota" : {
+    "Unlock to see usage" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Entsperren, um das Kontingent zu sehen"
+            "value" : "Entsperren, um die Nutzung zu sehen"
           }
         }
       }

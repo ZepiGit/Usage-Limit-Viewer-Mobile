@@ -35,8 +35,10 @@ struct PinnedAccountsFamilyView: View {
 enum PinnedAccountGlyphs {
     private final class BundleToken {}
 
-    /// Nil only if the file was not packaged; the rendering test fails on that, so a build that
-    /// ships without it never passes CI. The widget then draws the plain disc for every account.
+    /// Nil if the file is missing from this bundle or does not parse; every account then draws the
+    /// plain disc. CI covers the two bundles separately: the iOS workflow compares the file inside
+    /// the built widget extension with `shared/glyphs`, and the rendering test fails if its own
+    /// bundle's copy is absent or malformed.
     static let shipped: StatusIconGlyphs? = {
         guard let url = Bundle(for: BundleToken.self).url(forResource: "status-icon-glyphs", withExtension: "json"),
               let data = try? Data(contentsOf: url) else { return nil }
@@ -101,44 +103,58 @@ struct ExhaustedSignShape: Shape {
 /// Glyph and content for one pinned account: the figure without a leading zero, the glyph alone
 /// and larger at 100, an underline when the reading is outdated, the crossed circle when
 /// exhausted, "!" on error and a dash when the figure is unknown.
+///
+/// Sized from the space the cell is actually given. `preferredGlyph` grows with Dynamic Type, but
+/// a cell cannot grow past its family, so the glyph, the sign and the digits (whose size follows
+/// the glyph's) are capped to what fits: at the largest type sizes three cells keep every mark
+/// whole and smaller instead of cutting one off.
 struct PinnedAccountMark: View {
     let entry: PinnedAccountEntry
-    /// The glyph's side beside a content mark; alone it is drawn a third larger.
-    let glyphSize: CGFloat
-    let font: Font
+    let preferredGlyph: CGFloat
 
     var body: some View {
-        content
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(PinnedAccountText.spoken(entry: entry, texts: LocalizedPinnedAccountTexts()))
+        GeometryReader { proxy in
+            let glyph = Self.glyphSide(preferred: preferredGlyph, width: proxy.size.width, height: proxy.size.height)
+            content(glyph: glyph)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(PinnedAccountText.spoken(entry: entry, texts: LocalizedPinnedAccountTexts()))
+    }
+
+    /// The glyph side that keeps the widest arrangement inside the cell: glyph, gap and two digits
+    /// (about 2.4 glyph widths) or the glyph beside the sign (2.15), and the lone glyph at 100 with
+    /// its underline (1.35 wide, 1.6 high).
+    static func glyphSide(preferred: CGFloat, width: CGFloat, height: CGFloat) -> CGFloat {
+        max(1, min(preferred, width / 2.4, height / 1.6))
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(glyph side: CGFloat) -> some View {
         let glyph = StatusIconGlyphShape(elements: PinnedAccountGlyphs.glyph(for: entry.account.providerID))
         switch entry.content.content {
         case .none:
-            VStack(spacing: glyphSize * 0.12) {
-                glyph.frame(width: glyphSize * 1.35, height: glyphSize * 1.35)
+            VStack(spacing: side * 0.12) {
+                glyph.frame(width: side * 1.35, height: side * 1.35)
                 Rectangle()
-                    .frame(width: glyphSize * 1.35, height: max(1, glyphSize * 0.09))
+                    .frame(width: side * 1.35, height: max(1, side * 0.09))
                     .opacity(entry.content.outdated ? 1 : 0)
             }
         case .exhausted:
-            HStack(spacing: glyphSize * 0.15) {
-                glyph.frame(width: glyphSize, height: glyphSize)
+            HStack(spacing: side * 0.15) {
+                glyph.frame(width: side, height: side)
                 ExhaustedSignShape()
-                    .stroke(.primary, style: StrokeStyle(lineWidth: max(1.5, glyphSize * 0.13), lineCap: .round))
-                    .frame(width: glyphSize, height: glyphSize)
+                    .stroke(.primary, style: StrokeStyle(lineWidth: max(1.5, side * 0.13), lineCap: .round))
+                    .frame(width: side, height: side)
             }
         case .figure, .error, .unknown:
-            HStack(spacing: glyphSize * 0.15) {
-                glyph.frame(width: glyphSize, height: glyphSize)
+            HStack(spacing: side * 0.15) {
+                glyph.frame(width: side, height: side)
                 Text(verbatim: PinnedAccountText.cellText(entry) ?? "")
                     .underline(entry.content.outdated)
-                    .font(font)
+                    .font(.system(size: side * 1.1, weight: .bold, design: .rounded))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.5)
             }
         }
     }
@@ -153,7 +169,7 @@ struct PinnedAccountsRectangularView: View {
     var body: some View {
         if capture.outcome == .sourceUnavailable {
             PinnedAccountsNotice(symbol: "lock.fill", title: String(localized: "Locked"),
-                detail: String(localized: "Unlock to see your quota"))
+                detail: String(localized: "Unlock to see usage"))
         } else if capture.outcome == .corruptSource {
             PinnedAccountsNotice(symbol: "exclamationmark.triangle", title: String(localized: "Can't read usage"),
                 detail: String(localized: "Open UsageLimits to rebuild the data"))
@@ -162,8 +178,7 @@ struct PinnedAccountsRectangularView: View {
         } else {
             HStack(spacing: 4) {
                 ForEach(capture.accounts) { account in
-                    PinnedAccountMark(entry: account, glyphSize: glyphSize,
-                        font: .system(.title3, design: .rounded).weight(.bold))
+                    PinnedAccountMark(entry: account, preferredGlyph: glyphSize)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -225,8 +240,7 @@ struct PinnedAccountsCircularView: View {
             } else if capture.outcome == .corruptSource {
                 symbol("exclamationmark.triangle", label: String(localized: "Can't read usage"))
             } else if let first = capture.accounts.first {
-                PinnedAccountMark(entry: first, glyphSize: glyphSize,
-                    font: .system(.title3, design: .rounded).weight(.bold))
+                PinnedAccountMark(entry: first, preferredGlyph: glyphSize)
                     .padding(6)
             } else {
                 symbol("pin", label: String(localized: "Pin an account in Settings"))
@@ -241,10 +255,12 @@ struct PinnedAccountsCircularView: View {
     }
 }
 
-/// One row: the system shows a single line of text and at most one image in this family, in its
-/// own font and tint (WidgetKit, `WidgetFamily.accessoryInline`; WWDC22 "Complications and
-/// widgets: Reloaded"). The image is the first pinned account's glyph; what the text says and how
-/// it shortens is `PinnedAccountText.inlineRow`.
+/// The first pinned account in one row (owner's decision, question package 010): its glyph as the
+/// family's one image, its figure with the side as the text. The system shows a single line of
+/// text and at most one image here, in its own font and tint (WidgetKit,
+/// `WidgetFamily.accessoryInline`; WWDC22 "Complications and widgets: Reloaded"). What the text
+/// says is `PinnedAccountText.inlineRow`. Whether a real Lock Screen keeps the image is a release
+/// gate in `docs/release.md`.
 struct PinnedAccountsInlineView: View {
     let capture: PinnedAccountsCapture
 
@@ -253,23 +269,26 @@ struct PinnedAccountsInlineView: View {
             Label(String(localized: "Locked"), systemImage: "lock.fill")
         } else if capture.outcome == .corruptSource {
             Label(String(localized: "Can't read usage"), systemImage: "exclamationmark.triangle")
-        } else if let row = PinnedAccountText.inlineRow(capture.accounts, texts: LocalizedPinnedAccountTexts()) {
+        } else if let row = PinnedAccountText.inlineRow(capture.accounts, texts: LocalizedPinnedAccountTexts()),
+                  let first = capture.accounts.first {
             Label {
                 Text(verbatim: row.text)
             } icon: {
                 Image(uiImage: InlineGlyphImage.image(for: row.glyphProviderID))
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(PinnedAccountText.spokenList(capture.accounts, texts: LocalizedPinnedAccountTexts()))
+            .accessibilityLabel(PinnedAccountText.spoken(entry: first, texts: LocalizedPinnedAccountTexts()))
         } else {
             Label(String(localized: "Pin in Settings"), systemImage: "pin")
         }
     }
 }
 
-/// The glyph as a small template bitmap, drawn from the shared path data. An image rather than a
-/// shape, because the inline family keeps images and text and drops other views; a template, so
-/// the system tints it like the text. Small on purpose: the slot does not shrink a large image.
+/// The inline glyph, supplied in this one function so a bundled template image could replace the
+/// runtime-drawn one without touching the view. Today it is a small template bitmap drawn from the
+/// shared path data: an image, because the inline family keeps images and text and drops other
+/// views; a template, so the system tints it like the text; small, because the slot does not
+/// shrink a large image.
 enum InlineGlyphImage {
     static let side: CGFloat = 14
 
