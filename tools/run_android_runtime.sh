@@ -66,11 +66,11 @@ printf '%s\n' "$runtime_host_cpus" > "$evidence/host-nproc.txt"
 lscpu > "$evidence/host-lscpu.txt"
 stat /dev/kvm > "$evidence/host-kvm.txt"
 if [[ ! "$runtime_host_cpus" =~ ^[0-9]+$ ]] || ((runtime_host_cpus < 4)); then
-  echo 'API 36 runtime smoke requires at least four available host CPUs.' >&2
+  echo 'API 37 runtime smoke requires at least four available host CPUs.' >&2
   exit 1
 fi
 if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
-  echo 'API 36 runtime smoke requires readable and writable KVM.' >&2
+  echo 'API 37 runtime smoke requires readable and writable KVM.' >&2
   exit 1
 fi
 
@@ -81,8 +81,8 @@ if printf '%s\n' "$attached" | tail -n +2 | grep -q '[^[:space:]]'; then
 fi
 
 # setup-android provides sdkmanager/avdmanager and accepted SDK licences.
-sdkmanager --install 'emulator' 'system-images;android-36;default;x86_64' > "$evidence/emulator-sdk-install.txt" 2>&1
-avdmanager create avd --name usage-runtime --package 'system-images;android-36;default;x86_64' \
+sdkmanager --install 'emulator' 'system-images;android-37.0;default;x86_64' > "$evidence/emulator-sdk-install.txt" 2>&1
+avdmanager create avd --name usage-runtime --package 'system-images;android-37.0;default;x86_64' \
   --device pixel_7_pro <<< no > "$evidence/emulator-avd-create.txt" 2>&1
 # Keep the same 411x891 dp viewport while reducing the CPU-bound software-rendered
 # surface from 1440x3120 to 720x1560 pixels. A failed API 36 boot showed SystemUI
@@ -156,7 +156,7 @@ lines = Path(sys.argv[1]).read_text().splitlines()
 size = re.fullmatch(r"Physical size: (\d+)x(\d+)", lines[0]) if len(lines) == 2 else None
 density = re.fullmatch(r"Physical density: (\d+)", lines[1]) if len(lines) == 2 else None
 if not size or not density or (int(size[1]), int(size[2]), int(density[1])) != (720, 1560, 280):
-    raise SystemExit(f"Unexpected API 36 display: {lines}")
+    raise SystemExit(f"Unexpected API 37 display: {lines}")
 dp = tuple(int(value) * 160 / int(density[1]) for value in size.groups())
 if any(not math.isclose(actual, expected, abs_tol=0.6)
        for actual, expected in zip(dp, (1440 * 160 / 560, 3120 * 160 / 560))):

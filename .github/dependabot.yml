@@ -1,9 +1,9 @@
 # Weekly version checks for libraries and GitHub Actions.
 #
-# The build toolchain is left out on purpose: the Android Gradle Plugin, the Gradle wrapper, Kotlin,
-# KSP and the Compose compiler only work in certain combinations (AGP 9 needs Gradle 9.1 and a
-# different Kotlin plugin setup; Kotlin 2.3 needs the R8 that ships with AGP 8.13.2), and Dependabot
-# does not resolve those constraints. They move together, by hand, in one coordinated change.
+# AGP, Gradle, Kotlin, KSP and the Compose compiler move together in coordinated manual updates.
+# Kotlin 2.4.21's fully supported ranges end at AGP 9.3.1 and Gradle 9.7.0; Dependabot does not
+# resolve these compatibility constraints. Keep the Kotlin Android plugin excluded even though AGP's
+# built-in Kotlin replaces it. See https://kotlinlang.org/docs/gradle-configure-project.html.
 version: 2
 updates:
   - package-ecosystem: gradle

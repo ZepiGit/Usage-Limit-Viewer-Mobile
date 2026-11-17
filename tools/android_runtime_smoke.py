@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upgrade and navigate the actual release APK on an empty API 36 CI emulator.
+"""Upgrade and navigate the actual release APK on an empty API 37 CI emulator.
 
 Uses only adb and the Python standard library. No accounts, credentials or provider calls.
 https://developer.android.com/tools/adb documents install -r, am start and screencap.
@@ -1230,7 +1230,7 @@ def main():
     assert len(devices) == 1 and devices[0].startswith("emulator-"), "Requires exactly one CI emulator"
     smoke = Smoke(args.evidence, devices[0])
     assert smoke.adb("shell", "getprop", "ro.kernel.qemu") == "1", "Refusing to modify a physical device"
-    assert smoke.adb("shell", "getprop", "ro.build.version.sdk") == "36", "Expected API 36"
+    assert smoke.adb("shell", "getprop", "ro.build.version.sdk") == "37", "Expected API 37"
     environment = {
         "commit": os.environ["GITHUB_SHA"], "runId": os.environ["GITHUB_RUN_ID"], "serial": devices[0],
         "previousApk": old, "currentApk": new,

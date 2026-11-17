@@ -2,7 +2,15 @@
 
 ## Build Android
 
-Use JDK 21, Android SDK platform 36 and Build Tools 35 or later. Set `ANDROID_HOME` or `sdk.dir` in untracked `local.properties`. The wrapper pins Gradle 8.14.6 and its distribution checksum; the app uses AGP 8.10.1 and Java 17 bytecode. Packaging alone also supports JDK 17.
+Use JDK 21 for development and all CI jobs, Android SDK platform 37.0 and Build Tools 36.0.0 or later. Set `ANDROID_HOME` or `sdk.dir` in untracked `local.properties`. Install the platform and, for a phone emulator, the system image with:
+
+```sh
+sdkmanager 'platforms;android-37.0' 'system-images;android-37.0;default;x86_64'
+```
+
+The app has minSdk 26 and compiles and targets API 37. The wrapper pins Gradle 9.7.0 and its distribution checksum; the toolchain uses AGP 9.3.1, Kotlin 2.4.21, KSP 2.3.14 and Compose compiler 2.4.21. AGP's built-in Kotlin and new DSL stay enabled, without the `org.jetbrains.kotlin.android` plugin. AGP and Gradle require at least JDK 17, but the project uses JDK 21, including for Robolectric 4.18's API 37 support. Explicit older regression SDKs remain in tests. Java 17 bytecode is preserved.
+
+The versions are coordinated against the [AGP 9.3 compatibility table](https://developer.android.com/build/releases/agp-9-3-0-release-notes), [Kotlin's Gradle/AGP compatibility table](https://kotlinlang.org/docs/gradle-configure-project.html) and [KSP requirements](https://kotlinlang.org/docs/ksp-overview.html). Do not upgrade `gradle/actions` to v6 without owner approval; this ticket freezes its major version.
 
 From the repository root:
 
@@ -51,7 +59,7 @@ Download `release-assets-<version>` from the matching run. It contains versioned
 
 ## Device checklist
 
-Use the candidate artifact and repeat the relevant steps on Android and iOS with the account holder:
+Use the candidate artifact and repeat the relevant steps on Android and iOS with the account holder. Android 17 physical-device validation is still needed. For loopback OAuth, keep the browser in the same user or work profile as the app: Android 17 blocks cross-profile localhost access regardless of target SDK. Certificate Transparency is enabled by default; do not disable it.
 
 1. Open Overview, Accounts, Resets and Settings. Check rotation, split view, large text, screen readers, keyboard navigation and reduced motion. Place widgets, resize them, change appearance, save and cancel configuration, then reopen after process loss and reboot.
 2. Complete browser and device-code sign-in where offered, including cancellation and retry. Add two accounts on one provider and reconnect an existing account. Confirm account identity, quota direction and reset times against the provider's UI.

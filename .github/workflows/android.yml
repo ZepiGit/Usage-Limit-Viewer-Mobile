@@ -96,7 +96,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -216,7 +216,7 @@ jobs:
           if-no-files-found: error
 
   runtime:
-    name: API 36 release upgrade smoke
+    name: API 37 release upgrade smoke
     needs: assemble
     # Fork PRs cannot access release signing, and neither can Dependabot's (it only gets Dependabot
     # secrets). A debug-signed build cannot update the published release.
@@ -263,13 +263,13 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Check the AOSP API 36 image is available
+      - name: Check the AOSP API 37 image is available
         run: |
           set -euo pipefail
           mkdir -p runtime/evidence
           sdkmanager --list > runtime/evidence/sdk-packages.txt
-          if ! grep -Eq '^[[:space:]]*system-images;android-36;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
-            echo '::error::The SDK repository does not list the required AOSP API 36 x86_64 image.' >&2
+          if ! grep -Eq '^[[:space:]]*system-images;android-37\.0;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 37 x86_64 image.' >&2
             exit 1
           fi
 
