@@ -20,6 +20,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import com.usagelimits.feature.waitDrained
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -84,7 +85,7 @@ class NotificationPermissionSettingsTest {
         scrollTo("Allow notifications")
         compose.onNodeWithText("Allow notifications").performClick()
         org.junit.Assert.assertTrue(permissionAsked)
-        compose.waitUntil(10_000) { shadowOf(compose.activity).lastRequestedPermission != null }
+        compose.waitDrained { shadowOf(compose.activity).lastRequestedPermission != null }
         val request = shadowOf(compose.activity).lastRequestedPermission
         compose.onNodeWithText("Allow notifications").assertIsNotEnabled()
         org.junit.Assert.assertArrayEquals(arrayOf(Manifest.permission.POST_NOTIFICATIONS), request.requestedPermissions)
@@ -104,7 +105,7 @@ class NotificationPermissionSettingsTest {
         render(AppSettings(notificationPermissionHandled = true))
         scrollTo("Allow notifications")
         compose.onNodeWithText("Allow notifications").performClick()
-        compose.waitUntil(10_000) { shadowOf(compose.activity).lastRequestedPermission != null }
+        compose.waitDrained { shadowOf(compose.activity).lastRequestedPermission != null }
         val request = shadowOf(compose.activity).lastRequestedPermission
         compose.runOnIdle {
             shadowOf(app.packageManager).setShouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS, false)
@@ -125,7 +126,7 @@ class NotificationPermissionSettingsTest {
         render()
         scrollTo("Allow notifications")
         compose.onNodeWithText("Allow notifications").performClick()
-        compose.waitUntil(10_000) { shadowOf(compose.activity).lastRequestedPermission != null }
+        compose.waitDrained { shadowOf(compose.activity).lastRequestedPermission != null }
         val request = shadowOf(compose.activity).lastRequestedPermission
         compose.runOnIdle {
             shadowOf(app.packageManager).setShouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS, false)

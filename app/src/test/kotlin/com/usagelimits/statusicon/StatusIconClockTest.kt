@@ -38,6 +38,7 @@ import kotlin.time.Duration.Companion.seconds
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class StatusIconClockTest {
     private val app = ApplicationProvider.getApplicationContext<android.app.Application>()
     private val manager get() = app.getSystemService(NotificationManager::class.java)

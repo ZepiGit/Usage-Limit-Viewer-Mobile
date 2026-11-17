@@ -51,6 +51,7 @@ import kotlin.time.Duration.Companion.seconds
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [36])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class StatusIconPublicationTest {
 
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()

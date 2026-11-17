@@ -155,8 +155,8 @@ class UsageViewModel(
     private val refreshing = MutableStateFlow(false)
     private val transientMessage = MutableStateFlow<String?>(null)
 
-    /** Pin changes made but not yet stored; see [UsageUiState.pendingPins]. */
-    private val pendingPins = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    /** The latest pin request per account not yet done; see [UsageUiState.pendingPins]. */
+    private val pinRequests = MutableStateFlow<Map<String, PinRequest>>(emptyMap())
 
     val state: StateFlow<UsageUiState> = combine(
         combine(container.repository.observeAccountUsage(), container.creditRepository.observeEntries()) { accounts, credits ->
@@ -165,7 +165,7 @@ class UsageViewModel(
         container.settingsStore.settings,
         refreshing,
         transientMessage,
-        combine(container.settingsStore.diagnostics, pendingPins) { diagnostics, pending -> diagnostics to pending },
+        combine(container.settingsStore.diagnostics, pinRequests) { diagnostics, pending -> diagnostics to pending.mapValues { it.value.pinned } },
     ) { (accounts, credits), settings, isRefreshing, message, (diagnostics, pending) ->
         UsageUiState(accounts, settings, isRefreshing, message, diagnostics, credits, pendingPins = pending)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState(loaded = false))
@@ -385,17 +385,31 @@ class UsageViewModel(
      * longer allow when its turn comes (three pinned, or the account gone) is refused.
      */
     fun setPinned(accountId: String, pinned: Boolean) {
-        pendingPins.update { it + (accountId to pinned) }
+        val request = PinRequest(nextPinRequest++, pinned)
+        pinRequests.update { it + (accountId to request) }
         viewModelScope.launch {
             try {
-                container.statusIconChanges.setPinned(accountId, pinned)
+                val applied = container.statusIconChanges.setPinned(accountId, pinned)
+                // A refusal of the person's latest wish for this account is told, not dropped:
+                // the account went away or the limit was reached while the pin waited its turn.
+                if (!applied && pinRequests.value[accountId] == request) {
+                    transientMessage.value = appContext.getString(
+                        if (container.repository.account(accountId) == null) R.string.message_pin_refused_gone
+                        else R.string.message_pin_refused_full,
+                    )
+                }
             } finally {
-                // Stored or refused, the stored pins speak for it again, unless a later tap on the
-                // same account is still waiting.
-                pendingPins.update { if (it[accountId] == pinned) it - accountId else it }
+                // Only this request's own entry: a later tap on the same account, even one asking
+                // for the same state, is a request of its own and stays shown until its turn.
+                pinRequests.update { if (it[accountId] == request) it - accountId else it }
             }
         }
     }
+
+    /** One tap on a pin toggle: its own identity, and the state it asks for. */
+    private data class PinRequest(val generation: Long, val pinned: Boolean)
+
+    private var nextPinRequest = 0L
 
 
     /**

@@ -21,6 +21,7 @@ import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.feature.UsageUiState
+import com.usagelimits.feature.waitDrained
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -147,7 +148,7 @@ class StatusIconSettingsTest {
         compose.onNodeWithText("Status bar icons cannot be shown until notifications are allowed.").assertIsDisplayed()
         compose.onNodeWithContentDescription("Show status bar icons").performClick()
         assertEquals(true, enabled)
-        compose.waitUntil(10_000) { shadowOf(compose.activity).lastRequestedPermission != null }
+        compose.waitDrained { shadowOf(compose.activity).lastRequestedPermission != null }
         assertEquals(Manifest.permission.POST_NOTIFICATIONS, shadowOf(compose.activity).lastRequestedPermission.requestedPermissions.single())
     }
 

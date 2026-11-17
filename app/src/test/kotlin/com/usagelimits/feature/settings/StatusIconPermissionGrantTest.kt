@@ -32,7 +32,9 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.sync.NotificationPublisher
 import com.usagelimits.core.sync.resetTestWorkManager
+import com.usagelimits.feature.OwnedViewModel
 import com.usagelimits.feature.UsageViewModel
+import com.usagelimits.feature.waitDrained
 import com.usagelimits.statusicon.StatusIconPublisher
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import kotlinx.coroutines.runBlocking
@@ -68,7 +70,8 @@ class StatusIconPermissionGrantTest {
     val compose = createAndroidComposeRule<ComponentActivity>()
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
     private val manager get() = app.getSystemService(NotificationManager::class.java)
-    private lateinit var vm: UsageViewModel
+    private lateinit var owned: OwnedViewModel
+    private val vm: UsageViewModel get() = owned.vm
 
     /** How often the screen reported notifications becoming allowed. */
     private var allowedEvents = 0
@@ -82,7 +85,7 @@ class StatusIconPermissionGrantTest {
         store.recordNotificationPermissionHandled()
         store.setStatusIconsEnabled(true)
         store.setPinnedAccounts(listOf(account().localId))
-        vm = UsageViewModel(app.container, app)
+        owned = OwnedViewModel(app.container, app)
 
         // The publication of the choice, made while notifications are denied, runs to its end
         // here, and posts nothing.
@@ -93,6 +96,8 @@ class StatusIconPermissionGrantTest {
     /** Nothing this class started may outlive it: see `resetTestWorkManager`. */
     @After
     fun drain() {
+        // The view model's jobs end first, also after a failure, before the infrastructure under them.
+        owned.clear()
         WorkManager.getInstance(app).cancelAllWork().result.get()
         ShadowLooper.idleMainLooper()
         resetTestWorkManager()
@@ -133,10 +138,7 @@ class StatusIconPermissionGrantTest {
             }
         }
         // Room/DataStore results resume on the paused Android looper, not the Compose clock.
-        compose.waitUntil(10_000) {
-            ShadowLooper.idleMainLooper()
-            vm.state.value.loaded && vm.state.value.accounts.isNotEmpty()
-        }
+        compose.waitDrained { vm.state.value.loaded && vm.state.value.accounts.isNotEmpty() }
     }
 
     /**
@@ -200,7 +202,7 @@ class StatusIconPermissionGrantTest {
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
 
         clickCardButton("Allow notifications")
-        compose.waitUntil(10_000) { shadowOf(compose.activity).lastRequestedPermission != null }
+        compose.waitDrained { shadowOf(compose.activity).lastRequestedPermission != null }
         val request = shadowOf(compose.activity).lastRequestedPermission
         compose.runOnIdle {
             shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)

@@ -6,12 +6,15 @@ import android.app.NotificationManager
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
@@ -27,7 +30,9 @@ import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.sync.OutOfAppPublication
 import com.usagelimits.core.sync.Publication
 import com.usagelimits.core.sync.resetTestWorkManager
+import com.usagelimits.feature.OwnedViewModel
 import com.usagelimits.feature.UsageViewModel
+import com.usagelimits.feature.waitDrained
 import com.usagelimits.statusicon.StatusIconPublisher
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import kotlinx.coroutines.CompletableDeferred
@@ -46,9 +51,9 @@ import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowLooper
 
 /**
- * Pin toggles tapped while an earlier pin change is still being published, through the real
- * Settings screen, view model and publication: each tap is one account's change, applied to the
- * pins stored when its turn comes, and the screen shows the changes waiting their turn.
+ * Pin toggles tapped while earlier pin changes are still being published, through the real
+ * Settings screen, view model and publication. Each publication is held at its own gate, before
+ * its status step, and let go one at a time; nothing waits on time.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [34])
@@ -59,15 +64,17 @@ class StatusIconPinQueueTest {
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
     private val manager get() = app.getSystemService(NotificationManager::class.java)
 
-    private val held = CompletableDeferred<Unit>()
-    private val gate = CompletableDeferred<Unit>()
-    private var holdNext = false
+    /** One gate per publication while [holding]: published in the order they reached them. */
+    private val gates = mutableListOf<CompletableDeferred<Unit>>()
+    private var holding = false
 
     private lateinit var container: AppContainer
-    private lateinit var vm: UsageViewModel
+    private lateinit var owned: OwnedViewModel
+    private val vm: UsageViewModel get() = owned.vm
     private lateinit var a: ProviderAccount
     private lateinit var b: ProviderAccount
     private lateinit var c: ProviderAccount
+    private lateinit var d: ProviderAccount
 
     @Before fun setUp() = runBlocking {
         app.startupJob?.join()
@@ -77,27 +84,28 @@ class StatusIconPinQueueTest {
             override val publication: Publication by lazy {
                 OutOfAppPublication(app, repository, creditRepository, settingsStore,
                     notificationPublisher, statusIconPublisher,
-                    // The step before the status icons; the first publication after holdNext waits here.
+                    // The step before the status icons; while holding, each publication waits here.
                     scheduleBoundary = {
-                        if (holdNext) {
-                            holdNext = false
-                            held.complete(Unit)
-                            gate.await()
-                        }
+                        if (holding) CompletableDeferred<Unit>().also { synchronized(gates) { gates += it } }.await()
                     })
             }
         }
         a = account("Alpha")
         b = account("Beta")
         c = account("Gamma")
+        d = account("Delta")
         container.settingsStore.setStatusIconsEnabled(true)
         container.settingsStore.setPinnedAccounts(listOf(a.localId))
         container.publication.presentationChanged()
-        vm = UsageViewModel(container, app)
+        owned = OwnedViewModel(container, app)
     }
 
     @After fun tearDown() {
-        gate.complete(Unit)
+        // Also on a failed test: let every held publication go, then end the view model's jobs
+        // before the infrastructure under them is torn down.
+        holding = false
+        synchronized(gates) { gates.forEach { it.complete(Unit) } }
+        owned.clear()
         WorkManager.getInstance(app).cancelAllWork().result.get()
         ShadowLooper.idleMainLooper()
         resetTestWorkManager()
@@ -117,17 +125,22 @@ class StatusIconPinQueueTest {
         .map { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }
         .toSet()
 
+    private fun stored(): List<String> = runBlocking { container.settingsStore.settings.first().pinnedAccountIds }
+
     private fun toggle(name: String) {
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(name))
         compose.onNodeWithContentDescription("Pin $name").performClick()
     }
 
-    private fun settle(condition: () -> Boolean) = compose.waitUntil(10_000) {
-        ShadowLooper.idleMainLooper()
-        condition()
+    private fun gatesReached() = synchronized(gates) { gates.size }
+
+    /** Lets the oldest held publication go and waits until the next one is held or none waits. */
+    private fun releaseNext(expectHeldAfter: Int) {
+        synchronized(gates) { gates.first { !it.isCompleted } }.complete(Unit)
+        compose.waitDrained { gatesReached() >= expectHeldAfter }
     }
 
-    @Test fun `pinning C and unpinning A while pinning B is published leaves B and C`() {
+    private fun render() {
         compose.setContent {
             val state by vm.state.collectAsState()
             UsageLimitsTheme {
@@ -142,13 +155,16 @@ class StatusIconPinQueueTest {
                 )
             }
         }
-        settle { vm.state.value.loaded && vm.state.value.accounts.size == 3 && vm.state.value.settings.statusIconsEnabled }
+        compose.waitDrained { vm.state.value.loaded && vm.state.value.accounts.size == 4 && vm.state.value.settings.statusIconsEnabled }
+    }
+
+    @Test fun `pinning C and unpinning A while pinning B is published leaves B and C`() {
+        render()
         assertEquals(setOf("Alpha"), showing())
 
-        holdNext = true
+        holding = true
         toggle("Beta")
-        settle { held.isCompleted }
-        // While Beta's publication is held, Gamma is pinned and Alpha unpinned.
+        compose.waitDrained { gatesReached() == 1 }
         toggle("Gamma")
         toggle("Alpha")
         // The screen shows the changes at once, not the stored pins of a moment ago.
@@ -156,14 +172,67 @@ class StatusIconPinQueueTest {
         compose.onNodeWithContentDescription("Pin Alpha").assertIsOff()
         compose.onNodeWithContentDescription("Pin Beta").assertIsOn()
 
-        gate.complete(Unit)
-        // Every change has had its turn once nothing is waiting any more; then the outcome is read.
-        settle { vm.state.value.pendingPins.isEmpty() }
+        holding = false
+        releaseNext(expectHeldAfter = 1)
+        compose.waitDrained { vm.state.value.pendingPins.isEmpty() }
 
-        assertEquals("independent changes are all kept",
-            listOf(b.localId, c.localId), runBlocking { container.settingsStore.settings.first().pinnedAccountIds })
+        assertEquals("independent changes are all kept", listOf(b.localId, c.localId), stored())
         assertEquals(setOf("Beta", "Gamma"), showing())
         compose.onNodeWithContentDescription("Pin Gamma").assertIsOn()
         compose.onNodeWithContentDescription("Pin Alpha").assertIsOff()
+    }
+
+    /**
+     * Gamma pinned, unpinned and pinned again while the first of those is published. Each tap is
+     * its own request: finishing the first must not take the last one's wish off the screen.
+     */
+    @Test fun `the last of several taps on one account stays shown until its own turn has come`() {
+        runBlocking { container.settingsStore.setPinnedAccounts(listOf(a.localId, b.localId)) }
+        render()
+
+        holding = true
+        toggle("Gamma")                                     // request 1: pin, held at its gate
+        compose.waitDrained { gatesReached() == 1 }
+        toggle("Gamma")                                     // request 2: unpin, queued
+        toggle("Gamma")                                     // request 3: pin, queued
+        compose.onNodeWithContentDescription("Pin Gamma").assertIsOn()
+
+        // Request 1 completes; request 2 runs and is held at the next gate. Gamma's last wish is
+        // still "pinned", so Gamma stays on, three count as pinned, and Delta is not offered.
+        releaseNext(expectHeldAfter = 2)
+        compose.onNodeWithText("3 of 3 pinned").assertExists()
+        compose.onNodeWithContentDescription("Pin Gamma").assertIsOn().assertIsEnabled()
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Delta"))
+        compose.onNodeWithContentDescription("Pin Delta. 3 of 3 are pinned; unpin one first.").assertIsNotEnabled()
+
+        // Request 2 completes; request 3 runs and is held.
+        releaseNext(expectHeldAfter = 3)
+        compose.onNodeWithContentDescription("Pin Gamma").assertIsOn()
+
+        holding = false
+        releaseNext(expectHeldAfter = 3)
+        compose.waitDrained { vm.state.value.pendingPins.isEmpty() }
+        assertEquals(listOf(a.localId, b.localId, c.localId), stored())
+        assertEquals(setOf("Alpha", "Beta", "Gamma"), showing())
+    }
+
+    /** A pin the queue refuses when its turn comes is told to the person, not silently dropped. */
+    @Test fun `a pin refused when its turn comes is reported`() {
+        render()
+
+        holding = true
+        toggle("Gamma")
+        compose.waitDrained { gatesReached() == 1 }
+        // Delta is offered (two would be pinned) and tapped; then it is removed from the cache
+        // while its pin waits behind Gamma's.
+        toggle("Delta")
+        runBlocking { container.repository.deleteAccount(d.localId) }
+
+        holding = false
+        releaseNext(expectHeldAfter = 1)
+        compose.waitDrained { vm.state.value.pendingPins.isEmpty() }
+
+        assertEquals(listOf(a.localId, c.localId), stored())
+        assertEquals("Could not pin the account: it has been removed.", vm.state.value.message)
     }
 }
