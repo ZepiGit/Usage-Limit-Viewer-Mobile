@@ -67,7 +67,7 @@ fun SettingsScreen(
     onShowTier: (Boolean) -> Unit,
     onShowRenewal: (Boolean) -> Unit,
     onPercentDisplayChange: (PercentDisplay) -> Unit,
-    onNotificationPermissionAsked: () -> Unit,
+    onNotificationPermissionHandled: () -> Unit,
     modifier: Modifier = Modifier,
     onProviderIconChange: (com.usagelimits.core.model.ProviderId, String) -> Unit = { _, _ -> },
     onStatusIconsChange: (Boolean) -> Unit = {},
@@ -80,7 +80,7 @@ fun SettingsScreen(
     // read and announce it the same way, and a grant from either reaches the publication.
     val permission = rememberNotificationPermission(
         alreadyAsked = settings.notificationPermissionHandled,
-        onAsked = onNotificationPermissionAsked,
+        onAsked = onNotificationPermissionHandled,
         onAllowed = onNotificationsAllowed,
     )
 

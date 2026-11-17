@@ -19,6 +19,7 @@ import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.WidgetScope
+import com.usagelimits.core.settings.SettingsStore
 import com.usagelimits.core.sync.SyncWorker
 
 /**
@@ -62,7 +63,7 @@ object WidgetUpdater {
      * Refresh each widget independently so a failure cannot skip sibling widgets.
      * Log failures for diagnosis; rethrow cancellation because the calling worker is stopping.
      */
-    suspend fun refreshAll(context: Context, settings: com.usagelimits.core.settings.SettingsStore) {
+    suspend fun refreshAll(context: Context, settings: SettingsStore) {
         for (placed in allWidgets) {
             try {
                 refresh(context, placed)
@@ -114,9 +115,8 @@ object WidgetUpdater {
         val style: WidgetStyle = WidgetStyle(),
         val metrics: WidgetMetrics = WidgetMetrics(),
         /**
-         * Every figure follows this mode: the widget's own choice if it has one, else the app's.
-         * Resolved once here so no widget reads the setting itself; observed with the settings, so a
-         * toggle repaints at once.
+         * Every figure follows the app's display mode. Observed here with the settings so a
+         * change repaints every widget without each surface reading the setting itself.
          */
         val percentDisplay: PercentDisplay,
     ) {
@@ -167,7 +167,7 @@ object WidgetUpdater {
                         config?.transparent ?: false, config?.textTone,
                     ),
                     WidgetMetrics.fromJson(config?.layoutMetricsJson ?: "{}") ?: WidgetMetrics(),
-                    settings.percentDisplay.resolved(PercentDisplay.fromNameOrNull(config?.percentDisplay)),
+                    settings.percentDisplay,
                 )
             })
         }

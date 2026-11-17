@@ -134,12 +134,13 @@ class WidgetAppearanceRenderingTest {
         val density = app.resources.displayMetrics.density
         val manager = AppWidgetManager.getInstance(app)
         val shown = mutableMapOf<String, Pair<List<String>, List<String>>>()
+        val originalMode = app.container.settingsStore.settings.first().percentDisplay
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
             for ((index, scene) in scenes.withIndex()) {
+                app.container.settingsStore.setPercentDisplay(scene.mode)
                 val config = WidgetConfigEntity(400 + index, "CUSTOM", null, null, now,
-                    customAccountIdsJson = scene.ids.joinToString(prefix = "[", postfix = "]") { "\"$it\"" },
-                    percentDisplay = scene.mode.name)
+                    customAccountIdsJson = scene.ids.joinToString(prefix = "[", postfix = "]") { "\"$it\"" })
                 app.container.widgetConfigDao.upsert(config)
                 shadowOf(manager).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
                     provider = ComponentName(app, scene.receiver)
@@ -157,6 +158,7 @@ class WidgetAppearanceRenderingTest {
                 }
             }
         } finally {
+            app.container.settingsStore.setPercentDisplay(originalMode)
             Dispatchers.resetMain()
         }
         val (leftText, leftSaid) = shown.getValue(scenes[0].file)

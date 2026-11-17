@@ -83,13 +83,9 @@ class AddAccountPublicationTest {
             override val publication by lazy {
                 if (!failBoundary) super.publication
                 else com.usagelimits.core.sync.OutOfAppPublication(
-                    repaint = { com.usagelimits.widget.WidgetUpdater.refreshAll(app, settingsStore) },
+                    app, repository, creditRepository, settingsStore,
+                    notificationPublisher, statusIconPublisher,
                     scheduleBoundary = { throw IllegalStateException("WorkManager unavailable") },
-                    publishStatusIcons = {},
-                    publishAlerts = {
-                        com.usagelimits.core.sync.NotificationPublisher(app, settingsStore, notificationDao,
-                            transactions = transactions).publishFor(repository.accountUsageOnce())
-                    },
                 )
             }
         }

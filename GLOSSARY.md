@@ -45,7 +45,7 @@ _Avoid_: Reset pending, expired window
 ### Presentation
 
 **Display mode**:
-Which side of a usage window the percentages count: **Left** (what remains) or **Used** (what has been spent).
+The app-wide choice of which side of a usage window the percentages count: **Left** (what remains) or **Used** (what has been spent). Every usage widget follows it.
 _Avoid_: Percent mode, toggle, view mode
 
 **Pinned account**:

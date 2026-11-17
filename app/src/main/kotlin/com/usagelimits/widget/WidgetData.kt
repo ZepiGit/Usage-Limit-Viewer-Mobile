@@ -16,7 +16,7 @@ import com.usagelimits.core.model.windowPresentation
 /** One bar in a widget. */
 data class WidgetRow(
     val label: String,
-    /** Carried so a headline can be chosen by horizon rather than by position in [rows]. */
+    /** Carried so a summary row can be chosen by horizon rather than by position in [rows]. */
     val category: WindowCategory,
     val remainingPercent: Double?,
     val resetAt: Long?,
@@ -114,10 +114,10 @@ data class WidgetSnapshot(
     val updatedAt: Long?,
     val nextResetAt: Long?,
     val overallSeverity: Severity,
-    val headlineShort: WidgetRow?,
-    val headlineLong: WidgetRow?,
+    val summaryLineShort: WidgetRow?,
+    val summaryLineLong: WidgetRow?,
     /**
-     * The data validity of the account the headline numbers come from — the compact tile draws
+     * The data validity of the account the summary numbers come from — the compact tile draws
      * its two quota tiles from this account, so its staleness is the validity those numbers
      * must answer to. Null while the lead's data is trustworthy.
      */
@@ -149,8 +149,8 @@ data class WidgetSnapshot(
             updatedAt = null,
             nextResetAt = null,
             overallSeverity = Severity.STALE,
-            headlineShort = null,
-            headlineLong = null,
+            summaryLineShort = null,
+            summaryLineLong = null,
         )
     }
 }
@@ -213,13 +213,13 @@ object WidgetDataBuilder {
             accounts
         }
 
-        // The headline belongs to ONE account — the one leading the list — not to a pool.
+        // The summary belongs to ONE account — the one leading the list — not to a pool.
         //
         // Reducing across every account produced a number attributed to nobody. On a tile
         // showing two of six accounts, "5h: 3 %" could be the sixth account's window, so the
         // user read a figure they could not locate. Worse, `weekly ?: monthly` applied to the
         // pool meant any one account having a weekly window suppressed every monthly one, so
-        // the headline could read 80 % while a visible row read 3 %.
+        // the summary could read 80 % while a visible row read 3 %.
         val lead = ordered.firstOrNull()
 
         return WidgetSnapshot(
@@ -227,7 +227,7 @@ object WidgetDataBuilder {
             accountCount = selected.size,
             updatedAt = selected.firstOrNull { it.account.localId == lead?.accountId }?.measurementAt,
             // The soonest reset OF THE LEADING ACCOUNT. Taken across all accounts it paired the
-            // headline state with an unrelated account's clock: "0 % left · resets in 12m",
+            // summary state with an unrelated account's clock: "0 % left · resets in 12m",
             // where the twelve minutes belonged to a healthy account's five-hour window. And
             // because healthy five-hour windows reset constantly, that was the common case.
             // And one still AHEAD. A snapshot keeps a window's reset instant until the next fetch
@@ -240,8 +240,8 @@ object WidgetDataBuilder {
             // and it is the only thing that still surfaces a broken account once the ordering
             // below stops letting rowless accounts occupy a two-slot widget.
             overallSeverity = ordered.maxOfOrNull { it.severity } ?: Severity.STALE,
-            headlineShort = lead?.rows?.firstOrNull { it.category == WindowCategory.FIVE_HOUR },
-            headlineLong = lead?.rows?.firstOrNull { it.category != WindowCategory.FIVE_HOUR },
+            summaryLineShort = lead?.rows?.firstOrNull { it.category == WindowCategory.FIVE_HOUR },
+            summaryLineLong = lead?.rows?.firstOrNull { it.category != WindowCategory.FIVE_HOUR },
             leadValidity = lead?.dataValidity,
         )
     }
@@ -284,7 +284,7 @@ object WidgetDataBuilder {
         if (remaining == Double.MAX_VALUE) Int.MAX_VALUE else (remaining / 5).toInt()
 
     /** Known constraints lead; an optional unknown must not displace a readable percentage. */
-    private fun headline(windows: List<UsageWindow>, category: WindowCategory, fetchedAt: Long, nowMs: Long): WidgetRow? =
+    private fun summaryLine(windows: List<UsageWindow>, category: WindowCategory, fetchedAt: Long, nowMs: Long): WidgetRow? =
         windows.filter { it.category == category }
             .minWithOrNull(compareBy({ it.severity.urgency }, { it.remainingPercent ?: Double.MAX_VALUE }))
             ?.toRow(fetchedAt, nowMs)
@@ -294,7 +294,7 @@ object WidgetDataBuilder {
      * An exhausted monthly limit must outrank a healthy weekly one; unreadable limits
      * must not displace known exhaustion. OTHER is a last resort among equal readings.
      */
-    private fun longHeadline(windows: List<UsageWindow>, fetchedAt: Long, nowMs: Long): WidgetRow? =
+    private fun longSummaryLine(windows: List<UsageWindow>, fetchedAt: Long, nowMs: Long): WidgetRow? =
         windows.filter { it.category != WindowCategory.FIVE_HOUR }
             .minWithOrNull(
                 compareBy(
@@ -313,15 +313,15 @@ object WidgetDataBuilder {
 
     private fun AccountUsage.toWidgetAccount(nowMs: Long, staleAfterMs: Long, providerIcons: Map<String, String>): WidgetAccount {
         val windows = snapshot?.windows.orEmpty()
-        val headlineWindows = windows.filter { it.scope == com.usagelimits.core.model.UsageScope.GLOBAL }
+        val summaryWindows = windows.filter { it.scope == com.usagelimits.core.model.UsageScope.GLOBAL }
             .ifEmpty { windows }
         val fetchedAt = measurementAt ?: Long.MAX_VALUE
 
         // Lead with the summary's two horizons, then retain independently scoped limits and
         // unknown optional values in the scrollable detail. Category is not window identity.
         val rows = (listOfNotNull(
-            headline(headlineWindows, WindowCategory.FIVE_HOUR, fetchedAt, nowMs),
-            longHeadline(headlineWindows, fetchedAt, nowMs),
+            summaryLine(summaryWindows, WindowCategory.FIVE_HOUR, fetchedAt, nowMs),
+            longSummaryLine(summaryWindows, fetchedAt, nowMs),
         ) + windows.map { it.toRow(fetchedAt, nowMs) }).distinct()
 
         return WidgetAccount(

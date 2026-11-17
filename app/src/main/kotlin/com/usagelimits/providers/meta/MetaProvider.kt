@@ -174,7 +174,7 @@ class MetaProvider(
         credentials: OAuthCredentials,
     ): UsageResult {
         val payload = fetchDcaPayload(credentials)
-        return UsageResult(windows = MetaQuotaParser.parse(payload, nowMs()))
+        return UsageResult(windows = MetaQuotaParser.parse(payload))
     }
 
     /** Polls RFC 8628 until the user approves the device code or a terminal error arrives. */

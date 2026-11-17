@@ -127,12 +127,8 @@ own order. On Android you also choose the background colour, how see-through it 
 text colour. Widgets show the last numbers the app fetched; tapping refresh asks for new ones
 on Android and opens the app on iOS.
 
-Widgets show percentages the way the app does, left or used. A widget can also keep its own
-choice: **App setting** (the default), **Left** or **Used**. On Android this is in the widget's
-configuration for Usage Summary, Usage Bars, Account Rings and Mini Rings. On iOS 17 it is the
-*Show percentages as* option of Usage Bars, Account Rings and Mini Rings. The other iOS widgets
-(Usage Limits, Usage Limits (Clear) and Usage Ring) have no option of their own and always
-follow the app. Credits show money, so this does not apply to them.
+Every usage widget follows the app's display mode, left or used. There is no separate setting
+per widget. Credits show money, so this does not apply to them.
 
 <p align="center"><a href="docs/01-terracotta/rings-multiaccount.png"><img src="docs/01-terracotta/rings-multiaccount.png" width="1000" alt="Account Rings and Mini Rings with personal and work accounts"></a></p>
 

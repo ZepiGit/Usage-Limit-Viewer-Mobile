@@ -31,7 +31,7 @@ import org.robolectric.shadows.ShadowLooper
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [36])
-class PostSyncSchedulingTest {
+class PublicationSchedulingTest {
 
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
 

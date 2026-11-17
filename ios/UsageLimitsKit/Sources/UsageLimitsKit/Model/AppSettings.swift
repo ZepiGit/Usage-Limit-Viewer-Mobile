@@ -14,11 +14,8 @@ public struct AppSettings: Sendable, Equatable, Codable {
 
     public var notifications: NotificationSettings
 
-    /// Whether the overview follows the order the user dragged the accounts into.
-    ///
-    /// False until they drag one. Until then the list is ranked by urgency, which is what the
-    /// app is for — but once someone has arranged their accounts deliberately, re-ranking them
-    /// on the next sync is the app overruling a choice they made by hand.
+    /// Records whether the user has dragged an account to change the order.
+    /// The overview uses the stored order regardless of this flag.
     public var accountsManuallyOrdered: Bool
 
     /// Show the plan tier — Plus, Pro, Max — beside the provider name.
