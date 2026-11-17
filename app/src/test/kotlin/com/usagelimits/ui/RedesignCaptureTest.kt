@@ -170,7 +170,7 @@ class RedesignCaptureTest {
         },
         "resets" to { ResetsScreen(state = state, nowMs = NOW) },
         "settings" to {
-            SettingsScreen(state = state, onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
+            SettingsScreen(state = state, onSyncIntervalChange = {}, onNotificationPermissionAsked = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
                 onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {},
                 onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {},
                 onPercentDisplayChange = {})
