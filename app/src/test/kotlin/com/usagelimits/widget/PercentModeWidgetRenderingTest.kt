@@ -4,10 +4,13 @@ import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
+import android.graphics.drawable.BitmapDrawable
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.glance.ExperimentalGlanceApi
@@ -42,6 +45,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowLooper
 
 /**
@@ -55,9 +59,9 @@ import org.robolectric.shadows.ShadowLooper
  * Fixture: one Claude account, a 5h window with 40% used (60% left) and a Weekly window with 63%
  * used (37% left), so the two modes never produce the same digits and a swapped label is caught.
  *
- * Legacy graphics rather than the native mode WidgetAppearanceRenderingTest requests: this suite
- * reads text and descriptions, never pixels, and the native runtime in this environment cannot
- * inflate Glance's ProgressBar (a PathInterpolator error), which every bar-carrying widget needs.
+ * Bar widgets use legacy graphics because the native runtime cannot inflate Glance's ProgressBar
+ * (a PathInterpolator error); their hosted progress values still expose the fill. Ring fill tests
+ * use native graphics to inspect the arc bitmap alongside its caption and spoken description.
  */
 @OptIn(ExperimentalGlanceApi::class, ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -105,13 +109,11 @@ class PercentModeWidgetRenderingTest {
         widgetName: String,
         accountIds: List<String>,
         size: DpSize,
-        storedOverride: String? = null,
         check: (View) -> Unit,
     ) {
         val placed = WidgetUpdater.allWidgets.first { it.name == widgetName }
         val config = WidgetConfigEntity(nextWidgetId++, "CUSTOM", null, null, System.currentTimeMillis(),
-            customAccountIdsJson = accountIds.joinToString(prefix = "[", postfix = "]") { "\"$it\"" },
-            percentDisplay = storedOverride)
+            customAccountIdsJson = accountIds.joinToString(prefix = "[", postfix = "]") { "\"$it\"" })
         app.container.widgetConfigDao.upsert(config)
         shadowOf(AppWidgetManager.getInstance(app)).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
             provider = ComponentName(app, placed.receiver)
@@ -134,10 +136,11 @@ class PercentModeWidgetRenderingTest {
     }
 
     /**
-     * Runs [body] once per mode with the setting persisted before composing, and always puts the
-     * app back on LEFT so a failing assertion cannot leak USED into a neighbouring test.
+     * Runs [body] once per mode with the setting persisted before composing, then restores the
+     * previous app mode so a failing assertion cannot leak a change into a neighbouring test.
      */
     private suspend fun TestScope.inEachMode(body: suspend (PercentDisplay) -> Unit) {
+        val originalMode = app.container.settingsStore.settings.first().percentDisplay
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
             for (mode in PercentDisplay.entries) {
@@ -145,7 +148,7 @@ class PercentModeWidgetRenderingTest {
                 body(mode)
             }
         } finally {
-            app.container.settingsStore.setPercentDisplay(PercentDisplay.LEFT)
+            app.container.settingsStore.setPercentDisplay(originalMode)
             Dispatchers.resetMain()
         }
     }
@@ -180,6 +183,12 @@ class PercentModeWidgetRenderingTest {
                     }
                     assertTrue("$mode ${size.width}: no label carries the other mode's word, got $text",
                         text.none { it.startsWith("${otherWord(mode)} · ") })
+                    val fills = progressBars(view).map { it.progress.toFloat() / it.max }
+                    val expected = if (mode == PercentDisplay.USED) listOf(0.40f, 0.63f) else listOf(0.60f, 0.37f)
+                    assertEquals("$mode: both Summary bars are present", 2, fills.size)
+                    expected.zip(fills).forEach { (wanted, actual) ->
+                        assertEquals("$mode: Summary fill follows the app mode", wanted, actual, 0.001f)
+                    }
                 }
             }
         }
@@ -217,7 +226,7 @@ class PercentModeWidgetRenderingTest {
 
     // region Detailed
 
-    @Test fun `detailed rows carry the side next to each figure`() = runTest {
+    @Test fun `a detailed widget follows the app setting in every row figure and side word`() = runTest {
         val id = seedFixtureAccount()
         inEachMode { mode ->
             inspect("DetailedUsageWidget", listOf(id), DpSize(300.dp, 260.dp)) { view ->
@@ -231,6 +240,12 @@ class PercentModeWidgetRenderingTest {
                 }
                 assertTrue("$mode: no bare figure is left to be misread, got $text",
                     text.none { it.endsWith("%") })
+                val fills = progressBars(view).map { it.progress.toFloat() / it.max }
+                val expected = if (mode == PercentDisplay.USED) listOf(0.40f, 0.63f) else listOf(0.60f, 0.37f)
+                assertEquals("$mode: both Usage Bars are present", 2, fills.size)
+                expected.zip(fills).forEach { (wanted, actual) ->
+                    assertEquals("$mode: Usage Bars fill follows the app mode", wanted, actual, 0.001f)
+                }
             }
         }
     }
@@ -239,6 +254,7 @@ class PercentModeWidgetRenderingTest {
 
     // region Account Rings
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun `account rings caption the mode and put the matching figure in the centre`() = runTest {
         val id = seedFixtureAccount()
         inEachMode { mode ->
@@ -256,6 +272,7 @@ class PercentModeWidgetRenderingTest {
                 val notSpoken = if (mode == PercentDisplay.USED) "% remaining" else "% used"
                 assertTrue("$mode: ring description says '$spoken', got $descriptions", descriptions.any { spoken in it })
                 assertTrue("$mode: no ring description says '$notSpoken', got $descriptions", descriptions.none { notSpoken in it })
+                assertRingFill(view, mode)
             }
         }
     }
@@ -390,6 +407,7 @@ class PercentModeWidgetRenderingTest {
 
     // region Mini Rings
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun `mini rings caption the mode and word the ring descriptions to match`() = runTest {
         val id = seedFixtureAccount()
         inEachMode { mode ->
@@ -403,6 +421,7 @@ class PercentModeWidgetRenderingTest {
                 assertTrue("$mode: ring description says '$spoken', got $descriptions", descriptions.any { spoken in it })
                 assertTrue("$mode: no ring description says '$notSpoken', got $descriptions", descriptions.none { notSpoken in it })
                 assertTrue("$mode: the 1x1 rings carry a mark, not a figure, got $text", text.none { it.endsWith("%") })
+                assertRingFill(view, mode)
             }
         }
     }
@@ -454,98 +473,6 @@ class PercentModeWidgetRenderingTest {
 
     // endregion
 
-    // region Per-widget override (R5)
-
-    /** App mode, the override a widget row stores, and the mode that widget must therefore show. */
-    private data class OverrideCase(val app: PercentDisplay, val stored: String?, val shown: PercentDisplay)
-
-    private val overrideCases = listOf(
-        OverrideCase(PercentDisplay.LEFT, "USED", PercentDisplay.USED),
-        OverrideCase(PercentDisplay.USED, "LEFT", PercentDisplay.LEFT),
-        OverrideCase(PercentDisplay.LEFT, "LEFT", PercentDisplay.LEFT),
-        OverrideCase(PercentDisplay.USED, "USED", PercentDisplay.USED),
-        OverrideCase(PercentDisplay.LEFT, null, PercentDisplay.LEFT),
-        OverrideCase(PercentDisplay.USED, null, PercentDisplay.USED),
-        OverrideCase(PercentDisplay.LEFT, "SIDEWAYS", PercentDisplay.LEFT),
-        OverrideCase(PercentDisplay.USED, "SIDEWAYS", PercentDisplay.USED),
-    )
-
-    /** Runs [body] once per [overrideCases] entry with that app mode persisted, restoring LEFT afterwards. */
-    private suspend fun TestScope.inEachOverrideCase(body: suspend (OverrideCase) -> Unit) {
-        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-        try {
-            for (case in overrideCases) {
-                app.container.settingsStore.setPercentDisplay(case.app)
-                body(case)
-            }
-        } finally {
-            app.container.settingsStore.setPercentDisplay(PercentDisplay.LEFT)
-            Dispatchers.resetMain()
-        }
-    }
-
-    @Test fun `a detailed widget shows its own mode over the app setting and follows the app without one`() = runTest {
-        val id = seedFixtureAccount()
-        inEachOverrideCase { case ->
-            inspect("DetailedUsageWidget", listOf(id), DpSize(300.dp, 260.dp), case.stored) { view ->
-                val text = textViews(view).map { it.text.toString() }
-                val suffix = if (case.shown == PercentDisplay.USED) "used" else "left"
-                figures(case.shown).forEach {
-                    assertTrue("$case: row figure '$it $suffix' present, got $text", "$it $suffix" in text)
-                }
-                otherFigures(case.shown).forEach {
-                    assertTrue("$case: the other mode's '$it' must be absent, got $text", text.none { t -> t.startsWith(it) })
-                }
-            }
-        }
-    }
-
-    @Test fun `a compact widget shows its own mode over the app setting and follows the app without one`() = runTest {
-        val id = seedFixtureAccount()
-        inEachOverrideCase { case ->
-            inspect("CompactUsageWidget", listOf(id), DpSize(420.dp, 130.dp), case.stored) { view ->
-                val text = textViews(view).map { it.text.toString() }
-                assertTrue("$case: tile label leads with '${modeWord(case.shown)}', got $text",
-                    "${modeWord(case.shown)} · 5h limit" in text)
-                figures(case.shown).forEach { assertTrue("$case: tile figure $it present, got $text", it in text) }
-                otherFigures(case.shown).forEach {
-                    assertTrue("$case: the other mode's $it must be absent, got $text", it !in text)
-                }
-            }
-        }
-    }
-
-    @Test fun `account rings show their own mode over the app setting and follow the app without one`() = runTest {
-        val id = seedFixtureAccount()
-        inEachOverrideCase { case ->
-            inspect("MinimalUsageWidget", listOf(id), DpSize(180.dp, 240.dp), case.stored) { view ->
-                val text = textViews(view).map { it.text.toString() }
-                assertTrue("$case: caption '${modeWord(case.shown)}' present, got $text", modeWord(case.shown) in text)
-                assertTrue("$case: no caption of the other mode, got $text", otherWord(case.shown) !in text)
-                assertTrue("$case: centre figure ${figures(case.shown).last()} present, got $text",
-                    figures(case.shown).last() in text)
-                assertTrue("$case: the other mode's ${otherFigures(case.shown).last()} must be absent, got $text",
-                    otherFigures(case.shown).last() !in text)
-            }
-        }
-    }
-
-    @Test fun `mini rings show their own mode over the app setting and follow the app without one`() = runTest {
-        val id = seedFixtureAccount()
-        inEachOverrideCase { case ->
-            inspect("MiniRingsWidget", listOf(id), DpSize(62.dp, 180.dp), case.stored) { view ->
-                val text = textViews(view).map { it.text.toString() }
-                val descriptions = descriptions(view)
-                assertTrue("$case: caption '${modeWord(case.shown)}' present, got $text", modeWord(case.shown) in text)
-                assertTrue("$case: no caption of the other mode, got $text", otherWord(case.shown) !in text)
-                val spoken = if (case.shown == PercentDisplay.USED) "63% used" else "37% remaining"
-                assertTrue("$case: ring description says '$spoken', got $descriptions", descriptions.any { spoken in it })
-            }
-        }
-    }
-
-    // endregion
-
     /** Runs [body] at [scale] and always puts the font scale back, so a failure cannot leak it onward. */
     private inline fun <T> atFontScale(scale: Float, body: () -> T): T {
         RuntimeEnvironment.setFontScale(scale)
@@ -577,6 +504,21 @@ class PercentModeWidgetRenderingTest {
             assertTrue("$name: ${part.javaClass.simpleName} '${part.contentDescription ?: (part as? TextView)?.text}' " +
                 "ends at ${bottom}px, below the ${hostHeight}px host", bottom <= hostHeight)
         }
+    }
+
+    private fun progressBars(view: View): List<ProgressBar> = buildList {
+        if (view is ProgressBar) add(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(progressBars(view.getChildAt(index)))
+    }
+
+    private fun assertRingFill(view: View, mode: PercentDisplay) {
+        val bitmap = (ringImages(view).single().drawable as BitmapDrawable).bitmap
+        val style = WidgetStyle()
+        // The representative Weekly window is 37% left / 63% used. Six o'clock is outside
+        // the former arc and inside the latter; inspect the bitmap the hosted image received.
+        assertEquals("$mode: the ring fill follows the app mode",
+            if (mode == PercentDisplay.USED) style.data.toArgb() else style.trackArgb,
+            bitmap.getPixel(80, 151))
     }
 
     /** The rings: images whose description ends in a figure clause, which a provider logo's never does. */

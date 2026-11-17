@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CreditAccountEntity::class,
         CreditSnapshotEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class UsageLimitsDatabase : RoomDatabase() {
@@ -202,6 +202,43 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             }
         }
 
+        /** Every widget follows the app mode; recreate the table for SQLite on minSdk 26. */
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE widget_configs_new (
+                        appWidgetId INTEGER NOT NULL,
+                        scope TEXT NOT NULL,
+                        accountId TEXT,
+                        provider TEXT,
+                        updatedAt INTEGER NOT NULL,
+                        transparent INTEGER NOT NULL DEFAULT 0,
+                        customAccountIdsJson TEXT NOT NULL DEFAULT '[]',
+                        layoutMetricsJson TEXT NOT NULL DEFAULT '{}',
+                        backgroundArgb INTEGER NOT NULL DEFAULT -15790322,
+                        backgroundOpacity INTEGER NOT NULL DEFAULT 100,
+                        textTone TEXT NOT NULL DEFAULT 'AUTO',
+                        PRIMARY KEY(appWidgetId)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO widget_configs_new (
+                        appWidgetId, scope, accountId, provider, updatedAt, transparent,
+                        customAccountIdsJson, layoutMetricsJson, backgroundArgb, backgroundOpacity, textTone
+                    )
+                    SELECT appWidgetId, scope, accountId, provider, updatedAt, transparent,
+                        customAccountIdsJson, layoutMetricsJson, backgroundArgb, backgroundOpacity, textTone
+                    FROM widget_configs
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE widget_configs")
+                db.execSQL("ALTER TABLE widget_configs_new RENAME TO widget_configs")
+            }
+        }
+
         fun build(context: Context): UsageLimitsDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
@@ -215,6 +252,7 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             MIGRATION_9_10,
             MIGRATION_10_11,
             MIGRATION_11_12,
+            MIGRATION_12_13,
             ).build()
     }
 }

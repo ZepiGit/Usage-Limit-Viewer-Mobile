@@ -1,13 +1,10 @@
 package com.usagelimits.widget
 
-import androidx.compose.ui.test.assertIsNotSelected
-import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToNode
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.PercentDisplay
@@ -106,22 +103,20 @@ class GermanWidgetConfigRenderTest {
     }
 
     @Test
-    fun `the configuration screen speaks German and the percent control keeps its three segments`() {
+    fun `the configuration screen speaks German without a separate display mode choice`() {
         compose.setContent {
             UsageLimitsTheme {
                 WidgetConfigScreen(listOf(fixtureUsage()), null, "Usage Bars", saving = false, error = null,
-                    percentDisplay = PercentDisplay.LEFT, onCancel = {}, onSave = { _, _, _, _, _, _ -> })
+                    percentDisplay = PercentDisplay.LEFT, onCancel = {}, onSave = { _, _, _, _, _ -> })
             }
         }
         compose.waitForIdle()
         assertTrue("the widget kind is titled in German", texts("Verbrauchsbalken").isNotEmpty())
         assertEquals(1, texts("Widget speichern").size)
         assertEquals(1, texts("Abbrechen").size)
-        reveal("Prozente anzeigen als")
-        compose.onNodeWithText("App-Einstellung").assertIsSelected()
-        compose.onNodeWithText("Übrig").assertIsNotSelected()
-        compose.onNodeWithText("Verbraucht").assertIsNotSelected()
         reveal("Widget-Inhalt")
+        assertTrue("there is no separate display-mode control", texts("Prozente anzeigen als").isEmpty())
+        assertTrue("there is no app-setting override choice", texts("App-Einstellung").isEmpty())
         assertEquals(1, texts("Widget-Inhalt").size)
         reveal("Ein Anbieter")
         assertEquals(1, texts("Ein Anbieter").size)

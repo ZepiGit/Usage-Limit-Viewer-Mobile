@@ -108,7 +108,7 @@ class WidgetConfigActivity : ComponentActivity() {
                     catch (_: Exception) { error = getString(R.string.widget_config_load_failed) }
                 }
                 if (loaded) WidgetConfigScreen(accounts, initial, kind, saving, error, settings.percentDisplay,
-                    onCancel = { finish() }, onSave = { scope, accountId, providerId, style, custom, percentOverride ->
+                    onCancel = { finish() }, onSave = { scope, accountId, providerId, style, custom ->
                         if (!saving) {
                             saving = true
                             lifecycleScope.launch {
@@ -122,7 +122,6 @@ class WidgetConfigActivity : ComponentActivity() {
                                         backgroundArgb = style.background.argb,
                                         backgroundOpacity = style.background.clampedOpacity,
                                         textTone = style.textTone.name,
-                                        percentDisplay = percentOverride,
                                         customAccountIdsJson = JSONArray(custom).toString(),
                                         layoutMetricsJson = (WidgetMetrics.fromJson(initial?.layoutMetricsJson ?: "{}") ?: placementMetrics).toJson()))
                                     container.publication.presentationChanged()
@@ -142,10 +141,10 @@ class WidgetConfigActivity : ComponentActivity() {
 @Composable
 internal fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetConfigEntity?, kind: String,
     saving: Boolean, error: String?,
-    // The app's mode; the preview resolves this widget's own choice over it, and required so it cannot drift to LEFT.
+    // Required so the preview follows the app's mode rather than defaulting to LEFT.
     percentDisplay: PercentDisplay,
     onCancel: () -> Unit,
-    onSave: (WidgetScope, String?, String?, WidgetStyle, List<String>, String?) -> Unit) {
+    onSave: (WidgetScope, String?, String?, WidgetStyle, List<String>) -> Unit) {
     var scopeName by rememberSaveable { mutableStateOf(WidgetScope.fromName(initial?.scope).name) }
     var accountId by rememberSaveable { mutableStateOf(initial?.accountId) }
     var providerId by rememberSaveable { mutableStateOf(initial?.provider) }
@@ -156,7 +155,6 @@ internal fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetCon
     var opacity by rememberSaveable { mutableStateOf(savedStyle.background.clampedOpacity) }
     var textToneName by rememberSaveable { mutableStateOf(savedStyle.textTone.name) }
     val style = WidgetStyle(WidgetBackground(backgroundArgb, opacity), WidgetTextTone.fromName(textToneName))
-    var modeOverrideName by rememberSaveable { mutableStateOf(initial?.percentDisplay?.let { PercentDisplay.fromNameOrNull(it)?.name }) }
     val savedIds = remember(initial) { runCatching {
         val a = JSONArray(initial?.customAccountIdsJson ?: "[]"); (0 until a.length()).map { a.getString(it) }
     }.getOrDefault(emptyList()) }
@@ -193,13 +191,13 @@ internal fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetCon
     Scaffold(containerColor = UsageColors.Ground, bottomBar = {
         Row(Modifier.fillMaxWidth().background(UsageColors.Surface).navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             TextAction(stringResource(R.string.action_cancel), onCancel, color = UsageColors.Muted, enabled = !saving)
-            InkButton(stringResource(if (saving) R.string.widget_config_saving else R.string.widget_config_save), { onSave(scope, accountId, providerId, style, currentOrder.filter { it in selected }, modeOverrideName) },
+            InkButton(stringResource(if (saving) R.string.widget_config_saving else R.string.widget_config_save), { onSave(scope, accountId, providerId, style, currentOrder.filter { it in selected }) },
                 Modifier.weight(1f), enabled = valid && !saving)
         }
     }) { inset ->
         LazyColumn(Modifier.fillMaxSize().padding(inset), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { ScreenTitle(stringResource(widgetKindTitleRes(kind))) }
-            item { ContentPreview(preview, kind, style, percentDisplay.resolved(PercentDisplay.fromNameOrNull(modeOverrideName))) }
+            item { ContentPreview(preview, kind, style, percentDisplay) }
             item {
                 BackgroundSettings(
                     style = style,
@@ -208,7 +206,6 @@ internal fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetCon
                     onTextTone = { textToneName = it.name },
                 )
             }
-            item { PercentDisplaySettings(modeOverrideName) { modeOverrideName = it } }
             item { SectionHeader(stringResource(R.string.widget_config_section_content)) }
             // Restored as a real choice: it was removed from this screen once and the saved
             // value kept working, so a widget could silently watch "most critical" with no way
@@ -390,29 +387,6 @@ private fun BackgroundSettings(
             ).forEach { (tone, label) ->
                 Segment(label, style.textTone == tone) { onTextTone(tone) }
             }
-        }
-    }
-}
-
-/**
- * Whether this widget counts what is left or what is used, or simply follows the app.
- *
- * "App setting" is its own segment rather than the absence of a choice, so a widget that never
- * picked one keeps tracking the app's mode instead of being pinned to today's value.
- */
-@Composable
-private fun PercentDisplaySettings(overrideName: String?, onSelect: (String?) -> Unit) {
-    UsageCard {
-        Text(stringResource(R.string.widget_config_percent_title), style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
-        Text(stringResource(R.string.widget_config_percent_subtitle), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
-        Spacer(Modifier.height(6.dp))
-        SegmentedRow {
-            listOf<Pair<String?, String>>(
-                null to stringResource(R.string.widget_config_percent_app),
-                PercentDisplay.LEFT.name to stringResource(percentSideCaptionRes(PercentDisplay.LEFT)),
-                PercentDisplay.USED.name to stringResource(percentSideCaptionRes(PercentDisplay.USED)),
-            )
-                .forEach { (name, label) -> Segment(label, overrideName == name) { onSelect(name) } }
         }
     }
 }

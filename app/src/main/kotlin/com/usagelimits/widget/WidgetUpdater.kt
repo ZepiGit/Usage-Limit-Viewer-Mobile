@@ -114,9 +114,8 @@ object WidgetUpdater {
         val style: WidgetStyle = WidgetStyle(),
         val metrics: WidgetMetrics = WidgetMetrics(),
         /**
-         * Every figure follows this mode: the widget's own choice if it has one, else the app's.
-         * Resolved once here so no widget reads the setting itself; observed with the settings, so a
-         * toggle repaints at once.
+         * Every figure follows the app's display mode. Observed here with the settings so a
+         * change repaints every widget without each surface reading the setting itself.
          */
         val percentDisplay: PercentDisplay,
     ) {
@@ -167,7 +166,7 @@ object WidgetUpdater {
                         config?.transparent ?: false, config?.textTone,
                     ),
                     WidgetMetrics.fromJson(config?.layoutMetricsJson ?: "{}") ?: WidgetMetrics(),
-                    settings.percentDisplay.resolved(PercentDisplay.fromNameOrNull(config?.percentDisplay)),
+                    settings.percentDisplay,
                 )
             })
         }
