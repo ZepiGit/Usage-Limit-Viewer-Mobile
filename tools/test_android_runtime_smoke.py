@@ -1,4 +1,4 @@
-"""Runtime smoke pixel and observed picker geometry checks: python3 -m unittest discover -s tools"""
+"""Runtime smoke pixel, picker geometry and setting state checks: python3 -m unittest discover -s tools"""
 
 import json
 from pathlib import Path
@@ -97,6 +97,41 @@ class CaptureTest(unittest.TestCase):
                 with self.assertRaisesRegex(AssertionError, "Not a PNG"):
                     smoke.capture("raw")
             self.assertEqual(malformed, (Path(directory) / "raw.png").read_bytes())
+
+
+class SettingTest(unittest.TestCase):
+    def setting_tree(self, checked):
+        return ET.fromstring(f"""<hierarchy>
+          <node package="com.usagelimits" text="Show subscription tier" enabled="true"
+                checkable="false" checked="false" clickable="false" bounds="[56,551][540,635]"/>
+          <node package="com.usagelimits" enabled="true" checkable="true" checked="{checked}"
+                clickable="true" bounds="[573,551][664,635]">
+            <node package="com.usagelimits" content-desc="Show subscription tier" enabled="true"
+                  checkable="false" checked="false" clickable="false" bounds="[573,565][664,621]"/>
+          </node>
+        </hierarchy>""")
+
+    def test_setting_returns_the_checkable_parent_without_scrolling_past_it(self):
+        for checked in ("true", "false"):
+            with self.subTest(checked=checked), TemporaryDirectory() as directory:
+                smoke = Smoke(Path(directory), "test-device")
+                with patch.object(smoke, "dump", return_value=self.setting_tree(checked)), \
+                        patch.object(smoke, "scroll", side_effect=AssertionError("Visible setting scrolled past")):
+                    target = smoke.setting("persisted")
+                self.assertEqual((573, 551, 664, 635), bounds(target))
+                self.assertEqual("true", target.get("checkable"))
+                self.assertEqual(checked, target.get("checked"))
+
+    def test_setting_is_disabled_waits_for_the_parent_not_the_unchecked_label_child(self):
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "dump", side_effect=[self.setting_tree("true"),
+                    self.setting_tree("true"), self.setting_tree("false")]) as dump, \
+                    patch.object(smoke, "scroll", side_effect=AssertionError("Visible setting scrolled past")), \
+                    patch("android_runtime_smoke.time.sleep"):
+                smoke.setting_is_disabled("persisted")
+            self.assertEqual([("persisted-0",), ("persisted-loaded",), ("persisted-loaded",)],
+                             [call.args for call in dump.call_args_list])
 
 
 class PickerGeometryTest(unittest.TestCase):

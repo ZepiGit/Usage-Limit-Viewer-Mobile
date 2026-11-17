@@ -1186,9 +1186,8 @@ class Smoke:
     def setting(self, name):
         for attempt in range(9):
             root = self.dump(f"{name}-{attempt}")
-            target = next((node for node in matches(root, SETTING)
-                           if node.get("checkable") == "true" and bounds(node)), None)
-            if target is not None:
+            target = self.control(root, PACKAGE, label=SETTING)
+            if target is not None and target.get("checkable") == "true":
                 return target
             self.scroll(root, up=True)
         raise AssertionError(f"Could not reach {SETTING}")
@@ -1206,8 +1205,9 @@ class Smoke:
 
     def setting_is_disabled(self, name):
         self.setting(name)
-        self.wait_for(name + "-loaded", lambda root: any(node.get("checked") == "false"
-            for node in matches(root, SETTING) if node.get("checkable") == "true"))
+        self.wait_for(name + "-loaded", lambda root:
+            (target := self.control(root, PACKAGE, label=SETTING)) is not None
+            and target.get("checkable") == "true" and target.get("checked") == "false")
 
     def installed(self, name):
         package = self.adb("shell", "dumpsys", "package", PACKAGE)
@@ -1299,7 +1299,9 @@ def main():
         setting = smoke.setting("previous-setting")
         assert setting.get("checked") == "true", "Fresh baseline setting did not have its documented default"
         smoke.tap(setting)
-        smoke.wait_for("previous-setting-changed", lambda root: any(node.get("checked") == "false" for node in matches(root, SETTING) if node.get("checkable") == "true"))
+        smoke.wait_for("previous-setting-changed", lambda root:
+            (target := smoke.control(root, PACKAGE, label=SETTING)) is not None
+            and target.get("checkable") == "true" and target.get("checked") == "false")
         smoke.capture("previous-setting-changed")
         smoke.adb("shell", "am", "force-stop", PACKAGE)
         smoke.launch("previous-relaunch")
