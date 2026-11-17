@@ -160,7 +160,7 @@ jobs:
             --json tagName -q '.[].tagName' | grep -vxF "v$RELEASE_VERSION" | head -n 1)
           gh release download "$baseline_tag" --repo "$GITHUB_REPOSITORY" \
             --pattern 'UsageLimits-*.apk' --dir runtime/previous
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
       - name: Record release APK identity and signatures

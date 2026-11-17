@@ -259,7 +259,7 @@ jobs:
 
       # setup-android adds SDK command-line tools (including sdkmanager) to PATH.
       - name: Set up Android SDK tools
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
 
