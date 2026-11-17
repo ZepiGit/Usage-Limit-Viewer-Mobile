@@ -132,8 +132,33 @@ class PickerGeometryTest(unittest.TestCase):
         self.assertEqual((30, 450, 690, 1300), runtime_smoke.picker_geometry(
             root, self.launcher, (30, 450, 690, 1300))[1])
 
+    def test_nested_non_scrollable_list_id_preserves_viewport_and_control_scrolling(self):
+        root = self.picker(f"""
+          <node package="{self.launcher}" text="Usage Limits" enabled="true"
+                clickable="true" bounds="[18,1242][702,1300]"/>
+          <node package="{self.launcher}" resource-id="{self.namespace}personal_widgets_list"
+                enabled="true" scrollable="false" bounds="[18,1345][702,1476]"/>
+        """)
+        picker, visible = runtime_smoke.picker_geometry(root, self.launcher, self.home)
+        self.assertIs(root[0][0][0], picker)
+        self.assertEqual((18, 403, 702, 1350), visible)
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            smoke.launcher = self.launcher
+            smoke.launcher_content_viewport = self.home
+            with patch.object(smoke, "widget_capture", side_effect=[self.picker(), self.picker(), root]), \
+                    patch.object(smoke, "adb") as adb, patch("android_runtime_smoke.time.sleep"):
+                found = smoke.widget_control("browse", self.launcher, label="Usage Limits", scroll=True)
+            self.assertEqual([
+                ("shell", "input", "swipe", "360", "1113", "360", "639", "400"),
+                ("shell", "input", "swipe", "360", "1113", "360", "639", "400"),
+            ], [call.args for call in adb.call_args_list])
+            self.assertEqual((18, 1242, 702, 1300), bounds(found))
+            self.assertEqual([18, 403, 702, 1350], json.loads(
+                (Path(directory) / "browse-2-tap.json").read_text())["visiblePicker"])
+
     def test_unready_browse_waits_and_duplicate_lists_fail_closed(self):
-        for change in ("missing", "disabled", "foreign", "unbounded", "featured"):
+        for change in ("missing", "disabled", "foreign", "unbounded", "non-scrollable", "featured"):
             with self.subTest(change=change):
                 root = self.picker()
                 catalog = root[0]
@@ -146,6 +171,8 @@ class PickerGeometryTest(unittest.TestCase):
                     picker.set("package", "com.example.other")
                 elif change == "unbounded":
                     picker.set("bounds", "[18,403][18,403]")
+                elif change == "non-scrollable":
+                    picker.set("scrollable", "false")
                 else:
                     catalog.find(f".//node[@resource-id='{self.namespace}personal_widgets_tab']").set("checked", "false")
                 self.assertIsNone(runtime_smoke.picker_geometry(root, self.launcher, self.home))

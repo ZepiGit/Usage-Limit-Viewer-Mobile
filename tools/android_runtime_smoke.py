@@ -46,8 +46,9 @@ def picker_geometry(root, launcher, home):
     """The API 37 Browse list and its unobscured viewport, or None during picker transitions."""
     namespace = launcher + ".widgetpicker:id/"
 
-    def unique(scope, name):
-        found = [node for node in scope.iter("node") if node.get("resource-id") == namespace + name]
+    def unique(scope, name, scrollable=False):
+        found = [node for node in scope.iter("node") if node.get("resource-id") == namespace + name
+                 and (not scrollable or node.get("scrollable") == "true")]
         assert len(found) <= 1, f"Ambiguous picker {name}"
         return next((node for node in found if node.get("package") == launcher
                      and node.get("enabled") == "true" and bounds(node)), None)
@@ -55,10 +56,10 @@ def picker_geometry(root, launcher, home):
     catalog = unique(root, "widgets_catalog")
     if catalog is None:
         return None
-    picker = unique(catalog, "personal_widgets_list")
+    picker = unique(catalog, "personal_widgets_list", scrollable=True)
     featured = unique(catalog, "featured_widgets_tab")
     browse = unique(catalog, "personal_widgets_tab")
-    if picker is None or picker.get("scrollable") != "true" or featured is None or browse is None:
+    if picker is None or featured is None or browse is None:
         return None
     if browse.get("checked") != "true" or featured.get("checked") != "false":
         return None
