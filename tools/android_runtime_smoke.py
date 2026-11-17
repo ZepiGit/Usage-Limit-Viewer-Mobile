@@ -591,6 +591,19 @@ class Smoke:
             x1, y1, x2, y2 = bounds(host)
             x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
             self.adb("shell", "input", "swipe", x, y, x, y, "1000")
+            root = self.widget_capture(name + "-longpress")
+            popups = [node for node in root.iter("node")
+                      if node.get("resource-id") == self.launcher + ":id/system_shortcuts_container"]
+            assert len(popups) <= 1, "Ambiguous launcher widget shortcuts popup"
+            if popups:
+                popup = popups[0]
+                assert popup.get("package") == self.launcher and popup.get("enabled") == "true" and bounds(popup), (
+                    "Launcher widget shortcuts popup is not ready")
+                assert all(self.control(popup, self.launcher, label=label) is not None
+                           for label in ("Remove", "Settings")), "Unrecognized launcher widget shortcuts popup"
+                # Dismiss only the observed top popup; the focused resize frame must still be proved below.
+                self.adb("shell", "input", "keyboard", "keyevent", "KEYCODE_BACK")
+                self.widget_capture(name + "-popup-dismissed")
             self.wait_for(name, lambda root: frame(root) is not None)
             assert frame(self.widget_capture(name)) is not None, "Mini Rings resize frame lost focus"
 
@@ -598,6 +611,7 @@ class Smoke:
             self.assert_no_system_error(root)
             # Wait for the actual unobscured host after the launcher closes its action UI.
             if any(node.get("content-desc") == frame_description
+                   or node.get("resource-id") == self.launcher + ":id/system_shortcuts_container"
                    or (node.get("resource-id") == self.launcher + ":id/bubble_text"
                        and node.get("text") in resize_labels)
                    or (node.get("resource-id") == self.launcher + ":id/label"
