@@ -30,7 +30,7 @@ if (releaseSigningConfigured) {
 
 android {
     namespace = "com.usagelimits"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.usagelimits"
@@ -135,8 +135,8 @@ tasks.withType<Test>().configureEach {
 
 dependencies {
     implementation("sh.calvin.reorderable:reorderable:3.1.0")
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.core)
+    implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
 
@@ -158,7 +158,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     ksp(libs.androidx.room.compiler)
 
-    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
     implementation(libs.androidx.browser)
