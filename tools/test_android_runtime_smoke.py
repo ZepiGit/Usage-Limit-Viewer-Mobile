@@ -1,12 +1,14 @@
-"""The runtime smoke's pixel logic on synthetic frames: python3 -m unittest discover -s tools"""
+"""Runtime smoke pixel and observed picker geometry checks: python3 -m unittest discover -s tools"""
 
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from android_runtime_smoke import Smoke, changed_pixels, judge_press, png_bytes, png_frame, rounded_rect_distance, scaled_crop
+import android_runtime_smoke as runtime_smoke
+from android_runtime_smoke import Smoke, bounds, changed_pixels, judge_press, png_bytes, png_frame, rounded_rect_distance, scaled_crop
 
 # The CI emulator's 280 dpi: 1.75 px per dp, so the 6dp pill radius is 10.5 px.
 RADIUS = 10.5
@@ -95,6 +97,84 @@ class CaptureTest(unittest.TestCase):
                 with self.assertRaisesRegex(AssertionError, "Not a PNG"):
                     smoke.capture("raw")
             self.assertEqual(malformed, (Path(directory) / "raw.png").read_bytes())
+
+
+class PickerGeometryTest(unittest.TestCase):
+    launcher = "com.android.launcher3"
+    namespace = launcher + ".widgetpicker:id/"
+    home = (0, 50, 720, 1510)
+
+    def picker(self, target=""):
+        # The Browse capture's list, tab row and padded floating wrapper, not a legacy launcher list.
+        return ET.fromstring(f"""<hierarchy>
+          <node package="{self.launcher}" resource-id="{self.namespace}widgets_catalog"
+                enabled="true" bounds="[0,0][720,1560]">
+            <node package="{self.launcher}" enabled="true" bounds="[18,144][702,1476]">
+              <node package="{self.launcher}" resource-id="{self.namespace}personal_widgets_list"
+                    enabled="true" scrollable="true" bounds="[18,403][702,1476]">{target}</node>
+              <node package="{self.launcher}" enabled="true" bounds="[169,1350][551,1462]">
+                <node package="{self.launcher}" enabled="true" bounds="[169,1364][551,1448]">
+                  <node package="{self.launcher}" resource-id="{self.namespace}featured_widgets_tab"
+                        enabled="true" checkable="true" checked="false" bounds="[183,1364][341,1448]"/>
+                  <node package="{self.launcher}" resource-id="{self.namespace}personal_widgets_tab"
+                        enabled="true" checkable="true" checked="true" bounds="[341,1364][537,1448]"/>
+                </node>
+              </node>
+            </node>
+          </node>
+        </hierarchy>""")
+
+    def test_browse_viewport_excludes_the_padded_floating_tabs_and_home_edges(self):
+        root = self.picker()
+        picker, visible = runtime_smoke.picker_geometry(root, self.launcher, self.home)
+        self.assertEqual(self.namespace + "personal_widgets_list", picker.get("resource-id"))
+        self.assertEqual((18, 403, 702, 1350), visible)
+        self.assertEqual((30, 450, 690, 1300), runtime_smoke.picker_geometry(
+            root, self.launcher, (30, 450, 690, 1300))[1])
+
+    def test_unready_browse_waits_and_duplicate_lists_fail_closed(self):
+        for change in ("missing", "disabled", "foreign", "unbounded", "featured"):
+            with self.subTest(change=change):
+                root = self.picker()
+                catalog = root[0]
+                picker = catalog.find(f".//node[@resource-id='{self.namespace}personal_widgets_list']")
+                if change == "missing":
+                    catalog[0].remove(picker)
+                elif change == "disabled":
+                    picker.set("enabled", "false")
+                elif change == "foreign":
+                    picker.set("package", "com.example.other")
+                elif change == "unbounded":
+                    picker.set("bounds", "[18,403][18,403]")
+                else:
+                    catalog.find(f".//node[@resource-id='{self.namespace}personal_widgets_tab']").set("checked", "false")
+                self.assertIsNone(runtime_smoke.picker_geometry(root, self.launcher, self.home))
+        root = self.picker()
+        root[0][0].append(ET.fromstring(ET.tostring(root[0][0][0])))
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*personal_widgets_list"):
+            runtime_smoke.picker_geometry(root, self.launcher, self.home)
+
+    def test_widget_control_scrolls_and_clips_only_the_unobscured_browse_content(self):
+        def target(box):
+            return (f'<node package="{self.launcher}" text="Usage Limits" enabled="true" '
+                    f'clickable="true" bounds="{box}"/>')
+
+        for first, start, end in (("", "1113", "639"),
+                                  (target("[18,1356][702,1440]"), "1113", "639"),
+                                  (target("[18,300][702,400]"), "639", "1113")):
+            with self.subTest(first=first), TemporaryDirectory() as directory:
+                smoke = Smoke(Path(directory), "test-device")
+                smoke.launcher = self.launcher
+                smoke.launcher_content_viewport = self.home
+                final = self.picker(target("[18,1320][702,1440]"))
+                with patch.object(smoke, "widget_capture", side_effect=[self.picker(first), final]), \
+                        patch.object(smoke, "adb") as adb, patch("android_runtime_smoke.time.sleep"):
+                    found = smoke.widget_control("browse", self.launcher, label="Usage Limits", scroll=True)
+                adb.assert_called_once_with("shell", "input", "swipe", "360", start, "360", end, "400")
+                self.assertEqual((18, 1320, 702, 1350), bounds(found))
+                self.assertEqual((18, 1320, 702, 1440), bounds(Smoke.control(final, self.launcher, label="Usage Limits")))
+                self.assertEqual([18, 403, 702, 1350], json.loads(
+                    (Path(directory) / "browse-1-tap.json").read_text())["visiblePicker"])
 
 
 class PngTest(unittest.TestCase):

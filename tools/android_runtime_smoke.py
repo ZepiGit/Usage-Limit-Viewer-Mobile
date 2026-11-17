@@ -42,6 +42,48 @@ def bounds(node):
     return tuple(values)
 
 
+def picker_geometry(root, launcher, home):
+    """The API 37 Browse list and its unobscured viewport, or None during picker transitions."""
+    namespace = launcher + ".widgetpicker:id/"
+
+    def unique(scope, name):
+        found = [node for node in scope.iter("node") if node.get("resource-id") == namespace + name]
+        assert len(found) <= 1, f"Ambiguous picker {name}"
+        return next((node for node in found if node.get("package") == launcher
+                     and node.get("enabled") == "true" and bounds(node)), None)
+
+    catalog = unique(root, "widgets_catalog")
+    if catalog is None:
+        return None
+    picker = unique(catalog, "personal_widgets_list")
+    featured = unique(catalog, "featured_widgets_tab")
+    browse = unique(catalog, "personal_widgets_tab")
+    if picker is None or picker.get("scrollable") != "true" or featured is None or browse is None:
+        return None
+    if browse.get("checked") != "true" or featured.get("checked") != "false":
+        return None
+    parents = {child: parent for parent in catalog.iter() for child in parent}
+    row = parents.get(featured)
+    assert row is not None and row is parents.get(browse), "Cannot identify the observed floating picker tab row"
+    overlay = parents.get(row)
+    assert overlay is not None and overlay is not catalog and all(
+        node.get("package") == launcher and node.get("enabled") == "true" and bounds(node)
+        for node in (row, overlay)
+    ), "Cannot identify the observed floating picker tab wrapper"
+    box, overlay_box = bounds(picker), bounds(overlay)
+    assert all(overlay_box[0] <= tab[0] < tab[2] <= overlay_box[2]
+               and overlay_box[1] <= tab[1] < tab[3] <= overlay_box[3]
+               for tab in (bounds(featured), bounds(browse))), "Floating picker wrapper does not contain its tabs"
+    assert box[0] <= overlay_box[0] < overlay_box[2] <= box[2] and (
+        box[1] < overlay_box[1] < overlay_box[3] <= box[3]
+    ), "Floating picker wrapper is outside the Browse list"
+    # The observed wrapper includes background padding above the tabs; exclude it across the full list width.
+    visible = (max(home[0], box[0]), max(home[1], box[1]),
+               min(home[2], box[2]), min(home[3], box[3], overlay_box[1]))
+    assert visible[2] > visible[0] and visible[3] > visible[1], "No observed picker content viewport"
+    return picker, visible
+
+
 def png_frame(data, last_row):
     """Rows 0..last_row of an 8-bit, non-interlaced RGB(A) PNG, the format `screencap -p` writes."""
     assert data[:8] == b"\x89PNG\r\n\x1a\n", "Not a PNG"
@@ -317,43 +359,39 @@ class Smoke:
             else:
                 target = self.control(root, package, label, resource_id)
             scroll_down = False
-            if target is not None and scroll and package == self.launcher:
-                picker = next((node for node in root.iter("node")
-                               if node.get("resource-id") == self.launcher + ":id/primary_widgets_list_view"
-                               and node.get("scrollable") == "true" and bounds(node)), None)
-                if picker is not None:
-                    search = [node for node in root.iter("node")
-                              if node.get("resource-id") == self.launcher + ":id/search_bar_container" and bounds(node)]
-                    assert len(search) == 1, "Cannot identify the observed picker search overlay"
-                    home = self.launcher_content_viewport
-                    box = bounds(picker)
-                    visible = (max(home[0], box[0]), max(home[1], box[1], bounds(search[0])[3]),
-                               min(home[2], box[2]), min(home[3], box[3]))
-                    assert visible[2] > visible[0] and visible[3] > visible[1], "No observed picker content viewport"
-                    original = bounds(target)
-                    clipped = (max(original[0], visible[0]), max(original[1], visible[1]),
-                               min(original[2], visible[2]), min(original[3], visible[3]))
-                    # Accessibility bounds may include pixels behind search/navigation.
-                    # Tap the visible intersection, including controls at the list end.
-                    if clipped[2] > clipped[0] and clipped[3] > clipped[1]:
-                        target = copy.deepcopy(target)
-                        target.set("bounds", f"[{clipped[0]},{clipped[1]}][{clipped[2]},{clipped[3]}]")
-                        self.text(f"{name}-{attempt}-tap.json", json.dumps({
-                            "target": label or resource_id, "original": original,
-                            "visiblePicker": visible, "tapBounds": clipped}))
-                    else:
-                        scroll_down = original[3] <= visible[1]
-                        target = None
+            visible = None
+            if scroll and package == self.launcher:
+                geometry = picker_geometry(root, self.launcher, self.launcher_content_viewport)
+                if geometry is None:
+                    target = None
+                else:
+                    _, visible = geometry
+                    if target is not None:
+                        original = bounds(target)
+                        clipped = (max(original[0], visible[0]), max(original[1], visible[1]),
+                                   min(original[2], visible[2]), min(original[3], visible[3]))
+                        # Accessibility bounds may include pixels behind the floating tabs or navigation.
+                        if clipped[2] > clipped[0] and clipped[3] > clipped[1]:
+                            target = copy.deepcopy(target)
+                            target.set("bounds", f"[{clipped[0]},{clipped[1]}][{clipped[2]},{clipped[3]}]")
+                            self.text(f"{name}-{attempt}-tap.json", json.dumps({
+                                "target": label or resource_id, "original": original,
+                                "visiblePicker": visible, "tapBounds": clipped}))
+                        else:
+                            scroll_down = original[3] <= visible[1]
+                            target = None
             if target is not None:
                 return target
             if scroll:
-                scrollables = [node for node in root.iter("node") if node.get("package") == package
-                               and node.get("scrollable") == "true" and bounds(node)
-                               and (node.get("resource-id") == self.launcher + ":id/primary_widgets_list_view"
-                                    if package == self.launcher else bool(matches(root, "Save widget")))]
-                if scrollables:
-                    x1, y1, x2, y2 = max((bounds(node) for node in scrollables),
-                                          key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
+                if package != self.launcher:
+                    scrollables = [node for node in root.iter("node") if node.get("package") == package
+                                   and node.get("scrollable") == "true" and bounds(node)
+                                   and bool(matches(root, "Save widget"))]
+                    if scrollables:
+                        visible = max((bounds(node) for node in scrollables),
+                                      key=lambda box: (box[2] - box[0]) * (box[3] - box[1]))
+                if visible is not None:
+                    x1, y1, x2, y2 = visible
                     x = str((x1 + x2) // 2)
                     start, end = y1 + (y2 - y1) * 3 // 4, y1 + (y2 - y1) // 4
                     if scroll_down:
@@ -477,8 +515,7 @@ class Smoke:
             name = f"previous-widget-{index}"
             self.open_widget_picker(name)
             self.tap(self.widget_control(name + "-preview", self.launcher, label=label, scroll=True))
-            self.tap(self.widget_control(name + "-add", self.launcher,
-                                         resource_id=self.launcher + ":id/widget_add_button", scroll=True))
+            self.tap(self.widget_control(name + "-add", self.launcher, label=f"Add {label} widget", scroll=True))
             self.widget_configuration(name + "-config", label, color, save=True)
             self.find_placed_widget(name + "-placed", label)
             bindings = self.widget_bindings(name)
