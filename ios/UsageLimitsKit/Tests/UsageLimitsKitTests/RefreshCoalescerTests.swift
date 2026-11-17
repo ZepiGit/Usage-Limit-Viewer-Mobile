@@ -45,32 +45,52 @@ final class RefreshCoalescerTests: XCTestCase {
         "secondary_window": null } }
     """
 
-    /// Holds the first usage request for the token "held" until `release()`, and answers every
-    /// other request at once. The token decides the body, so each account reads its own figures.
+    /// Holds every usage request for the token "held" until the test lets it through, and
+    /// answers every other request at once (the reset-credit lookup that follows a usage read is
+    /// not held). One usage request is made per pass, so the n-th
+    /// arrival is the n-th pass reaching the provider, and releasing it one at a time is what
+    /// steps the passes. The token decides the body, so each account reads its own figures.
     private actor Gate {
-        private var arrived = false
-        private var arrivalWaiters: [CheckedContinuation<Void, Never>] = []
-        private var released = false
-        private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+        private var arrivals = 0
+        private var arrivalWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        private var released: Set<Int> = []
+        private var releasedAll = false
+        private var held: [Int: CheckedContinuation<Void, Never>] = [:]
 
         func hold() async {
-            arrived = true
-            arrivalWaiters.forEach { $0.resume() }
-            arrivalWaiters = []
-            guard !released else { return }
-            await withCheckedContinuation { releaseWaiters.append($0) }
+            arrivals += 1
+            let arrival = arrivals
+            let ready = arrivalWaiters.filter { $0.count <= arrival }
+            arrivalWaiters.removeAll { $0.count <= arrival }
+            ready.forEach { $0.continuation.resume() }
+            guard !releasedAll, !released.contains(arrival) else { return }
+            await withCheckedContinuation { held[arrival] = $0 }
         }
 
-        func waitForArrival() async {
-            guard !arrived else { return }
-            await withCheckedContinuation { arrivalWaiters.append($0) }
+        /// Returns once `count` requests have reached the gate.
+        func waitForArrival(_ count: Int = 1) async {
+            guard arrivals < count else { return }
+            await withCheckedContinuation { arrivalWaiters.append((count, $0)) }
         }
 
+        /// Lets the `arrival`-th request through, now or when it comes.
+        func release(_ arrival: Int) {
+            released.insert(arrival)
+            held.removeValue(forKey: arrival)?.resume()
+        }
+
+        /// Lets every request through, held or still to come.
         func release() {
-            released = true
-            releaseWaiters.forEach { $0.resume() }
-            releaseWaiters = []
+            releasedAll = true
+            held.values.forEach { $0.resume() }
+            held = [:]
         }
+    }
+
+    /// Set once a caller's wait is over, so a test can see that it has NOT ended yet.
+    private actor Flag {
+        private(set) var isSet = false
+        func set() { isSet = true }
     }
 
     private struct GatedTransport: HTTPTransport {
@@ -78,7 +98,7 @@ final class RefreshCoalescerTests: XCTestCase {
         func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
             let auth = request.value(forHTTPHeaderField: "Authorization") ?? ""
             let body: String
-            if request.value(forHTTPHeaderField: "OpenAI-Beta") != nil {
+            if request.url?.lastPathComponent != "usage" {
                 body = #"{"credits": []}"#
             } else if auth.contains("held") {
                 await gate.hold()
@@ -143,8 +163,14 @@ final class RefreshCoalescerTests: XCTestCase {
         try await container.add(account("new"))
         let requested = await coalescer.request()
 
+        // The sign-in's wait must not end while the pass that predates it is still running.
+        let endedEarly = expectation(description: "the sign-in's wait ended before any pass ran")
+        endedEarly.isInverted = true
+        let earlyWatch = Task { await requested.value; endedEarly.fulfill() }
+        await fulfillment(of: [endedEarly], timeout: 0.3)
+
+        // What the sign-in sees the moment its own wait ends, not after the whole run.
         await gate.release()
-        await running.value
         await requested.value
 
         let usage = await container.usage()
@@ -157,6 +183,59 @@ final class RefreshCoalescerTests: XCTestCase {
             "the widget data carries the new account's reading")
         let claimed = await announcements.events.filter { $0.accountId == "new" }
         XCTAssertFalse(claimed.isEmpty, "the new account's alert was claimed")
+
+        await earlyWatch.value
+        await running.value
+    }
+
+    func testACallerIsReleasedByItsOwnPassNotByLaterOnes() async throws {
+        // A sign-in that finishes during one refresh waits for the follow-up, and only for it: a
+        // widget link tapped while that follow-up runs needs a third pass, and the sign-in sheet
+        // must not stay open for it.
+        let (container, coalescer, gate, announcements) = world()
+        try await container.add(account("old"))
+
+        let running = await coalescer.request()
+        await gate.waitForArrival(1)
+        try await container.add(account("new"))
+        let signIn = await coalescer.request()
+
+        await gate.release(1)
+        await gate.waitForArrival(2)
+        let link = await coalescer.request()
+        let linkDone = Flag()
+        let linkWaiter = Task { await link.value; await linkDone.set() }
+        await gate.release(2)
+
+        // The third pass is now held at the provider. The sign-in's own pass is not.
+        let signInDone = expectation(description: "the sign-in's wait ends after its own pass")
+        let directory = directory!
+        let signInWaiter = Task {
+            await signIn.value
+            let usage = await container.usage()
+            XCTAssertEqual(
+                usage.first { $0.account.id == "new" }?.snapshot?.windows.first?.usedPercent, 95,
+                "the new account has a reading when the sign-in's wait ends")
+            XCTAssertEqual(
+                GlanceSnapshotCodec.read(fromDirectory: directory)
+                    .accounts.first { $0.id == "new" }?.rows.first?.remainingPercent, 5,
+                "and the widget data carries it")
+            let claimed = await announcements.events.filter { $0.accountId == "new" }
+            XCTAssertFalse(claimed.isEmpty, "and its alert was claimed")
+            signInDone.fulfill()
+        }
+        await fulfillment(of: [signInDone], timeout: 5)
+
+        await gate.waitForArrival(3)
+        let isLinkDone = await linkDone.isSet
+        XCTAssertFalse(isLinkDone, "the link asked during pass 2 waits for pass 3")
+
+        await gate.release()
+        await signInWaiter.value
+        await linkWaiter.value
+        await running.value
+        let passes = await announcements.passes
+        XCTAssertEqual(passes, 3)
     }
 
     func testRequestsDuringOnePassShareASingleFollowUp() async throws {
@@ -170,8 +249,8 @@ final class RefreshCoalescerTests: XCTestCase {
             await coalescer.request(), await coalescer.request(), await coalescer.request()]
 
         await gate.release()
-        await running.value
         for request in waiting { await request.value }
+        await running.value
 
         let passes = await announcements.passes
         XCTAssertEqual(passes, 2, "the running pass, then one follow-up for all three requests")
@@ -190,8 +269,8 @@ final class RefreshCoalescerTests: XCTestCase {
         let requested = await coalescer.request()
 
         await gate.release()
-        await running.value
         await requested.value
+        await running.value
 
         let events = await announcements.events
         XCTAssertEqual(
