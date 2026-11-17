@@ -108,6 +108,12 @@ This view is not `StatusBarIconView` and has no `mIconScale`.
 - android16 `notification_template_header.xml:44-55`: `NotificationRowIconView`, 24 dp (`notification_icon_circle_size`, framework dimens `:382`), padding 4 dp (`:389`), oval background `notification_icon_circle.xml`. **No `android:scaleType`.** Default is `FIT_CENTER` (`ImageView` field initializer; `configureBounds` `:1356-1361`). Content box is 16×16 dp. `FIT_CENTER` **can upscale** a bitmap smaller than that box. A 2:1 whose long side is at least 16 dp draws at **16 × 8 dp**. `CENTER_INSIDE` is what forbids upscale; this layout does not set it. `clipToOutline` is on `left_icon` (`:30-42`, `centerCrop`), not on this small-icon view. `LocalImageResolver` (`:213-237`) downscales only, to `maxDrawableWidth/Height` = 24 dp.
 - android11 `notification_template_header.xml:33-39`: `CachingIconView`, no padding, no scale type, no circle drawable. Size is `?attr/notificationHeaderIconSize` = `notification_header_icon_size` = **18 dp** (`themes_material.xml:1345`, framework dimens `:265`). Default `FIT_CENTER` into 18×18 dp, and it **can upscale**. A 2:1 whose long side is at least 18 dp draws at **18 × 9 dp**. `reduceImageSizes` does not cap this small icon.
 
+## Observed emulator pixels
+
+[Run43989808585](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/43989808585) passed API30/API36 at720×1560/280dpi. Codex42 visible-alpha bounds (threshold30 on black) are API36 B23×26px, Gsquare24×19, Gwide24×10, GthreeTwo24×14, Gcondensed23×21; API30 matches within1px. This is painted coverage, not nominal envelope: transparent source padding reduces the26px≈15dp box. Wide masks shrink with the entire layout visible; no wider slot or cropping is observed. The API36 circle shade preserves the wide glyph+digits inside its background.
+
+Original inline measurements used an incorrect clock/bar ROI and are diagnostic; corrected `wide-icon-measured-visible-bounds.json` plus `*-measured-icon-x4.png` are derived from the retained actual probe screenshots by `tools/prototype_statusbar_wide_measure.py`. Pixel extraction uses delivered bar coordinates, not assumed15dp bounds. Real combined comparison: `docs/images/statusbar-prototype/api36-G-versus-B-measured-x4.png`.
+
 ## Contact sheet
 
 Density 1, font scale 1, `mIconAppearAmount` = 1. Status-bar notification icon, `CENTER_INSIDE` into the 22 px slot, then × `15/22` (× `18/22` on AOD / increased):

@@ -137,7 +137,7 @@ if os.environ.get("PROTOTYPE_MODE") == "wide":
                 save(f"api{api}-wide-{variant}-probe-notification.txt", adb("shell", "dumpsys", "notification", "--noredact"))
             # Ignore the clock and right-hand system cluster. Require a dark->light
             # transition, so old system icons moved by slot insertion are not counted.
-            bounds = (100, 0, 400, 55)
+            bounds = (132, 0, 170, 50) if api == 30 else (145, 55, 181, 93)
             points = []
             for y in range(bounds[1], bounds[3]):
                 for x in range(bounds[0], bounds[2]):
@@ -150,7 +150,7 @@ if os.environ.get("PROTOTYPE_MODE") == "wide":
             if points:
                 left = min(x for x, y in points)
                 bbox = [left, min(y for x, y in points), max(x for x, y in points) + 1, max(y for x, y in points) + 1]
-                crop = after.crop((max(0, left - 5), 0, bbox[2] + 5, 55))
+                crop = after.crop((max(0, left - 5), bounds[1], bbox[2] + 5, bounds[3]))
                 crop.save(out / f"api{api}-wide-{variant}-{provider}-icon-crop.png")
                 crop.resize((crop.width * 4, crop.height * 4), Image.Resampling.NEAREST).save(out / f"api{api}-wide-{variant}-{provider}-icon-crop-x4.png")
             measurement_rows.append({"api": api, "variant": variant, "provider": provider, "state": ("5", "42", "87")[index], "alpha_bbox": bbox, "width": bbox[2]-bbox[0] if bbox else None, "height": bbox[3]-bbox[1] if bbox else None, "note": "Observed >20-level alpha difference against transparent same-ID slot baseline, excluding clock/right-system cluster; null means overlay unavailable"})
