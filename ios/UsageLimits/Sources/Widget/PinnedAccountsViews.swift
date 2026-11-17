@@ -172,8 +172,12 @@ struct PinnedAccountsRectangularView: View {
 }
 
 /// The locked, unreadable and empty states of the rectangular family: two short lines at most,
-/// scaled down rather than clipped at large type sizes.
+/// scaled down rather than clipped. At accessibility type sizes the detail line goes and the title
+/// alone stays, wrapped, because one word at that size is all the family holds; VoiceOver still
+/// reads both.
 private struct PinnedAccountsNotice: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     let symbol: String
     let title: String?
     let detail: String
@@ -187,18 +191,23 @@ private struct PinnedAccountsNotice: View {
                 if let title {
                     Text(verbatim: title)
                         .font(.headline)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                        .lineLimit(largeType ? 2 : 1)
+                        .minimumScaleFactor(0.6)
                 }
-                Text(verbatim: detail)
-                    .font(title == nil ? .caption : .caption2)
-                    .lineLimit(title == nil ? 3 : 2)
-                    .minimumScaleFactor(0.75)
+                if title == nil || !largeType {
+                    Text(verbatim: detail)
+                        .font(title == nil ? .caption : .caption2)
+                        .lineLimit(title == nil ? 3 : 2)
+                        .minimumScaleFactor(0.6)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title.map { "\($0), \(detail)" } ?? detail)
     }
+
+    private var largeType: Bool { typeSize >= .accessibility1 }
 }
 
 /// The first pinned account: its glyph and content, as one cell of the rectangular family.
@@ -246,6 +255,7 @@ struct PinnedAccountsInlineView: View {
         } else {
             row
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .accessibilityLabel(PinnedAccountText.spokenList(capture.accounts, texts: LocalizedPinnedAccountTexts()))
         }
     }

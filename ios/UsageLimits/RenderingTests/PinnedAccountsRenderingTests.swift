@@ -63,7 +63,9 @@ final class PinnedAccountsRenderingTests: XCTestCase {
             spoken += scenario.capture.accounts.map {
                 "  " + PinnedAccountText.spoken(entry: $0, texts: LocalizedPinnedAccountTexts())
             }
-            if !scenario.capture.accounts.isEmpty {
+            if scenario.capture.accounts.isEmpty {
+                spoken.append("  " + noticeWords(scenario.capture.outcome))
+            } else {
                 spoken.append("  inline: " + PinnedAccountText.spokenList(scenario.capture.accounts,
                     texts: LocalizedPinnedAccountTexts()))
                 spoken.append("  inline text: " + PinnedAccountText.inline(scenario.capture.accounts,
@@ -140,6 +142,20 @@ final class PinnedAccountsRenderingTests: XCTestCase {
         }
     }
 
+    /// The words the notice views show and VoiceOver reads for a state without accounts.
+    private func noticeWords(_ outcome: ConfiguredSelectionOutcome) -> String {
+        switch outcome {
+        case .sourceUnavailable:
+            return String(localized: "Locked") + ", " + String(localized: "Unlock to see your quota")
+                + " | inline: " + String(localized: "Locked")
+        case .corruptSource:
+            return String(localized: "Can't read usage") + ", " + String(localized: "Open UsageLimits to rebuild the data")
+                + " | inline: " + String(localized: "Can't read usage")
+        default:
+            return String(localized: "Pin an account in Settings") + " | inline: " + String(localized: "Pin in Settings")
+        }
+    }
+
     // MARK: - Drawing
 
     private func render(_ view: some View, size: CGSize, typeSize: DynamicTypeSize) throws -> UIImage {
@@ -173,7 +189,7 @@ private struct ContactSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(verbatim: "Pinned accounts widget, language \(language): view renderings at accessory sizes "
                 + "(160×72, 72×72, 234×26 pt), white on black. NOT Lock Screen screenshots: "
-                + "no wallpaper, vibrancy or system inline font.")
+                + "no wallpaper, vibrancy or system inline font (the system sets inline text in its own size).")
                 .font(.system(size: 13, weight: .semibold))
                 .frame(width: 900, alignment: .leading)
             ForEach(rows.indices, id: \.self) { index in
