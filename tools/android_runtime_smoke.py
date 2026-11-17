@@ -399,6 +399,8 @@ class Smoke:
         x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
         self.adb("shell", "input", "swipe", x, y, x, y, "1000")
         self.tap(self.widget_control(name + "-menu", self.launcher, label="Widgets"))
+        # The API 37 picker opens on Featured rather than the app list.
+        self.tap(self.widget_control(name + "-browse", self.launcher, label="Browse widgets"))
         self.tap(self.widget_control(name + "-app", self.launcher, label="Usage Limits", scroll=True))
 
     @staticmethod
