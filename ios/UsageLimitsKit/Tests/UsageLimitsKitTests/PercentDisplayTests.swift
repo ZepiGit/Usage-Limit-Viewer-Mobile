@@ -99,29 +99,6 @@ final class PercentDisplayTests: XCTestCase {
         XCTAssertEqual(.left, missing.percentDisplay)
     }
 
-    func testResolvedOverridePrefersTheWidgetChoiceButFallsBackToTheAppMode() {
-        // The same (app, override, shown) table as Android's DisplayPercentTest.
-        let table: [(PercentDisplay, PercentDisplay?, PercentDisplay)] = [
-            (.left, nil, .left), (.left, .left, .left), (.left, .used, .used),
-            (.used, nil, .used), (.used, .left, .left), (.used, .used, .used),
-        ]
-        for (app, choice, shown) in table {
-            XCTAssertEqual(app.resolved(override: choice), shown, "app \(app), override \(String(describing: choice))")
-        }
-    }
-
-    /// The same vectors as Android's `fromNameOrNull` override read: only a known choice pins.
-    func testWidgetOverrideFollowsTheAppForAppSettingMissingAndUnknownChoices() {
-        XCTAssertEqual(PercentDisplay.widgetOverride(rawChoice: "left"), .left)
-        XCTAssertEqual(PercentDisplay.widgetOverride(rawChoice: "used"), .used)
-        for raw: String? in ["appSetting", nil, "sideways", "", "USED"] {
-            XCTAssertNil(PercentDisplay.widgetOverride(rawChoice: raw), "\(String(describing: raw))")
-            for appMode in [PercentDisplay.left, .used] {
-                XCTAssertEqual(appMode.resolved(override: PercentDisplay.widgetOverride(rawChoice: raw)), appMode)
-            }
-        }
-    }
-
     /// The same vectors as the Android predicate of the same name.
     func testUsedFillOverridesMissingInkOnlyForAPositiveFractionInUsedMode() {
         for fraction in [nil, 0.0, 0.15, 1.0] as [Double?] {
