@@ -11,8 +11,6 @@ import org.junit.Test
 /** Synthetic Meta/Muse responses; no account or credential data is used. */
 class MetaQuotaParserTest {
 
-    private val now = 1_757_400_000_000L
-
     @Test
     fun `rolling and weekly windows report consumed percentages and unix second resets`() {
         val payload = JsonSupport.parseObject(
@@ -36,7 +34,6 @@ class MetaQuotaParserTest {
             )
         val windows = MetaQuotaParser.parse(
             payload,
-            now,
         )
 
         assertEquals("Muse Code Everyday Usage", MetaQuotaParser.parsePlan(payload))
@@ -69,7 +66,6 @@ class MetaQuotaParserTest {
                 } } }
                 """.trimIndent(),
             ),
-            now,
         )
         assertEquals(2, windows.size)
         val window = windows.first()
@@ -92,7 +88,6 @@ class MetaQuotaParserTest {
                 } } }
                 """.trimIndent(),
             ),
-            now,
         )
 
         assertEquals(2, windows.size)
@@ -108,7 +103,6 @@ class MetaQuotaParserTest {
     fun `a valid object without usage yields unknown windows rather than zero`() {
         val windows = MetaQuotaParser.parse(
             JsonSupport.parseObject("{ \"api_key\": \"synthetic\" }"),
-            now,
         )
 
         assertEquals(listOf("meta-window", "meta-weekly"), windows.map { it.id })
@@ -127,7 +121,6 @@ class MetaQuotaParserTest {
                 } }
                 """.trimIndent(),
             ),
-            now,
         )
 
         assertEquals(1_789_673_320_000L, windows[0].resetAt)

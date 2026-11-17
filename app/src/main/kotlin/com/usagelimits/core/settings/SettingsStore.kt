@@ -130,7 +130,7 @@ class SettingsStore(context: Context) {
         it[Keys.SYNC_INTERVAL] = minutes.coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES)
     }
 
-    suspend fun recordNotificationPermissionAsked() = edit { it[Keys.NOTIFICATION_PERMISSION_ASKED] = true }
+    suspend fun recordNotificationPermissionHandled() = edit { it[Keys.NOTIFICATION_PERMISSION_ASKED] = true }
 
     /** Robolectric reuses this DataStore across classes within an SDK sandbox. */
     @androidx.annotation.VisibleForTesting

@@ -85,8 +85,7 @@ fun percentToken(window: UsageWindow?, mode: PercentDisplay): String =
  * A figure token with its `%` sign; an unknown figure stays a bare dash.
  *
  * The English reference of [com.usagelimits.ui.text.percentFigure], which PercentResourcesEnglishTest
- * holds equal to it under `en`. It needs no resources, so [percentLabel] uses it; screens take the
- * localized form.
+ * holds equal to it under `en`. Screens take the localized form.
  */
 fun withPercentSign(token: String): String =
     if (token == PERCENT_TOKEN_UNKNOWN) token else "$token%"

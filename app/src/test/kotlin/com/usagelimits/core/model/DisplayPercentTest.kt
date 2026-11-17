@@ -81,11 +81,11 @@ class DisplayPercentTest {
     }
 
     @Test
-    fun `the percent label wraps the LEFT token unchanged`() {
-        assertEquals("73%", percentLabel(73.0))
-        assertEquals("<1%", percentLabel(0.4))
-        assertEquals(">99%", percentLabel(99.5))
-        assertEquals("—", percentLabel(null))
+    fun `the percent sign wraps tokens unchanged`() {
+        assertEquals("73%", withPercentSign("73"))
+        assertEquals("<1%", withPercentSign("<1"))
+        assertEquals(">99%", withPercentSign(">99"))
+        assertEquals("—", withPercentSign("—"))
     }
 
     @Test

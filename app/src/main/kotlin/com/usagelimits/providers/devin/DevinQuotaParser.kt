@@ -42,11 +42,7 @@ object DevinQuotaParser {
     private const val WEEKLY_SECONDS = 7L * 24 * 60 * 60
 
     /** Parses the daily and weekly windows that are present in [payload]. */
-    @Suppress("UNUSED_PARAMETER")
-    fun parse(payload: JsonObject, nowMs: Long = System.currentTimeMillis()): List<UsageWindow> {
-        // nowMs is part of the provider parser contract. Devin sends absolute Unix reset times,
-        // so it is intentionally unused today; retaining it keeps this parser easy to evolve
-        // if the endpoint starts returning relative timestamps.
+    fun parse(payload: JsonObject): List<UsageWindow> {
         val status = planStatus(payload) ?: return emptyList()
         return listOfNotNull(
             window(

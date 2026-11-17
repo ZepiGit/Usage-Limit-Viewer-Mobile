@@ -57,15 +57,7 @@ class OverviewOrderingTest {
         ),
     )
 
-    /**
-     * The order the user dragged the cards into beats the urgency ranking — but only once they
-     * have actually dragged one.
-     *
-     * Two orders live on this screen, and getting the precedence wrong is invisible in either
-     * direction: re-ranking a hand-made arrangement on the next sync looks like the drag was
-     * forgotten, and honouring an all-zero `sortOrder` on a fresh install looks like the
-     * urgency ranking was never built.
-     */
+    /** Repository order is retained before and after the user rearranges accounts. */
     @Test
     fun `overview uses the same stored order before and after manual arrangement`() {
         // Deliberately handed over in the WRONG urgency order, as the repository would after a
@@ -78,7 +70,7 @@ class OverviewOrderingTest {
         assertEquals(
             "the overview and All accounts widgets share the stored order",
             listOf("healthy", "exhausted"),
-            ranked.orderedAccounts(now).map { it.account.localId },
+            ranked.orderedAccounts().map { it.account.localId },
         )
 
         val arranged = UsageUiState(
@@ -88,7 +80,7 @@ class OverviewOrderingTest {
         assertEquals(
             "once arranged by hand, the stored order stands and nothing re-ranks it",
             listOf("healthy", "exhausted"),
-            arranged.orderedAccounts(now).map { it.account.localId },
+            arranged.orderedAccounts().map { it.account.localId },
         )
     }
 

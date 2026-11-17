@@ -50,13 +50,13 @@ class QuotaPolicyTest {
     }
 
     @Test fun `percentage labels never round small positive quota to exhausted or nearly full to full`() {
-        assertEquals("<1%", percentLabel(0.1))
-        assertEquals("<1%", percentLabel(0.9))
-        assertEquals(">99%", percentLabel(99.9))
-        assertEquals("0%", percentLabel(0.0))
-        assertEquals("100%", percentLabel(100.0))
+        assertEquals("<1", percentToken(0.1, false, PercentDisplay.LEFT))
+        assertEquals("<1", percentToken(0.9, false, PercentDisplay.LEFT))
+        assertEquals(">99", percentToken(99.9, false, PercentDisplay.LEFT))
+        assertEquals("0", percentToken(0.0, false, PercentDisplay.LEFT))
+        assertEquals("100", percentToken(100.0, false, PercentDisplay.LEFT))
         for (value in listOf(Double.NaN, Double.POSITIVE_INFINITY, -1.0, 101.0)) {
-            assertEquals("—", percentLabel(value))
+            assertEquals("—", percentToken(value, false, PercentDisplay.LEFT))
         }
     }
     @Test fun `all independent model pools are exhausted when a binding window in each is exhausted`() {

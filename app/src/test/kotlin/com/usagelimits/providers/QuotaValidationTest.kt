@@ -31,7 +31,7 @@ class QuotaValidationTest {
         for (value in listOf("-1", "101", "null", "\"NaN\"")) {
             val window = MetaQuotaParser.parse(JsonSupport.parseObject("""
                 {"subs_usage":{"window":{"used_percent":$value}}}
-            """), 0).first()
+            """)).first()
             assertNull("used $value", window.remainingPercent)
             assertFalse(window.exhausted)
         }
