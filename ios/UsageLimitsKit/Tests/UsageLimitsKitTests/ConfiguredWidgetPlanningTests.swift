@@ -23,11 +23,9 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
 
     private func capture(_ source: GlanceSnapshotCodec.Load,
         preset: ConfiguredWidgetCapture.PresetResolution = .notRead,
-        scope: GlanceScope = .allAccounts, accountID: String? = nil,
-        percentOverride: PercentDisplay? = nil) -> ConfiguredWidgetCapture {
+        scope: GlanceScope = .allAccounts, accountID: String? = nil) -> ConfiguredWidgetCapture {
         ConfiguredWidgetCapture(source: source, preset: preset, scope: scope,
-            accountID: accountID, providerID: nil, transparent: false,
-            percentOverride: percentOverride)
+            accountID: accountID, providerID: nil, transparent: false)
     }
 
     private func loadedSnapshot(percentDisplay: PercentDisplay) -> GlanceSnapshot {
@@ -85,54 +83,73 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
         XCTAssertEqual(capture(.corrupt).outcome(at: now), .corruptSource)
     }
 
-    // MARK: a widget's own percent mode
+    // MARK: every widget follows the published app display mode
 
-    func testNoOverrideKeepsTheAppMode() {
+    func testPublishedAppModeReachesEveryConfiguredSelectionAndTimelineEntry() {
+        let selections: [(GlanceScope, String?, String?, ConfiguredWidgetCapture.PresetResolution)] = [
+            (.allAccounts, nil, nil, .notRead),
+            (.account, "b", nil, .notRead),
+            (.account, "ghost", nil, .notRead),
+            (.provider, nil, "codex", .notRead),
+            (.provider, nil, "claude", .notRead),
+            (.custom, nil, nil, .matched(accountIDs: ["b", "a"])),
+            (.custom, nil, nil, .matched(accountIDs: ["ghost"])),
+            (.custom, nil, nil, .missing),
+            (.closestResets, nil, nil, .notRead),
+            (.mostCritical, nil, nil, .notRead)
+        ]
         for appMode in [PercentDisplay.left, .used] {
-            let request = capture(.loaded(loadedSnapshot(percentDisplay: appMode)))
-            XCTAssertEqual(request.selectedSnapshot(at: now).percentDisplay, appMode)
-        }
-    }
-
-    func testAnOverrideWinsOverBothAppModes() {
-        for appMode in [PercentDisplay.left, .used] {
-            for choice in [PercentDisplay.left, .used] {
-                let request = capture(.loaded(loadedSnapshot(percentDisplay: appMode)),
-                    percentOverride: choice)
-                XCTAssertEqual(request.selectedSnapshot(at: now).percentDisplay, choice)
+            for (scope, accountID, providerID, preset) in selections {
+                let request = ConfiguredWidgetCapture(
+                    source: .loaded(loadedSnapshot(percentDisplay: appMode)), preset: preset,
+                    scope: scope, accountID: accountID, providerID: providerID,
+                    transparent: false)
+                for offset in [0.0, 900, 7200] {
+                    let selected = request.selectedSnapshot(at: now.addingTimeInterval(offset))
+                    XCTAssertEqual(selected.percentDisplay, appMode,
+                        "\(scope), account \(accountID ?? "none"), provider \(providerID ?? "none"), "
+                            + "offset \(offset)")
+                }
             }
         }
     }
 
-    // The stamp is the only thing the override may change: a widget that pins its mode still
-    // shows the same accounts, in the same order, with the same next reset.
-    func testTheOverrideStampSurvivesEveryScopeAndChangesNothingElse() {
-        let source = GlanceSnapshotCodec.Load.loaded(loadedSnapshot(percentDisplay: .left))
-        let scopes: [(GlanceScope, String?)] = [(.allAccounts, nil), (.account, "b"), (.closestResets, nil)]
-        for (scope, accountID) in scopes {
-            let plain = capture(source, scope: scope, accountID: accountID).selectedSnapshot(at: now)
-            let pinned = capture(source, scope: scope, accountID: accountID,
-                percentOverride: .used).selectedSnapshot(at: now)
+    func testPublishedModeChangesNeitherSelectedReadingsNorTheirReset() {
+        let scopes: [(GlanceScope, String?, [String])] = [
+            (.allAccounts, nil, ["a", "b"]), (.account, "b", ["b"]), (.closestResets, nil, ["a", "b"])
+        ]
+        for (scope, accountID, expectedIDs) in scopes {
+            let left = capture(.loaded(loadedSnapshot(percentDisplay: .left)), scope: scope,
+                accountID: accountID).selectedSnapshot(at: now)
+            let used = capture(.loaded(loadedSnapshot(percentDisplay: .used)), scope: scope,
+                accountID: accountID).selectedSnapshot(at: now)
 
-            XCTAssertEqual(plain.percentDisplay, .left)
-            XCTAssertEqual(pinned.percentDisplay, .used)
-            XCTAssertEqual(pinned.accounts.map(\.id), plain.accounts.map(\.id))
-            XCTAssertEqual(pinned.nextResetAt, plain.nextResetAt)
-            XCTAssertEqual(pinned.with(percentDisplay: plain.percentDisplay), plain)
+            XCTAssertEqual(left.percentDisplay, .left)
+            XCTAssertEqual(used.percentDisplay, .used)
+            XCTAssertEqual(used.accounts.map(\.id), expectedIDs)
+            XCTAssertEqual(used.accounts, left.accounts)
+            XCTAssertEqual(used.accountCount, left.accountCount)
+            XCTAssertEqual(used.updatedAt, left.updatedAt)
+            XCTAssertEqual(used.nextResetAt, left.nextResetAt)
+            XCTAssertEqual(used.overallSeverity, left.overallSeverity)
+            XCTAssertEqual(used.headlineShort, left.headlineShort)
+            XCTAssertEqual(used.headlineLong, left.headlineLong)
+            XCTAssertEqual(used.staleAfter, left.staleAfter)
+            XCTAssertEqual(used.credits, left.credits)
         }
     }
 
-    func testTheOverrideDoesNotChangeTheOutcomeOrThePlannedBoundaries() {
-        let source = GlanceSnapshotCodec.Load.loaded(loadedSnapshot(percentDisplay: .left))
-        let cases: [(GlanceScope, String?)] = [(.allAccounts, nil), (.account, "ghost")]
-        for (scope, accountID) in cases {
-            let plain = capture(source, scope: scope, accountID: accountID)
-            let pinned = capture(source, scope: scope, accountID: accountID, percentOverride: .used)
+    func testBothPublishedModesKeepSelectionOutcomesAndPlannedBoundaries() {
+        for appMode in [PercentDisplay.left, .used] {
+            let source = GlanceSnapshotCodec.Load.loaded(loadedSnapshot(percentDisplay: appMode))
+            let selected = capture(source)
+            XCTAssertEqual(selected.outcome(at: now), .ready)
+            XCTAssertEqual(selected.presentationBoundaries(after: now), [now.addingTimeInterval(3600)])
 
-            XCTAssertEqual(pinned.outcome(at: now), plain.outcome(at: now))
-            XCTAssertEqual(pinned.presentationBoundaries(after: now), plain.presentationBoundaries(after: now))
+            let missing = capture(source, scope: .account, accountID: "ghost")
+            XCTAssertEqual(missing.outcome(at: now), .missingAccount)
+            XCTAssertTrue(missing.presentationBoundaries(after: now).isEmpty)
         }
-        XCTAssertEqual(capture(.corrupt, percentOverride: .used).outcome(at: now), .corruptSource)
     }
 
     // MARK: age transitions are planned from the captured cache

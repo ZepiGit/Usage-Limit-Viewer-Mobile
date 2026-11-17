@@ -42,17 +42,17 @@ extension GlanceSnapshot {
                 return left == right ? lhs.offset < rhs.offset : left < right
             }.map(\.element)
         }
-        guard let lead = selected.first else { return .empty }
+        let lead = selected.first
         return GlanceSnapshot(accounts: selected, accountCount: selected.count,
             // "Is anything wrong anywhere" across the SELECTION — the lead's own severity
             // would hide a broken account behind a healthy one that happens to sort first.
             // Aged at `now` rather than reusing the stored verdict, so an entry replayed
             // hours later reads as stale rather than fresh.
             updatedAt: selected.compactMap(\.fetchedAt).max(),
-            nextResetAt: lead.resetDates.filter { $0 > now }.min(),
+            nextResetAt: lead?.resetDates.filter { $0 > now }.min(),
             overallSeverity: selected.map { $0.severity(at: now, staleAfter: staleAfter) }.max() ?? .stale,
-            summaryLineShort: lead.rows.first { $0.category == .fiveHour },
-            summaryLineLong: lead.rows.first { $0.category != .fiveHour }, staleAfter: staleAfter,
+            summaryLineShort: lead?.rows.first { $0.category == .fiveHour },
+            summaryLineLong: lead?.rows.first { $0.category != .fiveHour }, staleAfter: staleAfter,
             // Selection re-cuts the accounts, never the user's reading of them: dropping the
             // mode here would flip a configured widget to LEFT while the rest of the app says USED.
             percentDisplay: percentDisplay)

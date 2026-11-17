@@ -793,17 +793,6 @@
         }
       }
     },
-    "App setting" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "App-Einstellung"
-          }
-        }
-      }
-    },
     "As of %@" : {
       "extractionState" : "manual",
       "localizations" : {

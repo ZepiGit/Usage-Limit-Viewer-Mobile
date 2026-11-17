@@ -66,21 +66,6 @@ class DisplayPercentTest {
     }
 
     @Test
-    fun `a widget override wins over the app mode and null follows it`() {
-        val expected = listOf(
-            Triple(PercentDisplay.LEFT, null, PercentDisplay.LEFT),
-            Triple(PercentDisplay.LEFT, PercentDisplay.LEFT, PercentDisplay.LEFT),
-            Triple(PercentDisplay.LEFT, PercentDisplay.USED, PercentDisplay.USED),
-            Triple(PercentDisplay.USED, null, PercentDisplay.USED),
-            Triple(PercentDisplay.USED, PercentDisplay.LEFT, PercentDisplay.LEFT),
-            Triple(PercentDisplay.USED, PercentDisplay.USED, PercentDisplay.USED),
-        )
-        expected.forEach { (app, override, resolved) ->
-            assertEquals("app=$app override=$override", resolved, app.resolved(override))
-        }
-    }
-
-    @Test
     fun `the percent sign wraps tokens unchanged`() {
         assertEquals("73%", withPercentSign("73"))
         assertEquals("<1%", withPercentSign("<1"))

@@ -32,7 +32,7 @@ Words and the percent sign stay with the surface. Pure code that has no resource
 
 Strings live in one catalog per platform: Android's `values` and `values-de`, and iOS's `Localizable.xcstrings`, shared by the app and the widget extension. Both ship English and German. The percent sign comes from a template, so German reads “73 %”. Provider-reported window labels and model names are data and are not translated. `StringResourcesCompletenessTest` checks that every Android string exists in both languages, and `ios/Tools/check-xcstrings.py` checks the iOS catalog and the literals in the app and widget sources.
 
-On Android a widget's own choice is a nullable column on its configuration row, and null follows the app setting. On iOS 17 it is an intent parameter, resolved as widget override, then app setting. The widgets that have no configuration read the setting from the published snapshot.
+The app's display mode is the only choice for every screen and usage widget. Android widgets and their configuration preview read the app setting; iOS widgets read it from the published snapshot. Widget configuration controls selection and appearance, never the display mode.
 
 ## Storage and sync
 
