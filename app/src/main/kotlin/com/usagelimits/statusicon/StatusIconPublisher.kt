@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
@@ -27,6 +28,7 @@ import com.usagelimits.core.model.readingValidity
 import com.usagelimits.core.model.statusIcon
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.SettingsStore
+import com.usagelimits.ui.providerLogoResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -143,7 +145,9 @@ class StatusIconPublisher(
             val reading = if (ordered) readingBeforeBuild(previous) else null
             if (reading == null) ordered = false
             val postedAt = reading ?: now()
-            post(byId.getValue(id), settings, texts, nowMs, postedAt)
+            val usage = byId.getValue(id)
+            val showAccountName = pinned.any { it != id && byId.getValue(it).account.provider == usage.account.provider }
+            post(usage, settings, texts, nowMs, postedAt, showAccountName)
             previous = postedAt
         }
     }
@@ -183,7 +187,7 @@ class StatusIconPublisher(
         }
     }
 
-    private fun post(usage: AccountUsage, settings: AppSettings, texts: StatusIconTexts, nowMs: Long, postedAt: Long) {
+    private fun post(usage: AccountUsage, settings: AppSettings, texts: StatusIconTexts, nowMs: Long, postedAt: Long, showAccountName: Boolean) {
         val snapshot = usage.snapshot
         val headline = snapshot?.headlineAt(nowMs)
         val needsReauthentication = snapshot?.connectionStatus == ConnectionStatus.RECONNECT_REQUIRED
@@ -200,12 +204,16 @@ class StatusIconPublisher(
         }
         val presentation = headline?.presentation(validity, settings.percentDisplay)
         val icon = statusIcon(presentation, validity, needsReauthentication)
-        val line = when {
+        val title = when {
             needsReauthentication -> texts.reconnectRequired()
             icon.content == StatusIconContent.Error -> texts.refreshFailed()
-            else -> texts.reading(icon, headline, presentation ?: WindowPresentation.absent(settings.percentDisplay), nowMs)
+            else -> texts.reading(icon, presentation ?: WindowPresentation.absent(settings.percentDisplay))
         }
+        val details = texts.windowDetails(headline, nowMs)
+        val subText = texts.subText(usage.account.provider, if (showAccountName) usage.account.label else null)
         val bitmap = StatusIconRenderer.render(usage.account.provider, icon, context.resources.displayMetrics.density)
+        val artwork = Icon.createWithResource(context,
+            providerLogoResource(usage.account.provider, settings.providerIcons[usage.account.provider.id]))
         val tag = tagFor(usage.account.localId)
         val open = PendingIntent.getActivity(
             context,
@@ -218,19 +226,20 @@ class StatusIconPublisher(
         for ((id, summary) in listOf(SUMMARY_ID to true, CHILD_ID to false)) {
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(IconCompat.createWithBitmap(bitmap))
-                .setContentTitle(usage.account.label)
-                .setContentText(line)
+                .setContentTitle(title)
+                .setContentText(details)
+                .setSubText(subText)
+                .setLargeIcon(artwork)
                 .setContentIntent(open)
                 .setGroup(tag)
                 .setGroupSummary(summary)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setLocalOnly(true)
-                .setSilent(true)
                 .setShowWhen(false)
                 // Real, and the account's place in the order: see the class comment.
                 .setWhen(postedAt)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
             try {
                 manager.notify(tag, id, notification)
@@ -243,10 +252,11 @@ class StatusIconPublisher(
 
     private fun ensureChannel(texts: StatusIconTexts) {
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, texts.channelName(), NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(CHANNEL_ID, texts.channelName(), NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = texts.channelDescription()
                 setSound(null, null)
                 enableVibration(false)
+                enableLights(false)
                 setShowBadge(false)
             },
         )

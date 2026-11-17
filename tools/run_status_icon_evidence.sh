@@ -154,9 +154,6 @@ lines = Path(sys.argv[1]).read_text().splitlines()
 if lines != ["Physical size: 720x1560", "Physical density: 280"]:
     raise SystemExit(f"Unexpected emulator display: {lines}")
 PY
-  for setting in window_animation_scale transition_animation_scale animator_duration_scale; do
-    timeout 10s adb shell settings put global "$setting" 0.0
-  done
   printf '%s\n' "$attempt" > "$evidence/installed-on-boot.txt"
   # No retry path exists beyond this point, even if installation or the scenario fails.
   python3 "$script_directory/status_icon_evidence.py" --apk app/build/outputs/apk/debug/app-debug.apk --evidence "$evidence"

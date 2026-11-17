@@ -4,10 +4,12 @@ import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
 import android.graphics.Bitmap
+import android.graphics.drawable.Icon
 import android.graphics.drawable.BitmapDrawable
 import android.service.notification.StatusBarNotification
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
+import com.usagelimits.R
 import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.model.ProviderAccount
@@ -107,6 +109,69 @@ class StatusIconPublicationTest {
     private fun expectedIcon(provider: ProviderId, content: StatusIconContent): Bitmap =
         StatusIconRenderer.render(provider, StatusIcon(content, outdated = false), app.resources.displayMetrics.density)
 
+    private suspend fun assertStatusRows(german: Boolean) {
+        val personal = account(ProviderId.CLAUDE, "Personal", left = 42.0)
+        val work = account(ProviderId.CLAUDE, "Work", left = 87.0)
+        val other = account(ProviderId.CODEX, "Other", left = 5.0)
+        app.container.settingsStore.setProviderIcon(ProviderId.CLAUDE.id, "claude-color")
+        pin(personal, other)
+        app.container.publication.presentationChanged()
+
+        fun assertRows(expected: Map<String, Pair<String, String?>>, artwork: Int) {
+            val records = statusRecords()
+            assertEquals(expected.size * 2, records.size)
+            for ((accountId, row) in expected) {
+                val members = records.filter { shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId") == accountId }
+                assertEquals("summary and child for $accountId", 2, members.size)
+                assertEquals(1, members.count { it.isSummary() })
+                for (record in members) {
+                    val notification = record.notification
+                    assertEquals("the reading or state is the title", row.first, notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+                    val details = notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString()
+                    assertTrue("the detail line starts with the window, not the figure", details.startsWith(if (german) "5‑Std.-Limit · Reset" else "5h limit · Resets"))
+                    assertEquals("the header identifies the provider and names only shared-provider accounts", row.second, notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString())
+                    assertNull("standard template, no custom content", notification.contentView)
+                    assertNull("standard template, no custom expanded content", notification.bigContentView)
+                    if (accountId != other.localId) {
+                        val actual = notification.getLargeIcon()
+                        assertEquals("provider artwork stays resource-backed", Icon.TYPE_RESOURCE, actual.type)
+                        assertEquals("provider artwork comes from this app", app.packageName, actual.resPackage)
+                        assertEquals("both records use the selected provider artwork", artwork, actual.resId)
+                    }
+                }
+            }
+        }
+        val firstTitle = if (german) "42 % übrig" else "42% left"
+        val secondTitle = if (german) "87 % übrig" else "87% left"
+        val otherTitle = if (german) "5 % übrig" else "5% left"
+        val ordinaryRows = mapOf(personal.localId to (firstTitle to "Claude"), other.localId to (otherTitle to "OpenAI Codex"))
+        assertRows(ordinaryRows, R.drawable.icon_claude_color)
+        val identities = statusRecords().map { it.tag to it.id }.toSet()
+
+        pin(personal, work, other)
+        app.container.publication.presentationChanged()
+        assertRows(ordinaryRows + mapOf(personal.localId to (firstTitle to "Claude · Personal"), work.localId to (secondTitle to "Claude · Work")), R.drawable.icon_claude_color)
+        assertTrue("existing groups keep their identities", statusRecords().map { it.tag to it.id }.toSet().containsAll(identities))
+
+        pin(personal, other)
+        app.container.settingsStore.setProviderIcon(ProviderId.CLAUDE.id, "claudecode-color")
+        app.container.publication.presentationChanged()
+        assertRows(ordinaryRows, R.drawable.icon_claudecode_color)
+        assertEquals(identities, statusRecords().map { it.tag to it.id }.toSet())
+    }
+
+    @Test
+    @Config(sdk = [30, 36, 37])
+    fun `standard rows lead with the reading and selected artwork, naming only shared providers`() = runBlocking {
+        assertStatusRows(german = false)
+    }
+
+    @Test
+    @Config(sdk = [30, 36, 37], qualifiers = "de")
+    fun `German standard rows lead with the reading and identify shared providers`() = runBlocking {
+        assertStatusRows(german = true)
+    }
+
     @Test
     fun `a pinned account shows its figure in its own group, and a sync updates it in place`() = runBlocking {
         val claude = account(ProviderId.CLAUDE, "Claude", left = 42.0)
@@ -120,8 +185,8 @@ class StatusIconPublicationTest {
         assertEquals("both in one group of their own", 1, records.map { it.notification.group }.toSet().size)
         for (record in records) {
             assertTrue("the small icon is the 3:2 bitmap glyph 42", expectedIcon(ProviderId.CLAUDE, StatusIconContent.Figure(42)).sameAs(record.iconPixels()))
-            assertEquals("Claude", record.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
-            assertTrue(record.notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().startsWith("42% left · 5h limit · "))
+            assertEquals("42% left", record.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+            assertTrue(record.notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().startsWith("5h limit · Resets "))
             val opened = shadowOf(record.notification.contentIntent).savedIntent
             assertEquals(UsageLimitsActivity::class.java.name, opened.component?.className)
             assertEquals("tapping opens this account", claude.localId, opened.getStringExtra("accountId"))
@@ -134,8 +199,59 @@ class StatusIconPublicationTest {
         val updated = statusRecords()
         assertEquals("updated in place, not added", identities, updated.map { it.tag to it.id }.toSet())
         assertTrue(updated.all { expectedIcon(ProviderId.CLAUDE, StatusIconContent.Figure(41)).sameAs(it.iconPixels()) })
-        assertTrue(updated.all { it.notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().startsWith("41% left") })
+        assertTrue(updated.all { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString().startsWith("41% left") })
         assertEquals("a figure changing is not an alert", 0, alertRecords().size)
+    }
+
+    @Test
+    @Config(sdk = [30, 36, 37])
+    fun `default importance status groups stay quiet and update in place without app alerts`() = runBlocking {
+        val codex = account(ProviderId.CODEX, "Codex", left = 42.0)
+        pin(codex)
+
+        fun assertQuietPublication(figure: Int): Set<Pair<String?, Int>> {
+            val channel = manager.getNotificationChannel(StatusIconPublisher.CHANNEL_ID)
+            assertEquals("status icons use the normal importance section", NotificationManager.IMPORTANCE_DEFAULT, channel.importance)
+            assertNull("the channel has no sound", channel.sound)
+            assertFalse("the channel does not vibrate", channel.shouldVibrate())
+            assertFalse("the channel does not light up", channel.shouldShowLights())
+            assertFalse("the channel has no badge", channel.canShowBadge())
+
+            val records = statusRecords()
+            assertEquals("one summary and one child", 2, records.size)
+            assertEquals(1, records.count { it.isSummary() })
+            assertEquals("both records belong to the account group", 1, records.map { it.notification.group }.toSet().size)
+            assertEquals("no additional app notification records", 2, manager.activeNotifications.size)
+            assertEquals("a status publication does not add an app alert", 0, alertRecords().size)
+            for (record in records) {
+                val notification = record.notification
+                val flags = notification.flags
+                assertTrue("both records stay ongoing", flags and Notification.FLAG_ONGOING_EVENT != 0)
+                assertTrue("both records only alert once", flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
+                assertTrue("both records stay local", flags and Notification.FLAG_LOCAL_ONLY != 0)
+                assertEquals(Notification.PRIORITY_DEFAULT, notification.priority)
+                assertEquals("both records retain normal lock-screen visibility", Notification.VISIBILITY_PRIVATE, notification.visibility)
+                assertEquals("neither record requests silent group suppression", Notification.GROUP_ALERT_ALL, notification.groupAlertBehavior)
+                assertNull("neither record requests sound", notification.sound)
+                assertNull("neither record requests vibration", notification.vibrate)
+                assertEquals("neither record requests default alerts", 0,
+                    notification.defaults and (Notification.DEFAULT_SOUND or Notification.DEFAULT_VIBRATE or Notification.DEFAULT_LIGHTS))
+                assertEquals("neither record requests lights", 0, flags and Notification.FLAG_SHOW_LIGHTS)
+                assertTrue("both records show the current figure",
+                    expectedIcon(ProviderId.CODEX, StatusIconContent.Figure(figure)).sameAs(record.iconPixels()))
+                assertTrue("both rows describe the current reading",
+                    notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString().startsWith("$figure% left"))
+            }
+            return records.map { it.tag to it.id }.toSet()
+        }
+
+        app.container.publication.presentationChanged()
+        val identities = assertQuietPublication(42)
+
+        reading(codex, left = 87.0)
+        app.container.publication.cacheMoved()
+
+        assertEquals("the update replaces both records at the same identities", identities, assertQuietPublication(87))
     }
 
     @Test
@@ -145,7 +261,7 @@ class StatusIconPublicationTest {
         app.container.publication.presentationChanged()
 
         val channel = manager.getNotificationChannel(StatusIconPublisher.CHANNEL_ID)
-        assertEquals(NotificationManager.IMPORTANCE_LOW, channel.importance)
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, channel.importance)
         assertNull(channel.sound)
         assertFalse(channel.shouldVibrate())
         assertFalse(channel.canShowBadge())
@@ -174,7 +290,7 @@ class StatusIconPublicationTest {
         val codexRecords = statusRecords()
         assertEquals(2, codexRecords.size)
         assertFalse("the previous account's group is gone", codexRecords.any { it.notification.group in claudeGroup })
-        assertTrue(codexRecords.all { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() == "Codex" })
+        assertTrue(codexRecords.all { shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId") == codex.localId })
 
         app.container.settingsStore.setPinnedAccounts(emptyList())
         app.container.publication.presentationChanged()
@@ -258,8 +374,8 @@ class StatusIconPublicationTest {
 
         interleaved { it.copy(pinnedAccountIds = listOf(codex.localId)) }
 
-        val titles = statusRecords().map { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }
-        assertEquals("only the latest choice shows", listOf("Codex", "Codex"), titles)
+        val accountIds = statusRecords().map { shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId") }
+        assertEquals("only the latest choice shows", listOf(codex.localId, codex.localId), accountIds)
     }
 
     private fun pinBlocking(provider: ProviderId, name: String, left: Double) = runBlocking {
@@ -290,7 +406,7 @@ class StatusIconPublicationTest {
         val records = statusRecords()
         assertEquals(2, records.size)
         assertTrue(records.all { expectedIcon(ProviderId.CLAUDE, StatusIconContent.Error).sameAs(it.iconPixels()) })
-        assertTrue(records.all { it.notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString() == "Reconnect required" })
+        assertTrue(records.all { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() == "Reconnect required" })
     }
 
     @Test
@@ -300,7 +416,7 @@ class StatusIconPublicationTest {
 
         app.container.publication.cacheMoved()
 
-        assertTrue(statusRecords().all { it.notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().startsWith("42 % übrig · ") })
+        assertTrue(statusRecords().all { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() == "42 % übrig" })
         assertEquals("Statusleisten-Symbole", manager.getNotificationChannel(StatusIconPublisher.CHANNEL_ID).name.toString())
     }
 }

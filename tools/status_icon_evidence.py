@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import threading
 import time
 import uuid
 import xml.etree.ElementTree as ET
@@ -22,6 +23,7 @@ PACKAGE = "com.usagelimits.debug"
 RECEIVER = PACKAGE + "/com.usagelimits.evidence.StatusIconEvidenceReceiver"
 ACCOUNTS = ["evidence-" + name for name in ("claude", "codex", "gemini", "xai", "copilot", "cursor")]
 PIN_ORDER = [ACCOUNTS[1], ACCOUNTS[2], ACCOUNTS[0]]
+DUPLICATE_ACCOUNT = "evidence-claude-work"
 STATUS_CHANNEL = "status_icons"
 ALERT_CHANNEL = "usage_alerts"
 SETTLE_SECONDS = 5
@@ -53,7 +55,19 @@ def parse_notifications(text):
         assert package and notification_id and channel and key and flags, "Malformed active NotificationRecord: " + header
         summary = bool(int(flags, 0) & 0x200) if re.fullmatch(r"0x[0-9a-fA-F]+|\d+", flags) else "GROUP_SUMMARY" in flags.split("|")
         tag = field(r"\btag=([^\s,)]+)", header)
+        channel_dump = field(r"(?m)^\s*effectiveNotificationChannel=(NotificationChannel\{[^\n]*\})")
+        channel_fields = {}
+        if channel_dump:
+            channel_fields = dict(re.findall(r"\b(mId|mImportance|mSound|mVibrationEnabled|mLights|mShowBadge)=([^,}]+)", channel_dump))
+        numeric_flags = int(flags, 0) if re.fullmatch(r"0x[0-9a-fA-F]+|\d+", flags) else None
+        required_flags = (("ONGOING_EVENT", 0x2), ("ONLY_ALERT_ONCE", 0x8), ("LOCAL_ONLY", 0x100))
         records.append({
+            "importance": field(r"\bimportance=(-?\d+)", header),
+            "effectiveImportance": field(r"(?m)^\s*mImportance=(\S+)"),
+            "effectiveChannel": channel_fields,
+            "visibility": field(r"\bvis=([^\s,)]+)", header),
+            "requiredFlags": {name: bool(numeric_flags & bit) if numeric_flags is not None else name in flags.split("|") for name, bit in required_flags},
+            **{name: field(r"(?m)^\s*" + name + r"=\s*([^\n]*?)\s*$") for name in ("mSound", "mVibration", "mLight")},
             "package": package, "id": int(notification_id), "tag": tag,
             "channel": channel, "key": key, "flags": flags, "summary": summary,
             "uid": field(r"(?m)^\s*uid=(\d+)\b"),
@@ -61,6 +75,9 @@ def parse_notifications(text):
             "groupKey": field(r"(?m)^\s*groupKey=(\S+)"),
             "overrideGroupKey": field(r"(?m)^\s*(?:mOverrideGroupKey|overrideGroupKey)=(\S+)"),
             "title": field(r"android\.title=String \(([^\n]*)\)"),
+            "text": field(r"android\.text=String \(([^\n]*)\)"),
+            "subText": field(r"android\.subText=String \(([^\n]*)\)"),
+            "largeIcon": field(r"android\.largeIcon=([^\n]+)"),
             "rankingTimeMs": field(r"\bmRankingTimeMs=(\S+)"),
             "when": field(r"\bwhen=(\S+)"),
             "globalSortKey": field(r"\b(?:mGlobalSortKey|globalSortKey)=(\S+)"),
@@ -88,19 +105,181 @@ def assert_snapshot(records, expected_accounts, baseline=None, events=""):
             assert record["groupKey"] and record["groupKey"].endswith("|g:" + tag), "Malformed groupKey: " + record["key"]
             assert record["summary"] == (record["id"] == 2001), "Malformed summary/child flags: " + record["key"]
             assert all(record[name] is not None for name in ("rankingTimeMs", "when", "globalSortKey")), "Missing ranking observations: " + record["key"]
+    for record in status:
+        key = record["key"]
+        assert record["importance"] == "3" and record["effectiveImportance"] in ("3", "DEFAULT"), "Expected DEFAULT record importance: " + key
+        assert record["effectiveChannel"] == {"mId": "'status_icons'", "mImportance": "3", "mSound": "null", "mVibrationEnabled": "false", "mLights": "false", "mShowBadge": "false"}, "Expected quiet DEFAULT effective channel: " + key
+        assert all(record[name] == "null" for name in ("mSound", "mVibration", "mLight")), "Non-null or missing record alert field: " + key
+        assert all(record["requiredFlags"].values()), "Missing ongoing/only-alert-once/local-only flags: " + key
+        assert record["visibility"] == "PRIVATE", "Expected normal PRIVATE visibility: " + key
     baseline_alerts = [] if baseline is None else [record for record in baseline if record["package"] == PACKAGE and record["channel"] == ALERT_CHANNEL]
     assert {record["key"] for record in alerts} == {record["key"] for record in baseline_alerts}, "Unexpected app alert records"
     assert len(app) == len(status) + len(alerts), "Unexpected app notification channel records"
     if baseline is not None:
         assert {record["key"] for record in status} == {record["key"] for record in baseline if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL}, "Status notification keys changed"
-    uids = {record["uid"] for record in app if record["uid"]}
-    for line in events.splitlines():
-        if "notification_alert" in line:
-            assert PACKAGE not in line and not any(re.search(r"[\[,\s]" + re.escape(uid) + r"[,\]\s]", line) for uid in uids), "App notification_alert event: " + line
+    alert_events = parse_alert_events(events)
     order = list(dict.fromkeys(record["tag"].removeprefix("status-icon:") for record in status))
-    return {"statusCount": len(status), "alertCount": len(alerts),
+    return {"statusCount": len(status), "alertCount": len(alerts), "alertEvents": alert_events,
             "systemCount": len(records) - len(app), "accountDumpOrder": order,
             "ranking": status}
+
+
+def parse_alert_events(events):
+    """AOSP event: notification key, buzz, beep, blink, optional politeness/mute reason."""
+    observations = []
+    for line in events.splitlines():
+        if "notification_alert" not in line or PACKAGE not in line:
+            continue
+        match = re.search(r"\bnotification_alert\s*:\s*\[([^\]]*)\]", line)
+        assert match, "Malformed app notification_alert: " + line
+        fields = [value.strip() for value in match[1].split(",")]
+        assert len(fields) in (4, 5, 6) and "|" + PACKAGE + "|" in fields[0] and all(re.fullmatch(r"-?\d+", value) for value in fields[1:]), "Unrecognized app notification_alert: " + line
+        buzz, beep, blink = map(int, fields[1:4])
+        assert (buzz, beep, blink) == (0, 0, 0), "Nonzero app notification_alert: " + line
+        observations.append({"key": fields[0], "buzz": buzz, "beep": beep, "blink": blink,
+                             "politeness": fields[4] if len(fields) > 4 else None,
+                             "muteReason": fields[5] if len(fields) > 5 else None, "raw": line})
+    return observations
+
+
+def dump_section(text, heading):
+    matches = list(re.finditer(r"(?m)^([ \t]*)" + heading + r"[ \t]*$", text))
+    assert len(matches) == 1, "Missing/ambiguous dump section: " + heading
+    match = matches[0]
+    section = text[match.end():]
+    indent = len(match[1].expandtabs(4))
+    lines = []
+    for line in section.splitlines():
+        expanded = line.expandtabs(4)
+        if re.fullmatch(r"\s*-+\s*", line):
+            continue
+        if line.strip() and len(expanded) - len(expanded.lstrip()) <= indent:
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def assert_no_heads_up(systemui, records):
+    """Only the manager's active entries are authoritative; other sections repeat keys."""
+    section = dump_section(systemui, r"HeadsUpManager(?:Phone)? state:")
+    keys = {record["key"] for record in records if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL}
+    assert not any(key in section for key in keys), "Status record in active heads-up manager entry"
+    known = (r"mTouchAcceptanceDelay=\d+", r"mSnoozeLengthMs=\d+", r"now=\d+", r"mUser=\d+",
+             r"snoozed packages: 0", r"mBarState=\d+", r"mTouchableRegion=SkRegion\(.*\)",
+             r"m(?:HasPinnedNotification|HeadsUpPinnedMode)=false")
+    required = ("mTouchAcceptanceDelay=", "mSnoozeLengthMs=", "now=", "mUser=", "snoozed packages:")
+    assert all(name in section for name in required), "Unrecognized heads-up manager section"
+    for line in section.splitlines():
+        if line.strip():
+            assert any(re.fullmatch(pattern, line.strip()) for pattern in known), "Unrecognized heads-up active section: " + line.strip()
+    flags = re.findall(r"\b(?:mHeadsUpPinnedMode|mTrackingHeadsUp|trackingHeadsUp|mHeadsUpAnimatingAway|mExpandingFromHeadsUp)(?:=|:\s*)(true|false)\b", systemui)
+    assert "true" not in flags, "Active heads-up presentation flag"
+    return {"activeStatusKeys": [], "managerSection": section, "presentationFlags": flags,
+            "scope": "Snapshot only; finite early frames cannot exclude every transient peek"}
+
+
+def assert_alerting_section(systemui, records, api, shade=None):
+    children = [record for record in records if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL and not record["summary"]]
+    if api == 30:
+        assert shade is not None, "API30 needs actual shade title bounds"
+        notifications = [bounds(node) for node in shade.iter("node") if node.get("text") == "Notifications" and bounds(node)]
+        silent = [bounds(node) for node in shade.iter("node") if node.get("text") == "Silent" and bounds(node)]
+        assert len(notifications) == 1 and len(silent) <= 1, "Missing/ambiguous shade Notifications/Silent headers"
+        positions = {}
+        for title in dict.fromkeys(record["title"] for record in children):
+            matching = [record for record in children if record["title"] == title]
+            titles = sorted({bounds(node) for node in shade.iter("node") if node.get("package") == "com.android.systemui" and node.get("resource-id") == "android:id/title" and node.get("text") == title and bounds(node)})
+            assert len(titles) == len(matching), "Account title rows do not cover distinct children: " + str(title)
+            assert all(box[1] >= notifications[0][3] and (not silent or box[3] <= silent[0][1]) for box in titles), "Account title not under Notifications (not Silent): " + str(title)
+            for record, box in zip(matching, titles):
+                positions[record["key"]] = box
+        return {"assertion": "title positions under Notifications (not Silent)", "titleBounds": positions}
+    section = dump_section(systemui, r"ShadeListBuilder shade notifications:")
+    entries = re.findall(r"(?m)^\s*\[[^\]]+\]\s+(\S+)\s+\(parent=[^\n]*?\)\s+rank=\d+\s+section=([^\s]+)", section)
+    for record in children:
+        names = [name for key, name in entries if key == record["key"]]
+        assert len(names) == 1 and names[0].split(":")[-1] == "Alerting", "Missing/non-Alerting account shade child: " + record["key"]
+    return {"assertion": "Alerting", "childKeys": [record["key"] for record in children]}
+
+
+def assert_provider_headers(records, root, local_ids):
+    parents = {child: node for node in root.iter() for child in node}
+    report = {}
+    for alias, provider in zip(ACCOUNTS[:3], ("Claude", "OpenAI Codex", "Antigravity")):
+        pair = [record for record in records if record["tag"] == "status-icon:" + local_ids[alias]]
+        for record in pair:
+            assert record["subText"] == provider, f"Expected provider-only sub-text {provider!r} on {record['key']}; got {record['subText']!r}"
+        title = next(record["title"] for record in pair if not record["summary"])
+        titles = [node for node in root.iter("node") if node.get("package") == "com.android.systemui"
+                  and node.get("resource-id") == "android:id/title" and node.get("text") == title]
+        header_nodes = []
+        for title_node in titles:
+            row = title_node
+            while row in parents:
+                row = parents[row]
+                if row.get("resource-id") == "android:id/status_bar_latest_event_content":
+                    break
+            else:
+                continue
+            for node in row.iter("node"):
+                if node.get("package") != "com.android.systemui":
+                    continue
+                observed = {field: node.get(field) for field in ("text", "content-desc", "resource-id", "bounds")}
+                values = [value for value in (observed["text"], observed["content-desc"]) if value]
+                if not values:
+                    continue
+                combined = any({"Usage Limits", provider} <= set(re.split(r"\s*[·•,]\s*", value)) for value in values)
+                if observed["resource-id"] == "android:id/header_text":
+                    assert provider in values or combined, f"Wrong shade header for {alias}: expected {provider!r}; got {values!r}"
+                elif not (combined and observed["resource-id"] in ("android:id/notification_header", "android:id/notification_top_line", "android:id/app_name_text")):
+                    continue
+                if observed not in header_nodes:
+                    header_nodes.append(observed)
+        report[alias] = {"subText": provider, "title": title, "titleBounds": [node.get("bounds") for node in titles],
+                         "shadeStatus": "verified" if header_nodes else "not_exposed", "shadeNodes": header_nodes}
+    return report
+
+
+def assert_duplicate_rows(records, root, local_ids, require_names=True):
+    accounts = []
+    surface = [{field: node.get(field) for field in ("text", "content-desc", "resource-id", "bounds")}
+               for node in root.iter("node") if node.get("package") == "com.android.systemui" and (node.get("text") or node.get("content-desc"))]
+    for alias, title, name in ((ACCOUNTS[0], "42% left", "Claude (synthetic)"),
+                              (DUPLICATE_ACCOUNT, "87% left", "Claude work (synthetic)")):
+        pair = [record for record in records if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL and record["tag"] == "status-icon:" + local_ids[alias]]
+        assert len(pair) == 2, "Missing personal/work same-provider group: " + alias
+        sub_text = "Claude · " + name
+        assert all(record["title"] == title and record["subText"] == sub_text for record in pair), "Duplicate account reading title/sub-text mismatch: " + alias
+        assert all(record["text"] and "Resets" in record["text"] and name not in record["text"] for record in pair), "Duplicate account window/reset text missing: " + alias
+        assert all(record["largeIcon"] and record["largeIcon"] != "null" for record in pair), "Duplicate provider artwork large icon missing: " + alias
+        assert len({record["largeIcon"] for record in pair}) == 1, "Summary/child provider artwork differs: " + alias
+        matches = [node for node in surface if name in (node["text"] or "") or name in (node["content-desc"] or "")]
+        assert matches or not require_names, "Duplicate account name absent from actual shade accessibility XML: " + name
+        accounts.append({"alias": alias, "name": name, "title": title, "nameExposed": bool(matches),
+                         "subText": pair[0]["subText"], "largeIcon": pair[0]["largeIcon"], "shadeNodes": matches})
+    return {"accounts": accounts, "namesExposed": all(account["nameExposed"] for account in accounts),
+            "accessibilitySurface": surface, "scope": "Actual XML text/content descriptions; not a claim of TalkBack speech or unredacted lock-screen content"}
+
+
+def assert_visible_icons(systemui, records):
+    heading = r"(?:\[[^\]]+\] )?(?:NotificationIconContainerStatusBarViewModel|StatusBarIconViewModel):"
+    if not re.search(r"(?m)^\s*" + heading + r"[ \t]*$", systemui):
+        return {"status": "unsupported", "reason": "No status-bar visibleIcons metadata; human pixel inspection required (shelf/AOD are not substitutes)"}
+    matches = list(re.finditer(r"(?m)^\s*" + heading + r"[ \t]*$", systemui))
+    assert len(matches) == 1, "Ambiguous status-bar visibility model"
+    tail = systemui[matches[0].end():]
+    end = re.search(r"(?m)^\s*CRITICAL dump took[^\n]*$", tail)
+    assert end, "Unterminated status-bar visibility model"
+    section = tail[:end.start()]
+    lists = re.findall(r"\bvisibleIcons=\[([^\]]*)\]", section)
+    assert len(lists) == 1, "Missing/ambiguous status-bar visibleIcons metadata"
+    assert not re.search(r"\b(?:visibleState|iconState)=(?:DOT|HIDDEN|1|2)\b|\b(?:hidden|isHidden|showingDot)=true\b", lists[0], re.I), "Status-bar visibleIcons reports a hidden/dot icon"
+    keys = re.findall(r"\bnotifKey=([^,\s)]+)", lists[0])
+    assert lists[0].count("NotificationIconInfo(") == len(keys), "Unrecognized visibleIcons item"
+    app_keys = [key for key in keys if "|" + PACKAGE + "|" in key]
+    expected = {record["key"] for record in records if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL and not record["summary"]}
+    assert len(app_keys) == len(expected) and set(app_keys) == expected, "Status-bar visibleIcons do not match account children (hidden/dot/wrong keys)"
+    return {"status": "verified", "keys": app_keys, "scope": "SystemUI status-bar visibility model, not pixel proof or icon-order guarantee"}
 
 
 def swipe_accounts(api):
@@ -145,6 +324,7 @@ class Evidence:
         self.state = None
         self.last_post = 0
         self.ready_deadline = None
+        self.early = None
 
     def adb(self, *args, binary=False, timeout=40):
         if self.ready_deadline is not None:
@@ -288,7 +468,13 @@ class Evidence:
             assert state.get("command") == command, "Receiver command mismatch"
             assert state.get("success") is True, "Receiver failed: " + str(state.get("error"))
             assert isinstance(state.get("enabled"), bool) and isinstance(state.get("accounts"), list) and isinstance(state.get("pins"), list), "Receiver result missing state"
-            assert set(state.get("localIds", {})) == set(ACCOUNTS), "Receiver missing fixture localIds mapping"
+            expected_aliases = set(ACCOUNTS) | ({DUPLICATE_ACCOUNT} if command == "same-provider" else set())
+            assert set(state.get("localIds", {})) == expected_aliases, "Receiver missing/unexpected fixture localIds mapping"
+            if command == "same-provider":
+                assert self.state and state["accounts"] == [*self.state["accounts"], DUPLICATE_ACCOUNT], "Duplicate fixture changed previous account order"
+                assert self.state and all(state["localIds"][alias] == self.state["localIds"][alias] for alias in ACCOUNTS), "Duplicate fixture changed original local IDs"
+                assert state["pins"] == [ACCOUNTS[0], DUPLICATE_ACCOUNT] and state["enabled"], "Duplicate scenario must enable exactly the personal/work Claude pair"
+                assert state.get("duplicateLocalIds") == {"personal": state["localIds"][ACCOUNTS[0]], "work": state["localIds"][DUPLICATE_ACCOUNT]}, "Duplicate completion missing personal/work identity mapping"
             self.state = state
             self.last_post = time.monotonic()
             return state
@@ -304,8 +490,7 @@ class Evidence:
         window = self.adb("shell", "dumpsys", "window")
         self.save(name + "-window.txt", window)
         assert not re.search(r"Application (?:Not Responding|not responding|Error):", window), "System error window; no navigation or dismissal attempted"
-        self.adb("shell", "cmd", "statusbar", "collapse")
-        self.adb("shell", "input", "keyevent", "KEYCODE_HOME")
+        self.home()
         self.settled()
         time.sleep(1)
         self.screen(name + "-home", crop=True)
@@ -314,17 +499,20 @@ class Evidence:
         self.save(name + "-notification.txt", notification)
         events = self.adb("shell", "logcat", "-b", "events", "-d", "-v", "threadtime")
         self.save(name + "-events.txt", events)
+        presentation = {}
         for suffix, command in (
             ("statusbar", ("shell", "dumpsys", "statusbar")),
             ("systemui", ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")),
         ):
-            self.save(name + "-" + suffix + ".txt", self.adb(*command))
+            presentation[suffix] = self.adb(*command)
+            self.save(name + "-" + suffix + ".txt", presentation[suffix])
         self.adb("shell", "cmd", "statusbar", "expand-notifications")
         time.sleep(2)
         self.screen(name + "-shade")
-        self.xml(name + "-shade")
+        shade = self.xml(name + "-shade")
         records = parse_notifications(notification)
         entry["observedRecords"] = records
+        entry["shadeAccessibility"] = [{field: node.get(field) for field in ("text", "content-desc", "resource-id", "bounds", "focused", "accessibility-focused")} for node in shade.iter("node") if node.get("package") == "com.android.systemui" and (node.get("text") or node.get("content-desc"))]
         entry.update(statusCount=sum(record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL for record in records),
                      alertCount=sum(record["package"] == PACKAGE and record["channel"] == ALERT_CHANNEL for record in records),
                      systemCount=sum(record["package"] != PACKAGE for record in records))
@@ -332,96 +520,157 @@ class Evidence:
         self.save(name + "-ranking.txt", "\n".join(f"{record['key']} rankingTimeMs={record['rankingTimeMs']} when={record['when']} globalSortKey={record['globalSortKey']}" for record in records))
         local_ids = [self.state["localIds"][account] for account in expected]
         entry.update(assert_snapshot(records, local_ids, baseline=baseline, events=events))
+        entry["headsUp"] = assert_no_heads_up(presentation["systemui"], records)
+        entry["visibleIcons"] = assert_visible_icons(presentation["systemui"], records)
+        if name in ("03-enabled", "05-reordered"):
+            entry["providerHeaders"] = assert_provider_headers(entry["ranking"], shade, self.state["localIds"])
+        if name == "14-same-provider":
+            entry["duplicateRows"] = assert_duplicate_rows(records, shade, self.state["localIds"])
+        if expected:
+            entry["shadeSection"] = assert_alerting_section(presentation["systemui"], records, self.report["api"], shade)
+        if self.early is not None:
+            entry["early"] = {"samples": self.early["samples"], "commandStarted": self.early["commandStarted"],
+                              "headsUp": assert_no_heads_up(self.early["systemui"], records),
+                              "alertEvents": parse_alert_events(self.early["events"])}
+            assert not re.search(r"Application (?:Not Responding|not responding|Error):", self.early["window"]), "System error during early frames"
+            self.early = None
         entry["result"] = "passed"
         self.adb("shell", "cmd", "statusbar", "collapse")
         self.summary()
         return records
 
-    def show_silent_icons(self):
-        """Allow silent icons through the user preference, retaining the default evidence."""
-        visibility = self.report["silentIconVisibility"] = {"defaultHidden": None, "setupChanged": False}
+    def default_policy(self, name):
+        notification = self.adb("shell", "dumpsys", "notification", "--noredact")
+        systemui = self.adb("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")
+        self.save(name + "-notification.txt", notification)
+        self.save(name + "-systemui.txt", systemui)
+        result = {"hideSilentStatusBar": re.findall(r"\bhideSilentStatusBar=(true|false)\b", notification),
+                  "showSilentStatusIcons": re.findall(r"\bshowSilentStatusIcons=(true|false)\b", systemui)}
+        assert all(len(values) <= 1 for values in result.values()), "Ambiguous default visibility policy"
+        if self.report["api"] >= 36:
+            assert len(result["hideSilentStatusBar"]) == 1, "Missing hideSilentStatusBar policy"
+        if self.report["api"] == 37:
+            assert result == {"hideSilentStatusBar": ["true"], "showSilentStatusIcons": ["false"]}, "API37 clean-image silent-icon default changed"
+        result["unsupportedFields"] = [field for field, values in result.items() if not values]
+        return result
 
-        def dumps(name):
-            notification = self.adb("shell", "dumpsys", "notification", "--noredact")
-            systemui = self.adb("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")
-            self.save(name + "-notification.txt", notification)
-            self.save(name + "-systemui.txt", systemui)
-            flags = re.findall(r"\bhideSilentStatusBar=(true|false)\b", notification)
-            showing = re.findall(r"\bshowSilentStatusIcons=(true|false)\b", systemui)
-            return flags, showing[0] == "true" if len(showing) == 1 else None
+    def home(self):
+        self.adb("shell", "cmd", "statusbar", "collapse")
+        self.adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+        self.adb("shell", "input", "keyevent", "KEYCODE_HOME")
 
-        flags, showing = dumps("silent-icons-before")
-        visibility["systemuiDefaultShowing"] = showing if self.report["api"] == 37 else "unsupported dump field"
-        if self.report["api"] == 30:
-            visibility["observation"] = "API30 NMS visibility dump unsupported; Run1 default icons observed visible; no setting change. Inspect current 03-enabled-default screenshots separately."
-            return
-        assert len(flags) == 1, "Missing or ambiguous hideSilentStatusBar dump field"
-        visibility["defaultHidden"] = flags[0] == "true"
-        if not visibility["defaultHidden"]:
-            if self.report["api"] == 37:
-                assert showing is True, "SystemUI must explicitly show silent icons when API37 NMS allows them"
-                visibility["allowedSilentVerified"] = True
-            return
-        assert self.report["api"] == 37, "Only API37 hidden-default Settings setup is supported"
-        self.report["lastAssertion"] = "allow silent icons through observed Settings switch"
-        self.adb("shell", "am", "start", "-a", "android.settings.NOTIFICATION_SETTINGS")
+    def early_frames(self, name, ready, start, timing):
+        samples = []
+        try:
+            self.screen(name + "-early-0000ms-home", crop=True)
+            ready.set()
+            assert start.wait(20), "Posting command did not start during early observer"
+            for offset, label in ((0.25, "0250ms"), (0.5, "0500ms"), (1.0, "1000ms"), (2.0, "2000ms")):
+                time.sleep(max(0, timing["commandStarted"] + offset - time.monotonic()))
+                sample = {"requestedSeconds": offset, "actualStartSeconds": time.monotonic() - timing["commandStarted"]}
+                self.screen(name + "-early-" + label + "-home", crop=True)
+                sample["actualEndSeconds"] = time.monotonic() - timing["commandStarted"]
+                samples.append(sample)
+            for suffix, command in (
+                ("window", ("shell", "dumpsys", "window")),
+                ("systemui", ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")),
+                ("logcat", ("shell", "logcat", "-d", "-v", "threadtime")),
+                ("events", ("shell", "logcat", "-b", "events", "-d", "-v", "threadtime")),
+            ):
+                timing[suffix] = self.adb(*command, timeout=8)
+                self.save(name + "-early-" + suffix + ".txt", timing[suffix])
+        except (AssertionError, RuntimeError, OSError, subprocess.SubprocessError) as error:
+            timing["observerError"] = str(error)
+        finally:
+            ready.set()
+            timing["samples"] = samples
+            self.save(name + "-early-timing.json", json.dumps({key: value for key, value in timing.items() if key not in ("window", "systemui", "logcat", "events")}, indent=2))
 
-        def control(root):
-            titles = [node for node in root.iter("node") if node.get("text") == "Hide silent notifications in status bar" and node.get("package") == "com.android.settings"]
-            assert len(titles) <= 1, "Ambiguous silent notification Settings title"
-            if not titles:
-                return None
-            parents = {child: parent for parent in root.iter() for child in parent}
-            row = parents.get(titles[0])
-            while row is not None and row.tag == "node" and row.get("scrollable") != "true":
-                switches = [node for node in row.iter("node") if node.get("checkable") == "true" and node.get("class", "").endswith("Switch")]
-                if switches:
-                    assert len(switches) == 1 and bounds(switches[0]) and switches[0].get("enabled") == "true", "Ambiguous or disabled silent notification switch"
-                    assert switches[0].get("checked") in ("true", "false"), "Missing silent notification switch state"
-                    return switches[0]
-                row = parents.get(row)
-            raise AssertionError("Silent notification title has no same-row switch")
+    def transition(self, command, name):
+        self.home()
+        ready, start, timing = threading.Event(), threading.Event(), {}
+        observer = threading.Thread(target=self.early_frames, args=(name, ready, start, timing), daemon=True)
+        observer.start()
+        try:
+            assert ready.wait(15), "Early observer did not establish pre-command HOME frame"
+            assert "observerError" not in timing, timing.get("observerError")
+            timing["commandStarted"] = time.monotonic()
+            start.set()
+            self.command(command)
+        finally:
+            start.set()
+            observer.join(90)
+            assert not observer.is_alive(), "Early observer exceeded bounded collection window"
+        assert "observerError" not in timing, timing.get("observerError")
+        self.early = timing
 
-        for probe in range(9):
-            name = f"silent-icons-before-{probe}"
-            root = self.xml(name)
-            self.screen(name)
-            switch = control(root)
-            if switch is not None:
-                break
-            assert probe < 8, "Silent notification Settings title missing after eight scrolls"
-            containers = [node for node in root.iter("node") if node.get("package") == "com.android.settings"
-                          and node.get("resource-id") == "com.android.settings:id/recycler_view"
-                          and node.get("class") == "androidx.recyclerview.widget.RecyclerView"]
-            assert len(containers) == 1, "Missing or ambiguous silent notification Settings scroll container"
-            container = containers[0]
-            assert container.get("scrollable") == "true" and container.get("enabled") == "true" and bounds(container), "Invalid silent notification Settings scroll viewport"
-            parents = {child: parent for parent in root.iter() for child in parent}
-            parent = parents[container]
-            assert bounds(parent), "Missing silent notification Settings viewport parent bounds"
-            x1, y1, x2, y2 = bounds(container)
-            px1, py1, px2, py2 = bounds(parent)
-            assert px1 <= x1 < x2 <= px2 and py1 <= y1 < y2 <= py2, "Silent notification Settings viewport outside parent bounds"
-            x, span = (x1 + x2) // 2, y2 - y1
-            self.adb("shell", "input", "swipe", str(x), str(y2 - span // 4), str(x), str(y1 + span // 4), "300")
-        if switch.get("checked") == "true":
-            x1, y1, x2, y2 = bounds(switch)
-            self.adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
-            visibility["setupChanged"] = True
-        deadline = time.monotonic() + 5
-        for probe in range(10):
-            name = f"silent-icons-after-{probe}"
-            root = self.xml(name)
-            self.screen(name)
-            switch = control(root)
-            flags, showing = dumps(name)
-            if switch is not None and switch.get("checked") == "false" and flags == ["false"] and showing:
-                visibility["allowedSilentVerified"] = True
-                self.adb("shell", "input", "keyevent", "KEYCODE_HOME")
-                return
-            assert time.monotonic() < deadline, "Silent icon setting failed UI/NMS/SystemUI verification"
+    def lockscreen(self, baseline, name="03-enabled-lockscreen", expected=None):
+        if expected is None:
+            expected = ACCOUNTS[:3]
+        self.report["lastAssertion"] = "non-secure emulator lock-screen capture"
+        self.home()
+        disabled = self.adb("shell", "locksettings", "get-disabled").strip()
+        self.save(name + "-original-disabled.txt", disabled)
+        assert disabled in ("true", "false"), "Unrecognized original keyguard disabled state"
+        before = self.adb("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")
+        self.save(name + "-before-systemui.txt", before)
+        security = dump_section(before, r"KeyguardStateController:")
+        assert re.findall(r"(?m)^\s*mSecure: (true|false)\s*$", security) == ["false"], "SystemUI must report non-secure keyguard before capture"
+        changed = disabled == "true"
+        try:
+            if changed:
+                self.save(name + "-enable-swipe.txt", self.adb("shell", "locksettings", "set-disabled", "false"))
+                assert self.adb("shell", "locksettings", "get-disabled").strip() == "false", "Swipe keyguard did not enable"
+            self.adb("shell", "input", "keyevent", "KEYCODE_SLEEP")
             time.sleep(0.5)
-        raise AssertionError("Silent icon setting failed bounded verification")
+            self.adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+            deadline = time.monotonic() + 10
+            while True:
+                window = self.adb("shell", "dumpsys", "window", timeout=8)
+                delegate = dump_section(window, r"KeyguardServiceDelegate")
+                if re.search(r"(?m)^\s*showing=true\s*$", delegate) and re.search(r"(?m)^\s*occluded=false\s*$", delegate):
+                    break
+                assert time.monotonic() < deadline, "Keyguard showing=true not observed from WINDOW"
+                time.sleep(0.25)
+            secure = re.findall(r"(?m)^\s*secure=(true|false)\s*$", delegate)
+            assert secure in ([], ["false"]), "Secure keyguard is outside emulator capture scope"
+            time.sleep(1)
+            self.screen(name)
+            lock_xml = self.xml(name)
+            policy = {"window": self.adb("shell", "dumpsys", "window")}
+            for suffix, command in (
+                ("window-policy", ("shell", "dumpsys", "window", "policy")),
+                ("trust", ("shell", "dumpsys", "trust")),
+                ("systemui", ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")),
+                ("notification", ("shell", "dumpsys", "notification", "--noredact")),
+            ):
+                policy[suffix] = self.adb(*command)
+            for suffix, text in policy.items():
+                self.save(name + "-" + suffix + ".txt", text)
+            delegate = dump_section(policy["window"], r"KeyguardServiceDelegate")
+            assert re.search(r"(?m)^\s*showing=true\s*$", delegate), "Keyguard stopped showing during capture"
+            security = dump_section(policy["systemui"], r"KeyguardStateController:")
+            assert re.findall(r"(?m)^\s*mSecure: (true|false)\s*$", security) == ["false"], "Keyguard security changed during emulator capture"
+            records = parse_notifications(policy["notification"])
+            result = assert_snapshot(records, [self.state["localIds"][account] for account in expected], baseline=baseline)
+            result.update(label="Emulator non-secure swipe keyguard only; normal PRIVATE notification policy, no AOD/secure-phone claim",
+                          keyguardShowing=True, secure=False, originalDisabled=disabled, temporarySwipeEnabled=changed,
+                          accessibility=[{field: node.get(field) for field in ("text", "content-desc", "resource-id", "bounds", "focused", "accessibility-focused")} for node in lock_xml.iter("node") if node.get("package") == "com.android.systemui" and (node.get("text") or node.get("content-desc"))],
+                          headsUp=assert_no_heads_up(policy["systemui"], records))
+            if name == "14-same-provider-lockscreen":
+                result["duplicateRows"] = assert_duplicate_rows(records, lock_xml, self.state["localIds"], require_names=False)
+            self.report.setdefault("lockscreens", {})[name] = result
+        finally:
+            try:
+                self.adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+                self.adb("shell", "wm", "dismiss-keyguard")
+            finally:
+                if changed:
+                    self.save(name + "-restore-swipe.txt", self.adb("shell", "locksettings", "set-disabled", "true"))
+                restored = self.adb("shell", "locksettings", "get-disabled").strip()
+                self.save(name + "-restored-disabled.txt", restored)
+                assert restored == disabled, "Original keyguard disabled state not restored"
+            self.home()
 
     def swipe_claude(self, records):
         titles = {record["title"] for record in records if record["package"] == PACKAGE and record["tag"] == "status-icon:" + self.state["localIds"][ACCOUNTS[0]]}
@@ -466,7 +715,7 @@ class Evidence:
     def scenario(self, apk):
         self.report["api"] = int(self.adb("shell", "getprop", "ro.build.version.sdk"))
         assert self.report["api"] in (30, 36, 37), "Evidence requires API30/36/37"
-        self.adb("shell", "svc", "power", "stayon", "true")
+        self.report["defaultBefore"] = self.default_policy("defaults-before")
         self.save("device.txt", self.adb("shell", "getprop") + "\n" + self.adb("shell", "wm", "size") + "\n" + self.adb("shell", "wm", "density"))
         self.save("install-started.txt", "HOME readiness passed; installing " + str(apk))
         self.report["lastAssertion"] = "debug APK installation"
@@ -482,14 +731,14 @@ class Evidence:
             self.command("pin", account)
             assert not self.state["enabled"] and set(self.state["pins"]) == set(PIN_ORDER[:index + 1]), "Pin while OFF changed wrong settings"
             self.capture(f"02-pin-off-{index + 1}", "OFF; add " + account + " in Codex,Antigravity,Claude pin order", [])
-        self.command("enable")
+        self.transition("enable", "03-enabled-default")
         assert self.state["enabled"], "Feature did not enable"
         default = self.capture("03-enabled-default", "OFF with three pins -> ON; unchanged platform silent-icon preference", ACCOUNTS[:3])
-        self.show_silent_icons()
-        full = self.capture("03-enabled", "Allowed-silent scenario; initial app order Claude,Codex,Antigravity differs pin order; no app event during Settings setup", ACCOUNTS[:3], baseline=default)
-        self.command("update")
+        full = self.capture("03-enabled", "DEFAULT importance, quiet channel; untouched silent-icon policy; initial account order differs pin order", ACCOUNTS[:3], baseline=default)
+        self.lockscreen(full)
+        self.transition("update", "04-updated")
         full = self.capture("04-updated", "full six; Claude42 ->87 through repository/cacheMoved", ACCOUNTS[:3], baseline=full)
-        self.command("reorder")
+        self.transition("reorder", "05-reordered")
         assert self.state["accounts"] == [ACCOUNTS[2], ACCOUNTS[0], ACCOUNTS[1], *ACCOUNTS[3:]], "Repository reorder did not complete"
         full = self.capture("05-reordered", "full six; repository/presentationChanged order Antigravity,Claude,Codex,XAI,Kimi,Devin", ACCOUNTS[:3], baseline=full)
         self.command("states")
@@ -511,6 +760,10 @@ class Evidence:
         self.capture("12-cache-restored", "Claude,Codex,XAI pinned; cacheMoved restores full six including dismissed Claude", [ACCOUNTS[0], ACCOUNTS[1], ACCOUNTS[3]])
         self.command("unpin", ACCOUNTS[3])
         self.capture("13-unpin-from-full", "full six Claude,Codex,XAI; unpin XAI ->four", ACCOUNTS[:2])
+        self.command("same-provider")
+        duplicate = [ACCOUNTS[0], DUPLICATE_ACCOUNT]
+        pair = self.capture("14-same-provider", "two pinned Claude accounts, personal42/work87; chosen claude-color provider artwork; four records", duplicate)
+        self.lockscreen(pair, name="14-same-provider-lockscreen", expected=duplicate)
 
     def summary(self):
         self.report["screenshots"] = sorted(path.name for path in self.directory.glob("*.png"))
@@ -518,11 +771,26 @@ class Evidence:
         lines = ["# Status-icon device evidence — API " + str(self.report.get("api", "preflight")), "", "Result: " + self.report["result"], "", "Last assertion: " + self.report["lastAssertion"], "", self.report["visualAcceptance"], "", "| Scenario | Starting state | Status records | App alert records | System records | Result |", "|---|---|---:|---:|---:|---|"]
         for entry in self.report["scenarios"]:
             lines.append("| " + " | ".join(str(value).replace("|", "\\|") for value in (entry["name"], entry["startingState"], entry.get("statusCount", "?"), entry.get("alertCount", "?"), entry.get("systemCount", "?"), entry["result"])) + " |")
-        lines += ["", "## Silent icon visibility", "", "Inspected baseline run44133402554: API37 had 0 status icons, 6 active status records and 3 shade rows with hideSilentStatusBar=true/showSilentStatusIcons=false; API30 and API36 showed 3 status icons.", "", "The current platform default is preserved in 03-enabled-default. API37 default may hide all silent icons; the conditional allowed-silent scenario uses user Setting off (Hide silent notifications in status bar), not an unchanged-default claim.", "", json.dumps(self.report.get("silentIconVisibility", {}), sort_keys=True), "", "Default and allowed-silent captures are separate; unchanged notification keys are compared across setup, with no toggle when the platform already allows silent icons.", "", "## Ranking observations"]
+        lines += ["", "## Untouched platform defaults", "", json.dumps({key: self.report.get(key) for key in ("defaultBefore", "defaultAfter", "defaultFlagsUnchanged")}, sort_keys=True), "", "03-enabled-default retains the API37 hideSilentStatusBar=true/showSilentStatusIcons=false default while the DEFAULT channel remains eligible for status-bar icons. 03-enabled is the same unchanged-policy normal capture; there is no Settings navigation.", "", "## Emulator lock screen", "", json.dumps(self.report.get("lockscreens", {}), sort_keys=True)]
+        lines += ["", "## Notification header evidence", ""]
+        for entry in self.report["scenarios"]:
+            headers = [*entry.get("providerHeaders", {}).values(), *entry.get("duplicateRows", {}).get("accounts", [])]
+            for row in headers:
+                fields = [{key: node[key] for key in ("text", "content-desc")} for node in row["shadeNodes"]]
+                shade = json.dumps(fields, ensure_ascii=False) if fields else "not exposed in a recognized shade XML header; inspect PNG"
+                lines.append(f"- {entry['name']}, {row['title']}: summary and child sub-text `{row['subText']}`; shade XML: {shade}")
+        lines += ["", "## Evidence limits", "", "Visible-icon metadata describes only the SystemUI status-bar model. Unsupported images require human pixel inspection; records, shelf and AOD entries never substitute for visible icons. Icon and shade order are observations, not assertions. Standard-template sub-text always names the provider and adds the account label only for same-provider pins. Both duplicate account names must be present in shade XML; lock-screen visibility is report-only. Contracted shade rows may omit header nodes from XML; raw XML and PNGs are retained for inspection. XML shows exposed text and descriptions, not actual TalkBack speech. Early pre-enable/update/reorder frames target 0.25, 0.5, 1 and 2 seconds with actual timings; finite frames and manager snapshots cannot prove that no transient peek ever occurred. No physical-phone, audible-output, OEM or always-on-display claim.", "", "## Ranking observations"]
         for entry in self.report["scenarios"]:
             if "accountDumpOrder" in entry:
                 aliases = {local: alias for alias, local in entry["driver"]["localIds"].items()}
                 lines += ["", "Dump account order (not visible icon order), " + entry["name"] + ": " + ", ".join(aliases.get(local, local) for local in entry["accountDumpOrder"]), ""]
+                if entry["name"] in ("03-enabled", "05-reordered"):
+                    model = entry.get("visibleIcons", {})
+                    if model.get("status") == "verified":
+                        key_aliases = {record["key"]: aliases.get(record["tag"].removeprefix("status-icon:"), record["key"]) for record in entry["ranking"] if record["tag"]}
+                        lines.append("- Status-bar model order (inspect the pixels separately): " + ", ".join(key_aliases.get(key, key) for key in model["keys"]))
+                    else:
+                        lines.append("- This image does not expose status-bar model order; inspect the magnified crop.")
                 for record in entry["ranking"]:
                     lines.append("- `" + record["key"] + "`: mRankingTimeMs=" + str(record["rankingTimeMs"]) + ", when=" + str(record["when"]) + ", globalSortKey=`" + str(record["globalSortKey"]) + "`")
         if self.report.get("error"):
@@ -554,6 +822,14 @@ def main():
             evidence.report["retryReason"] = "proven-preinstall-SystemUI-ANR"
             status = 75
     finally:
+        if "defaultBefore" in evidence.report:
+            try:
+                evidence.report["defaultAfter"] = evidence.default_policy("defaults-after")
+                assert evidence.report["defaultBefore"] == evidence.report["defaultAfter"], "Platform visibility default flags changed"
+                evidence.report["defaultFlagsUnchanged"] = True
+            except (AssertionError, OSError, subprocess.SubprocessError) as error:
+                evidence.report.update(result="failed", error=str(error), defaultFlagsUnchanged=False)
+                status = 1
         evidence.summary()
     print(f"Status-icon evidence: {evidence.report['result']}; {args.evidence / 'summary.md'}")
     return status

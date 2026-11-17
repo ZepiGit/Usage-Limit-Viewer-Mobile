@@ -44,6 +44,7 @@ internal class StatusIconEvidenceDriver(
             require(command == "seed" || seeded) { "Seed a clean installation first; clear app data after process restart" }
             when (command) {
                 "seed" -> seed()
+                "same-provider" -> sameProvider()
                 "enable" -> container.statusIconChanges.setEnabled(true)
                 "pin", "unpin" -> {
                     val selected = fixtureAccount(requireNotNull(account) { "An account alias is required" })
@@ -114,6 +115,24 @@ internal class StatusIconEvidenceDriver(
         seeded = true
     }
 
+    private suspend fun sameProvider() {
+        val changes = container.statusIconChanges
+        changes.setEnabled(false)
+        for (id in container.settingsStore.settings.first().pinnedAccountIds) {
+            check(changes.setPinned(id, false))
+        }
+        val personal = fixtureAccount("evidence-claude")
+        val work = repository.upsertFromLogin(WORK_FIXTURE.provider, WORK_FIXTURE.alias, null,
+            "Claude work (synthetic)", null, mapOf("screenshotFixture" to "true"))
+        reading(personal, 42.0)
+        reading(work, WORK_FIXTURE.left)
+        container.settingsStore.setProviderIcon(ProviderId.CLAUDE.id, "claude-color")
+        container.publication.cacheMoved()
+        check(changes.setPinned(personal.localId, true))
+        check(changes.setPinned(work.localId, true))
+        changes.setEnabled(true)
+    }
+
     private suspend fun initialReadings() {
         for (fixture in FIXTURES) {
             val account = fixtureAccount(fixture.alias)
@@ -138,7 +157,9 @@ internal class StatusIconEvidenceDriver(
     private suspend fun writeCompletion(command: String?, token: String?, error: String?) {
         val accounts = repository.accounts()
         val aliases = accounts.mapNotNull { account ->
-            FIXTURES.firstOrNull { it.alias == account.externalAccountId && it.provider == account.provider }?.let { it.alias to account.localId }
+            (FIXTURES.firstOrNull { it.alias == account.externalAccountId && it.provider == account.provider }
+                ?: WORK_FIXTURE.takeIf { it.alias == account.externalAccountId && it.provider == account.provider })
+                ?.let { it.alias to account.localId }
         }
         val byId = aliases.associate { (alias, id) -> id to alias }
         val settings = container.settingsStore.settings.first()
@@ -150,6 +171,12 @@ internal class StatusIconEvidenceDriver(
             .put("pins", JSONArray(settings.pinnedAccountIds.mapNotNull { byId[it] }))
             .put("enabled", settings.statusIconsEnabled)
             .put("localIds", JSONObject(aliases.toMap()))
+        if (command == "same-provider" && error == null) {
+            val localIds = aliases.toMap()
+            completion.put("duplicateLocalIds", JSONObject()
+                .put("personal", localIds.getValue("evidence-claude"))
+                .put("work", localIds.getValue(WORK_FIXTURE.alias)))
+        }
         if (error != null) completion.put("error", error)
         val file = AtomicFile(File(app.filesDir, "status-icon-evidence.json"))
         val output = file.startWrite()
@@ -165,7 +192,8 @@ internal class StatusIconEvidenceDriver(
     private data class Fixture(val alias: String, val provider: ProviderId, val left: Double)
 
     private companion object {
-        val COMMANDS = setOf("seed", "enable", "pin", "unpin", "update", "reorder", "states", "reset-readings", "presentation", "cache")
+        val COMMANDS = setOf("seed", "enable", "pin", "unpin", "update", "reorder", "states", "reset-readings", "presentation", "cache", "same-provider")
+        val WORK_FIXTURE = Fixture("evidence-claude-work", ProviderId.CLAUDE, 87.0)
         val FIXTURES = listOf(
             Fixture("evidence-claude", ProviderId.CLAUDE, 42.0),
             Fixture("evidence-codex", ProviderId.CODEX, 5.0),

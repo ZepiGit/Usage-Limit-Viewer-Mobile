@@ -11,20 +11,30 @@ from status_icon_evidence import (
 
 
 # Shape of NotificationRecord.dump on Android 11/16, including extras and ranking.
-PAIR = """    NotificationRecord(0x123: pkg=com.usagelimits.debug user=UserHandle{0} id=2001 tag=status-icon:uuid-claude importance=2 key=0|com.usagelimits.debug|2001|status-icon:uuid-claude|10123: Notification(channel=status_icons shortcut=null contentView=null vibrate=null sound=null defaults=0x0 flags=0x30a color=0x00000000 group=status-icon:uuid-claude vis=PRIVATE))
+PAIR = """    NotificationRecord(0x123: pkg=com.usagelimits.debug user=UserHandle{0} id=2001 tag=status-icon:uuid-claude importance=3 key=0|com.usagelimits.debug|2001|status-icon:uuid-claude|10123: Notification(channel=status_icons shortcut=null contentView=null vibrate=null sound=null defaults=0x0 flags=0x30a color=0x00000000 group=status-icon:uuid-claude vis=PRIVATE))
       uid=10123 userId=0
       key=0|com.usagelimits.debug|2001|status-icon:uuid-claude|10123
       groupKey=0|com.usagelimits.debug|g:status-icon:uuid-claude
       overrideGroupKey=null
+      mImportance=3
+      mSound= null
+      mVibration= null
+      mLight= null
+      effectiveNotificationChannel=NotificationChannel{mId='status_icons', mImportance=3, mSound=null, mLights=false, mVibrationEnabled=false, mShowBadge=false}
       android.title=String (Claude)
       mRankingTimeMs=1794880000002
       when=1794880000001
       globalSortKey=intrsv=0:grnk=0x0000:gsmry=0:gsk=nshd:rnk=0x0000
-    NotificationRecord(0x124: pkg=com.usagelimits.debug user=UserHandle{0} id=2002 tag=status-icon:uuid-claude importance=2 key=0|com.usagelimits.debug|2002|status-icon:uuid-claude|10123: Notification(channel=status_icons shortcut=null contentView=null vibrate=null sound=null defaults=0x0 flags=0x10a color=0x00000000 group=status-icon:uuid-claude vis=PRIVATE))
+    NotificationRecord(0x124: pkg=com.usagelimits.debug user=UserHandle{0} id=2002 tag=status-icon:uuid-claude importance=3 key=0|com.usagelimits.debug|2002|status-icon:uuid-claude|10123: Notification(channel=status_icons shortcut=null contentView=null vibrate=null sound=null defaults=0x0 flags=0x10a color=0x00000000 group=status-icon:uuid-claude vis=PRIVATE))
       uid=10123 userId=0
       key=0|com.usagelimits.debug|2002|status-icon:uuid-claude|10123
       groupKey=0|com.usagelimits.debug|g:status-icon:uuid-claude
       overrideGroupKey=null
+      mImportance=3
+      mSound= null
+      mVibration= null
+      mLight= null
+      effectiveNotificationChannel=NotificationChannel{mId='status_icons', mImportance=3, mSound=null, mLights=false, mVibrationEnabled=false, mShowBadge=false}
       android.title=String (Claude)
       mRankingTimeMs=1794880000003
       when=1794880000002
@@ -99,8 +109,8 @@ class NotificationEvidenceTest(unittest.TestCase):
         updated = parse_notifications(dump(PAIR.replace("1794880000002", "1794880000087")))
         assert_snapshot(updated, ["uuid-claude"], baseline=baseline)
         for events in (
-            "11-17 12:00:00.000 1000 1000 I notification_alert: [10123,com.usagelimits.debug,2001,status-icon:uuid-claude,1,0,0]",
-            "11-17 12:00:00.000 1000 1000 I notification_alert: [10123,0,1,0]",
+            "11-17 12:00:00.000 1000 1000 I notification_alert: [0|com.usagelimits.debug|2001|status-icon:uuid-claude|10123,1,0,0]",
+            "11-17 12:00:00.000 1000 1000 I notification_alert: [0|com.usagelimits.debug|2002|status-icon:uuid-claude|10123,0,1,0,0,0]",
         ):
             with self.subTest(events=events), self.assertRaisesRegex(AssertionError, "notification_alert"):
                 assert_snapshot(updated, ["uuid-claude"], baseline=baseline, events=events)
@@ -124,154 +134,256 @@ class NotificationEvidenceTest(unittest.TestCase):
             self.assertEqual(["evidence-codex", "evidence-gemini"], swipe_accounts(api))
 
 
-class SilentIconEvidenceTest(unittest.TestCase):
-    def test_hidden_default_scrolls_nested_settings_recycler_and_toggles_exact_switch(self):
-        with tempfile.TemporaryDirectory() as directory:
-            evidence = Evidence(directory)
-            evidence.report["api"] = 37
-            tapped = False
-            scrolled = False
-            # Run44137851922 API37: the list viewport is nested inside a scrollable page.
-            viewport = '''<hierarchy>
-              <node package="com.android.settings" resource-id="com.android.settings:id/content_parent"
-                  class="android.widget.ScrollView" enabled="true" scrollable="true" bounds="[0,144][720,1476]">
-                <node resource-id="android:id/list_container" class="android.widget.FrameLayout" bounds="[0,242][720,1476]">
-                  <node package="com.android.settings" resource-id="com.android.settings:id/recycler_view"
-                      class="androidx.recyclerview.widget.RecyclerView" enabled="true" scrollable="true" bounds="[0,242][720,1476]">
-                    %s
-                  </node>
-                </node>
-              </node>
-            </hierarchy>'''
-
-            def adb(*args, **kwargs):
-                nonlocal tapped, scrolled
-                if args[:3] == ("shell", "input", "swipe"):
-                    self.assertEqual(("shell", "input", "swipe", "360", "1168", "360", "550", "300"), args)
-                    self.assertFalse(scrolled, "The observed list should reveal the exact title after one swipe")
-                    scrolled = True
-                if args[:3] == ("shell", "input", "tap"):
-                    self.assertEqual(("shell", "input", "tap", "640", "930"), args)
-                    tapped = True
-                if args == ("shell", "dumpsys", "notification", "--noredact"):
-                    return "hideSilentStatusBar=" + str(not tapped).lower()
-                if args == ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService"):
-                    return "showSilentStatusIcons=" + str(tapped).lower()
-                if args[:2] == ("exec-out", "cat"):
-                    if not scrolled:
-                        return viewport % '<node package="com.android.settings" text="Notifications"/>'
-                    return viewport % ('''
-                      <node><node class="android.widget.Switch" checkable="true" checked="true" bounds="[1,1][20,20]"/></node>
-                      <node class="android.widget.LinearLayout"><node resource-id="android:id/title" package="com.android.settings" text="Hide silent notifications in status bar"/>
-                        <node class="android.widget.Switch" resource-id="android:id/switch_widget" checkable="true" enabled="true" checked="%s" bounds="[600,900][680,960]"/>
-                      </node>''' % str(not tapped).lower())
-                return ""
-
-            with patch.object(evidence, "adb", side_effect=adb) as calls, patch.object(evidence, "screen"):
-                evidence.show_silent_icons()
-            self.assertTrue(scrolled)
-            self.assertTrue(tapped)
-            self.assertEqual(1, sum(call.args[:3] == ("shell", "input", "tap") for call in calls.call_args_list))
-            calls.assert_called_with("shell", "input", "keyevent", "KEYCODE_HOME")
-            self.assertTrue(evidence.report["silentIconVisibility"]["allowedSilentVerified"])
-            self.assertEqual(True, evidence.report["silentIconVisibility"]["defaultHidden"])
-            self.assertEqual(True, evidence.report["silentIconVisibility"]["setupChanged"])
-            self.assertIn('checked="false"', (evidence.directory / "silent-icons-after-0.xml").read_text())
-            self.assertIn("hideSilentStatusBar=false", (evidence.directory / "silent-icons-after-0-notification.txt").read_text())
-
-    def test_unknown_ambiguous_or_invalid_settings_recyclers_never_scroll_or_tap(self):
-        recycler = '''<node package="com.android.settings" resource-id="com.android.settings:id/recycler_view"
-            class="androidx.recyclerview.widget.RecyclerView" enabled="true" scrollable="true" bounds="[0,242][720,1476]"/>'''
-        for nodes in (
-            "",
-            recycler.replace("com.android.settings:id/recycler_view", "com.android.settings:id/unknown"),
-            recycler.replace('package="com.android.settings"', 'package="other.app"'),
-            recycler.replace("androidx.recyclerview.widget.RecyclerView", "android.widget.ScrollView"),
-            recycler * 2,
-            recycler + recycler.replace('[0,242][720,1476]', ''),
-            recycler.replace('enabled="true"', 'enabled="false"'),
-            recycler.replace('scrollable="true"', 'scrollable="false"'),
-            recycler.replace('[0,242][720,1476]', ''),
-            recycler.replace('[0,242][720,1476]', '[0,100][720,1476]'),
+class DefaultEvidenceParserTest(unittest.TestCase):
+    def test_default_records_reject_each_alert_or_privacy_regression(self):
+        assert_snapshot(parse_notifications(dump()), ["uuid-claude"])
+        assert_snapshot(parse_notifications(dump(PAIR.replace("mImportance=3\n", "mImportance=DEFAULT\n"))), ["uuid-claude"])
+        for before, after in (
+            ("importance=3", "importance=2"),
+            ("mImportance=3\n", "mImportance=2\n"),
+            ("mImportance=3\n", "missingImportance=3\n"),
+            ("mImportance=3\n", "mImportance=HIGH\n"),
+            ("mSound= null", "mSound= content://sound"),
+            ("mVibration= null", "mVibration= []"),
+            ("mLight= null", "mLight= Light{color=0}"),
+            ("mSound=null", "mSound=content://sound"),
+            ("effectiveNotificationChannel=", "unknownChannel="),
+            ("mShowBadge=false", "unknownBadge=false"),
+            ("mLight= null", "missingLight= null"),
+            ("mVibrationEnabled=false", "mVibrationEnabled=true"),
+            ("mLights=false", "mLights=true"), ("mShowBadge=false", "mShowBadge=true"),
+            ("mImportance=3,", "mImportance=2,"),
+            ("vis=PRIVATE", "vis=SECRET"), ("vis=PRIVATE", "vis=PUBLIC"),
+            ("flags=0x30a", "flags=0x308"),
+            ("flags=0x30a", "flags=0x302"), ("flags=0x30a", "flags=0x20a"),
         ):
-            with self.subTest(nodes=nodes), tempfile.TemporaryDirectory() as directory:
-                evidence = Evidence(directory)
-                evidence.report["api"] = 37
+            with self.subTest(field=before), self.assertRaises(AssertionError):
+                assert_snapshot(parse_notifications(dump(PAIR.replace(before, after))), ["uuid-claude"])
 
+    def test_aosp_keyed_zero_evaluation_events_are_allowed_but_noise_fails(self):
+        records = parse_notifications(dump())
+        key = records[0]["key"]
+        for tail in ("0,0,0", "0,0,0,0,4"):
+            assert_snapshot(records, ["uuid-claude"], events="I notification_alert: [" + key + "," + tail + "]")
+        for tail in ("1,0,0", "0,1,0", "0,0,1", "0,1,0,2,0", "0,0", "0,0,0,unknown", "0,0,0,1,2,3"):
+            with self.subTest(tail=tail), self.assertRaisesRegex(AssertionError, "notification_alert"):
+                assert_snapshot(records, ["uuid-claude"], events="I notification_alert: [" + key + "," + tail + "]")
+        assert_snapshot(records, ["uuid-claude"], events="I notification_alert: [0|other.app|1|null|10001,1,1,1]")
+
+    def test_heads_up_checks_active_section_not_global_key_mentions(self):
+        import status_icon_evidence as subject
+        records = parse_notifications(dump())
+        key = records[0]["key"]
+        empty = "    HeadsUpManager state:\n      mTouchAcceptanceDelay=700\n      mSnoozeLengthMs=60000\n      now=123\n      mUser=0\n      snoozed packages: 0\n      mBarState=0\n      mTouchableRegion=SkRegion()\n    Other state:\n      key=" + key
+        subject.assert_no_heads_up(empty, records)
+        subject.assert_no_heads_up(empty.replace("HeadsUpManager state:", "HeadsUpManagerPhone state:"), records)
+        for active in ("      HeadsUpEntry\n        mEntry=" + key + "\n", "      mAlertEntries={" + key + "=entry}\n"):
+            with self.subTest(active=active), self.assertRaisesRegex(AssertionError, "heads.up|Heads.up"):
+                subject.assert_no_heads_up(empty.replace("    Other state:", active + "    Other state:"), records)
+        with self.assertRaises(AssertionError):
+            subject.assert_no_heads_up("HeadsUpManager state:\n  unknownActiveRepresentation=empty", records)
+
+    def test_shade_requires_every_account_child_in_alerting(self):
+        import status_icon_evidence as subject
+        records = parse_notifications(dump())
+        key = records[1]["key"]
+        shade = "ShadeListBuilder shade notifications:\n  [0] " + key + " (parent=<root>) rank=1 section=6:5:Alerting\n"
+        self.assertEqual("Alerting", subject.assert_alerting_section(shade, records, 37)["assertion"])
+        for text in (shade.replace(":Alerting", ":Silent"), shade.replace(key, key.replace("uuid-claude", "wrong"))):
+            with self.subTest(text=text), self.assertRaises(AssertionError):
+                subject.assert_alerting_section(text, records, 37)
+
+    def test_api30_uses_observed_title_bounds_under_notifications_not_silent(self):
+        import status_icon_evidence as subject
+        records = parse_notifications(dump())
+        xml = '<hierarchy><node text="Notifications" bounds="[0,100][720,130]"/><node package="com.android.systemui" resource-id="android:id/title" text="Claude" bounds="[0,200][720,240]"/><node text="Silent" bounds="[0,300][720,340]"/></hierarchy>'
+        result = subject.assert_alerting_section("DefaultSection", records, 30, ET.fromstring(xml))
+        self.assertEqual("title positions under Notifications (not Silent)", result["assertion"])
+        with self.assertRaises(AssertionError):
+            subject.assert_alerting_section("DefaultSection", records, 30, ET.fromstring(xml.replace("[0,200][720,240]", "[0,400][720,440]")))
+
+    def test_api30_repeated_reading_titles_need_distinct_observed_rows(self):
+        import status_icon_evidence as subject
+        records = parse_notifications(dump(PAIR + PAIR.replace("uuid-claude", "uuid-codex") + PAIR.replace("uuid-claude", "uuid-gemini")))
+        header = '<node text="Notifications" bounds="[0,100][720,130]"/>'
+        row = '<node package="com.android.systemui" resource-id="android:id/title" text="Claude" bounds="[0,200][720,240]"/>'
+        for nodes in (row, row * 3):
+            with self.subTest(nodes=nodes), self.assertRaises(AssertionError):
+                subject.assert_alerting_section("DefaultSection", records, 30, ET.fromstring('<hierarchy>' + header + nodes + '</hierarchy>'))
+        rows = row + row.replace("[0,200][720,240]", "[0,300][720,340]") + row.replace("[0,200][720,240]", "[0,400][720,440]")
+        subject.assert_alerting_section("DefaultSection", records, 30, ET.fromstring('<hierarchy>' + header + rows + '</hierarchy>'))
+
+    def test_statusbar_metadata_is_not_inferred_from_shelf_or_record_count(self):
+        import status_icon_evidence as subject
+        records = parse_notifications(dump())
+        key = records[1]["key"]
+        block = "    [27f5e08] NotificationIconContainerStatusBarViewModel:\n      icons=NotificationIconsViewData(visibleIcons=[NotificationIconInfo(sourceIcon=Icon(typ=BITMAP size=84x56), notifKey=" + key + ", groupKey=group)], limit=4)\n    CRITICAL dump took 0ms -- viewmodel\n"
+        self.assertEqual("verified", subject.assert_visible_icons(block, records)["status"])
+        for text in (block.replace(key, key.replace("uuid-claude", "wrong")), block.replace("NotificationIconInfo(sourceIcon=Icon(typ=BITMAP size=84x56), notifKey=" + key + ", groupKey=group)", "")):
+            with self.subTest(text=text), self.assertRaises(AssertionError):
+                subject.assert_visible_icons(text, records)
+        for field in ("visibleState=DOT", "iconState=HIDDEN", "isHidden=true"):
+            with self.subTest(field=field), self.assertRaises(AssertionError):
+                subject.assert_visible_icons(block.replace("groupKey=group", field + ", groupKey=group"), records)
+        result = subject.assert_visible_icons(block.replace("NotificationIconContainerStatusBarViewModel", "NotificationIconContainerShelfViewModel"), records)
+        self.assertEqual("unsupported", result["status"])
+        self.assertIn("pixel", result["reason"])
+        three = parse_notifications(dump(PAIR + PAIR.replace("uuid-claude", "uuid-codex") + PAIR.replace("uuid-claude", "uuid-gemini")))
+        two = block.replace("], limit=4)", ", NotificationIconInfo(notifKey=" + key.replace("uuid-claude", "uuid-codex") + ", groupKey=group)], limit=4)")
+        with self.assertRaises(AssertionError):
+            subject.assert_visible_icons(two, three)
+
+
+    def test_initial_and_reordered_captures_require_provider_headers_without_assuming_visible_order(self):
+        expected = ["evidence-claude", "evidence-codex", "evidence-gemini"]
+        accounts = [("claude", "42% left", "Claude"), ("codex", "5% left", "OpenAI Codex"),
+                    ("gemini", "100% left", "Antigravity")]
+        posted = "".join(PAIR.replace("uuid-claude", "uuid-" + account)
+                         .replace("android.title=String (Claude)", f"android.title=String ({title})\n      android.subText=String ({provider})")
+                         for account, title, provider in accounts)
+        children = [record["key"] for record in parse_notifications(dump(posted)) if not record["summary"]]
+        systemui = ("HeadsUpManager state:\n  mTouchAcceptanceDelay=700\n  mSnoozeLengthMs=60000\n  now=123\n  mUser=0\n"
+                    "  snoozed packages: 0\nShadeListBuilder shade notifications:\n" +
+                    "".join(f"  [{i}] {key} (parent=<root>) rank={i} section=Alerting\n" for i, key in enumerate(children)))
+        shade = '''<hierarchy>
+          <node package="com.android.systemui" resource-id="android:id/status_bar_latest_event_content">
+            <node package="com.android.systemui" resource-id="android:id/notification_header">
+              <node package="com.android.systemui" resource-id="android:id/app_name_text" text="Usage Limits"/>
+              <node package="com.android.systemui" resource-id="android:id/header_text" text="Antigravity" content-desc=""/>
+            </node>
+            <node package="com.android.systemui" resource-id="android:id/title" text="100% left" bounds="[0,30][720,60]"/>
+          </node>
+          <node package="com.android.systemui" resource-id="android:id/status_bar_latest_event_content">
+            <node package="com.android.systemui" resource-id="android:id/notification_header" content-desc="Usage Limits · Claude"/>
+            <node package="com.android.systemui" resource-id="android:id/title" text="42% left" bounds="[0,90][720,120]"/>
+          </node>
+          <node package="com.android.systemui" resource-id="android:id/status_bar_latest_event_content">
+            <node package="com.android.systemui" resource-id="android:id/notification_headerless_view_row">
+              <node package="com.android.systemui" resource-id="android:id/title" text="5% left" bounds="[0,150][720,180]"/>
+            </node>
+          </node>
+        </hierarchy>'''
+        for name in ("03-enabled", "05-reordered"):
+            for notification, xml, failure in (
+                (posted.replace("android.subText=String (OpenAI Codex)", "android.subText=String (OpenAI Codex (synthetic))", 1), shade, "sub-text"),
+                (posted.replace("android.subText=String (Claude)", "missingSubText=Claude", 1), shade, "sub-text"),
+                (posted, shade.replace('text="Antigravity"', 'text="OpenAI Codex"'), "shade header"),
+                (posted, shade, None),
+            ):
+                with self.subTest(name=name, failure=failure), tempfile.TemporaryDirectory() as directory:
+                    evidence = Evidence(directory)
+                    evidence.report["api"] = 36
+                    evidence.state = {"localIds": {alias: "uuid-" + account for alias, (account, _, _) in zip(expected, accounts)}}
+                    with patch.object(evidence, "adb", side_effect=lambda *args: {
+                             ("shell", "dumpsys", "notification", "--noredact"): dump(notification),
+                             ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService"): systemui,
+                         }.get(args, "")), patch.object(evidence, "xml", return_value=ET.fromstring(xml)), \
+                            patch.object(evidence, "screen"), patch.object(evidence, "home"), patch("status_icon_evidence.time.sleep"):
+                        if failure:
+                            with self.assertRaisesRegex(AssertionError, failure):
+                                evidence.capture(name, "three pinned providers", expected)
+                        else:
+                            evidence.capture(name, "three pinned providers", expected)
+                            headers = evidence.report["scenarios"][-1]["providerHeaders"]
+                            self.assertEqual("verified", headers["evidence-claude"]["shadeStatus"])
+                            self.assertEqual("Usage Limits · Claude", headers["evidence-claude"]["shadeNodes"][0]["content-desc"])
+                            self.assertEqual("not_exposed", headers["evidence-codex"]["shadeStatus"])
+                            self.assertEqual("Antigravity", headers["evidence-gemini"]["shadeNodes"][0]["text"])
+
+    def test_same_provider_rows_require_reading_titles_and_distinct_names(self):
+        import status_icon_evidence as subject
+        personal = PAIR.replace("android.title=String (Claude)", "android.title=String (42% left)\n      android.text=String (5h limit · Resets 10:48 PM)\n      android.subText=String (Claude · Claude (synthetic))\n      android.largeIcon=Icon (typ=BITMAP size=96x96)")
+        work = personal.replace("uuid-claude", "uuid-work").replace("42% left", "87% left").replace("Claude (synthetic)", "Claude work (synthetic)")
+        records = parse_notifications(dump(personal + work))
+        root = ET.fromstring('<hierarchy><node package="com.android.systemui" text="Claude (synthetic)" content-desc="personal account"/><node package="com.android.systemui" text="Claude work (synthetic)" content-desc="work account"/></hierarchy>')
+        local_ids = {"evidence-claude": "uuid-claude", "evidence-claude-work": "uuid-work"}
+        result = subject.assert_duplicate_rows(records, root, local_ids)
+        self.assertEqual(["42% left", "87% left"], [row["title"] for row in result["accounts"]])
+        self.assertEqual(["Claude · Claude (synthetic)", "Claude · Claude work (synthetic)"], [row["subText"] for row in result["accounts"]])
+        for broken in (personal.replace("42% left", "Claude"), personal.replace("Claude · ", ""),
+                       personal.replace("Claude (synthetic)", "work"), personal.replace("Icon (typ=BITMAP size=96x96)", "null")):
+            with self.subTest(broken=broken), self.assertRaises(AssertionError):
+                subject.assert_duplicate_rows(parse_notifications(dump(broken + work)), root, local_ids)
+        with self.assertRaises(AssertionError):
+            subject.assert_duplicate_rows(records, ET.fromstring('<hierarchy/>'), local_ids)
+        self.assertFalse(subject.assert_duplicate_rows(records, ET.fromstring('<hierarchy/>'), local_ids, require_names=False)["namesExposed"])
+
+    def test_same_provider_completion_preserves_current_reordered_accounts(self):
+        import json
+        import status_icon_evidence as subject
+        original = {alias: "uuid-" + alias for alias in subject.ACCOUNTS}
+        reordered = [subject.ACCOUNTS[2], subject.ACCOUNTS[0], subject.ACCOUNTS[1], *subject.ACCOUNTS[3:]]
+        for completed_order in ([*reordered, subject.DUPLICATE_ACCOUNT], [*subject.ACCOUNTS, subject.DUPLICATE_ACCOUNT]):
+            with self.subTest(completed_order=completed_order), tempfile.TemporaryDirectory() as directory:
+                evidence = Evidence(directory)
+                evidence.state = {"accounts": reordered, "localIds": original}
+                token = None
                 def adb(*args, **kwargs):
-                    if args[:2] == ("exec-out", "cat"):
-                        return '''<hierarchy><node package="com.android.settings"
-                            resource-id="com.android.settings:id/content_parent" class="android.widget.ScrollView"
-                            enabled="true" scrollable="true" bounds="[0,144][720,1476]">''' + nodes + "</node></hierarchy>"
-                    return "hideSilentStatusBar=true showSilentStatusIcons=false"
-
-                with patch.object(evidence, "adb", side_effect=adb) as calls, patch.object(evidence, "screen"), \
-                        self.assertRaisesRegex(AssertionError, "silent|Silent"):
-                    evidence.show_silent_icons()
-                self.assertFalse(any(call.args[:2] == ("shell", "input") for call in calls.call_args_list))
-                self.assertFalse(evidence.report["silentIconVisibility"]["setupChanged"])
-                self.assertNotIn("allowedSilentVerified", evidence.report["silentIconVisibility"])
-
-    def test_visible_default_and_api30_do_not_change_settings(self):
-        for api, notification, default in ((36, "hideSilentStatusBar=false", False), (30, "old dump", None)):
-            with self.subTest(api=api), tempfile.TemporaryDirectory() as directory:
-                evidence = Evidence(directory)
-                evidence.report["api"] = api
-                with patch.object(evidence, "adb", side_effect=[notification, "showSilentStatusIcons=true"]) as adb:
-                    evidence.show_silent_icons()
-                self.assertEqual(2, adb.call_count)
-                self.assertEqual(default, evidence.report["silentIconVisibility"]["defaultHidden"])
-                self.assertFalse(evidence.report["silentIconVisibility"]["setupChanged"])
-
-    def test_api37_visible_default_requires_explicit_systemui_agreement(self):
-        for systemui, expected in (("showSilentStatusIcons=true", True), ("showSilentStatusIcons=false", False), ("missing field", None)):
-            with self.subTest(systemui=systemui), tempfile.TemporaryDirectory() as directory:
-                evidence = Evidence(directory)
-                evidence.report["api"] = 37
-                with patch.object(evidence, "adb", side_effect=["hideSilentStatusBar=false", systemui]) as adb:
-                    if expected is True:
-                        evidence.show_silent_icons()
-                        self.assertTrue(evidence.report["silentIconVisibility"]["allowedSilentVerified"])
+                    nonlocal token
+                    if args[:3] == ("shell", "am", "broadcast"):
+                        token = args[-1]
+                        return "Broadcast completed"
+                    return json.dumps({"token": token, "command": "same-provider", "success": True,
+                                       "accounts": completed_order, "enabled": True,
+                                       "pins": [subject.ACCOUNTS[0], subject.DUPLICATE_ACCOUNT],
+                                       "localIds": {**original, subject.DUPLICATE_ACCOUNT: "uuid-work"},
+                                       "duplicateLocalIds": {"personal": original[subject.ACCOUNTS[0]], "work": "uuid-work"}})
+                with patch.object(evidence, "adb", side_effect=adb):
+                    if completed_order == [*reordered, subject.DUPLICATE_ACCOUNT]:
+                        self.assertEqual(completed_order, evidence.command("same-provider")["accounts"])
                     else:
-                        with self.assertRaisesRegex(AssertionError, "SystemUI"):
-                            evidence.show_silent_icons()
-                self.assertEqual(2, adb.call_count)
-                self.assertIs(expected, evidence.report["silentIconVisibility"]["systemuiDefaultShowing"])
-                self.assertFalse(evidence.report["silentIconVisibility"]["setupChanged"])
+                        with self.assertRaisesRegex(AssertionError, "account order"):
+                            evidence.command("same-provider")
 
-    def test_missing_or_ambiguous_settings_title_never_taps(self):
-        for titles in ("", '<node package="com.android.settings" text="Hide silent notifications in status bar"/>' * 2):
-            with self.subTest(titles=titles), tempfile.TemporaryDirectory() as directory:
-                evidence = Evidence(directory)
-                evidence.report["api"] = 37
-
-                def adb(*args, **kwargs):
-                    if args[:2] == ("exec-out", "cat"):
-                        return "<hierarchy>" + titles + "</hierarchy>"
-                    return "hideSilentStatusBar=true showSilentStatusIcons=false"
-
-                with patch.object(evidence, "adb", side_effect=adb) as calls, patch.object(evidence, "screen"), \
-                        self.assertRaisesRegex(AssertionError, "silent|Silent"):
-                    evidence.show_silent_icons()
-                self.assertFalse(any(call.args[:3] == ("shell", "input", "tap") for call in calls.call_args_list))
-
-    def test_failed_toggle_does_not_claim_allowed_silent_scenario(self):
+    def test_platform_policy_reads_only_and_api37_hidden_default_stays_true(self):
         with tempfile.TemporaryDirectory() as directory:
             evidence = Evidence(directory)
             evidence.report["api"] = 37
+            with patch.object(evidence, "adb", side_effect=["hideSilentStatusBar=true", "showSilentStatusIcons=false"]) as adb:
+                observed = evidence.default_policy("defaults-before")
+            self.assertEqual(["true"], observed["hideSilentStatusBar"])
+            self.assertEqual(["false"], observed["showSilentStatusIcons"])
+            self.assertEqual([("shell", "dumpsys", "notification", "--noredact"),
+                              ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")],
+                             [call.args for call in adb.call_args_list])
+            with patch.object(evidence, "adb", side_effect=["hideSilentStatusBar=false", "showSilentStatusIcons=true"]), self.assertRaises(AssertionError):
+                evidence.default_policy("changed")
 
+    def test_lockscreen_restores_original_swipe_state_after_capture_failure(self):
+        for disabled in ("true", "false"):
+            with self.subTest(disabled=disabled), tempfile.TemporaryDirectory() as directory:
+                evidence = Evidence(directory)
+                original = disabled
+                state = disabled
+                evidence.state = {"localIds": {alias: alias for alias in ("evidence-claude", "evidence-codex", "evidence-gemini")}}
+                def adb(*args, **kwargs):
+                    nonlocal state
+                    if args == ("shell", "locksettings", "get-disabled"):
+                        return state
+                    if args[:3] == ("shell", "locksettings", "set-disabled"):
+                        state = args[3]
+                        return "Lock screen disabled set to " + state
+                    if args == ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService"):
+                        return "    KeyguardStateController:\n      mSecure: false\n"
+                    if args == ("shell", "dumpsys", "window"):
+                        return "    KeyguardServiceDelegate\n      showing=true\n      occluded=false\n      secure=false\n"
+                    return ""
+                with patch.object(evidence, "adb", side_effect=adb) as calls, patch.object(evidence, "screen", side_effect=RuntimeError("capture failed")), patch("status_icon_evidence.time.sleep"), self.assertRaisesRegex(RuntimeError, "capture failed"):
+                    evidence.lockscreen([])
+                self.assertEqual(original, state)
+                mutations = [call.args for call in calls.call_args_list if call.args[:3] == ("shell", "locksettings", "set-disabled")]
+                self.assertEqual([("shell", "locksettings", "set-disabled", "false"), ("shell", "locksettings", "set-disabled", "true")] if original == "true" else [], mutations)
+
+    def test_secure_keyguard_is_never_temporarily_changed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Evidence(directory)
             def adb(*args, **kwargs):
-                if args[:2] == ("exec-out", "cat"):
-                    return '''<hierarchy><node><node package="com.android.settings" text="Hide silent notifications in status bar"/>
-                        <node class="android.widget.Switch" checkable="true" enabled="true" checked="true" bounds="[600,900][680,960]"/>
-                        </node></hierarchy>'''
-                return "hideSilentStatusBar=true showSilentStatusIcons=false"
-
-            with patch.object(evidence, "adb", side_effect=adb), patch.object(evidence, "screen"), \
-                    patch("status_icon_evidence.time.monotonic", side_effect=[0, 6]), \
-                    self.assertRaisesRegex(AssertionError, "silent|Silent"):
-                evidence.show_silent_icons()
-            self.assertIn("hideSilentStatusBar=true", (evidence.directory / "silent-icons-after-0-notification.txt").read_text())
+                if args == ("shell", "locksettings", "get-disabled"):
+                    return "true"
+                return "    KeyguardStateController:\n      mSecure: true\n"
+            with patch.object(evidence, "adb", side_effect=adb) as calls, self.assertRaisesRegex(AssertionError, "non-secure"):
+                evidence.lockscreen([])
+            self.assertFalse(any(call.args[:3] == ("shell", "locksettings", "set-disabled") for call in calls.call_args_list))
 
 
 class SwipeEvidenceTest(unittest.TestCase):

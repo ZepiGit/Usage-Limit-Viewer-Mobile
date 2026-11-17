@@ -483,7 +483,7 @@
 
     <!-- Status icons for pinned accounts: channel and shade row (statusicon/StatusIconTexts.kt). -->
     <string name="status_icon_channel_name">Statusleisten-Symbole</string>
-    <string name="status_icon_channel_description">Ein lautloses Symbol mit dem Wert jedes angehefteten Kontos</string>
+    <string name="status_icon_channel_description">Der Wert jedes angehefteten Kontos, ohne Ton oder Vibration</string>
     <string name="status_icon_text_figure">%1$s %2$s</string>
     <string name="status_icon_text_figure_outdated">%1$s %2$s, möglicherweise veraltet</string>
     <string name="status_icon_text_unknown">Kein Prozentwert gemeldet</string>
@@ -499,7 +499,7 @@
     <string name="settings_status_icons_pin">%1$s anheften</string>
     <string name="settings_status_icons_pin_full">%1$s anheften. %2$d von %2$d sind angeheftet; löse zuerst eines.</string>
     <string name="settings_status_icons_no_accounts">Füge ein Konto hinzu, um sein Symbol anzuzeigen.</string>
-    <string name="settings_status_icons_note">Android entscheidet, wie viele Symbole Platz haben, und die Einstellung, die Symbole lautloser Benachrichtigungen ausblendet, blendet auch diese aus.</string>
+    <string name="settings_status_icons_note">Android entscheidet, wie viele Symbole passen. Die Benachrichtigungseinstellungen bestimmen ihre Sichtbarkeit.</string>
 
     <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
     <string name="loopback_signed_in">Angemeldet</string>
