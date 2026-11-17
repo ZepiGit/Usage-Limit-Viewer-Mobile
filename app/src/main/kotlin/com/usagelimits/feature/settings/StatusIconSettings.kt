@@ -23,9 +23,13 @@ import com.usagelimits.ui.theme.UsageColors
 /**
  * The "Status bar icons" section: the switch, then a pin toggle for each usage account.
  *
- * State in, events out: [onEnabledChange] reports the switch, [onPinnedChange] the whole new pin
- * list. A newly pinned account goes after the ones already pinned; the order the icons show in
- * is the app's account order, decided where they are published. Only usage accounts are offered;
+ * State in, events out: [onEnabledChange] reports the switch, [onPinnedChange] one account and
+ * whether it should be pinned; the change is applied to the stored pins when its turn comes. The
+ * order the icons show in is the app's account order, decided where they are published.
+ *
+ * [pendingPins] are changes made but not stored yet, while earlier changes are still published.
+ * The toggles show them at once and count them against the limit, so a toggle does not spring
+ * back under the finger and a fourth pin cannot be tapped while three are waiting. Only usage accounts are offered;
  * credit balances have no percentage and live in their own list, so they never reach [accounts].
  *
  * At most [MAX_PINNED_ACCOUNTS] can be pinned. With that many pinned, the section says so and the
@@ -41,10 +45,11 @@ import com.usagelimits.ui.theme.UsageColors
 internal fun StatusIconSettings(
     enabled: Boolean,
     pinnedAccountIds: List<String>,
+    pendingPins: Map<String, Boolean>,
     accounts: List<AccountUsage>,
     permission: NotificationPermissionState,
     onEnabledChange: (Boolean) -> Unit,
-    onPinnedChange: (List<String>) -> Unit,
+    onPinnedChange: (accountId: String, pinned: Boolean) -> Unit,
 ) {
     UsageCard {
         ToggleRow(
@@ -64,8 +69,11 @@ internal fun StatusIconSettings(
             color = if (permission.allowed) UsageColors.Muted else UsageColors.Warning,
         )
         if (enabled) {
-            // Pins of accounts that are gone do not count against the limit or show here.
-            val pinned = pinnedAccountIds.filter { id -> accounts.any { it.account.localId == id } }
+            // Pins of accounts that are gone do not count against the limit or show here; changes
+            // still waiting to be stored do.
+            val present = accounts.map { it.account.localId }.toSet()
+            val pinned = (pinnedAccountIds.filter { it in present } + pendingPins.filterValues { it }.keys)
+                .distinct().filter { it in present && pendingPins[it] != false }
             val full = pinned.size >= MAX_PINNED_ACCOUNTS
             RuleDivider()
             Text(
@@ -93,7 +101,7 @@ internal fun StatusIconSettings(
                     title = usage.account.label,
                     subtitle = usage.account.title(),
                     checked = isPinned,
-                    onChange = { pin -> onPinnedChange(if (pin) pinned + id else pinned - id) },
+                    onChange = { pin -> onPinnedChange(id, pin) },
                     // A disabled fourth switch says why, so a screen reader does not just hear "dimmed".
                     description = if (full && !isPinned) {
                         stringResource(R.string.settings_status_icons_pin_full, usage.account.label, MAX_PINNED_ACCOUNTS)

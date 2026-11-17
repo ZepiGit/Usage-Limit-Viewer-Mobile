@@ -273,7 +273,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                             onNotificationPermissionHandled = viewModel::recordNotificationPermissionHandled,
                             onProviderIconChange = viewModel::setProviderIcon,
                             onStatusIconsChange = viewModel::setStatusIcons,
-                            onPinnedAccountsChange = viewModel::setPinnedAccounts,
+                            onPinnedChange = viewModel::setPinned,
                             onNotificationsAllowed = viewModel::notificationsAllowed,
                             onNotifyBelow20 = viewModel::setNotifyBelow20,
                             onNotifyBelow10 = viewModel::setNotifyBelow10,

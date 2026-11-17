@@ -56,7 +56,7 @@ class StatusIconSettingsTest {
     private val credit = CreditEntry(CreditAccount("credit-1", CreditProviderId.DEEPSEEK, "DeepSeek balance", "credit:credit-1"), snapshot = null)
 
     private var enabled: Boolean? = null
-    private var pinned: List<String>? = null
+    private var pinned: Pair<String, Boolean>? = null
 
     private fun render(settings: AppSettings, credits: List<CreditEntry> = emptyList()) {
         compose.setContent {
@@ -67,7 +67,7 @@ class StatusIconSettingsTest {
                     onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
                     onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {},
                     onStatusIconsChange = { enabled = it },
-                    onPinnedAccountsChange = { pinned = it },
+                    onPinnedChange = { id, pin -> pinned = id to pin },
                 )
             }
         }
@@ -88,17 +88,16 @@ class StatusIconSettingsTest {
     }
 
     @Test
-    fun `pinning adds an account after the others and unpinning removes only that one`() {
+    fun `each toggle reports its own account and the wanted state`() {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         render(AppSettings(statusIconsEnabled = true, pinnedAccountIds = listOf("b")))
         scrollTo("Claude work")
         compose.onNodeWithContentDescription("Pin Codex home").assertIsOn()
         compose.onNodeWithContentDescription("Pin Claude work").assertIsOff().performClick()
-        assertEquals(listOf("b", "a"), pinned)
-        // The screen is stateless: it still shows only Codex pinned, so unpinning it leaves none.
+        assertEquals("a" to true, pinned)
         scrollTo("Codex home")
         compose.onNodeWithContentDescription("Pin Codex home").performClick()
-        assertEquals(emptyList<String>(), pinned)
+        assertEquals("b" to false, pinned)
     }
 
     @Test

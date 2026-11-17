@@ -159,7 +159,7 @@ class UsagePublicationRoutingTest {
             "credit edit" to { vm.updateCredit(credit.id, "Work", BigDecimal.TEN) },
             "credit removal" to { vm.removeCredit(credit.id) },
             "status icons on" to { vm.setStatusIcons(true) },
-            "pinned accounts" to { vm.setPinnedAccounts(listOf(account.localId)) },
+            "pinned account" to { vm.setPinned(account.localId, true) },
             "notifications allowed" to { vm.notificationsAllowed() },
             "account removal" to { vm.removeAccount(account.localId) },
         )

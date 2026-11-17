@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -53,10 +54,16 @@ import kotlinx.coroutines.withContext
  * - otherwise only groups still showing are updated, plus accounts that were not pinned the last
  *   time a publication ran. Turning the feature on, pinning an account, or unpinning and pinning
  *   it again therefore shows it; pinning another account, a display-mode change or a time
- *   boundary never brings back an icon the person swiped away.
+ *   boundary does not bring back an icon the person swiped away.
  *
  * "The last time" is [ShownSelection], the list of accounts the previous publication meant to
  * show. It is not a record of dismissals: nothing listens for a swipe.
+ *
+ * This holds for publications that run to their end. The spec's "Limits of the dismissal rule"
+ * name what it does not promise: a process that dies between storing the selection and posting
+ * leaves those icons missing until the next sync; a selection that was not stored can let a
+ * repaint bring a dismissed icon back early; a permission revoked and granted again with no
+ * publication in between may wait for the next sync.
  *
  * **Order.** A sort key does not order separate groups. Within one importance section Android
  * ranks them by ranking time, newest first, and the status bar draws its icons in that order from
@@ -85,6 +92,8 @@ class StatusIconPublisher(
      * caller's own dispatcher may keep time differently (a paused main looper in a test does).
      */
     private val nextTick: suspend () -> Unit = { withContext(Dispatchers.Default) { delay(1) } },
+    /** A clock that never jumps, to bound how long the order may be waited for. */
+    private val monotonic: () -> Long = SystemClock::elapsedRealtime,
 ) {
     private val manager get() = context.getSystemService(NotificationManager::class.java)
 
@@ -102,7 +111,8 @@ class StatusIconPublisher(
     /** [restoreDismissed] is true after a sync and false for every other publication. */
     suspend fun publish(restoreDismissed: Boolean): Unit = serial.withLock {
         // Missing permission is Settings' to explain; posting would only throw. Nothing is shown,
-        // so once the permission is given every pinned account counts as new and appears.
+        // so a publication after the permission is given counts every pinned account as new. If
+        // no publication ran while it was missing, restoration may wait for the next sync.
         if (!hasPermission()) {
             shown.write(emptyList())
             return@withLock
@@ -125,33 +135,52 @@ class StatusIconPublisher(
         ensureChannel(texts)
         val nowMs = now()
         val byId = accounts.associateBy { it.account.localId }
-        var postedAt: Long? = null
+        var previous: Long? = null
+        var ordered = true
         for (id in posting.asReversed()) {
-            postedAt = readingBeforeBuild(postedAt)
+            // Once the clock jumped back or stood still for too long, this publication posts the
+            // rest without the order guarantee rather than hold the lock and every caller behind it.
+            val reading = if (ordered) readingBeforeBuild(previous) else null
+            if (reading == null) ordered = false
+            val postedAt = reading ?: now()
             post(byId.getValue(id), settings, texts, nowMs, postedAt)
+            previous = postedAt
         }
     }
 
     /**
      * A real clock reading for one account's `when`, later than [previous] (the account posted
-     * before it) and earlier than the clock at which this account's notifications are then built.
+     * before it) and earlier than the clock at which this account's notifications are then built;
+     * null when that cannot be had.
      *
      * Later than [previous], because two equal times would tie and leave the order to Android.
      * Earlier than the build, because on Android 16 with `sortSectionByTime` a `when` equal to the
      * notification's `creationTime` (the build's clock reading) counts as not set by the app and
      * is ignored for ranking. Both by waiting for the clock to move on ([nextTick]), never by
-     * inventing a time. The wait suspends the publication (it keeps the publisher's lock, not a
-     * thread) until the clock shows the next millisecond, so three accounts cost at most about six
-     * milliseconds. A clock set back in between is taken as it is.
+     * inventing a time.
+     *
+     * That holds for a normal clock, one that does not jump while the reading is taken and the
+     * notifications are built. The wait suspends the publication (it keeps the publisher's lock,
+     * not a thread) until the clock shows the next millisecond; nominally about two milliseconds
+     * per account, with no upper bound from the scheduler. It gives up, and returns null, when
+     * the clock moves backwards (an earlier reading is not progress, and waiting for the old time
+     * could take as long as the jump) or has not moved within [CLOCK_WAIT_LIMIT_MS] on the
+     * [monotonic] clock. A clock that jumps after the last check cannot be ruled out.
      */
-    private suspend fun readingBeforeBuild(previous: Long?): Long {
+    private suspend fun readingBeforeBuild(previous: Long?): Long? {
+        val deadline = monotonic() + CLOCK_WAIT_LIMIT_MS
         var reading = now()
-        while (reading == previous) {
+        while (previous != null && reading <= previous) {
+            if (reading < previous || monotonic() >= deadline) return null
             nextTick()
             reading = now()
         }
-        while (now() == reading) nextTick()
-        return reading
+        while (true) {
+            val later = now()
+            if (later > reading) return reading
+            if (later < reading || monotonic() >= deadline) return null
+            nextTick()
+        }
     }
 
     private fun post(usage: AccountUsage, settings: AppSettings, texts: StatusIconTexts, nowMs: Long, postedAt: Long) {
@@ -230,6 +259,12 @@ class StatusIconPublisher(
     companion object {
         /** Separate from the alert channel, so a person can silence one without the other. */
         const val CHANNEL_ID = "status_icons"
+
+        /**
+         * How long one account's time may wait for the clock to move on before the publication
+         * gives up the order guarantee. A normal clock needs about two milliseconds.
+         */
+        internal const val CLOCK_WAIT_LIMIT_MS = 20L
 
         /** The tag names the account; the two ids name the records inside its group. */
         private const val SUMMARY_ID = 2001
