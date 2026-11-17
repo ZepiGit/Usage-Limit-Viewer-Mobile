@@ -257,11 +257,12 @@ jobs:
           gh release download "$baseline_tag" --repo "$GITHUB_REPOSITORY" \
             --pattern 'UsageLimits-*.apk' --dir runtime/previous
 
-      # setup-android adds SDK command-line tools (including sdkmanager) to PATH.
+      # Pin tools that parse the decimal API 37.0 image target correctly.
       - name: Set up Android SDK tools
         uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
+          cmdline-tools-version: '15859902'
 
       - name: Check the AOSP API 37 image is available
         run: |

@@ -160,9 +160,11 @@ jobs:
             --json tagName -q '.[].tagName' | grep -vxF "v$RELEASE_VERSION" | head -n 1)
           gh release download "$baseline_tag" --repo "$GITHUB_REPOSITORY" \
             --pattern 'UsageLimits-*.apk' --dir runtime/previous
+      # Pin tools that parse the decimal API 37.0 image target correctly.
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
+          cmdline-tools-version: '15859902'
       - name: Record release APK identity and signatures
         run: |
           set -euo pipefail

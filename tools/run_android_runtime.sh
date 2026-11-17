@@ -84,17 +84,33 @@ fi
 sdkmanager --install 'emulator' 'system-images;android-37.0;default;x86_64' > "$evidence/emulator-sdk-install.txt" 2>&1
 avdmanager create avd --name usage-runtime --package 'system-images;android-37.0;default;x86_64' \
   --device pixel_7_pro <<< no > "$evidence/emulator-avd-create.txt" 2>&1
+cp "$ANDROID_AVD_HOME/usage-runtime.ini" "$evidence/emulator-avd-root.ini"
+cp "$ANDROID_AVD_HOME/usage-runtime.avd/config.ini" "$evidence/emulator-avd-config.ini"
+avdmanager_path=$(readlink -f "$(command -v avdmanager)")
+cmdline_properties="$(dirname "$(dirname "$avdmanager_path")")/source.properties"
+printf 'avdmanager=%s\nsource.properties=%s\n' "$avdmanager_path" "$cmdline_properties" > "$evidence/emulator-cmdline-tools.txt"
+if [[ -f "$cmdline_properties" ]]; then
+  cat "$cmdline_properties" >> "$evidence/emulator-cmdline-tools.txt"
+fi
 # Keep the same 411x891 dp viewport while reducing the CPU-bound software-rendered
 # surface from 1440x3120 to 720x1560 pixels. A failed API 36 boot showed SystemUI
 # blocked 14.3s in SurfaceControl.getGPUContextPriority while SurfaceFlinger and
 # the graphics composer were saturated on a four-vCPU GitHub host.
-python3 - "$ANDROID_AVD_HOME/usage-runtime.avd/config.ini" <<'PY'
+python3 - "$ANDROID_AVD_HOME/usage-runtime.avd/config.ini" "$ANDROID_AVD_HOME/usage-runtime.ini" <<'PY'
 from pathlib import Path
 import re
 import sys
 
 config = Path(sys.argv[1])
+root = Path(sys.argv[2])
 text = config.read_text()
+for path, contents, key, expected in (
+    (root, root.read_text(), "target", "android-37.0"),
+    (config, text, "image.sysdir.1", "system-images/android-37.0/default/x86_64/"),
+):
+    values = re.findall(rf"(?m)^{re.escape(key)}\s*=\s*(.*?)\s*$", contents)
+    if values != [expected]:
+        raise SystemExit(f"{path}: expected exactly one {key}={expected}, found {values!r}")
 for key, value in {"hw.lcd.width": "720", "hw.lcd.height": "1560", "hw.lcd.density": "280"}.items():
     pattern = rf"(?m)^{re.escape(key)}=.*$"
     if len(re.findall(pattern, text)) != 1:
