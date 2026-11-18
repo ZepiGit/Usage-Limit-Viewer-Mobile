@@ -79,7 +79,7 @@ If the widget cannot read the app's data before the first unlock after a restart
 
 On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting, reordering accounts or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, makes the app post it again without waiting for a sync. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
 
-After the phone restarts, the icons normally return under the same conditions with the refresh that starts when you open the app, or with the next background refresh at your chosen interval if you leave it closed.
+After the phone restarts, the icons normally return under the same conditions with the refresh that starts when you open the app, or with the next background refresh at your chosen interval if you leave it closed; Android may run it later.
 
 This holds when a publication runs to its end. Around a crash or a permission change it is best effort:
 

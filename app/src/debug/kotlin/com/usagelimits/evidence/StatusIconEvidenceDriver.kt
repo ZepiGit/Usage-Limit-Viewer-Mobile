@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -207,6 +208,8 @@ internal class StatusIconEvidenceDriver(
             Fixture("evidence-cursor", ProviderId.DEVIN, 42.0),
         )
 
+        private fun WorkInfo.hasActiveAttempt() = !state.isFinished && (state == WorkInfo.State.RUNNING || runAttemptCount != 0)
+
         private suspend fun quiesceStartup(
             app: UsageLimitsApp,
             onSnapshot: (suspend (List<WorkInfo>) -> Unit)? = null,
@@ -217,9 +220,17 @@ internal class StatusIconEvidenceDriver(
             val syncWork = SyncWorker::class.java.name
             val workInfo = work.getWorkInfosByTagFlow(syncWork)
             val startupInfo = if (onSnapshot == null) workInfo else workInfo.onEach(onSnapshot)
-            startupInfo.first { requests ->
-                requests.none { !it.state.isFinished && (it.state == WorkInfo.State.RUNNING || it.runAttemptCount != 0) }
-            }
+            // Let due work start without waiting the full deadline for unmet constraints.
+            withTimeoutOrNull(5_000L) {
+                startupInfo.first { requests ->
+                    // Include work that can become due between this snapshot and cancellation.
+                    val dueBy = System.currentTimeMillis() + 250L
+                    requests.none {
+                        it.hasActiveAttempt() ||
+                            (it.state == WorkInfo.State.ENQUEUED && it.nextScheduleTimeMillis <= dueBy)
+                    }
+                }
+            } ?: startupInfo.first { requests -> requests.none { it.hasActiveAttempt() } }
             work.cancelAllWorkByTag(syncWork).await()
             val remaining = workInfo.first()
             check(remaining.all { it.state.isFinished }) { "Sync work is still scheduled; clear app data and retry" }

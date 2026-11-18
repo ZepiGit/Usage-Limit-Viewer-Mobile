@@ -9,6 +9,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
 import androidx.work.CoroutineWorker
 import androidx.work.ListenableWorker
+import androidx.work.NetworkType
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerFactory
@@ -75,7 +76,9 @@ class StatusIconEvidenceDriverTest {
         }
     }
 
-    private suspend fun withShortSync(
+    private suspend fun withStartupSync(
+        intervalMinutes: Int,
+        workName: String,
         runSync: suspend CoroutineWorker.() -> ListenableWorker.Result,
         test: suspend (WorkManager, UUID) -> Unit,
     ) {
@@ -95,10 +98,10 @@ class StatusIconEvidenceDriverTest {
             Configuration.Builder().setExecutor(SynchronousExecutor()).setWorkerFactory(factory).build(),
         )
         try {
-            settings.setSyncInterval(5)
+            settings.setSyncInterval(intervalMinutes)
             app.scheduleOnStartup()
             val work = WorkManager.getInstance(app)
-            val request = work.getWorkInfosForUniqueWorkFlow(SyncWorker.SHORT_WORK_NAME).first().single()
+            val request = work.getWorkInfosForUniqueWorkFlow(workName).first().single()
             assertEquals(WorkInfo.State.ENQUEUED, request.state)
             assertEquals(0, request.runAttemptCount)
             test(work, request.id)
@@ -156,7 +159,7 @@ class StatusIconEvidenceDriverTest {
         withTimeout(10_000) {
             val publishProgress = CompletableDeferred<Unit>()
             val finishSync = CompletableDeferred<Unit>()
-            withShortSync(runSync = {
+            withStartupSync(5, SyncWorker.SHORT_WORK_NAME, runSync = {
                 publishProgress.await()
                 setProgress(workDataOf("waiting" to true))
                 finishSync.await()
@@ -192,7 +195,7 @@ class StatusIconEvidenceDriverTest {
     @Test
     fun `seed rejects a startup sync claimed between observation and cancellation`() = runBlocking {
         withTimeout(10_000) {
-            withShortSync(runSync = { awaitCancellation() }) { work, id ->
+            withStartupSync(5, SyncWorker.SHORT_WORK_NAME, runSync = { awaitCancellation() }) { work, id ->
                 val driver = StatusIconEvidenceDriver.observingStartup(app) { requests ->
                     val pending = requests.single { it.id == id }
                     assertEquals(WorkInfo.State.ENQUEUED, pending.state)
@@ -213,6 +216,74 @@ class StatusIconEvidenceDriverTest {
                     completion.getString("error"))
                 assertEquals(0, completion.getJSONArray("accounts").length())
                 assertTrue(app.container.repository.accounts().isEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun `seed waits for a due first periodic sync to finish`() = runBlocking {
+        withTimeout(10_000) {
+            val finishSync = CompletableDeferred<Unit>()
+            withStartupSync(30, SyncWorker.PERIODIC_WORK_NAME, runSync = {
+                finishSync.await()
+                ListenableWorker.Result.success()
+            }) { work, id ->
+                val sawRunning = CompletableDeferred<Unit>()
+                var firstSnapshot = true
+                val driver = StatusIconEvidenceDriver.observingStartup(app) { requests ->
+                    val request = requests.single { it.id == id }
+                    if (firstSnapshot) {
+                        firstSnapshot = false
+                        assertEquals(WorkInfo.State.ENQUEUED, request.state)
+                        assertEquals(0, request.runAttemptCount)
+                        assertTrue("The first periodic sync is already due", request.nextScheduleTimeMillis <= System.currentTimeMillis())
+                        // WorkManager claims the sync without changing the snapshot seed already read.
+                        checkNotNull(WorkManagerTestInitHelper.getTestDriver(app)).setAllConstraintsMet(id)
+                        val running = work.getWorkInfoByIdFlow(id).first { it?.state == WorkInfo.State.RUNNING }
+                        assertEquals(1, running?.runAttemptCount)
+                    } else if (request.state == WorkInfo.State.RUNNING) {
+                        sawRunning.complete(Unit)
+                    }
+                }
+
+                val seed = async { command("seed", driver = driver) }
+                val earlyCompletion = select<JSONObject?> {
+                    seed.onAwait { it }
+                    sawRunning.onAwait { null }
+                }
+                assertTrue("Seed returned before the first periodic sync finished: $earlyCompletion", earlyCompletion == null)
+                finishSync.complete(Unit)
+
+                val completion = seed.await()
+                assertTrue(completion.optString("error"), completion.getBoolean("success"))
+                assertEquals(6, completion.getJSONArray("accounts").length())
+                val cancelled = work.getWorkInfoByIdFlow(id).first()
+                assertEquals(WorkInfo.State.CANCELLED, cancelled?.state)
+                // Completing the run resets attempts for the next period.
+                assertEquals(0, cancelled?.runAttemptCount)
+            }
+        }
+    }
+
+    @Test
+    fun `seed cancels a due one shot sync whose network constraint stays unmet`() = runBlocking {
+        withTimeout(10_000) {
+            withStartupSync(5, SyncWorker.SHORT_WORK_NAME, runSync = { error("Network constraint was not released") }) { work, _ ->
+                SyncWorker.syncOnResume(app)
+                val pending = work.getWorkInfosForUniqueWorkFlow(SyncWorker.ONE_SHOT_WORK_NAME)
+                    .first { it.isNotEmpty() }.single()
+                assertEquals(WorkInfo.State.ENQUEUED, pending.state)
+                assertEquals(0, pending.runAttemptCount)
+                assertEquals(NetworkType.CONNECTED, pending.constraints.requiredNetworkType)
+                assertTrue("The one-shot sync is already due", pending.nextScheduleTimeMillis <= System.currentTimeMillis())
+
+                val completion = command("seed", driver = StatusIconEvidenceDriver(app))
+
+                assertTrue(completion.optString("error"), completion.getBoolean("success"))
+                assertEquals(6, completion.getJSONArray("accounts").length())
+                val cancelled = work.getWorkInfoByIdFlow(pending.id).first()
+                assertEquals(WorkInfo.State.CANCELLED, cancelled?.state)
+                assertEquals(0, cancelled?.runAttemptCount)
             }
         }
     }
