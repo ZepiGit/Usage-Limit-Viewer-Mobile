@@ -536,6 +536,12 @@ class Evidence:
         self.save(name + "-ranking.txt", "\n".join(f"{record['key']} rankingTimeMs={record['rankingTimeMs']} when={record['when']} globalSortKey={record['globalSortKey']}" for record in records))
         local_ids = [self.state["localIds"][account] for account in expected]
         entry.update(assert_snapshot(records, local_ids, baseline=baseline, events=events))
+        if name == "03-enabled-default":
+            assert self.early is not None, f"{name}: heads-up window not observed: missing early SystemUI dump"
+            try:
+                self._assert_first_post_collection(name, entry["ranking"])
+            finally:
+                self._save_early_timing(name, self.early)
         entry["headsUp"] = assert_no_heads_up(presentation["systemui"], records)
         entry["visibleIcons"] = assert_visible_icons(presentation["systemui"], records)
         if name in ("03-enabled", "05-reordered"):
@@ -592,12 +598,30 @@ class Evidence:
         delay = started - completed if started is not None and completed is not None else None
         # /proc/uptime rounds down; the entire interval must fit in the window.
         window.update(completedElapsedRealtimeMs=completed, systemuiDumpStartedElapsedRealtimeMs=started, delayMs=delay,
-                      observed=dump_error is None and bool(systemui.strip()) and delay is not None
+                      startInWindow=dump_error is None and bool(systemui.strip()) and delay is not None
                       and 0 <= delay <= HEADS_UP_MAX_DELAY_MS - UPTIME_RESOLUTION_MS)
         if dump_error is not None:
             window["dumpError"] = dump_error
         timing["systemui"] = systemui if match else response
         self.save(name + "-early-systemui.txt", timing["systemui"])
+
+    def _save_early_timing(self, name, timing):
+        self.save(name + "-early-timing.json", json.dumps({key: value for key, value in timing.items() if key not in ("window", "systemui", "logcat", "events")}, indent=2))
+
+    def _assert_first_post_collection(self, name, ranking):
+        window = self.early["headsUpWindow"]
+        expected = {record["key"] for record in ranking if not record["summary"]}
+        check = window["firstPostCollection"] = {"expectedChildKeys": sorted(expected)}
+        try:
+            section = dump_section(self.early["systemui"], r"NotifCollection unsorted/unfiltered notifications:(?:[ \t]+\d+)?")
+            keys = set(re.findall(r"(?m)^[ \t]*\[\d+\][ \t]+(\S+)", section))
+            check["missingChildKeys"] = sorted(expected - keys)
+            assert expected and not check["missingChildKeys"], "early NotifCollection lacks expected child keys"
+        except AssertionError as error:
+            check.update(result="failed", reason=str(error))
+            raise AssertionError(f"{name}: heads-up window not observed: {error}") from None
+        check["result"] = "verified"
+        window["observed"] = True
 
     def early_frames(self, name, ready, start, timing):
         samples = []
@@ -636,7 +660,7 @@ class Evidence:
         )
         window = {"completedElapsedRealtimeMs": None, "systemuiDumpStartedElapsedRealtimeMs": None,
                   "delayMs": None, "maximumDelayMs": HEADS_UP_MAX_DELAY_MS,
-                  "stampResolutionMs": UPTIME_RESOLUTION_MS, "observed": False}
+                  "stampResolutionMs": UPTIME_RESOLUTION_MS, "startInWindow": False, "observed": False}
         self.report.setdefault("earlyHeadsUpWindows", {})[name] = window
         ready, start, timing = threading.Event(), threading.Event(), {"headsUpWindow": window}
         observer = threading.Thread(target=self.early_frames, args=(name, ready, start, timing), daemon=True)
@@ -648,13 +672,16 @@ class Evidence:
             start.set()
             state = self.command(command)
             self.report["lastAssertion"] = name + ": early heads-up window"
+            # SystemUI can receive the notifications after the receiver has finished.
+            time.sleep(1)
             self._early_systemui(name, timing, state.get("completedElapsedRealtimeMs"))
-            assert window["observed"], f"{name}: heads-up window not observed"
+            assert window["startInWindow"], f"{name}: heads-up window not observed"
+            window["observed"] = command != "enable"
         finally:
             start.set()
             observer.join(90)
             assert not observer.is_alive(), "Early observer exceeded bounded collection window"
-            self.save(name + "-early-timing.json", json.dumps({key: value for key, value in timing.items() if key not in ("window", "systemui", "logcat", "events")}, indent=2))
+            self._save_early_timing(name, timing)
         assert "observerError" not in timing, timing.get("observerError")
         self.early = timing
 
@@ -833,7 +860,12 @@ class Evidence:
                 delay = window["delayMs"]
                 maximum = window["maximumDelayMs"] / 1000
                 measured = "delay unavailable" if delay is None else f"dump start − receiver completion: {delay / 1000:.3f} s"
-                result = "within bound" if window["observed"] else "heads-up window not observed"
+                result = "within bound" if window["startInWindow"] else "heads-up window not observed"
+                if check := window.get("firstPostCollection"):
+                    if check["result"] == "verified":
+                        result += "; all expected child keys in the first NotifCollection snapshot"
+                    else:
+                        result += "; heads-up window not observed: " + check["reason"]
                 lines.append(f"- {name}: {measured} (maximum {maximum:.1f} s); {result}.")
         lines += ["", "## Notification header evidence", ""]
         for entry in self.report["scenarios"]:

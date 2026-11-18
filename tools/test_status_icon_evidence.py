@@ -489,6 +489,72 @@ class SwipeEvidenceTest(unittest.TestCase):
 
 
 class TransitionEvidenceTest(unittest.TestCase):
+    def test_first_enable_requires_early_collection_to_contain_eventual_children(self):
+        home = ('<hierarchy><node package="example.launcher" enabled="true" '
+                'resource-id="example.launcher:id/workspace" bounds="[0,0][720,1560]"/></hierarchy>')
+        accounts = ["evidence-" + name for name in ("claude", "codex", "gemini", "xai", "copilot", "cursor")]
+        local_ids = {alias: alias.replace("evidence-", "uuid-") for alias in accounts}
+        posted = "".join(PAIR.replace("uuid-claude", local_ids[alias]) for alias in accounts[:3])
+        keys = [f"0|com.usagelimits.debug|2002|status-icon:{local_ids[alias]}|10123" for alias in accounts[:3]]
+        manager = ("HeadsUpManager state:\n  mTouchAcceptanceDelay=700\n  mSnoozeLengthMs=60000\n"
+                   "  now=123\n  mUser=0\n  snoozed packages: 0\n    ShadeTouchableRegionManager state:\n")
+        later = "    ShadeListBuilder shade notifications:\n" + "".join(
+            f"      [{index}] {key} (parent=<root>) rank={index} section=6:5:Alerting\n"
+            for index, key in enumerate(keys)
+        )
+        shade = ('<hierarchy><node text="Notifications" bounds="[0,100][720,130]"/>' + "".join(
+            '<node package="com.android.systemui" resource-id="android:id/title" text="Claude" '
+            f'bounds="[0,{y}][720,{y + 40}]"/>' for y in (200, 250, 300)
+        ) + '</hierarchy>')
+        stage = "03-enabled-default"
+        for api, api_suffix in ((30, "sectionIndex=0 sectionName=DefaultSection"),
+                                (36, "section=4:5:Alerting"), (37, "section=6:5:Alerting")):
+            for arrived in ([], keys[:2], keys):
+                with self.subTest(api=api, arrived=len(arrived)), tempfile.TemporaryDirectory() as directory:
+                    evidence = Evidence(directory)
+                    evidence.report.update(api=api, preflight={"component": "example.launcher/.Home"})
+                    token, shade_expanded, early_dumps = None, False, 0
+                    rows = ["-1|android|55|null|1000", *arrived]
+                    count = "" if api == 30 else f" {len(rows)}"
+                    gap = " " if api == 30 else "  "
+                    detail = "    \t\t\tinteracted=no \n" if api == 30 else ""
+                    collection = ("    NotifCollection:\n    ----------------------------------------------------------------------------\n"
+                                  f"    \tNotifCollection unsorted/unfiltered notifications:{count}\n"
+                                  + "".join(f"    \t\t[{index}]{gap}{key} {api_suffix}\n{detail}"
+                                            for index, key in enumerate(rows)))
+
+                    def adb(*args, **kwargs):
+                        nonlocal token, shade_expanded, early_dumps
+                        if args[:3] == ("shell", "am", "broadcast"):
+                            token = args[args.index("token") + 1]
+                        if args[:2] == ("exec-out", "run-as"):
+                            return json.dumps({"token": token, "command": "enable", "success": True, "enabled": True,
+                                               "accounts": accounts, "pins": accounts[:3], "localIds": local_ids,
+                                               "completedElapsedRealtimeMs": 100000})
+                        if args[:3] == ("shell", "sh", "-c") and "/proc/uptime" in args[3]:
+                            return "systemuiDumpStartedUptime=101.25\n" + manager + collection + later
+                        if args == ("shell", "dumpsys", "notification", "--noredact"):
+                            return dump(posted)
+                        if args[-1] == "com.android.systemui/.SystemUIService":
+                            return manager + later
+                        if args == ("shell", "cmd", "statusbar", "expand-notifications"):
+                            self.shade_expanded = True
+                        if args == ("exec-out", "cat", "/sdcard/status-icon-evidence.xml"):
+                            return shade if self.shade_expanded else home
+                        return ""
+
+                    self.shade_expanded = False
+                    with patch.object(evidence, "adb", side_effect=adb), patch.object(evidence, "screen"), \
+                            patch("status_icon_evidence.time.sleep"):
+                        evidence.transition("enable", stage)
+                        if arrived == keys:
+                            evidence.capture(stage, "first enable with three pins", accounts[:3])
+                        else:
+                            with self.assertRaisesRegex(AssertionError, "heads-up window not observed"):
+                                evidence.capture(stage, "first enable with three pins", accounts[:3])
+                            evidence.summary()
+                            self.assertIn("heads-up window not observed", (evidence.directory / "summary.md").read_text())
+
     def transition_summary(self, completion, stamp, *, observed):
         home = ('<hierarchy><node package="example.launcher" enabled="true" '
                 'resource-id="example.launcher:id/workspace" bounds="[0,0][720,1560]"/></hierarchy>')
