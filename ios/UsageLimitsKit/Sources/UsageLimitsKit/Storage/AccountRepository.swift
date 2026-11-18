@@ -110,16 +110,28 @@ public actor AccountRepository {
 
     // MARK: - Writing
 
+    /// Inserts a new account or re-saves an existing one, decided here against the loaded
+    /// register, never by an earlier read that could have returned empty.
+    ///
+    /// An insertion gets a fresh `instanceID`; a re-save keeps the stored one (a row from
+    /// before instances existed keeps none). A pin names that instance, so a pin left behind
+    /// for an earlier instance of the same account cannot select the new one.
     public func upsert(_ account: ProviderAccount) throws {
         try requireLoaded()
         // The snapshot is kept across an account being re-saved. Re-authenticating an account
         // updates its tokens, not its quota, and blanking the numbers would make a successful
         // sign-in look like a regression.
         var updated = records
+        let instanceID: String?
+        if let existing = records[account.id] {
+            instanceID = existing.account.instanceID
+        } else {
+            instanceID = UUID().uuidString
+        }
         // The snapshot AND the place in the list survive a re-save: re-authenticating an
         // account changes its tokens, not where the user put it.
         updated[account.id] = Stored(
-            account: account,
+            account: account.with(instanceID: instanceID),
             snapshot: records[account.id]?.snapshot,
             sortOrder: records[account.id]?.sortOrder,
             automaticSyncNotBefore: records[account.id]?.automaticSyncNotBefore)
@@ -324,6 +336,7 @@ private extension ProviderAccount {
             credentialReference: credentialReference,
             createdAt: createdAt,
             lastSuccessfulSync: lastSuccessfulSync,
-            attributes: attributes)
+            attributes: attributes,
+            instanceID: instanceID)
     }
 }

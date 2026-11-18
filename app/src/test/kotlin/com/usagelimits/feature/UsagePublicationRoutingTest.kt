@@ -86,6 +86,7 @@ class UsagePublicationRoutingTest {
             override val publication = object : Publication {
                 override suspend fun cacheMoved() { events.send("cache moved") }
                 override suspend fun presentationChanged() { events.send("presentation changed") }
+                override suspend fun notificationsAllowedAgain() { events.send("notifications allowed again") }
             }
         }
         vm = UsageViewModel(container, app)
@@ -133,6 +134,18 @@ class UsagePublicationRoutingTest {
         }
     }
 
+    @Test fun `removing an account releases its pin and keeps the others in order`() = runBlocking {
+        val kept = container.repository.upsertFromLogin(ProviderId.CODEX, "kept", null, null, "Plus", emptyMap())
+        val removed = container.repository.upsertFromLogin(ProviderId.CODEX, "removed", null, null, "Plus", emptyMap())
+        val other = container.repository.upsertFromLogin(ProviderId.CODEX, "other", null, null, "Plus", emptyMap())
+        container.settingsStore.setPinnedAccounts(listOf(other.localId, removed.localId, kept.localId))
+
+        vm.removeAccount(removed.localId)
+        assertEquals("presentation changed", withTimeoutOrNull(5_000) { events.receive() })
+
+        assertEquals(listOf(other.localId, kept.localId), container.settingsStore.settings.first().pinnedAccountIds)
+    }
+
     @Test fun `presentation edits publish only presentation changed`() = runBlocking {
         val account = container.repository.upsertFromLogin(ProviderId.CODEX, "fixture", "test@example.com",
             null, "Plus", emptyMap())
@@ -146,12 +159,17 @@ class UsagePublicationRoutingTest {
             "sync interval" to { vm.setSyncInterval(60) },
             "credit edit" to { vm.updateCredit(credit.id, "Work", BigDecimal.TEN) },
             "credit removal" to { vm.removeCredit(credit.id) },
+            "status icons on" to { vm.setStatusIcons(true) },
+            "pinned account" to { vm.setPinned(account.localId, true) },
             "account removal" to { vm.removeAccount(account.localId) },
         )
         for ((label, change) in changes) {
             change()
             assertEquals(label, "presentation changed", withTimeoutOrNull(5_000) { events.receive() })
         }
+        // Allowed again is its own reason: it restores every pinned icon and evaluates no alert.
+        vm.notificationsAllowed()
+        assertEquals("notifications allowed again", withTimeoutOrNull(5_000) { events.receive() })
         withTimeout(5_000) {
             vm.viewModelScope.coroutineContext[Job]!!.children
                 .filterNot { it in backgroundJobs }.toList().joinAll()

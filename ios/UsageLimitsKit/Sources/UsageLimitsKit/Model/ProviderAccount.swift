@@ -50,6 +50,15 @@ public struct ProviderAccount: Sendable, Codable, Identifiable, Equatable {
     public let lastSuccessfulSync: Date?
     /// Non-secret provider extras, e.g. the Antigravity GCP project id.
     public let attributes: [String: String]
+    /// Which time this account was added: set by `AccountRepository.upsert` when the row is
+    /// inserted, kept on every reconnect, new when the same account is removed and added again.
+    /// Nil for rows written before it existed.
+    public let instanceID: String?
+
+    /// What a pin names. A pin made for an earlier instance of the same account (one whose
+    /// removal never reached the settings file) therefore cannot select this one. Rows from
+    /// before `instanceID` existed keep their account id, so their pins still apply.
+    public var pinKey: String { instanceID ?? id }
 
     public init(
         id: String,
@@ -61,7 +70,8 @@ public struct ProviderAccount: Sendable, Codable, Identifiable, Equatable {
         credentialReference: String,
         createdAt: Date,
         lastSuccessfulSync: Date?,
-        attributes: [String: String] = [:]
+        attributes: [String: String] = [:],
+        instanceID: String? = nil
     ) {
         self.id = id
         self.provider = provider
@@ -73,11 +83,12 @@ public struct ProviderAccount: Sendable, Codable, Identifiable, Equatable {
         self.createdAt = createdAt
         self.lastSuccessfulSync = lastSuccessfulSync
         self.attributes = attributes
+        self.instanceID = instanceID
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, provider, externalAccountID, email, displayName, plan, credentialReference
-        case createdAt, lastSuccessfulSync, attributes
+        case createdAt, lastSuccessfulSync, attributes, instanceID
     }
 
     /// Lenient on `attributes`, which arrived after the first registers were written.
@@ -98,7 +109,17 @@ public struct ProviderAccount: Sendable, Codable, Identifiable, Equatable {
             credentialReference: try c.decode(String.self, forKey: .credentialReference),
             createdAt: try c.decode(Date.self, forKey: .createdAt),
             lastSuccessfulSync: try c.decodeIfPresent(Date.self, forKey: .lastSuccessfulSync),
-            attributes: try c.decodeIfPresent([String: String].self, forKey: .attributes) ?? [:])
+            attributes: try c.decodeIfPresent([String: String].self, forKey: .attributes) ?? [:],
+            instanceID: try c.decodeIfPresent(String.self, forKey: .instanceID))
+    }
+
+    /// The same account as another instance; only the repository assigns one.
+    func with(instanceID: String?) -> ProviderAccount {
+        ProviderAccount(
+            id: id, provider: provider, externalAccountID: externalAccountID, email: email,
+            displayName: displayName, plan: plan, credentialReference: credentialReference,
+            createdAt: createdAt, lastSuccessfulSync: lastSuccessfulSync, attributes: attributes,
+            instanceID: instanceID)
     }
 
     /// `m***@example.com` — what the UI shows instead of the full address.

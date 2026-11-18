@@ -132,6 +132,7 @@ class SyncWorkerSchedulingTest {
             override val publication = object : Publication {
                 override suspend fun cacheMoved() { published?.complete(Unit) }
                 override suspend fun presentationChanged() = Unit
+                override suspend fun notificationsAllowedAgain() = Unit
             }
         }
         ReflectionHelpers.setField(context, "container", container)

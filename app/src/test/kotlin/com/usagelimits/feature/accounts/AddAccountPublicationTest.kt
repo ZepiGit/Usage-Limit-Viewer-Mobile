@@ -84,7 +84,7 @@ class AddAccountPublicationTest {
                 if (!failBoundary) super.publication
                 else com.usagelimits.core.sync.OutOfAppPublication(
                     app, repository, creditRepository, settingsStore,
-                    notificationPublisher,
+                    notificationPublisher, statusIconPublisher,
                     scheduleBoundary = { throw IllegalStateException("WorkManager unavailable") },
                 )
             }

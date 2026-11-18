@@ -16,6 +16,7 @@ import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.PercentDisplay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import com.usagelimits.feature.waitDrained
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
@@ -67,7 +68,7 @@ class WidgetConfigActivitySaveTest {
         try {
             openConfigFor(config).use {
                 compose.onNodeWithText("Save widget").performClick()
-                compose.waitUntil(10_000) { (storedConfig(41)?.updatedAt ?: 0L) > config.updatedAt }
+                compose.waitDrained { (storedConfig(41)?.updatedAt ?: 0L) > config.updatedAt }
                 val stored = storedConfig(41)!!
                 assertEquals(config.copy(updatedAt = stored.updatedAt), stored)
                 assertEquals(PercentDisplay.USED, runBlocking { app.container.settingsStore.settings.first().percentDisplay })
@@ -85,7 +86,7 @@ class WidgetConfigActivitySaveTest {
             openConfigFor(WidgetConfigEntity(42, "CLOSEST_RESETS", null, null, 1L)).use {
                 choose("All accounts")
                 compose.onNodeWithText("Save widget").performClick()
-                compose.waitUntil(10_000) { storedConfig(42)?.scope == "ALL_ACCOUNTS" }
+                compose.waitDrained { storedConfig(42)?.scope == "ALL_ACCOUNTS" }
                 assertEquals("ALL_ACCOUNTS", storedConfig(42)!!.scope)
                 assertEquals(PercentDisplay.LEFT, runBlocking { app.container.settingsStore.settings.first().percentDisplay })
             }

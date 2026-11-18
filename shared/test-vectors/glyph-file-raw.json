@@ -1,0 +1,332 @@
+{
+  "description": "Raw glyph files as text, the fixture of tools/check_glyph_file.py (tools/test_check_glyph_file.py). Each case is the shipped shared/glyphs/status-icon-glyphs.json with one edit: 'none'; 'replace' the first occurrence of 'find' with 'with' (for a 'nest' case, 'with' then 'open' repeated 'nest' times, 'core', 'close' repeated 'nest' times and 'after'); 'prepend' or 'append' 'text'; or 'bytes', which replaces 'find' with the hex bytes 'hex'. The file must be strict UTF-8 JSON (RFC 8259) of the documented shape; anything else is rejected before it can ship.",
+  "cases": [
+    {
+      "name": "the shipped file",
+      "edit": "none",
+      "expect": "accept"
+    },
+    {
+      "name": "grid +24",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": +24,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 024",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 024,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 24f",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24f,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 24.",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24.,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid .24e2",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": .24e2,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 2.4e1",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 2.4e1,",
+      "expect": "accept"
+    },
+    {
+      "name": "grid 24.0",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24.0,",
+      "expect": "accept"
+    },
+    {
+      "name": "grid 24E+0",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24E+0,",
+      "expect": "accept"
+    },
+    {
+      "name": "grid 240e-1",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 240e-1,",
+      "expect": "accept"
+    },
+    {
+      "name": "grid 24d",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24d,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 24D",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24D,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 00024",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 00024,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid NaN",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": NaN,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid Infinity",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": Infinity,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 0x18",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 0x18,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 24L",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24L,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 2_4",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 2_4,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 24e",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24e,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 24.0.0",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24.0.0,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid -24",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": -24,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 24 24",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24 24,",
+      "expect": "reject"
+    },
+    {
+      "name": "grid '24'",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": '24',",
+      "expect": "reject"
+    },
+    {
+      "name": "trailing comma in the object",
+      "edit": "replace",
+      "find": "  \"fallback\": \"M20.5 12C20.5 16.6944 16.6944 20.5 12 20.5C7.3056 20.5 3.5 16.6944 3.5 12C3.5 7.3056 7.3056 3.5 12 3.5C16.6944 3.5 20.5 7.3056 20.5 12Z\"",
+      "with": "  \"fallback\": \"M20.5 12C20.5 16.6944 16.6944 20.5 12 20.5C7.3056 20.5 3.5 16.6944 3.5 12C3.5 7.3056 7.3056 3.5 12 3.5C16.6944 3.5 20.5 7.3056 20.5 12Z\",",
+      "expect": "reject"
+    },
+    {
+      "name": "trailing comma in glyphs",
+      "edit": "replace",
+      "find": "    \"opencode\": \"M15.5 6.5H8.5V17.5H15.5V6.5Z M19.5 22H4.5V2H19.5V22Z\"",
+      "with": "    \"opencode\": \"M15.5 6.5H8.5V17.5H15.5V6.5Z M19.5 22H4.5V2H19.5V22Z\",",
+      "expect": "reject"
+    },
+    {
+      "name": "line comment",
+      "edit": "replace",
+      "find": "{\n  \"grid\"",
+      "with": "{\n  // glyphs\n  \"grid\"",
+      "expect": "reject"
+    },
+    {
+      "name": "block comment",
+      "edit": "replace",
+      "find": "{\n  \"grid\"",
+      "with": "{\n  /* glyphs */\n  \"grid\"",
+      "expect": "reject"
+    },
+    {
+      "name": "single-quoted key",
+      "edit": "replace",
+      "find": "\"grid\":",
+      "with": "'grid':",
+      "expect": "reject"
+    },
+    {
+      "name": "unquoted key",
+      "edit": "replace",
+      "find": "\"grid\":",
+      "with": "grid:",
+      "expect": "reject"
+    },
+    {
+      "name": "unquoted path",
+      "edit": "replace",
+      "find": "\"xai\": \"M2 2H8.5L22 22H15.5Z M15.5 2H22L8.5 22H2Z\"",
+      "with": "\"xai\": M2",
+      "expect": "reject"
+    },
+    {
+      "name": "duplicate grid key",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24,\n  \"grid\": 24,",
+      "expect": "reject"
+    },
+    {
+      "name": "duplicate provider key",
+      "edit": "replace",
+      "find": "    \"claude\": \"M3 4H21V10H24V14H21V17H20V21H17V17H7V21H4V17H3V14H0V10H3Z M6 7.5V11H9V7.5Z M15 7.5V11H18V7.5Z\",",
+      "with": "    \"claude\": \"M3 4H21V10H24V14H21V17H20V21H17V17H7V21H4V17H3V14H0V10H3Z M6 7.5V11H9V7.5Z M15 7.5V11H18V7.5Z\",\n    \"claude\": \"M3 4H21V10H24V14H21V17H20V21H17V17H7V21H4V17H3V14H0V10H3Z M6 7.5V11H9V7.5Z M15 7.5V11H18V7.5Z\",",
+      "expect": "reject"
+    },
+    {
+      "name": "escaped key spelling the same name",
+      "edit": "replace",
+      "find": "\"grid\":",
+      "with": "\"gr\\u0069d\":",
+      "expect": "accept"
+    },
+    {
+      "name": "raw tab inside a path",
+      "edit": "replace",
+      "find": "\"fallback\": \"M",
+      "with": "\"fallback\": \"\tM",
+      "expect": "reject"
+    },
+    {
+      "name": "trailing garbage after the closing brace",
+      "edit": "append",
+      "text": "x",
+      "expect": "reject"
+    },
+    {
+      "name": "a second root object",
+      "edit": "append",
+      "text": "{}",
+      "expect": "reject"
+    },
+    {
+      "name": "an extra closing brace",
+      "edit": "append",
+      "text": "}",
+      "expect": "reject"
+    },
+    {
+      "name": "byte-order mark",
+      "edit": "prepend",
+      "text": "﻿",
+      "expect": "reject"
+    },
+    {
+      "name": "leading whitespace",
+      "edit": "prepend",
+      "text": "\n  ",
+      "expect": "accept"
+    },
+    {
+      "name": "grid a 12,000-deep array",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": ",
+      "open": "[",
+      "core": "24",
+      "close": "]",
+      "nest": 12000,
+      "after": ",",
+      "expect": "reject"
+    },
+    {
+      "name": "a lone escaped high surrogate in a key",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24,\n  \"\\ud83d\": 1,",
+      "expect": "reject"
+    },
+    {
+      "name": "a lone escaped high surrogate in a path",
+      "edit": "replace",
+      "find": "\"fallback\": \"M",
+      "with": "\"fallback\": \"\\ud83dM",
+      "expect": "reject"
+    },
+    {
+      "name": "two distinct escaped astral keys",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24,\n  \"\\ud83d\\ude00\": 1,\n  \"\\ud83d\\ude01\": 2,",
+      "expect": "reject"
+    },
+    {
+      "name": "a literal and an escaped duplicate key",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24,\n  \"😀\": 1,\n  \"\\ud83d\\ude00\": 2,",
+      "expect": "reject"
+    },
+    {
+      "name": "a literal and an escaped duplicate of grid",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24,\n  \"gr\\u0069d\": 24,",
+      "expect": "reject"
+    },
+    {
+      "name": "an invalid UTF-8 byte in a path",
+      "edit": "bytes",
+      "find": "\"fallback\": \"M",
+      "hex": "2266616c6c6261636b223a2022ff4d",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 2.40000e+01",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 2.40000e+01,",
+      "expect": "accept"
+    }
+  ]
+}

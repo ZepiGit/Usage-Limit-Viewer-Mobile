@@ -184,6 +184,39 @@ final class RateLimitCooldownTests: XCTestCase {
         XCTAssertEqual(manual.first?.snapshot?.status, .ok)
     }
 
+    func testPinnedPartialReadingKeepsItsFigureWhenItBecomesStaleDuringCooldown() async throws {
+        let credentials = InMemoryCredentialStore()
+        let transport = Transport(["xai": Transport.Reply.limited("7200") + [.xaiBilling]])
+        let subject = container(transport, credentials: credentials, at: start)
+        try await addUsage("xai", to: subject, credentials: credentials, provider: .xai)
+        try await subject.save(settings: AppSettings(syncIntervalMinutes: 15,
+            statusIconsEnabled: true, pinnedAccountKeys: await subject.pinKeys(["xai"])))
+
+        let reading = try await subject.refresh(automatic: true)
+        let partial = try XCTUnwrap(reading.first?.snapshot)
+        XCTAssertEqual(partial.status, .partial)
+        let published = GlanceSnapshotCodec.load(fromDirectory: directory)
+
+        let staleAt = start.addingTimeInterval(45 * 60)
+        let next = Transport([:])
+        let reopened = container(next, credentials: credentials, at: staleAt)
+        let skipped = try await reopened.refresh(automatic: true)
+        let calls = await next.totalCount
+        XCTAssertEqual(calls, 0, "the reading becomes stale before the two-hour pause ends")
+        XCTAssertEqual(skipped.first?.snapshot, partial)
+
+        for (date, outdated, inline) in [
+            (staleAt.addingTimeInterval(-1), false, "80% left"),
+            (staleAt, true, "80% left · Stale"),
+        ] {
+            let entries = PinnedAccountsCapture.capture(source: published, at: date).accounts
+            let entry = try XCTUnwrap(entries.first)
+            XCTAssertEqual(entry.content, .init(content: .figure(80), outdated: outdated))
+            XCTAssertEqual(PinnedAccountText.cellText(entry), "80")
+            XCTAssertEqual(PinnedAccountText.inlineRow(entries, texts: EnglishPinnedAccountTexts())?.text, inline)
+        }
+    }
+
     func testCodexCreditsThrottleKeepsEmbeddedCreditsAndDoesNotPauseUsage() async throws {
         let credentials = InMemoryCredentialStore()
         let creditsEndpoint = "rate-limit-reset-credits"
@@ -299,6 +332,8 @@ final class RateLimitCooldownTests: XCTestCase {
         let subject = container(transport, credentials: credentials, at: start)
         try await addUsage("limited", to: subject, credentials: credentials)
         try await addUsage("healthy", to: subject, credentials: credentials)
+        try await subject.save(settings: AppSettings(syncIntervalMinutes: 15,
+            statusIconsEnabled: true, pinnedAccountKeys: await subject.pinKeys(["limited"])))
         try await subject.refresh(automatic: true)
         let failureTime = start.addingTimeInterval(60)
         let failed = try await container(transport, credentials: credentials, at: failureTime).refresh(automatic: true)
@@ -308,15 +343,25 @@ final class RateLimitCooldownTests: XCTestCase {
         XCTAssertEqual(last.lastAttemptAt, failureTime)
         XCTAssertEqual(last.errorMessage, "Rate limited. Automatic refresh is paused. Refresh manually to try now.")
         XCTAssertEqual(last.windows.first?.usedPercent, 21)
+        let published = GlanceSnapshotCodec.load(fromDirectory: directory)
 
         let next = Transport(["limited": [.usage], "healthy": [.usage, .usage]])
-        let beforeExpiry = container(next, credentials: credentials, at: failureTime.addingTimeInterval(3_599))
+        let beforeExpiryTime = failureTime.addingTimeInterval(3_599)
+        let beforeExpiry = container(next, credentials: credentials, at: beforeExpiryTime)
         let skipped = try await beforeExpiry.refresh(automatic: true)
         let limitedCalls = await next.count("limited")
         let healthyCalls = await next.count("healthy")
         XCTAssertEqual(limitedCalls, 0, "the final Retry-After must survive reopening, uncapped by in-request waits")
         XCTAssertEqual(healthyCalls, 1, "another account at the same provider is not throttled")
         XCTAssertEqual(skipped.first { $0.account.id == "limited" }?.snapshot, last)
+
+        for date in [failureTime, beforeExpiryTime] {
+            let entries = PinnedAccountsCapture.capture(source: published, at: date).accounts
+            let entry = try XCTUnwrap(entries.first)
+            XCTAssertEqual(entry.content, .init(content: .error, outdated: false))
+            XCTAssertEqual(PinnedAccountText.cellText(entry), "!")
+            XCTAssertEqual(PinnedAccountText.inlineRow(entries, texts: EnglishPinnedAccountTexts())?.text, "Error")
+        }
 
         let atExpiry = container(next, credentials: credentials, at: failureTime.addingTimeInterval(3_600))
         try await atExpiry.refresh(automatic: true)

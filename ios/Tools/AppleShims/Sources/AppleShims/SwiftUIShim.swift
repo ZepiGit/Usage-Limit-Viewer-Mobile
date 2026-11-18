@@ -179,7 +179,7 @@ extension View {
     public func cornerRadius(_ radius: Any) -> Self { self }
     public func contentShape(_ shape: Any) -> Self { self }
     public func fixedSize(horizontal: Bool = false, vertical: Bool = false) -> Self { self }
-    public func multilineTextAlignment(_ value: Any) -> Self { self }
+    public func multilineTextAlignment(_ value: TextAlignment) -> Self { self }
     public func textCase(_ value: Any?) -> Self { self }
     public func monospacedDigit() -> Self { self }
     public func textSelection(_ value: TextSelectability) -> Self { self }
@@ -208,7 +208,7 @@ extension View {
     public func imageScale(_ value: Any) -> Self { self }
     public func bold() -> Self { self }
     public func italic() -> Self { self }
-    public func underline() -> Self { self }
+    public func underline(_ isActive: Bool = true) -> Self { self }
     public func minimumScaleFactor(_ value: Double) -> Self { self }
     public func truncationMode(_ value: Any) -> Self { self }
     public func animation(_ value: Any?, value other: Any) -> Self { self }

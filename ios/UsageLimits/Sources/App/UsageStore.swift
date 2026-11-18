@@ -18,6 +18,7 @@ final class UsageStore: ObservableObject {
     @Published var focusedAccountID: String?
     private var orderWrite: Task<Void, Never>?
     private var orderGeneration = 0
+    private var settingsWrite: Task<Void, Never>?
 
     /// Writable, because the settings screen binds straight to it.
     ///
@@ -27,11 +28,11 @@ final class UsageStore: ObservableObject {
     @Published var settings = AppSettings() {
         didSet {
             guard settings != oldValue, !isLoadingSettings else { return }
-            let value = settings
-            // Inherits this actor, so everything below is already on the main actor and needs
-            // no hop of its own.
-            Task { [weak self, container] in
-                guard let container else { return }
+            let previous = settingsWrite
+            // Queued saves also adopt pins removed while they were waiting.
+            settingsWrite = Task { [weak self, container] in
+                await previous?.value
+                guard let container, let value = self?.settings else { return }
                 // Reflect the persisted value, which may clamp the sync interval, only if no newer
                 // edit has landed. An out-of-order save acknowledgement must not revert later edits.
                 if let stored = try? await container.save(settings: value), self?.settings == value {
@@ -98,7 +99,9 @@ final class UsageStore: ObservableObject {
     var glance: GlanceSnapshot {
         GlanceModel.build(
             accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons,
-            percentDisplay: settings.percentDisplay)
+            percentDisplay: settings.percentDisplay,
+            statusIconsEnabled: settings.statusIconsEnabled,
+            pinnedAccountIDs: PinnedAccounts.resolve(keys: settings.pinnedAccountKeys, accounts: accounts.map(\.account)))
     }
 
     /// The accounts in the order the overview should show them.
@@ -356,16 +359,25 @@ final class UsageStore: ObservableObject {
         guard let container, !isRemoving else { return }
         isRemoving = true
         defer { isRemoving = false }
-        do {
-            try await container.remove(id: accountID)
-            accounts = await container.usage()
-            lastError = nil
-        } catch {
-            // Deliberately not optimistic: the row stays until the removal actually succeeded,
-            // because a list that drops an account whose credentials are still on the device
-            // tells the user something untrue.
-            lastError = error.localizedDescription
+        let previous = settingsWrite
+        let removal = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            let pinKey = self.accounts.first { $0.account.id == accountID }?.account.pinKey
+            do {
+                try await container.remove(id: accountID)
+                var updated = self.settings
+                updated.pinnedAccountKeys.removeAll { $0 == pinKey }
+                self.applyLoaded(updated)
+                self.accounts = await container.usage()
+                self.lastError = nil
+            } catch {
+                // Keep the account visible when removal fails.
+                self.lastError = error.localizedDescription
+            }
         }
+        settingsWrite = removal
+        await removal.value
     }
 
     // MARK: - Credits

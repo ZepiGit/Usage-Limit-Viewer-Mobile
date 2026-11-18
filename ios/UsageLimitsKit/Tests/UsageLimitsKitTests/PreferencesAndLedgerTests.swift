@@ -61,6 +61,34 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertEqual(reopened.notifications.mutedAccountIDs, ["acct-1", "acct-2"])
     }
 
+    func testPinnedAccountPreferencesSurviveNormalisationAndAReopen() async throws {
+        let store = SettingsStore(directory: directory)
+        var settings = AppSettings(statusIconsEnabled: true, pinnedAccountKeys: ["b", "a"])
+        settings.syncIntervalMinutes = 5
+
+        let stored = try await store.save(settings)
+        let reopened = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(stored.syncIntervalMinutes, AppSettings.minimumSyncIntervalMinutes)
+        XCTAssertTrue(stored.statusIconsEnabled)
+        XCTAssertEqual(stored.pinnedAccountKeys, ["b", "a"])
+        XCTAssertEqual(reopened, stored)
+    }
+
+    func testSettingsFromBeforePinnedAccountsKeepTheirChoicesWithPinsOff() async throws {
+        let json = #"{"syncIntervalMinutes": 120, "showRenewalTime": true, "percentDisplay": "used", "notifications": {"notifyOnExhausted": false}}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertFalse(settings.statusIconsEnabled)
+        XCTAssertEqual(settings.pinnedAccountKeys, [])
+        XCTAssertEqual(settings.syncIntervalMinutes, 120)
+        XCTAssertTrue(settings.showRenewalTime)
+        XCTAssertEqual(settings.percentDisplay, .used)
+        XCTAssertFalse(settings.notifications.notifyOnExhausted)
+    }
+
     /// A file from before these preferences existed must keep every value it does state, and
     /// take the defaults only for what it does not.
     func testAFileWithoutTheDisplayPreferencesTakesTheirDefaults() async throws {
