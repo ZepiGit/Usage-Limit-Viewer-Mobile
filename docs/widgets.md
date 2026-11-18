@@ -25,7 +25,7 @@ Add Usage Limits from the Home Screen widget gallery. On iOS 17 and later, confi
 
 On iOS 16, Usage Limits tiles, Usage Limits (Clear), and Usage Ring use the app's ranking. Standard tiles have small, medium, large and rectangular Lock Screen forms; the ring has small and circular Lock Screen forms. These widgets use fixed layouts rather than scrolling lists. They are static widgets on every iOS version, so they always follow the app's percentage setting.
 
-The Pinned accounts widget is off by default. Turn on pinned accounts in app Settings, then pin up to three usage accounts; credit accounts cannot be pinned. Add Pinned accounts to the Lock Screen on iOS 16 or later, in one of three forms. All three follow the app's display mode and the app's account order.
+The Pinned accounts widget is the iOS form of the [status icons](status-icons.md). It is off by default. Turn on pinned accounts in app Settings, then pin up to three usage accounts; credit accounts cannot be pinned. Add Pinned accounts to the Lock Screen on iOS 16 or later, in one of three forms. All three follow the app's display mode and the app's account order.
 
 - **Rectangular:** one cell per pin, side by side: the provider glyph and the figure without a leading zero. A non-exhausted window at 100 shows only its glyph, larger; an exhausted window shows a crossed circle, a failed sync or expired sign-in "!", and a missing percentage a dash. An underline marks a stale or reset-due figure.
 - **Circular:** the first pinned account, drawn like one rectangular cell.

@@ -26,6 +26,12 @@ on `android16-release`.
 The small icon is a bitmap drawn after every publication. The status bar keeps only its alpha and
 tints it with one system colour, so the glyph's shape has to tell providers apart; colour cannot.
 
+The row in the shade leads with the reading ("42% left", or the state in words), with the window
+and next reset below it. The provider's name is the header's sub-text, so a screen reader can tell
+rows apart; the account name follows it only when another pinned account has the same provider.
+The large icon is the provider artwork chosen under Provider icons; white marks are drawn on a dark
+tile so they do not vanish on a light shade.
+
 The channel has default importance but is silent: no sound, no vibration, no lights, no badge, and
 every notification is ongoing and alerts only once. From `android-16.0.0_r4` on, AOSP's default
 for "hide silent notifications in the status bar" is on
@@ -36,10 +42,15 @@ default-importance channel showed all three with that setting untouched. Whether
 manufacturers ship the same default was not established. The research notes recommended low
 importance; they predate this finding.
 
-The icon is a 3:2 bitmap with the glyph to the left of the figure. The owner chose this after
-seeing measured emulator pixels, against the recommendation that followed the prototype: the
-stacked layout, glyph above figure. The status bar fits any small icon into a fixed square slot and does not widen
-it, so a wider bitmap is drawn smaller: on an API 36 emulator at 280 dpi the painted part of a
+A quiet channel alone does not stop a new default-importance notification from waking a dozing
+screen where ambient notifications are on. Both records therefore ask Android to suppress the
+group's alerts: the summary defers to the children, the children to the summary. That is a
+request; no device has shown it working.
+
+The icon is a 3:2 bitmap with the glyph to the left of the figure. The owner chose this after seeing
+measured emulator pixels, against the recommendation that followed the prototype: the stacked
+layout, glyph above figure. The status bar fits any small icon into a fixed square slot and does not
+widen it, so a wider bitmap is drawn smaller: on an API 36 emulator at 280 dpi the painted part of a
 "Codex 42" icon was about 24 × 14 px in 3:2 against 23 × 26 px stacked. The owner accepted the
 smaller drawing to have the glyph beside the figure rather than above it.
 
@@ -52,7 +63,13 @@ prototype, an API 36 emulator ignored a notification posted with a fixed time ye
 
 Third-party apps cannot add items to the iOS status bar; Apple publishes no API for it. The
 "Pinned accounts" Lock Screen widget stands in for the status icons, with the same glyphs, pins
-and content rules. There is no Live Activity.
+and content rules, in the rectangular, circular and inline forms. There is no Live Activity.
+
+Apple describes the inline form as one row of text with at most one image (WidgetKit's
+`accessoryInline`; WWDC22 "Complications and widgets: Reloaded"), so it cannot hold three glyphs. It
+shows only the first pinned account, its glyph and its figure with the side ("42% left"), and no
+names (the owner's choice). Without the glyph that row would not say which account it is, so whether
+a real Lock Screen keeps the glyph is a release gate.
 
 ## Considered options
 
@@ -74,18 +91,19 @@ and content rules. There is no Live Activity.
 ## Consequences
 
 - The status rows sit in the alerting section of the shade, not under "Silent", although the
-  channel has no sound, vibration or lights. In the visibility experiment on API 36 and 37
-  emulators the records carried none of the three and no heads-up appeared in the captured
-  frames. The emulator has no audio output, and nobody has listened on a phone.
+  channel has no sound, vibration or lights. On API 30, 36 and 37 emulators in CI the records
+  carried none of the three and no heads-up appeared in the sampled frames. The emulator has no
+  audio output, and nobody has listened on a phone.
 - The notifications appear on the lock screen as Android shows normal notifications there. The
-  app does not hide them with secret visibility.
+  app does not hide them with secret visibility; a person who wants them off the lock screen
+  uses Android's notification settings.
 - Visibility is not guaranteed. Status-bar width, other apps' icons, the person's settings and
   manufacturer skins can still hide icons. A note in the app's Settings says so; the app does not
   work around it.
-- Order is best effort. On API 30, 36 and 37 emulators the icons followed a reorder in the app
-  (captured while the channel still had low importance, with silent icons allowed on API 37). On
-  the API 30 emulator a newly pinned account came first until the next sync restored the app's
-  order.
+- Order is best effort. With the default-importance channel, on API 30, 36 and 37 emulators, the
+  icons and rows followed the app's account order on first post and after a reorder (run
+  44216665612). On the API 30 emulator a newly pinned account came first until the next sync
+  restored the app's order.
 - On Android 14 and later a person can swipe an ongoing notification away. The icon returns with
   the next sync; unpinning is how to remove it for good.
 - On iOS the widget follows WidgetKit's reload budget, so the Lock Screen can lag a sync.

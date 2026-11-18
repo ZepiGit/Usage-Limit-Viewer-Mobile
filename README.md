@@ -42,6 +42,9 @@ Some details that make it pleasant to live with:
   [Percentages: left or used](docs/widgets.md#percentages-left-or-used).
 - **In German too.** The app and its widgets follow the device language and come in English
   and German. Names the services report, such as model names, are shown as they arrive.
+- **Status icons.** Pin up to three accounts and see each one's figure next to the clock on
+  Android, or on the Lock Screen on iPhone. Off until you turn it on. See
+  [Status icons](docs/status-icons.md).
 - **No model calls.** The app only asks each service for your usage. It never sends a prompt,
   so checking your limits never costs you any of them.
 - **One look for everything.** Neutral colours for everything around your data, a single
@@ -145,11 +148,11 @@ per widget. Credits show money, so this does not apply to them.
 | **Credits** | 16+ | Prepaid balances, lowest first. |
 | **Usage Limits** | 16+ | Usage tiles in three sizes, also on the Lock Screen. |
 | **Usage Limits (Clear)** | 16+ | The same tiles on a transparent background. |
+| **Pinned accounts** | 16+ | Up to three pinned accounts on the Lock Screen, as glyph and figure. See [Status icons](docs/status-icons.md). |
 | **Usage Ring** | 16+ | One account as a ring, also as a round Lock Screen widget. |
 
-The iOS 16 widgets pick accounts by the app's own ranking. To choose accounts yourself, or to
-give a widget its own left/used choice, use the iOS 17 widgets. Usage Limits, Usage Limits
-(Clear) and Usage Ring always follow the app's setting, on every iOS version.
+The iOS 16 widgets pick accounts by the app's own ranking. To choose accounts yourself, use the
+iOS 17 widgets. Every widget follows the app's left/used setting, on every iOS version.
 
 </details>
 
@@ -200,6 +203,7 @@ Then open the generated project in Xcode, set up signing and run it.
 | :--- | :--- |
 | check whether your phone is supported | [Device compatibility](docs/compatibility.md) |
 | understand the widgets | [Widgets](docs/widgets.md) |
+| keep accounts in the status bar or on the Lock Screen | [Status icons](docs/status-icons.md) |
 | know how your data is protected | [Security](docs/security.md) |
 | set up a specific service | the `docs/providers-*` guides, e.g. [Codex](docs/providers-codex.md), [Kimi](docs/providers-kimi.md), [Z.ai](docs/providers-zai.md) |
 | use the Credits section | [Credits](docs/credits.md) |
