@@ -189,6 +189,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     // appears at once, so a launch or a rotation does not play its entrance.
     val routeKnown = currentRoute != null
     val motion = UsageMotion.current
+    val shift = with(LocalDensity.current) { AxisShift.roundToPx() }
 
     fun navigateToTab(route: String) {
         navController.navigate(route) {
@@ -228,7 +229,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
             containerColor = UsageColors.Ground,
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
-                NavigationChrome(routeKnown, showBottomBar, motion.barIn(), motion.barOut()) {
+                NavigationChrome(routeKnown, showBottomBar, motion.barIn(shift), motion.barOut(shift)) {
                     NavigationBar(
                         containerColor = UsageColors.Ground,
                         tonalElevation = 0.dp,
@@ -274,12 +275,11 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     .background(UsageColors.Ground)
                     .padding(padding),
             ) {
-                // The motion says what the change is. Tab to tab is two peers trading places: a
-                // crossfade. Anything else goes deeper or comes back, so the screens shift along
-                // the reading axis, forward for a push and backward for a pop. (The 700 ms
-                // navigation-compose default reads as lag.)
-                val forward = with(LocalDensity.current) { AxisShift.roundToPx() } *
-                    if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
+                // The motion says what the change is. Tab to tab is two peers trading places: they
+                // fade through in place. Anything else goes deeper or comes back, so the screens
+                // also shift along the reading axis, forward for a push and backward for a pop.
+                // (The 700 ms navigation-compose default reads as lag.)
+                val forward = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -shift else shift
                 NavHost(
                     navController = navController,
                     startDestination = Destination.Overview.route,

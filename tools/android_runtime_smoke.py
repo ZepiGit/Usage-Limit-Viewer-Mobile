@@ -1275,7 +1275,7 @@ class Smoke:
         failing to turn animations off again is fatal, since every later check relies on that.
         """
         report = {"result": "incomplete", "animatorScale": MOTION_SCALE, "sequences": [],
-                  "scope": "Empty-account build: launch overlay, tab switch, segment selection, push and pop. "
+                  "scope": "Empty-account build: cold start, tab switch, segment selection, push and pop. "
                            "Motions that need accounts (bars, figures, list items) are covered by the "
                            "Robolectric frame tests under com.usagelimits.ui.motion."}
 
@@ -1296,11 +1296,11 @@ class Smoke:
         try:
             report["animatorScaleReadBack"] = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
             self.adb("shell", "am", "force-stop", PACKAGE)
-            sequence("launch", "Process start: the launch overlay's icon rises, then the overlay dissolves over Overview.",
+            sequence("launch", "Process start: the system splash screen on the app's ground, then Overview with no second icon.",
                      9, lambda: self.adb("shell", "am", "start", "-n", activity))
             root = self.wait_for(name + "-launched", lambda root: navigation_target(root, "Overview") is not None)
 
-            sequence("tab", "Overview to Accounts: two peers crossfade.", 3,
+            sequence("tab", "Overview to Accounts: two peers fade through in place.", 3,
                      lambda: tap(navigation_target(root, "Accounts"), "Accounts tab"))
             root = self.wait_for(name + "-accounts", lambda root: selected_tab(root, "Accounts")
                                  and self.control(root, PACKAGE, label="Needs attention") is not None)

@@ -135,9 +135,12 @@ fun LazyItemScope.itemMotion(motion: UsageMotion, sequenced: Boolean = true): Mo
         fadeOutSpec = motion.exit(),
     )
 
-/** Peers trading places (tab to tab): a plain crossfade. */
-fun UsageMotion.swapIn(): EnterTransition = fadeIn(contentSwap())
-fun UsageMotion.swapOut(): ExitTransition = fadeOut(contentSwap())
+/**
+ * Peers trading places (tab to tab): the old screen fades out, then the new one fades in, in
+ * place. Two whole screens crossfading read as a double exposure.
+ */
+fun UsageMotion.swapIn(): EnterTransition = fadeIn(enterAfterExit())
+fun UsageMotion.swapOut(): ExitTransition = fadeOut(exit())
 
 /**
  * Going deeper or coming back: the old screen leaves first, the new one arrives shifted by
@@ -151,12 +154,13 @@ fun UsageMotion.axisOut(offsetPx: Int): ExitTransition =
 /**
  * Navigation chrome leaving with the screen it belongs to and returning with it.
  *
- * The bottom bar slides without giving up its height until it is gone: the content above it is
- * anchored to the top, so nothing visible depends on that height and no frame of the motion
- * costs a layout pass. The side rail does change the width the centred content sits in, so it
- * gives its width back gradually.
+ * The bottom bar shifts by [offsetPx], the distance the screens shift, without giving up its
+ * height until it is gone: the content above it is anchored to the top, so nothing visible
+ * depends on that height and no frame of the motion costs a layout pass. (Sliding by its whole
+ * height would carry its labels through the system's navigation buttons.) The side rail does
+ * change the width the centred content sits in, so it gives its width back gradually.
  */
-fun UsageMotion.barIn(): EnterTransition = fadeIn(enterAfterExit()) + slideInVertically(move()) { it }
-fun UsageMotion.barOut(): ExitTransition = fadeOut(exit()) + slideOutVertically(move()) { it }
+fun UsageMotion.barIn(offsetPx: Int): EnterTransition = fadeIn(enterAfterExit()) + slideInVertically(move()) { offsetPx }
+fun UsageMotion.barOut(offsetPx: Int): ExitTransition = fadeOut(exit()) + slideOutVertically(move()) { offsetPx }
 fun UsageMotion.railIn(): EnterTransition = fadeIn(enterAfterExit()) + expandHorizontally(move())
 fun UsageMotion.railOut(): ExitTransition = fadeOut(exit()) + shrinkHorizontally(move())
