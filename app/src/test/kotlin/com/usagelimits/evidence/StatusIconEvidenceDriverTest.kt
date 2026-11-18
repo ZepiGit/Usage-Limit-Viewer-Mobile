@@ -5,10 +5,12 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.os.SystemClock
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.sync.NotificationPublisher
+import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.resetTestWorkManager
 import com.usagelimits.statusicon.StatusIconPublisher
 import kotlinx.coroutines.flow.first
@@ -52,7 +54,7 @@ class StatusIconEvidenceDriverTest {
         resetTestWorkManager()
     }
 
-    private suspend fun command(name: String, account: String? = null): JSONObject {
+    private suspend fun command(name: String, account: String? = null, driver: StatusIconEvidenceDriver = this.driver): JSONObject {
         val token = "driver-test-${sequence++}"
         val started = SystemClock.elapsedRealtime()
         driver.execute(name, token, account)
@@ -66,6 +68,28 @@ class StatusIconEvidenceDriverTest {
 
     private fun statusRecords() = manager.activeNotifications.filter {
         it.notification.channelId == StatusIconPublisher.CHANNEL_ID
+    }
+
+    @Test
+    fun `seed cancels the delayed five minute refresh without a launch sync`() = runBlocking {
+        val settings = app.container.settingsStore
+        val priorInterval = settings.settings.first().syncIntervalMinutes
+        try {
+            settings.setSyncInterval(5)
+            app.scheduleOnStartup()
+            val work = WorkManager.getInstance(app)
+            assertTrue(work.getWorkInfosForUniqueWorkFlow(SyncWorker.ONE_SHOT_WORK_NAME).first().isEmpty())
+            val scheduled = work.getWorkInfosForUniqueWorkFlow(SyncWorker.SHORT_WORK_NAME).first().single()
+            assertEquals(WorkInfo.State.ENQUEUED, scheduled.state)
+
+            val seeded = command("seed", driver = StatusIconEvidenceDriver(app))
+
+            assertTrue(seeded.optString("error"), seeded.getBoolean("success"))
+            assertEquals(6, seeded.getJSONArray("accounts").length())
+            assertEquals(WorkInfo.State.CANCELLED, work.getWorkInfoByIdFlow(scheduled.id).first()?.state)
+        } finally {
+            settings.setSyncInterval(priorInterval)
+        }
     }
 
     @Test
