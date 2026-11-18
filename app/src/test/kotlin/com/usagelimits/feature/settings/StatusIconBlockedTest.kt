@@ -33,6 +33,7 @@ import com.usagelimits.core.sync.resetTestWorkManager
 import com.usagelimits.feature.OwnedViewModel
 import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.feature.waitDrained
+import com.usagelimits.statusicon.PreferencesShownSelection
 import com.usagelimits.statusicon.StatusIconPublisher
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import kotlinx.coroutines.Job
@@ -71,6 +72,9 @@ class StatusIconBlockedTest {
     private val manager get() = app.getSystemService(NotificationManager::class.java)
     private lateinit var owned: OwnedViewModel
     private val vm: UsageViewModel get() = owned.vm
+
+    /** How often the screen reported that status icons can be shown again. */
+    private var allowedEvents = 0
 
     @Before
     fun setUp() = runBlocking {
@@ -135,7 +139,10 @@ class StatusIconBlockedTest {
                     onNotificationPermissionHandled = vm::recordNotificationPermissionHandled,
                     onStatusIconsChange = vm::setStatusIcons,
                     onPinnedChange = vm::setPinned,
-                    onNotificationsAllowed = vm::notificationsAllowed,
+                    onNotificationsAllowed = {
+                        allowedEvents++
+                        vm.notificationsAllowed()
+                    },
                 )
             }
         }
@@ -337,6 +344,40 @@ class StatusIconBlockedTest {
     @Test
     fun `allowing again brings every pinned icon back after a sync while blocked`() {
         unblockAfter { app.container.publication.cacheMoved() }
+    }
+
+    /**
+     * Both switched off; notifications switched on again while the category stays off. The icons
+     * still cannot be shown, so nothing is published and what was meant to be shown is kept;
+     * only switching the category on is the moment they can be shown again.
+     */
+    @Test
+    fun `notifications allowed while the category stays off publish nothing until the category is on`() {
+        val (alpha, beta) = renderTwoPinned()
+        val both = listOf(alpha.localId, beta.localId)
+        val selection = PreferencesShownSelection(app)
+        assertEquals(both, selection.read())
+        val viewModelJob = vm.viewModelScope.coroutineContext[Job]!!
+        val observers = viewModelJob.children.toSet()
+
+        returnAfter {
+            shadowOf(manager).setNotificationsEnabled(false)
+            blockCategory()
+        }
+        shown(Block.APP.note)
+
+        returnAfter { shadowOf(manager).setNotificationsEnabled(true) }
+        shown(Block.CATEGORY.note)
+        // Anything the return started has ended before the selection is read.
+        compose.waitDrained { (viewModelJob.children.toSet() - observers).isEmpty() }
+        assertEquals("the category is still off: no event", 0, allowedEvents)
+        assertEquals("the selection is untouched", both, selection.read())
+        assertEquals(0, statusRecords().size)
+
+        returnAfter(::unblockCategory)
+        assertTrue("switching the category on brings every pinned icon back",
+            eventually { showing() == both.toSet() && statusRecords().size == 4 })
+        assertEquals("exactly one event", 1, allowedEvents)
     }
 
     @Test

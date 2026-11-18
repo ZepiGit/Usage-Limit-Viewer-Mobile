@@ -117,18 +117,19 @@ internal class NotificationPermissionState(
     }
 
     /**
-     * Reads the grant and the status icon category again; tells [onAllowed] when notifications
-     * have just been allowed, or the category switched on again while they are, since either
-     * lets the status icons appear.
+     * Reads the grant and the status icon category again; tells [onAllowed] when status icons
+     * have just become showable: notifications allowed and the category open, where before one
+     * of them was not. Notifications allowed while the category stays off is not that moment.
      */
     internal fun reread() {
         val now = readAllowed()
         val blocked = StatusIconPublisher.categoryBlocked(manager)
-        val became = now && (!allowed || (statusIconsBlocked && !blocked))
+        val wasShowable = allowed && !statusIconsBlocked
+        val showable = now && !blocked
         allowed = now
         statusIconsBlocked = blocked
         requestable = canRequest()
-        if (became) onAllowed()
+        if (!wasShowable && showable) onAllowed()
     }
 
     private val manager get() = context.getSystemService(NotificationManager::class.java)
@@ -150,7 +151,8 @@ internal class NotificationPermissionState(
 /**
  * Remembers the [NotificationPermissionState] for this screen. [alreadyAsked] is the stored
  * history of #27, recorded through [onAsked] before the dialog opens; [onAllowed] runs each time
- * the permission turns from not allowed to allowed, wherever the person granted it.
+ * this screen sees status icons become showable (notifications allowed and their category open),
+ * wherever the person allowed it.
  */
 @Composable
 internal fun rememberNotificationPermission(
