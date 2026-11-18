@@ -1296,7 +1296,7 @@ class Smoke:
         try:
             report["animatorScaleReadBack"] = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
             self.adb("shell", "am", "force-stop", PACKAGE)
-            sequence("launch", "Process start: the system splash screen on the app's ground, then Overview with no second icon.",
+            sequence("launch", "Process start: a bare ground, the launch overlay's icon rising once, then the overlay dissolving over Overview.",
                      9, lambda: self.adb("shell", "am", "start", "-n", activity))
             root = self.wait_for(name + "-launched", lambda root: navigation_target(root, "Overview") is not None)
 

@@ -11,10 +11,13 @@
         -->
         <item name="android:windowSplashScreenBackground" tools:targetApi="s">#0F0F0E</item>
         <!--
-          The launcher icon has no background layer of its own, and the splash screen then sets
-          it on a plate, white by default (seen on the emulator once the splash was dark). In the
-          ground colour the plate disappears and the icon stands on the ground.
+          No icon on the system splash screen: the app's launch overlay shows the icon the user
+          chose, rising out of this same ground. The system's own would be a second one, and
+          because the launcher icons are not adaptive it sets them on a white plate that no
+          colour attribute removes (seen on the emulator). The splash is then the bare ground,
+          as the starting window was before Android 12.
         -->
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">@android:color/transparent</item>
         <item name="android:windowSplashScreenIconBackgroundColor" tools:targetApi="s">#0F0F0E</item>
         <!--
           The widget picker shows the user the exact panel colour they are choosing. OEM
