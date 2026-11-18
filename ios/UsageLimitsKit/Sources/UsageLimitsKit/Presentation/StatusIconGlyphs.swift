@@ -42,9 +42,15 @@ public struct StatusIconGlyphs: Sendable, Equatable {
         public let description: String
     }
 
-    /// Strict: the file must name exactly `providers`, on a 24-unit grid, in absolute commands.
+    /// Strict, and the same as Android's reader: strict JSON, an object with exactly `grid` (the
+    /// number 24), `glyphs` (naming exactly `providers`) and `fallback`, every path a string in the
+    /// shared grammar. `shared/test-vectors/glyph-path-grammar.json` and `glyph-file-raw.json` hold
+    /// the files both must accept or reject.
     public static func parse(_ data: Data,
         providers: [String] = ProviderID.allCases.map(\.rawValue)) throws -> StatusIconGlyphs {
+        // Strict JSON first: JSONSerialization lets a trailing comma, a byte-order mark and
+        // duplicate keys through, which Android's reader rejects or reads differently.
+        try StrictJSON.validate(data)
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               Set(root.keys) == ["grid", "glyphs", "fallback"],
               (root["grid"] as? NSNumber)?.doubleValue == grid,

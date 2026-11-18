@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
@@ -69,6 +70,46 @@ class StatusIconGlyphsTest {
         for (case in grammar.acceptFiles) StatusIconGlyphs.parse(case.file.toString())
         for (case in grammar.rejectFiles) {
             assertThrows(case.name, IllegalArgumentException::class.java) { StatusIconGlyphs.parse(case.file.toString()) }
+        }
+    }
+
+    @Serializable
+    private data class Raw(val description: String, val cases: List<RawCase>)
+
+    @Serializable
+    private data class RawCase(
+        val name: String,
+        val edit: String,
+        val expect: String,
+        val find: String? = null,
+        val with: String? = null,
+        val text: String? = null,
+    )
+
+    /**
+     * Raw files as text, one edit away from the shipped file: strict JSON or nothing, on both
+     * platforms (`shared/test-vectors/glyph-file-raw.json`, read by the Kit's test too).
+     */
+    @Test
+    fun `both platforms give the same verdict on raw file text`() {
+        val shipped = File("../shared/glyphs/status-icon-glyphs.json").readText()
+        val raw = Json.decodeFromString<Raw>(File("../shared/test-vectors/glyph-file-raw.json").readText())
+        assertTrue(raw.cases.any { it.expect == "accept" })
+        assertTrue(raw.cases.any { it.expect == "reject" })
+        for (case in raw.cases) {
+            val text = when (case.edit) {
+                "none" -> shipped
+                "replace" -> {
+                    val find = requireNotNull(case.find)
+                    assertTrue("${case.name}: find not in the shipped file", shipped.contains(find))
+                    shipped.replaceFirst(find, requireNotNull(case.with))
+                }
+                "prepend" -> requireNotNull(case.text) + shipped
+                "append" -> shipped + requireNotNull(case.text)
+                else -> throw AssertionError("${case.name}: unknown edit ${case.edit}")
+            }
+            val accepted = runCatching { StatusIconGlyphs.parse(text.toByteArray(Charsets.UTF_8)) }.isSuccess
+            assertEquals(case.name, case.expect, if (accepted) "accept" else "reject")
         }
     }
 
