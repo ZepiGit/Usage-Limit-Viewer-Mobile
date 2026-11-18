@@ -2220,6 +2220,17 @@
         }
       }
     },
+    "Pin in Settings" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In Einstellungen anheften"
+          }
+        }
+      }
+    },
     "Pinned accounts" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3134,6 +3145,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Entsperre dieses Gerät, um deine Guthaben zu sehen"
+          }
+        }
+      }
+    },
+    "Unlock to see usage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entsperren, um die Nutzung zu sehen"
           }
         }
       }

@@ -87,7 +87,7 @@ Ordering that an app can influence:
 
 No public API documents control over status-bar icon order against other apps' icons. Priority and channel importance decide interruption, not that order (section 4).
 
-**Observed order (ticket 04, [run 44196948542](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44196948542)).** On API 30, 36 and 37, the account icons and shade rows followed the app's account order on first post and after reordering. On API 30, a newly pinned Grok account ranked ahead of Claude and Codex until the next sync republished the three groups. That API 30 image also showed a keyboard notification between account icons. This is an emulator observation, not a guarantee for every transition or device.
+**Observed order (ticket 04, [run 44196948542](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44196948542)).** On API 30, 36 and 37, the account icons and shade rows followed the app's account order on first post and after reordering. On API 30, a newly pinned Grok account ranked ahead of Claude and Codex until the next sync republished the three groups. That API 30 image also showed a keyboard notification between account icons. [Run 44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612), with the default-importance channel and group-alert suppression, showed the same on all three images, including the API 30 exception. This is an emulator observation, not a guarantee for every transition or device.
 
 ## 4. Channel importance
 
@@ -153,6 +153,8 @@ The same page limits the feature to activities that are ongoing, user-initiated,
 The status chip always includes the small icon and optionally text from `setShortCriticalText` or `setWhen`. Its maximum width is 96 dp. Text under 7 characters is shown whole; otherwise the chip drops to the icon, or shows the longest prefix that still covers more than half the string. ([Live updates](https://developer.android.com/develop/ui/compose/notifications/live-update), [setShortCriticalText](https://developer.android.com/reference/android/app/Notification.Builder#setShortCriticalText(java.lang.String)))
 
 How many chips can be on screen at once is not stated. Unverifiable from the docs.
+
+**Observed (17 November 2026, [run 44156767429](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44156767429)).** On the API 37 emulator image, three pinned accounts posted as promoted ongoing notifications gave three actually promoted records and one visible chip, initially Antigravity "100%". On the API 36 image none was promoted and no chip appeared. In AOSP `android17-release`, [`NotifChipsViewModel.filterByPackage`](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android17-release/packages/SystemUI/src/com/android/systemui/statusbar/chips/notification/ui/viewmodel/NotifChipsViewModel.kt) keeps one chip per package. This was an experiment only; the app does not request promotion.
 
 [INFERENCE] A standing "42% of the weekly quota left" notification fails the criteria: it has no end, the user did not start a journey, and it is exactly the "quick access" case the page redirects to a widget. `ProgressStyle` is a journey bar with segments and points, not a percent badge. Live Updates are a worse fit than a plain small icon, and they add a second permission the user can revoke for good.
 

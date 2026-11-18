@@ -40,6 +40,12 @@ public typealias WidgetRenderingMode = WidgetRenderingModePlaceholder
 
 public protocol WidgetConfiguration {}
 
+/// The system's backdrop for a circular or rectangular Lock Screen accessory.
+public struct AccessoryWidgetBackground: View {
+    public init() {}
+    public var body: some View { ShimLeaf() }
+}
+
 public struct StaticConfiguration<Provider: TimelineProvider>: WidgetConfiguration {
     public init(kind: String, provider: Provider,
                 content: @escaping (Provider.Entry) -> any View) {}

@@ -13,6 +13,13 @@ public struct PinnedAccountsCapture: Sendable, Equatable {
     public let accounts: [PinnedAccountEntry]
     public let outcome: ConfiguredSelectionOutcome
 
+    /// When WidgetKit should rebuild the timeline. A snapshot unreadable before first unlock asks
+    /// again after 15 minutes; anything else waits for the routine 4 hours or the next app
+    /// publication, because only the app can change it.
+    public var reloadInterval: TimeInterval {
+        outcome == .sourceUnavailable ? 15 * 60 : 4 * 60 * 60
+    }
+
     public static func capture(source: GlanceSnapshotCodec.Load, at date: Date) -> PinnedAccountsCapture {
         switch source {
         case .loaded(let snapshot): return capture(snapshot: snapshot, at: date)
