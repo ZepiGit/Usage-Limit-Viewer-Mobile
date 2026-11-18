@@ -1,6 +1,7 @@
 package com.usagelimits.feature.accounts
 
-import com.usagelimits.ui.theme.LocalMotionEnabled
+import com.usagelimits.ui.theme.UsageMotion
+import com.usagelimits.ui.theme.itemMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
@@ -63,6 +64,7 @@ fun AccountsScreen(
     var filter by remember { mutableStateOf(AccountFilter()) }
     val visible = state.accounts.filter(filter::matches)
     val presentProviders = state.accounts.map { it.account.provider }.distinct()
+    val motion = UsageMotion.current
 
     LazyColumn(
         modifier = modifier
@@ -71,14 +73,14 @@ fun AccountsScreen(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item {
+        item(key = "title") {
             ScreenTitle(
                 stringResource(R.string.accounts_title),
                 stamp = stringResource(R.string.accounts_shown, visible.size, state.accountCount),
             )
         }
 
-        item {
+        item(key = "filters") {
             SegmentedRow {
                 Segment(stringResource(R.string.accounts_filter_all), filter.provider == null && !filter.onlyProblems) {
                     filter = AccountFilter()
@@ -94,25 +96,32 @@ fun AccountsScreen(
             }
         }
 
+        // Every item below the filter row takes part in the same fade-through, under a stable key:
+        // the cards that no longer match leave first, then the rest moves and the empty sentence
+        // arrives. An item without it would be placed at once, over cards that are still fading.
         if (visible.isEmpty()) {
-            item {
+            item(key = "empty") {
                 EmptyBox(
                     stringResource(
                         if (state.accounts.isEmpty()) R.string.overview_no_accounts else R.string.accounts_no_match,
                     ),
+                    itemMotion(motion),
                 )
             }
         }
 
         items(visible, key = { it.account.localId }) { usage ->
             AccountCard(usage, nowMs, state.staleAfterMs, state.settings.percentDisplay,
-                modifier = if (LocalMotionEnabled.current) Modifier.animateItem() else Modifier,
+                modifier = itemMotion(motion),
                 onRetry = onRefresh,
             ) {
                 onAccountClick(usage.account.localId)
             }
         }
 
-        item { AddButton(stringResource(R.string.overview_add_account), stringResource(R.string.overview_add_account_hint), onAddAccount) }
+        item(key = "add") {
+            AddButton(stringResource(R.string.overview_add_account), stringResource(R.string.overview_add_account_hint),
+                onAddAccount, itemMotion(motion))
+        }
     }
 }

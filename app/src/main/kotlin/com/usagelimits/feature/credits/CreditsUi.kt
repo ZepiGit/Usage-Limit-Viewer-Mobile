@@ -2,7 +2,6 @@ package com.usagelimits.feature.credits
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,7 +88,7 @@ fun CreditCard(
     val severity = CreditSeverity.of(entry, nowMs, staleAfterMs)
     val balances = CreditSeverity.worstFirst(entry)
 
-    UsageCard(modifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier) {
+    UsageCard(modifier = modifier, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 44.dp)) {
             Image(painterResource(creditIcon(account.provider)), null, Modifier.size(30.dp))
             Spacer(Modifier.width(12.dp))

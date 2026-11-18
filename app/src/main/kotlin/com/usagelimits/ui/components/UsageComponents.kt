@@ -1,14 +1,17 @@
 package com.usagelimits.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.snap
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import com.usagelimits.ui.percentSideWordRes
 import com.usagelimits.ui.percentSpokenClauseRes
 import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.text.windowLabelRes
-import com.usagelimits.ui.theme.LocalMotionEnabled
+import com.usagelimits.ui.theme.UsageMotion
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.UsageScope
@@ -75,6 +78,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -84,8 +88,10 @@ import com.usagelimits.core.time.Countdown
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageType
+import kotlin.math.roundToInt
 
-private val BarShape = RoundedCornerShape(3.dp)
+private val BarRadius = 3.dp
+private val BarShape = RoundedCornerShape(BarRadius)
 private val SegmentColors = listOf(UsageColors.Data, UsageColors.Ink, UsageColors.Faint, UsageColors.Muted)
 
 /**
@@ -127,29 +133,33 @@ fun UsageBar(
     QuotaBarTrack(target, SeverityPalette.barInkFor(severity, fractionValue, PercentDisplay.LEFT), modifier, height)
 }
 
-/** The track and its fill, shared by both bars so they clip and animate identically. */
+/**
+ * The track and its fill, shared by both bars so they clip and animate identically.
+ *
+ * The animated length is read only while drawing. Read in composition it would recompose and
+ * remeasure the bar on every frame of the fill, and a display-mode flip moves every bar on
+ * screen at once.
+ */
 @Composable
 private fun QuotaBarTrack(target: Float, fill: Color?, modifier: Modifier, height: Dp) {
-    val motionEnabled = LocalMotionEnabled.current
-    val animatedFraction by animateFloatAsState(targetValue = target, animationSpec = if (motionEnabled) tween(240) else snap(), label = "usageBar")
-    val fraction = if (motionEnabled) animatedFraction else target
+    val motion = UsageMotion.current
+    val animated = animateFloatAsState(targetValue = target, animationSpec = motion.move(), label = "usageBar")
 
     Box(
         modifier = modifier
             .height(height)
             .clip(BarShape)
-            .background(UsageColors.Rule),
-    ) {
-        if (fraction > 0f && fill != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction)
-                    .height(height)
-                    .clip(BarShape)
-                    .background(fill),
-            )
-        }
-    }
+            .drawBehind {
+                drawRect(UsageColors.Rule)
+                // A snapped animation still lands one frame late; with motion off the bar takes its value at once.
+                val fraction = if (motion.enabled) animated.value else target
+                if (fraction > 0f && fill != null) {
+                    // Whole pixels, as the layout this replaces produced: the edge stays crisp at every step.
+                    drawRoundRect(fill, size = Size((size.width * fraction).roundToInt().toFloat(), size.height),
+                        cornerRadius = CornerRadius(BarRadius.toPx()))
+                }
+            },
+    )
 }
 
 /** A severity dot: the only place a status hue appears. */
@@ -241,7 +251,7 @@ fun UsageWindowRow(
                 Text(percent, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(percent, style = UsageType.Figure, color = SeverityPalette.figureColor(severity))
+                    FigureText(percent, UsageType.Figure, SeverityPalette.figureColor(severity), alignment = Alignment.BottomEnd)
                     Text(shownSide, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
                 }
             }
@@ -286,17 +296,65 @@ fun UsageWindowRow(
     }
 }
 
-/** One card per group: a tone step on the ground, no border, radius 8. */
+/**
+ * A figure that fades through to its next value, as its bar moves to it: the old figure leaves,
+ * then the new one arrives, so two numbers are never read on top of each other.
+ *
+ * The slot takes the new figure's width as part of the same motion, so the word after a figure
+ * that gains or loses a digit glides instead of jumping. [alignment] is the side the figure is
+ * anchored to while the width changes. The colour travels with the text: an outgoing figure
+ * keeps the colour it had.
+ */
+@Composable
+fun FigureText(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    modifier: Modifier = Modifier,
+    alignment: Alignment = Alignment.BottomStart,
+) {
+    val motion = UsageMotion.current
+    if (!motion.enabled) {
+        // Even a snapped transition keeps the outgoing figure for one more frame.
+        Text(text, modifier, style = style, color = color)
+        return
+    }
+    AnimatedContent(
+        targetState = text to color,
+        modifier = modifier,
+        transitionSpec = {
+            fadeIn(motion.enterAfterExit()) togetherWith fadeOut(motion.exit()) using
+                SizeTransform(clip = false) { from, to ->
+                    // A slot that narrows waits until the old, wider figure has left, or what
+                    // follows would slide over it; one that widens makes room at once.
+                    if (to.width < from.width) motion.moveAfterExit() else motion.move()
+                }
+        },
+        contentAlignment = alignment,
+        label = "figure",
+    ) { (shownText, shownColor) ->
+        Text(shownText, style = style, color = shownColor)
+    }
+}
+
+/**
+ * One card per group: a tone step on the ground, no border, radius 8.
+ *
+ * A card that can be pressed takes [onClick] here rather than a `clickable` on [modifier]: the
+ * press highlight has to sit inside the clip, or it spills past the rounded corners.
+ */
 @Composable
 fun UsageCard(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(16.dp),
+    onClick: (() -> Unit)? = null,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .background(UsageColors.Surface)
             .padding(contentPadding),
         content = content,
@@ -454,6 +512,8 @@ fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
         modifier = modifier
             .heightIn(min = 44.dp)
             .widthIn(min = 44.dp)
+            // Clipped first, so the press highlight has the control corners every other control has.
+            .clip(MaterialTheme.shapes.small)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -497,6 +557,9 @@ fun SegmentedRow(modifier: Modifier = Modifier, content: @Composable () -> Unit)
 fun Segment(label: String, selected: Boolean, onClick: () -> Unit) {
     // The touch target takes the press; the pill draws it, so the ripple has the pill's size and corners.
     val interaction = remember { MutableInteractionSource() }
+    val motion = UsageMotion.current
+    // Read only while drawing: the pill fades without recomposing the segment.
+    val selection = animateFloatAsState(if (selected) 1f else 0f, motion.stateChange(), label = "segment")
     Box(
         modifier = Modifier
             .widthIn(min = 48.dp)
@@ -515,7 +578,9 @@ fun Segment(label: String, selected: Boolean, onClick: () -> Unit) {
             modifier = Modifier
                 .heightIn(min = 32.dp)
                 .clip(MaterialTheme.shapes.small)
-                .background(if (selected) UsageColors.Raised else Color.Transparent)
+                .drawBehind {
+                    drawRect(UsageColors.Raised, alpha = if (motion.enabled) selection.value else if (selected) 1f else 0f)
+                }
                 .indication(interaction, ripple())
                 .padding(horizontal = 14.dp),
             contentAlignment = Alignment.Center,

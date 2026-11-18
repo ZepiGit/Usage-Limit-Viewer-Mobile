@@ -240,9 +240,9 @@ class PercentDisplaySurfacesTest {
      * clock held back, an animated change leaves the outgoing figure on screen mid-fade; with
      * animations off the figure is replaced at once.
      *
-     * Once flipped, the row already reads "40%", so any "60%" left over can only be the lead
-     * strip's outgoing figure. The new figure is counted too, so a flip that never reached the
-     * screen cannot pass as "the old figure is gone".
+     * Any "60%" left over after the flip is an outgoing figure, the lead strip's or the row's:
+     * both fade. The new figure is counted too, so a flip that never reached the screen cannot
+     * pass as "the old figure is gone".
      */
     private fun figureNodesAfterFlip(animationScale: Float, advanceMs: Long): FigureNodes {
         val resolver = ApplicationProvider.getApplicationContext<Context>().contentResolver
