@@ -6,9 +6,12 @@ import com.usagelimits.core.model.FillState
 import com.usagelimits.core.model.PERCENT_TOKEN_OVER_NINETY_NINE
 import com.usagelimits.core.model.PERCENT_TOKEN_UNDER_ONE
 import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.StatusIcon
 import com.usagelimits.core.model.StatusIconContent
 import com.usagelimits.core.model.WindowPresentation
+import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WindowCategory
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,9 +32,41 @@ class StatusIconTextsTest {
     private fun presentation(token: String, side: PercentDisplay = PercentDisplay.LEFT, exhausted: Boolean = false) =
         WindowPresentation(token, side, fill = null, fillState = FillState.DATA, exhausted = exhausted)
 
-    private fun line(icon: StatusIcon, presentation: WindowPresentation) = texts.reading(icon, null, presentation, nowMs = 0L)
+    private fun line(icon: StatusIcon, presentation: WindowPresentation) = texts.reading(icon, presentation)
 
     private val current = { content: StatusIconContent -> StatusIcon(content, outdated = false) }
+
+    @Test
+    fun `the title carries the figure while the detail line carries only the window and reset`() {
+        val window = UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR,
+            usedPercent = 58.0, periodSeconds = 18_000, resetAt = 1L, exhausted = false)
+        assertEquals("42% left", texts.reading(current(StatusIconContent.Figure(42)), presentation("42")))
+        assertEquals("5h limit · Reset due", texts.windowDetails(window, nowMs = 2L))
+        assertEquals("5h limit", texts.windowDetails(window.copy(resetAt = null), nowMs = 2L))
+        assertEquals(null, texts.windowDetails(null, nowMs = 2L))
+    }
+
+    @Test
+    @Config(qualifiers = "de")
+    fun `German separates the title from the window and reset too`() {
+        val window = UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR,
+            usedPercent = 58.0, periodSeconds = 18_000, resetAt = 1L, exhausted = false)
+        assertEquals("42 % übrig", texts.reading(current(StatusIconContent.Figure(42)), presentation("42")))
+        assertEquals("5‑Std.-Limit · Reset fällig", texts.windowDetails(window, nowMs = 2L))
+    }
+
+    @Test
+    fun `the header names the provider and includes a supplied account label`() {
+        assertEquals("OpenAI Codex", texts.subText(ProviderId.CODEX, accountLabel = null))
+        assertEquals("Claude · Work", texts.subText(ProviderId.CLAUDE, accountLabel = "Work"))
+    }
+
+    @Test
+    @Config(qualifiers = "de")
+    fun `German headers retain the same provider names and the account label`() {
+        assertEquals("OpenAI Codex", texts.subText(ProviderId.CODEX, accountLabel = null))
+        assertEquals("Claude · Geschäftlich", texts.subText(ProviderId.CLAUDE, accountLabel = "Geschäftlich"))
+    }
 
     @Test
     fun `a figure is said in full with its side, not as the icon shortens it`() {

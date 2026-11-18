@@ -71,6 +71,7 @@ class StatusIconPermissionGrantTest {
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
     private val manager get() = app.getSystemService(NotificationManager::class.java)
     private lateinit var owned: OwnedViewModel
+    private lateinit var selectedAccountId: String
     private val vm: UsageViewModel get() = owned.vm
 
     /** How often the screen reported notifications becoming allowed. */
@@ -84,7 +85,8 @@ class StatusIconPermissionGrantTest {
         val store = app.container.settingsStore
         store.recordNotificationPermissionHandled()
         store.setStatusIconsEnabled(true)
-        store.setPinnedAccounts(listOf(account().localId))
+        selectedAccountId = account().localId
+        store.setPinnedAccounts(listOf(selectedAccountId))
         owned = OwnedViewModel(app.container, app)
 
         // The publication of the choice, made while notifications are denied, runs to its end
@@ -177,7 +179,7 @@ class StatusIconPermissionGrantTest {
         val records = statusRecords()
         assertEquals("one summary", 1, records.count { it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 })
         assertEquals("one child", 1, records.count { it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 })
-        assertEquals(setOf("Claude"), records.map { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }.toSet())
+        assertEquals(setOf(selectedAccountId), records.map { shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId") }.toSet())
         assertEquals("one transition, one publication", 1, allowedEvents)
         assertEquals("the grant evaluates no alert", 0, alertRecords().size)
 

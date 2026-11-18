@@ -488,7 +488,7 @@
 
     <!-- Status icons for pinned accounts: channel and shade row (statusicon/StatusIconTexts.kt). -->
     <string name="status_icon_channel_name">Status bar icons</string>
-    <string name="status_icon_channel_description">A silent icon with the figure of each pinned account</string>
+    <string name="status_icon_channel_description">A figure for each pinned account, without sound or vibration</string>
     <!-- %1$s is the figure with its percent sign, %2$s the side word ("left" / "used"). -->
     <string name="status_icon_text_figure">%1$s %2$s</string>
     <!-- The same, for an underlined icon: the reading is stale or its reset is due. -->
@@ -508,7 +508,7 @@
     <!-- Spoken by a disabled pin switch; %2$d is the limit, so the count is always several. -->
     <string name="settings_status_icons_pin_full" tools:ignore="PluralsCandidate">Pin %1$s. %2$d of %2$d are pinned; unpin one first.</string>
     <string name="settings_status_icons_no_accounts">Add an account to show its icon.</string>
-    <string name="settings_status_icons_note">Android decides how many icons fit, and its setting that hides silent notification icons hides these too.</string>
+    <string name="settings_status_icons_note">Android decides how many icons fit. Notification settings control their visibility.</string>
 
     <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
     <string name="loopback_signed_in">Signed in</string>

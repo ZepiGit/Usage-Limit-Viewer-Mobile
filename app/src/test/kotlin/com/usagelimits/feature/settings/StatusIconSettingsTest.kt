@@ -135,7 +135,7 @@ class StatusIconSettingsTest {
     fun `the section states the platform's limits`() {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         render(AppSettings(statusIconsEnabled = true))
-        val note = "Android decides how many icons fit, and its setting that hides silent notification icons hides these too."
+        val note = "Android decides how many icons fit. Notification settings control their visibility."
         scrollTo(note)
         compose.onNodeWithText(note).assertIsDisplayed()
     }
