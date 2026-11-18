@@ -61,16 +61,15 @@ class UsageLimitsApp : Application(), Configuration.Provider {
             // of the two, and it deserves a line in the log rather than an uncaught exception
             // nobody sees.
             runCatching {
-                SyncWorker.scheduleBackgroundSync(this@UsageLimitsApp)
-
-                // Refresh on launch so the first screen is current rather than however stale the
-                // last background pass left it.
-                SyncWorker.syncNow(this@UsageLimitsApp)
+                scheduleOnStartup()
             }.onFailure { error ->
                 Log.w(TAG, "background sync could not be scheduled", error)
             }
         }
     }
+
+    // WorkManager can start this process without an activity. Only the activity requests a launch refresh.
+    internal suspend fun scheduleOnStartup() = SyncWorker.scheduleBackgroundSync(this)
 
     private companion object {
         const val TAG = "UsageLimitsApp"

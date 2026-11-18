@@ -23,6 +23,8 @@ sealed class CreditError(message: String) : Exception(message) {
     class Malformed(detail: String) :
         CreditError("The provider answered in a shape this app does not understand ($detail).")
     class Unavailable(detail: String) : CreditError("No balance could be read ($detail).")
+    class RateLimited(endpoint: String, val retryAfterMs: Long?) :
+        CreditError("No balance could be read ($endpoint is rate limiting this key).")
     class TeamIdRequired :
         CreditError("This xAI key is not tied to one team. Enter the team id from console.x.ai.")
     class NoKey : CreditError("No key was entered.")

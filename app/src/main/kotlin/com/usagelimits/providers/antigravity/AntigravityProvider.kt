@@ -323,6 +323,7 @@ class AntigravityProvider(
         // The primary host's failure is the one worth reporting; the fallbacks mostly 404.
         var firstError: ProviderException? = null
         var authRejection: ProviderException? = null
+        var rateLimit: ProviderException.RateLimited? = null
         var emptyHosts = 0
         val allRows = mutableListOf<AntigravityQuotaParser.Row>()
         for ((index, url) in Antigravity.QUOTA_URLS.withIndex()) {
@@ -340,6 +341,11 @@ class AntigravityProvider(
                 if (rows.isEmpty()) emptyHosts++
             } catch (e: ProviderException) {
                 firstError = firstError ?: e
+                if (e is ProviderException.RateLimited &&
+                    (rateLimit == null || (e.retryAfterMs ?: 0L) > (rateLimit.retryAfterMs ?: 0L))
+                ) {
+                    rateLimit = e
+                }
                 if (e is ProviderException.Unauthorized || e is ProviderException.Forbidden) {
                     authRejection = authRejection ?: e
                 }
@@ -354,6 +360,7 @@ class AntigravityProvider(
         // Every host answered, none had data: report it as a payload problem rather than
         // silently showing an account with no limits.
         authRejection?.let { throw it }
+        rateLimit?.let { throw it }
         firstError?.let { throw it }
         throw ProviderException.MalformedPayload(
             if (emptyHosts > 0) {

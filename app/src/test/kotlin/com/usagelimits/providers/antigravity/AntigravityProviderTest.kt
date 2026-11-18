@@ -8,6 +8,7 @@ import com.usagelimits.core.network.HttpClient
 import com.usagelimits.core.network.ProviderEndpoints.Antigravity
 import com.usagelimits.core.network.ProviderException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
@@ -213,6 +214,16 @@ class AntigravityProviderTest {
         } catch (error: ProviderException.Unexpected) {
             assertEquals(404, error.statusCode)
         }
+    }
+
+    @Test
+    fun `a throttled secondary host determines the error when no host returns usage`() = runTest {
+        val error = runCatching {
+            provider(listOf(404 to "{}", 429 to "{}", 404 to "{}"), mutableListOf())
+                .fetchUsage(account, credentials)
+        }.exceptionOrNull()
+
+        assertTrue(error.toString(), error is ProviderException.RateLimited)
     }
 
     @Test

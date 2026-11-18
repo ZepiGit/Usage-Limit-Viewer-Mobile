@@ -349,6 +349,7 @@ class XaiProvider(
 
         if (credits == null && billing == null) {
             throw failures.firstOrNull { it is ProviderException.Unauthorized }
+                ?: failures.filterIsInstance<ProviderException.RateLimited>().maxByOrNull { it.retryAfterMs ?: 0L }
                 ?: failures.lastOrNull() ?: ProviderException.Unexpected("xAI billing returned nothing")
         }
 

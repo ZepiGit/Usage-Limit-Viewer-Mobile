@@ -201,6 +201,7 @@ class UsageViewModel(
         viewModelScope.launch {
             refreshing.value = true
             try {
+                SyncWorker.reconcileForManualRefresh(appContext, container.settingsStore.settings)
                 val outcomes = container.syncEngine.syncAll() + container.creditSyncEngine.syncAll()
                 val failures = outcomes.count { !it.success }
                 transientMessage.value = when {
@@ -220,6 +221,7 @@ class UsageViewModel(
         viewModelScope.launch {
             refreshing.value = true
             try {
+                SyncWorker.reconcileForManualRefresh(appContext, container.settingsStore.settings)
                 container.syncEngine.syncAccount(accountId)
                 container.publication.cacheMoved()
             } finally {

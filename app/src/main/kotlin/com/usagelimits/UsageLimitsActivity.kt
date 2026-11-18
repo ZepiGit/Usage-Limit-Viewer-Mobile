@@ -74,8 +74,7 @@ class UsageLimitsActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Coming back to the app is a strong signal the user wants current numbers.
-        SyncWorker.syncNow(this)
+        SyncWorker.syncOnResume(this)
     }
 
     override fun onStop() {

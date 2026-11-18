@@ -60,11 +60,18 @@ class SyncEngine(
     private suspend fun accountLock(accountId: String): Mutex =
         mutexGuard.withLock { accountLocks.getOrPut(accountId) { Mutex() } }
 
-    /** Syncs every account concurrently. Never throws; failures surface per account. */
-    suspend fun syncAll(): List<SyncOutcome> = coroutineScope {
+    /** Syncs accounts concurrently; an automatic pass omits accounts in cooldown. */
+    suspend fun syncAll(automatic: Boolean = false): List<SyncOutcome> = coroutineScope {
         repository.accounts()
-            .map { account -> async { syncAccount(account) } }
+            .map { account -> async {
+                accountLock(account.localId).withLock {
+                    if (RateLimitCooldown.shouldSkip(automatic, nowMs) { repository.backgroundNotBefore(account.localId) }) {
+                        null
+                    } else syncLocked(account)
+                }
+            } }
             .awaitAll()
+            .filterNotNull()
     }
 
     suspend fun syncAccount(accountId: String): SyncOutcome {
@@ -73,16 +80,19 @@ class SyncEngine(
         return syncAccount(account)
     }
 
-    suspend fun syncAccount(account: ProviderAccount): SyncOutcome = accountLock(account.localId).withLock {
+    suspend fun syncAccount(account: ProviderAccount): SyncOutcome =
+        accountLock(account.localId).withLock { syncLocked(account) }
+
+    private suspend fun syncLocked(account: ProviderAccount): SyncOutcome {
         // Emulator fixtures never contact a provider. R8 removes this branch from release APKs.
         if (com.usagelimits.BuildConfig.DEBUG && account.attributes["screenshotFixture"] == "true") {
             val attemptedAt = nowMs()
             repository.snapshot(account.localId)?.let {
                 repository.saveSnapshot(it.copy(fetchedAt = attemptedAt, lastAttemptAt = attemptedAt))
             }
-            return@withLock SyncOutcome(account.localId, success = true)
+            return SyncOutcome(account.localId, success = true)
         }
-        try {
+        return try {
             val provider = registry.forId(account.provider)
                 ?: throw ProviderException.Unexpected("No provider for ${account.provider.id}")
 
@@ -124,8 +134,11 @@ class SyncEngine(
             // the scope is checked before anything is persisted — otherwise a cancelled sync
             // records "No network connection" against an account with a working connection.
             currentCoroutineContext().ensureActive()
-            recordFailure(account.localId, e.userMessage(), e is ProviderException.Unauthorized)
-            SyncOutcome(account.localId, success = false, message = e.userMessage())
+            val message = e.userMessage()
+            recordFailure(
+                account.localId, message, e is ProviderException.Unauthorized, e as? ProviderException.RateLimited,
+            )
+            SyncOutcome(account.localId, success = false, message = message)
         } catch (e: Exception) {
             // A provider bug must not take the whole sync pass down with it.
             currentCoroutineContext().ensureActive()
@@ -142,9 +155,18 @@ class SyncEngine(
      * [syncAccount] — documented as never throwing — and cancel the sibling accounts sharing
      * the [syncAll] scope, discarding their freshly fetched numbers.
      */
-    private suspend fun recordFailure(accountId: String, message: String, requiresReauthentication: Boolean = false) {
+    private suspend fun recordFailure(
+        accountId: String,
+        message: String,
+        requiresReauthentication: Boolean = false,
+        rateLimit: ProviderException.RateLimited? = null,
+    ) {
         try {
-            repository.saveFailure(accountId, message, nowMs(), requiresReauthentication)
+            val now = nowMs()
+            repository.saveFailure(
+                accountId, message, now, requiresReauthentication,
+                backgroundNotBefore = rateLimit?.let { RateLimitCooldown.deadline(now, it.retryAfterMs) },
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

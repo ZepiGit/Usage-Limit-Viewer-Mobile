@@ -34,9 +34,15 @@ class CreditSyncEngine(
      */
     private val runLock = Mutex()
 
-    /** Syncs every credit account concurrently. Never throws but for cancellation. */
-    suspend fun syncAll(): List<SyncOutcome> = runLock.withLock {
-        coroutineScope { repository.accounts().map { async { sync(it) } }.awaitAll() }
+    /** Syncs accounts concurrently; an automatic pass omits accounts in cooldown. */
+    suspend fun syncAll(automatic: Boolean = false): List<SyncOutcome> = runLock.withLock {
+        coroutineScope {
+            repository.accounts().map { account -> async {
+                if (RateLimitCooldown.shouldSkip(automatic, nowMs) { repository.backgroundNotBefore(account.id) }) {
+                    null
+                } else sync(account)
+            } }.awaitAll().filterNotNull()
+        }
     }
 
     private suspend fun sync(account: CreditAccount): SyncOutcome {
@@ -49,17 +55,27 @@ class CreditSyncEngine(
             throw e
         } catch (e: Exception) {
             val failure = messageFor(e)
-            record(account.id, null, failure)
+            record(account, null, failure, e as? CreditError.RateLimited)
             return SyncOutcome(account.id, success = false, message = failure)
         }
-        record(account.id, balances, message)
+        record(account, balances, message)
         return SyncOutcome(account.id, success = true)
     }
 
     /** Best-effort, like the usage sink: an unwritable row must not fail the account. */
-    private suspend fun record(accountId: String, balances: List<CreditBalance>?, error: String?) {
+    private suspend fun record(
+        account: CreditAccount,
+        balances: List<CreditBalance>?,
+        error: String?,
+        rateLimit: CreditError.RateLimited? = null,
+    ) {
         try {
-            repository.record(accountId, balances, error, nowMs())
+            val now = nowMs()
+            repository.record(
+                account.id, balances, error, now,
+                backgroundNotBefore = rateLimit?.let { RateLimitCooldown.deadline(now, it.retryAfterMs) },
+                expectedCreatedAt = account.createdAt,
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {

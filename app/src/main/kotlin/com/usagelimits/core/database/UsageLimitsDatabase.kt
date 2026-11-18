@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CreditAccountEntity::class,
         CreditSnapshotEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class UsageLimitsDatabase : RoomDatabase() {
@@ -241,6 +241,13 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE usage_snapshots ADD COLUMN backgroundNotBefore INTEGER")
+                db.execSQL("ALTER TABLE credit_snapshots ADD COLUMN backgroundNotBefore INTEGER")
+            }
+        }
+
         fun build(context: Context): UsageLimitsDatabase =
             Room.databaseBuilder(
                 context.applicationContext,
@@ -255,6 +262,7 @@ abstract class UsageLimitsDatabase : RoomDatabase() {
             MIGRATION_10_11,
             MIGRATION_11_12,
             MIGRATION_12_13,
+            MIGRATION_13_14,
             ).build()
     }
 }

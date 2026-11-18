@@ -89,6 +89,16 @@ class DatabaseUpgradeTest {
                     "INSERT INTO widget_configs(appWidgetId, scope, accountId, provider, updatedAt) " +
                         "VALUES(7, 'ACCOUNT', 'kept-$version', NULL, 3)",
                 )
+                if (version >= 11) {
+                    db.execSQL(
+                        "INSERT INTO credit_accounts(id, provider, label, credentialReference, attributesJson, sortOrder, createdAt) " +
+                            "VALUES('credit-kept', 'novita', 'Novita', 'credit-ref', '{}', 0, 1)",
+                    )
+                    db.execSQL(
+                        "INSERT INTO credit_snapshots(accountId, balancesJson, fetchedAt, lastAttemptAt, status) " +
+                            "VALUES('credit-kept', '[{\"currency\":\"USD\",\"amount\":\"25\"}]', 4, 5, 'OK')",
+                    )
+                }
             }
 
             val upgraded = UsageLimitsDatabase.build(context)
@@ -104,6 +114,15 @@ class DatabaseUpgradeTest {
                 assertNull("legacy attempt time was not recorded", snapshot.lastAttemptAt)
                 val repository = UsageRepository(upgraded.accountDao(), upgraded.usageSnapshotDao())
                 assertEquals(2L, repository.snapshot("kept-$version")!!.lastAttemptAt)
+                assertNull(repository.backgroundNotBefore("kept-$version"))
+                if (version >= 11) {
+                    val credit = CreditRepository(upgraded.creditDao())
+                    val balance = checkNotNull(credit.snapshot("credit-kept"))
+                    assertEquals("25", balance.balances.single().amount.toPlainString())
+                    assertEquals(4L, balance.fetchedAt)
+                    assertEquals(5L, balance.lastAttemptAt)
+                    assertNull(credit.backgroundNotBefore("credit-kept"))
+                }
 
                 val widget = upgraded.widgetConfigDao().get(7)
                 assertTrue("version $version lost its widget", widget != null)

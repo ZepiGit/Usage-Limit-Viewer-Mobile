@@ -15,13 +15,17 @@ import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.network.ProviderException
+import com.usagelimits.core.sync.SyncWorker.Companion.PERIODIC_WORK_NAME as PERIODIC
+import com.usagelimits.core.sync.SyncWorker.Companion.SHORT_WORK_NAME as SHORT
 import com.usagelimits.providers.LoginChallenge
 import com.usagelimits.providers.ProviderProfile
 import com.usagelimits.providers.ProviderRegistry
 import com.usagelimits.providers.UsageProvider
 import com.usagelimits.providers.UsageResult
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -35,7 +39,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
+import java.io.IOException
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * How the sync triggers land in WorkManager.
@@ -51,11 +57,13 @@ class SyncWorkerSchedulingTest {
     private val context: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
     private val manager: WorkManager get() = WorkManager.getInstance(context)
     private lateinit var originalContainer: AppContainer
+    private var originalInterval = 0
 
     @Before
     fun initWorkManager() = runBlocking {
         context.startupJob?.join()
         originalContainer = context.container
+        originalInterval = originalContainer.settingsStore.settings.first().syncIntervalMinutes
         manager.cancelAllWork().result.get()
         resetTestWorkManager()
         WorkManagerTestInitHelper.initializeTestWorkManager(
@@ -70,10 +78,14 @@ class SyncWorkerSchedulingTest {
      * symptom lands in whichever test comes next. See UsageLimitsApp.startupJob.
      */
     @After
-    fun closeWorkManager() {
-        manager.cancelAllWork().result.get()
-        ReflectionHelpers.setField(context, "container", originalContainer)
-        resetTestWorkManager()
+    fun closeWorkManager() = runBlocking {
+        try {
+            manager.cancelAllWork().result.get()
+            originalContainer.settingsStore.setSyncInterval(originalInterval)
+        } finally {
+            ReflectionHelpers.setField(context, "container", originalContainer)
+            resetTestWorkManager()
+        }
     }
 
     private suspend fun schedule(minutes: Int) {
@@ -89,6 +101,15 @@ class SyncWorkerSchedulingTest {
         val driver = WorkManagerTestInitHelper.getTestDriver(context)!!
         driver.setAllConstraintsMet(id)
         driver.setInitialDelayMet(id)
+    }
+
+    private suspend fun runWork(request: WorkInfo): WorkInfo {
+        val driver = WorkManagerTestInitHelper.getTestDriver(context)!!
+        driver.setAllConstraintsMet(request.id)
+        if (request.initialDelayMillis > 0) driver.setInitialDelayMet(request.id)
+        return withTimeout(10_000) {
+            manager.getWorkInfoByIdFlow(request.id).first { it?.state?.isFinished == true }!!
+        }
     }
 
     private suspend fun installProvider(
@@ -120,6 +141,34 @@ class SyncWorkerSchedulingTest {
     }
 
     @Test
+    fun `cold background startup schedules one read rather than starting another pass`() = runBlocking {
+        val reads = AtomicInteger()
+        installProvider {
+            reads.incrementAndGet()
+            UsageResult(emptyList())
+        }
+        context.container.settingsStore.setSyncInterval(5)
+        context.scheduleOnStartup()
+
+        // Release every request that boot reserved; a process-only start must not add a sync-now.
+        val scheduled = active(SHORT).single()
+        for (request in active(SyncWorker.ONE_SHOT_WORK_NAME) + scheduled) runWork(request)
+        assertEquals("provider reads from one cold background wakeup", 1, reads.get())
+
+        SyncWorker.syncOnResume(context)
+        runWork(active(SyncWorker.ONE_SHOT_WORK_NAME).single())
+        assertEquals("activity resume still refreshes even immediately after a read", 2, reads.get())
+    }
+
+    @Test
+    fun `a failed startup settings read still schedules the default interval`() = runBlocking {
+        SyncWorker.scheduleBackgroundSync(context, flow { throw IOException("fixture read failure") })
+
+        val periodic = active(PERIODIC).single()
+        assertEquals(1_800_000L, periodic.periodicityInfo!!.repeatIntervalMillis)
+    }
+
+    @Test
     fun `five minute scheduling keeps one delayed network constrained pass across reconciliation`() = runBlocking {
         schedule(5)
         val first = active(SHORT).single().id
@@ -146,18 +195,14 @@ class SyncWorkerSchedulingTest {
 
     private suspend fun runShortPass(expected: SnapshotStatus, account: ProviderAccount) {
         schedule(5)
-        val first = active(SHORT).single().id
-        start(first)
-        val finished = withTimeout(10_000) {
-            manager.getWorkInfoByIdFlow(first).first { it?.state?.isFinished == true }!!
-        }
-        assertEquals(WorkInfo.State.SUCCEEDED, finished.state)
+        val first = active(SHORT).single()
+        assertEquals(WorkInfo.State.SUCCEEDED, runWork(first).state)
         val snapshot = context.container.repository.accountUsageOnce().single { it.account.localId == account.localId }.snapshot
         assertEquals(expected, snapshot?.status)
         val pending = active(SHORT)
         assertEquals("one delayed successor after a $expected pass", 1, pending.size)
         assertEquals(300_000L, pending.single().initialDelayMillis)
-        assertNotEquals(first, pending.single().id)
+        assertNotEquals(first.id, pending.single().id)
     }
 
     @Test
@@ -223,9 +268,65 @@ class SyncWorkerSchedulingTest {
         }
     }
 
-    private companion object {
-        const val SHORT = "usage_sync_short"
-        const val PERIODIC = "usage_sync_periodic"
+    @Test
+    fun `a stopped short request reruns without reserving a second successor`() = runBlocking {
+        val entered = Channel<Unit>(capacity = 2)
+        val release = CompletableDeferred<Unit>()
+        installProvider {
+            entered.send(Unit)
+            release.await()
+            UsageResult(emptyList())
+        }
+        schedule(5)
+        val first = active(SHORT).single().id
+        start(first)
+        try {
+            withTimeout(10_000) { entered.receive() }
+            val successor = active(SHORT).single { it.state == WorkInfo.State.BLOCKED }.id
+            WorkManagerTestInitHelper.getTestDriver(context)!!
+                .stopRunningWorkWithReason(first, WorkInfo.STOP_REASON_CONSTRAINT_CONNECTIVITY)
+            withTimeout(10_000) {
+                manager.getWorkInfoByIdFlow(first).first { it?.state == WorkInfo.State.ENQUEUED }
+            }
+
+            start(first)
+            withTimeout(10_000) { entered.receive() }
+            assertEquals(WorkInfo.State.RUNNING, manager.getWorkInfoById(first).get()!!.state)
+            assertEquals("the rerun keeps only its original blocked successor", listOf(successor),
+                active(SHORT).filter { it.state == WorkInfo.State.BLOCKED }.map { it.id })
+        } finally {
+            release.complete(Unit)
+            withTimeout(10_000) {
+                manager.getWorkInfoByIdFlow(first).first { it?.state?.isFinished == true }
+            }
+        }
+    }
+
+    @Test
+    fun `scheduled and foreground work respect cooldown but an explicit widget tap reads and repairs the chain`() = runBlocking {
+        val reads = AtomicInteger()
+        installProvider {
+            if (reads.incrementAndGet() == 1) throw ProviderException.RateLimited(3_600_000L)
+            UsageResult(emptyList())
+        }
+        schedule(5)
+        runWork(active(SHORT).single())
+        runWork(active(SHORT).single())
+        assertEquals("the next short pass must honor the throttle", 1, reads.get())
+        SyncWorker.syncOnResume(context)
+        runWork(active(SyncWorker.ONE_SHOT_WORK_NAME).single())
+        assertEquals("foreground launch is not an explicit refresh", 1, reads.get())
+
+        manager.cancelUniqueWork(SHORT).result.get()
+        SyncWorker.syncOnResume(context)
+        val foreground = active(SyncWorker.ONE_SHOT_WORK_NAME).single()
+        SyncWorker.syncNow(context)
+        val manual = active(SyncWorker.ONE_SHOT_WORK_NAME).single()
+        assertNotEquals("a queued automatic pass must not consume a widget tap", foreground.id, manual.id)
+        runWork(manual)
+        assertEquals("widget refresh tap bypasses the cooldown", 2, reads.get())
+        runWork(active(SHORT).single())
+        assertEquals("manual success lets the repaired short chain read again", 3, reads.get())
     }
 
     @Test

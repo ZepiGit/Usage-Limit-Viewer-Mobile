@@ -21,6 +21,7 @@ class FakeCreditDao : CreditDao {
     override fun observeSnapshots(): Flow<List<CreditSnapshotEntity>> = flowOf(snapshots.values.toList())
     override suspend fun getSnapshots() = snapshots.values.toList()
     override suspend fun getSnapshot(accountId: String) = snapshots[accountId]
+    override suspend fun backgroundNotBefore(accountId: String) = snapshots[accountId]?.backgroundNotBefore
     override suspend fun upsertAccount(account: CreditAccountEntity) { accounts[account.id] = account }
     override suspend fun upsertSnapshot(snapshot: CreditSnapshotEntity) {
         if (snapshot.accountId !in accounts) throw IllegalStateException("FOREIGN KEY constraint failed (code 787)")
