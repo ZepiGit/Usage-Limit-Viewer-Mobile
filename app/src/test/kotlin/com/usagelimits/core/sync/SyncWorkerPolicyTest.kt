@@ -134,10 +134,11 @@ class SyncWorkerPolicyTest {
     }
 
     @Test
-    fun `an interval below the platform floor is judged at the floor`() {
-        // A stored 1-minute interval would otherwise make every tick a fetch.
-        val recent = listOf(usage("a", fetchedAt = now - 10 * 60_000))
+    fun `automatic usage syncs become due at five minutes and clamp smaller values`() {
+        val recent = listOf(usage("a", fetchedAt = now - 4 * 60_000))
+        val due = listOf(usage("a", fetchedAt = now - 5 * 60_000))
         assertFalse(SyncWorker.cacheNeedsSync(recent, syncIntervalMinutes = 1, nowMs = now))
+        assertTrue(SyncWorker.cacheNeedsSync(due, syncIntervalMinutes = 5, nowMs = now))
     }
 
     @Test

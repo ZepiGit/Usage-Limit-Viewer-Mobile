@@ -93,6 +93,25 @@ class GermanScreenRenderTest {
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text, substring = true))
     }
 
+    @Test
+    fun `a paused account shows the German reason and keeps its reading`() {
+        val snapshot = usage.snapshot!!.copy(
+            status = SnapshotStatus.FAILED,
+            errorMessage = "Rate limited. Automatic refresh is paused. Refresh manually to try now.",
+        )
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(usage.copy(snapshot = snapshot)), settings = AppSettings()),
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onReorder = {},
+                onPercentDisplayChange = {},
+            )
+        }
+        val notice = "Zu viele Anfragen. Die automatische Aktualisierung pausiert. Aktualisiere manuell, um es jetzt erneut zu versuchen."
+        scrollTo(notice)
+        assertShown(notice, substring = true)
+        assertShown("73 %", substring = true)
+    }
+
     private fun renderSettings(mode: PercentDisplay) = render {
         SettingsScreen(
             state = UsageUiState(accounts = listOf(usage), settings = AppSettings(percentDisplay = mode)),

@@ -13,6 +13,7 @@ public actor CreditRepository {
     private struct Stored: Codable, Sendable {
         var account: CreditAccount
         var snapshot: CreditSnapshot?
+        var automaticSyncNotBefore: TimeInterval? = nil
     }
 
     private let fileURL: URL
@@ -74,6 +75,11 @@ public actor CreditRepository {
         entries().map(\.account)
     }
 
+    func automaticSyncNotBefore(accountID: String) -> TimeInterval? {
+        ensureLoaded()
+        return records[accountID]?.automaticSyncNotBefore
+    }
+
     // MARK: Writing
 
     /// Adds or replaces an account. The snapshot survives a re-save unless one is given.
@@ -85,7 +91,9 @@ public actor CreditRepository {
             id: account.id, provider: account.provider, label: account.label,
             credentialReference: account.credentialReference, attributes: account.attributes,
             sortOrder: sortOrder, createdAt: updated[account.id]?.account.createdAt ?? account.createdAt)
-        updated[account.id] = Stored(account: placed, snapshot: snapshot ?? updated[account.id]?.snapshot)
+        updated[account.id] = Stored(
+            account: placed, snapshot: snapshot ?? updated[account.id]?.snapshot,
+            automaticSyncNotBefore: snapshot == nil ? updated[account.id]?.automaticSyncNotBefore : nil)
         try persist(updated)
     }
 
@@ -98,13 +106,19 @@ public actor CreditRepository {
 
     /// Records one sync. A failure keeps the previous balances and their original `fetchedAt`
     /// and only adds the error: yesterday's number marked stale beats an empty card.
-    public func record(accountID: String, balances: [CreditBalance]?, error: String?, at time: Date) throws {
+    public func record(
+        accountID: String, balances: [CreditBalance]?, error: String?, at time: Date,
+        rateLimitedUntil: TimeInterval? = nil, accountCreatedAt: Date? = nil
+    ) throws {
         try requireLoaded()
         var updated = records
-        guard var stored = updated[accountID] else { return }
+        guard var stored = updated[accountID],
+              accountCreatedAt == nil || stored.account.createdAt == accountCreatedAt else { return }
         if let balances {
+            stored.automaticSyncNotBefore = nil
             stored.snapshot = CreditSnapshot(accountID: accountID, balances: balances, fetchedAt: time)
         } else {
+            if let rateLimitedUntil { stored.automaticSyncNotBefore = rateLimitedUntil }
             let previous = stored.snapshot
             stored.snapshot = CreditSnapshot(
                 accountID: accountID, balances: previous?.balances ?? [],

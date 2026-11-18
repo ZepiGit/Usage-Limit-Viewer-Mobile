@@ -414,6 +414,7 @@ class CodexProvider(
         val response = http.request(
             url = Codex.RESET_CREDITS_URL,
             headers = usageHeaders(account, credentials) + Codex.RESET_CREDIT_HEADERS,
+            retries = 0,
         )
         return creditsFrom(JsonSupport.parseObject(response.body))
     }

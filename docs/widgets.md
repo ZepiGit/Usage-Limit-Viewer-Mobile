@@ -44,9 +44,9 @@ On Android a change in Settings repaints every usage widget. On iOS the app writ
 
 ## Refresh and reset times
 
-App refreshes, sign-in, removal and reset-credit actions request widget updates. Android's refresh button queues a shared sync with a network constraint. Periodic sync runs at the chosen interval, with a 15-minute minimum; the widget framework also requests updates around every 30 minutes. Android controls actual background delivery.
+App refreshes, sign-in, removal and reset-credit actions request widget updates. Android's refresh button queues a shared sync with a network constraint. Background sync runs at the interval chosen in Settings: 5, 15, 30 minutes, 1 hour or 3 hours, with 30 minutes as the default. At 15 minutes or more it is periodic work. Android's periodic work cannot run more often than every 15 minutes, so with 5 minutes each sync schedules the next one as one-time work. Doze and battery saver can delay either kind. The widget framework also requests updates around every 30 minutes. Android controls actual background delivery, so the chosen interval is not an exact cadence.
 
-On iOS, refresh links open the app to fetch new readings. WidgetKit controls timeline delivery, so saving a configuration or requesting a reload has no fixed display deadline.
+On iOS, refresh links open the app to fetch new readings. The chosen interval is only the earliest time the app asks to refresh in the background; the system decides how often it actually runs, often less often than asked. WidgetKit controls timeline delivery, so saving a configuration or requesting a reload has no fixed display deadline.
 
 Reset times are absolute. An elapsed reset shows “Reset due” until a fetch supplies the next window. Failed refreshes retain the original measurement age; unknown percentages show a neutral state rather than an empty allowance. Partial results carry a separate warning.
 

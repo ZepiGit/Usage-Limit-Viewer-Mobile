@@ -13,6 +13,14 @@ import Foundation
 /// Empty and nil fields mean "the endpoint did not say", which callers must show as unknown
 /// rather than as zero; a refresh that loses one section still returns the sections it kept.
 public struct UsageResult: Sendable {
+    public struct RateLimit: Sendable {
+        public let retryAfter: TimeInterval?
+
+        public init(retryAfter: TimeInterval?) {
+            self.retryAfter = retryAfter
+        }
+    }
+
     /// The quota windows the provider reported. An empty list is a valid answer — nothing to
     /// show — as distinct from a failure, which throws instead of returning.
     public let windows: [UsageWindow]
@@ -47,6 +55,9 @@ public struct UsageResult: Sendable {
     public let errorMessage: String?
     public let connectionStatus: ConnectionStatus
 
+    /// A final HTTP 429 from one endpoint, even if it supplied no Retry-After header.
+    public let rateLimit: RateLimit?
+
     public init(
         windows: [UsageWindow] = [],
         resetCredits: [ResetCredit] = [],
@@ -56,7 +67,8 @@ public struct UsageResult: Sendable {
         accountIdentity: String? = nil,
         status: SnapshotStatus = .ok,
         errorMessage: String? = nil,
-        connectionStatus: ConnectionStatus = .connected
+        connectionStatus: ConnectionStatus = .connected,
+        rateLimit: RateLimit? = nil
     ) {
         self.windows = windows
         self.resetCredits = resetCredits
@@ -67,6 +79,7 @@ public struct UsageResult: Sendable {
         self.status = status
         self.errorMessage = errorMessage
         self.connectionStatus = connectionStatus
+        self.rateLimit = rateLimit
     }
 }
 
@@ -97,6 +110,7 @@ public enum ProviderError: Error, LocalizedError {
     /// The credential was rejected (HTTP 401/403); refreshing the token is the only fix the
     /// caller can make.
     case unauthorised
+    case rateLimited(endpoint: String, retryAfter: TimeInterval?)
     /// The endpoint was unreachable, answered with an error status, or had nothing for this
     /// account.
     case noData(String)
@@ -108,9 +122,26 @@ public enum ProviderError: Error, LocalizedError {
         case .unauthorised:
             // Share the evaluator's sign-in-expired message so reconnect detection and alerts agree.
             return NotificationEvaluator.signInExpiredMessage
+        case .rateLimited:
+            return StoredMessage.rateLimitedRequestMessage
         case .noData(let detail):
             return "No usage could be read (\(detail))."
         }
+    }
+}
+
+private extension ProviderError {
+    var usageRateLimit: UsageResult.RateLimit? {
+        guard case .rateLimited(_, let retryAfter) = self else { return nil }
+        return .init(retryAfter: retryAfter)
+    }
+
+    func preferringRateLimit(_ other: ProviderError) -> ProviderError {
+        guard case .rateLimited(_, let ownHint) = self else { return other }
+        guard case .rateLimited(_, let otherHint) = other else { return self }
+        guard let otherHint else { return self }
+        if let ownHint, otherHint <= ownHint { return self }
+        return other
     }
 }
 
@@ -156,8 +187,8 @@ enum ProviderHTTP {
             case .status(let code, _):
                 try translate(status: code, endpoint: endpoint)
                 throw ProviderError.noData("\(endpoint) answered HTTP \(code)")
-            case .rateLimited:
-                throw ProviderError.noData("\(endpoint) is rate limiting this account")
+            case .rateLimited(let retryAfter):
+                throw ProviderError.rateLimited(endpoint: endpoint, retryAfter: retryAfter)
             default:
                 throw ProviderError.noData("\(endpoint) could not be reached")
             }
@@ -308,7 +339,8 @@ public struct CodexClient: SyncProvider, Sendable {
     /// already succeeded and remains worth showing. Every failure — including an
     /// authorisation rejection, which would be odd given the call above just succeeded with
     /// the same token — degrades to the slightly stale embedded copy rather than discarding
-    /// the whole result.
+    /// the whole result. Try the optional read once per pass rather than retrying it within
+    /// the pass or pausing the main reading on a throttle.
     private func fetchResetCredits(
         headers: [String: String],
         usagePayload: [String: Any]
@@ -320,7 +352,8 @@ public struct CodexClient: SyncProvider, Sendable {
                 method: "GET",
                 headers: headers,
                 body: nil,
-                endpoint: "codex reset credits"
+                endpoint: "codex reset credits",
+                retries: 0
             )
             let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "codex reset credits")
             return (
@@ -433,6 +466,7 @@ public struct AntigravityClient: SyncProvider, Sendable {
         let requestBody = try JSONSerialization.data(withJSONObject: ["project": projectID], options: [])
 
         var authRejection: ProviderError?
+        var rateLimit: ProviderError?
         var firstFailure: Error?
         var allRows: [AntigravityQuotaParser.Row] = []
 
@@ -452,8 +486,10 @@ public struct AntigravityClient: SyncProvider, Sendable {
                     continue
                 case .status(let code, _):
                     failure = .noData("antigravity quota answered HTTP \(code)")
-                case .rateLimited:
-                    failure = .noData("antigravity quota is rate limiting this account")
+                case .rateLimited(let retryAfter):
+                    let limit = ProviderError.rateLimited(endpoint: "antigravity quota", retryAfter: retryAfter)
+                    rateLimit = rateLimit?.preferringRateLimit(limit) ?? limit
+                    continue
                 case .transport:
                     failure = .noData("antigravity quota could not be reached")
                 default:
@@ -489,12 +525,15 @@ public struct AntigravityClient: SyncProvider, Sendable {
             !($0.isPlaceholder && $0.window.group.map(groupsWithWindows.contains) == true)
         }.map(\.window).filter { seenIDs.insert($0.id).inserted }
         if !allWindows.isEmpty {
-            return UsageResult(windows: allWindows)
+            return UsageResult(
+                windows: allWindows,
+                errorMessage: rateLimit == nil ? nil : StoredMessage.rateLimitedPauseMessage,
+                rateLimit: rateLimit?.usageRateLimit)
         }
 
-        // An authorisation rejection outranks the other failures because it is the only one
-        // the caller can fix unilaterally, and a needless token refresh costs less than a
-        // wrong diagnosis.
+        // Honor a throttle when no host supplied usage; a different shard's auth rejection
+        // must not cause immediate retries against the throttled host.
+        if let rateLimit { throw rateLimit }
         if let authRejection {
             throw authRejection
         }
@@ -589,13 +628,21 @@ public struct XaiClient: SyncProvider, Sendable {
                 return false
             }
             let partial = !failures.isEmpty || invalidUsage
+            let rateLimit = Self.preferredRateLimit(creditsFailure, billingFailure)?.usageRateLimit
+            let warning: String?
+            if needsReconnect {
+                warning = "One billing view rejected authentication; some usage could not be refreshed."
+            } else if rateLimit != nil {
+                warning = StoredMessage.rateLimitedPauseMessage
+            } else {
+                warning = partial ? "Some billing data could not be updated" : nil
+            }
             return UsageResult(
                 windows: XaiBillingParser.merge(creditsWindows ?? [], billingWindows ?? []),
                 status: partial ? .partial : .ok,
-                errorMessage: needsReconnect
-                    ? "One billing view rejected authentication; some usage could not be refreshed."
-                    : (partial ? "Some billing data could not be updated" : nil),
-                connectionStatus: needsReconnect ? .unknown : .connected)
+                errorMessage: warning,
+                connectionStatus: needsReconnect ? .unknown : .connected,
+                rateLimit: rateLimit)
         }
         throw Self.preferredFailure(creditsFailure, billingFailure)
     }
@@ -614,11 +661,20 @@ public struct XaiClient: SyncProvider, Sendable {
         return (parse(payload, now()), XaiBillingParser.hasInvalidUsage(payload))
     }
 
-    /// Picks which failure to surface when both routes were tried and both failed.
-    ///
-    /// The authorisation rejection wins because one token refresh repairs both routes at
-    /// once; anything else would have the user retry twice for a single fault.
+    private static func preferredRateLimit(_ first: Error?, _ second: Error?) -> ProviderError? {
+        let primary = first as? ProviderError
+        let fallback = second as? ProviderError
+        if case .rateLimited? = primary, let primary {
+            return fallback.map { primary.preferringRateLimit($0) } ?? primary
+        }
+        if case .rateLimited? = fallback { return fallback }
+        return nil
+    }
+
+    /// A final throttle takes priority over renewal. Without throttling, one token refresh
+    /// may repair both routes at once.
     private static func preferredFailure(_ first: Error?, _ second: Error?) -> Error {
+        if let rateLimit = preferredRateLimit(first, second) { return rateLimit }
         for candidate in [first, second].compactMap({ $0 }) {
             if let providerError = candidate as? ProviderError, case .unauthorised = providerError {
                 return providerError

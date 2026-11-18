@@ -8,6 +8,7 @@ import com.usagelimits.core.model.ResetCredit
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.ConnectionStatus
+import com.usagelimits.core.network.ProviderException
 
 /** Identity a provider reports after login, before the account gets a local id. */
 data class ProviderProfile(
@@ -38,6 +39,8 @@ data class UsageResult(
     val status: SnapshotStatus = SnapshotStatus.OK,
     val errorMessage: String? = null,
     val connectionStatus: ConnectionStatus = ConnectionStatus.CONNECTED,
+    /** Final endpoint throttle, even if no Retry-After was supplied. */
+    val rateLimit: ProviderException.RateLimited? = null,
 )
 
 /**

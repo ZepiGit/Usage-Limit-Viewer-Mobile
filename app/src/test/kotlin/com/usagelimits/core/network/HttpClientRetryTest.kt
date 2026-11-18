@@ -24,7 +24,7 @@ class HttpClientRetryTest {
 
     private var calls = 0
 
-    private fun clientAlwaysRateLimited(retryAfter: String?): OkHttpClient =
+    private fun clientAlwaysRateLimited(retryAfter: String?, date: String? = null): OkHttpClient =
         OkHttpClient.Builder()
             .addInterceptor { chain ->
                 calls++
@@ -33,7 +33,10 @@ class HttpClientRetryTest {
                     .protocol(Protocol.HTTP_1_1)
                     .code(429)
                     .message("Too Many Requests")
-                    .apply { retryAfter?.let { header("Retry-After", it) } }
+                    .apply {
+                        retryAfter?.let { header("Retry-After", it) }
+                        date?.let { header("Date", it) }
+                    }
                     .body("".toResponseBody(null))
                     .build()
             }
@@ -58,6 +61,18 @@ class HttpClientRetryTest {
             slept <= 2 * HttpClient.MAX_RETRY_AFTER_MS,
         )
         assertTrue("the client must still back off at all", slept > 0)
+    }
+
+    @Test
+    fun `an HTTP date Retry-After carries the delay from the server date`() = runTest {
+        val http = HttpClient(clientAlwaysRateLimited(
+            retryAfter = "Wed, 21 Oct 2015 08:28:00 GMT",
+            date = "Wed, 21 Oct 2015 07:28:00 GMT",
+        ))
+        val error = runCatching { http.request("https://example.invalid/usage", retries = 0) }
+            .exceptionOrNull() as ProviderException.RateLimited
+
+        assertEquals(3_600_000L, error.retryAfterMs)
     }
 
     @Test

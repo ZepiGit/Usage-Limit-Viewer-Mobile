@@ -69,7 +69,7 @@
     <string name="settings_title">Settings</string>
     <string name="settings_section_sync">Sync</string>
     <string name="settings_interval_title">Background refresh interval</string>
-    <string name="settings_interval_subtitle">Android may delay background work to save battery, so this is a target rather than a guarantee.</string>
+    <string name="settings_interval_subtitle">Android may refresh less often in Doze or battery saver.</string>
     <string name="settings_section_overview">Overview</string>
     <string name="settings_show_tier_title">Show subscription tier</string>
     <string name="settings_show_tier_subtitle">Plus, Pro, Max — beside the provider name</string>
@@ -457,7 +457,8 @@
     <!-- Failure sentences the sync layer and providers store in English; recognised and translated at the display (ui/text/ModelTexts.kt). -->
     <string name="stored_sign_in_expired">Sign-in expired — reconnect this account</string>
     <string name="stored_access_denied">Access denied for this account</string>
-    <string name="stored_rate_limited">Rate limited — try again shortly</string>
+    <string name="stored_rate_limited">Rate limited. Automatic refresh is paused. Refresh manually to try now.</string>
+    <string name="stored_rate_limit_request">Rate limited. Try again later.</string>
     <string name="stored_server_trouble">Provider is having trouble (%1$d)</string>
     <string name="stored_offline">No network connection</string>
     <string name="stored_malformed">Unexpected response from provider</string>

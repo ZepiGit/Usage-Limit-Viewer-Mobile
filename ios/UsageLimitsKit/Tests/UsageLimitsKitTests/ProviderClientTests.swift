@@ -408,6 +408,60 @@ final class ProviderClientTests: XCTestCase {
 }
 
 extension ProviderClientTests {
+    func testDevinDoesNotRetryAThrottledBinaryEndpointAsJSON() async {
+        let (http, transport) = client([(429, ""), (200, "{}")])
+        do {
+            _ = try await DevinClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+            XCTFail("expected the terminal 429")
+        } catch ProviderError.rateLimited(let endpoint, _) {
+            XCTAssertEqual(endpoint, "devin user status")
+        } catch {
+            XCTFail("expected a rate limit, got \(error)")
+        }
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map { $0.value(forHTTPHeaderField: "Content-Type") }, ["application/proto"])
+    }
+
+    func testDevinReturnsAThrottleFromTheJSONFallback() async {
+        let (http, transport) = client([(200, ""), (429, "")])
+        do {
+            _ = try await DevinClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+            XCTFail("expected the terminal 429")
+        } catch ProviderError.rateLimited(let endpoint, _) {
+            XCTAssertEqual(endpoint, "devin user status")
+        } catch {
+            XCTFail("expected a rate limit, got \(error)")
+        }
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map { $0.value(forHTTPHeaderField: "Content-Type") },
+            ["application/proto", "application/json"])
+    }
+
+    func testAntigravityPreservesThrottleWhenNoShardSucceeds() async {
+        let (http, _) = client([(503, ""), (429, ""), (401, "")])
+        do {
+            _ = try await AntigravityClient(httpClient: http)
+                .fetchUsage(credentials: credentials, attributes: ["project_id": "p"])
+            XCTFail("no shard supplied a reading")
+        } catch ProviderError.rateLimited(let endpoint, _) {
+            XCTAssertEqual(endpoint, "antigravity quota")
+        } catch {
+            XCTFail("expected a rate limit, got \(error)")
+        }
+    }
+
+    func testXaiPreservesThrottleWhenBothRoutesFail() async {
+        let (http, _) = client([(401, ""), (429, "")])
+        do {
+            _ = try await XaiClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+            XCTFail("neither route supplied a reading")
+        } catch ProviderError.rateLimited(let endpoint, _) {
+            XCTAssertEqual(endpoint, "billing")
+        } catch {
+            XCTFail("expected a rate limit, got \(error)")
+        }
+    }
+
     func testPartialXaiFailureKeepsQuotaAndWarning() async throws {
         let (http, _) = client([(200, #"{"config":{"creditUsagePercent":20}}"#), (503, "unavailable")])
         let result = try await XaiClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])

@@ -117,11 +117,10 @@ public struct DevinClient: SyncProvider, Sendable {
             // GetUserStatus is read-only and keeps the iOS client compatible with both servers.
             switch error {
             case .malformedPayload, .noData:
-                break
-            default:
+                return try await fetchStatusJSON(token: token)
+            case .unauthorised, .rateLimited:
                 throw error
             }
-            return try await fetchStatusJSON(token: token)
         }
     }
 

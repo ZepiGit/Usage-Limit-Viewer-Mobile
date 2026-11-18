@@ -61,6 +61,7 @@ import androidx.compose.ui.zIndex
 import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.settings.AppIcon
@@ -553,14 +554,15 @@ fun AccountCard(
         }
 
         if (snapshot?.errorMessage != null && windows.isNotEmpty()) {
-            val partial = snapshot.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL
+            val message = storedMessageText(snapshot.errorMessage)
             ErrorBlock(
-                message = stringResource(
-                    if (partial) R.string.error_partial_update else R.string.error_showing_last_known,
-                    storedMessageText(snapshot.errorMessage),
-                ),
+                message = when (snapshot.status) {
+                    SnapshotStatus.OK -> message
+                    SnapshotStatus.PARTIAL -> stringResource(R.string.error_partial_update, message)
+                    SnapshotStatus.FAILED -> stringResource(R.string.error_showing_last_known, message)
+                },
                 modifier = Modifier.padding(top = 12.dp),
-                dot = if (partial) UsageColors.Warning else UsageColors.Negative,
+                dot = if (snapshot.status == SnapshotStatus.FAILED) UsageColors.Negative else UsageColors.Warning,
                 onRetry = onRetry,
             )
         }

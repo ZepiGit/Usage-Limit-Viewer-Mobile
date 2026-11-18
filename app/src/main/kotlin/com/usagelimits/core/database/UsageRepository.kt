@@ -121,6 +121,9 @@ class UsageRepository(
     suspend fun snapshot(accountId: String): UsageSnapshot? =
         snapshotDao.getForAccount(accountId)?.toDomain(account(accountId)?.provider)
 
+    internal suspend fun backgroundNotBefore(accountId: String): Long? =
+        snapshotDao.backgroundNotBefore(accountId)
+
     /** Snapshot of the whole cache, for widget rendering off the main thread. */
     suspend fun accountUsageOnce(): List<AccountUsage> {
         val snapshots = snapshotDao.getAll().associateBy { it.accountId }
@@ -200,7 +203,7 @@ class UsageRepository(
     }
 
     /**
-     * Records a successful fetch.
+     * Records a reading and any new automatic pause together.
      *
      * No-ops when the account is gone. `usage_snapshots.accountId` is a foreign key onto
      * `accounts`, so writing a snapshot for a row the user removed while the fetch was in
@@ -208,7 +211,7 @@ class UsageRepository(
      * sync pass, cancels the sibling accounts' writes and reaches the uncaught handler.
      * An account that no longer exists has no usage worth recording.
      */
-    suspend fun saveSnapshot(snapshot: UsageSnapshot) = transactions.inTransaction {
+    suspend fun saveSnapshot(snapshot: UsageSnapshot, backgroundNotBefore: Long? = null) = transactions.inTransaction {
         // The guard and the write are one step. Apart, the account could be deleted in the gap
         // between them and the insert would raise the very constraint violation the guard
         // exists to prevent — the failure the paragraph above describes, still reachable.
@@ -231,6 +234,9 @@ class UsageRepository(
                     applicableResetCreditCount = snapshot.applicableResetCreditCount,
                     connectionStatus = snapshot.connectionStatus.name,
                     lastAttemptAt = snapshot.lastAttemptAt,
+                    backgroundNotBefore = backgroundNotBefore ?: if (snapshot.status == SnapshotStatus.FAILED) {
+                        snapshotDao.backgroundNotBefore(snapshot.accountId)
+                    } else null,
                 ),
             )
             if (snapshot.status != SnapshotStatus.FAILED) {
@@ -247,7 +253,13 @@ class UsageRepository(
      *
      * No-ops for a removed account, for the same foreign-key reason as [saveSnapshot].
      */
-    suspend fun saveFailure(accountId: String, message: String, nowMs: Long, requiresReauthentication: Boolean = false) =
+    suspend fun saveFailure(
+        accountId: String,
+        message: String,
+        nowMs: Long,
+        requiresReauthentication: Boolean = false,
+        backgroundNotBefore: Long? = null,
+    ) =
         transactions.inTransaction {
             // Reading the previous row and replacing it must be one step. Between them a
             // concurrent successful sync can land, and this would then overwrite fresh
@@ -268,6 +280,7 @@ class UsageRepository(
                         resetCreditsJson = previous?.resetCreditsJson ?: "[]",
                         resetCreditCount = previous?.resetCreditCount,
                         applicableResetCreditCount = previous?.applicableResetCreditCount,
+                        backgroundNotBefore = backgroundNotBefore ?: previous?.backgroundNotBefore,
                         connectionStatus = if (requiresReauthentication) ConnectionStatus.RECONNECT_REQUIRED.name
                             else previous?.toDomain()?.connectionStatus?.name ?: ConnectionStatus.UNKNOWN.name,
                     ),

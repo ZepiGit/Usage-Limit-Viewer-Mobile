@@ -150,7 +150,10 @@ final class SyncEngineTests: XCTestCase {
 
     private actor RecordingSink: SyncSink {
         private(set) var outcomes: [SyncOutcome] = []
-        func record(_ outcome: SyncOutcome, at time: Date) async { outcomes.append(outcome) }
+        func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date) async {
+            outcomes.append(outcome)
+        }
+        func automaticSyncNotBefore(accountID: String) async -> TimeInterval? { nil }
     }
 
     private func engine(
@@ -349,7 +352,7 @@ final class SyncEngineTests: XCTestCase {
             switch outcome {
             case .success(let accountID, _):
                 XCTAssertEqual(accountID, "b", "the only account that can succeed here is \"b\"")
-            case .failure(let accountID, _):
+            case .failure(let accountID, _), .rateLimited(let accountID, _, _):
                 XCTAssertEqual(accountID, "a", "the only account that can fail here is \"a\"")
             }
         }
@@ -827,7 +830,7 @@ extension SyncEngineTests {
     private func outcomeAccountID(_ outcome: SyncOutcome) -> String {
         switch outcome {
         case .success(let accountID, _): return accountID
-        case .failure(let accountID, _): return accountID
+        case .failure(let accountID, _), .rateLimited(let accountID, _, _): return accountID
         }
     }
 

@@ -57,7 +57,7 @@ internal object CreditHttp {
         } catch (e: ProviderException.ServerError) {
             throw CreditError.Unavailable("$endpoint answered HTTP ${e.statusCode}")
         } catch (e: ProviderException.RateLimited) {
-            throw CreditError.Unavailable("$endpoint is rate limiting this key")
+            throw CreditError.RateLimited(e.retryAfterMs)
         } catch (e: ProviderException.Offline) {
             throw CreditError.Unavailable("$endpoint could not be reached")
         }

@@ -97,12 +97,13 @@ public actor UsageLimitsContainer {
             repository: creditRepository, now: now)
     }
 
-    /// Refreshes every connected account and republishes what the widget reads.
+    /// Refreshes connected accounts and republishes what the widget reads. Automatic passes
+    /// leave rate-limited accounts untouched until their cooldown expires.
     ///
     /// Returns the usage as it stands afterwards, so a caller renders the result of this sync
     /// rather than re-reading and racing it.
     @discardableResult
-    public func refresh() async throws -> [AccountUsage] {
+    public func refresh(automatic: Bool = false) async throws -> [AccountUsage] {
         let accounts = await repository.accounts()
 
         // An empty account list is not an error and not a reason to skip the publish: the
@@ -111,8 +112,8 @@ public actor UsageLimitsContainer {
         // Credit balances ride the same refresh, so a background run updates them too. Isolated
         // per account inside the engine; only cancellation escapes.
         do {
-            if !accounts.isEmpty { _ = try await engine.sync(accounts: accounts) }
-            try await creditEngine.sync()
+            if !accounts.isEmpty { _ = try await engine.sync(accounts: accounts, automatic: automatic) }
+            try await creditEngine.sync(automatic: automatic)
         } catch {
             // Cancellation still leaves the accounts that finished recorded; the widget
             // must get them too, or it stays a generation behind the app's own cache.

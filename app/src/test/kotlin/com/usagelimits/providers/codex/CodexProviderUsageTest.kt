@@ -7,6 +7,7 @@ import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.network.HttpClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
@@ -48,6 +49,19 @@ class CodexProviderUsageTest {
             assertNotNull(result.errorMessage)
             // The usage windows themselves still refreshed.
             assertEquals(60.0, result.windows.single().remainingPercent!!, 0.0)
+        }
+    }
+
+    @Test fun `each usage read attempts throttled optional credits exactly once`() = runTest {
+        var creditRequests = 0
+        val codex = provider {
+            creditRequests++
+            429 to "{}"
+        }
+        repeat(2) { pass ->
+            val before = creditRequests
+            codex.fetchUsage(account, credentials)
+            assertEquals("optional credit requests in pass ${pass + 1}", 1, creditRequests - before)
         }
     }
 

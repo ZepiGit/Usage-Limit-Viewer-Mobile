@@ -25,8 +25,8 @@ enum CreditHTTP {
                 if code == 401 || code == 403 { throw CreditError.rejected(code) }
                 if code == 404 { throw CreditError.notFound("\(endpoint) answered HTTP 404") }
                 throw CreditError.unavailable("\(endpoint) answered HTTP \(code)")
-            case .rateLimited:
-                throw CreditError.unavailable("\(endpoint) is rate limiting this key")
+            case .rateLimited(let retryAfter):
+                throw CreditError.rateLimited(endpoint: endpoint, retryAfter: retryAfter)
             default:
                 throw CreditError.unavailable("\(endpoint) could not be reached")
             }

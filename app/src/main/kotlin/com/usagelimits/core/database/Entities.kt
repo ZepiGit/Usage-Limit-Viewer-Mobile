@@ -75,6 +75,7 @@ data class UsageSnapshotEntity(
     val connectionStatus: String? = null,
     /** Latest completed attempt; nullable for rows written before version 10. */
     val lastAttemptAt: Long? = null,
+    val backgroundNotBefore: Long? = null,
 )
 
 /**
@@ -232,4 +233,5 @@ data class CreditSnapshotEntity(
     /** A [com.usagelimits.core.model.CreditStatus] name. */
     val status: String,
     val error: String?,
+    val backgroundNotBefore: Long? = null,
 )

@@ -30,6 +30,7 @@ import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.ui.components.Dot
 import com.usagelimits.ui.components.ErrorBlock
@@ -156,15 +157,16 @@ fun AccountDetailScreen(
         }
         snapshot?.errorMessage?.let { error ->
             item {
-                val partial = snapshot.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL
                 UsageCard {
                     ErrorBlock(
                         message = storedMessageText(error),
-                        dot = if (partial) UsageColors.Warning else UsageColors.Negative,
-                        detail = when {
-                            partial -> stringResource(R.string.account_detail_partial)
-                            usage.measurementAt == null -> stringResource(R.string.account_detail_no_measurement)
-                            else -> stringResource(R.string.account_detail_last_loaded)
+                        dot = if (snapshot.status == SnapshotStatus.FAILED) UsageColors.Negative else UsageColors.Warning,
+                        detail = when (snapshot.status) {
+                            SnapshotStatus.OK -> null
+                            SnapshotStatus.PARTIAL -> stringResource(R.string.account_detail_partial)
+                            SnapshotStatus.FAILED -> if (usage.measurementAt == null) {
+                                stringResource(R.string.account_detail_no_measurement)
+                            } else stringResource(R.string.account_detail_last_loaded)
                         },
                         onRetry = onRefresh,
                     )
