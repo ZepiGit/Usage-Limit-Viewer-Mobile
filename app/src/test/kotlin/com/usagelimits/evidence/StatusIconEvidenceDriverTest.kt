@@ -3,6 +3,7 @@ package com.usagelimits.evidence
 import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
+import android.os.SystemClock
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import com.usagelimits.UsageLimitsApp
@@ -53,10 +54,13 @@ class StatusIconEvidenceDriverTest {
 
     private suspend fun command(name: String, account: String? = null): JSONObject {
         val token = "driver-test-${sequence++}"
+        val started = SystemClock.elapsedRealtime()
         driver.execute(name, token, account)
+        val returned = SystemClock.elapsedRealtime()
         return JSONObject(File(app.filesDir, "status-icon-evidence.json").readText()).also {
             assertEquals(token, it.getString("token"))
             assertEquals(name, it.getString("command"))
+            assertTrue("completion uses the device's elapsed clock", it.getLong("completedElapsedRealtimeMs") in started..returned)
         }
     }
 

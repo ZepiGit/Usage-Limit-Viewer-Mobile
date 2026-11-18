@@ -16,7 +16,13 @@ enum class IconStyle(@StringRes val labelRes: Int) {
  * One logo a provider can show. [brand] is a name and stays as written; [style] is null for the
  * single default variant of a brand, which is labelled by the brand alone.
  */
-data class ProviderIconChoice(val id: String, val brand: String, val style: IconStyle?, val drawable: Int) {
+data class ProviderIconChoice(
+    val id: String,
+    val brand: String,
+    val style: IconStyle?,
+    val drawable: Int,
+    val whiteInk: Boolean = style == IconStyle.MONOCHROME || style == IconStyle.WORDMARK,
+) {
     /** "Claude · Color" in English, "Claude · Farbe" in German: the brand, then the style word. */
     fun label(resources: Resources): String =
         style?.let { resources.getString(R.string.icon_label_with_style, brand, resources.getString(it.labelRes)) }
@@ -34,11 +40,11 @@ object ProviderIconCatalog {
             ProviderIconChoice("claude-text", "Claude", IconStyle.WORDMARK, R.drawable.icon_claude_text),
         )
         ProviderId.CODEX -> listOf(
-            ProviderIconChoice("openai", "OpenAI", null, R.drawable.icon_openai),
+            ProviderIconChoice("openai", "OpenAI", null, R.drawable.icon_openai, whiteInk = true),
             ProviderIconChoice("openai-text", "OpenAI", IconStyle.WORDMARK, R.drawable.icon_openai_text),
         )
         ProviderId.XAI -> listOf(
-            ProviderIconChoice("grok", "Grok", null, R.drawable.icon_grok),
+            ProviderIconChoice("grok", "Grok", null, R.drawable.icon_grok, whiteInk = true),
             ProviderIconChoice("grok-text", "Grok", IconStyle.WORDMARK, R.drawable.icon_grok_text),
         )
         ProviderId.ANTIGRAVITY -> listOf(
@@ -50,7 +56,7 @@ object ProviderIconCatalog {
             ProviderIconChoice("antigravity-text", "Antigravity", IconStyle.WORDMARK, R.drawable.icon_antigravity_text),
         )
         ProviderId.KIMI -> listOf(
-            ProviderIconChoice("kimi-color", "Kimi", IconStyle.COLOR, R.drawable.icon_kimi_color),
+            ProviderIconChoice("kimi-color", "Kimi", IconStyle.COLOR, R.drawable.icon_kimi_color, whiteInk = true),
             ProviderIconChoice("kimi", "Kimi", IconStyle.MONOCHROME, R.drawable.icon_kimi),
             ProviderIconChoice("kimi-text", "Kimi", IconStyle.WORDMARK, R.drawable.icon_kimi_text),
         )

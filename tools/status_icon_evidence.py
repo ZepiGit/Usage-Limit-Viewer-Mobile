@@ -27,6 +27,8 @@ DUPLICATE_ACCOUNT = "evidence-claude-work"
 STATUS_CHANNEL = "status_icons"
 ALERT_CHANNEL = "usage_alerts"
 SETTLE_SECONDS = 5
+HEADS_UP_MAX_DELAY_MS = 4000
+UPTIME_RESOLUTION_MS = 10
 
 
 def parse_notifications(text):
@@ -573,12 +575,38 @@ class Evidence:
         self.adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
         self.adb("shell", "input", "keyevent", "KEYCODE_HOME")
 
+    def _early_systemui(self, name, timing, completed):
+        window = timing["headsUpWindow"]
+        dump_error = None
+        try:
+            response = self.adb("shell", "sh", "-c",
+                                'read -r uptime _ < /proc/uptime && printf "systemuiDumpStartedUptime=%s\\n" "$uptime" && '
+                                'exec dumpsys activity service com.android.systemui/.SystemUIService', timeout=8)
+        except (OSError, subprocess.SubprocessError) as error:
+            dump_error = str(error)
+            response = (getattr(error, "stdout", None) or b"").decode(errors="replace").strip()
+        stamp, _, systemui = response.partition("\n")
+        match = re.fullmatch(r"systemuiDumpStartedUptime=([0-9]+)\.([0-9]{2})", stamp)
+        started = int(match[1]) * 1000 + int(match[2]) * UPTIME_RESOLUTION_MS if match else None
+        completed = completed if type(completed) is int and completed >= 0 else None
+        delay = started - completed if started is not None and completed is not None else None
+        # /proc/uptime rounds down; the entire interval must fit in the window.
+        window.update(completedElapsedRealtimeMs=completed, systemuiDumpStartedElapsedRealtimeMs=started, delayMs=delay,
+                      observed=dump_error is None and bool(systemui.strip()) and delay is not None
+                      and 0 <= delay <= HEADS_UP_MAX_DELAY_MS - UPTIME_RESOLUTION_MS)
+        if dump_error is not None:
+            window["dumpError"] = dump_error
+        timing["systemui"] = systemui if match else response
+        self.save(name + "-early-systemui.txt", timing["systemui"])
+
     def early_frames(self, name, ready, start, timing):
         samples = []
         try:
             self.screen(name + "-early-0000ms-home", crop=True)
             ready.set()
             assert start.wait(20), "Posting command did not start during early observer"
+            if "commandStarted" not in timing:
+                return
             for offset, label in ((0.25, "0250ms"), (0.5, "0500ms"), (1.0, "1000ms"), (2.0, "2000ms")):
                 time.sleep(max(0, timing["commandStarted"] + offset - time.monotonic()))
                 sample = {"requestedSeconds": offset, "actualStartSeconds": time.monotonic() - timing["commandStarted"]}
@@ -587,7 +615,6 @@ class Evidence:
                 samples.append(sample)
             for suffix, command in (
                 ("window", ("shell", "dumpsys", "window")),
-                ("systemui", ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")),
                 ("logcat", ("shell", "logcat", "-d", "-v", "threadtime")),
                 ("events", ("shell", "logcat", "-b", "events", "-d", "-v", "threadtime")),
             ):
@@ -598,7 +625,6 @@ class Evidence:
         finally:
             ready.set()
             timing["samples"] = samples
-            self.save(name + "-early-timing.json", json.dumps({key: value for key, value in timing.items() if key not in ("window", "systemui", "logcat", "events")}, indent=2))
 
     def transition(self, command, name):
         self.report["lastAssertion"] = name + ": pre-command HOME readiness"
@@ -608,7 +634,11 @@ class Evidence:
         assert _has_launcher_workspace(root, package), (
             "Pre-command HOME must expose exactly one enabled launcher workspace with bounds"
         )
-        ready, start, timing = threading.Event(), threading.Event(), {}
+        window = {"completedElapsedRealtimeMs": None, "systemuiDumpStartedElapsedRealtimeMs": None,
+                  "delayMs": None, "maximumDelayMs": HEADS_UP_MAX_DELAY_MS,
+                  "stampResolutionMs": UPTIME_RESOLUTION_MS, "observed": False}
+        self.report.setdefault("earlyHeadsUpWindows", {})[name] = window
+        ready, start, timing = threading.Event(), threading.Event(), {"headsUpWindow": window}
         observer = threading.Thread(target=self.early_frames, args=(name, ready, start, timing), daemon=True)
         observer.start()
         try:
@@ -616,11 +646,15 @@ class Evidence:
             assert "observerError" not in timing, timing.get("observerError")
             timing["commandStarted"] = time.monotonic()
             start.set()
-            self.command(command)
+            state = self.command(command)
+            self.report["lastAssertion"] = name + ": early heads-up window"
+            self._early_systemui(name, timing, state.get("completedElapsedRealtimeMs"))
+            assert window["observed"], f"{name}: heads-up window not observed"
         finally:
             start.set()
             observer.join(90)
             assert not observer.is_alive(), "Early observer exceeded bounded collection window"
+            self.save(name + "-early-timing.json", json.dumps({key: value for key, value in timing.items() if key not in ("window", "systemui", "logcat", "events")}, indent=2))
         assert "observerError" not in timing, timing.get("observerError")
         self.early = timing
 
@@ -792,6 +826,15 @@ class Evidence:
         for entry in self.report["scenarios"]:
             lines.append("| " + " | ".join(str(value).replace("|", "\\|") for value in (entry["name"], entry["startingState"], entry.get("statusCount", "?"), entry.get("alertCount", "?"), entry.get("systemCount", "?"), entry["result"])) + " |")
         lines += ["", "## Untouched platform defaults", "", json.dumps({key: self.report.get(key) for key in ("defaultBefore", "defaultAfter", "defaultFlagsUnchanged")}, sort_keys=True), "", "03-enabled-default retains the API37 hideSilentStatusBar=true/showSilentStatusIcons=false default while the DEFAULT channel remains eligible for status-bar icons. 03-enabled is the same unchanged-policy normal capture; there is no Settings navigation.", "", "## Emulator lock screen", "", json.dumps(self.report.get("lockscreens", {}), sort_keys=True)]
+        if windows := self.report.get("earlyHeadsUpWindows"):
+            lines += ["", "## Early heads-up window", "",
+                      "Device elapsed time; dump start is rounded down to 10 ms, so the full timing interval must fit the bound."]
+            for name, window in windows.items():
+                delay = window["delayMs"]
+                maximum = window["maximumDelayMs"] / 1000
+                measured = "delay unavailable" if delay is None else f"dump start − receiver completion: {delay / 1000:.3f} s"
+                result = "within bound" if window["observed"] else "heads-up window not observed"
+                lines.append(f"- {name}: {measured} (maximum {maximum:.1f} s); {result}.")
         lines += ["", "## Notification header evidence", ""]
         for entry in self.report["scenarios"]:
             headers = [*entry.get("providerHeaders", {}).values(), *entry.get("duplicateRows", {}).get("accounts", [])]

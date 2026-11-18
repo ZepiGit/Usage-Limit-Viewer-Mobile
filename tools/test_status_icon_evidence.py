@@ -1,9 +1,12 @@
 """Device-evidence parser/assertion seam; no emulator or APK needed."""
+import json
 import tempfile
 import unittest
-from unittest.mock import patch
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from unittest.mock import patch
 
+from check_status_icon_release import verify
 from status_icon_evidence import (
     Evidence, SystemDialog, SystemUIBootANR,
     assert_snapshot, parse_notifications, swipe_accounts, systemui_anr,
@@ -486,6 +489,63 @@ class SwipeEvidenceTest(unittest.TestCase):
 
 
 class TransitionEvidenceTest(unittest.TestCase):
+    def transition_summary(self, completion, stamp, *, observed):
+        home = ('<hierarchy><node package="example.launcher" enabled="true" '
+                'resource-id="example.launcher:id/workspace" bounds="[0,0][720,1560]"/></hierarchy>')
+        accounts = ["evidence-" + name for name in ("claude", "codex", "gemini", "xai", "copilot", "cursor")]
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Evidence(directory)
+            evidence.report["preflight"] = {"component": "example.launcher/.Home"}
+            token, receipt_read = None, False
+
+            def adb(*args, **kwargs):
+                nonlocal token, receipt_read
+                if args == ("exec-out", "cat", "/sdcard/status-icon-evidence.xml"):
+                    return home
+                if args[:3] == ("shell", "am", "broadcast"):
+                    token = args[args.index("token") + 1]
+                if args[:2] == ("exec-out", "run-as"):
+                    receipt_read = True
+                    state = {"token": token, "command": "enable", "success": True, "enabled": True,
+                             "accounts": accounts, "pins": accounts[:3], "localIds": dict(zip(accounts, accounts))}
+                    if completion is not None:
+                        state["completedElapsedRealtimeMs"] = completion
+                    return json.dumps(state)
+                if any("com.android.systemui/.SystemUIService" in arg for arg in args):
+                    systemui = "  HeadsUpManagerPhone state:\n    mHasPinnedNotification=false"
+                    if receipt_read and stamp is not None and args[:3] == ("shell", "sh", "-c") and "/proc/uptime" in args[3]:
+                        return f"systemuiDumpStartedUptime={stamp}\n{systemui}"
+                    return systemui
+                return ""
+
+            with patch.object(evidence, "adb", side_effect=adb), patch.object(evidence, "screen"), \
+                    patch("status_icon_evidence.time.sleep"), patch("status_icon_evidence.time.monotonic", return_value=105.0):
+                if observed:
+                    evidence.transition("enable", "03-enabled-default")
+                else:
+                    with self.assertRaisesRegex(AssertionError, "heads-up window not observed"):
+                        evidence.transition("enable", "03-enabled-default")
+
+            evidence.summary()
+            return (evidence.directory / "summary.md").read_text()
+
+    def test_late_systemui_dump_fails_despite_fresh_completion_receipt(self):
+        summary = self.transition_summary(100000, "104.25", observed=False)
+        self.assertIn("4.250 s (maximum 4.0 s); heads-up window not observed", summary)
+
+    def test_dump_must_be_provably_in_window_at_device_clock_precision(self):
+        for stamp, observed, delay in (("103.99", True, "3.990 s"), ("104.00", False, "4.000 s"),
+                                       ("99.99", False, "-0.010 s")):
+            with self.subTest(stamp=stamp):
+                summary = self.transition_summary(100000, stamp, observed=observed)
+                self.assertIn(f"{delay} (maximum 4.0 s)", summary)
+
+    def test_missing_or_malformed_device_timing_fails_closed(self):
+        for completion, stamp in ((None, "101.25"), (100000, None), (100000, "101.2")):
+            with self.subTest(completion=completion, stamp=stamp):
+                summary = self.transition_summary(completion, stamp, observed=False)
+                self.assertIn("delay unavailable (maximum 4.0 s); heads-up window not observed", summary)
+
     def test_shade_is_saved_but_does_not_arm_observer_or_post(self):
         shade = ('<hierarchy><node package="com.android.systemui" enabled="true" '
                  'resource-id="com.android.systemui:id/notification_stack_scroller" '
@@ -520,18 +580,48 @@ class TransitionEvidenceTest(unittest.TestCase):
                 if args == ("exec-out", "cat", "/sdcard/status-icon-evidence.xml"):
                     observations.append("HOME hierarchy")
                     return home
+                if any("com.android.systemui/.SystemUIService" in arg for arg in args):
+                    return "systemuiDumpStartedUptime=101.25\nSystemUI dump"
                 return ""
+
+            def command(name):
+                observations.append(name)
+                return {"completedElapsedRealtimeMs": 100000}
 
             def screen(name, *, crop):
                 if name == stage + "-early-0000ms-home":
                     observations.append("pre-command frame")
 
             with patch.object(evidence, "adb", side_effect=adb), patch.object(evidence, "screen", side_effect=screen), \
-                    patch.object(evidence, "command", side_effect=observations.append), patch("status_icon_evidence.time.sleep"):
+                    patch.object(evidence, "command", side_effect=command), patch("status_icon_evidence.time.sleep"):
                 evidence.transition("update", stage)
 
             self.assertEqual(["HOME key", "HOME hierarchy", "pre-command frame", "update"], observations)
             self.assertEqual(home + "\n", (evidence.directory / (stage + "-early-precommand-home.xml")).read_text())
+
+
+class ReleaseIsolationTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.build = Path(directory.name) / "build"
+        self.evidence = Path(directory.name) / "evidence"
+        self.write_manifest("debug", "com.usagelimits.evidence.StatusIconEvidenceReceiver")
+
+    def write_manifest(self, variant, component):
+        manifest = self.build / "intermediates" / "merged_manifests" / variant / "AndroidManifest.xml"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+                            f'<application><receiver android:name="{component}"/></application></manifest>')
+
+    def test_valid_debug_manifest_does_not_substitute_for_missing_release(self):
+        with self.assertRaisesRegex(AssertionError, "No merged release manifest found"):
+            verify(self.build, self.evidence)
+
+    def test_valid_debug_manifest_does_not_excuse_leaking_release(self):
+        self.write_manifest("release", "com.usagelimits.evidence.StatusIconEvidenceReceiver")
+        with self.assertRaisesRegex(AssertionError, "Evidence component leaked into"):
+            verify(self.build, self.evidence)
 
 
 class PreflightEvidenceTest(unittest.TestCase):

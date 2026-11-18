@@ -4,9 +4,14 @@ import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
 import android.graphics.Bitmap
-import android.graphics.drawable.Icon
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.Icon
 import android.service.notification.StatusBarNotification
+import androidx.core.graphics.ColorUtils
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import com.usagelimits.R
@@ -23,6 +28,8 @@ import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.sync.NotificationPublisher
 import com.usagelimits.core.sync.resetTestWorkManager
+import com.usagelimits.ui.IconStyle
+import com.usagelimits.ui.ProviderIconCatalog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -55,6 +62,10 @@ import kotlin.time.Duration.Companion.seconds
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class StatusIconPublicationTest {
+
+    private companion object {
+        const val ARTWORK_SIZE = 64
+    }
 
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
     private val manager get() = app.getSystemService(NotificationManager::class.java)
@@ -109,6 +120,126 @@ class StatusIconPublicationTest {
     private fun expectedIcon(provider: ProviderId, content: StatusIconContent): Bitmap =
         StatusIconRenderer.render(provider, StatusIcon(content, outdated = false), app.resources.displayMetrics.density)
 
+    @Test
+    @Config(sdk = [37], qualifiers = "mdpi")
+    fun `published provider artwork contrasts on both shade surfaces`() = runBlocking {
+        val failures = mutableListOf<String>()
+        val surfaces = mapOf("light" to 0xFFE8E7EF.toInt(), "dark" to 0xFF202024.toInt())
+        val colorBackings = mapOf(
+            "claude-color" to R.drawable.status_icon_artwork_claude_color,
+            "claudecode-color" to R.drawable.status_icon_artwork_claudecode_color,
+            "antigravity-color" to R.drawable.status_icon_artwork_antigravity_color,
+            "gemini-color" to R.drawable.status_icon_artwork_gemini_color,
+            "devin-color" to R.drawable.status_icon_artwork_devin_color,
+        )
+        for (provider in ProviderId.entries) {
+            pin(account(provider, provider.displayName, left = 42.0))
+            for (choice in ProviderIconCatalog.choices(provider)) {
+                app.container.settingsStore.setProviderIcon(provider.id, choice.id)
+                app.container.publication.presentationChanged()
+                val records = statusRecords()
+                assertEquals("summary and child for ${choice.id}", 2, records.size)
+                assertEquals("summary for ${choice.id}", 1, records.count { it.isSummary() })
+                val backedResource = colorBackings[choice.id]
+                val needsGround = choice.whiteInk || backedResource != null
+                val source = requireNotNull(app.getDrawable(choice.drawable))
+                // Rasterize the source alone at the 48dp bitmap slot before displaying it at 64px.
+                val sourcePixels = if (choice.whiteInk) {
+                    val span = if (choice.style == IconStyle.WORDMARK) 72 else 36
+                    val reference = drawArtwork(source, Color.TRANSPARENT, 48, span)
+                    artworkPixels(BitmapDrawable(app.resources, reference), Color.TRANSPARENT)
+                } else {
+                    artworkPixels(source, Color.TRANSPARENT, if (needsGround) 48 else ARTWORK_SIZE)
+                }
+                if (choice.style == IconStyle.WORDMARK) {
+                    assertTrue("${choice.id} ink stays inside the ground after removing transparent padding",
+                        sourcePixels.indices.none { index ->
+                            val x = index % ARTWORK_SIZE
+                            val y = index / ARTWORK_SIZE
+                            (x !in 7..56 || y !in 7..56) && Color.alpha(sourcePixels[index]) >= 8
+                        })
+                }
+                // Include the cores of thin lettering without treating faint antialiasing as ink.
+                val minAlpha = if (choice.whiteInk) 128 else 245
+                val mark = sourcePixels.indices.filter { Color.alpha(sourcePixels[it]) >= minAlpha }
+                if (mark.isEmpty()) failures += "${choice.id} has no core mark pixels at shade size"
+                for (record in records) {
+                    val role = if (record.isSummary()) "summary" else "child"
+                    val description = "${provider.id}/${choice.id} $role"
+                    val icon = record.notification.getLargeIcon()
+                    if (choice.whiteInk) {
+                        assertEquals(description, Icon.TYPE_BITMAP, icon.type)
+                    } else {
+                        assertResourceArtwork(icon, backedResource ?: choice.drawable)
+                    }
+                    val artwork = requireNotNull(icon.loadDrawable(app))
+                    for ((surfaceName, surface) in surfaces) {
+                        val pixels = artworkPixels(artwork, surface)
+                        // Sample the backing outside the inset, not a source-mark pixel or the shade.
+                        val ground = if (needsGround) pixels[4 * ARTWORK_SIZE + ARTWORK_SIZE / 2] else surface
+                        if (needsGround && ground != 0xFF1A1918.toInt()) {
+                            failures += "$description $surfaceName: missing dark ground, got #${Integer.toHexString(ground)}"
+                        }
+                        val visible = mark.count { ColorUtils.calculateContrast(pixels[it], ground) >= 3.0 }
+                        if (visible * 10 < mark.size * 9) {
+                            failures += "$description $surfaceName: $visible/${mark.size} core mark pixels reach 3:1 against #${Integer.toHexString(ground)}"
+                        }
+                    }
+                }
+            }
+        }
+        assertTrue(failures.joinToString(separator = "\n"), failures.isEmpty())
+    }
+
+    @Test
+    @Config(sdk = [37])
+    fun `near-white provider PNGs are classified as white ink`() {
+        for (provider in ProviderId.entries) {
+            for (choice in ProviderIconCatalog.choices(provider)) {
+                val bitmap = requireNotNull(BitmapFactory.decodeResource(app.resources, choice.drawable))
+                val row = IntArray(bitmap.width)
+                var brightness = 0.0
+                var count = 0
+                for (y in 0 until bitmap.height) {
+                    bitmap.getPixels(row, 0, row.size, 0, y, row.size, 1)
+                    for (pixel in row) {
+                        if (Color.alpha(pixel) < 245) continue
+                        brightness += 0.2126 * Color.red(pixel) + 0.7152 * Color.green(pixel) + 0.0722 * Color.blue(pixel)
+                        count++
+                    }
+                }
+                assertTrue("${choice.id} has near-opaque source pixels", count > 0)
+                assertEquals("${choice.id}: mean source brightness ${brightness / count}", brightness / count >= 230, choice.whiteInk)
+            }
+        }
+    }
+
+    private fun assertResourceArtwork(icon: Icon, resource: Int) {
+        assertEquals("provider artwork stays resource-backed", Icon.TYPE_RESOURCE, icon.type)
+        assertEquals("provider artwork comes from this app", app.packageName, icon.resPackage)
+        assertEquals("both records use the selected provider artwork", resource, icon.resId)
+    }
+
+    private fun artworkPixels(artwork: Drawable, surface: Int, span: Int = ARTWORK_SIZE): IntArray {
+        val size = ARTWORK_SIZE
+        val bitmap = drawArtwork(artwork, surface, size, span)
+        return IntArray(size * size).also { bitmap.getPixels(it, 0, size, 0, 0, size, size) }
+    }
+
+    private fun drawArtwork(artwork: Drawable, surface: Int, size: Int, span: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(surface)
+        val width = artwork.intrinsicWidth
+        val height = artwork.intrinsicHeight
+        val scale = span.toFloat() / maxOf(width, height)
+        val canvas = Canvas(bitmap)
+        canvas.translate((size - width * scale) / 2, (size - height * scale) / 2)
+        canvas.scale(scale, scale)
+        artwork.setBounds(0, 0, width, height)
+        artwork.draw(canvas)
+        return bitmap
+    }
+
     private suspend fun assertStatusRows(german: Boolean) {
         val personal = account(ProviderId.CLAUDE, "Personal", left = 42.0)
         val work = account(ProviderId.CLAUDE, "Work", left = 87.0)
@@ -132,11 +263,11 @@ class StatusIconPublicationTest {
                     assertEquals("the header identifies the provider and names only shared-provider accounts", row.second, notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString())
                     assertNull("standard template, no custom content", notification.contentView)
                     assertNull("standard template, no custom expanded content", notification.bigContentView)
-                    if (accountId != other.localId) {
-                        val actual = notification.getLargeIcon()
-                        assertEquals("provider artwork stays resource-backed", Icon.TYPE_RESOURCE, actual.type)
-                        assertEquals("provider artwork comes from this app", app.packageName, actual.resPackage)
-                        assertEquals("both records use the selected provider artwork", artwork, actual.resId)
+                    val largeIcon = notification.getLargeIcon()
+                    if (accountId == other.localId) {
+                        assertEquals("both Codex rows show backed OpenAI artwork", Icon.TYPE_BITMAP, largeIcon.type)
+                    } else {
+                        assertResourceArtwork(largeIcon, artwork)
                     }
                 }
             }
@@ -145,18 +276,18 @@ class StatusIconPublicationTest {
         val secondTitle = if (german) "87 % übrig" else "87% left"
         val otherTitle = if (german) "5 % übrig" else "5% left"
         val ordinaryRows = mapOf(personal.localId to (firstTitle to "Claude"), other.localId to (otherTitle to "OpenAI Codex"))
-        assertRows(ordinaryRows, R.drawable.icon_claude_color)
+        assertRows(ordinaryRows, R.drawable.status_icon_artwork_claude_color)
         val identities = statusRecords().map { it.tag to it.id }.toSet()
 
         pin(personal, work, other)
         app.container.publication.presentationChanged()
-        assertRows(ordinaryRows + mapOf(personal.localId to (firstTitle to "Claude · Personal"), work.localId to (secondTitle to "Claude · Work")), R.drawable.icon_claude_color)
+        assertRows(ordinaryRows + mapOf(personal.localId to (firstTitle to "Claude · Personal"), work.localId to (secondTitle to "Claude · Work")), R.drawable.status_icon_artwork_claude_color)
         assertTrue("existing groups keep their identities", statusRecords().map { it.tag to it.id }.toSet().containsAll(identities))
 
         pin(personal, other)
         app.container.settingsStore.setProviderIcon(ProviderId.CLAUDE.id, "claudecode-color")
         app.container.publication.presentationChanged()
-        assertRows(ordinaryRows, R.drawable.icon_claudecode_color)
+        assertRows(ordinaryRows, R.drawable.status_icon_artwork_claudecode_color)
         assertEquals(identities, statusRecords().map { it.tag to it.id }.toSet())
     }
 
@@ -231,7 +362,9 @@ class StatusIconPublicationTest {
                 assertTrue("both records stay local", flags and Notification.FLAG_LOCAL_ONLY != 0)
                 assertEquals(Notification.PRIORITY_DEFAULT, notification.priority)
                 assertEquals("both records retain normal lock-screen visibility", Notification.VISIBILITY_PRIVATE, notification.visibility)
-                assertEquals("neither record requests silent group suppression", Notification.GROUP_ALERT_ALL, notification.groupAlertBehavior)
+                val groupAlertRole = if (record.isSummary()) Notification.GROUP_ALERT_CHILDREN else Notification.GROUP_ALERT_SUMMARY
+                assertEquals("the ${if (record.isSummary()) "summary" else "child"} requests suppression of interruption on a dozing screen",
+                    groupAlertRole, notification.groupAlertBehavior)
                 assertNull("neither record requests sound", notification.sound)
                 assertNull("neither record requests vibration", notification.vibrate)
                 assertEquals("neither record requests default alerts", 0,

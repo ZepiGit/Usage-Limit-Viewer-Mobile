@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.SystemClock
@@ -14,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.graphics.drawable.IconCompat
+import com.usagelimits.R
 import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.ConnectionStatus
@@ -28,13 +31,16 @@ import com.usagelimits.core.model.readingValidity
 import com.usagelimits.core.model.statusIcon
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.SettingsStore
-import com.usagelimits.ui.providerLogoResource
+import com.usagelimits.ui.IconStyle
+import com.usagelimits.ui.ProviderIconCatalog
+import com.usagelimits.ui.ProviderIconChoice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 /**
  * Keeps one status notification group per pinned account in step with the cache and the settings.
@@ -76,8 +82,8 @@ import kotlinx.coroutines.withContext
  * account order and gives each account a real clock reading that is later than the previous
  * account's and earlier than the moment its own notifications are built ([readingBeforeBuild]),
  * so the first account is the newest and leads. A reorder in the app takes effect with the next
- * publication. Whether a given device ranks this way is ticket 04's evidence; the cited sources
- * are in its report.
+ * publication. See the observed order and exceptions in
+ * `docs/research/statusbar-icons-platform-facts.md`.
  */
 class StatusIconPublisher(
     private val context: Context,
@@ -212,8 +218,8 @@ class StatusIconPublisher(
         val details = texts.windowDetails(headline, nowMs)
         val subText = texts.subText(usage.account.provider, if (showAccountName) usage.account.label else null)
         val bitmap = StatusIconRenderer.render(usage.account.provider, icon, context.resources.displayMetrics.density)
-        val artwork = Icon.createWithResource(context,
-            providerLogoResource(usage.account.provider, settings.providerIcons[usage.account.provider.id]))
+        val choice = ProviderIconCatalog.selected(usage.account.provider, settings.providerIcons[usage.account.provider.id])
+        val artwork = largeIcon(choice)
         val tag = tagFor(usage.account.localId)
         val open = PendingIntent.getActivity(
             context,
@@ -233,6 +239,7 @@ class StatusIconPublisher(
                 .setContentIntent(open)
                 .setGroup(tag)
                 .setGroupSummary(summary)
+                .setSilent(true)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setLocalOnly(true)
@@ -248,6 +255,38 @@ class StatusIconPublisher(
                 return
             }
         }
+    }
+
+    private fun largeIcon(choice: ProviderIconChoice): Icon {
+        if (!choice.whiteInk) {
+            // These originals do not clear 3:1 on the light shade; keep their PNGs and add the ground as a layer.
+            val resource = when (choice.drawable) {
+                R.drawable.icon_claude_color -> R.drawable.status_icon_artwork_claude_color
+                R.drawable.icon_claudecode_color -> R.drawable.status_icon_artwork_claudecode_color
+                R.drawable.icon_antigravity_color -> R.drawable.status_icon_artwork_antigravity_color
+                R.drawable.icon_gemini_color -> R.drawable.status_icon_artwork_gemini_color
+                R.drawable.icon_devin_color -> R.drawable.status_icon_artwork_devin_color
+                else -> choice.drawable
+            }
+            return Icon.createWithResource(context, resource)
+        }
+
+        val ground = checkNotNull(context.getDrawable(R.drawable.status_icon_artwork_ground))
+        val mark = checkNotNull(context.getDrawable(choice.drawable))
+        // Android's standard right-icon slot is 48dp; a larger bitmap gets rescaled at build time.
+        val size = (ARTWORK_DP * context.resources.displayMetrics.density).roundToInt().coerceAtMost(MAX_ARTWORK_PIXELS)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        ground.setBounds(0, 0, size, size)
+        ground.draw(canvas)
+        // Wordmark PNGs carry roughly half their width as transparent side padding.
+        val markSpan = if (choice.style == IconStyle.WORDMARK) size * 1.5f else size * 0.75f
+        val scale = markSpan / maxOf(mark.intrinsicWidth, mark.intrinsicHeight)
+        canvas.translate((size - mark.intrinsicWidth * scale) / 2, (size - mark.intrinsicHeight * scale) / 2)
+        canvas.scale(scale, scale)
+        mark.setBounds(0, 0, mark.intrinsicWidth, mark.intrinsicHeight)
+        mark.draw(canvas)
+        return Icon.createWithBitmap(bitmap)
     }
 
     private fun ensureChannel(texts: StatusIconTexts) {
@@ -279,6 +318,8 @@ class StatusIconPublisher(
         /** The tag names the account; the two ids name the records inside its group. */
         private const val SUMMARY_ID = 2001
         private const val CHILD_ID = 2002
+        private const val ARTWORK_DP = 48
+        private const val MAX_ARTWORK_PIXELS = 96
 
         private fun tagFor(accountId: String) = "status-icon:$accountId"
     }

@@ -1,6 +1,7 @@
 package com.usagelimits.evidence
 
 import android.annotation.SuppressLint
+import android.os.SystemClock
 import android.util.AtomicFile
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -80,7 +81,7 @@ internal class StatusIconEvidenceDriver(
         } catch (error: Exception) {
             failure = error.message ?: error.javaClass.simpleName
         }
-        writeCompletion(command, token, failure)
+        writeCompletion(command, token, failure, SystemClock.elapsedRealtime())
     }
 
     private suspend fun seed() {
@@ -154,7 +155,7 @@ internal class StatusIconEvidenceDriver(
                 usedPercent = 100.0 - left, periodSeconds = 18_000, resetAt = now + 18_000_000L, exhausted = exhausted))))
     }
 
-    private suspend fun writeCompletion(command: String?, token: String?, error: String?) {
+    private suspend fun writeCompletion(command: String?, token: String?, error: String?, completedElapsedRealtimeMs: Long) {
         val accounts = repository.accounts()
         val aliases = accounts.mapNotNull { account ->
             (FIXTURES.firstOrNull { it.alias == account.externalAccountId && it.provider == account.provider }
@@ -167,6 +168,7 @@ internal class StatusIconEvidenceDriver(
             .put("token", token ?: JSONObject.NULL)
             .put("command", command ?: JSONObject.NULL)
             .put("success", error == null)
+            .put("completedElapsedRealtimeMs", completedElapsedRealtimeMs)
             .put("accounts", JSONArray(aliases.map { it.first }))
             .put("pins", JSONArray(settings.pinnedAccountIds.mapNotNull { byId[it] }))
             .put("enabled", settings.statusIconsEnabled)
