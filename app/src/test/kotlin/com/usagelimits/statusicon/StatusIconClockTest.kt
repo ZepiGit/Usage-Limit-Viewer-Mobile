@@ -1,7 +1,6 @@
 package com.usagelimits.statusicon
 
 import android.Manifest
-import android.app.Notification
 import android.app.NotificationManager
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.core.database.AccountUsage
@@ -60,7 +59,7 @@ class StatusIconClockTest {
 
     private fun whens(): Map<String, Long> = manager.activeNotifications
         .filter { it.notification.channelId == StatusIconPublisher.CHANNEL_ID }
-        .groupBy { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }
+        .groupBy { checkNotNull(shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId")) }
         .mapValues { (_, r) -> r.first().notification.`when` }
 
     /** Publishes with a wall clock that returns [readings] in turn, then repeats the last one. */

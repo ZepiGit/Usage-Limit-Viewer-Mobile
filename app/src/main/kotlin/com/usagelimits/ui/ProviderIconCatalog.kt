@@ -1,6 +1,7 @@
 package com.usagelimits.ui
 
 import android.content.res.Resources
+import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import com.usagelimits.R
 import com.usagelimits.core.model.ProviderId
@@ -14,9 +15,17 @@ enum class IconStyle(@StringRes val labelRes: Int) {
 
 /**
  * One logo a provider can show. [brand] is a name and stays as written; [style] is null for the
- * single default variant of a brand, which is labelled by the brand alone.
+ * single default variant of a brand, which is labelled by the brand alone. [backedShadeArtwork]
+ * adds a dark ground where the color artwork needs contrast on the light notification shade.
  */
-data class ProviderIconChoice(val id: String, val brand: String, val style: IconStyle?, val drawable: Int) {
+data class ProviderIconChoice(
+    val id: String,
+    val brand: String,
+    val style: IconStyle?,
+    val drawable: Int,
+    val whiteInk: Boolean = style == IconStyle.MONOCHROME || style == IconStyle.WORDMARK,
+    @DrawableRes val backedShadeArtwork: Int? = null,
+) {
     /** "Claude · Color" in English, "Claude · Farbe" in German: the brand, then the style word. */
     fun label(resources: Resources): String =
         style?.let { resources.getString(R.string.icon_label_with_style, brand, resources.getString(it.labelRes)) }
@@ -26,36 +35,41 @@ data class ProviderIconChoice(val id: String, val brand: String, val style: Icon
 object ProviderIconCatalog {
     fun choices(provider: ProviderId): List<ProviderIconChoice> = when (provider) {
         ProviderId.CLAUDE -> listOf(
-            ProviderIconChoice("claudecode-color", "Claude Code", IconStyle.COLOR, R.drawable.icon_claudecode_color),
+            ProviderIconChoice("claudecode-color", "Claude Code", IconStyle.COLOR, R.drawable.icon_claudecode_color,
+                backedShadeArtwork = R.drawable.status_icon_artwork_claudecode_color),
             ProviderIconChoice("claudecode", "Claude Code", IconStyle.MONOCHROME, R.drawable.icon_claudecode),
             ProviderIconChoice("claudecode-text", "Claude Code", IconStyle.WORDMARK, R.drawable.icon_claudecode_text),
-            ProviderIconChoice("claude-color", "Claude", IconStyle.COLOR, R.drawable.icon_claude_color),
+            ProviderIconChoice("claude-color", "Claude", IconStyle.COLOR, R.drawable.icon_claude_color,
+                backedShadeArtwork = R.drawable.status_icon_artwork_claude_color),
             ProviderIconChoice("claude", "Claude", IconStyle.MONOCHROME, R.drawable.icon_claude),
             ProviderIconChoice("claude-text", "Claude", IconStyle.WORDMARK, R.drawable.icon_claude_text),
         )
         ProviderId.CODEX -> listOf(
-            ProviderIconChoice("openai", "OpenAI", null, R.drawable.icon_openai),
+            ProviderIconChoice("openai", "OpenAI", null, R.drawable.icon_openai, whiteInk = true),
             ProviderIconChoice("openai-text", "OpenAI", IconStyle.WORDMARK, R.drawable.icon_openai_text),
         )
         ProviderId.XAI -> listOf(
-            ProviderIconChoice("grok", "Grok", null, R.drawable.icon_grok),
+            ProviderIconChoice("grok", "Grok", null, R.drawable.icon_grok, whiteInk = true),
             ProviderIconChoice("grok-text", "Grok", IconStyle.WORDMARK, R.drawable.icon_grok_text),
         )
         ProviderId.ANTIGRAVITY -> listOf(
-            ProviderIconChoice("gemini-color", "Gemini", IconStyle.COLOR, R.drawable.icon_gemini_color),
-            ProviderIconChoice("antigravity-color", "Antigravity", IconStyle.COLOR, R.drawable.icon_antigravity_color),
+            ProviderIconChoice("gemini-color", "Gemini", IconStyle.COLOR, R.drawable.icon_gemini_color,
+                backedShadeArtwork = R.drawable.status_icon_artwork_gemini_color),
+            ProviderIconChoice("antigravity-color", "Antigravity", IconStyle.COLOR, R.drawable.icon_antigravity_color,
+                backedShadeArtwork = R.drawable.status_icon_artwork_antigravity_color),
             ProviderIconChoice("gemini", "Gemini", IconStyle.MONOCHROME, R.drawable.icon_gemini),
             ProviderIconChoice("antigravity", "Antigravity", IconStyle.MONOCHROME, R.drawable.icon_antigravity),
             ProviderIconChoice("gemini-text", "Gemini", IconStyle.WORDMARK, R.drawable.icon_gemini_text),
             ProviderIconChoice("antigravity-text", "Antigravity", IconStyle.WORDMARK, R.drawable.icon_antigravity_text),
         )
         ProviderId.KIMI -> listOf(
-            ProviderIconChoice("kimi-color", "Kimi", IconStyle.COLOR, R.drawable.icon_kimi_color),
+            ProviderIconChoice("kimi-color", "Kimi", IconStyle.COLOR, R.drawable.icon_kimi_color, whiteInk = true),
             ProviderIconChoice("kimi", "Kimi", IconStyle.MONOCHROME, R.drawable.icon_kimi),
             ProviderIconChoice("kimi-text", "Kimi", IconStyle.WORDMARK, R.drawable.icon_kimi_text),
         )
         ProviderId.DEVIN -> listOf(
-            ProviderIconChoice("devin-color", "Devin", IconStyle.COLOR, R.drawable.icon_devin_color),
+            ProviderIconChoice("devin-color", "Devin", IconStyle.COLOR, R.drawable.icon_devin_color,
+                backedShadeArtwork = R.drawable.status_icon_artwork_devin_color),
             ProviderIconChoice("devin", "Devin", IconStyle.MONOCHROME, R.drawable.icon_devin),
         )
         ProviderId.META -> listOf(

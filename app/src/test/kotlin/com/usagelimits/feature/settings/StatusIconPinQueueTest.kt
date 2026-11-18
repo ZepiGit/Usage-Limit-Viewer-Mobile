@@ -1,7 +1,6 @@
 package com.usagelimits.feature.settings
 
 import android.Manifest
-import android.app.Notification
 import android.app.NotificationManager
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.collectAsState
@@ -122,7 +121,7 @@ class StatusIconPinQueueTest {
 
     private fun showing(): Set<String> = manager.activeNotifications
         .filter { it.notification.channelId == StatusIconPublisher.CHANNEL_ID }
-        .map { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }
+        .map { checkNotNull(shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId")) }
         .toSet()
 
     private fun stored(): List<String> = runBlocking { container.settingsStore.settings.first().pinnedAccountIds }
@@ -160,7 +159,7 @@ class StatusIconPinQueueTest {
 
     @Test fun `pinning C and unpinning A while pinning B is published leaves B and C`() {
         render()
-        assertEquals(setOf("Alpha"), showing())
+        assertEquals(setOf(a.localId), showing())
 
         holding = true
         toggle("Beta")
@@ -177,7 +176,7 @@ class StatusIconPinQueueTest {
         compose.waitDrained { vm.state.value.pendingPins.isEmpty() }
 
         assertEquals("independent changes are all kept", listOf(b.localId, c.localId), stored())
-        assertEquals(setOf("Beta", "Gamma"), showing())
+        assertEquals(setOf(b.localId, c.localId), showing())
         compose.onNodeWithContentDescription("Pin Gamma").assertIsOn()
         compose.onNodeWithContentDescription("Pin Alpha").assertIsOff()
     }
@@ -213,7 +212,7 @@ class StatusIconPinQueueTest {
         releaseNext(expectHeldAfter = 3)
         compose.waitDrained { vm.state.value.pendingPins.isEmpty() }
         assertEquals(listOf(a.localId, b.localId, c.localId), stored())
-        assertEquals(setOf("Alpha", "Beta", "Gamma"), showing())
+        assertEquals(setOf(a.localId, b.localId, c.localId), showing())
     }
 
     /** A pin the queue refuses when its turn comes is told to the person, not silently dropped. */

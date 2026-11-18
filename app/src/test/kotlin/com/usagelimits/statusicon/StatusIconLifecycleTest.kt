@@ -48,6 +48,7 @@ class StatusIconLifecycleTest {
     private val publication get() = app.container.publication
     private val store get() = app.container.settingsStore
     private val now = System.currentTimeMillis()
+    private val accountNames = mutableMapOf<String, String>()
 
     @Before
     fun setUp() = runBlocking {
@@ -71,6 +72,7 @@ class StatusIconLifecycleTest {
     private suspend fun account(name: String, left: Double, provider: ProviderId = ProviderId.CLAUDE): ProviderAccount {
         val account = app.container.repository.upsertFromLogin(provider, "$name-${System.nanoTime()}", null, name, null, emptyMap())
         reading(account, left)
+        accountNames[account.localId] = name
         return account
     }
 
@@ -97,16 +99,17 @@ class StatusIconLifecycleTest {
     private fun alertRecords(): List<StatusBarNotification> =
         manager.activeNotifications.filter { it.notification.channelId == NotificationPublisher.CHANNEL_ID }
 
+    private fun StatusBarNotification.accountName() =
+        accountNames.getValue(checkNotNull(shadowOf(notification.contentIntent).savedIntent.getStringExtra("accountId")))
     private fun StatusBarNotification.title() = notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString()
-    private fun StatusBarNotification.text() = notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString()
     private fun StatusBarNotification.isSummary() = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0
 
-    /** The accounts that have an icon, by title, each counted once. */
-    private fun showing(): Set<String> = statusRecords().map { it.title() }.toSet()
+    /** The accounts that have an icon, identified by their tap destination, each counted once. */
+    private fun showing(): Set<String> = statusRecords().map { it.accountName() }.toSet()
 
     /** Active-list scenario: removes an account's records the way a swipe on Android 14+ would. */
     private fun dismiss(name: String) {
-        statusRecords().filter { it.title() == name }.forEach { manager.cancel(it.tag, it.id) }
+        statusRecords().filter { it.accountName() == name }.forEach { manager.cancel(it.tag, it.id) }
         assertTrue("$name is gone before the next step", name !in showing())
     }
 
@@ -124,7 +127,7 @@ class StatusIconLifecycleTest {
         for ((group, members) in groups) {
             assertEquals("$group: one summary", 1, members.count { it.isSummary() })
             assertEquals("$group: one child", 1, members.count { !it.isSummary() })
-            assertEquals("$group belongs to one account", 1, members.map { it.title() }.toSet().size)
+            assertEquals("$group belongs to one account", 1, members.map { it.accountName() }.toSet().size)
         }
         val identities = records.map { it.tag to it.id }.toSet()
 
@@ -244,15 +247,15 @@ class StatusIconLifecycleTest {
         val b = account("Beta", 87.0)
         turnOn(a, b)
         val identities = statusRecords().map { it.tag to it.id }.toSet()
-        fun alpha() = statusRecords().filter { it.title() == "Alpha" }
+        fun alpha() = statusRecords().filter { it.accountName() == "Alpha" }
 
         reading(a, 41.0)
         publication.cacheMoved()
-        assertTrue(alpha().all { it.text().startsWith("41% left") })
+        assertTrue(alpha().all { it.title().startsWith("41% left") })
 
         store.setPercentDisplay(PercentDisplay.USED)
         publication.presentationChanged()
-        assertTrue(alpha().all { it.text().startsWith("59% used") })
+        assertTrue(alpha().all { it.title().startsWith("59% used") })
 
         // The reading ages past the stale threshold without a sync; the boundary repaint underlines it.
         val before = alpha().map { it.notification.smallIcon.loadDrawable(app) }.first()
@@ -283,7 +286,7 @@ class StatusIconLifecycleTest {
         turnOn(a, b, c)
         val after = System.currentTimeMillis()
 
-        fun times(): Map<String, Long> = statusRecords().groupBy { it.title() }.mapValues { (_, records) ->
+        fun times(): Map<String, Long> = statusRecords().groupBy { it.accountName() }.mapValues { (_, records) ->
             assertEquals("summary and child share their account's time", 1, records.map { it.notification.`when` }.toSet().size)
             records.first().notification.`when`
         }
@@ -334,7 +337,7 @@ class StatusIconLifecycleTest {
 
         // Accounts are posted Gamma, Beta, Alpha; each adds two records.
         val order = listOf("Gamma", "Beta", "Alpha")
-        val whenOf = statusRecords().groupBy { it.title() }.mapValues { (_, r) -> r.first().notification.`when` }
+        val whenOf = statusRecords().groupBy { it.accountName() }.mapValues { (_, r) -> r.first().notification.`when` }
         for ((index, name) in order.withIndex()) {
             val time = whenOf.getValue(name)
             val before = index * 2

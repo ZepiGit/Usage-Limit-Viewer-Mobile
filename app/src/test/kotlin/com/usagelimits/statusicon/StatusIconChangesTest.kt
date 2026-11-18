@@ -1,7 +1,6 @@
 package com.usagelimits.statusicon
 
 import android.Manifest
-import android.app.Notification
 import android.app.NotificationManager
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.core.database.AccountUsage
@@ -71,7 +70,7 @@ class StatusIconChangesTest {
 
     private fun showing(): Set<String> = manager.activeNotifications
         .filter { it.notification.channelId == StatusIconPublisher.CHANNEL_ID }
-        .map { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }
+        .map { checkNotNull(shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId")) }
         .toSet()
 
     private fun TestScope.changes(): StatusIconChanges {
@@ -107,7 +106,7 @@ class StatusIconChangesTest {
 
     /** Swipe stand-in: cancels an account's records in the notification manager (active list). */
     private fun dismiss(name: String) {
-        manager.activeNotifications.filter { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE) == name }
+        manager.activeNotifications.filter { shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId") == name }
             .forEach { manager.cancel(it.tag, it.id) }
     }
 

@@ -87,6 +87,8 @@ Ordering that an app can influence:
 
 No public API documents control over status-bar icon order against other apps' icons. Priority and channel importance decide interruption, not that order (section 4).
 
+**Observed order (ticket 04, [run 44196948542](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44196948542)).** On API 30, 36 and 37, the account icons and shade rows followed the app's account order on first post and after reordering. On API 30, a newly pinned Grok account ranked ahead of Claude and Codex until the next sync republished the three groups. That API 30 image also showed a keyboard notification between account icons. This is an emulator observation, not a guarantee for every transition or device.
+
 ## 4. Channel importance
 
 On Android 8.0 (API 26) and higher, channel importance decides behaviour. This app's `minSdk` is 26, so the pre-8.0 `setPriority` path does not apply. The user-visible levels: ([Create and manage notification channels](https://developer.android.com/develop/ui/compose/notifications/channels))
@@ -103,7 +105,17 @@ On Android 8.0 (API 26) and higher, channel importance decides behaviour. This a
 
 AOSP matches the reference: `StatusBarNotificationIconsInteractor` includes low-priority icons only when `showSilentStatusIcons` is true. ([NotificationIconsInteractor.kt](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/packages/SystemUI/src/com/android/systemui/statusbar/notification/icon/domain/interactor/NotificationIconsInteractor.kt))
 
-[INFERENCE] `IMPORTANCE_LOW` is the right channel for a silent, ongoing quota icon, with the caveat that a user (or OEM default) who hides silent icons removes it. `IMPORTANCE_MIN` never shows a status-bar icon. `IMPORTANCE_DEFAULT` would make a sound on every new post.
+**Superseded.** The recommendation below is from 16 November 2026 and is kept as it was written:
+
+> [INFERENCE] `IMPORTANCE_LOW` is the right channel for a silent, ongoing quota icon, with the caveat that a user (or OEM default) who hides silent icons removes it. `IMPORTANCE_MIN` never shows a status-bar icon. `IMPORTANCE_DEFAULT` would make a sound on every new post.
+
+Its last sentence is wrong. A `DEFAULT` channel plays the channel's sound, and a channel created with `setSound(null, null)` has none. The `LOW` recommendation was overtaken by the API 37 result below.
+
+**What changed (17 November 2026).** From tag `android-16.0.0_r4` on, and on `android17-release`, AOSP's `PreferencesHelper.DEFAULT_HIDE_SILENT_STATUS_BAR_ICONS` is `true`, so silent (`LOW`) notifications show no status-bar icon until the user changes the setting. The `android16-release` branch head, tags `android-16.0.0_r1` to `r3`, and the Android 11 to 15 release heads and tags that were read use `false`; not every build was checked. On the API 37 emulator image, a `LOW` channel showed no account icons. A `DEFAULT` channel with sound, vibration and lights off showed all three, with the hide setting left at its default. Its rows moved from Silent to the alerting section, and the notification manager recorded no sound, vibration or light for any post, update or reorder. The emulator has no audio output, and no physical Pixel or OEM build was tested. Evidence: branch `prototype/statusbar-api37-visibility` (its `docs/research/prototype-api37-silent-defaults.md` lists the sources), CI run [44156767429](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44156767429), and the local experiment report `.omp-work/panes/sb04.experiment-report.md` (not in the repository).
+
+**Current decision (owner, question package 007).** The status-icon channel uses `IMPORTANCE_DEFAULT` with sound `null`, vibration off, lights off and badge off. The notifications stay ongoing, only-alert-once and local-only. The app leaves visibility to Android's normal lock-screen policy. No Live Update chip (section 6). The channel remains `status_icons`; there is no migration because the feature has not been released.
+
+A quiet channel alone does not prevent a dozing display from pulsing for a new DEFAULT-importance notification when ambient notifications are enabled. Awake heads-up requires HIGH importance. AndroidX `setSilent(true)` sets group alert behavior without lowering the channel's importance; current AOSP checks that behavior for awake heads-up and for doze pulses. With `setSilent(true)` on both records, [run 44213920175](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44213920175) still showed three account icons before and after reordering. The rows stayed under Notifications on API 30 and in Alerting on API 36/37. API 37 kept `hideSilentStatusBar=true` and `showSilentStatusIcons=false`. This checks placement on those images; the emulator does not exercise ambient pulses. ([AndroidX NotificationCompatBuilder](https://cs.android.com/androidx/platform/frameworks/support/+/androidx-main:core/core/src/main/java/androidx/core/app/NotificationCompatBuilder.java), [AOSP interruption decision](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/packages/SystemUI/src/com/android/systemui/statusbar/notification/interruption/VisualInterruptionDecisionProviderImpl.kt), [AOSP visual interruption suppressors](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/packages/SystemUI/src/com/android/systemui/statusbar/notification/interruption/CommonVisualInterruptionSuppressors.kt)).
 
 After the channel is created, the app cannot change its importance. The user can change the channel at any time. Recreating a channel with a lower importance only takes effect when the user has not already changed it. ([Channels](https://developer.android.com/develop/ui/compose/notifications/channels), [NotificationManager.createNotificationChannel](https://developer.android.com/reference/android/app/NotificationManager#createNotificationChannel(android.app.NotificationChannel)))
 
@@ -162,7 +174,7 @@ The lock screen and the always-on display do not reuse the status-bar drawing si
 
 [INFERENCE] Those are the same small icons as the status bar, so the alpha-only and 15 dp constraints apply there too. Three accounts already equal the lockscreen and always-on caps, before any other app's icons. Digits that are marginal at 15 dp are worse on an always-on display, which SystemUI draws with a doze amount that blends the icon colour toward white (`StatusBarIconView.updateIconColor`). ([StatusBarIconView.java](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/packages/SystemUI/src/com/android/systemui/statusbar/StatusBarIconView.java))
 
-`setPublicVersion` supplies a separate notification "whose contents should be shown in insecure contexts." ([Notification.Builder.setPublicVersion](https://developer.android.com/reference/android/app/Notification.Builder#setPublicVersion(android.app.Notification))) [INFERENCE] A quota percent on the lock screen is visible to anyone who can see the phone. Ship a redacted public version if the percent counts as private.
+`setPublicVersion` supplies a separate notification "whose contents should be shown in insecure contexts." ([Notification.Builder.setPublicVersion](https://developer.android.com/reference/android/app/Notification.Builder#setPublicVersion(android.app.Notification))) [INFERENCE] A quota percent on the lock screen is visible to anyone who can see the phone. Superseded on 17 November 2026: "Ship a redacted public version if the percent counts as private." Under the current decision the app sets no visibility and no public version, so the lock screen shows the status icons as Android shows normal notifications (section 4).
 
 ## 9. Third-party apps cannot add status bar items
 
@@ -233,7 +245,7 @@ Controls: the WidgetKit control APIs are an iOS 18 surface, so they are not avai
 - Android can show one status-bar icon per notification. Three ungrouped notifications already hit AOSP's autogroup threshold of 2, so grouping has to be defeated deliberately and then checked on a device.
 - The status bar draws the small icon as a 15 dp alpha mask in one colour. A coloured glyph plus two digits will not survive; use a distinct silhouette per provider, and put the percent in the shade text.
 - Author the bitmap at the 48 dp cap. `Icon.createWithBitmap` adds no size or format rule of its own.
-- Use one `IMPORTANCE_LOW` channel with `setShowBadge(false)`. `IMPORTANCE_MIN` never shows a status-bar icon, and `IMPORTANCE_LOW` can still be hidden by the user's silent-icon setting.
+- Superseded on 17 November 2026: "Use one `IMPORTANCE_LOW` channel with `setShowBadge(false)`. `IMPORTANCE_MIN` never shows a status-bar icon, and `IMPORTANCE_LOW` can still be hidden by the user's silent-icon setting." Current decision: one `IMPORTANCE_DEFAULT` channel with no sound, vibration, lights or badge. Channel importance and per-record interruption suppression serve different purposes (section 4). AOSP hides silent icons by default from Android 16 r4 on, so `LOW` showed nothing on the API 37 image (section 4).
 - On Android 14 and higher the user can dismiss the ongoing notification while the phone is unlocked. Detect that with `setDeleteIntent`. Repost on the next sync for a plain notification; do not repost if you ever use Live Updates.
 - Do not use Android 16 Live Updates or `ProgressStyle`. A standing quota is not a user-initiated, start-to-end journey, and the guide points that case at a widget.
 - Update with the same notification id and `setOnlyAlertOnce(true)`. No published rate limit was found.
@@ -241,7 +253,7 @@ Controls: the WidgetKit control APIs are an iOS 18 surface, so they are not avai
 - iOS has no status-bar item API. A Live Activity lasts at most 8 hours and cannot be started or reliably updated from BGAppRefresh without a push server. It is a poor fit for an all-day quota.
 - The durable iOS surface is the Lock Screen accessory widgets the app already has. They render vibrant (monochrome) on iPhone, and `reloadTimelines` from a background refresh spends a budget of roughly 40 to 70 reloads a day.
 - Ask for `POST_NOTIFICATIONS` in context. A second denial on Android 13 and higher suppresses the system dialog for the rest of the install.
-- Treat the percent as visible to bystanders on the lock screen, always-on display, Dynamic Island, and a paired watch. Offer a redacted `setPublicVersion` and an in-app way to turn the surface off.
+- Treat the percent as visible to bystanders on the lock screen, always-on display, Dynamic Island, and a paired watch. Offer an in-app way to turn the surface off. Superseded on 17 November 2026: "Offer a redacted `setPublicVersion`." The current decision leaves visibility untouched (section 4).
 
 ## Open / could not verify
 
