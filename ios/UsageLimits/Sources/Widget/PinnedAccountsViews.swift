@@ -133,7 +133,7 @@ struct PinnedAccountMark: View {
     private func content(glyph side: CGFloat) -> some View {
         let glyph = StatusIconGlyphShape(elements: PinnedAccountGlyphs.glyph(for: entry.account.providerID))
         switch entry.content.content {
-        case .none:
+        case .glyphOnly:
             VStack(spacing: side * 0.12) {
                 glyph.frame(width: side * 1.35, height: side * 1.35)
                 Rectangle()
@@ -160,7 +160,7 @@ struct PinnedAccountMark: View {
     }
 }
 
-/// Up to three accounts side by side, in pinned order.
+/// Up to three accounts side by side, in the app's account order (`PinnedAccounts.select`).
 struct PinnedAccountsRectangularView: View {
     let capture: PinnedAccountsCapture
 
@@ -278,7 +278,7 @@ struct PinnedAccountsCircularView: View {
     }
 }
 
-/// The first pinned account in one row (owner's decision, question package 010): its glyph as the
+/// The first pinned account in one row (ADR 0003, docs/adr/0003-status-icons-and-lock-screen-substitute.md, section "iOS"): its glyph as the
 /// family's one image, its figure with the side as the text. The system shows a single line of
 /// text and at most one image here, in its own font and tint (WidgetKit,
 /// `WidgetFamily.accessoryInline`; WWDC22 "Complications and widgets: Reloaded"). What the text

@@ -1,8 +1,8 @@
 import XCTest
 @testable import UsageLimitsKit
 
-/// The inline accessory shows the first pinned account only (owner's decision, question package
-/// 010): its glyph as the family's one image and its figure with the side as text. These pin down
+/// The inline accessory shows the first pinned account only (ADR 0003, docs/adr/0003-status-icons-and-lock-screen-substitute.md, section
+/// "iOS"): its glyph as the family's one image and its figure with the side as text. These pin down
 /// that text in English and German, how an outdated figure is marked without an underline, and
 /// that the reload interval follows the capture.
 final class PinnedAccountInlineTests: XCTestCase {

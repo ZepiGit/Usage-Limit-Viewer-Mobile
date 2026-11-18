@@ -6,7 +6,7 @@ public enum PinnedAccountText {
     public static func cellText(_ entry: PinnedAccountEntry) -> String? {
         switch entry.content.content {
         case .figure(let value): return String(value)
-        case .none: return nil
+        case .glyphOnly: return nil
         case .unknown: return PercentToken.unknown
         case .error: return "!"
         case .exhausted: return "⊘"
@@ -21,7 +21,7 @@ public enum PinnedAccountText {
             figure = entry.account.connectionStatus == .reconnectRequired ? texts.signInExpired : texts.error
         case .exhausted: figure = texts.exhausted
         case .unknown: figure = texts.unknown
-        case .figure, .none:
+        case .figure, .glyphOnly:
             figure = texts.spoken(texts.figure(entry.presentation.token), entry.presentation.side)
         }
         return "\(entry.account.title), \(figure)" + (entry.content.outdated ? ", \(texts.outdated)" : "")
@@ -55,7 +55,7 @@ public enum PinnedAccountText {
             text = entry.account.connectionStatus == .reconnectRequired ? texts.signInExpired : texts.error
         case .exhausted: text = texts.exhausted
         case .unknown: text = texts.unknown
-        case .figure, .none:
+        case .figure, .glyphOnly:
             let figure = "\(texts.figure(entry.presentation.token)) \(texts.sideWord(entry.presentation.side))"
             text = entry.content.outdated ? "\(figure) · \(texts.outdated)" : figure
         }

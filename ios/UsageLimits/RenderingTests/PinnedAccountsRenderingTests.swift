@@ -44,7 +44,7 @@ final class PinnedAccountsRenderingTests: XCTestCase {
         XCTAssertEqual(scenarios[0].capture.accounts.map(\.content), [
             StatusIconContent(content: .figure(42), outdated: false),
             StatusIconContent(content: .figure(7), outdated: true),
-            StatusIconContent(content: .none, outdated: false),
+            StatusIconContent(content: .glyphOnly, outdated: false),
         ])
         XCTAssertEqual(scenarios[1].capture.accounts.map(\.content.content), [.exhausted, .error, .unknown])
         let staleUsed = try XCTUnwrap(scenarios.first { $0.name == "first-stale-used" }?.capture.accounts.first)

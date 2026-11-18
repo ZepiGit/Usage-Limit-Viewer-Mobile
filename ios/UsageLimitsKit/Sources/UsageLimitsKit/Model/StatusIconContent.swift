@@ -6,7 +6,8 @@ public struct StatusIconContent: Sendable, Equatable {
         case error
         case exhausted
         case unknown
-        case none
+        /// A figure of 100 on a window that is not exhausted: the glyph alone (Android: `None`).
+        case glyphOnly
         case figure(Int)
     }
 
@@ -32,7 +33,7 @@ public struct StatusIconContent: Sendable, Equatable {
         else if exhausted { content = .exhausted }
         else {
             switch token {
-            case "100": content = .none
+            case "100": content = .glyphOnly
             case PercentToken.underOne: content = .figure(0)
             case PercentToken.overNinetyNine: content = .figure(99)
             default:
@@ -44,7 +45,7 @@ public struct StatusIconContent: Sendable, Equatable {
         let aged = validity == .stale || validity == .resetDue
         let outdated: Bool
         switch content {
-        case .figure, .none: outdated = aged
+        case .figure, .glyphOnly: outdated = aged
         case .error, .exhausted, .unknown: outdated = false
         }
         return StatusIconContent(content: content, outdated: outdated)
