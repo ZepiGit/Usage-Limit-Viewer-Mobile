@@ -121,17 +121,27 @@ class StatusIconPublicationTest {
         StatusIconRenderer.render(provider, StatusIcon(content, outdated = false), app.resources.displayMetrics.density)
 
     @Test
+    @Config(sdk = [37], qualifiers = "xxhdpi")
+    fun `published white artwork fills the 48 dp slot at xxhdpi`() = runBlocking {
+        pin(account(ProviderId.CODEX, "Codex", left = 42.0))
+        app.container.settingsStore.setProviderIcon(ProviderId.CODEX.id, "openai-text")
+        app.container.publication.presentationChanged()
+
+        val records = statusRecords()
+        assertEquals(2, records.size)
+        for (record in records) {
+            val icon = record.notification.getLargeIcon()
+            assertEquals(Icon.TYPE_BITMAP, icon.type)
+            val artwork = icon.loadDrawable(app) as BitmapDrawable
+            assertEquals("48 dp at xxhdpi", 144, artwork.bitmap.width)
+        }
+    }
+
+    @Test
     @Config(sdk = [37], qualifiers = "mdpi")
     fun `published provider artwork contrasts on both shade surfaces`() = runBlocking {
         val failures = mutableListOf<String>()
         val surfaces = mapOf("light" to 0xFFE8E7EF.toInt(), "dark" to 0xFF202024.toInt())
-        val colorBackings = mapOf(
-            "claude-color" to R.drawable.status_icon_artwork_claude_color,
-            "claudecode-color" to R.drawable.status_icon_artwork_claudecode_color,
-            "antigravity-color" to R.drawable.status_icon_artwork_antigravity_color,
-            "gemini-color" to R.drawable.status_icon_artwork_gemini_color,
-            "devin-color" to R.drawable.status_icon_artwork_devin_color,
-        )
         for (provider in ProviderId.entries) {
             pin(account(provider, provider.displayName, left = 42.0))
             for (choice in ProviderIconCatalog.choices(provider)) {
@@ -140,7 +150,7 @@ class StatusIconPublicationTest {
                 val records = statusRecords()
                 assertEquals("summary and child for ${choice.id}", 2, records.size)
                 assertEquals("summary for ${choice.id}", 1, records.count { it.isSummary() })
-                val backedResource = colorBackings[choice.id]
+                val backedResource = choice.backedShadeArtwork
                 val needsGround = choice.whiteInk || backedResource != null
                 val source = requireNotNull(app.getDrawable(choice.drawable))
                 // Rasterize the source alone at the 48dp bitmap slot before displaying it at 64px.

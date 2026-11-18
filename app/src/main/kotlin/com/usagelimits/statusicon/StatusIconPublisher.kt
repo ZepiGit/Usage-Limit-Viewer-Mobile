@@ -259,22 +259,13 @@ class StatusIconPublisher(
 
     private fun largeIcon(choice: ProviderIconChoice): Icon {
         if (!choice.whiteInk) {
-            // These originals do not clear 3:1 on the light shade; keep their PNGs and add the ground as a layer.
-            val resource = when (choice.drawable) {
-                R.drawable.icon_claude_color -> R.drawable.status_icon_artwork_claude_color
-                R.drawable.icon_claudecode_color -> R.drawable.status_icon_artwork_claudecode_color
-                R.drawable.icon_antigravity_color -> R.drawable.status_icon_artwork_antigravity_color
-                R.drawable.icon_gemini_color -> R.drawable.status_icon_artwork_gemini_color
-                R.drawable.icon_devin_color -> R.drawable.status_icon_artwork_devin_color
-                else -> choice.drawable
-            }
-            return Icon.createWithResource(context, resource)
+            return Icon.createWithResource(context, choice.backedShadeArtwork ?: choice.drawable)
         }
 
         val ground = checkNotNull(context.getDrawable(R.drawable.status_icon_artwork_ground))
         val mark = checkNotNull(context.getDrawable(choice.drawable))
         // Android's standard right-icon slot is 48dp; a larger bitmap gets rescaled at build time.
-        val size = (ARTWORK_DP * context.resources.displayMetrics.density).roundToInt().coerceAtMost(MAX_ARTWORK_PIXELS)
+        val size = (ARTWORK_DP * context.resources.displayMetrics.density).roundToInt()
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         ground.setBounds(0, 0, size, size)
@@ -319,7 +310,6 @@ class StatusIconPublisher(
         private const val SUMMARY_ID = 2001
         private const val CHILD_ID = 2002
         private const val ARTWORK_DP = 48
-        private const val MAX_ARTWORK_PIXELS = 96
 
         private fun tagFor(accountId: String) = "status-icon:$accountId"
     }
