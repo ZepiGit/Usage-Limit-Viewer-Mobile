@@ -7,11 +7,15 @@ on:
     paths:
       - 'ios/**'
       - 'shared/**'
+      - 'tools/check_glyph_file.py'
+      - 'tools/test_check_glyph_file.py'
       - '.github/workflows/ios.yml'
   pull_request:
     paths:
       - 'ios/**'
       - 'shared/**'
+      - 'tools/check_glyph_file.py'
+      - 'tools/test_check_glyph_file.py'
       - '.github/workflows/ios.yml'
   workflow_dispatch:
 
@@ -46,6 +50,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+      # The glyph file ships inside the widget; nothing malformed may reach it. Python is here,
+      # not in the Swift container.
+      - name: Check the status icon glyph file
+        run: |
+          python3 -m unittest discover -s tools -p 'test_check_glyph_file.py'
+          python3 tools/check_glyph_file.py
       - name: The checker's own tests
         run: python3 -m unittest discover -s ios/Tools -p 'test_check_xcstrings.py'
       # MarketingDemo is DEBUG-only screenshot fixtures with fixed English text.

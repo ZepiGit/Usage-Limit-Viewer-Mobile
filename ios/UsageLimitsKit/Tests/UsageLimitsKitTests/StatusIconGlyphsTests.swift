@@ -65,6 +65,8 @@ final class StatusIconGlyphsTests: XCTestCase {
     func testBothPlatformsAcceptAndRejectTheSharedWholeFileCases() throws {
         let root = try XCTUnwrap(JSONSerialization.jsonObject(
             with: Data(contentsOf: SharedVectors.file("glyph-path-grammar.json"))) as? [String: Any])
+        // The build-time checker (tools/check_glyph_file.py) takes the provider ids from here.
+        XCTAssertEqual(root["providers"] as? [String], ProviderID.allCases.map(\.rawValue))
         let accepted = try XCTUnwrap(root["acceptFiles"] as? [[String: Any]])
         let rejected = try XCTUnwrap(root["rejectFiles"] as? [[String: Any]])
         XCTAssertFalse(accepted.isEmpty)
@@ -77,36 +79,6 @@ final class StatusIconGlyphsTests: XCTestCase {
         }
         for entry in rejected {
             XCTAssertThrowsError(try StatusIconGlyphs.parse(data(entry)), "\(entry["name"] ?? "")")
-        }
-    }
-
-    /// Raw files as text, one edit away from the shipped file: strict JSON or nothing, on both
-    /// platforms (`shared/test-vectors/glyph-file-raw.json`, read by Android's test too).
-    func testBothPlatformsGiveTheSameVerdictOnRawFileText() throws {
-        struct Case: Decodable {
-            let name: String, edit: String, expect: String
-            let find: String?, with: String?, text: String?
-        }
-        struct Raw: Decodable { let cases: [Case] }
-        let shipped = try String(contentsOf: SharedVectors.file("status-icon-glyphs.json", directory: "shared/glyphs"),
-            encoding: .utf8)
-        let raw = try JSONDecoder().decode(Raw.self, from: Data(contentsOf: SharedVectors.file("glyph-file-raw.json")))
-        XCTAssertTrue(raw.cases.contains { $0.expect == "accept" })
-        XCTAssertTrue(raw.cases.contains { $0.expect == "reject" })
-        for c in raw.cases {
-            let text: String
-            switch c.edit {
-            case "none": text = shipped
-            case "replace":
-                let find = try XCTUnwrap(c.find), with = try XCTUnwrap(c.with)
-                let range = try XCTUnwrap(shipped.range(of: find), "\(c.name): find not in the shipped file")
-                text = shipped.replacingCharacters(in: range, with: with)
-            case "prepend": text = try XCTUnwrap(c.text) + shipped
-            case "append": text = try shipped + XCTUnwrap(c.text)
-            default: return XCTFail("\(c.name): unknown edit \(c.edit)")
-            }
-            let accepted = (try? StatusIconGlyphs.parse(Data(text.utf8))) != nil
-            XCTAssertEqual(accepted ? "accept" : "reject", c.expect, c.name)
         }
     }
 

@@ -32,30 +32,16 @@ class StatusIconGlyphs private constructor(val paths: Map<ProviderId, String>, v
             val stream = requireNotNull(StatusIconGlyphs::class.java.getResourceAsStream(RESOURCE)) {
                 "$RESOURCE is not packaged; app/build.gradle.kts adds shared/glyphs as a resource folder"
             }
-            parse(stream.use { it.readBytes() })
-        }
-
-        /** The file's bytes, decoded as strict UTF-8 like the Kit: malformed bytes fail, not U+FFFD. */
-        fun parse(bytes: ByteArray): StatusIconGlyphs {
-            val text = try {
-                Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString()
-            } catch (malformed: java.nio.charset.CharacterCodingException) {
-                throw IllegalArgumentException("the glyph file is not UTF-8", malformed)
-            }
-            return parse(text)
+            parse(stream.bufferedReader().use { it.readText() })
         }
 
         /**
          * Strict, and the same as the Kit's reader (`shared/test-vectors/glyph-path-grammar.json`
-         * and `glyph-file-raw.json` hold the files both must accept or reject): strict JSON
-         * ([StrictJson]), an object with exactly `grid`, `glyphs` and
+         * holds the files both must accept or reject): an object with exactly `grid`, `glyphs` and
          * `fallback`; `grid` the number 24; `glyphs` an object naming exactly the known providers;
          * every path a string in the shared grammar.
          */
         fun parse(text: String): StatusIconGlyphs {
-            // Strict JSON first: the JSON reader accepts number spellings such as +24, 024 and 24f,
-            // and reads duplicate keys, all of which the Kit rejects.
-            StrictJson.validate(text)
             val root = Json.parseToJsonElement(text) as? JsonObject
                 ?: throw IllegalArgumentException("the glyph file must be a JSON object")
             require(root.keys == setOf("grid", "glyphs", "fallback")) { "unexpected keys ${root.keys}" }

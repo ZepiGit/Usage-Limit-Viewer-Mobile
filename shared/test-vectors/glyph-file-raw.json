@@ -1,5 +1,5 @@
 {
-  "description": "Raw glyph files as text, each derived from shared/glyphs/status-icon-glyphs.json by one edit (replace the first occurrence of 'find' with 'with', prepend or append 'text'), and the verdict both loaders must give. The file must be strict JSON (RFC 8259): no other number spellings, comments, single quotes, unquoted words, trailing commas, duplicate keys, byte-order mark or content after the root object. Android (StatusIconGlyphsTest) and iOS (StatusIconGlyphsTests) read this file.",
+  "description": "Raw glyph files as text, the fixture of tools/check_glyph_file.py (tools/test_check_glyph_file.py). Each case is the shipped shared/glyphs/status-icon-glyphs.json with one edit: 'none'; 'replace' the first occurrence of 'find' with 'with' (for a 'nest' case, 'with' then 'open' repeated 'nest' times, 'core', 'close' repeated 'nest' times and 'after'); 'prepend' or 'append' 'text'; or 'bytes', which replaces 'find' with the hex bytes 'hex'. The file must be strict UTF-8 JSON (RFC 8259) of the documented shape; anything else is rejected before it can ship.",
   "cases": [
     {
       "name": "the shipped file",
@@ -265,6 +265,67 @@
       "name": "leading whitespace",
       "edit": "prepend",
       "text": "\n  ",
+      "expect": "accept"
+    },
+    {
+      "name": "grid a 12,000-deep array",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": ",
+      "open": "[",
+      "core": "24",
+      "close": "]",
+      "nest": 12000,
+      "after": ",",
+      "expect": "reject"
+    },
+    {
+      "name": "a lone escaped high surrogate in a key",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24,\n  \"\\ud83d\": 1,",
+      "expect": "reject"
+    },
+    {
+      "name": "a lone escaped high surrogate in a path",
+      "edit": "replace",
+      "find": "\"fallback\": \"M",
+      "with": "\"fallback\": \"\\ud83dM",
+      "expect": "reject"
+    },
+    {
+      "name": "two distinct escaped astral keys",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24,\n  \"\\ud83d\\ude00\": 1,\n  \"\\ud83d\\ude01\": 2,",
+      "expect": "reject"
+    },
+    {
+      "name": "a literal and an escaped duplicate key",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24,\n  \"😀\": 1,\n  \"\\ud83d\\ude00\": 2,",
+      "expect": "reject"
+    },
+    {
+      "name": "a literal and an escaped duplicate of grid",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 24,\n  \"gr\\u0069d\": 24,",
+      "expect": "reject"
+    },
+    {
+      "name": "an invalid UTF-8 byte in a path",
+      "edit": "bytes",
+      "find": "\"fallback\": \"M",
+      "hex": "2266616c6c6261636b223a2022ff4d",
+      "expect": "reject"
+    },
+    {
+      "name": "grid 2.40000e+01",
+      "edit": "replace",
+      "find": "\"grid\": 24,",
+      "with": "\"grid\": 2.40000e+01,",
       "expect": "accept"
     }
   ]
