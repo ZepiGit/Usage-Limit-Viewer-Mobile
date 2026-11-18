@@ -1,9 +1,6 @@
 package com.usagelimits.navigation
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.EaseOutBack
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -23,11 +20,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.usagelimits.feature.settings.AppIcon
-import com.usagelimits.ui.theme.LocalMotionEnabled
+import com.usagelimits.ui.theme.UsageMotion
 import com.usagelimits.ui.theme.UsageColors
-
-private const val ICON_IN_MS = 320
-private const val OVERLAY_OUT_MS = 220
 
 // Process-scoped so rotation and returning from the background do not replay the launch.
 internal var launchOverlayShown = false
@@ -38,8 +32,8 @@ internal var launchOverlayShown = false
  */
 @Composable
 fun LaunchOverlay() {
-    val motionEnabled = LocalMotionEnabled.current
-    var visible by remember { mutableStateOf(!launchOverlayShown && motionEnabled) }
+    val motion = UsageMotion.current
+    var visible by remember { mutableStateOf(!launchOverlayShown && motion.enabled) }
     launchOverlayShown = true
     if (!visible) return
 
@@ -47,8 +41,8 @@ fun LaunchOverlay() {
     val reveal = remember { Animatable(0f) }
     val overlayAlpha = remember { Animatable(1f) }
     LaunchedEffect(Unit) {
-        reveal.animateTo(1f, tween(ICON_IN_MS, easing = EaseOutBack))
-        overlayAlpha.animateTo(0f, tween(OVERLAY_OUT_MS, easing = LinearEasing))
+        reveal.animateTo(1f, motion.launchReveal())
+        overlayAlpha.animateTo(0f, motion.launchDissolve())
         visible = false
     }
 

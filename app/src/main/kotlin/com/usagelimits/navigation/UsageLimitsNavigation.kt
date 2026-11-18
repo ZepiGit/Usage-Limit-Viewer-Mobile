@@ -1,10 +1,11 @@
 package com.usagelimits.navigation
 
 import androidx.annotation.StringRes
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -36,9 +37,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -62,8 +67,17 @@ import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.ConstrainedContent
 import com.usagelimits.ui.NavigationLayout
-import com.usagelimits.ui.theme.LocalMotionEnabled
+import com.usagelimits.ui.theme.AxisShift
 import com.usagelimits.ui.theme.UsageColors
+import com.usagelimits.ui.theme.UsageMotion
+import com.usagelimits.ui.theme.axisIn
+import com.usagelimits.ui.theme.axisOut
+import com.usagelimits.ui.theme.barIn
+import com.usagelimits.ui.theme.barOut
+import com.usagelimits.ui.theme.railIn
+import com.usagelimits.ui.theme.railOut
+import com.usagelimits.ui.theme.swapIn
+import com.usagelimits.ui.theme.swapOut
 import com.usagelimits.ui.AppIcons
 
 /**
@@ -73,9 +87,6 @@ import com.usagelimits.ui.AppIcons
  * changing a single character; a longer one would let "1m" sit on screen after it became "now".
  */
 private const val TICK_INTERVAL_MS = 30_000L
-
-/** Tab and route switches: the 700 ms navigation-compose default reads as lag. */
-private const val ROUTE_FADE_MS = 180
 
 private sealed class Destination(val route: String) {
     data object Overview : Destination("overview")
@@ -104,6 +115,34 @@ private val TABS = listOf(
     TabItem(Destination.Resets, R.string.tab_resets, AppIcons.Schedule),
     TabItem(Destination.Settings, R.string.tab_settings, Icons.Default.Settings),
 )
+
+private fun NavBackStackEntry.isTab() = TABS.any { it.destination.route == destination.route }
+
+/** Both ends of the change are tabs: peers, with no deeper or back between them. */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.betweenTabs() =
+    initialState.isTab() && targetState.isTab()
+
+/**
+ * The bottom bar or the side rail, leaving and returning with the screens it belongs to.
+ *
+ * Nothing is emitted while it is hidden and at rest: the scaffold tells an empty bottom-bar slot
+ * from a zero-height bar, and pads for the system navigation bar only when the slot is empty.
+ */
+@Composable
+private fun NavigationChrome(
+    routeKnown: Boolean,
+    visible: Boolean,
+    enter: EnterTransition,
+    exit: ExitTransition,
+    content: @Composable () -> Unit,
+) {
+    if (!routeKnown) return
+    val state = remember { MutableTransitionState(visible) }
+    state.targetState = visible
+    if (state.currentState || state.targetState) {
+        AnimatedVisibility(state, enter = enter, exit = exit) { content() }
+    }
+}
 
 /**
  * The app shell: four tabs plus two pushed routes.
@@ -146,6 +185,10 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     val navigationLayout = NavigationLayout.forWidth(windowSizeClass.widthSizeClass)
     val showBottomBar = showNavigation && navigationLayout == NavigationLayout.BOTTOM_BAR
     val showSideRail = showNavigation && navigationLayout == NavigationLayout.SIDE_RAIL
+    // The first composition has no back stack entry yet. The chrome waits for one and then
+    // appears at once, so a launch or a rotation does not play its entrance.
+    val routeKnown = currentRoute != null
+    val motion = UsageMotion.current
 
     fun navigateToTab(route: String) {
         navController.navigate(route) {
@@ -159,7 +202,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
 
     Box(Modifier.fillMaxSize().background(UsageColors.Ground)) {
         Row(modifier = Modifier.fillMaxSize()) {
-            if (showSideRail) {
+            NavigationChrome(routeKnown, showSideRail, motion.railIn(), motion.railOut()) {
                 NavigationRail(containerColor = UsageColors.Ground) {
                     TABS.forEach { tab ->
                         val selected = currentRoute?.hierarchy
@@ -185,7 +228,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
             containerColor = UsageColors.Ground,
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
-                if (showBottomBar) {
+                NavigationChrome(routeKnown, showBottomBar, motion.barIn(), motion.barOut()) {
                     NavigationBar(
                         containerColor = UsageColors.Ground,
                         tonalElevation = 0.dp,
@@ -231,12 +274,19 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     .background(UsageColors.Ground)
                     .padding(padding),
             ) {
-                val routeFade = tween<Float>(if (LocalMotionEnabled.current) ROUTE_FADE_MS else 0, easing = LinearEasing)
+                // The motion says what the change is. Tab to tab is two peers trading places: a
+                // crossfade. Anything else goes deeper or comes back, so the screens shift along
+                // the reading axis, forward for a push and backward for a pop. (The 700 ms
+                // navigation-compose default reads as lag.)
+                val forward = with(LocalDensity.current) { AxisShift.roundToPx() } *
+                    if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1 else 1
                 NavHost(
                     navController = navController,
                     startDestination = Destination.Overview.route,
-                    enterTransition = { fadeIn(routeFade) },
-                    exitTransition = { fadeOut(routeFade) },
+                    enterTransition = { if (betweenTabs()) motion.swapIn() else motion.axisIn(forward) },
+                    exitTransition = { if (betweenTabs()) motion.swapOut() else motion.axisOut(-forward) },
+                    popEnterTransition = { if (betweenTabs()) motion.swapIn() else motion.axisIn(-forward) },
+                    popExitTransition = { if (betweenTabs()) motion.swapOut() else motion.axisOut(forward) },
                 ) {
                     composable(Destination.Overview.route) {
                         OverviewScreen(
