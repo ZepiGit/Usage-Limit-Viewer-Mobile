@@ -100,7 +100,8 @@ final class UsageStore: ObservableObject {
         GlanceModel.build(
             accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons,
             percentDisplay: settings.percentDisplay,
-            statusIconsEnabled: settings.statusIconsEnabled, pinnedAccountIDs: settings.pinnedAccountIDs)
+            statusIconsEnabled: settings.statusIconsEnabled,
+            pinnedAccountIDs: PinnedAccounts.resolve(keys: settings.pinnedAccountKeys, accounts: accounts.map(\.account)))
     }
 
     /// The accounts in the order the overview should show them.
@@ -362,10 +363,11 @@ final class UsageStore: ObservableObject {
         let removal = Task { @MainActor [weak self] in
             await previous?.value
             guard let self else { return }
+            let pinKey = self.accounts.first { $0.account.id == accountID }?.account.pinKey
             do {
                 try await container.remove(id: accountID)
                 var updated = self.settings
-                updated.pinnedAccountIDs.removeAll { $0 == accountID }
+                updated.pinnedAccountKeys.removeAll { $0 == pinKey }
                 self.applyLoaded(updated)
                 self.accounts = await container.usage()
                 self.lastError = nil

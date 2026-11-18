@@ -45,15 +45,15 @@ public actor SettingsStore {
         return normalised
     }
 
-    /// Unpins `id` in the settings in use even when the file cannot be written, then saves.
+    /// Unpins `key` in the settings in use even when the file cannot be written, then saves.
     ///
-    /// For an account that is gone: its pin must not come back with it. Removal and sign-in stay
-    /// successful when this write fails, so the stale id would otherwise linger in `current` and
-    /// pin the same account again the moment it signs in. Throws the write error afterwards.
-    public func releasePin(_ id: String) throws {
+    /// For an account that is gone, so its pin no longer counts against the limit. Removal stays
+    /// successful when this write fails; the stale key on disk is harmless, because it names an
+    /// instance that no longer exists. Throws the write error afterwards.
+    public func releasePin(_ key: String) throws {
         var settings = settings()
-        guard settings.pinnedAccountIDs.contains(id) else { return }
-        settings.pinnedAccountIDs.removeAll { $0 == id }
+        guard settings.pinnedAccountKeys.contains(key) else { return }
+        settings.pinnedAccountKeys.removeAll { $0 == key }
         current = settings.normalised()
         try save(settings)
     }

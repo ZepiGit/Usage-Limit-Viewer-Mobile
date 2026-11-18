@@ -25,7 +25,7 @@ Turning the switch on or off, pinning and unpinning make the app post or remove 
 1. In the app, open Settings → **Pinned accounts**, turn on **Show pinned accounts** and pin up to three accounts.
 2. Touch and hold the Lock Screen and tap Customize. For the inline form, tap the date above the clock and choose Pinned accounts. For the rectangular or circular form, tap the widget area below the clock and add Pinned accounts there.
 
-The widget has no settings of its own; pins and order come from the app. With the feature off or nothing pinned, the rectangular form shows "Pin an account in Settings", the circular form a pin symbol, and the inline form "Pin in Settings".
+The widget has no settings of its own; pins and order come from the app. With the feature off or nothing pinned, the rectangular form shows "Pin an account in Settings", the circular form a pin with "Pin in Settings", and the inline form "Pin in Settings".
 
 ## What the icon shows
 

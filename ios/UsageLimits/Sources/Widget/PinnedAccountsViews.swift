@@ -253,8 +253,10 @@ struct PinnedAccountsCircularView: View {
     }
 
     /// Feature off or nothing pinned: the pin with the short hint the inline form shows, so the
-    /// circle explains itself too. Two lines at most, scaled down rather than clipped, its type
-    /// capped at AX2 as the rectangular notice's is; VoiceOver reads the full sentence.
+    /// circle explains itself too. The hint's text has a fixed 10 pt size and does not follow
+    /// Dynamic Type: as `caption2` at AX2 the 72 pt circle cut it to "Settin…" / "In Einste…".
+    /// Two lines at most, scaled down rather than clipped; only the pin grows, up to AX2.
+    /// VoiceOver reads the full sentence.
     private var emptyHint: some View {
         VStack(spacing: 1) {
             Image(systemName: "pin")
