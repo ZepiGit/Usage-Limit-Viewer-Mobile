@@ -16,6 +16,8 @@ on:
       - 'tools/test_android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
       - 'shared/**'
+      - 'tools/check_glyph_file.py'
+      - 'tools/test_check_glyph_file.py'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
@@ -30,6 +32,8 @@ on:
       - 'tools/test_android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
       - 'shared/**'
+      - 'tools/check_glyph_file.py'
+      - 'tools/test_check_glyph_file.py'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -58,6 +62,12 @@ jobs:
         with:
           # Enhanced caching has separate Terms of Use; keep the MIT cache provider.
           cache-provider: basic
+
+      # The glyph file ships inside both apps; nothing malformed may reach them.
+      - name: Check the status icon glyph file
+        run: |
+          python3 -m unittest discover -s tools -p 'test_check_glyph_file.py'
+          python3 tools/check_glyph_file.py
 
       # The emulator smoke's pixel logic, on synthetic frames; no device needed.
       - name: Test the runtime smoke's own checks

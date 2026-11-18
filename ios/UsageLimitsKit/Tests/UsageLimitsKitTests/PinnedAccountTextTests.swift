@@ -12,6 +12,7 @@ final class PinnedAccountTextTests: XCTestCase {
         func spoken(_ figure: String, _ mode: PercentDisplay) -> String {
             mode == .used ? "\(figure) verbraucht" : "\(figure) übrig"
         }
+        func sideWord(_ mode: PercentDisplay) -> String { mode == .used ? "verbraucht" : "übrig" }
     }
 
     private func entry(remaining: Double?, mode: PercentDisplay = .left,
@@ -29,7 +30,7 @@ final class PinnedAccountTextTests: XCTestCase {
         XCTAssertEqual(spoken(entry(remaining: 99.6)), "Claude, >99% remaining")
         XCTAssertEqual(spoken(entry(remaining: 100)), "Claude, 100% remaining")
         XCTAssertEqual(spoken(entry(remaining: 58, mode: .used)), "Claude, 42% used")
-        XCTAssertEqual(spoken(entry(remaining: 42, validity: .stale)), "Claude, 42% remaining, Outdated")
+        XCTAssertEqual(spoken(entry(remaining: 42, validity: .stale)), "Claude, 42% remaining, Stale")
     }
 
     func testGermanCompositionKeepsFullFigureAndNonNumericStates() {
@@ -48,10 +49,10 @@ final class PinnedAccountTextTests: XCTestCase {
     func testCellAndSpokenTextCoverEveryKindInEnglishAndGerman() {
         let cases: [(PinnedAccountEntry, String?, String, String)] = [
             (entry(remaining: 42), "42", "Claude, 42% remaining", "Claude, 42 % übrig"),
-            (entry(remaining: 42, validity: .stale), "42", "Claude, 42% remaining, Outdated", "Claude, 42 % übrig, Veraltet"),
+            (entry(remaining: 42, validity: .stale), "42", "Claude, 42% remaining, Stale", "Claude, 42 % übrig, Veraltet"),
             (entry(remaining: 100), nil, "Claude, 100% remaining", "Claude, 100 % übrig"),
             (entry(remaining: nil), "—", "Claude, Unknown", "Claude, Unbekannt"),
-            (entry(remaining: 0, severity: .exhausted), "⊗", "Claude, Exhausted", "Claude, Ausgeschöpft"),
+            (entry(remaining: 0, severity: .exhausted), "⊘", "Claude, Exhausted", "Claude, Ausgeschöpft"),
             (entry(remaining: 42, validity: .error), "!", "Claude, Error", "Claude, Fehler"),
             (entry(remaining: 42, connectionStatus: .reconnectRequired), "!", "Claude, Sign-in expired", "Claude, Anmeldung abgelaufen")
         ]

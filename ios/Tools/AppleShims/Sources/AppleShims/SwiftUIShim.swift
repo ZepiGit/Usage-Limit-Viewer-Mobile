@@ -208,7 +208,7 @@ extension View {
     public func imageScale(_ value: Any) -> Self { self }
     public func bold() -> Self { self }
     public func italic() -> Self { self }
-    public func underline() -> Self { self }
+    public func underline(_ isActive: Bool = true) -> Self { self }
     public func minimumScaleFactor(_ value: Double) -> Self { self }
     public func truncationMode(_ value: Any) -> Self { self }
     public func animation(_ value: Any?, value other: Any) -> Self { self }

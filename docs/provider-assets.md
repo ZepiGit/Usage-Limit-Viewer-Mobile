@@ -12,7 +12,7 @@ Credit providers each have one fixed mark: OpenRouter, DeepSeek, Moonshot, xAI, 
 
 ## Status bar glyphs
 
-The status icons (`app/src/main/kotlin/com/usagelimits/statusicon/StatusIconRenderer.kt`) do not reuse the artwork above. The status bar draws the whole icon about 10 px high and keeps only its alpha, so a logo's thin strokes and small holes disappear. Each provider instead has one bold monochrome silhouette, drawn as path data on a 24-unit square. These paths were drawn for this app after the mark each row names; none is a copy of a source path. Some stay close to the mark (Claude, Antigravity, Kimi, OpenCode), the others are freer abstractions of it (Codex, Grok, Devin, Meta Muse, Z.ai). The provider marks remain their owners' trademarks.
+The status icons on Android (`app/src/main/kotlin/com/usagelimits/statusicon/StatusIconRenderer.kt`) and the iOS Pinned accounts Lock Screen widget do not reuse the artwork above. Both draw the path data from one file, `shared/glyphs/status-icon-glyphs.json`; changing a glyph means changing that file only, and both platforms' tests read it. The status bar draws the whole icon about 10 px high and keeps only its alpha, so a logo's thin strokes and small holes disappear. Each provider instead has one bold monochrome silhouette, drawn as path data on a 24-unit square. These paths were drawn for this app after the mark each row names; none is a copy of a source path. Some stay close to the mark (Claude, Antigravity, Kimi, OpenCode), the others are freer abstractions of it (Codex, Grok, Devin, Meta Muse, Z.ai). The provider marks remain their owners' trademarks.
 
 | Provider | Glyph | Drawn after | Licence of that source |
 |---|---|---|---|
@@ -26,5 +26,17 @@ The status icons (`app/src/main/kotlin/com/usagelimits/statusicon/StatusIconRend
 | Z.ai GLM | A bold Z | `assets/providers/lobehub/zai.svg` | LobeHub icons, MIT, © 2023 LobeHub |
 | OpenCode Go | An upright frame around a hollow, the mark's frame redrawn with its edges half a unit further in | `assets/providers/lobehub/opencode.svg` | LobeHub icons, MIT, © 2023 LobeHub |
 | Unknown provider | A plain disc | Drawn for this app | No third-party source |
+
+### Glyph path grammar
+
+The file must be strict UTF-8 JSON of the shape below, and CI rejects anything else before it can ship: `tools/check_glyph_file.py` runs in the Android unit-test job, in the iOS Linux job, and as the first step of the release workflow. The apps' loaders (Android `StatusIconGlyphs.kt`, iOS `StatusIconGlyphs.swift`) read it with their platform's JSON reader and trust the shipped file beyond their own schema check, which covers the shape and this subset of SVG path data:
+
+- Commands, absolute only: `M` (2 numbers), `L` (2), `H` (1), `V` (1), `C` (6), `Z` (none). Lower-case relative commands, `Q`, `S`, `T`, `A` and any other letter are rejected.
+- A path starts with `M`. A command repeats while numbers follow it; pairs after `M` continue as `L`. Numbers after `Z` without a new command are rejected.
+- Numbers: an optional `-`, then ASCII digits with at most one decimal point (`12`, `1.5`, `.5`, `-0.4`). No `+`, no exponent.
+- Separators: spaces and commas.
+- The file is one object with exactly three keys. `grid` is the JSON number 24 (`"24"` in quotes is rejected). `glyphs` is an object naming exactly the providers this build knows, no more and no fewer. Every path, in `glyphs` and in `fallback` (the disc), is a JSON string; a number, `null` or an array is rejected.
+
+`shared/test-vectors/glyph-path-grammar.json` lists the provider ids and accepted and rejected paths and whole files; both platforms' tests and the checker read it, and each platform's test checks the ids against its own provider list. `shared/test-vectors/glyph-file-raw.json` holds raw file texts for the checker's own tests. The fallback disc is drawn from four cubic segments on both platforms, so it is no longer pixel-identical to Android's earlier `addCircle` disc. A malformed file fails Android's status-icon step, which the publication logs and skips, and it makes the iOS widget draw the disc for every account.
 
 The glyphs are judged at the size the status bar draws them, not at the size of the source. `StatusIconRenderingTest` writes a contact sheet and a true-size sheet per density to `app/build/reports/status-icons/`. In the true-size sheet each icon is scaled down to its 15 × 10 dp slot and enlarged ×8 without smoothing. The same test fails if two glyphs differ in fewer than 12 pixels at 280 dpi.

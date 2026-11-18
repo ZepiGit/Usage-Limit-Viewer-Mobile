@@ -102,6 +102,9 @@ android {
         buildConfig = true
     }
 
+    // The status icon glyphs are shared with the iOS widget; one file, packaged as a Java resource.
+    sourceSets.getByName("main").resources.srcDir("../shared/glyphs")
+
     packaging {
         resources.excludes += setOf(
             "/META-INF/{AL2.0,LGPL2.1}",
