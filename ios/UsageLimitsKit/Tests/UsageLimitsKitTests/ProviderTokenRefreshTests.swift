@@ -60,6 +60,20 @@ final class ProviderTokenRefreshTests: XCTestCase {
 
     // MARK: - Reading the response
 
+    func testAThrottledTokenExchangeReturnsATypedRateLimitWithoutRetrying() async {
+        let (http, transport) = client([(429, "")])
+        do {
+            _ = try await CodexClient(httpClient: http).refresh(credentials: stored)
+            XCTFail("expected a token endpoint rate limit")
+        } catch ProviderError.rateLimited(_, let retryAfter) {
+            XCTAssertNil(retryAfter)
+        } catch {
+            XCTFail("expected a rate limit, got \(error)")
+        }
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map(\.httpMethod), ["POST"])
+    }
+
     func testARotatedPairIsRead() async throws {
         let (http, _) = client([(200, rotated)])
 

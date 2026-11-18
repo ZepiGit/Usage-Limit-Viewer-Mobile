@@ -258,10 +258,12 @@ final class UsageStore: ObservableObject {
     /// it rather than being dropped: the running pass read its account list when it started, so
     /// an account signed in since then is synced, published and evaluated for alerts only by a
     /// pass that starts later (#43). Lazy, because the pass captures `self`.
-    private lazy var refreshes = RefreshCoalescer { [weak self] in await self?.refreshPass() }
+    private lazy var refreshes = RefreshCoalescer { [weak self] automatic in
+        await self?.refreshPass(automatic: automatic)
+    }
 
-    /// Syncs every account, and returns once a sync that started after this call has finished.
-    func refresh() async {
+    /// Syncs every eligible account and waits for a pass that started after this call.
+    func refresh(automatic: Bool = false) async {
         #if DEBUG
         if MarketingDemo.isEnabled { return }
         #endif
@@ -272,11 +274,11 @@ final class UsageStore: ObservableObject {
             lastError = String(localized: "This build cannot reach its shared storage.")
             return
         }
-        await refreshes.request().value
+        await refreshes.request(automatic: automatic).value
     }
 
     /// One sync, publish and alert claim. Only `refreshes` calls this, so two never overlap.
-    private func refreshPass() async {
+    private func refreshPass(automatic: Bool) async {
         guard let container else { return }
 
         isRefreshing = true
@@ -286,7 +288,7 @@ final class UsageStore: ObservableObject {
         do {
             // The container returns the usage as it stands after the sync, rather than leaving
             // this to re-read it: re-reading races the write that just happened.
-            accounts = try await container.refresh()
+            accounts = try await container.refresh(automatic: automatic)
             credits = await container.credits()
             lastError = nil
 

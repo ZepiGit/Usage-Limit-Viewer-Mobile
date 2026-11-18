@@ -128,12 +128,23 @@ class WidgetTextsGermanTest {
         assertEquals("Konnte nicht gelesen werden", statusText(row(Severity.ERROR, balances = emptyList()), texts))
         val failed = statusText(row(statusMessage = "abgelehnt"), texts)
         assertTrue(failed, failed.startsWith("Aktualisierung fehlgeschlagen: abgelehnt · Stand "))
+        val limited = statusText(row(statusMessage = "Rate limited. Automatic refresh is paused. Refresh manually to try now."), texts)
+        assertTrue(limited, limited.startsWith("Aktualisierung fehlgeschlagen: Zu viele Anfragen. Die automatische Aktualisierung pausiert. Aktualisiere manuell, um es jetzt erneut zu versuchen. · Stand "))
         val stale = statusText(row(Severity.STALE), texts)
         assertTrue(stale, stale.startsWith("Veraltet · Stand "))
         val fine = statusText(row(), texts)
         assertTrue(fine, fine.startsWith("fal.ai · "))
         val unlimited = amountText(row(balances = listOf(CreditBalance("USD", BigDecimal("12.5"), unlimited = true))), texts)
         assertTrue(unlimited, unlimited.endsWith("diesen Monat ausgegeben"))
+    }
+
+    @Test
+    fun `a legacy credit throttle invites a retry without claiming a pause`() {
+        val text = statusText(
+            row(statusMessage = "No balance could be read (fal billing is rate limiting this key)."),
+            ResourceCreditWidgetTexts(resources),
+        )
+        assertTrue(text, text.startsWith("Aktualisierung fehlgeschlagen: Zu viele Anfragen. Versuche es später erneut. · Stand "))
     }
 
     @Test

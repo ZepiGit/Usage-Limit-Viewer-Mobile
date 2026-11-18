@@ -2,6 +2,7 @@ package com.usagelimits.core.sync
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -10,24 +11,33 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
+import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.WorkQuery
 import androidx.work.WorkerParameters
+import androidx.work.await
 import androidx.work.workDataOf
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.settings.AppSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 /**
  * Background sync shares SyncEngine with the UI and publishes the refreshed cache.
  * Partial success returns success; an all-failed periodic pass may retry.
- * One-shots finish without retry so KEEP cannot block later user triggers during backoff.
- * Each failure is already recorded per account.
+ * User-triggered one-shots finish without retry so KEEP cannot block later taps during backoff.
+ * Short-interval attempts release a pre-armed successor even when provider reads failed.
+ * Provider failures are recorded per account.
  */
 class SyncWorker(
     context: Context,
@@ -35,6 +45,45 @@ class SyncWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        if (!inputData.getBoolean(KEY_SHORT, false)) {
+            return resultFor(sync(), periodic = inputData.getBoolean(KEY_PERIODIC, false))
+        }
+        try {
+            if (!ensureShortSuccessor()) return Result.success()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.w("SyncWorker", "short sync successor could not be scheduled", error)
+            return Result.retry()
+        }
+        try {
+            sync()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.w("SyncWorker", "short sync attempt failed", error)
+        }
+        // Success releases the pre-armed successor even when providers failed this attempt.
+        return Result.success()
+    }
+
+    private suspend fun ensureShortSuccessor(): Boolean = scheduleLock.withLock {
+        val container = (applicationContext as UsageLimitsApp).container
+        val interval = container.settingsStore.settings.first().syncIntervalMinutes
+        if (interval >= PERIODIC_MINUTES) return@withLock false
+        val manager = WorkManager.getInstance(applicationContext)
+        val active = manager.getWorkInfosFlow(activeShortWork).first()
+        if (active.none { it.id == id && it.state == WorkInfo.State.RUNNING }) return@withLock false
+        // An OS stop may rerun this request with its successor already blocked on it.
+        if (active.none { it.id != id }) {
+            manager.enqueueUniqueWork(
+                SHORT_WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, shortRequest(interval),
+            ).await()
+        }
+        true
+    }
+
+    private suspend fun sync(): List<SyncOutcome> {
         val container = (applicationContext as UsageLimitsApp).container
         val now = System.currentTimeMillis()
 
@@ -47,29 +96,33 @@ class SyncWorker(
             val interval = container.settingsStore.settings.first().syncIntervalMinutes
             val credits = container.creditRepository.entriesOnce()
             if (!cacheNeedsSync(accounts, interval, now) && !creditCacheNeedsSync(credits, interval, now)) {
-                return Result.success()
+                return emptyList()
             }
         }
 
+        val manual = inputData.getBoolean(KEY_MANUAL, false)
+        if (manual) reconcileForManualRefresh(applicationContext, container.settingsStore.settings)
         container.settingsStore.recordSyncAttempt(now)
 
-        val outcomes = publishingEvenIfCancelled(
+        return publishingEvenIfCancelled(
             sync = {
                 // Credit accounts ride the same pass. Each is isolated, so a bad key costs one line.
-                (container.syncEngine.syncAll() + container.creditSyncEngine.syncAll())
+                (container.syncEngine.syncAll(automatic = !manual) + container.creditSyncEngine.syncAll(automatic = !manual))
                     .also { container.settingsStore.recordSyncFinished(System.currentTimeMillis()) }
             },
             publish = { container.publication.cacheMoved() },
         )
-
-        return resultFor(outcomes, periodic = inputData.getBoolean(KEY_PERIODIC, false))
     }
 
     companion object {
-        private const val PERIODIC_WORK_NAME = "usage_sync_periodic"
+        internal const val PERIODIC_WORK_NAME = "usage_sync_periodic"
         internal const val ONE_SHOT_WORK_NAME = "usage_sync_now"
+        internal const val SHORT_WORK_NAME = "usage_sync_short"
 
-        /** Set on the periodic request only: the one pass allowed to ask WorkManager for a retry. */
+        private const val KEY_MANUAL = "manual"
+        private const val FOREGROUND_TAG = "usage_sync_foreground"
+
+        /** Only periodic work retries when every account fails. */
         internal const val KEY_PERIODIC = "periodic"
 
         /** Set by widget-driven triggers: fetch only when the cache is older than the interval. */
@@ -140,61 +193,94 @@ class SyncWorker(
             }
         }
 
-        /**
-         * (Re)schedules the periodic pass.
-         *
-         * [ExistingPeriodicWorkPolicy.UPDATE] keeps the existing schedule when only the
-         * interval changed, so changing the setting does not reset the timer and cause an
-         * immediate extra sync.
-         */
-        fun schedulePeriodic(context: Context, intervalMinutes: Int) {
-            val interval = intervalMinutes.coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES)
+        private val scheduleLock = Mutex()
+        private const val KEY_SHORT = "shortInterval"
+        private const val INTERVAL_TAG = "usage_sync_interval:"
+        private val activeShortWork = WorkQuery.Builder.fromUniqueWorkNames(listOf(SHORT_WORK_NAME))
+            .addStates(listOf(WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED))
+            .build()
+        private val PERIODIC_MINUTES = TimeUnit.MILLISECONDS.toMinutes(PeriodicWorkRequest.MIN_PERIODIC_INTERVAL_MILLIS).toInt()
 
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(
-                interval.toLong(),
-                TimeUnit.MINUTES,
-            )
-                .setConstraints(connected())
-                .setInputData(workDataOf(KEY_PERIODIC to true))
-                .setBackoffCriteria(BackoffPolicy.LINEAR, RETRY_BACKOFF_MINUTES, TimeUnit.MINUTES)
-                .build()
-
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                PERIODIC_WORK_NAME,
-                ExistingPeriodicWorkPolicy.UPDATE,
-                request,
-            )
+        /** UPDATE preserves periodic timing; short requests keep their pending delay on restart. */
+        internal suspend fun scheduleBackgroundSync(
+            context: Context,
+            settings: Flow<AppSettings> = (context.applicationContext as UsageLimitsApp).container.settingsStore.settings,
+        ) = scheduleLock.withLock<Unit> {
+            val interval = try {
+                settings.first().syncIntervalMinutes
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w("SyncWorker", "could not read the refresh interval; using the default", error)
+                AppSettings.DEFAULT_SYNC_INTERVAL_MINUTES
+            }
+            val manager = WorkManager.getInstance(context)
+            if (interval < PERIODIC_MINUTES) {
+                manager.cancelUniqueWork(PERIODIC_WORK_NAME).await()
+                val active = manager.getWorkInfosFlow(activeShortWork).first()
+                if (active.isEmpty() || active.any { "$INTERVAL_TAG$interval" !in it.tags }) {
+                    manager.enqueueUniqueWork(SHORT_WORK_NAME, ExistingWorkPolicy.REPLACE, shortRequest(interval)).await()
+                }
+            } else {
+                manager.cancelUniqueWork(SHORT_WORK_NAME).await()
+                val request = PeriodicWorkRequestBuilder<SyncWorker>(interval.toLong(), TimeUnit.MINUTES)
+                    .setConstraints(connected())
+                    .setInputData(workDataOf(KEY_PERIODIC to true))
+                    .setBackoffCriteria(BackoffPolicy.LINEAR, RETRY_BACKOFF_MINUTES, TimeUnit.MINUTES)
+                    .build()
+                manager.enqueueUniquePeriodicWork(PERIODIC_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request).await()
+            }
         }
 
-        /**
-         * Fires an immediate sync — app start, pull-to-refresh, a widget's refresh tap.
-         *
-         * A pending `onlyIfAged` pass would otherwise hold the unique name under KEEP and may
-         * skip the fetch, swallowing the tap; cancel it first. WorkManager runs both operations
-         * on its serial executor, so the cancel lands before the enqueue. Both triggers hold
-         * [triggerLock] so an aged enqueue from another thread cannot land between the two.
-         */
+        private fun shortRequest(interval: Int) = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setInitialDelay(interval.toLong(), TimeUnit.MINUTES)
+            .setConstraints(connected())
+            .setInputData(workDataOf(KEY_SHORT to true))
+            .addTag("$INTERVAL_TAG$interval")
+            .setBackoffCriteria(BackoffPolicy.LINEAR, RETRY_BACKOFF_MINUTES, TimeUnit.MINUTES)
+            .build()
+
+        /** Repairs a failed short chain without making an explicit refresh depend on scheduling. */
+        internal suspend fun reconcileForManualRefresh(context: Context, settings: Flow<AppSettings>) {
+            try {
+                scheduleBackgroundSync(context, settings)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w("SyncWorker", "could not restore the background schedule", error)
+            }
+        }
+
+        /** A widget refresh tap must not inherit a pending automatic pass's cooldown. */
         fun syncNow(context: Context) = synchronized(triggerLock) {
-            WorkManager.getInstance(context).cancelAllWorkByTag(AGED_TAG)
-            enqueueOneShot(context, onlyIfAged = false)
+            val manager = WorkManager.getInstance(context)
+            manager.cancelAllWorkByTag(AGED_TAG)
+            manager.cancelAllWorkByTag(FOREGROUND_TAG)
+            enqueueOneShot(manager, onlyIfAged = false, manual = true)
         }
 
-        /**
-         * Fires a sync only if the cache has aged past the interval or been overtaken by a
-         * reset — the trigger for anything that runs on a clock rather than a user's tap: the
-         * system's periodic widget update, and the cache-only presentation repaint.
-         */
+        /** Opening the screen requests fresh readings, but is not an explicit refresh. */
+        internal fun syncOnResume(context: Context) = synchronized(triggerLock) {
+            val manager = WorkManager.getInstance(context)
+            manager.cancelAllWorkByTag(AGED_TAG)
+            enqueueOneShot(manager, onlyIfAged = false, manual = false)
+        }
+
+        /** Automatic widget updates and presentation boundaries read only when due. */
         fun syncIfCacheAged(context: Context) = synchronized(triggerLock) {
-            enqueueOneShot(context, onlyIfAged = true)
+            enqueueOneShot(WorkManager.getInstance(context), onlyIfAged = true, manual = false)
         }
 
+        // Serialize each cancel/enqueue pair so a lower-priority trigger cannot take the name in between.
         private val triggerLock = Any()
 
-        private fun enqueueOneShot(context: Context, onlyIfAged: Boolean) {
+        private fun enqueueOneShot(manager: WorkManager, onlyIfAged: Boolean, manual: Boolean) {
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(connected())
-                .setInputData(workDataOf(KEY_ONLY_IF_AGED to onlyIfAged))
-                .apply { if (onlyIfAged) addTag(AGED_TAG) }
+                .setInputData(workDataOf(KEY_ONLY_IF_AGED to onlyIfAged, KEY_MANUAL to manual))
+                .apply {
+                    if (onlyIfAged) addTag(AGED_TAG) else if (!manual) addTag(FOREGROUND_TAG)
+                }
                 .apply {
                     // Expedited so a refresh the user just asked for — or one the system just
                     // asked for on behalf of a widget — does not wait for the next Doze
@@ -207,10 +293,8 @@ class SyncWorker(
                 }
                 .build()
 
-            // KEEP: an impatient user tapping five times gets one pass, and a tick behind a
-            // pending tap adds nothing. Safe now that a one-shot never lingers in a retry
-            // backoff — see the class comment — and a tap first clears an aged pass (syncNow).
-            WorkManager.getInstance(context).enqueueUniqueWork(
+            // KEEP coalesces repeated triggers. Higher-priority requests cancel lower-priority work above.
+            manager.enqueueUniqueWork(
                 ONE_SHOT_WORK_NAME,
                 ExistingWorkPolicy.KEEP,
                 request,
@@ -221,8 +305,5 @@ class SyncWorker(
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
-        fun cancelPeriodic(context: Context) {
-            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_WORK_NAME)
-        }
     }
 }

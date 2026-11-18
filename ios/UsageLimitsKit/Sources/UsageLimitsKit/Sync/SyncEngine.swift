@@ -30,6 +30,9 @@ public enum SyncOutcome: Sendable {
     /// identifiers the engine chose; credential material is never interpolated into it, so an
     /// outcome is safe to display exactly as it stands.
     case failure(accountID: String, message: String)
+
+    /// The provider ended the attempt with a rate limit, with or without a server hint.
+    case rateLimited(accountID: String, message: String, retryAfter: TimeInterval?)
 }
 
 /// Receives every outcome as it happens, successes and failures alike, so accounts settle on the
@@ -38,7 +41,9 @@ public protocol SyncSink: Sendable {
 
     /// Deliberately non-throwing: a fault while persisting an outcome must never be turned back
     /// into an account failure, so a sink with problems owns them itself.
-    func record(_ outcome: SyncOutcome, at time: Date) async
+    func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date) async
+
+    func automaticSyncNotBefore(accountID: String) async -> TimeInterval?
 }
 
 /// Refreshes quota for several AI-subscription accounts.
@@ -146,15 +151,16 @@ public actor SyncEngine {
     private var busyAccounts: Set<String> = []
     private var accountWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
 
-    public func sync(accounts: [ProviderAccount]) async throws -> [SyncOutcome] {
+    /// Returns outcomes in account order, omitting accounts skipped during an automatic sync.
+    public func sync(accounts: [ProviderAccount], automatic: Bool = false) async throws -> [SyncOutcome] {
         try Task.checkCancellation()
 
         var outcomes = Array<SyncOutcome?>(repeating: nil, count: accounts.count)
 
-        try await withThrowingTaskGroup(of: (Int, SyncOutcome).self) { group in
+        try await withThrowingTaskGroup(of: (Int, SyncOutcome?).self) { group in
             for (index, account) in accounts.enumerated() {
                 group.addTask {
-                    let outcome = try await self.run(account)
+                    let outcome = try await self.run(account, automatic: automatic)
                     return (index, outcome)
                 }
             }
@@ -164,16 +170,14 @@ public actor SyncEngine {
             }
         }
 
-        // A child that throws stops the group from returning at all, so by the time control
-        // reaches here every slot has been filled exactly once.
-        return outcomes.map { $0! }
+        return outcomes.compactMap { $0 }
     }
 
     /// Carries one account from outcome to recorded outcome, and returns it so the batch can be
     /// answered in the order it was asked for. Delivery is per account rather than at the end of
     /// the batch, so an outcome reaches the sink the moment it settles, whatever its neighbours
     /// are doing.
-    private func run(_ account: ProviderAccount) async throws -> SyncOutcome {
+    private func run(_ account: ProviderAccount, automatic: Bool) async throws -> SyncOutcome? {
         // Fetch and record are one step per account, not two.
         //
         // An actor is reentrant at every `await`, and only the token exchange was coordinated
@@ -189,8 +193,15 @@ public actor SyncEngine {
         await acquireAccountLock(account.id)
         defer { releaseAccountLock(account.id) }
 
+        try Task.checkCancellation()
+        if automatic {
+            let deadline = await sink.automaticSyncNotBefore(accountID: account.id)
+            try Task.checkCancellation()
+            if RateLimitCooldown.shouldSkip(automatic: automatic, until: deadline, now: now()) { return nil }
+        }
         let outcome = try await isolatedOutcome(for: account)
-        try await record(outcome)
+        await sink.record(outcome, at: now(), accountCreatedAt: account.createdAt)
+        try Task.checkCancellation()
         return outcome
     }
 
@@ -237,6 +248,12 @@ public actor SyncEngine {
             // Transport cancellation can arrive as a mapped provider error. Like Android,
             // check the task before publishing a failure; completed successes still persist.
             try Task.checkCancellation()
+            if case .rateLimited(_, let retryAfter)? = error as? ProviderError {
+                return .rateLimited(accountID: account.id, message: StoredMessage.rateLimitedPauseMessage, retryAfter: retryAfter)
+            }
+            if case .rateLimited(let retryAfter)? = error as? HTTPError {
+                return .rateLimited(accountID: account.id, message: StoredMessage.rateLimitedPauseMessage, retryAfter: retryAfter)
+            }
             return .failure(accountID: account.id, message: Self.message(for: error))
         }
     }
@@ -500,18 +517,6 @@ public actor SyncEngine {
                 try? await Task.sleep(nanoseconds: 100 * 1_000_000)
             }
         }
-    }
-
-    /// Delivers one outcome to the sink, best-effort.
-    ///
-    /// The sink cannot throw, so persisting an outcome can never fail the account it belongs to —
-    /// that is what makes the delivery best-effort. The outcome is delivered even if the run has
-    /// been cancelled in the meantime, because the work is done and the sink should not lose it;
-    /// cancellation that lands while the delivery is in flight must still escape, so it is raised
-    /// once the sink has had its chance.
-    private func record(_ outcome: SyncOutcome) async throws {
-        await sink.record(outcome, at: now())
-        try Task.checkCancellation()
     }
 
     /// Renders a caught error as an outcome message.

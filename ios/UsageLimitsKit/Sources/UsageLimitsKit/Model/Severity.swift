@@ -44,8 +44,8 @@ public enum Severity: Int, Comparable, Sendable, Codable {
 
     /// Never call a snapshot stale before it has had a fair chance to refresh.
     ///
-    /// A floor as well as a multiple: two fifteen-minute periods is half an hour, and a phone
-    /// in a pocket routinely defers background work by more than that.
+    /// Short requested intervals still need a floor: a phone in a pocket can defer background
+    /// work well beyond two refresh periods.
     private static let minimumStaleAfter: TimeInterval = 45 * 60
 
     /// How old a snapshot may be before it stops being trustworthy, given the refresh interval.

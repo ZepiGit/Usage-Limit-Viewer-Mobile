@@ -60,6 +60,9 @@ class CreditRepository(
 
     suspend fun snapshot(accountId: String): CreditSnapshot? = dao.getSnapshot(accountId)?.toDomain()
 
+    internal suspend fun backgroundNotBefore(accountId: String): Long? =
+        dao.backgroundNotBefore(accountId)
+
     /**
      * Adds or replaces an account. A re-save keeps its place, creation time and snapshot; a new
      * account joins the end of the list. [snapshot] replaces the stored one when given.
@@ -105,9 +108,18 @@ class CreditRepository(
      * empty card. No-op for an account removed while the fetch was in flight (the foreign key
      * would otherwise raise).
      */
-    suspend fun record(accountId: String, balances: List<CreditBalance>?, error: String?, at: Long) =
+    suspend fun record(
+        accountId: String,
+        balances: List<CreditBalance>?,
+        error: String?,
+        at: Long,
+        backgroundNotBefore: Long? = null,
+        expectedCreatedAt: Long? = null,
+    ) =
         transactions.inTransaction {
-            if (dao.getAccount(accountId) == null) return@inTransaction
+            val account = dao.getAccount(accountId) ?: return@inTransaction
+            // Re-adding the same credit key can reuse the id, but not the original creation time.
+            if (expectedCreatedAt != null && account.createdAt != expectedCreatedAt) return@inTransaction
             if (balances != null) {
                 dao.upsertSnapshot(CreditSnapshot(accountId, balances, fetchedAt = at).toEntity())
             } else {
@@ -120,6 +132,7 @@ class CreditRepository(
                         lastAttemptAt = at,
                         status = CreditStatus.FAILED.name,
                         error = error,
+                        backgroundNotBefore = backgroundNotBefore ?: previous?.backgroundNotBefore,
                     ),
                 )
             }

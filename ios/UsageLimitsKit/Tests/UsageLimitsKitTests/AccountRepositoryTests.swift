@@ -222,7 +222,8 @@ final class AccountRepositoryTests: XCTestCase {
         try await repository.upsert(account())
         let sink = RepositorySink(repository: repository)
 
-        await sink.record(.success(accountID: "a", result: result(35)), at: now)
+        await sink.record(.success(accountID: "a", result: result(35)),
+            at: now, accountCreatedAt: account().createdAt)
 
         let snapshot = await repository.usage().first?.snapshot
         XCTAssertEqual(snapshot?.windows.first?.usedPercent, 35)

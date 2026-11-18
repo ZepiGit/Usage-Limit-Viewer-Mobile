@@ -1,5 +1,7 @@
 package com.usagelimits.core.network
 
+internal const val RATE_LIMITED_REQUEST_MESSAGE = "Rate limited. Try again later."
+
 /** Failures the sync layer and UI can react to differently. */
 sealed class ProviderException(message: String, cause: Throwable? = null) : Exception(message, cause) {
 

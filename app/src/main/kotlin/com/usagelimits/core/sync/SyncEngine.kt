@@ -8,6 +8,7 @@ import com.usagelimits.core.notifications.NotificationEvaluator
 import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.network.ProviderException
+import com.usagelimits.core.network.RATE_LIMITED_REQUEST_MESSAGE
 import com.usagelimits.providers.ProviderRegistry
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -60,11 +61,18 @@ class SyncEngine(
     private suspend fun accountLock(accountId: String): Mutex =
         mutexGuard.withLock { accountLocks.getOrPut(accountId) { Mutex() } }
 
-    /** Syncs every account concurrently. Never throws; failures surface per account. */
-    suspend fun syncAll(): List<SyncOutcome> = coroutineScope {
+    /** Syncs accounts concurrently; an automatic pass omits accounts in cooldown. */
+    suspend fun syncAll(automatic: Boolean = false): List<SyncOutcome> = coroutineScope {
         repository.accounts()
-            .map { account -> async { syncAccount(account) } }
+            .map { account -> async {
+                accountLock(account.localId).withLock {
+                    if (RateLimitCooldown.shouldSkip(automatic, nowMs) { repository.backgroundNotBefore(account.localId) }) {
+                        null
+                    } else syncLocked(account)
+                }
+            } }
             .awaitAll()
+            .filterNotNull()
     }
 
     suspend fun syncAccount(accountId: String): SyncOutcome {
@@ -73,16 +81,19 @@ class SyncEngine(
         return syncAccount(account)
     }
 
-    suspend fun syncAccount(account: ProviderAccount): SyncOutcome = accountLock(account.localId).withLock {
+    suspend fun syncAccount(account: ProviderAccount): SyncOutcome =
+        accountLock(account.localId).withLock { syncLocked(account) }
+
+    private suspend fun syncLocked(account: ProviderAccount): SyncOutcome {
         // Emulator fixtures never contact a provider. R8 removes this branch from release APKs.
         if (com.usagelimits.BuildConfig.DEBUG && account.attributes["screenshotFixture"] == "true") {
             val attemptedAt = nowMs()
             repository.snapshot(account.localId)?.let {
                 repository.saveSnapshot(it.copy(fetchedAt = attemptedAt, lastAttemptAt = attemptedAt))
             }
-            return@withLock SyncOutcome(account.localId, success = true)
+            return SyncOutcome(account.localId, success = true)
         }
-        try {
+        return try {
             val provider = registry.forId(account.provider)
                 ?: throw ProviderException.Unexpected("No provider for ${account.provider.id}")
 
@@ -100,20 +111,26 @@ class SyncEngine(
                 provider.fetchUsage(account, renewed)
             }
 
+            val fetchedAt = nowMs()
+            val rateLimit = result.rateLimit
+            val message = if (rateLimit != null) {
+                RATE_LIMITED_PAUSE_MESSAGE
+            } else result.errorMessage
             repository.saveSnapshot(
                 UsageSnapshot(
                     accountId = account.localId,
-                    fetchedAt = nowMs(),
+                    fetchedAt = fetchedAt,
                     status = result.status,
-                    errorMessage = result.errorMessage,
+                    errorMessage = message,
                     connectionStatus = result.connectionStatus,
                     windows = result.windows,
                     resetCredits = result.resetCredits,
                     resetCreditCount = result.resetCreditCount,
                     applicableResetCreditCount = result.applicableResetCreditCount,
                 ),
+                backgroundNotBefore = rateLimit?.let { RateLimitCooldown.deadline(fetchedAt, it.retryAfterMs) },
             )
-            SyncOutcome(account.localId, success = result.status != SnapshotStatus.FAILED, message = result.errorMessage)
+            SyncOutcome(account.localId, success = result.status != SnapshotStatus.FAILED, message = message)
         } catch (e: CancellationException) {
             // Rethrow cancellation before the Exception handler: stopping work is not an account
             // failure and must preserve structured concurrency.
@@ -124,8 +141,10 @@ class SyncEngine(
             // the scope is checked before anything is persisted — otherwise a cancelled sync
             // records "No network connection" against an account with a working connection.
             currentCoroutineContext().ensureActive()
-            recordFailure(account.localId, e.userMessage(), e is ProviderException.Unauthorized)
-            SyncOutcome(account.localId, success = false, message = e.userMessage())
+            val rateLimit = e as? ProviderException.RateLimited
+            val message = if (rateLimit != null) RATE_LIMITED_PAUSE_MESSAGE else e.userMessage()
+            recordFailure(account.localId, message, e is ProviderException.Unauthorized, rateLimit)
+            SyncOutcome(account.localId, success = false, message = message)
         } catch (e: Exception) {
             // A provider bug must not take the whole sync pass down with it.
             currentCoroutineContext().ensureActive()
@@ -142,9 +161,18 @@ class SyncEngine(
      * [syncAccount] — documented as never throwing — and cancel the sibling accounts sharing
      * the [syncAll] scope, discarding their freshly fetched numbers.
      */
-    private suspend fun recordFailure(accountId: String, message: String, requiresReauthentication: Boolean = false) {
+    private suspend fun recordFailure(
+        accountId: String,
+        message: String,
+        requiresReauthentication: Boolean = false,
+        rateLimit: ProviderException.RateLimited? = null,
+    ) {
         try {
-            repository.saveFailure(accountId, message, nowMs(), requiresReauthentication)
+            val now = nowMs()
+            repository.saveFailure(
+                accountId, message, now, requiresReauthentication,
+                backgroundNotBefore = rateLimit?.let { RateLimitCooldown.deadline(now, it.retryAfterMs) },
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -257,7 +285,7 @@ fun ProviderException.userMessage(): String = when (this) {
     // silently disabled on the other platform.
     is ProviderException.Unauthorized -> NotificationEvaluator.SIGN_IN_EXPIRED_MESSAGE
     is ProviderException.Forbidden -> "Access denied for this account"
-    is ProviderException.RateLimited -> "Rate limited — try again shortly"
+    is ProviderException.RateLimited -> RATE_LIMITED_REQUEST_MESSAGE
     is ProviderException.ServerError -> "Provider is having trouble ($statusCode)"
     // The client names the host and the kind of failure; the generic line is only the fallback.
     is ProviderException.Offline -> message ?: "No network connection"

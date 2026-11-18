@@ -107,14 +107,12 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertEqual(settings.syncIntervalMinutes, AppSettings.defaultSyncIntervalMinutes)
     }
 
-    func testAnIntervalBelowThePlatformFloorIsRaisedOnTheWayIn() async throws {
-        // Below the floor the system quietly ignores the schedule, so the app would promise a
-        // five-minute refresh and deliver whatever the platform felt like.
+    func testAnIntervalBelowTheMinimumIsRaisedOnTheWayIn() async throws {
         let store = SettingsStore(directory: directory)
 
-        let stored = try await store.save(AppSettings(syncIntervalMinutes: 5))
+        let stored = try await store.save(AppSettings(syncIntervalMinutes: 1))
 
-        XCTAssertEqual(stored.syncIntervalMinutes, AppSettings.minimumSyncIntervalMinutes)
+        XCTAssertEqual(stored.syncIntervalMinutes, 5)
     }
 
     func testAFileWrittenWithATooSmallIntervalIsRaisedOnTheWayOut() async throws {
@@ -126,7 +124,7 @@ final class PreferencesAndLedgerTests: XCTestCase {
 
         let settings = await SettingsStore(directory: directory).settings()
 
-        XCTAssertEqual(settings.syncIntervalMinutes, AppSettings.minimumSyncIntervalMinutes)
+        XCTAssertEqual(settings.syncIntervalMinutes, 5)
     }
 
     func testASettingsFileFromAnOlderVersionKeepsWhatItDoesSay() async throws {

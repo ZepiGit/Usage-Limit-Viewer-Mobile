@@ -81,6 +81,7 @@ class SnapshotWriteRaceTest {
         override fun observeAll(): Flow<List<UsageSnapshotEntity>> = flowOf(rows.values.toList())
         override suspend fun getAll(): List<UsageSnapshotEntity> = rows.values.toList()
         override suspend fun getForAccount(accountId: String) = rows[accountId]
+        override suspend fun backgroundNotBefore(accountId: String) = rows[accountId]?.backgroundNotBefore
         override suspend fun deleteForAccount(accountId: String) { rows.remove(accountId) }
 
         override suspend fun upsert(snapshot: UsageSnapshotEntity) {

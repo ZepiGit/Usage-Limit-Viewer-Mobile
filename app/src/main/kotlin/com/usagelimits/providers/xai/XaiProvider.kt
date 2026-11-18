@@ -322,7 +322,8 @@ class XaiProvider(
     ): UsageResult {
         val headers = usageHeaders(credentials)
         val now = nowMs()
-        val failures = mutableListOf<ProviderException>()
+        var creditsFailure: ProviderException? = null
+        var billingFailure: ProviderException? = null
         var malformedUsage = false
 
         // null means "this view failed", which is not the same as "this view reported
@@ -333,7 +334,7 @@ class XaiProvider(
             malformedUsage = malformedUsage || XaiBillingParser.hasInvalidUsage(payload)
             XaiBillingParser.parseCredits(payload, now)
         } catch (e: ProviderException) {
-            failures += e
+            creditsFailure = e
             null
         }
 
@@ -343,28 +344,35 @@ class XaiProvider(
             malformedUsage = malformedUsage || XaiBillingParser.hasInvalidUsage(payload)
             XaiBillingParser.parseBilling(payload, now)
         } catch (e: ProviderException) {
-            failures += e
+            billingFailure = e
             null
         }
 
-        if (credits == null && billing == null) {
-            throw failures.firstOrNull { it is ProviderException.Unauthorized }
-                ?: failures.lastOrNull() ?: ProviderException.Unexpected("xAI billing returned nothing")
+        val creditsThrottle = creditsFailure as? ProviderException.RateLimited
+        val billingThrottle = billingFailure as? ProviderException.RateLimited
+        val rateLimit = when {
+            creditsThrottle == null -> billingThrottle
+            (billingThrottle?.retryAfterMs ?: 0L) > (creditsThrottle.retryAfterMs ?: 0L) -> billingThrottle
+            else -> creditsThrottle
+        }
+        if (creditsFailure != null && billingFailure != null) {
+            throw rateLimit ?: if (creditsFailure is ProviderException.Unauthorized) creditsFailure else billingFailure
         }
 
-        // xAI exposes no reset credits, so the list stays empty rather than being faked.
-        val authFailure = failures.any { it is ProviderException.Unauthorized }
-        val partial = failures.isNotEmpty() || malformedUsage
+        val authFailure = creditsFailure is ProviderException.Unauthorized ||
+            billingFailure is ProviderException.Unauthorized
+        val viewFailed = creditsFailure != null || billingFailure != null
         return UsageResult(
             windows = XaiBillingParser.merge(credits.orEmpty(), billing.orEmpty()),
-            status = if (partial) SnapshotStatus.PARTIAL else SnapshotStatus.OK,
+            status = if (viewFailed || malformedUsage) SnapshotStatus.PARTIAL else SnapshotStatus.OK,
             errorMessage = when {
                 authFailure -> "One billing view rejected authentication; some usage could not be refreshed."
-                failures.isNotEmpty() -> "One billing view could not be refreshed; only returned usage is shown."
+                viewFailed -> "One billing view could not be refreshed; only returned usage is shown."
                 malformedUsage -> "Some billing values could not be read; available usage is shown."
                 else -> null
             },
             connectionStatus = if (authFailure) ConnectionStatus.UNKNOWN else ConnectionStatus.CONNECTED,
+            rateLimit = rateLimit,
         )
     }
 

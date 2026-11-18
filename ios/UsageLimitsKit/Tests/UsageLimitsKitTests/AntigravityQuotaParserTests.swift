@@ -147,7 +147,9 @@ final class AntigravityQuotaRobustnessTests: XCTestCase {
                 let (result, _) = try await fetch(replies)
                 XCTAssertEqual(result.windows.count, 2)
                 XCTAssertEqual(result.status, .ok)
-                XCTAssertNil(result.errorMessage)
+                let expectedNotice = code == 429
+                    ? "Rate limited. Automatic refresh is paused. Refresh manually to try now." : nil
+                XCTAssertEqual(result.errorMessage, expectedNotice, "HTTP \(code), replies: \(replies)")
             }
         }
     }

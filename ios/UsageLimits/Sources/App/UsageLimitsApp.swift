@@ -92,7 +92,7 @@ struct UsageLimitsApp: App {
                     if !Self.isUITesting && !store.isMarketingDemo {
                         _ = await NotificationScheduler.requestAuthorization()
                     }
-                    await store.refresh()
+                    await store.refresh(automatic: true)
                 }
         }
     }
