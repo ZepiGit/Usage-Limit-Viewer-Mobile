@@ -267,7 +267,8 @@ class StatusIconEvidenceDriverTest {
 
     @Test
     fun `seed cancels a due one shot sync whose network constraint stays unmet`() = runBlocking {
-        withTimeout(10_000) {
+        // Seed waits out the driver's whole 15 s start-up grace for the unmet constraint first.
+        withTimeout(25_000) {
             withStartupSync(5, SyncWorker.SHORT_WORK_NAME, runSync = { error("Network constraint was not released") }) { work, _ ->
                 SyncWorker.syncOnResume(app)
                 val pending = work.getWorkInfosForUniqueWorkFlow(SyncWorker.ONE_SHOT_WORK_NAME)

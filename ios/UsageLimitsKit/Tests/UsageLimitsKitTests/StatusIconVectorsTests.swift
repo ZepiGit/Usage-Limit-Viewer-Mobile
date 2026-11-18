@@ -47,7 +47,7 @@ final class StatusIconVectorsTests: XCTestCase {
             case "error": content = .error
             case "exhausted": content = .exhausted
             case "unknown": content = .unknown
-            case "none": content = .none
+            case "none": content = .glyphOnly
             case "figure":
                 guard let figure, (0...99).contains(figure) else {
                     throw VectorFileError(description: "figure must be in 0...99")

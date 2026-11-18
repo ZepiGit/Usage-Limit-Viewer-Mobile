@@ -15,6 +15,7 @@ import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.MAX_PINNED_ACCOUNTS
 import com.usagelimits.core.model.title
+import com.usagelimits.ui.components.OutlineButton
 import com.usagelimits.ui.components.RuleDivider
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
@@ -39,7 +40,9 @@ import com.usagelimits.ui.theme.UsageColors
  * Turning the switch on while notifications are not allowed asks through [permission], the
  * same flow the notification card uses. The switch itself is stored either way; once the
  * permission is given, the screen publishes the cached state and the icons appear. The section
- * says, politely announced, whether icons can be shown.
+ * says, politely announced, whether icons can be shown. When only the "Status bar icons"
+ * category is switched off in Android, it says so and leads to that category's settings;
+ * switching it on there shows the icons on return, the same way a grant does.
  */
 @Composable
 internal fun StatusIconSettings(
@@ -61,13 +64,26 @@ internal fun StatusIconSettings(
                 if (on && !permission.allowed) permission.request()
             },
         )
+        val showable = permission.allowed && !permission.statusIconsBlocked
         Text(
-            stringResource(if (permission.allowed) R.string.settings_status_icons_allowed
-                else R.string.settings_status_icons_blocked),
+            stringResource(when {
+                !permission.allowed -> R.string.settings_status_icons_blocked
+                permission.statusIconsBlocked -> R.string.settings_status_icons_category_blocked
+                else -> R.string.settings_status_icons_allowed
+            }),
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             style = MaterialTheme.typography.bodyMedium,
-            color = if (permission.allowed) UsageColors.Muted else UsageColors.Warning,
+            color = if (showable) UsageColors.Muted else UsageColors.Warning,
         )
+        // Notifications as a whole are the notification card's to fix; a category switched off
+        // on its own is fixed in its own settings, which alerts do not share.
+        if (permission.allowed && permission.statusIconsBlocked) {
+            Spacer(Modifier.height(10.dp))
+            OutlineButton(
+                stringResource(R.string.settings_status_icons_open_category),
+                onClick = permission::openStatusIconSettings,
+            )
+        }
         if (enabled) {
             // Pins of accounts that are gone do not count against the limit or show here; changes
             // still waiting to be stored do.

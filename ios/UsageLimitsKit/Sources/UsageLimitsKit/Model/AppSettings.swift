@@ -29,7 +29,10 @@ public struct AppSettings: Sendable, Equatable, Codable {
     /// Whether quota figures count down what is left or up what has been used.
     public var percentDisplay: PercentDisplay
     public var statusIconsEnabled: Bool
-    public var pinnedAccountIDs: [String]
+    /// The pinned accounts, each by `ProviderAccount.pinKey`: the account instance the pin was
+    /// made for, so a pin whose removal never reached this file cannot select the same account
+    /// added again. `PinnedAccounts.resolve` turns them into account ids.
+    public var pinnedAccountKeys: [String]
 
     public static let minimumSyncIntervalMinutes = 5
     public static let defaultSyncIntervalMinutes = 30
@@ -43,7 +46,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         providerIcons: [String: String] = [:],
         percentDisplay: PercentDisplay = .left,
         statusIconsEnabled: Bool = false,
-        pinnedAccountIDs: [String] = []
+        pinnedAccountKeys: [String] = []
     ) {
         self.syncIntervalMinutes = max(syncIntervalMinutes, AppSettings.minimumSyncIntervalMinutes)
         self.notifications = notifications
@@ -53,7 +56,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         self.providerIcons = providerIcons
         self.percentDisplay = percentDisplay
         self.statusIconsEnabled = statusIconsEnabled
-        self.pinnedAccountIDs = pinnedAccountIDs
+        self.pinnedAccountKeys = pinnedAccountKeys
     }
 
     /// Decoded leniently, for the same reason as `NotificationSettings`: a missing key is a
@@ -79,7 +82,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
             percentDisplay: PercentDisplay.fromLoose(
                 raw: try container.decodeIfPresent(String.self, forKey: .percentDisplay)),
             statusIconsEnabled: try container.decodeIfPresent(Bool.self, forKey: .statusIconsEnabled) ?? false,
-            pinnedAccountIDs: try container.decodeIfPresent([String].self, forKey: .pinnedAccountIDs) ?? [])
+            pinnedAccountKeys: try container.decodeIfPresent([String].self, forKey: .pinnedAccountKeys) ?? [])
     }
 
     /// Apply initializer rules to a copy so normalization preserves every other preference.

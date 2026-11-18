@@ -23,9 +23,16 @@ import kotlinx.coroutines.flow.first
  *
  * [presentationChanged] follows settings, ordering, removal, configuration or a time boundary.
  * It repaints and reschedules without evaluating or claiming alerts: changing how a reading
- * looks is not a new reading. Neither event requests data from a provider.
+ * looks is not a new reading.
  *
- * The change has already happened when either event is called. Each publication effect is
+ * [notificationsAllowedAgain] follows the observed moment Android lets the app show its status
+ * icons again: the app's notifications, the runtime permission or the "Status bar icons"
+ * category switched back on. Android removed every status icon when they were switched off, so
+ * this counts like turning the feature on: every pinned account's icon is posted again, also one
+ * the person had swiped away before. Only the status icons are published; no alert is
+ * evaluated or claimed. No event requests data from a provider.
+ *
+ * The change has already happened when an event is called. Each publication effect is
  * best-effort: an ordinary failure is logged without failing that change or skipping another
  * effect. Cancellation still propagates to stop work that no longer belongs to the caller.
  *
@@ -36,13 +43,17 @@ import kotlinx.coroutines.flow.first
 interface Publication {
     suspend fun cacheMoved()
     suspend fun presentationChanged()
+    suspend fun notificationsAllowedAgain()
 }
 
 internal class OutOfAppPublication(
     private val repaint: suspend () -> Unit,
     private val scheduleBoundary: suspend () -> Unit,
-    /** Told whether the cache moved: only a sync restores status icons a person swiped away. */
-    private val publishStatusIcons: suspend (cacheMoved: Boolean) -> Unit,
+    /**
+     * Told whether to post every pinned account's icon again, also one a person swiped away: after
+     * a sync and when notifications are allowed again, not for a presentation change.
+     */
+    private val publishStatusIcons: suspend (restoreDismissed: Boolean) -> Unit,
     private val publishAlerts: suspend () -> Unit,
 ) : Publication {
     constructor(
@@ -67,7 +78,7 @@ internal class OutOfAppPublication(
     ) : this(
         repaint = { WidgetUpdater.refreshAll(context, settings) },
         scheduleBoundary = scheduleBoundary,
-        publishStatusIcons = { cacheMoved -> statusIcons.publish(restoreDismissed = cacheMoved) },
+        publishStatusIcons = { restoreDismissed -> statusIcons.publish(restoreDismissed) },
         publishAlerts = { notifications.publishFor(repository.accountUsageOnce()) },
     )
 
@@ -77,6 +88,8 @@ internal class OutOfAppPublication(
     }
 
     override suspend fun presentationChanged() = publishPresentation(cacheMoved = false)
+
+    override suspend fun notificationsAllowedAgain() = bestEffort("status icons") { publishStatusIcons(true) }
 
     private suspend fun publishPresentation(cacheMoved: Boolean) {
         bestEffort("repaint", repaint)

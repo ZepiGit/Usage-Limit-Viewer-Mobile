@@ -308,7 +308,7 @@
     <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
     <string name="message_order_save_failed">Could not save account order. Try again.</string>
     <string name="message_icon_save_failed">Could not save the icon choice. Try again.</string>
-    <string name="message_pin_refused_full">Could not pin the account: 3 are pinned already. Unpin one first.</string>
+    <string name="message_pin_refused_full" tools:ignore="PluralsCandidate">Could not pin the account: %1$d are pinned already. Unpin one first.</string>
     <string name="message_pin_refused_gone">Could not pin the account: it has been removed.</string>
     <string name="message_refresh_failed">Refresh failed</string>
     <!-- Only raised when some but not all of several accounts failed, so the noun is always plural. -->
@@ -502,6 +502,8 @@
     <string name="settings_status_icons_subtitle">A small icon with the account\'s figure next to the clock, updated after every refresh</string>
     <string name="settings_status_icons_blocked">Status bar icons cannot be shown until notifications are allowed.</string>
     <string name="settings_status_icons_allowed">Status bar icons can be shown.</string>
+    <string name="settings_status_icons_category_blocked">Status bar icons cannot be shown while their notification category is turned off.</string>
+    <string name="settings_status_icons_open_category">Open category settings</string>
     <string name="settings_status_icons_choose">Pinned accounts</string>
     <!-- %1$d accounts pinned out of at most %2$d. Not a plural: "pinned" after a count does not inflect, as in accounts_shown. -->
     <string name="settings_status_icons_pinned_count" tools:ignore="PluralsCandidate">%1$d of %2$d pinned</string>

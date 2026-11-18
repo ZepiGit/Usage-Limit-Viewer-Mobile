@@ -91,7 +91,7 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertNil(unknown.nextResettingRow(at: now))
         let snapshot = GlanceSnapshot(accounts: [unknown, mixed], accountCount: 2, updatedAt: now,
             nextResetAt: nil, overallSeverity: .healthy, summaryLineShort: nil, summaryLineLong: nil,
-            percentDisplay: .left)
+            percentDisplay: .left, statusIconsEnabled: false, pinnedAccountIDs: [])
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "measured")
     }
 
@@ -107,7 +107,7 @@ final class GlanceModelTests: XCTestCase {
         XCTAssertEqual(blocked.nextResettingRow(at: now), blockedRow)
         let snapshot = GlanceSnapshot(accounts: [nearlyUsed, blocked], accountCount: 2, updatedAt: now,
             nextResetAt: nil, overallSeverity: .exhausted, summaryLineShort: nil, summaryLineLong: nil,
-            percentDisplay: .left)
+            percentDisplay: .left, statusIconsEnabled: false, pinnedAccountIDs: [])
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "blocked")
     }
 
@@ -136,7 +136,7 @@ final class GlanceModelTests: XCTestCase {
             severity: .healthy, fetchedAt: now)
         let snapshot = GlanceSnapshot(accounts: [tight, soon], accountCount: 2, updatedAt: now,
             nextResetAt: nil, overallSeverity: .low, summaryLineShort: nil, summaryLineLong: nil,
-            percentDisplay: .left)
+            percentDisplay: .left, statusIconsEnabled: false, pinnedAccountIDs: [])
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "soon")
         XCTAssertEqual(snapshot.nextResettingAccount(at: now.addingTimeInterval(27 * 3_600))?.id, "tight")
         XCTAssertNil(GlanceSnapshot.empty.nextResettingAccount(at: now))
@@ -151,7 +151,7 @@ final class GlanceModelTests: XCTestCase {
                 resetAt: nil, severity: .exhausted)], severity: .exhausted, fetchedAt: now)
         let snapshot = GlanceSnapshot(accounts: [measured, exhausted], accountCount: 2, updatedAt: now,
             nextResetAt: nil, overallSeverity: .exhausted, summaryLineShort: nil, summaryLineLong: nil,
-            percentDisplay: .left)
+            percentDisplay: .left, statusIconsEnabled: false, pinnedAccountIDs: [])
         XCTAssertEqual(snapshot.nextResettingAccount(at: now)?.id, "exhausted")
     }
 

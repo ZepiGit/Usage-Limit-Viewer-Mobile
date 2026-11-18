@@ -8,6 +8,7 @@ import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.CreditEntry
+import com.usagelimits.core.model.MAX_PINNED_ACCOUNTS
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
@@ -331,12 +332,11 @@ class UsageViewModel(
                     container.credentialStore.delete(account.credentialReference)
                     container.repository.deleteAccount(accountId)
                 }
-                // Its pin goes with it, so it no longer counts against the three a person may pin;
-                // released in turn with the other status icon changes, and published.
-                // A widget pinned to this account would otherwise render the empty snapshot
-                // for ever; dropping its config returns it to the automatic scope.
-                // Keep the widget's exact scope. A removed account must leave an empty
-                // widget, rather than silently exposing other accounts through auto mode.
+                // Its pin goes with it, so it no longer counts against the three a person may pin.
+                // release stores that change in turn with the other status icon changes and
+                // publishes the presentation event, which also repaints the widgets. A widget
+                // set to this account keeps its exact scope and shows nothing, rather than
+                // silently exposing other accounts through the automatic scope.
                 container.statusIconChanges.release(accountId)
             }
         }
@@ -396,10 +396,11 @@ class UsageViewModel(
                 // A refusal of the person's latest wish for this account is told, not dropped:
                 // the account went away or the limit was reached while the pin waited its turn.
                 if (!applied && pinRequests.value[accountId] == request) {
-                    transientMessage.value = appContext.getString(
-                        if (container.repository.account(accountId) == null) R.string.message_pin_refused_gone
-                        else R.string.message_pin_refused_full,
-                    )
+                    transientMessage.value = if (container.repository.account(accountId) == null) {
+                        appContext.getString(R.string.message_pin_refused_gone)
+                    } else {
+                        appContext.getString(R.string.message_pin_refused_full, MAX_PINNED_ACCOUNTS)
+                    }
                 }
             } finally {
                 // Only this request's own entry: a later tap on the same account, even one asking
@@ -416,14 +417,15 @@ class UsageViewModel(
 
 
     /**
-     * Notifications became allowed, through the dialog or the system's settings.
+     * Settings saw notifications become allowed, through the dialog or the system's settings, or
+     * the "Status bar icons" category switched on again.
      *
-     * Nothing could be posted before, so the status icons of the accounts already chosen appear
-     * now, from the cache. A presentation change, not a cache move: no reading is new, so alerts
-     * are not evaluated, and no provider is asked.
+     * Nothing could be shown before, so every pinned account's icon appears now, from the cache,
+     * also one swiped away before the block. Not a cache move: no reading is new, so alerts are
+     * not evaluated, and no provider is asked.
      */
     fun notificationsAllowed() {
-        viewModelScope.launch { container.publication.presentationChanged() }
+        viewModelScope.launch { container.publication.notificationsAllowedAgain() }
     }
 
     fun recordNotificationPermissionHandled() {

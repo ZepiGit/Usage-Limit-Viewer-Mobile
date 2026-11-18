@@ -521,6 +521,9 @@ public actor UsageLimitsContainer {
             percentDisplay: settings.percentDisplay, at: now(), texts: texts)
     }
 
+    /// Adds an account or reconnects one. Whether it is new is decided inside the repository's
+    /// upsert, which gives a new account a new instance; a pin left for an earlier instance of
+    /// the same account (removed while the settings file could not be written) does not name it.
     public func add(_ account: ProviderAccount) async throws {
         try await repository.upsert(account)
         await publishCurrent(await repository.usage())
@@ -551,16 +554,15 @@ public actor UsageLimitsContainer {
     /// unreachable, and still granting access to a paid account.
     public func remove(id: String) async throws {
         let accounts = await repository.accounts()
-        if let account = accounts.first(where: { $0.id == id }) {
-            try await credentials.delete(reference: account.credentialReference)
+        let removed = accounts.first(where: { $0.id == id })
+        if let removed {
+            try await credentials.delete(reference: removed.credentialReference)
         }
         try await repository.remove(id: id)
 
-        var settings = await settingsStore.settings()
-        if settings.pinnedAccountIDs.contains(id) {
-            settings.pinnedAccountIDs.removeAll { $0 == id }
-            _ = try? await settingsStore.save(settings)
-        }
+        // Best-effort: a key left on disk names this instance only, so it never selects the
+        // same account added again.
+        if let removed { try? await settingsStore.releasePin(removed.pinKey) }
 
         // The ledger is cleared too. Its keys embed the account id, so an account removed and
         // added back under the same id would inherit records saying every one of its edges had
@@ -656,7 +658,8 @@ public actor UsageLimitsContainer {
             GlanceModel.build(
                 usage, now: time, scope: .allAccounts, staleAfter: settings.staleAfter,
                 providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay,
-                statusIconsEnabled: settings.statusIconsEnabled, pinnedAccountIDs: settings.pinnedAccountIDs)
+                statusIconsEnabled: settings.statusIconsEnabled,
+                pinnedAccountIDs: PinnedAccounts.resolve(keys: settings.pinnedAccountKeys, accounts: usage.map(\.account)))
                 .with(credits: GlanceModel.buildCredits(credits, now: time, staleAfter: settings.staleAfter)),
             toDirectory: containerDirectory)
 

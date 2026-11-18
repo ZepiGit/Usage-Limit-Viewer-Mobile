@@ -182,12 +182,12 @@ final class UsageLimitsContainerTests: XCTestCase {
         XCTAssertEqual(initial.pinnedAccountIDs, [])
 
         var settings = AppSettings(
-            percentDisplay: .used, statusIconsEnabled: true, pinnedAccountIDs: ["b", "a"])
+            percentDisplay: .used, statusIconsEnabled: true, pinnedAccountKeys: await subject.pinKeys(["b", "a"]))
         try await subject.save(settings: settings)
 
         let enabled = GlanceSnapshotCodec.read(fromDirectory: directory)
         XCTAssertTrue(enabled.statusIconsEnabled)
-        XCTAssertEqual(enabled.pinnedAccountIDs, ["b", "a"])
+        XCTAssertEqual(enabled.pinnedAccountIDs, ["a", "b"], "published in account order, as the widget selects them")
         XCTAssertEqual(enabled.percentDisplay, .used)
         XCTAssertEqual(enabled.accountCount, 2)
 
@@ -196,21 +196,22 @@ final class UsageLimitsContainerTests: XCTestCase {
 
         let disabled = GlanceSnapshotCodec.read(fromDirectory: directory)
         XCTAssertFalse(disabled.statusIconsEnabled)
-        XCTAssertEqual(disabled.pinnedAccountIDs, ["b", "a"])
+        XCTAssertEqual(disabled.pinnedAccountIDs, ["a", "b"])
     }
 
     func testRemovingAnAccountReleasesOnlyItsPinInSettingsAndTheWidget() async throws {
         let (subject, credentials) = container([])
         try await subject.add(account("a"))
         try await subject.add(account("b"))
+        let keys = await subject.pinKeys(["b", "a"])
         try await subject.save(settings: AppSettings(
-            percentDisplay: .used, statusIconsEnabled: true, pinnedAccountIDs: ["b", "a", "a"]))
+            percentDisplay: .used, statusIconsEnabled: true, pinnedAccountKeys: [keys[0], keys[1], keys[1]]))
 
         try await subject.remove(id: "a")
 
         let settings = await subject.settings()
         XCTAssertTrue(settings.statusIconsEnabled)
-        XCTAssertEqual(settings.pinnedAccountIDs, ["b"])
+        XCTAssertEqual(settings.pinnedAccountKeys, [keys[0]])
         XCTAssertEqual(settings.percentDisplay, .used)
         let published = GlanceSnapshotCodec.read(fromDirectory: directory)
         XCTAssertTrue(published.statusIconsEnabled)
@@ -221,7 +222,7 @@ final class UsageLimitsContainerTests: XCTestCase {
             directory: directory, credentials: credentials,
             transport: Transport([]), now: { [now] in now })
         let reopened = await restarted.settings()
-        XCTAssertEqual(reopened.pinnedAccountIDs, ["b"])
+        XCTAssertEqual(reopened.pinnedAccountKeys, [keys[0]])
 
         try await restarted.add(account("a"))
         XCTAssertEqual(GlanceSnapshotCodec.read(fromDirectory: directory).pinnedAccountIDs, ["b"])
@@ -613,10 +614,10 @@ final class UsageLimitsContainerTests: XCTestCase {
         ])
         try await subject.add(account())
         _ = try await subject.refresh()
-        try await subject.save(settings: AppSettings(
-            statusIconsEnabled: true, pinnedAccountIDs: ["a"]))
+        let pinned = await subject.pinKeys(["a"])
+        try await subject.save(settings: AppSettings(statusIconsEnabled: true, pinnedAccountKeys: pinned))
         let settings = await subject.settings()
-        XCTAssertEqual(settings.pinnedAccountIDs, ["a"])
+        XCTAssertEqual(settings.pinnedAccountKeys, pinned)
         let before = try await subject.pendingNotifications()
         XCTAssertFalse(before.isEmpty)
         XCTAssertEqual(GlanceSnapshotCodec.read(fromDirectory: directory).accounts.map(\.id), ["a"])
@@ -645,6 +646,77 @@ final class UsageLimitsContainerTests: XCTestCase {
         _ = try await subject.refresh()
         let after = try await subject.pendingNotifications()
         XCTAssertFalse(after.isEmpty, "ledger cleanup must let a re-added account announce its low quota")
+
+        // The settings file still cannot be written. The account added again is a new instance,
+        // which the pin made for the removed one does not name, so it is not pinned.
+        let republished = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertEqual(republished.accounts.map(\.id), ["a"])
+        XCTAssertTrue(PinnedAccountsCapture.capture(snapshot: republished, at: now).accounts.isEmpty,
+            "a removed account must not reappear in the pinned widget without being pinned again")
+        let inUse = await subject.settings()
+        XCTAssertEqual(inUse.pinnedAccountKeys, [])
+    }
+
+    func testAPinWhoseRemovalNeverReachedDiskDoesNotSelectTheSameAccountAddedAgainAfterARestart() async throws {
+        let (subject, credentials) = container([])
+        try await subject.add(account())
+        try await subject.save(settings: AppSettings(statusIconsEnabled: true, pinnedAccountKeys: await subject.pinKeys(["a"])))
+        let settingsFile = directory.appendingPathComponent("settings.json")
+        let pinnedBytes = try Data(contentsOf: settingsFile)
+
+        try await subject.remove(id: "a")
+        try await subject.add(account())
+        // Every settings write in between failed and left the previous valid file in place.
+        try pinnedBytes.write(to: settingsFile)
+
+        let restarted = UsageLimitsContainer(
+            directory: directory, credentials: credentials, transport: Transport([]), now: { [now] in now })
+        _ = try await restarted.refresh()
+
+        let published = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertEqual(published.accounts.map(\.id), ["a"])
+        XCTAssertTrue(PinnedAccountsCapture.capture(snapshot: published, at: now).accounts.isEmpty,
+            "a pin made for the removed account must not select the account added again")
+    }
+
+    func testAnUnreadableRegisterDuringAReconnectKeepsTheExistingPin() async throws {
+        let (subject, credentials) = container([])
+        try await subject.add(account())
+        try await subject.save(settings: AppSettings(statusIconsEnabled: true, pinnedAccountKeys: await subject.pinKeys(["a"])))
+        let registerFile = directory.appendingPathComponent(AccountRepository.fileName)
+        let register = try Data(contentsOf: registerFile)
+
+        try Data("not json".utf8).write(to: registerFile)
+        let duringFault = UsageLimitsContainer(
+            directory: directory, credentials: credentials, transport: Transport([]), now: { [now] in now })
+        do {
+            try await duringFault.add(account())
+            XCTFail("a reconnect on top of an unreadable register must not be persisted")
+        } catch {}
+
+        try register.write(to: registerFile)
+        let recovered = UsageLimitsContainer(
+            directory: directory, credentials: credentials, transport: Transport([]), now: { [now] in now })
+        _ = try await recovered.refresh()
+
+        let published = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertEqual(PinnedAccountsCapture.capture(snapshot: published, at: now).accounts.map(\.id), ["a"],
+            "a failed reconnect must not cost the existing account its pin")
+    }
+
+    func testReconnectingAnAccountThatStillExistsKeepsItsPin() async throws {
+        let (subject, _) = container([(200, codexLow), (200, #"{"credits": []}"#)])
+        try await subject.add(account())
+        try await subject.save(settings: AppSettings(statusIconsEnabled: true, pinnedAccountKeys: await subject.pinKeys(["a"])))
+
+        try await subject.add(account())
+        _ = try await subject.refresh()
+
+        let settings = await subject.settings()
+        let key = await subject.pinKeys(["a"])
+        XCTAssertEqual(settings.pinnedAccountKeys, key)
+        let snapshot = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertEqual(PinnedAccountsCapture.capture(snapshot: snapshot, at: now).accounts.map(\.id), ["a"])
     }
 
     func testAFailedCredentialDeleteLeavesTheAccountVisible() async throws {

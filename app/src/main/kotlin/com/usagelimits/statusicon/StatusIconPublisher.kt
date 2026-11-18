@@ -49,7 +49,8 @@ import kotlin.math.roundToInt
  * the status icon as their small icon. That shape is what the prototype found keeps separate icons
  * on Android 16: single notifications with distinct group keys and no summary are regrouped into
  * one generated stack after a few seconds, a shared summary shows one icon for all
- * (`docs/research/statusbar-android16-grouping-exemptions.md` on `prototype/statusbar-icons`).
+ * (`docs/research/statusbar-icons-platform-facts.md`, section 2, "One icon per notification,
+ * and grouping").
  * Both records sit at stable identities derived from the account, so a later publication replaces
  * them in place, and only-alert-once keeps a changing figure silent.
  *
@@ -57,8 +58,9 @@ import kotlin.math.roundToInt
  * longer pinned. Which pinned accounts it posts depends on why it runs, because a person can
  * swipe an icon away and Android gives the app no way to tell that apart from a reboot or from
  * the permission being withdrawn; all three leave the group missing from the active list:
- * - after a sync ([restoreDismissed]) every pinned account is posted, so a swiped icon returns
- *   with the next sync, and so do icons lost to a reboot;
+ * - after a sync, and when Settings saw notifications or the category allowed again
+ *   ([restoreDismissed]), every pinned account is posted, so a swiped icon returns with the next
+ *   sync, and so do icons lost to a reboot or removed by Android while they were blocked;
  * - otherwise only groups still showing are updated, plus accounts that were not pinned the last
  *   time a publication ran. Turning the feature on, pinning an account, or unpinning and pinning
  *   it again therefore shows it; pinning another account, a display-mode change or a time
@@ -67,11 +69,12 @@ import kotlin.math.roundToInt
  * "The last time" is [ShownSelection], the list of accounts the previous publication meant to
  * show. It is not a record of dismissals: nothing listens for a swipe.
  *
- * This holds for publications that run to their end. The spec's "Limits of the dismissal rule"
- * name what it does not promise: a process that dies between storing the selection and posting
+ * This holds for publications that run to their end. `docs/status-icons.md#swiping-an-icon-away`
+ * names what it does not promise: a process that dies between storing the selection and posting
  * leaves those icons missing until the next sync; a selection that was not stored can let a
- * repaint bring a dismissed icon back early; a permission revoked and granted again with no
- * publication in between may wait for the next sync.
+ * repaint bring a dismissed icon back early; notifications allowed again in Android without a
+ * return to the app wait for the next sync, unless a publication saw the block, which emptied the
+ * selection so that the next repaint posts them all.
  *
  * **Order.** A sort key does not order separate groups. Within one importance section Android
  * ranks them by ranking time, newest first, and the status bar draws its icons in that order from
@@ -116,12 +119,16 @@ class StatusIconPublisher(
      */
     private val serial = Mutex()
 
-    /** [restoreDismissed] is true after a sync and false for every other publication. */
+    /**
+     * [restoreDismissed] is true after a sync and when notifications are allowed again, false for
+     * every other publication.
+     */
     suspend fun publish(restoreDismissed: Boolean): Unit = serial.withLock {
-        // Missing permission is Settings' to explain; posting would only throw. Nothing is shown,
-        // so a publication after the permission is given counts every pinned account as new. If
-        // no publication ran while it was missing, restoration may wait for the next sync.
-        if (!hasPermission()) {
+        // Notifications switched off for the app, or for the "Status bar icons" category alone, are
+        // Settings' to explain; Android would drop or remove anything posted. Nothing is shown.
+        // Allowing them again restores every pinned account explicitly; this empty selection only
+        // lets a repaint do the same when no return to the app observed the change.
+        if (!canShow()) {
             shown.write(emptyList())
             return@withLock
         }
@@ -292,13 +299,22 @@ class StatusIconPublisher(
         )
     }
 
-    private fun hasPermission(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    private fun canShow(): Boolean =
+        manager.areNotificationsEnabled() &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+            !categoryBlocked(manager)
 
     companion object {
         /** Separate from the alert channel, so a person can silence one without the other. */
         const val CHANNEL_ID = "status_icons"
+
+        /**
+         * Whether the person switched the "Status bar icons" category off in Android. A category
+         * the app has not created yet is not blocked: the app creates it open.
+         */
+        fun categoryBlocked(manager: NotificationManager): Boolean =
+            manager.getNotificationChannel(CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE
 
         /**
          * How long one account's time may wait for the clock to move on before the publication

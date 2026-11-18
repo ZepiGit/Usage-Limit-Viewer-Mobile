@@ -280,8 +280,8 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         staleAfter: TimeInterval = Severity.staleAfter,
         credits: [GlanceCredit] = [],
         percentDisplay: PercentDisplay,
-        statusIconsEnabled: Bool = false,
-        pinnedAccountIDs: [String] = []
+        statusIconsEnabled: Bool,
+        pinnedAccountIDs: [String]
     ) {
         self.statusIconsEnabled = statusIconsEnabled
         self.pinnedAccountIDs = pinnedAccountIDs
@@ -366,7 +366,8 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
 
     public static let empty = GlanceSnapshot(
         accounts: [], accountCount: 0, updatedAt: nil, nextResetAt: nil,
-        overallSeverity: .stale, summaryLineShort: nil, summaryLineLong: nil, percentDisplay: .left)
+        overallSeverity: .stale, summaryLineShort: nil, summaryLineLong: nil, percentDisplay: .left,
+        statusIconsEnabled: false, pinnedAccountIDs: [])
 }
 
 /// An account and its latest snapshot, as the cache hands them over.

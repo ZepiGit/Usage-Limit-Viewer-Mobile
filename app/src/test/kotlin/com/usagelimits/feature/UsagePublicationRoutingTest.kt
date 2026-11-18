@@ -86,6 +86,7 @@ class UsagePublicationRoutingTest {
             override val publication = object : Publication {
                 override suspend fun cacheMoved() { events.send("cache moved") }
                 override suspend fun presentationChanged() { events.send("presentation changed") }
+                override suspend fun notificationsAllowedAgain() { events.send("notifications allowed again") }
             }
         }
         vm = UsageViewModel(container, app)
@@ -160,13 +161,15 @@ class UsagePublicationRoutingTest {
             "credit removal" to { vm.removeCredit(credit.id) },
             "status icons on" to { vm.setStatusIcons(true) },
             "pinned account" to { vm.setPinned(account.localId, true) },
-            "notifications allowed" to { vm.notificationsAllowed() },
             "account removal" to { vm.removeAccount(account.localId) },
         )
         for ((label, change) in changes) {
             change()
             assertEquals(label, "presentation changed", withTimeoutOrNull(5_000) { events.receive() })
         }
+        // Allowed again is its own reason: it restores every pinned icon and evaluates no alert.
+        vm.notificationsAllowed()
+        assertEquals("notifications allowed again", withTimeoutOrNull(5_000) { events.receive() })
         withTimeout(5_000) {
             vm.viewModelScope.coroutineContext[Job]!!.children
                 .filterNot { it in backgroundJobs }.toList().joinAll()

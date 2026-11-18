@@ -14,4 +14,11 @@ public enum PinnedAccounts {
         }
         return selected
     }
+
+    /// The ids of the accounts whose current instance a stored pin names (`ProviderAccount.pinKey`).
+    /// A pin for an instance that is gone selects nothing, as a pin for an absent id never did.
+    public static func resolve(keys: [String], accounts: [ProviderAccount]) -> [String] {
+        let wanted = Set(keys)
+        return accounts.filter { wanted.contains($0.pinKey) }.map(\.id)
+    }
 }

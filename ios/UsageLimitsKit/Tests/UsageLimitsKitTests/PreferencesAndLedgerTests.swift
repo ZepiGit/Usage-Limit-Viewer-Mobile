@@ -63,7 +63,7 @@ final class PreferencesAndLedgerTests: XCTestCase {
 
     func testPinnedAccountPreferencesSurviveNormalisationAndAReopen() async throws {
         let store = SettingsStore(directory: directory)
-        var settings = AppSettings(statusIconsEnabled: true, pinnedAccountIDs: ["b", "a"])
+        var settings = AppSettings(statusIconsEnabled: true, pinnedAccountKeys: ["b", "a"])
         settings.syncIntervalMinutes = 5
 
         let stored = try await store.save(settings)
@@ -71,7 +71,7 @@ final class PreferencesAndLedgerTests: XCTestCase {
 
         XCTAssertEqual(stored.syncIntervalMinutes, AppSettings.minimumSyncIntervalMinutes)
         XCTAssertTrue(stored.statusIconsEnabled)
-        XCTAssertEqual(stored.pinnedAccountIDs, ["b", "a"])
+        XCTAssertEqual(stored.pinnedAccountKeys, ["b", "a"])
         XCTAssertEqual(reopened, stored)
     }
 
@@ -82,7 +82,7 @@ final class PreferencesAndLedgerTests: XCTestCase {
         let settings = await SettingsStore(directory: directory).settings()
 
         XCTAssertFalse(settings.statusIconsEnabled)
-        XCTAssertEqual(settings.pinnedAccountIDs, [])
+        XCTAssertEqual(settings.pinnedAccountKeys, [])
         XCTAssertEqual(settings.syncIntervalMinutes, 120)
         XCTAssertTrue(settings.showRenewalTime)
         XCTAssertEqual(settings.percentDisplay, .used)

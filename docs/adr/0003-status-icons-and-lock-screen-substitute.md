@@ -85,6 +85,9 @@ names (the owner's choice). Whether a real Lock Screen keeps that glyph is a rel
   [44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612));
   on API 30 a newly pinned account came first until the next sync. The owner accepted that
   exception as a known limit.
-- A swiped-away icon normally returns with the next sync, best effort, as
+- A swiped-away icon normally returns with the next sync, or at once when the app's Settings
+  screen, which showed notifications or the status icon category blocked, sees them allowed again
+  (that counts like turning the feature on); a block it did not see waits for the next sync. Best
+  effort, as
   [Status icons](../status-icons.md#swiping-an-icon-away) describes.
 - On iOS the widget redraws on WidgetKit's schedule, so the Lock Screen can lag the app.

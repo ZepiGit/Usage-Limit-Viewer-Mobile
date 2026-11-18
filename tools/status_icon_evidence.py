@@ -5,6 +5,7 @@ The debug receiver uses synthetic repository accounts only. No provider is conta
 Screenshots require human visual acceptance; notification records are not icon counts.
 """
 import argparse
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -142,6 +143,24 @@ def parse_alert_events(events):
                              "politeness": fields[4] if len(fields) > 4 else None,
                              "muteReason": fields[5] if len(fields) > 5 else None, "raw": line})
     return observations
+
+
+def parse_swipe_events(before, after, keys):
+    """Keep log rows added between the two snapshots around the real gesture."""
+    previous = Counter(before.splitlines())
+    result = {"cancellations": [], "systemUiDismissEvents": [], "frameEvents": []}
+    for line in after.splitlines():
+        if previous[line]:
+            previous[line] -= 1
+            continue
+        match = re.search(r"\bnotification_canceled:\s*\[([^,\]]+),\s*(\d+)(?=[,\]])", line)
+        if match and match[1] in keys:
+            result["cancellations"].append({"key": match[1], "reason": int(match[2]), "raw": line})
+        elif re.search(r"\bsysui_multi_action:\s*\[[^\]]*\bnotification_dismissed\b", line):
+            result["systemUiDismissEvents"].append(line)
+        elif "FrameTracker:" in line and "NOTIFICATION_SHADE_ROW_SWIPE" in line:
+            result["frameEvents"].append(line)
+    return result
 
 
 def dump_section(text, heading, *, end_heading=None, indent_fallback=None):
@@ -330,6 +349,35 @@ def _has_launcher_workspace(root, package):
     return sum(1 for node in root.iter("node")
                if node.get("package") == package and node.get("resource-id") == workspace_id
                and node.get("enabled") == "true" and bounds(node)) == 1
+
+
+def swipe_layout(root, title, api):
+    parents = {child: parent for parent in root.iter() for child in parent}
+    rows, collapse = set(), set()
+    for node in root.iter("node"):
+        if node.get("package") != "com.android.systemui":
+            continue
+        is_title = node.get("text") == title
+        is_collapse = (node.get("resource-id") == "android:id/expand_button" and
+                       node.get("content-desc") == "Collapse" and node.get("clickable") == "true")
+        if not (is_title or is_collapse):
+            continue
+        row = content = None
+        ancestor = parents.get(node)
+        while ancestor is not None:
+            resource = ancestor.get("resource-id", "")
+            if resource.endswith("/expandableNotificationRow") and bounds(ancestor):
+                row = bounds(ancestor)
+            if api == 30 and content is None and resource == "android:id/status_bar_latest_event_content":
+                content = bounds(ancestor)
+            ancestor = parents.get(ancestor)
+        # API 30 omits the group row ID; use its observed notification content instead.
+        if row := row or content:
+            if is_title:
+                rows.add(row)
+            if is_collapse and (button := bounds(node)):
+                collapse.add(button)
+    return sorted(rows), sorted(collapse)
 
 
 class Evidence:
@@ -753,45 +801,85 @@ class Evidence:
                 assert restored == disabled, "Original keyguard disabled state not restored"
             self.home()
 
+    def stable_swipe_row(self, title, api, evidence):
+        deadline = time.monotonic() + 30
+        previous, tapped = None, set()
+        for index in range(1, 9):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            name = f"swipe-layout-{index}"
+            sample = {"dump": name + ".xml"}
+            evidence["layoutSamples"].append(sample)
+            try:
+                root = self.xml(name, timeout=min(8, remaining / 3))
+            except (ET.ParseError, subprocess.SubprocessError) as error:
+                sample["error"] = str(error)
+                previous = None
+                continue
+            layout = swipe_layout(root, title, api)
+            rows, collapse = layout
+            sample.update(rowBounds=rows, collapseButtons=collapse)
+            if time.monotonic() >= deadline:
+                break
+            if len(rows) == 1 and previous == layout:
+                if not collapse:
+                    self.save("swipe-before-shade.xml", ET.tostring(root, encoding="unicode"))
+                    return rows[0]
+                # Collapse an observed control, not the row; re-resolve the moved target afterward.
+                button = collapse[0]
+                if button not in tapped:
+                    x1, y1, x2, y2 = button
+                    self.adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2),
+                             timeout=min(8, deadline - time.monotonic()))
+                    sample["tappedCollapse"] = button
+                    tapped.add(button)
+                    previous = None
+                    continue
+            previous = layout
+        raise AssertionError("Claude shade layout did not stabilize; refusing guessed swipe coordinates")
+
     def swipe_claude(self, records):
-        titles = {record["title"] for record in records if record["package"] == PACKAGE and record["tag"] == "status-icon:" + self.state["localIds"][ACCOUNTS[0]]}
+        tag = "status-icon:" + self.state["localIds"][ACCOUNTS[0]]
+        target = [record for record in records if record["package"] == PACKAGE and record["tag"] == tag]
+        titles = {record["title"] for record in target}
         assert len(titles) == 1 and None not in titles, "Cannot resolve Claude notification title from dump"
         title = next(iter(titles))
+        api = self.report["api"]
         self.report["lastAssertion"] = "real Claude notification-row swipe"
+        evidence = self.report["swipe"] = {"title": title, "api": api, "layoutSamples": []}
         self.adb("shell", "cmd", "statusbar", "expand-notifications")
-        time.sleep(2)
-        root = self.xml("swipe-before-shade")
+        box = self.stable_swipe_row(title, api, evidence)
         self.screen("swipe-before-shade")
-        parents = {child: parent for parent in root.iter() for child in parent}
-        rows = {}
-        for node in root.iter("node"):
-            if node.get("text") != title or node.get("package") != "com.android.systemui":
-                continue
-            row = None
-            content = None
-            while node is not None:
-                if node.get("resource-id", "").endswith("/expandableNotificationRow") and bounds(node):
-                    row = node
-                if self.report["api"] == 30 and content is None and node.get("resource-id") == "android:id/status_bar_latest_event_content" and bounds(node):
-                    content = node
-                node = parents.get(node)
-            # API30's observed hierarchy omits row IDs; keep modern outer account groups.
-            if row is None:
-                row = content
-            if row is not None:
-                rows[bounds(row)] = row
-        assert len(rows) == 1, "Expected one observed Claude shade row; refusing guessed swipe coordinates"
-        box = next(iter(rows))
         x1, y1, x2, y2 = box
         width = png_frame((self.directory / "swipe-before-shade.png").read_bytes(), 0)[0]
         assert 0 <= x1 < x2 <= width, "Observed shade row outside screenshot"
         start, end, y = x1 + (x2 - x1) // 4, width - 2, (y1 + y2) // 2
-        self.save("swipe.json", json.dumps({"title": title, "rowBounds": box, "start": [start, y], "end": [end, y], "api": self.report["api"]}, indent=2))
-        self.adb("shell", "input", "swipe", str(start), str(y), str(end), str(y), "300")
+        duration = 500
+        evidence.update(rowBounds=box, start=[start, y], end=[end, y], durationMs=duration)
+        event_log = ("shell", "logcat", "-b", "events", "-b", "main", "-d", "-v", "threadtime", "-s",
+                     "notification_canceled:I", "sysui_multi_action:I", "FrameTracker:W")
+        before = self.adb(*event_log)
+        self.save("swipe-before-events.txt", before)
+        self.save("swipe.json", json.dumps(evidence, indent=2))
+        self.adb("shell", "input", "swipe", str(start), str(y), str(end), str(y), str(duration))
         self.last_post = time.monotonic()
         self.settled()
+        after = self.adb(*event_log)
+        self.save("swipe-after-events.txt", after)
+        evidence.update(parse_swipe_events(before, after, {record["key"] for record in target}))
         self.screen("swipe-after-shade")
-        self.xml("swipe-after-shade")
+        after_root = self.xml("swipe-after-shade")
+        evidence["rowBoundsAfter"], _ = swipe_layout(after_root, title, api)
+        if any(event["reason"] == 2 for event in evidence["cancellations"]):
+            evidence["outcome"] = "target-dismissal-observed"
+        elif evidence["cancellations"]:
+            evidence["outcome"] = "target-cancel-for-other-reason"
+        elif evidence["rowBoundsAfter"] == [box]:
+            evidence["outcome"] = "row-retained-without-target-cancel"
+        else:
+            evidence["outcome"] = "no-target-dismissal-observed"
+        self.save("swipe.json", json.dumps(evidence, indent=2))
 
     def scenario(self, apk):
         self.report["api"] = int(self.adb("shell", "getprop", "ro.build.version.sdk"))
@@ -853,6 +941,16 @@ class Evidence:
         for entry in self.report["scenarios"]:
             lines.append("| " + " | ".join(str(value).replace("|", "\\|") for value in (entry["name"], entry["startingState"], entry.get("statusCount", "?"), entry.get("alertCount", "?"), entry.get("systemCount", "?"), entry["result"])) + " |")
         lines += ["", "## Untouched platform defaults", "", json.dumps({key: self.report.get(key) for key in ("defaultBefore", "defaultAfter", "defaultFlagsUnchanged")}, sort_keys=True), "", "03-enabled-default retains the API37 hideSilentStatusBar=true/showSilentStatusIcons=false default while the DEFAULT channel remains eligible for status-bar icons. 03-enabled is the same unchanged-policy normal capture; there is no Settings navigation.", "", "## Emulator lock screen", "", json.dumps(self.report.get("lockscreens", {}), sort_keys=True)]
+        if swipe := self.report.get("swipe"):
+            lines += ["", "## Real Claude row swipe", "",
+                      f"- Layout samples: {len(swipe['layoutSamples'])}; diagnostics: `swipe-layout-*.xml`."]
+            if "durationMs" in swipe:
+                lines.append(f"- Stroke: {swipe['start']} → {swipe['end']} in {swipe['durationMs']} ms (no retry).")
+            if "outcome" in swipe:
+                reasons = ", ".join(str(event["reason"]) for event in swipe["cancellations"]) or "none"
+                lines.append(f"- Pre-HOME observation: {swipe['outcome']}; target cancel reasons: {reasons}; "
+                             f"SystemUI dismiss markers: {len(swipe['systemUiDismissEvents'])}; "
+                             f"row-swipe frame warnings: {len(swipe['frameEvents'])}. See `swipe.json` and before/after logs.")
         if windows := self.report.get("earlyHeadsUpWindows"):
             lines += ["", "## Early heads-up window", "",
                       "Device elapsed time; dump start is rounded down to 10 ms, so the full timing interval must fit the bound."]
