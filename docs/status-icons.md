@@ -89,7 +89,7 @@ This holds when a publication runs to its end. Around a crash or a permission ch
 
 - **Android does not promise that the icons are visible.** The status bar's width, cut-outs, other apps' icons, your notification settings and manufacturer versions of Android can each hide icons or fold them into an overflow dot. The Settings section says so: "Android decides how many icons fit. Notification settings control their visibility."
 - **Why default importance.** From Android 16 r4 on, AOSP hides the status-bar icons of silent, low-importance notifications by default. On the Android 17 emulator that setting stayed on and still did not hide these icons, because their channel has default importance.
-- **Lock screen.** The app sets no lock-screen visibility of its own, so Android's lock-screen notification settings decide whether the rows appear there and how much they show. To keep them off the lock screen, turn off lock-screen display for the Status bar icons category where your Android version offers it; otherwise use the system setting, which applies to every app.
+- **Lock screen.** The app sets no lock-screen visibility of its own, so Android decides whether the rows appear there and how much they show; the emulators already differed (see the table below). To keep them off the lock screen, turn off lock-screen display for the Status bar icons category where your Android version offers it; otherwise use the system setting, which applies to every app.
 - **Order.** The app posts the icons so that they follow its account order, but Android ranks them. On the tested emulators they followed it at first post and after a reorder; on the Android 11 emulator a newly pinned account came first until the next sync. If the phone's clock jumps back or stands still while the icons are posted, that publication gives up the order.
 - **iOS updates on WidgetKit's schedule.** The widget plans its changes ahead for the moments a reading turns stale or a reset passes, but iOS decides when it redraws, so the Lock Screen can lag the app.
 
@@ -106,7 +106,7 @@ Android, CI emulators with synthetic accounts, [run 44216665612](https://github.
 | Swipe away | Refused (ongoing) | Gone, returned after the sync event | Gone, returned after the sync event |
 | Records with sound, vibration or light | None | None | None |
 | Heads-up in the sampled frames | None | None | None |
-| Lock screen (swipe lock, no PIN) | Captured | Captured | Captured |
+| Lock screen (swipe lock, no PIN) | Two rows, the third icon in the overflow strip | Three rows | Icons only, no rows |
 
 The sync here is the app's publication event fed with synthetic readings, not a real provider refresh. Tapping a row is wired in code and was not tapped in the matrix.
 
