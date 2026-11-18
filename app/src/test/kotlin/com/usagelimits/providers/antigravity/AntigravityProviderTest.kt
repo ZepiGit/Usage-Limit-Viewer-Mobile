@@ -227,6 +227,16 @@ class AntigravityProviderTest {
     }
 
     @Test
+    fun `a throttled secondary host outranks auth rejection when no host returns usage`() = runTest {
+        val error = runCatching {
+            provider(listOf(401 to "{}", 429 to "{}", 404 to "{}"), mutableListOf())
+                .fetchUsage(account, credentials)
+        }.exceptionOrNull()
+
+        assertTrue(error.toString(), error is ProviderException.RateLimited)
+    }
+
+    @Test
     fun `all empty hosts retain the malformed payload error`() = runBlocking {
         try {
             provider(List(3) { 200 to """{"groups":[{"displayName":"Gemini Models","buckets":[]}]}""" }, mutableListOf())

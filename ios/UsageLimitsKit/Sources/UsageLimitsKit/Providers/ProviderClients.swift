@@ -13,6 +13,14 @@ import Foundation
 /// Empty and nil fields mean "the endpoint did not say", which callers must show as unknown
 /// rather than as zero; a refresh that loses one section still returns the sections it kept.
 public struct UsageResult: Sendable {
+    public struct RateLimit: Sendable {
+        public let retryAfter: TimeInterval?
+
+        public init(retryAfter: TimeInterval?) {
+            self.retryAfter = retryAfter
+        }
+    }
+
     /// The quota windows the provider reported. An empty list is a valid answer — nothing to
     /// show — as distinct from a failure, which throws instead of returning.
     public let windows: [UsageWindow]
@@ -47,6 +55,9 @@ public struct UsageResult: Sendable {
     public let errorMessage: String?
     public let connectionStatus: ConnectionStatus
 
+    /// A final HTTP 429 from one endpoint, even if it supplied no Retry-After header.
+    public let rateLimit: RateLimit?
+
     public init(
         windows: [UsageWindow] = [],
         resetCredits: [ResetCredit] = [],
@@ -56,7 +67,8 @@ public struct UsageResult: Sendable {
         accountIdentity: String? = nil,
         status: SnapshotStatus = .ok,
         errorMessage: String? = nil,
-        connectionStatus: ConnectionStatus = .connected
+        connectionStatus: ConnectionStatus = .connected,
+        rateLimit: RateLimit? = nil
     ) {
         self.windows = windows
         self.resetCredits = resetCredits
@@ -67,6 +79,7 @@ public struct UsageResult: Sendable {
         self.status = status
         self.errorMessage = errorMessage
         self.connectionStatus = connectionStatus
+        self.rateLimit = rateLimit
     }
 }
 
@@ -109,8 +122,8 @@ public enum ProviderError: Error, LocalizedError {
         case .unauthorised:
             // Share the evaluator's sign-in-expired message so reconnect detection and alerts agree.
             return NotificationEvaluator.signInExpiredMessage
-        case .rateLimited(let endpoint, _):
-            return "No usage could be read (\(endpoint) is rate limiting this account)."
+        case .rateLimited:
+            return StoredMessage.rateLimitedRequestMessage
         case .noData(let detail):
             return "No usage could be read (\(detail))."
         }
@@ -118,10 +131,17 @@ public enum ProviderError: Error, LocalizedError {
 }
 
 private extension ProviderError {
+    var usageRateLimit: UsageResult.RateLimit? {
+        guard case .rateLimited(_, let retryAfter) = self else { return nil }
+        return .init(retryAfter: retryAfter)
+    }
+
     func preferringRateLimit(_ other: ProviderError) -> ProviderError {
         guard case .rateLimited(_, let ownHint) = self else { return other }
         guard case .rateLimited(_, let otherHint) = other else { return self }
-        return (otherHint ?? 0) > (ownHint ?? 0) ? other : self
+        guard let otherHint else { return self }
+        if let ownHint, otherHint <= ownHint { return self }
+        return other
     }
 }
 
@@ -267,7 +287,8 @@ public struct CodexClient: SyncProvider, Sendable {
             resetCredits: credits.rows,
             resetCreditCount: credits.available,
             applicableResetCreditCount: CodexUsageParser.applicableCreditCount(embedded),
-            plan: plan
+            plan: plan,
+            rateLimit: credits.rateLimit
         )
     }
 
@@ -323,7 +344,7 @@ public struct CodexClient: SyncProvider, Sendable {
     private func fetchResetCredits(
         headers: [String: String],
         usagePayload: [String: Any]
-    ) async throws -> (rows: [ResetCredit], available: Int?) {
+    ) async throws -> (rows: [ResetCredit], available: Int?, rateLimit: UsageResult.RateLimit?) {
         do {
             let response = try await ProviderHTTP.request(
                 httpClient,
@@ -336,7 +357,8 @@ public struct CodexClient: SyncProvider, Sendable {
             let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "codex reset credits")
             return (
                 rows: CodexUsageParser.parseResetCredits(payload),
-                available: CodexUsageParser.availableCreditCount(payload)
+                available: CodexUsageParser.availableCreditCount(payload),
+                rateLimit: nil
             )
         } catch let error as CancellationError {
             // Cancellation is the caller's decision, not an endpoint fault to absorb.
@@ -345,7 +367,8 @@ public struct CodexClient: SyncProvider, Sendable {
             let embedded = JSONSupport.object(usagePayload, "rate_limit_reset_credits", "rateLimitResetCredits")
             return (
                 rows: CodexUsageParser.parseEmbeddedResetCredits(usagePayload),
-                available: CodexUsageParser.availableCreditCount(embedded)
+                available: CodexUsageParser.availableCreditCount(embedded),
+                rateLimit: (error as? ProviderError)?.usageRateLimit
             )
         }
     }
@@ -503,7 +526,7 @@ public struct AntigravityClient: SyncProvider, Sendable {
             !($0.isPlaceholder && $0.window.group.map(groupsWithWindows.contains) == true)
         }.map(\.window).filter { seenIDs.insert($0.id).inserted }
         if !allWindows.isEmpty {
-            return UsageResult(windows: allWindows)
+            return UsageResult(windows: allWindows, rateLimit: rateLimit?.usageRateLimit)
         }
 
         // Honor a throttle when no host supplied usage; a different shard's auth rejection
@@ -603,13 +626,21 @@ public struct XaiClient: SyncProvider, Sendable {
                 return false
             }
             let partial = !failures.isEmpty || invalidUsage
+            let rateLimit = Self.preferredRateLimit(creditsFailure, billingFailure)?.usageRateLimit
+            let warning: String?
+            if needsReconnect {
+                warning = "One billing view rejected authentication; some usage could not be refreshed."
+            } else if rateLimit != nil {
+                warning = StoredMessage.rateLimitedPauseMessage
+            } else {
+                warning = partial ? "Some billing data could not be updated" : nil
+            }
             return UsageResult(
                 windows: XaiBillingParser.merge(creditsWindows ?? [], billingWindows ?? []),
                 status: partial ? .partial : .ok,
-                errorMessage: needsReconnect
-                    ? "One billing view rejected authentication; some usage could not be refreshed."
-                    : (partial ? "Some billing data could not be updated" : nil),
-                connectionStatus: needsReconnect ? .unknown : .connected)
+                errorMessage: warning,
+                connectionStatus: needsReconnect ? .unknown : .connected,
+                rateLimit: rateLimit)
         }
         throw Self.preferredFailure(creditsFailure, billingFailure)
     }
@@ -628,17 +659,20 @@ public struct XaiClient: SyncProvider, Sendable {
         return (parse(payload, now()), XaiBillingParser.hasInvalidUsage(payload))
     }
 
-    /// Picks which failure to surface when both routes were tried and both failed.
-    ///
-    /// A final throttle takes priority over renewal. Without throttling, one token refresh
-    /// may repair both routes at once.
-    private static func preferredFailure(_ first: Error?, _ second: Error?) -> Error {
+    private static func preferredRateLimit(_ first: Error?, _ second: Error?) -> ProviderError? {
         let primary = first as? ProviderError
         let fallback = second as? ProviderError
         if case .rateLimited? = primary, let primary {
             return fallback.map { primary.preferringRateLimit($0) } ?? primary
         }
-        if case .rateLimited? = fallback, let fallback { return fallback }
+        if case .rateLimited? = fallback { return fallback }
+        return nil
+    }
+
+    /// A final throttle takes priority over renewal. Without throttling, one token refresh
+    /// may repair both routes at once.
+    private static func preferredFailure(_ first: Error?, _ second: Error?) -> Error {
+        if let rateLimit = preferredRateLimit(first, second) { return rateLimit }
         for candidate in [first, second].compactMap({ $0 }) {
             if let providerError = candidate as? ProviderError, case .unauthorised = providerError {
                 return providerError

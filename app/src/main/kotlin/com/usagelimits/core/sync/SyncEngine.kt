@@ -8,6 +8,7 @@ import com.usagelimits.core.notifications.NotificationEvaluator
 import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.network.ProviderException
+import com.usagelimits.core.network.RATE_LIMITED_REQUEST_MESSAGE
 import com.usagelimits.providers.ProviderRegistry
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -110,20 +111,26 @@ class SyncEngine(
                 provider.fetchUsage(account, renewed)
             }
 
+            val fetchedAt = nowMs()
+            val rateLimit = result.rateLimit
+            val message = if (rateLimit != null && result.status == SnapshotStatus.PARTIAL) {
+                RATE_LIMITED_PAUSE_MESSAGE
+            } else result.errorMessage
             repository.saveSnapshot(
                 UsageSnapshot(
                     accountId = account.localId,
-                    fetchedAt = nowMs(),
+                    fetchedAt = fetchedAt,
                     status = result.status,
-                    errorMessage = result.errorMessage,
+                    errorMessage = message,
                     connectionStatus = result.connectionStatus,
                     windows = result.windows,
                     resetCredits = result.resetCredits,
                     resetCreditCount = result.resetCreditCount,
                     applicableResetCreditCount = result.applicableResetCreditCount,
                 ),
+                backgroundNotBefore = rateLimit?.let { RateLimitCooldown.deadline(fetchedAt, it.retryAfterMs) },
             )
-            SyncOutcome(account.localId, success = result.status != SnapshotStatus.FAILED, message = result.errorMessage)
+            SyncOutcome(account.localId, success = result.status != SnapshotStatus.FAILED, message = message)
         } catch (e: CancellationException) {
             // Rethrow cancellation before the Exception handler: stopping work is not an account
             // failure and must preserve structured concurrency.
@@ -134,10 +141,9 @@ class SyncEngine(
             // the scope is checked before anything is persisted — otherwise a cancelled sync
             // records "No network connection" against an account with a working connection.
             currentCoroutineContext().ensureActive()
-            val message = e.userMessage()
-            recordFailure(
-                account.localId, message, e is ProviderException.Unauthorized, e as? ProviderException.RateLimited,
-            )
+            val rateLimit = e as? ProviderException.RateLimited
+            val message = if (rateLimit != null) RATE_LIMITED_PAUSE_MESSAGE else e.userMessage()
+            recordFailure(account.localId, message, e is ProviderException.Unauthorized, rateLimit)
             SyncOutcome(account.localId, success = false, message = message)
         } catch (e: Exception) {
             // A provider bug must not take the whole sync pass down with it.
@@ -279,7 +285,7 @@ fun ProviderException.userMessage(): String = when (this) {
     // silently disabled on the other platform.
     is ProviderException.Unauthorized -> NotificationEvaluator.SIGN_IN_EXPIRED_MESSAGE
     is ProviderException.Forbidden -> "Access denied for this account"
-    is ProviderException.RateLimited -> "Rate limited — try again shortly"
+    is ProviderException.RateLimited -> RATE_LIMITED_REQUEST_MESSAGE
     is ProviderException.ServerError -> "Provider is having trouble ($statusCode)"
     // The client names the host and the kind of failure; the generic line is only the fallback.
     is ProviderException.Offline -> message ?: "No network connection"

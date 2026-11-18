@@ -455,7 +455,8 @@
     <!-- Failure sentences the sync layer and providers store in English; recognised and translated at the display (ui/text/ModelTexts.kt). -->
     <string name="stored_sign_in_expired">Sign-in expired — reconnect this account</string>
     <string name="stored_access_denied">Access denied for this account</string>
-    <string name="stored_rate_limited">Rate limited — try again shortly</string>
+    <string name="stored_rate_limited">Rate limited. Automatic refresh is paused. Refresh manually to try now.</string>
+    <string name="stored_rate_limit_request">Rate limited. Try again later.</string>
     <string name="stored_server_trouble">Provider is having trouble (%1$d)</string>
     <string name="stored_offline">No network connection</string>
     <string name="stored_malformed">Unexpected response from provider</string>

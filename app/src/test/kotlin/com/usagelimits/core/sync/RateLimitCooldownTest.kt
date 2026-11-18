@@ -9,11 +9,17 @@ import com.usagelimits.core.database.CreditRepository
 import com.usagelimits.core.database.RoomTransactionRunner
 import com.usagelimits.core.database.UsageLimitsDatabase
 import com.usagelimits.core.database.UsageRepository
+import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.model.CreditAccount
 import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.network.HttpClient
+import com.usagelimits.core.network.ProviderEndpoints.Antigravity
+import com.usagelimits.core.network.ProviderEndpoints.Codex
+import com.usagelimits.core.network.ProviderEndpoints.Xai
 import com.usagelimits.providers.ProviderRegistry
+import com.usagelimits.providers.antigravity.AntigravityProvider
 import com.usagelimits.providers.credits.CreditRegistry
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -37,11 +43,17 @@ import org.robolectric.annotation.GraphicsMode
 @Config(application = Application::class, sdk = [36])
 @GraphicsMode(GraphicsMode.Mode.LEGACY)
 class RateLimitCooldownTest {
-    private val start = 1_757_000_000_000L
+    private data class Reply(val code: Int, val body: String = "{}", val retryAfter: String? = null)
+
+    private val start = 1_700_000_000_000L
+    private val xaiTokenEndpoint = "${Xai.ISSUER}/oauth/token"
+    private val xaiCredits = Reply(200, """{"creditUsagePercent":20,"usagePeriodType":"weekly"}""")
     private var now = start
     private var code = 200
     private var retryAfter: String? = null
     private var requests = 0
+    private var xaiRenewals = 0
+    private var replies = emptyMap<String, Reply>()
     private val credentials = MemoryCredentialStore()
     private val context = ApplicationProvider.getApplicationContext<Application>()
     private val databaseName = "rate-limit-cooldown-test.db"
@@ -54,14 +66,16 @@ class RateLimitCooldownTest {
     private val http = HttpClient(OkHttpClient.Builder().addInterceptor { chain ->
         val request = chain.request()
         requests++
-        val body = when {
-            code != 200 -> "{}"
-            request.url.host.contains("novita") -> """{"availableBalance":"250000"}"""
-            else -> """{"usage":{"rolling":{"status":"ok","percent":42}}}"""
+        val url = request.url.toString()
+        if (url == xaiTokenEndpoint) xaiRenewals++
+        val reply = replies[url] ?: when {
+            code != 200 -> Reply(code, retryAfter = retryAfter)
+            request.url.host.contains("novita") -> Reply(200, """{"availableBalance":"250000"}""")
+            else -> Reply(200, """{"usage":{"rolling":{"status":"ok","percent":42}}}""")
         }
-        Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(code).message("scripted")
-            .body(body.toResponseBody(HttpClient.JSON_MEDIA_TYPE))
-            .apply { retryAfter?.let { header("Retry-After", it) } }
+        Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(reply.code).message("scripted")
+            .body(reply.body.toResponseBody(HttpClient.JSON_MEDIA_TYPE))
+            .apply { reply.retryAfter?.let { header("Retry-After", it) } }
             .build()
     }.build())
 
@@ -84,9 +98,18 @@ class RateLimitCooldownTest {
         creditSync = CreditSyncEngine(credit, credentials, CreditRegistry(http)) { now }
     }
 
-    private suspend fun addUsage(externalId: String = "synthetic-usage"): String {
-        val account = usage.upsertFromLogin(ProviderId.OPENCODE, externalId, null, null, null, emptyMap())
-        credentials.save(account.credentialReference, OAuthCredentials(externalId, null, null, null))
+    private suspend fun addUsage(
+        externalId: String = "synthetic-usage",
+        provider: ProviderId = ProviderId.OPENCODE,
+        attributes: Map<String, String> = emptyMap(),
+    ): String {
+        val account = usage.upsertFromLogin(provider, externalId, null, null, null, attributes)
+        val oauth = if (provider == ProviderId.XAI) {
+            OAuthCredentials(externalId, "synthetic-refresh", null, null, tokenEndpoint = xaiTokenEndpoint)
+        } else {
+            OAuthCredentials(externalId, null, null, null)
+        }
+        credentials.save(account.credentialReference, oauth)
         return account.localId
     }
 
@@ -111,6 +134,122 @@ class RateLimitCooldownTest {
         val outcomes = usageSync.syncAll(automatic = true)
 
         assertEquals(attempts to emptyList<SyncOutcome>(), requests to outcomes)
+    }
+
+    @Test fun `xAI keeps the partial reading and skips the five minute pass after a 429 without a header`() = runTest {
+        val id = addUsage(provider = ProviderId.XAI)
+        replies = mapOf(Xai.BILLING_CREDITS_URL to xaiCredits, Xai.BILLING_URL to Reply(429))
+
+        assertTrue(usageSync.syncAll(automatic = true).single().success)
+        val reading = checkNotNull(usage.snapshot(id))
+        assertEquals(SnapshotStatus.PARTIAL, reading.status)
+        assertEquals(80.0, reading.windows.single().remainingPercent!!, 0.0)
+
+        database.close()
+        openDatabase()
+        // Same clock and no-header scenario as the shared partial-reading vector.
+        now = start + 300_000
+        val attempts = requests
+        val outcomes = usageSync.syncAll(automatic = true)
+        assertEquals(attempts to emptyList<SyncOutcome>(), requests to outcomes)
+        assertEquals(reading, usage.snapshot(id))
+        assertEquals(start + 900_000, usage.backgroundNotBefore(id))
+    }
+
+    @Test fun `Codex keeps its OK reading and honors the reset credit hour hint even after a manual read`() = runTest {
+        val id = addUsage(provider = ProviderId.CODEX)
+        replies = mapOf(
+            Codex.USAGE_URL to Reply(200, """{"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":40}},
+                "rate_limit_reset_credits":{"available_count":2,"applicable_available_count":1}}"""),
+            Codex.RESET_CREDITS_URL to Reply(429, retryAfter = "3600"),
+        )
+
+        assertTrue(usageSync.syncAll(automatic = true).single().success)
+        val reading = checkNotNull(usage.snapshot(id))
+        assertEquals(SnapshotStatus.OK, reading.status)
+        assertEquals(60.0, reading.windows.single().remainingPercent!!, 0.0)
+        assertEquals(2, reading.resetCreditCount)
+
+        now = start + 900_000
+        val attempts = requests
+        val outcomes = usageSync.syncAll(automatic = true)
+        assertEquals(attempts to emptyList<SyncOutcome>(), requests to outcomes)
+        assertEquals(reading, usage.snapshot(id))
+        assertEquals(start + 3_600_000, usage.backgroundNotBefore(id))
+
+        assertTrue(usageSync.syncAccount(id).success)
+        assertEquals(SnapshotStatus.OK, usage.snapshot(id)?.status)
+        assertEquals(now + 3_600_000, usage.backgroundNotBefore(id))
+        now = start + 3_600_000
+        val attemptsAfterManualRead = requests
+        assertTrue(usageSync.syncAll(automatic = true).isEmpty())
+        assertEquals(attemptsAfterManualRead, requests)
+
+        replies = replies + (Codex.RESET_CREDITS_URL to Reply(200, """{"available_count":2}"""))
+        assertTrue(usageSync.syncAccount(id).success)
+        assertTrue(usageSync.syncAll(automatic = true).single().success)
+    }
+
+    @Test fun `mixed xAI 401 and 429 fails without renewing and only fresh rejections count after the pause`() = runTest {
+        val id = addUsage(provider = ProviderId.XAI)
+        replies = mapOf(Xai.BILLING_CREDITS_URL to xaiCredits, Xai.BILLING_URL to Reply(200))
+        assertTrue(usageSync.syncAll(automatic = true).single().success)
+        val reading = checkNotNull(usage.snapshot(id))
+
+        now = start + 60_000
+        replies = mapOf(
+            Xai.BILLING_CREDITS_URL to Reply(401),
+            Xai.BILLING_URL to Reply(429),
+            xaiTokenEndpoint to Reply(200, """{"access_token":"synthetic-renewed"}"""),
+        )
+        assertEquals(false, usageSync.syncAll(automatic = true).single().success)
+        assertEquals("the 429 must prevent immediate token renewal", 0, xaiRenewals)
+        val failed = checkNotNull(usage.snapshot(id))
+        assertEquals(SnapshotStatus.FAILED, failed.status)
+        assertEquals(reading.connectionStatus, failed.connectionStatus)
+        assertEquals(reading.fetchedAt, failed.fetchedAt)
+        assertEquals(reading.windows, failed.windows)
+
+        now = start + 360_000
+        val attempts = requests
+        val outcomes = usageSync.syncAll(automatic = true)
+        assertEquals(attempts to emptyList<SyncOutcome>(), requests to outcomes)
+        assertEquals(failed, usage.snapshot(id))
+        assertEquals(start + 960_000, usage.backgroundNotBefore(id))
+
+        now = start + 960_000
+        replies = replies + mapOf(Xai.BILLING_CREDITS_URL to xaiCredits, Xai.BILLING_URL to Reply(200))
+        assertTrue(usageSync.syncAll(automatic = true).single().success)
+        assertEquals(0, xaiRenewals)
+
+        replies = replies + mapOf(Xai.BILLING_CREDITS_URL to Reply(401), Xai.BILLING_URL to Reply(401))
+        assertEquals(false, usageSync.syncAll(automatic = true).single().success)
+        assertEquals(1, xaiRenewals)
+        assertEquals(ConnectionStatus.RECONNECT_REQUIRED, usage.snapshot(id)?.connectionStatus)
+    }
+
+    @Test fun `Antigravity keeps the host union and pauses on the longest hint`() = runTest {
+        val id = addUsage(provider = ProviderId.ANTIGRAVITY,
+            attributes = mapOf(AntigravityProvider.ATTR_PROJECT_ID to "synthetic-project"))
+        val (first, second, third) = Antigravity.QUOTA_URLS
+        replies = mapOf(
+            first to Reply(200, """{"groups":[{"displayName":"Gemini Models","buckets":[
+                {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.5}]}]}"""),
+            second to Reply(429, retryAfter = "1200"),
+            third to Reply(429, retryAfter = "3600"),
+        )
+
+        assertTrue(usageSync.syncAll(automatic = true).single().success)
+        val reading = checkNotNull(usage.snapshot(id))
+        assertEquals(SnapshotStatus.OK, reading.status)
+        assertEquals(50.0, reading.windows.single().remainingPercent!!, 0.0)
+
+        now = start + 1_800_000
+        val attempts = requests
+        val outcomes = usageSync.syncAll(automatic = true)
+        assertEquals(attempts to emptyList<SyncOutcome>(), requests to outcomes)
+        assertEquals(reading, usage.snapshot(id))
+        assertEquals(start + 3_600_000, usage.backgroundNotBefore(id))
     }
 
     @Test fun `another account at the same usage provider is still read automatically`() = runTest {

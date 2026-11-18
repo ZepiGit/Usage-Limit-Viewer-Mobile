@@ -451,7 +451,8 @@
     <!-- Failure sentences the sync layer and providers store in English; recognised and translated at the display (ui/text/ModelTexts.kt). -->
     <string name="stored_sign_in_expired">Anmeldung abgelaufen — verbinde dieses Konto neu</string>
     <string name="stored_access_denied">Zugriff für dieses Konto verweigert</string>
-    <string name="stored_rate_limited">Zu viele Anfragen — versuche es gleich noch einmal</string>
+    <string name="stored_rate_limited">Zu viele Anfragen. Die automatische Aktualisierung pausiert. Aktualisiere manuell, um es jetzt erneut zu versuchen.</string>
+    <string name="stored_rate_limit_request">Zu viele Anfragen. Versuche es später erneut.</string>
     <string name="stored_server_trouble">Der Anbieter hat gerade Probleme (%1$d)</string>
     <string name="stored_offline">Keine Netzwerkverbindung</string>
     <string name="stored_malformed">Unerwartete Antwort vom Anbieter</string>

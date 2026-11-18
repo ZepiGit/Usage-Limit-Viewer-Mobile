@@ -54,8 +54,9 @@ class CreditSyncEngine(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val failure = messageFor(e)
-            record(account, null, failure, e as? CreditError.RateLimited)
+            val rateLimit = e as? CreditError.RateLimited
+            val failure = if (rateLimit != null) RATE_LIMITED_PAUSE_MESSAGE else messageFor(e)
+            record(account, null, failure, rateLimit)
             return SyncOutcome(account.id, success = false, message = failure)
         }
         record(account, balances, message)

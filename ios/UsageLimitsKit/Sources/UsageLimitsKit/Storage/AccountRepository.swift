@@ -160,7 +160,11 @@ public actor AccountRepository {
                 applicableResetCreditCount: result.applicableResetCreditCount,
                 errorMessage: result.errorMessage,
                 connectionStatus: result.connectionStatus)
-            if result.status != .failed { stored.automaticSyncNotBefore = nil }
+            if let rateLimit = result.rateLimit {
+                stored.automaticSyncNotBefore = RateLimitCooldown.deadline(from: time, retryAfter: rateLimit.retryAfter)
+            } else if result.status != .failed {
+                stored.automaticSyncNotBefore = nil
+            }
             if let plan = result.plan, plan != stored.account.plan {
                 stored.account = stored.account.withPlan(plan)
             }

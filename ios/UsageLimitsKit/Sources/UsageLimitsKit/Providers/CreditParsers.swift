@@ -19,8 +19,8 @@ public enum CreditError: Error, LocalizedError, Equatable {
         case .notFound(let detail): return detail
         case .malformed(let detail): return "The provider answered in a shape this app does not understand (\(detail))."
         case .unavailable(let detail): return "No balance could be read (\(detail))."
-        case .rateLimited(let endpoint, _):
-            return "No balance could be read (\(endpoint) is rate limiting this key)."
+        case .rateLimited:
+            return StoredMessage.rateLimitedRequestMessage
         case .noKey: return "No key was entered."
         case .teamIDRequired:
             return "This xAI key is not tied to one team. Enter the team id from console.x.ai."

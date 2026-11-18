@@ -7,6 +7,9 @@
     {"name":"missing hint expires at fifteen minutes","now":1700000900,"rateLimitedAt":1700000000,"retryAfter":null,"automatic":true,"skip":false},
     {"name":"a short hint cannot shorten the minimum","now":1700000120,"rateLimitedAt":1700000000,"retryAfter":120,"automatic":true,"skip":true},
     {"name":"a huge hint remains active just before six hours","now":1700021599,"rateLimitedAt":1700000000,"retryAfter":604800,"automatic":true,"skip":true},
-    {"name":"a huge hint expires at the six-hour cap","now":1700021600,"rateLimitedAt":1700000000,"retryAfter":604800,"automatic":true,"skip":false}
+    {"name":"a huge hint expires at the six-hour cap","now":1700021600,"rateLimitedAt":1700000000,"retryAfter":604800,"automatic":true,"skip":false},
+    {"name":"a deadline more than six hours ahead after clock rollback is expired","now":1699999999,"rateLimitedAt":1700000000,"retryAfter":604800,"automatic":true,"skip":false},
+    {"name":"a deadline exactly six hours ahead still pauses reads","now":1700000000,"rateLimitedAt":1700000000,"retryAfter":604800,"automatic":true,"skip":true},
+    {"name":"a partial reading with a throttled endpoint and no header pauses the next five-minute pass","now":1700000300,"rateLimitedAt":1700000000,"retryAfter":null,"automatic":true,"skip":true}
   ]
 }

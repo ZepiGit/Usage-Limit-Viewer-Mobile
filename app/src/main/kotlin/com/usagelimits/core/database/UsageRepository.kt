@@ -203,7 +203,7 @@ class UsageRepository(
     }
 
     /**
-     * Records a successful fetch.
+     * Records a reading and any new automatic pause together.
      *
      * No-ops when the account is gone. `usage_snapshots.accountId` is a foreign key onto
      * `accounts`, so writing a snapshot for a row the user removed while the fetch was in
@@ -211,7 +211,7 @@ class UsageRepository(
      * sync pass, cancels the sibling accounts' writes and reaches the uncaught handler.
      * An account that no longer exists has no usage worth recording.
      */
-    suspend fun saveSnapshot(snapshot: UsageSnapshot) = transactions.inTransaction {
+    suspend fun saveSnapshot(snapshot: UsageSnapshot, backgroundNotBefore: Long? = null) = transactions.inTransaction {
         // The guard and the write are one step. Apart, the account could be deleted in the gap
         // between them and the insert would raise the very constraint violation the guard
         // exists to prevent — the failure the paragraph above describes, still reachable.
@@ -234,7 +234,7 @@ class UsageRepository(
                     applicableResetCreditCount = snapshot.applicableResetCreditCount,
                     connectionStatus = snapshot.connectionStatus.name,
                     lastAttemptAt = snapshot.lastAttemptAt,
-                    backgroundNotBefore = if (snapshot.status == SnapshotStatus.FAILED) {
+                    backgroundNotBefore = backgroundNotBefore ?: if (snapshot.status == SnapshotStatus.FAILED) {
                         snapshotDao.backgroundNotBefore(snapshot.accountId)
                     } else null,
                 ),

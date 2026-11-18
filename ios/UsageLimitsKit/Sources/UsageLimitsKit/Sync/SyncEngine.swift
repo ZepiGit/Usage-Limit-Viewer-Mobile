@@ -248,14 +248,13 @@ public actor SyncEngine {
             // Transport cancellation can arrive as a mapped provider error. Like Android,
             // check the task before publishing a failure; completed successes still persist.
             try Task.checkCancellation()
-            let message = Self.message(for: error)
             if case .rateLimited(_, let retryAfter)? = error as? ProviderError {
-                return .rateLimited(accountID: account.id, message: message, retryAfter: retryAfter)
+                return .rateLimited(accountID: account.id, message: StoredMessage.rateLimitedPauseMessage, retryAfter: retryAfter)
             }
             if case .rateLimited(let retryAfter)? = error as? HTTPError {
-                return .rateLimited(accountID: account.id, message: message, retryAfter: retryAfter)
+                return .rateLimited(accountID: account.id, message: StoredMessage.rateLimitedPauseMessage, retryAfter: retryAfter)
             }
-            return .failure(accountID: account.id, message: message)
+            return .failure(accountID: account.id, message: Self.message(for: error))
         }
     }
 

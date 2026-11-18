@@ -355,12 +355,10 @@ class AntigravityProvider(
         val groupsWithWindows = allRows.filterNot { it.isPlaceholder }.mapNotNull { it.window.group }.toSet()
         val windows = allRows.filterNot { it.isPlaceholder && it.window.group in groupsWithWindows }
             .map { it.window }.distinctBy { it.id }
-        if (windows.isNotEmpty()) return UsageResult(windows = windows)
+        if (windows.isNotEmpty()) return UsageResult(windows = windows, rateLimit = rateLimit)
 
-        // Every host answered, none had data: report it as a payload problem rather than
-        // silently showing an account with no limits.
-        authRejection?.let { throw it }
         rateLimit?.let { throw it }
+        authRejection?.let { throw it }
         firstError?.let { throw it }
         throw ProviderException.MalformedPayload(
             if (emptyHosts > 0) {

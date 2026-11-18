@@ -62,7 +62,7 @@ class CreditScreensRenderTest {
     @Test fun `overview shows the credits section with an amount and the add row`() {
         render {
             OverviewScreen(
-                state = UsageUiState(settings = AppSettings(), credits = listOf(entry(error = "The key was rejected (HTTP 401)."))),
+                state = UsageUiState(settings = AppSettings(), credits = listOf(entry(error = "Rate limited. Automatic refresh is paused. Refresh manually to try now."))),
                 nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onReorder = {}, onPercentDisplayChange = {},
                 onCreditClick = {}, onAddCredit = {},
             )
@@ -75,6 +75,7 @@ class CreditScreensRenderTest {
         compose.onNode(hasText("My fal")).assertExists()
         assertTrue(compose.onAllNodesWithText("\$24.50", substring = true).fetchSemanticsNodes().isNotEmpty())
         assertTrue(compose.onAllNodesWithText("showing last known balance", substring = true).fetchSemanticsNodes().isNotEmpty())
+        assertTrue(compose.onAllNodesWithText("Automatic refresh is paused.", substring = true).fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test fun `the add screen lists every provider with Anthropic and OpenAI disabled`() {

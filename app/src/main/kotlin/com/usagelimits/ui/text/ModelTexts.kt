@@ -9,6 +9,8 @@ import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.network.RATE_LIMITED_REQUEST_MESSAGE
+import com.usagelimits.core.sync.RATE_LIMITED_PAUSE_MESSAGE
 
 /*
  * Resource ids for the user-facing sentences that live in the model and provider layers.
@@ -94,7 +96,10 @@ private class StoredMessage(val pattern: Regex, @StringRes val res: Int)
 private val STORED_MESSAGES = listOf(
     StoredMessage(Regex("Sign-in expired — reconnect this account"), R.string.stored_sign_in_expired),
     StoredMessage(Regex("Access denied for this account"), R.string.stored_access_denied),
+    StoredMessage(Regex(Regex.escape(RATE_LIMITED_PAUSE_MESSAGE)), R.string.stored_rate_limited),
     StoredMessage(Regex("Rate limited — try again shortly"), R.string.stored_rate_limited),
+    StoredMessage(Regex("No balance could be read \\(.+ is rate limiting this key\\)\\."), R.string.stored_rate_limited),
+    StoredMessage(Regex(Regex.escape(RATE_LIMITED_REQUEST_MESSAGE)), R.string.stored_rate_limit_request),
     StoredMessage(Regex("Provider is having trouble \\((\\d+)\\)"), R.string.stored_server_trouble),
     StoredMessage(Regex("No network connection"), R.string.stored_offline),
     StoredMessage(Regex("Unexpected response from provider"), R.string.stored_malformed),

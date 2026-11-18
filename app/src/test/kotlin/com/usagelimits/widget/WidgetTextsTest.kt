@@ -128,6 +128,8 @@ class WidgetTextsGermanTest {
         assertEquals("Konnte nicht gelesen werden", statusText(row(Severity.ERROR, balances = emptyList()), texts))
         val failed = statusText(row(statusMessage = "abgelehnt"), texts)
         assertTrue(failed, failed.startsWith("Aktualisierung fehlgeschlagen: abgelehnt · Stand "))
+        val limited = statusText(row(statusMessage = "No balance could be read (fal billing is rate limiting this key)."), texts)
+        assertTrue(limited, limited.startsWith("Aktualisierung fehlgeschlagen: Zu viele Anfragen. Die automatische Aktualisierung pausiert. Aktualisiere manuell, um es jetzt erneut zu versuchen. · Stand "))
         val stale = statusText(row(Severity.STALE), texts)
         assertTrue(stale, stale.startsWith("Veraltet · Stand "))
         val fine = statusText(row(), texts)

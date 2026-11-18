@@ -668,6 +668,17 @@ final class LocalizedTextsTests: XCTestCase {
             .restricted(labels: "Code review · Limit reached"))
     }
 
+    func testThrottleNoticesClassifyForAccountAndCreditDisplays() {
+        let pause = "Rate limited. Automatic refresh is paused. Refresh manually to try now."
+        for message in [pause, "No usage could be read (claude usage is rate limiting this account).",
+                        "No balance could be read (deepseek balance is rate limiting this key)."] {
+            XCTAssertEqual(StoredMessage.classify(message), .rateLimited(trailingStatus: nil))
+        }
+        let restriction = "Restricted: Code review · Limit reached"
+        XCTAssertEqual(StoredMessage.classify(pause + " · " + restriction), .rateLimited(trailingStatus: restriction))
+        XCTAssertEqual(StoredMessage.classify("Rate limited. Try again later."), .rateLimitRequest)
+    }
+
     func testTheDetailInsideASentenceIsCarriedOverAsWritten() {
         XCTAssertEqual(
             StoredMessage.classify("No usage could be read (HTTP 503 (retry))."),

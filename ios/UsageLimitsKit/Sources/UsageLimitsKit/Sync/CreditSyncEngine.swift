@@ -75,7 +75,8 @@ public actor CreditSyncEngine {
             } else {
                 rateLimitedUntil = nil
             }
-            try? await repository.record(accountID: account.id, balances: nil, error: Self.message(for: error),
+            let message = rateLimitedUntil == nil ? Self.message(for: error) : StoredMessage.rateLimitedPauseMessage
+            try? await repository.record(accountID: account.id, balances: nil, error: message,
                 at: time, rateLimitedUntil: rateLimitedUntil, accountCreatedAt: account.createdAt)
         }
     }
