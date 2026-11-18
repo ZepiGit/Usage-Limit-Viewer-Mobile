@@ -522,6 +522,13 @@ public actor UsageLimitsContainer {
     }
 
     public func add(_ account: ProviderAccount) async throws {
+        // A pin left behind by an earlier removal whose settings write failed belongs to an
+        // account that no longer exists; dropped before the first publication, so the same
+        // account signing in again is not pinned without being pinned again. A reconnect of an
+        // account that still exists keeps its pin.
+        if await !repository.accounts().contains(where: { $0.id == account.id }) {
+            try? await settingsStore.releasePin(account.id)
+        }
         try await repository.upsert(account)
         await publishCurrent(await repository.usage())
     }
@@ -556,11 +563,8 @@ public actor UsageLimitsContainer {
         }
         try await repository.remove(id: id)
 
-        var settings = await settingsStore.settings()
-        if settings.pinnedAccountIDs.contains(id) {
-            settings.pinnedAccountIDs.removeAll { $0 == id }
-            _ = try? await settingsStore.save(settings)
-        }
+        // Best-effort on disk; the pin leaves the settings in use either way.
+        try? await settingsStore.releasePin(id)
 
         // The ledger is cleared too. Its keys embed the account id, so an account removed and
         // added back under the same id would inherit records saying every one of its edges had

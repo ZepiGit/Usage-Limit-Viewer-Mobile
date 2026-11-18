@@ -31,7 +31,8 @@ final class GlanceSnapshotCodecTests: XCTestCase {
             overallSeverity: .error,
             summaryLineShort: short,
             summaryLineLong: long,
-            percentDisplay: percentDisplay)
+            percentDisplay: percentDisplay,
+            statusIconsEnabled: false, pinnedAccountIDs: [])
     }
 
     func testTheRoundTripPreservesEverything() throws {

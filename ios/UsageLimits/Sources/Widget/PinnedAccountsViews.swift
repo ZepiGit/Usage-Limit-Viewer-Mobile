@@ -133,7 +133,7 @@ struct PinnedAccountMark: View {
     private func content(glyph side: CGFloat) -> some View {
         let glyph = StatusIconGlyphShape(elements: PinnedAccountGlyphs.glyph(for: entry.account.providerID))
         switch entry.content.content {
-        case .none:
+        case .glyphOnly:
             VStack(spacing: side * 0.12) {
                 glyph.frame(width: side * 1.35, height: side * 1.35)
                 Rectangle()
@@ -160,7 +160,7 @@ struct PinnedAccountMark: View {
     }
 }
 
-/// Up to three accounts side by side, in pinned order.
+/// Up to three accounts side by side, in the app's account order (`PinnedAccounts.select`).
 struct PinnedAccountsRectangularView: View {
     let capture: PinnedAccountsCapture
 
@@ -247,9 +247,28 @@ struct PinnedAccountsCircularView: View {
                 PinnedAccountMark(entry: first, preferredGlyph: glyphSize)
                     .padding(6)
             } else {
-                symbol("pin", label: String(localized: "Pin an account in Settings"))
+                emptyHint
             }
         }
+    }
+
+    /// Feature off or nothing pinned: the pin with the short hint the inline form shows, so the
+    /// circle explains itself too. Two lines at most, scaled down rather than clipped, its type
+    /// capped at AX2 as the rectangular notice's is; VoiceOver reads the full sentence.
+    private var emptyHint: some View {
+        VStack(spacing: 1) {
+            Image(systemName: "pin")
+                .font(.footnote)
+            Text(verbatim: String(localized: "Pin in Settings"))
+                .font(.system(size: 10, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+        }
+        .padding(.horizontal, 8)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "Pin an account in Settings"))
     }
 
     private func symbol(_ name: String, label: String) -> some View {
@@ -259,7 +278,7 @@ struct PinnedAccountsCircularView: View {
     }
 }
 
-/// The first pinned account in one row (owner's decision, question package 010): its glyph as the
+/// The first pinned account in one row (ADR 0003, docs/adr/0003-status-icons-and-lock-screen-substitute.md, section "iOS"): its glyph as the
 /// family's one image, its figure with the side as the text. The system shows a single line of
 /// text and at most one image here, in its own font and tint (WidgetKit,
 /// `WidgetFamily.accessoryInline`; WWDC22 "Complications and widgets: Reloaded"). What the text
