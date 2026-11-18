@@ -47,6 +47,8 @@ final class PinnedAccountsRenderingTests: XCTestCase {
             StatusIconContent(content: .none, outdated: false),
         ])
         XCTAssertEqual(scenarios[1].capture.accounts.map(\.content.content), [.exhausted, .error, .unknown])
+        let staleUsed = try XCTUnwrap(scenarios.first { $0.name == "first-stale-used" }?.capture.accounts.first)
+        XCTAssertEqual(staleUsed.content, StatusIconContent(content: .figure(58), outdated: true))
 
         var rows: [SheetRow] = []
         var spoken: [String] = []
@@ -92,6 +94,9 @@ final class PinnedAccountsRenderingTests: XCTestCase {
     private func scenarios() -> [Scenario] {
         let figure = account("claude", title: "Claude Max", remaining: 42)
         let outdated = account("codex", title: "OpenAI Codex Plus", remaining: 7, fetchedAgo: 2 * 3600)
+        // Stale and first, in Used, so the inline row shows the longest figure text it can:
+        // "58% used · Stale" / "58 % verbraucht · Veraltet".
+        let outdatedFirst = account("claude", title: "Claude Max", remaining: 42, fetchedAgo: 2 * 3600)
         let full = account("kimi", title: "Kimi Code", remaining: 100)
         let exhausted = account("devin", title: "Devin", remaining: 0, severity: .exhausted)
         let error = account("zai", title: "Z.ai GLM", remaining: 42, severity: .error)
@@ -105,6 +110,8 @@ final class PinnedAccountsRenderingTests: XCTestCase {
             Scenario(name: "three-exhausted-error-unknown", title: "three: exhausted · error · unknown (Used)",
                 capture: capture(second, mode: .used)),
             Scenario(name: "one-account", title: "one account: 42 (Left)", capture: capture([figure], mode: .left)),
+            Scenario(name: "first-stale-used", title: "first account stale, Used: 42 left → 58 used · stale",
+                capture: capture([outdatedFirst, full], mode: .used)),
             Scenario(name: "nothing-pinned", title: "nothing pinned",
                 capture: capture([figure], mode: .left, pinned: false)),
             Scenario(name: "locked", title: "locked (before first unlock)",
