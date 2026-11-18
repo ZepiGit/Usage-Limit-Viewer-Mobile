@@ -645,6 +645,29 @@ final class UsageLimitsContainerTests: XCTestCase {
         _ = try await subject.refresh()
         let after = try await subject.pendingNotifications()
         XCTAssertFalse(after.isEmpty, "ledger cleanup must let a re-added account announce its low quota")
+
+        // The settings file still cannot be written, so the pin release fails a second time; the
+        // same account signing in again must still not come back pinned without being pinned.
+        let republished = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertEqual(republished.accounts.map(\.id), ["a"])
+        XCTAssertTrue(PinnedAccountsCapture.capture(snapshot: republished, at: now).accounts.isEmpty,
+            "a removed account must not reappear in the pinned widget without being pinned again")
+        let inUse = await subject.settings()
+        XCTAssertEqual(inUse.pinnedAccountIDs, [])
+    }
+
+    func testReconnectingAnAccountThatStillExistsKeepsItsPin() async throws {
+        let (subject, _) = container([(200, codexLow), (200, #"{"credits": []}"#)])
+        try await subject.add(account())
+        try await subject.save(settings: AppSettings(statusIconsEnabled: true, pinnedAccountIDs: ["a"]))
+
+        try await subject.add(account())
+        _ = try await subject.refresh()
+
+        let settings = await subject.settings()
+        XCTAssertEqual(settings.pinnedAccountIDs, ["a"])
+        let snapshot = GlanceSnapshotCodec.read(fromDirectory: directory)
+        XCTAssertEqual(PinnedAccountsCapture.capture(snapshot: snapshot, at: now).accounts.map(\.id), ["a"])
     }
 
     func testAFailedCredentialDeleteLeavesTheAccountVisible() async throws {

@@ -45,6 +45,19 @@ public actor SettingsStore {
         return normalised
     }
 
+    /// Unpins `id` in the settings in use even when the file cannot be written, then saves.
+    ///
+    /// For an account that is gone: its pin must not come back with it. Removal and sign-in stay
+    /// successful when this write fails, so the stale id would otherwise linger in `current` and
+    /// pin the same account again the moment it signs in. Throws the write error afterwards.
+    public func releasePin(_ id: String) throws {
+        var settings = settings()
+        guard settings.pinnedAccountIDs.contains(id) else { return }
+        settings.pinnedAccountIDs.removeAll { $0 == id }
+        current = settings.normalised()
+        try save(settings)
+    }
+
     private static func load(from url: URL) -> AppSettings {
         guard
             let data = try? Data(contentsOf: url),
