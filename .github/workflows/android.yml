@@ -83,9 +83,9 @@ jobs:
           name: android-verification-evidence
           path: |
             app/build/test-results/testDebugUnitTest
+            app/build/reports/captures
             app/build/reports/lint-results-debug.*
             app/build/reports/widget-renderings
-            app/build/reports/captures
             app/schemas
           if-no-files-found: error
 
