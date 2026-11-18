@@ -1,5 +1,6 @@
 package com.usagelimits.navigation
 
+import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -27,13 +28,22 @@ import com.usagelimits.ui.theme.UsageColors
 internal var launchOverlayShown = false
 
 /**
+ * From Android 12 the system's own splash screen shows the launcher icon on the app's ground and
+ * dissolves over the first frame. An overlay under it showed a second, larger icon through the
+ * dissolving splash. Before Android 12 the starting window is the bare ground, and the overlay
+ * is the launch.
+ */
+internal fun launchOverlayApplies(sdk: Int = Build.VERSION.SDK_INT) = sdk < Build.VERSION_CODES.S
+
+/**
  * The launcher icon rising out of the app background on process start, then dissolving to
- * reveal content that is already composed underneath. Skipped when system animations are off.
+ * reveal content that is already composed underneath. Skipped when system animations are off,
+ * and where the system splash screen already does this (see [launchOverlayApplies]).
  */
 @Composable
 fun LaunchOverlay() {
     val motion = UsageMotion.current
-    var visible by remember { mutableStateOf(!launchOverlayShown && motion.enabled) }
+    var visible by remember { mutableStateOf(!launchOverlayShown && motion.enabled && launchOverlayApplies()) }
     launchOverlayShown = true
     if (!visible) return
 

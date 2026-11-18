@@ -25,8 +25,18 @@ class LaunchOverlayTest {
         launchOverlayShown = false
     }
 
+    // From Android 12 the system splash screen is the launch; the overlay would be a second icon.
+    @Test
+    fun `no overlay where the system splash screen already shows the icon`() {
+        compose.mainClock.autoAdvance = false
+        compose.setContent { LaunchOverlay() }
+
+        compose.onNodeWithTag("launchOverlay").assertDoesNotExist()
+    }
+
     // One test, three phases: the once-per-process flag is static, so separate tests would
-    // depend on their run order.
+    // depend on their run order. API 30: the last release whose starting window is a bare ground.
+    @Config(sdk = [30])
     @Test
     fun `overlay shows on the first composition only and clears itself`() {
         compose.mainClock.autoAdvance = false
