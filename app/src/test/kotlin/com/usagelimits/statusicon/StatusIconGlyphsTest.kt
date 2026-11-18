@@ -3,6 +3,7 @@ package com.usagelimits.statusicon
 import com.usagelimits.core.model.ProviderId
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -18,9 +19,22 @@ import java.io.File
 class StatusIconGlyphsTest {
 
     @Serializable
-    private data class Grammar(val description: String, val accept: List<Case>, val reject: List<Case>) {
+    private data class Grammar(
+        val description: String,
+        val accept: List<Case>,
+        val reject: List<Case>,
+        val acceptFiles: List<FileCase>,
+        val rejectFiles: List<FileCase>,
+    ) {
         @Serializable
         data class Case(val name: String, val path: String)
+
+        @Serializable
+        data class FileCase(val name: String, val file: JsonElement)
+    }
+
+    private val grammar by lazy {
+        Json.decodeFromString<Grammar>(File("../shared/test-vectors/glyph-path-grammar.json").readText())
     }
 
     @Test
@@ -34,7 +48,6 @@ class StatusIconGlyphsTest {
     /** The same cases the iOS StatusIconGlyphsTests read, so both readers accept one grammar. */
     @Test
     fun `both platforms accept and reject the shared grammar cases`() {
-        val grammar = Json.decodeFromString<Grammar>(File("../shared/test-vectors/glyph-path-grammar.json").readText())
         assertFalse(grammar.accept.isEmpty())
         assertFalse(grammar.reject.isEmpty())
         for (valid in grammar.accept) StatusIconGlyphs.validatePath(valid.path, valid.name)
@@ -42,6 +55,20 @@ class StatusIconGlyphsTest {
             assertThrows(invalid.name, IllegalArgumentException::class.java) {
                 StatusIconGlyphs.validatePath(invalid.path, invalid.name)
             }
+        }
+    }
+
+    /**
+     * Whole files from the same vector file: both loaders accept and reject the same files, field
+     * types included (a quoted grid, a numeric path, a missing or unknown provider).
+     */
+    @Test
+    fun `both platforms accept and reject the shared whole-file cases`() {
+        assertFalse(grammar.acceptFiles.isEmpty())
+        assertFalse(grammar.rejectFiles.isEmpty())
+        for (case in grammar.acceptFiles) StatusIconGlyphs.parse(case.file.toString())
+        for (case in grammar.rejectFiles) {
+            assertThrows(case.name, IllegalArgumentException::class.java) { StatusIconGlyphs.parse(case.file.toString()) }
         }
     }
 

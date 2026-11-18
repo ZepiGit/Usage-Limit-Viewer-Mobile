@@ -42,7 +42,6 @@ final class StatusIconGlyphsTests: XCTestCase {
 
     private struct Grammar: Decodable {
         struct Case: Decodable { let name: String; let path: String }
-        let description: String
         let accept: [Case]
         let reject: [Case]
     }
@@ -58,6 +57,26 @@ final class StatusIconGlyphsTests: XCTestCase {
         }
         for invalid in grammar.reject {
             XCTAssertThrowsError(try StatusIconGlyphs.path(invalid.path), invalid.name)
+        }
+    }
+
+    /// Whole files from the same vector file: both loaders accept and reject the same files, field
+    /// types included (a quoted grid, a numeric path, a missing or unknown provider).
+    func testBothPlatformsAcceptAndRejectTheSharedWholeFileCases() throws {
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: SharedVectors.file("glyph-path-grammar.json"))) as? [String: Any])
+        let accepted = try XCTUnwrap(root["acceptFiles"] as? [[String: Any]])
+        let rejected = try XCTUnwrap(root["rejectFiles"] as? [[String: Any]])
+        XCTAssertFalse(accepted.isEmpty)
+        XCTAssertFalse(rejected.isEmpty)
+        func data(_ entry: [String: Any]) throws -> Data {
+            try JSONSerialization.data(withJSONObject: XCTUnwrap(entry["file"]), options: [.fragmentsAllowed])
+        }
+        for entry in accepted {
+            XCTAssertNoThrow(try StatusIconGlyphs.parse(data(entry)), "\(entry["name"] ?? "")")
+        }
+        for entry in rejected {
+            XCTAssertThrowsError(try StatusIconGlyphs.parse(data(entry)), "\(entry["name"] ?? "")")
         }
     }
 

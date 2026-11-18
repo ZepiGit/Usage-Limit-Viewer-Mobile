@@ -35,8 +35,8 @@ Both readers (Android `StatusIconGlyphs.kt`, iOS `StatusIconGlyphs.swift`) accep
 - A path starts with `M`. A command repeats while numbers follow it; pairs after `M` continue as `L`. Numbers after `Z` without a new command are rejected.
 - Numbers: an optional `-`, then digits with at most one decimal point (`12`, `1.5`, `.5`, `-0.4`). No `+`, no exponent.
 - Separators: spaces and commas.
-- The file holds string values only: `grid` is 24, `glyphs` names exactly the providers this build knows, `fallback` is the disc.
+- The file is one object with exactly three keys. `grid` is the JSON number 24 (`"24"` in quotes is rejected). `glyphs` is an object naming exactly the providers this build knows, no more and no fewer. Every path, in `glyphs` and in `fallback` (the disc), is a JSON string; a number, `null` or an array is rejected.
 
-`shared/test-vectors/glyph-path-grammar.json` lists accepted and rejected cases, and both platforms' tests read it. The fallback disc is drawn from four cubic segments on both platforms, so it is no longer pixel-identical to Android's earlier `addCircle` disc. A malformed file fails Android's status-icon step, which the publication logs and skips, and it makes the iOS widget draw the disc for every account.
+`shared/test-vectors/glyph-path-grammar.json` lists accepted and rejected paths and whole files, and both platforms' tests read it. The fallback disc is drawn from four cubic segments on both platforms, so it is no longer pixel-identical to Android's earlier `addCircle` disc. A malformed file fails Android's status-icon step, which the publication logs and skips, and it makes the iOS widget draw the disc for every account.
 
 The glyphs are judged at the size the status bar draws them, not at the size of the source. `StatusIconRenderingTest` writes a contact sheet and a true-size sheet per density to `app/build/reports/status-icons/`. In the true-size sheet each icon is scaled down to its 15 × 10 dp slot and enlarged ×8 without smoothing. The same test fails if two glyphs differ in fewer than 12 pixels at 280 dpi.

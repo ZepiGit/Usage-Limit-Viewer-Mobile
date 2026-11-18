@@ -35,12 +35,19 @@ class StatusIconGlyphs private constructor(val paths: Map<ProviderId, String>, v
             parse(stream.bufferedReader().use { it.readText() })
         }
 
-        /** Strict: exactly the known providers, a 24-unit grid, string paths in the shared grammar. */
+        /**
+         * Strict, and the same as the Kit's reader (`shared/test-vectors/glyph-path-grammar.json`
+         * holds the files both must accept or reject): an object with exactly `grid`, `glyphs` and
+         * `fallback`; `grid` the number 24; `glyphs` an object naming exactly the known providers;
+         * every path a string in the shared grammar.
+         */
         fun parse(text: String): StatusIconGlyphs {
             val root = Json.parseToJsonElement(text) as? JsonObject
                 ?: throw IllegalArgumentException("the glyph file must be a JSON object")
             require(root.keys == setOf("grid", "glyphs", "fallback")) { "unexpected keys ${root.keys}" }
-            require((root.getValue("grid") as? JsonPrimitive)?.doubleOrNull == GRID) { "glyphs must be on a 24-unit grid" }
+            // A JSON number, not a quoted one: doubleOrNull alone would read "24" too, which the Kit rejects.
+            val grid = root.getValue("grid") as? JsonPrimitive
+            require(grid != null && !grid.isString && grid.doubleOrNull == GRID) { "grid must be the number 24" }
             val glyphs = root.getValue("glyphs") as? JsonObject
                 ?: throw IllegalArgumentException("glyphs must be an object of provider to path")
             val named = glyphs.mapValues { (key, value) -> pathString(value, key) }

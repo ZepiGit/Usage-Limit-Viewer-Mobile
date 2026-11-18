@@ -1,25 +1,364 @@
 {
-  "description": "Path data both status icon glyph readers accept or reject. Grammar: docs/provider-assets.md, 'Glyph path grammar'. Android (StatusIconGlyphsTest) and iOS (StatusIconGlyphsTests) read this file.",
+  "description": "Path data and whole glyph files both status icon glyph readers accept or reject. Grammar: docs/provider-assets.md, 'Glyph path grammar'. Android (StatusIconGlyphsTest) and iOS (StatusIconGlyphsTests) read this file. Whole files name every provider this build knows.",
   "accept": [
-    { "name": "every command once", "path": "M2 2H8.5V4L22 22C1 2 3 4 5 6Z" },
-    { "name": "repeated pairs after a command", "path": "M0 0L1 1 2 2 3 3Z" },
-    { "name": "pairs after M continue as lines", "path": "M0 0 1 1 2 2Z" },
-    { "name": "commas and negative and decimal numbers", "path": "M0,0L-1.5,2.25 .5 3Z" },
-    { "name": "two subpaths", "path": "M0 0H1V1Z M2 2H3V3Z" }
+    {
+      "name": "every command once",
+      "path": "M2 2H8.5V4L22 22C1 2 3 4 5 6Z"
+    },
+    {
+      "name": "repeated pairs after a command",
+      "path": "M0 0L1 1 2 2 3 3Z"
+    },
+    {
+      "name": "pairs after M continue as lines",
+      "path": "M0 0 1 1 2 2Z"
+    },
+    {
+      "name": "commas and negative and decimal numbers",
+      "path": "M0,0L-1.5,2.25 .5 3Z"
+    },
+    {
+      "name": "two subpaths",
+      "path": "M0 0H1V1Z M2 2H3V3Z"
+    }
   ],
   "reject": [
-    { "name": "unknown command", "path": "M0 0H1X2 2Z" },
-    { "name": "relative command", "path": "m0 0h1z" },
-    { "name": "valid SVG command outside the subset", "path": "M0 0Q1 1 2 2Z" },
-    { "name": "arc command", "path": "M0 0A1 1 0 0 1 2 2Z" },
-    { "name": "line with one operand", "path": "M0 0L1Z" },
-    { "name": "curve with five operands", "path": "M0 0C1 1 2 2 3Z" },
-    { "name": "move with one operand", "path": "M0Z" },
-    { "name": "number with an exponent", "path": "M1e1 0H1Z" },
-    { "name": "number with two points", "path": "M1.2.3 0H1Z" },
-    { "name": "operands before any command", "path": "0 0L1 1Z" },
-    { "name": "operands after close", "path": "M0 0H1Z 2 2" },
-    { "name": "not starting with a move", "path": "L1 1Z" },
-    { "name": "empty", "path": "" }
+    {
+      "name": "unknown command",
+      "path": "M0 0H1X2 2Z"
+    },
+    {
+      "name": "relative command",
+      "path": "m0 0h1z"
+    },
+    {
+      "name": "valid SVG command outside the subset",
+      "path": "M0 0Q1 1 2 2Z"
+    },
+    {
+      "name": "arc command",
+      "path": "M0 0A1 1 0 0 1 2 2Z"
+    },
+    {
+      "name": "line with one operand",
+      "path": "M0 0L1Z"
+    },
+    {
+      "name": "curve with five operands",
+      "path": "M0 0C1 1 2 2 3Z"
+    },
+    {
+      "name": "move with one operand",
+      "path": "M0Z"
+    },
+    {
+      "name": "number with an exponent",
+      "path": "M1e1 0H1Z"
+    },
+    {
+      "name": "number with two points",
+      "path": "M1.2.3 0H1Z"
+    },
+    {
+      "name": "operands before any command",
+      "path": "0 0L1 1Z"
+    },
+    {
+      "name": "operands after close",
+      "path": "M0 0H1Z 2 2"
+    },
+    {
+      "name": "not starting with a move",
+      "path": "L1 1Z"
+    },
+    {
+      "name": "empty",
+      "path": ""
+    }
+  ],
+  "acceptFiles": [
+    {
+      "name": "every provider, numeric grid",
+      "file": {
+        "grid": 24,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "grid written as 24.0",
+      "file": {
+        "grid": 24.0,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    }
+  ],
+  "rejectFiles": [
+    {
+      "name": "grid as a string",
+      "file": {
+        "grid": "24",
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "grid other than 24",
+      "file": {
+        "grid": 48,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "grid as a boolean",
+      "file": {
+        "grid": true,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "grid missing",
+      "file": {
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "fallback missing",
+      "file": {
+        "grid": 24,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        }
+      }
+    },
+    {
+      "name": "unknown top-level key",
+      "file": {
+        "grid": 24,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z",
+        "version": 1
+      }
+    },
+    {
+      "name": "provider missing",
+      "file": {
+        "grid": 24,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "provider this build does not know",
+      "file": {
+        "grid": 24,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z",
+          "mistral": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "path as a number",
+      "file": {
+        "grid": 24,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": 12,
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "path as null",
+      "file": {
+        "grid": 24,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": null,
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "fallback as a number",
+      "file": {
+        "grid": 24,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": 12
+      }
+    },
+    {
+      "name": "glyphs as an array",
+      "file": {
+        "grid": 24,
+        "glyphs": [
+          "M0 0H1Z"
+        ],
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "path outside the grammar",
+      "file": {
+        "grid": 24,
+        "glyphs": {
+          "codex": "M0 0H1Z",
+          "claude": "M0 0H1X2 2Z",
+          "antigravity": "M0 0H1Z",
+          "xai": "M0 0H1Z",
+          "kimi": "M0 0H1Z",
+          "devin": "M0 0H1Z",
+          "meta": "M0 0H1Z",
+          "zai": "M0 0H1Z",
+          "opencode": "M0 0H1Z"
+        },
+        "fallback": "M0 0H1Z"
+      }
+    },
+    {
+      "name": "root is an array",
+      "file": [
+        {
+          "grid": 24,
+          "glyphs": {
+            "codex": "M0 0H1Z",
+            "claude": "M0 0H1Z",
+            "antigravity": "M0 0H1Z",
+            "xai": "M0 0H1Z",
+            "kimi": "M0 0H1Z",
+            "devin": "M0 0H1Z",
+            "meta": "M0 0H1Z",
+            "zai": "M0 0H1Z",
+            "opencode": "M0 0H1Z"
+          },
+          "fallback": "M0 0H1Z"
+        }
+      ]
+    }
   ]
 }
