@@ -112,8 +112,14 @@ final class PinnedAccountsRenderingTests: XCTestCase {
             Scenario(name: "one-account", title: "one account: 42 (Left)", capture: capture([figure], mode: .left)),
             Scenario(name: "first-stale-used", title: "first account stale, Used: 42 left → 58 used · stale",
                 capture: capture([outdatedFirst, full], mode: .used)),
-            Scenario(name: "nothing-pinned", title: "nothing pinned",
+            Scenario(name: "feature-off", title: "feature off",
                 capture: capture([figure], mode: .left, pinned: false)),
+            Scenario(name: "nothing-pinned", title: "feature on, nothing pinned",
+                capture: capture([figure], mode: .left, pinned: true, pins: [])),
+            Scenario(name: "feature-off-ax5", title: "feature off, Dynamic Type AX5 (largest)",
+                capture: capture([figure], mode: .left, pinned: false), typeSize: .accessibility5),
+            Scenario(name: "nothing-pinned-ax5", title: "feature on, nothing pinned, Dynamic Type AX5 (largest)",
+                capture: capture([figure], mode: .left, pinned: true, pins: []), typeSize: .accessibility5),
             Scenario(name: "locked", title: "locked (before first unlock)",
                 capture: .capture(source: .unreadable, at: now)),
             Scenario(name: "locked-ax5", title: "locked, Dynamic Type AX5 (largest)",
@@ -135,11 +141,13 @@ final class PinnedAccountsRenderingTests: XCTestCase {
             fetchedAt: now.addingTimeInterval(-fetchedAgo), providerID: provider)
     }
 
-    private func capture(_ accounts: [GlanceAccount], mode: PercentDisplay, pinned: Bool = true) -> PinnedAccountsCapture {
+    /// `pinned` is the feature switch; `pins` defaults to every account when it is on.
+    private func capture(_ accounts: [GlanceAccount], mode: PercentDisplay, pinned: Bool = true,
+        pins: [String]? = nil) -> PinnedAccountsCapture {
         let snapshot = GlanceSnapshot(accounts: accounts, accountCount: accounts.count, updatedAt: now,
             nextResetAt: nil, overallSeverity: .medium, summaryLineShort: nil, summaryLineLong: nil,
             staleAfter: staleAfter, percentDisplay: mode, statusIconsEnabled: pinned,
-            pinnedAccountIDs: pinned ? accounts.map(\.id) : [])
+            pinnedAccountIDs: pinned ? (pins ?? accounts.map(\.id)) : [])
         return .capture(snapshot: snapshot, at: now)
     }
 

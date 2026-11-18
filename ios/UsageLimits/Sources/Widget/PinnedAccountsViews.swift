@@ -247,9 +247,28 @@ struct PinnedAccountsCircularView: View {
                 PinnedAccountMark(entry: first, preferredGlyph: glyphSize)
                     .padding(6)
             } else {
-                symbol("pin", label: String(localized: "Pin an account in Settings"))
+                emptyHint
             }
         }
+    }
+
+    /// Feature off or nothing pinned: the pin with the short hint the inline form shows, so the
+    /// circle explains itself too. Two lines at most, scaled down rather than clipped, its type
+    /// capped at AX2 as the rectangular notice's is; VoiceOver reads the full sentence.
+    private var emptyHint: some View {
+        VStack(spacing: 1) {
+            Image(systemName: "pin")
+                .font(.footnote)
+            Text(verbatim: String(localized: "Pin in Settings"))
+                .font(.system(size: 10, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+        }
+        .padding(.horizontal, 8)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "Pin an account in Settings"))
     }
 
     private func symbol(_ name: String, label: String) -> some View {
