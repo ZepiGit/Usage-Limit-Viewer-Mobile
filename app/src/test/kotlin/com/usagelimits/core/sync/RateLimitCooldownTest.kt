@@ -156,7 +156,7 @@ class RateLimitCooldownTest {
         assertEquals(start + 900_000, usage.backgroundNotBefore(id))
     }
 
-    @Test fun `Codex keeps its OK reading and honors the reset credit hour hint even after a manual read`() = runTest {
+    @Test fun `Codex refreshes usage and embedded credits on the next pass despite a throttled optional read`() = runTest {
         val id = addUsage(provider = ProviderId.CODEX)
         replies = mapOf(
             Codex.USAGE_URL to Reply(200, """{"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":40}},
@@ -169,25 +169,21 @@ class RateLimitCooldownTest {
         assertEquals(SnapshotStatus.OK, reading.status)
         assertEquals(60.0, reading.windows.single().remainingPercent!!, 0.0)
         assertEquals(2, reading.resetCreditCount)
+        assertEquals(1, reading.applicableResetCreditCount)
 
-        now = start + 900_000
-        val attempts = requests
-        val outcomes = usageSync.syncAll(automatic = true)
-        assertEquals(attempts to emptyList<SyncOutcome>(), requests to outcomes)
-        assertEquals(reading, usage.snapshot(id))
-        assertEquals(start + 3_600_000, usage.backgroundNotBefore(id))
+        now = start + 300_000
+        replies = replies + (Codex.USAGE_URL to Reply(200,
+            """{"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":60}},
+                "rate_limit_reset_credits":{"available_count":3,"applicable_available_count":2}}"""))
 
-        assertTrue(usageSync.syncAccount(id).success)
-        assertEquals(SnapshotStatus.OK, usage.snapshot(id)?.status)
-        assertEquals(now + 3_600_000, usage.backgroundNotBefore(id))
-        now = start + 3_600_000
-        val attemptsAfterManualRead = requests
-        assertTrue(usageSync.syncAll(automatic = true).isEmpty())
-        assertEquals(attemptsAfterManualRead, requests)
-
-        replies = replies + (Codex.RESET_CREDITS_URL to Reply(200, """{"available_count":2}"""))
-        assertTrue(usageSync.syncAccount(id).success)
-        assertTrue(usageSync.syncAll(automatic = true).single().success)
+        assertEquals("the optional 429 must not skip the five-minute pass",
+            listOf(SyncOutcome(id, success = true)), usageSync.syncAll(automatic = true))
+        val next = checkNotNull(usage.snapshot(id))
+        assertEquals(SnapshotStatus.OK, next.status)
+        assertEquals(now, next.fetchedAt)
+        assertEquals(40.0, next.windows.single().remainingPercent!!, 0.0)
+        assertEquals(3, next.resetCreditCount)
+        assertEquals(2, next.applicableResetCreditCount)
     }
 
     @Test fun `mixed xAI 401 and 429 fails without renewing and only fresh rejections count after the pause`() = runTest {
@@ -243,6 +239,7 @@ class RateLimitCooldownTest {
         val reading = checkNotNull(usage.snapshot(id))
         assertEquals(SnapshotStatus.OK, reading.status)
         assertEquals(50.0, reading.windows.single().remainingPercent!!, 0.0)
+        assertEquals(RATE_LIMITED_PAUSE_MESSAGE, reading.errorMessage)
 
         now = start + 1_800_000
         val attempts = requests
@@ -250,6 +247,10 @@ class RateLimitCooldownTest {
         assertEquals(attempts to emptyList<SyncOutcome>(), requests to outcomes)
         assertEquals(reading, usage.snapshot(id))
         assertEquals(start + 3_600_000, usage.backgroundNotBefore(id))
+
+        assertTrue(usageSync.syncAccount(id).success)
+        assertEquals(reading.copy(fetchedAt = now, lastAttemptAt = now), usage.snapshot(id))
+        assertEquals(now + 3_600_000, usage.backgroundNotBefore(id))
     }
 
     @Test fun `another account at the same usage provider is still read automatically`() = runTest {

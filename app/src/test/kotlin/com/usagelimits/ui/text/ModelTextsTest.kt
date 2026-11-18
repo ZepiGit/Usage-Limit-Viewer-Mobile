@@ -123,6 +123,12 @@ class ModelTextsEnglishTest {
     }
 
     @Test
+    fun `a legacy usage throttle invites a retry without claiming a pause`() {
+        assertEquals("Rate limited. Try again later.",
+            storedMessageText(resources, "Rate limited — try again shortly"))
+    }
+
+    @Test
     fun `only the app's own horizon names are translated, and only for a global window`() {
         assertEquals(com.usagelimits.R.string.window_label_five_hour, windowLabelRes("5h limit", WindowCategory.FIVE_HOUR, UsageScope.GLOBAL))
         assertEquals(com.usagelimits.R.string.window_label_weekly, windowLabelRes("Weekly", WindowCategory.WEEKLY, UsageScope.GLOBAL))

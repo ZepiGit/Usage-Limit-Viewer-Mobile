@@ -69,11 +69,13 @@ final class RateLimitCooldownTests: XCTestCase {
 
             static let usage = Reply(body: #"{"five_hour":{"utilization":21}}"#)
             static let xaiBilling = Reply(body: #"{"config":{"monthlyLimit":{"val":100},"used":{"val":20}}}"#)
-            static let codexUsage = Reply(body: #"""
-                {"rate_limit":{"primary_window":{"used_percent":25,"limit_window_seconds":18000}},
-                 "rate_limit_reset_credits":{"available_count":2,"applicable_available_count":1,
-                   "credits":[{"id":"embedded","status":"available"}]}}
-                """#)
+            static func codexUsage(usedPercent: Int) -> Reply {
+                Reply(body: #"""
+                    {"rate_limit":{"primary_window":{"used_percent":\#(usedPercent),"limit_window_seconds":18000}},
+                     "rate_limit_reset_credits":{"available_count":2,"applicable_available_count":1,
+                       "credits":[{"id":"embedded","status":"available"}]}}
+                    """#)
+            }
             static let antigravityUsage = Reply(body: #"""
                 {"groups":[{"displayName":"Gemini Models","buckets":[
                   {"bucketId":"gemini-5h","window":"5h","remainingFraction":0.5}]}]}
@@ -89,16 +91,23 @@ final class RateLimitCooldownTests: XCTestCase {
 
         private var replies: [String: [Reply]]
         private var attempts: [String: Int] = [:]
-        private let hold: (token: String, attempt: Int)?
+        private let requestKey: @Sendable (URLRequest) -> String
+        private let hold: (key: String, attempt: Int)?
         private var held: CheckedContinuation<Void, Never>?
         private var awaitingHold: CheckedContinuation<Void, Never>?
 
-        init(_ replies: [String: [Reply]], hold: (String, Int)? = nil) {
+        init(
+            _ replies: [String: [Reply]], hold: (String, Int)? = nil,
+            requestKey: @escaping @Sendable (URLRequest) -> String = {
+                String(($0.value(forHTTPHeaderField: "Authorization") ?? "").dropFirst("Bearer ".count))
+            }
+        ) {
             self.replies = replies
             self.hold = hold
+            self.requestKey = requestKey
         }
 
-        func count(_ token: String) -> Int { attempts[token, default: 0] }
+        func count(_ key: String) -> Int { attempts[key, default: 0] }
         var totalCount: Int { attempts.values.reduce(0, +) }
 
         func waitForHeldReply() async {
@@ -111,11 +120,11 @@ final class RateLimitCooldownTests: XCTestCase {
         }
 
         func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
-            let token = String((request.value(forHTTPHeaderField: "Authorization") ?? "").dropFirst("Bearer ".count))
-            attempts[token, default: 0] += 1
-            let reply = replies[token]?.isEmpty == false ? replies[token]!.removeFirst()
+            let key = requestKey(request)
+            attempts[key, default: 0] += 1
+            let reply = replies[key]?.isEmpty == false ? replies[key]!.removeFirst()
                 : Reply(status: 400, body: "Unexpected request")
-            if let hold, hold.token == token, hold.attempt == attempts[token] {
+            if let hold, hold.key == key, hold.attempt == attempts[key] {
                 await withCheckedContinuation {
                     held = $0
                     awaitingHold?.resume()
@@ -175,35 +184,40 @@ final class RateLimitCooldownTests: XCTestCase {
         XCTAssertEqual(manual.first?.snapshot?.status, .ok)
     }
 
-    func testCodexCreditsThrottleKeepsEmbeddedCreditsAndPausesForFinalHint() async throws {
+    func testCodexCreditsThrottleKeepsEmbeddedCreditsAndDoesNotPauseUsage() async throws {
         let credentials = InMemoryCredentialStore()
-        let transport = Transport(["codex": [.codexUsage] + Transport.Reply.limited("3600")])
-        let subject = container(transport, credentials: credentials, at: start)
+        let creditsEndpoint = "rate-limit-reset-credits"
+        func pass(usedPercent: Int) -> Transport {
+            Transport([
+                "usage": [.codexUsage(usedPercent: usedPercent)],
+                creditsEndpoint: Transport.Reply.limited("3600"),
+            ], requestKey: { $0.url?.lastPathComponent ?? "" })
+        }
+        let first = pass(usedPercent: 25)
+        let subject = container(first, credentials: credentials, at: start)
         try await addUsage("codex", to: subject, credentials: credentials, provider: .codex)
 
-        let reading = try await subject.refresh(automatic: true)
-        let snapshot = try XCTUnwrap(reading.first?.snapshot)
-        XCTAssertEqual(snapshot.status, .ok)
-        XCTAssertEqual(snapshot.windows.first?.usedPercent, 25)
-        XCTAssertEqual(snapshot.resetCredits.map(\.id), ["embedded"])
-        XCTAssertEqual(snapshot.resetCreditCount, 2)
-        XCTAssertEqual(snapshot.applicableResetCreditCount, 1)
+        let initial = try await subject.refresh(automatic: true).first?.snapshot
+        let firstCreditAttempts = await first.count(creditsEndpoint)
+        XCTAssertEqual(firstCreditAttempts, 1, "the optional endpoint must not retry within the first pass")
+        XCTAssertEqual(initial?.status, .ok)
+        XCTAssertEqual(initial?.windows.first?.usedPercent, 25)
+        XCTAssertEqual(initial?.resetCredits.map(\.id), ["embedded"], "a 429 must preserve embedded credit rows")
+        XCTAssertEqual(initial?.resetCreditCount, 2, "a 429 must preserve the embedded credit balance")
+        XCTAssertEqual(initial?.applicableResetCreditCount, 1, "a 429 must preserve the applicable credit count")
+        XCTAssertNil(initial?.statusMessage, "throttling only the optional read must not show a pause notice")
 
-        let next = Transport(["codex": [.codexUsage, .init(body: "{}")]])
-        for elapsed: TimeInterval in [300, 3_599] {
-            let reopened = container(next, credentials: credentials, at: start.addingTimeInterval(elapsed))
-            let skipped = try await reopened.refresh(automatic: true)
-            let calls = await next.totalCount
-            XCTAssertEqual(calls, 0)
-            XCTAssertEqual(skipped.first?.snapshot, snapshot)
-        }
-        let atExpiry = container(next, credentials: credentials, at: start.addingTimeInterval(3_600))
-        try await atExpiry.refresh(automatic: true)
-        let calls = await next.totalCount
-        XCTAssertEqual(calls, 2, "both endpoints can be read at the deadline")
+        let next = pass(usedPercent: 35)
+        let reopened = container(next, credentials: credentials, at: start.addingTimeInterval(300))
+        let updated = try await reopened.refresh(automatic: true).first?.snapshot
+        let nextUsageAttempts = await next.count("usage")
+        let nextCreditAttempts = await next.count(creditsEndpoint)
+        XCTAssertEqual(nextUsageAttempts, 1, "the next automatic pass must still read usage")
+        XCTAssertEqual(nextCreditAttempts, 1, "the next pass must make exactly one optional request")
+        XCTAssertEqual(updated?.windows.first?.usedPercent, 35, "the next reading must replace the old one")
     }
 
-    func testAntigravityKeepsHealthyShardReadingAndUsesLongestThrottle() async throws {
+    func testAntigravityShowsPauseWithoutTurningAUsableReadingIntoAnError() async throws {
         let credentials = InMemoryCredentialStore()
         let transport = Transport(["antigravity": Transport.Reply.limited("1800") + [
             .antigravityUsage, .init(status: 429, body: "", headers: ["Retry-After": "3600"]),
@@ -212,22 +226,41 @@ final class RateLimitCooldownTests: XCTestCase {
         try await addUsage("antigravity", to: subject, credentials: credentials, provider: .antigravity,
             attributes: ["project_id": "synthetic-project"])
 
-        let reading = try await subject.refresh(automatic: true)
-        let snapshot = try XCTUnwrap(reading.first?.snapshot)
-        XCTAssertEqual(snapshot.status, .ok)
-        XCTAssertEqual(snapshot.windows.first { $0.id == "gemini-5h" }?.usedPercent, 50)
+        try await subject.refresh(automatic: true)
+        let glance = GlanceSnapshotCodec.read(fromDirectory: directory).accounts.first
+        XCTAssertEqual(glance?.statusMessage.flatMap { StoredMessage.classify($0) },
+            .rateLimited(trailingStatus: nil), "the published card must explain why refresh is paused")
+        XCTAssertEqual(glance?.severity, .medium, "the notice must not turn a usable card into an error")
+        XCTAssertEqual(glance?.rows.first?.remainingPercent, 50, "the usable window must remain visible")
 
-        let next = Transport(["antigravity": [.antigravityUsage, .init(body: "{}"), .init(body: "{}")]])
-        let beforeExpiry = container(next, credentials: credentials, at: start.addingTimeInterval(3_599))
+        let retryTime = start.addingTimeInterval(3_599)
+        let next = Transport(["antigravity": [
+            .antigravityUsage, .init(body: "{}"), .init(status: 429, body: "", headers: ["Retry-After": "3600"]),
+            .antigravityUsage, .init(body: "{}"), .init(body: "{}"),
+        ]])
+        let beforeExpiry = container(next, credentials: credentials, at: retryTime)
         let skipped = try await beforeExpiry.refresh(automatic: true)
         let skippedCalls = await next.totalCount
-        XCTAssertEqual(skippedCalls, 0)
-        XCTAssertEqual(skipped.first?.snapshot, snapshot)
+        XCTAssertEqual(skippedCalls, 0, "the longest throttle must survive reopening")
+        XCTAssertEqual(skipped.first?.snapshot?.status, .ok)
+        XCTAssertEqual(skipped.first?.snapshot?.fetchedAt, start, "the pause must not replace the last usable reading")
 
-        let atExpiry = container(next, credentials: credentials, at: start.addingTimeInterval(3_600))
+        let manual = try await beforeExpiry.refresh()
+        XCTAssertEqual(manual.first?.snapshot?.status, .ok)
+        XCTAssertEqual(manual.first?.snapshot?.fetchedAt, retryTime, "manual refresh must bypass the pause")
+        let retriedGlance = GlanceSnapshotCodec.read(fromDirectory: directory).accounts.first
+        XCTAssertEqual(retriedGlance?.statusMessage.flatMap { StoredMessage.classify($0) },
+            .rateLimited(trailingStatus: nil), "a manual refresh that throttles again must keep explaining the pause")
+
+        let oldExpiry = container(next, credentials: credentials, at: start.addingTimeInterval(3_600))
+        try await oldExpiry.refresh(automatic: true)
+        let rearmedCalls = await next.totalCount
+        XCTAssertEqual(rearmedCalls, 3, "the manual pass must rearm the pause while a shard still throttles")
+
+        let atExpiry = container(next, credentials: credentials, at: retryTime.addingTimeInterval(3_600))
         try await atExpiry.refresh(automatic: true)
         let calls = await next.totalCount
-        XCTAssertEqual(calls, 3)
+        XCTAssertEqual(calls, 6, "all three shards can be read at the new deadline")
     }
 
     func testXaiMixedAuthAndThrottlePausesWithoutRenewingAndCanRetryAuthAfterExpiry() async throws {

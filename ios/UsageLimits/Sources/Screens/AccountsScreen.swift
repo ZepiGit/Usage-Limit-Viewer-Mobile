@@ -185,9 +185,11 @@ private struct AccountSummaryCard: View {
                 // The failure is shown on the account it belongs to, beside the numbers it
                 // could not update — the one place a user can act on it. A sign-in that has
                 // expired is answered from the menu, not by trying again.
+                let isPausedReading: Bool = if snapshot?.status == .ok,
+                    case .rateLimited? = StoredMessage.classify(message) { true } else { false }
                 NoticeLine(
-                    message: message, dot: UsageColors.negative,
-                    retry: snapshot?.connectionStatus == .reconnectRequired
+                    message: message, dot: isPausedReading ? UsageColors.warning : UsageColors.negative,
+                    retry: isPausedReading || snapshot?.connectionStatus == .reconnectRequired
                         ? nil : { Task { await store.refresh() } })
             }
 

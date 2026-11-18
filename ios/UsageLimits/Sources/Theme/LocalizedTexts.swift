@@ -141,8 +141,12 @@ enum DisplayText {
         case .rateLimited(let trailingStatus):
             let pause = String(localized: "Rate limited. Automatic refresh is paused. Refresh manually to try now.")
             return trailingStatus.map { pause + " · " + stored($0) } ?? pause
-        case .rateLimitRequest:
-            return String(localized: "Rate limited. Try again later.")
+        case .rateLimitRequest, .rateLimitRequestWithStatus:
+            let request = String(localized: "Rate limited. Try again later.")
+            if case .rateLimitRequestWithStatus(let trailingStatus) = known {
+                return request + " · " + stored(trailingStatus)
+            }
+            return request
         case .noCredentials:
             return String(localized: "No credentials are stored for the account.")
         case .signInRefused(let reason):

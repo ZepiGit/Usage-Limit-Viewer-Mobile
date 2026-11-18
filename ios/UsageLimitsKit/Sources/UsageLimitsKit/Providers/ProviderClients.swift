@@ -287,8 +287,7 @@ public struct CodexClient: SyncProvider, Sendable {
             resetCredits: credits.rows,
             resetCreditCount: credits.available,
             applicableResetCreditCount: CodexUsageParser.applicableCreditCount(embedded),
-            plan: plan,
-            rateLimit: credits.rateLimit
+            plan: plan
         )
     }
 
@@ -340,11 +339,12 @@ public struct CodexClient: SyncProvider, Sendable {
     /// already succeeded and remains worth showing. Every failure — including an
     /// authorisation rejection, which would be odd given the call above just succeeded with
     /// the same token — degrades to the slightly stale embedded copy rather than discarding
-    /// the whole result.
+    /// the whole result. Try the optional read once per pass rather than retrying it within
+    /// the pass or pausing the main reading on a throttle.
     private func fetchResetCredits(
         headers: [String: String],
         usagePayload: [String: Any]
-    ) async throws -> (rows: [ResetCredit], available: Int?, rateLimit: UsageResult.RateLimit?) {
+    ) async throws -> (rows: [ResetCredit], available: Int?) {
         do {
             let response = try await ProviderHTTP.request(
                 httpClient,
@@ -352,13 +352,13 @@ public struct CodexClient: SyncProvider, Sendable {
                 method: "GET",
                 headers: headers,
                 body: nil,
-                endpoint: "codex reset credits"
+                endpoint: "codex reset credits",
+                retries: 0
             )
             let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "codex reset credits")
             return (
                 rows: CodexUsageParser.parseResetCredits(payload),
-                available: CodexUsageParser.availableCreditCount(payload),
-                rateLimit: nil
+                available: CodexUsageParser.availableCreditCount(payload)
             )
         } catch let error as CancellationError {
             // Cancellation is the caller's decision, not an endpoint fault to absorb.
@@ -367,8 +367,7 @@ public struct CodexClient: SyncProvider, Sendable {
             let embedded = JSONSupport.object(usagePayload, "rate_limit_reset_credits", "rateLimitResetCredits")
             return (
                 rows: CodexUsageParser.parseEmbeddedResetCredits(usagePayload),
-                available: CodexUsageParser.availableCreditCount(embedded),
-                rateLimit: (error as? ProviderError)?.usageRateLimit
+                available: CodexUsageParser.availableCreditCount(embedded)
             )
         }
     }
@@ -526,7 +525,10 @@ public struct AntigravityClient: SyncProvider, Sendable {
             !($0.isPlaceholder && $0.window.group.map(groupsWithWindows.contains) == true)
         }.map(\.window).filter { seenIDs.insert($0.id).inserted }
         if !allWindows.isEmpty {
-            return UsageResult(windows: allWindows, rateLimit: rateLimit?.usageRateLimit)
+            return UsageResult(
+                windows: allWindows,
+                errorMessage: rateLimit == nil ? nil : StoredMessage.rateLimitedPauseMessage,
+                rateLimit: rateLimit?.usageRateLimit)
         }
 
         // Honor a throttle when no host supplied usage; a different shard's auth rejection

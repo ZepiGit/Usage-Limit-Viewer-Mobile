@@ -670,13 +670,21 @@ final class LocalizedTextsTests: XCTestCase {
 
     func testThrottleNoticesClassifyForAccountAndCreditDisplays() {
         let pause = "Rate limited. Automatic refresh is paused. Refresh manually to try now."
-        for message in [pause, "No usage could be read (claude usage is rate limiting this account).",
-                        "No balance could be read (deepseek balance is rate limiting this key)."] {
-            XCTAssertEqual(StoredMessage.classify(message), .rateLimited(trailingStatus: nil))
-        }
+        XCTAssertEqual(StoredMessage.classify(pause), .rateLimited(trailingStatus: nil))
         let restriction = "Restricted: Code review · Limit reached"
         XCTAssertEqual(StoredMessage.classify(pause + " · " + restriction), .rateLimited(trailingStatus: restriction))
         XCTAssertEqual(StoredMessage.classify("Rate limited. Try again later."), .rateLimitRequest)
+    }
+
+    func testLegacyThrottleNoticesDoNotClaimAutomaticRefreshIsPaused() {
+        let usage = "No usage could be read (claude usage is rate limiting this account)."
+        let balance = "No balance could be read (deepseek balance is rate limiting this key)."
+        XCTAssertEqual(StoredMessage.classify(usage), .rateLimitRequest)
+        XCTAssertEqual(StoredMessage.classify(balance), .rateLimitRequest)
+        let restriction = "Restricted: Code review · Limit reached"
+        XCTAssertEqual(StoredMessage.classify(usage + " · " + restriction),
+            .rateLimitRequestWithStatus(trailingStatus: restriction),
+            "a joined legacy notice must keep the entire status without claiming a pause")
     }
 
     func testTheDetailInsideASentenceIsCarriedOverAsWritten() {

@@ -113,7 +113,7 @@ class SyncEngine(
 
             val fetchedAt = nowMs()
             val rateLimit = result.rateLimit
-            val message = if (rateLimit != null && result.status == SnapshotStatus.PARTIAL) {
+            val message = if (rateLimit != null) {
                 RATE_LIMITED_PAUSE_MESSAGE
             } else result.errorMessage
             repository.saveSnapshot(

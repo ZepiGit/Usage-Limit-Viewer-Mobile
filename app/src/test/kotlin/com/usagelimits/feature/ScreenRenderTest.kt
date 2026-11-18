@@ -26,6 +26,7 @@ import com.usagelimits.feature.accounts.AccountDetailScreen
 import com.usagelimits.feature.accounts.AddAccountScreen
 import com.usagelimits.feature.accounts.AddAccountState
 import com.usagelimits.feature.accounts.AccountsScreen
+import com.usagelimits.feature.overview.AccountCard
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
@@ -133,6 +134,23 @@ class ScreenRenderTest {
             "the window label should be on screen",
             compose.onAllNodesWithText("5h limit", substring = true)
                 .fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test
+    fun `an otherwise current Overview card shows a pause without presenting a failure`() {
+        render {
+            AccountCard(
+                usage = pausedAntigravity(), nowMs = now, staleAfterMs = 3_600_000,
+                percentDisplay = PercentDisplay.LEFT, onRetry = {}, onClick = {},
+            )
+        }
+
+        compose.onNodeWithText(pauseNotice, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("60%", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("showing last known data", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("partial update", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("Stale", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("Error", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test
@@ -431,6 +449,21 @@ class ScreenRenderTest {
             .fetchSemanticsNodes().isNotEmpty())
         assertTrue(compose.onAllNodesWithText("The figures below are the last values that loaded successfully.")
             .fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun `account detail shows the pause without treating the current reading as cached`() {
+        renderDetail(pausedAntigravity())
+
+        compose.onNodeWithText(pauseNotice).assertIsDisplayed()
+        compose.onNodeWithText("The figures below are the last values that loaded successfully.").assertDoesNotExist()
+        compose.onNodeWithText("Error").assertDoesNotExist()
+    }
+
+    private val pauseNotice = "Rate limited. Automatic refresh is paused. Refresh manually to try now."
+
+    private fun pausedAntigravity() = usage(provider = ProviderId.ANTIGRAVITY).let {
+        it.copy(snapshot = it.snapshot!!.copy(errorMessage = pauseNotice))
     }
 
     @Test

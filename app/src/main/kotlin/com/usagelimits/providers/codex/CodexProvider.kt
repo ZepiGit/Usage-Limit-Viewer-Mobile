@@ -360,12 +360,8 @@ class CodexProvider(
             "rate_limit_reset_credits",
             "rateLimitResetCredits",
         )
-        var rateLimit: ProviderException.RateLimited? = null
         val dedicated = try {
             fetchResetCredits(account, credentials)
-        } catch (e: ProviderException.RateLimited) {
-            rateLimit = e
-            null
         } catch (e: CancellationException) {
             // Cancellation is the caller's decision, not an endpoint fault to absorb.
             throw e
@@ -389,7 +385,6 @@ class CodexProvider(
             applicableResetCreditCount = applicable,
             status = if (creditsUnknown) SnapshotStatus.PARTIAL else SnapshotStatus.OK,
             errorMessage = if (creditsUnknown) "Reset credits could not be refreshed" else null,
-            rateLimit = rateLimit,
         )
     }
 
@@ -419,6 +414,7 @@ class CodexProvider(
         val response = http.request(
             url = Codex.RESET_CREDITS_URL,
             headers = usageHeaders(account, credentials) + Codex.RESET_CREDIT_HEADERS,
+            retries = 0,
         )
         return creditsFrom(JsonSupport.parseObject(response.body))
     }

@@ -9,9 +9,9 @@ import Foundation
 /// row in the new language and leaves the data untouched.
 ///
 /// Only whole sentences the kit itself produces are recognised, and anything else — a
-/// provider's own error text, a sentence from a later build, several messages joined into one
-/// status line — is `nil`: the caller shows it exactly as stored. Associated values carry what
-/// the sentence interpolates (a window list, a diagnostic detail), which is data as well.
+/// provider's own error text, a sentence from a later build, most joined status lines — is
+/// `nil`: the caller shows it exactly as stored. Associated values carry what the sentence
+/// interpolates (a window list, a diagnostic detail), which is data as well.
 ///
 /// The Android twin is `storedMessageText`, which matches the same sentences by regular
 /// expression. A test feeds every producer's real output through `classify`, so rewording a
@@ -28,6 +28,7 @@ public enum StoredMessage: Sendable, Equatable {
     case noUsage(detail: String)
     case rateLimited(trailingStatus: String?)
     case rateLimitRequest
+    case rateLimitRequestWithStatus(trailingStatus: String)
     case noCredentials
 
     static let rateLimitedPauseMessage = "Rate limited. Automatic refresh is paused. Refresh manually to try now."
@@ -162,11 +163,16 @@ public enum StoredMessage: Sendable, Equatable {
             || message.hasPrefix("No balance could be read (") else { return nil }
         let separator = message.range(of: " · ")
         let first = message[..<(separator?.lowerBound ?? message.endIndex)]
-        guard first == rateLimitedPauseMessage
-            || (first.hasPrefix("No usage could be read (") && first.hasSuffix(" is rate limiting this account)."))
+        if first == rateLimitedPauseMessage {
+            return .rateLimited(trailingStatus: separator.map { String(message[$0.upperBound...]) })
+        }
+        guard (first.hasPrefix("No usage could be read (") && first.hasSuffix(" is rate limiting this account)."))
             || (first.hasPrefix("No balance could be read (") && first.hasSuffix(" is rate limiting this key)."))
         else { return nil }
-        return .rateLimited(trailingStatus: separator.map { String(message[$0.upperBound...]) })
+        if let separator {
+            return .rateLimitRequestWithStatus(trailingStatus: String(message[separator.upperBound...]))
+        }
+        return .rateLimitRequest
     }
 
     /// The wording an earlier build stored for the same condition as `signInExpired`.
