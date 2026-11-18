@@ -9,13 +9,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import com.usagelimits.UsageLimitsApp
@@ -32,6 +35,7 @@ import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.feature.waitDrained
 import com.usagelimits.statusicon.StatusIconPublisher
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -210,6 +214,187 @@ class StatusIconBlockedTest {
         assertTrue("turning the category on shows the pinned account's icon on return", eventually { statusRecords().size == 2 })
         shown("Status bar icons can be shown.")
         compose.onNodeWithText("Open category settings").assertDoesNotExist()
+    }
+
+    /** What a person can switch off in Android that keeps every status icon away. */
+    private enum class Block(val note: String) {
+        APP("Status bar icons cannot be shown until notifications are allowed."),
+        PERMISSION("Status bar icons cannot be shown until notifications are allowed."),
+        CATEGORY("Status bar icons cannot be shown while their notification category is turned off."),
+    }
+
+    /** The runtime permission exists from Android 13 only. */
+    private fun blocks() = Block.entries.filter { it != Block.PERMISSION || android.os.Build.VERSION.SDK_INT >= 33 }
+
+    /** Switches [block] off as Android does it: what the channel showed is removed. */
+    private fun switchOff(block: Block) {
+        when (block) {
+            Block.APP -> shadowOf(manager).setNotificationsEnabled(false)
+            Block.PERMISSION -> shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+            Block.CATEGORY -> blockCategory()
+        }
+        statusRecords().forEach { manager.cancel(it.tag, it.id) }
+    }
+
+    private fun switchOn(block: Block) = when (block) {
+        Block.APP -> shadowOf(manager).setNotificationsEnabled(true)
+        Block.PERMISSION -> shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        Block.CATEGORY -> unblockCategory()
+    }
+
+    private suspend fun account(name: String, provider: ProviderId, left: Double): ProviderAccount {
+        val repository = app.container.repository
+        val account = repository.upsertFromLogin(provider, "$name-${System.nanoTime()}", null, name, null, emptyMap())
+        val now = System.currentTimeMillis()
+        repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.OK, windows = listOf(
+            UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR, usedPercent = 100.0 - left, periodSeconds = 18_000,
+                resetAt = now + 3_600_000, exhausted = false))))
+        return account
+    }
+
+    /** The accounts whose icon is in the status bar, by their tap destination. */
+    private fun showing(): Set<String> =
+        statusRecords().map { shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId")!! }.toSet()
+
+    private fun dismiss(account: ProviderAccount) {
+        statusRecords().filter { shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId") == account.localId }
+            .forEach { manager.cancel(it.tag, it.id) }
+    }
+
+    /**
+     * Alpha (5 % left, an alert the first time it is evaluated) and Beta, both pinned and both
+     * showing, with no alert yet.
+     */
+    private fun twoPinned(): Pair<ProviderAccount, ProviderAccount> = runBlocking {
+        val alpha = app.container.repository.accountUsageOnce().single().account
+        val beta = account("Beta", ProviderId.CODEX, 42.0)
+        app.container.settingsStore.setPinnedAccounts(listOf(alpha.localId, beta.localId))
+        app.container.publication.presentationChanged()
+        assertEquals(setOf(alpha.localId, beta.localId), showing())
+        alpha to beta
+    }
+
+    /** Two accounts pinned and showing, on the Settings screen. */
+    private fun renderTwoPinned(): Pair<ProviderAccount, ProviderAccount> {
+        val pair = twoPinned()
+        render()
+        compose.waitDrained { vm.state.value.accounts.size == 2 }
+        return pair
+    }
+
+    /**
+     * Two pinned, Beta swiped away; each [Block] switched off and seen by Settings; then, while
+     * the person is still in Android's settings, [during]; then switched on and back to Settings.
+     */
+    private fun unblockAfter(during: suspend () -> Unit) {
+        val (alpha, beta) = renderTwoPinned()
+        val viewModelJob = vm.viewModelScope.coroutineContext[Job]!!
+        // The screen's state observer lives as long as the view model; every other job is a publication.
+        val observers = viewModelJob.children.toSet()
+        for (block in blocks()) {
+            assertEquals("$block: both showing before", setOf(alpha.localId, beta.localId), showing())
+            dismiss(beta)
+            assertEquals(setOf(alpha.localId), showing())
+
+            returnAfter { switchOff(block) }
+            shown(block.note)
+            assertEquals("$block: nothing shows while switched off", 0, statusRecords().size)
+
+            var alertsBefore = 0
+            returnAfter {
+                runBlocking { during() }
+                alertsBefore = alertRecords().size
+                switchOn(block)
+            }
+            assertTrue("$block: switching it on brings every pinned icon back, the swiped one too",
+                eventually { showing() == setOf(alpha.localId, beta.localId) && statusRecords().size == 4 })
+            // Whatever the edge started has ended, alerts included, before they are counted.
+            compose.waitDrained { (viewModelJob.children.toSet() - observers).isEmpty() }
+            shown("Status bar icons can be shown.")
+            assertEquals("$block: allowing again posts no alert", alertsBefore, alertRecords().size)
+        }
+    }
+
+    /** The unblocking evaluated no alert and claimed none: the next sync still raises it. */
+    private fun alertStillPending() {
+        assertEquals(0, alertRecords().size)
+        runBlocking { app.container.publication.cacheMoved() }
+        assertEquals(1, alertRecords().size)
+    }
+
+    @Test
+    fun `allowing again brings every pinned icon back when nothing was published while blocked`() {
+        unblockAfter { }
+        alertStillPending()
+    }
+
+    @Test
+    fun `allowing again brings every pinned icon back after a presentation change while blocked`() {
+        unblockAfter { app.container.publication.presentationChanged() }
+        alertStillPending()
+    }
+
+    @Test
+    fun `allowing again brings every pinned icon back after a sync while blocked`() {
+        unblockAfter { app.container.publication.cacheMoved() }
+    }
+
+    @Test
+    fun `an account unpinned while blocked stays away when allowed again`() {
+        val (alpha, beta) = renderTwoPinned()
+        returnAfter { switchOff(Block.CATEGORY) }
+        shown(Block.CATEGORY.note)
+
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasContentDescription("Pin Claude"))
+        compose.onNodeWithContentDescription("Pin Claude").performClick()
+        compose.waitDrained { vm.state.value.settings.pinnedAccountIds == listOf(beta.localId) && vm.state.value.pendingPins.isEmpty() }
+
+        returnAfter(::unblockCategory)
+        assertTrue("only the account still pinned returns", eventually { showing() == setOf(beta.localId) })
+        assertEquals(2, statusRecords().size)
+        assertTrue(alpha.localId !in showing())
+    }
+
+    @Test
+    fun `the feature switched off while blocked stays off when allowed again`() {
+        renderTwoPinned()
+        returnAfter { switchOff(Block.APP) }
+        shown(Block.APP.note)
+
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasContentDescription("Show status bar icons"))
+        compose.onNodeWithContentDescription("Show status bar icons").performClick()
+        compose.waitDrained { !vm.state.value.settings.statusIconsEnabled }
+
+        returnAfter { shadowOf(manager).setNotificationsEnabled(true) }
+        shown("Status bar icons can be shown.")
+        ShadowLooper.idleMainLooper()
+        runBlocking { app.container.publication.presentationChanged() }
+        assertEquals("switched off stays off", 0, statusRecords().size)
+    }
+
+    /**
+     * Allowed again in Android without coming back to the app: no edge is observed. The next sync
+     * brings every pinned icon back. A presentation change before it is best effort: it brings
+     * them all back if a publication noticed the block, otherwise nothing.
+     */
+    @Test
+    fun `allowed again without returning, the next sync brings every pinned icon back and a presentation change is best effort`() = runBlocking {
+        val (alpha, beta) = twoPinned()
+        val both = setOf(alpha.localId, beta.localId)
+        dismiss(beta)
+        switchOff(Block.CATEGORY)
+        unblockCategory()
+        app.container.publication.presentationChanged()
+        assertEquals("no publication saw the block: a presentation change brings nothing back", emptySet<String>(), showing())
+        app.container.publication.cacheMoved()
+        assertEquals("the next sync brings every pinned icon back", both, showing())
+
+        dismiss(beta)
+        switchOff(Block.CATEGORY)
+        app.container.publication.presentationChanged()
+        unblockCategory()
+        app.container.publication.presentationChanged()
+        assertEquals("a publication saw the block: a presentation change brings them all back", both, showing())
     }
 
     @Test

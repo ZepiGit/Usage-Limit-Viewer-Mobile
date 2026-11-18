@@ -9,7 +9,7 @@ Why it is built this way is recorded in [ADR 0003](adr/0003-status-icons-and-loc
 ## Setup on Android
 
 1. Open Settings and find **Status bar icons**.
-2. Turn on **Show status bar icons**. If notifications are not allowed, the app asks for permission on Android 13 and later while Android still offers its dialog; otherwise, and on Android 12 and earlier, where notifications are on by default but can be switched off for the app, it opens Android's notification settings for the app. Until notifications are allowed, the section says "Status bar icons cannot be shown until notifications are allowed." The **Notifications** card in Settings offers the same way back later. If you switched off only the **Status bar icons** notification category, alerts still arrive and the section says "Status bar icons cannot be shown while their notification category is turned off.", with **Open category settings** to switch it on again. Back in the app, the icons appear without waiting for a sync, whichever of the two you switched on.
+2. Turn on **Show status bar icons**. If notifications are not allowed, the app asks for permission on Android 13 and later while Android still offers its dialog; otherwise, and on Android 12 and earlier, where notifications are on by default but can be switched off for the app, it opens Android's notification settings for the app. Until notifications are allowed, the section says "Status bar icons cannot be shown until notifications are allowed." The **Notifications** card in Settings offers the same way back later. If you switched off only the **Status bar icons** notification category, alerts still arrive and the section says "Status bar icons cannot be shown while their notification category is turned off.", with **Open category settings** to switch it on again. Back in the app, every pinned account's icon appears without waiting for a sync, whichever of the two you switched on, also one you had swiped away: allowing them again counts like turning the feature on.
 3. Under **Pinned accounts**, pin up to three accounts. With three pinned, the section reads "3 of 3 pinned" and the other accounts cannot be pinned until you unpin one.
 
 Turning the switch on or off, pinning and unpinning make the app post or remove the icons without waiting for a sync. After that the icons follow every refresh, by hand or in the background. When a reading turns stale or a reset time passes without a refresh, the app schedules a repaint for that moment; Android may run it later. Removing an account also releases its pin.
@@ -77,7 +77,7 @@ If the widget cannot read the app's data before the first unlock after a restart
 
 ## Swiping an icon away
 
-On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting, reordering accounts or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, makes the app post it again without waiting for a sync. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
+On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting, reordering accounts or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, makes the app post it again without waiting for a sync. So does allowing the app's notifications or the Status bar icons category again after they were switched off in Android: Android removed every icon then, and when you return to the app every pinned account's icon comes back, the swiped one too. An account you unpinned, or the feature switched off, while they were blocked stays that way. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
 
 After the phone restarts, the icons normally return under the same conditions with the refresh that starts when you open the app, or with the next background refresh at your chosen interval if you leave it closed; Android may run it later.
 
@@ -85,7 +85,7 @@ This holds when a publication runs to its end. Around a crash or a permission ch
 
 - If the app is stopped between saving the list of accounts it means to show and posting them, the missing icons wait for the next sync.
 - If that saved list is lost, a later repaint can bring back an icon you swiped away before the next sync.
-- If you withdraw the notification permission, or switch notifications or the Status bar icons category off, and allow them again with no publication in between and without returning to the app's Settings, the icons may wait for the next sync.
+- If you allow notifications or the Status bar icons category again in Android and do not return to the app, the next sync brings every pinned icon back. A repaint before that sync brings them back only if the app published while they were blocked; otherwise it shows nothing until the sync.
 
 ## Limits
 

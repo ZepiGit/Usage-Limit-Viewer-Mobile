@@ -417,14 +417,15 @@ class UsageViewModel(
 
 
     /**
-     * Notifications became allowed, through the dialog or the system's settings.
+     * Settings saw notifications become allowed, through the dialog or the system's settings, or
+     * the "Status bar icons" category switched on again.
      *
-     * Nothing could be posted before, so the status icons of the accounts already chosen appear
-     * now, from the cache. A presentation change, not a cache move: no reading is new, so alerts
-     * are not evaluated, and no provider is asked.
+     * Nothing could be shown before, so every pinned account's icon appears now, from the cache,
+     * also one swiped away before the block. Not a cache move: no reading is new, so alerts are
+     * not evaluated, and no provider is asked.
      */
     fun notificationsAllowed() {
-        viewModelScope.launch { container.publication.presentationChanged() }
+        viewModelScope.launch { container.publication.notificationsAllowedAgain() }
     }
 
     fun recordNotificationPermissionHandled() {
