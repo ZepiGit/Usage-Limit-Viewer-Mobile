@@ -11,6 +11,12 @@
         -->
         <item name="android:windowSplashScreenBackground" tools:targetApi="s">#0F0F0E</item>
         <!--
+          The launcher icon has no background layer of its own, and the splash screen then sets
+          it on a plate, white by default (seen on the emulator once the splash was dark). In the
+          ground colour the plate disappears and the icon stands on the ground.
+        -->
+        <item name="android:windowSplashScreenIconBackgroundColor" tools:targetApi="s">#0F0F0E</item>
+        <!--
           The widget picker shows the user the exact panel colour they are choosing. OEM
           "dark mode for third-party apps" (OxygenOS/ColorOS) is Force Dark, which repaints light
           fills dark, so a White swatch would preview as black; this theme is already dark, so
