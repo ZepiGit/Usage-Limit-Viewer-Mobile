@@ -63,8 +63,10 @@ jobs:
       - name: Test the runtime smoke's own checks
         run: python3 -m unittest discover -s tools -p 'test_android_runtime_smoke.py'
 
+      # captureDir makes the capture tests write what they render: every screen, and the motion
+      # tests' frame sequences under motion/ (one PNG per 16 ms step of the test clock).
       - name: Test
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug -PcaptureDir="$PWD/app/build/reports/captures"
 
       - name: Upload the test report
         if: always()
@@ -83,6 +85,7 @@ jobs:
             app/build/test-results/testDebugUnitTest
             app/build/reports/lint-results-debug.*
             app/build/reports/widget-renderings
+            app/build/reports/captures
             app/schemas
           if-no-files-found: error
 

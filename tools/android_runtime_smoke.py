@@ -24,6 +24,9 @@ import zlib
 
 PACKAGE = "com.usagelimits"
 SETTING = "Show subscription tier"
+# The animator scale while motion frames are captured: slow enough for `screencap`, which takes
+# a few hundred milliseconds a frame on the software-rendered emulator.
+MOTION_SCALE = 10
 
 
 def run(*args, timeout=40, binary=False):
@@ -196,6 +199,17 @@ def scaled_crop(frame, box, scale):
         line = b"".join(rows[y][x * channels:(x + 1) * channels] * scale for x in range(x1, x2))
         lines += [line] * scale
     return png_bytes((x2 - x1) * scale, (y2 - y1) * scale, channels, lines)
+
+
+def motion_sequence(name, says, samples):
+    """One captured motion: its frames in order, and whether more than one distinct frame was seen.
+
+    Frames are compared by the bytes `screencap -p` wrote, so a status-bar clock that ticks during
+    the burst counts as one more distinct frame; the pictures are the evidence, this is the index.
+    """
+    distinct = len({sample["sha256"] for sample in samples})
+    return {"name": name, "says": says, "frames": samples, "distinctFrames": distinct,
+            "motionObserved": distinct > 1}
 
 
 def matches(root, label):
@@ -1235,6 +1249,95 @@ class Smoke:
         raise AssertionError(f"No accepted press frame (capture start/end s after the {hold_ms} ms hold began, "
                              f"reason): {timings}; see {name}-ripple.json")
 
+    def burst(self, name, seconds):
+        """Screenshots taken back to back for `seconds`, each with when it started and ended."""
+        samples, started = [], time.monotonic()
+        while len(samples) < 4 or (time.monotonic() - started < seconds and len(samples) < 24):
+            begin = time.monotonic() - started
+            data = self.adb("exec-out", "screencap", "-p", binary=True)
+            filename = f"{name}-{len(samples):02d}"
+            self.write_screenshot(filename, data)
+            samples.append({"file": filename + ".png", "startSeconds": round(begin, 3),
+                            "endSeconds": round(time.monotonic() - started, 3),
+                            "sha256": hashlib.sha256(data).hexdigest()})
+        return samples
+
+    def capture_motion(self, name):
+        """#81: frame sequences of the app's main motions, slowed down so a screenshot can catch them.
+
+        The rest of the smoke runs with animations off. Here the animator scale is MOTION_SCALE, so a
+        180 ms fade lasts 1.8 s and several `screencap` frames land inside it; the curve and the
+        order of events are the app's own, only stretched. Window and transition scales stay 0, so
+        system window motion (the splash screen's exit) is not part of what these frames show.
+
+        This is evidence, not a gate: a capture that goes wrong is recorded in the report and the
+        smoke carries on, because the next step force-stops and relaunches the app anyway. Only
+        failing to turn animations off again is fatal, since every later check relies on that.
+        """
+        report = {"result": "incomplete", "animatorScale": MOTION_SCALE, "sequences": [],
+                  "scope": "Empty-account build: launch overlay, tab switch, segment selection, push and pop. "
+                           "Motions that need accounts (bars, figures, list items) are covered by the "
+                           "Robolectric frame tests under com.usagelimits.ui.motion."}
+
+        def record():
+            self.text(name + ".json", json.dumps(report, indent=2))
+
+        def sequence(label, says, seconds, trigger):
+            trigger()
+            report["sequences"].append(motion_sequence(label, says, self.burst(f"{name}-{label}", seconds)))
+            record()
+
+        def tap(node, what):
+            assert node is not None, f"Motion capture found no {what}"
+            self.tap(node)
+
+        activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
+        self.adb("shell", "settings", "put", "global", "animator_duration_scale", str(MOTION_SCALE))
+        try:
+            report["animatorScaleReadBack"] = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
+            self.adb("shell", "am", "force-stop", PACKAGE)
+            sequence("launch", "Process start: the launch overlay's icon rises, then the overlay dissolves over Overview.",
+                     9, lambda: self.adb("shell", "am", "start", "-n", activity))
+            root = self.wait_for(name + "-launched", lambda root: navigation_target(root, "Overview") is not None)
+
+            sequence("tab", "Overview to Accounts: two peers crossfade.", 3,
+                     lambda: tap(navigation_target(root, "Accounts"), "Accounts tab"))
+            root = self.wait_for(name + "-accounts", lambda root: selected_tab(root, "Accounts")
+                                 and self.control(root, PACKAGE, label="Needs attention") is not None)
+
+            sequence("segment", "Accounts filter: the selected pill fades from All to Needs attention.", 2.5,
+                     lambda: tap(self.control(root, PACKAGE, label="Needs attention"), "Needs attention segment"))
+            root = self.wait_for(name + "-segment-selected", lambda root: (
+                (held := self.control(root, PACKAGE, label="Needs attention")) is not None and self.selected(held)))
+            tap(self.control(root, PACKAGE, label="All"), "All segment")
+            root = self.wait_for(name + "-segment-restored", lambda root: (
+                (default := self.control(root, PACKAGE, label="All")) is not None and self.selected(default)))
+
+            tap(navigation_target(root, "Overview"), "Overview tab")
+            root = self.wait_for(name + "-overview", lambda root: selected_tab(root, "Overview")
+                                 and self.control(root, PACKAGE, label="Add account") is not None)
+
+            sequence("push", "Overview to Add account: the old screen leaves, the new one arrives shifted "
+                     "from the end side, and the bottom bar leaves with the old screen.", 4,
+                     lambda: tap(self.control(root, PACKAGE, label="Add account"), "Add account button"))
+            self.wait_for(name + "-pushed", lambda root: navigation_target(root, "Overview") is None
+                          and bool(matches(root, "You can connect several accounts per provider.")))
+
+            sequence("pop", "Back to Overview: the reverse shift, and the bottom bar returns.", 4,
+                     lambda: self.adb("shell", "input", "keyevent", "BACK"))
+            self.wait_for(name + "-popped", lambda root: selected_tab(root, "Overview"))
+            report["result"] = "captured"
+        except (AssertionError, subprocess.SubprocessError, ET.ParseError, struct.error, zlib.error) as error:
+            report["result"] = "capture failed"
+            report["error"] = f"{type(error).__name__}: {error}"
+        finally:
+            self.adb("shell", "settings", "put", "global", "animator_duration_scale", "0.0")
+            restored = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
+            report["animatorScaleRestored"] = restored
+            record()
+            assert float(restored) == 0.0, f"Animations were not turned off again: {restored}"
+        return report["result"]
+
     def setting(self, name):
         for attempt in range(9):
             root = self.dump(f"{name}-{attempt}")
@@ -1379,6 +1482,7 @@ def main():
             smoke.navigate(tab, marker, "current-" + tab.lower())
         smoke.setting_is_disabled("current-persisted")
         smoke.capture("current-persisted")
+        motion = smoke.capture_motion("motion")
         smoke.adb("shell", "am", "force-stop", PACKAGE)
         smoke.launch("current-relaunch")
         smoke.navigate("Overview", "0 accounts monitored", "current-relaunch-overview")
@@ -1399,6 +1503,7 @@ def main():
     smoke.text("result.json", json.dumps({"result": "passed", "commit": os.environ["GITHUB_SHA"],
         "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": ["Overview", "Accounts", "Resets", "Settings"],
         "widgets": placed_widgets, "segmentPress": "segment-ripple.json",
+        "motionFrames": {"report": "motion.json", "result": motion},
         "scope": "Empty-account release smoke with four launcher widgets; provider-authenticated quotas were not tested."}, indent=2))
     print("Release APK upgrade, persisted setting, four tabs, segment press highlight, four widgets, Mini Rings move/resize, night mode, process loss, launcher restart, reboot and offline/online checks passed; startup observations recorded.")
 

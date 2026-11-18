@@ -408,6 +408,59 @@ class PostDropFrameTest(unittest.TestCase):
                 self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
 
 
+class MotionCaptureTest(unittest.TestCase):
+    """#81: the slow-motion frame capture is evidence, and must always hand animations back off."""
+
+    def device(self, scale_after_restore="0.0"):
+        """A stand-in for adb that remembers the animator scale it was given."""
+        state = {"scale": "0.0", "puts": []}
+        still = png_bytes(2, 2, 4, [GROUND * 2, GROUND * 2])
+
+        def adb(*args, **kwargs):
+            if args[:2] == ("exec-out", "screencap"):
+                return still
+            if args[:3] == ("shell", "settings", "put"):
+                state["puts"].append(args[-1])
+                state["scale"] = args[-1] if args[-1] != "0.0" else scale_after_restore
+                return ""
+            if args[:3] == ("shell", "settings", "get"):
+                return state["scale"]
+            if "resolve-activity" in args:
+                return "priority=0\ncom.usagelimits/.UsageLimitsActivity"
+            return ""
+        return state, adb
+
+    def test_a_sequence_counts_its_distinct_frames(self):
+        moving = runtime_smoke.motion_sequence("tab", "crossfade", [{"sha256": "a"}, {"sha256": "b"}, {"sha256": "b"}])
+        self.assertEqual((2, True), (moving["distinctFrames"], moving["motionObserved"]))
+        still = runtime_smoke.motion_sequence("tab", "crossfade", [{"sha256": "a"}, {"sha256": "a"}])
+        self.assertEqual((1, False), (still["distinctFrames"], still["motionObserved"]))
+
+    def test_a_failed_capture_is_recorded_and_animations_are_turned_off_again(self):
+        state, adb = self.device()
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "adb", side_effect=adb), \
+                    patch.object(smoke, "wait_for", side_effect=AssertionError("UI did not reach motion-launched")):
+                self.assertEqual("capture failed", smoke.capture_motion("motion"))
+            report = json.loads((Path(directory) / "motion.json").read_text())
+        self.assertEqual([str(runtime_smoke.MOTION_SCALE), "0.0"], state["puts"])
+        self.assertEqual("0.0", report["animatorScaleRestored"])
+        self.assertIn("UI did not reach motion-launched", report["error"])
+        # The launch frames taken before the failure are kept.
+        self.assertEqual(["launch"], [sequence["name"] for sequence in report["sequences"]])
+        self.assertFalse(report["sequences"][0]["motionObserved"])
+
+    def test_animations_left_on_fail_the_smoke(self):
+        _, adb = self.device(scale_after_restore=str(runtime_smoke.MOTION_SCALE))
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "adb", side_effect=adb), \
+                    patch.object(smoke, "wait_for", side_effect=AssertionError("UI did not reach motion-launched")):
+                with self.assertRaisesRegex(AssertionError, "not turned off again"):
+                    smoke.capture_motion("motion")
+
+
 class PngTest(unittest.TestCase):
     def test_written_frames_decode_unchanged_and_crops_scale_by_nearest_neighbour(self):
         width, channels, rows = frame(rounded(0))
