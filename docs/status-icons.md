@@ -1,6 +1,6 @@
 # Status icons
 
-A status icon keeps one account in view while you use other apps: the provider glyph and a short form of the figure of the account's headline, the one usage window that speaks for the account at that moment. You pin up to three usage accounts. On Android each one becomes a notification whose icon sits in the status bar. iOS lets no app put anything into its status bar, so the Pinned accounts Lock Screen widget shows the same icons instead.
+A status icon keeps one account in view while you use other apps: the provider glyph and a short form of the figure of the account's headline, the one usage window that speaks for the account at that moment. You pin up to three usage accounts. On Android each one becomes a notification whose icon sits in the status bar. iOS lets no app put anything into its status bar, so the Pinned accounts Lock Screen widget stands in: its rectangular and circular forms show the same icons, and the inline form a glyph with readable text.
 
 The figure follows the app's display mode, Left or Used. Status icons are off until you turn them on. Credit balances cannot be pinned, because they have no percentage.
 
@@ -12,7 +12,7 @@ Why it is built this way is recorded in [ADR 0003](adr/0003-status-icons-and-loc
 2. Turn on **Show status bar icons**. If notifications are not allowed, the app asks for permission, or opens Android's notification settings when it can no longer ask. Until notifications are allowed, the section says "Status bar icons cannot be shown until notifications are allowed." The **Notifications** card in Settings offers the same way back later.
 3. Under **Pinned accounts**, pin up to three accounts. With three pinned, the section reads "3 of 3 pinned" and the other accounts cannot be pinned until you unpin one.
 
-Turning the switch on, pinning, unpinning and turning it off publish right away. After that the icons follow every refresh, by hand or in the background. When a reading turns stale or a reset time passes without a refresh, the app schedules a repaint for that moment; Android may run it later. Removing an account also releases its pin.
+Turning the switch on or off, pinning and unpinning make the app post or remove the icons without waiting for a sync. After that the icons follow every refresh, by hand or in the background. When a reading turns stale or a reset time passes without a refresh, the app schedules a repaint for that moment; Android may run it later. Removing an account also releases its pin.
 
 <p align="center"><img src="images/status-icons/android-16-status-bar.png" width="900" alt="Android 16 status bar, enlarged: the clock, then a Claude icon with 42, a Codex icon with 5, and the Antigravity glyph alone"></p>
 <p align="center"><em>Android 16 emulator in CI, status bar enlarged four times: Claude 42, Codex 5, Antigravity at 100 (glyph alone). Synthetic accounts.</em></p>
@@ -33,7 +33,7 @@ The app decides in this order; the first that applies wins:
 
 | You see | When |
 | --- | --- |
-| "!" | The last refresh failed, or the account needs signing in again. A partial result with a usable headline still shows its figure. |
+| "!" | The last refresh failed, or the account needs signing in again. A partial result with a usable headline does not count as a failed refresh. |
 | Crossed circle | The headline is exhausted, in either display mode. |
 | Dash | The account has no headline yet, or its provider reports no percentage. |
 | Glyph alone | The figure is exactly 100. |
@@ -46,9 +46,9 @@ An underline under the number or the lone glyph means the reading is stale or it
 
 ## Android notification rows
 
-Pulling down the shade shows one row per pinned account. Tapping a row opens that account's detail screen.
+Pulling down the shade shows one row per account whose notification is showing. Tapping a row opens that account's detail screen.
 
-- **Title:** the figure with its side, such as "42% left", or the state in words: "Exhausted", "No percentage reported", "Refresh failed", "Reconnect required". A stale or reset-due reading adds ", may be out of date". Written figures keep the full value, such as "<1% left".
+- **Title:** the figure with its side, such as "42% left", or the state in words: "Exhausted", "No percentage reported", "Refresh failed", "Reconnect required". When the icon is underlined, the title adds ", may be out of date". Written figures keep the full value, such as "<1% left".
 - **Text below:** the window and its next reset, such as "5h limit · Resets 6:36 AM"; only the window when no reset is known, "Reset due" once it has passed, and no text when the account has no headline.
 - **Header:** Android's standard header with "Usage Limits" and the provider's name ("Claude", "OpenAI Codex"). When two pinned accounts have the same provider, the account name follows it ("Claude · Claude work"). Some collapsed views hide the header.
 - **Large icon:** the provider artwork you chose under Provider icons, without a text description. White marks are drawn on a dark tile.
@@ -75,13 +75,13 @@ If the widget cannot read the app's data before the first unlock after a restart
 
 ## Swiping an icon away
 
-On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting, reordering accounts or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, shows it right away. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
+On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting, reordering accounts or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, makes the app post it again without waiting for a sync. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
 
-After the phone restarts, the icons return with the next sync, or right away if you turn the switch off and on or pin the account again. Android decides when the sync runs.
+After the phone restarts, the icons normally return with the next sync under the same conditions, or earlier if you turn the switch off and on or pin the account again. Android decides when the sync runs.
 
 This holds when a publication runs to its end. Around a crash or a permission change it is best effort:
 
-- If the app is stopped between saving which accounts it shows and posting them, the missing icons wait for the next sync.
+- If the app is stopped between saving the list of accounts it means to show and posting them, the missing icons wait for the next sync.
 - If that saved list is lost, a later repaint can bring back an icon you swiped away before the next sync.
 - If you withdraw the notification permission and grant it again with no publication in between, the icons may wait for the next sync.
 
@@ -90,7 +90,7 @@ This holds when a publication runs to its end. Around a crash or a permission ch
 - **Android does not promise that the icons are visible.** The status bar's width, cut-outs, other apps' icons, your notification settings and manufacturer versions of Android can each hide icons or fold them into an overflow dot. The Settings section says so: "Android decides how many icons fit. Notification settings control their visibility."
 - **Why default importance.** From Android 16 r4 on, AOSP hides the status-bar icons of silent, low-importance notifications by default. On the Android 17 emulator that setting stayed on and still did not hide these icons, because their channel has default importance.
 - **Lock screen.** The app sets no lock-screen visibility of its own, so Android decides whether the rows appear there and how much they show; the emulators already differed (see the table below). To keep them off the lock screen, turn off lock-screen display for the Status bar icons category where your Android version offers it; otherwise use the system setting, which applies to every app.
-- **Order.** The app posts the icons so that they follow its account order, but Android ranks them. On the tested emulators they followed it at first post and after a reorder; on the Android 11 emulator a newly pinned account came first until the next sync. If the phone's clock jumps back or stands still while the icons are posted, that publication gives up the order.
+- **Order.** The app posts the icons so that they follow its account order, but Android ranks them. On the tested emulators they followed it at first post and after a reorder; on the Android 11 emulator a newly pinned account came first until the next sync. If the app detects that the clock jumped back, or the clock does not move on within a short wait, it posts the remaining icons of that publication without the order.
 - **iOS updates on WidgetKit's schedule.** The widget plans its changes ahead for the moments a reading turns stale or a reset passes, but iOS decides when it redraws, so the Lock Screen can lag the app.
 
 ## What has been checked, and where

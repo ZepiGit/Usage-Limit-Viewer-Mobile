@@ -154,6 +154,8 @@ The status chip always includes the small icon and optionally text from `setShor
 
 How many chips can be on screen at once is not stated. Unverifiable from the docs.
 
+**Observed (17 November 2026, [run 44156767429](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44156767429)).** On the API 37 emulator image, three pinned accounts posted as promoted ongoing notifications gave three actually promoted records and one visible chip, initially Antigravity "100%". On the API 36 image none was promoted and no chip appeared. In AOSP `android17-release`, [`NotifChipsViewModel.filterByPackage`](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android17-release/packages/SystemUI/src/com/android/systemui/statusbar/chips/notification/ui/viewmodel/NotifChipsViewModel.kt) keeps one chip per package. This was an experiment only; the app does not request promotion.
+
 [INFERENCE] A standing "42% of the weekly quota left" notification fails the criteria: it has no end, the user did not start a journey, and it is exactly the "quick access" case the page redirects to a widget. `ProgressStyle` is a journey bar with segments and points, not a percent badge. Live Updates are a worse fit than a plain small icon, and they add a second permission the user can revoke for good.
 
 ## 7. Silent updates and rate limits
