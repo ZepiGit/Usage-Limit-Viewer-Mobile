@@ -398,6 +398,7 @@ struct InkButtonStyle: ButtonStyle {
             .background(
                 RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous)
                     .fill(isEnabled ? UsageColors.ink.opacity(configuration.isPressed ? 0.85 : 1) : UsageColors.raised))
+            .pressRelease(isPressed: configuration.isPressed)
     }
 }
 
@@ -420,6 +421,7 @@ struct OutlineButtonStyle: ButtonStyle {
             .overlay(
                 RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous)
                     .stroke(UsageColors.control, lineWidth: 1))
+            .pressRelease(isPressed: configuration.isPressed)
     }
 }
 
@@ -434,6 +436,7 @@ struct TextActionStyle: ButtonStyle {
             .foregroundStyle(isEnabled ? label : UsageColors.muted)
             .frame(minHeight: 44)
             .opacity(configuration.isPressed ? 0.7 : 1)
+            .pressRelease(isPressed: configuration.isPressed)
     }
 }
 
@@ -520,6 +523,9 @@ struct SegmentedRow: View {
                 RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous)
                     .stroke(UsageColors.rule, lineWidth: 1)
                     .padding(.vertical, 4))
+            // On the row, not on each cell: the selected label is heavier and so a little wider,
+            // and its neighbours and the frame have to move with it while the fill changes hands.
+            .motion(.stateChange, value: options.map(\.selected))
         }
     }
 }
@@ -532,7 +538,6 @@ struct SegmentedRow: View {
 /// and the corner radius all have to match the Android rendering exactly, and the system style
 /// gives up control of all three.
 struct UsageBar: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// What the bar draws: its fill and how that fill is painted come from the Kit, so the bar
     /// cannot disagree with the figure beside it.
     let presentation: WindowPresentation
@@ -556,15 +561,16 @@ struct UsageBar: View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: height / 2, style: .continuous).fill(UsageColors.dataTrack)
-                if let fill = SeverityPalette.fill(presentation.fillState) {
-                    RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                        .fill(fill)
-                        // An unknown percentage draws nothing rather than a full or empty bar:
-                        // either would state a fact the provider did not report.
-                        .frame(width: geometry.size.width * fraction)
-                        // The fraction animates; the colour does not, since there is one fill.
-                        .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: fraction)
-                }
+                // Always drawn, in clear ink when the presentation paints no fill, so the rectangle
+                // keeps its identity and its length: a bar that starts or stops being painted
+                // (an exhausted window on a mode flip, a failed reading that recovers) grows from
+                // or shrinks to its figure instead of being inserted or removed whole.
+                RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                    .fill(SeverityPalette.fill(presentation.fillState) ?? Color.clear)
+                    // An unknown percentage draws nothing rather than a full or empty bar:
+                    // either would state a fact the provider did not report.
+                    .frame(width: geometry.size.width * fraction)
+                    .motion(.move, value: fraction)
             }
         }
         .frame(height: height)

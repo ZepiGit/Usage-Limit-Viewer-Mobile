@@ -5,7 +5,6 @@ import UsageLimitsKit
 /// anything at a provider.
 struct AccountsScreen: View {
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: UsageStore
     @State private var isAdding = false
     @State private var providerFilter: ProviderID?
@@ -53,11 +52,15 @@ struct AccountsScreen: View {
                     }
                     ForEach(filteredAccounts, id: \.account.id) { usage in
                         AccountSummaryCard(usage: usage, now: store.now).id(usage.account.id)
+                            .listItemMotion()
                     }
 
                     AddAccountButton { isAdding = true }
                 }
-                .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: store.accounts.map { $0.account.id })
+                // Keyed on the cards that are shown, not on the accounts that exist, so a filter
+                // change fades through like an account arriving or leaving: the cards that go
+                // fade out first, then the rest (and the add button) move while the new arrive.
+                .motion(.moveAfterExit, value: filteredAccounts.map { $0.account.id })
                 .padding(16)
                 .readableWidth()
             }

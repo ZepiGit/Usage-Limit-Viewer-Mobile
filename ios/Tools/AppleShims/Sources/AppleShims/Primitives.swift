@@ -620,13 +620,20 @@ public enum ColorScheme { case light, dark }
 
 public struct Animation {
     public static func easeInOut(duration: Double) -> Animation { Animation() }
+    public func delay(_ delay: Double) -> Animation { self }
 }
 
 public struct AnyTransition {
     public static let opacity = AnyTransition()
+    public static let identity = AnyTransition()
+    public static func asymmetric(insertion: AnyTransition, removal: AnyTransition) -> AnyTransition {
+        AnyTransition()
+    }
+    public func animation(_ animation: Animation?) -> AnyTransition { self }
 }
 
 public struct ContentTransition {
+    public static let opacity = ContentTransition()
     public static func numericText() -> ContentTransition { ContentTransition() }
 }
 

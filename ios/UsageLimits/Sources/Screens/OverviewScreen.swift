@@ -94,7 +94,9 @@ struct OverviewScreen: View {
                     }
                 }
             }
-            .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: store.orderedAccounts.map(\.id))
+            // Both lists in one value, so a credit row that arrives or leaves moves its
+            // neighbours the way an account row does.
+            .motion(.move, value: [store.orderedAccounts.map(\.id), store.credits.map(\.id)])
             .readableWidth()
             .listStyle(.plain)
             .environment(\.editMode, $editMode)
@@ -113,7 +115,9 @@ struct OverviewScreen: View {
                 if store.accounts.count > 1 || editMode.isEditing {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(editMode.isEditing ? String(localized: "Done") : String(localized: "Reorder")) {
-                            withAnimation(reduceMotion ? nil : Animation.easeInOut(duration: 0.2)) { editMode = editMode.isEditing ? .inactive : .active }
+                            withAnimation(Motion.contentSwap.animation(reduceMotion: reduceMotion)) {
+                                editMode = editMode.isEditing ? .inactive : .active
+                            }
                         }
                     }
                 }
@@ -132,9 +136,11 @@ struct OverviewScreen: View {
     /// Flips the global percentage mode, through the same property the Settings picker writes, so
     /// persistence, the widget snapshot and the timeline reload follow without a second path.
     ///
-    /// The crossfade is skipped under reduced motion, as every other animation on this screen is.
+    /// Inside an animation, so everything that depends on the mode changes together: the side
+    /// words swap while the figures fade and the bars move (each over its own motion). Under
+    /// Reduce Motion the animation is nil and the flip is applied at once.
     private func toggleMode() {
-        withAnimation(reduceMotion ? nil : Animation.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.contentSwap.animation(reduceMotion: reduceMotion)) {
             store.settings.percentDisplay = store.settings.percentDisplay == .used ? .left : .used
         }
     }
@@ -237,13 +243,12 @@ private struct LeadStrip: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(verbatim: percent)
                         .usageFont(.lead).foregroundStyle(SeverityPalette.figureColor(severity))
-                        // Keyed on the figure and the mode, so a flip fades between the two
-                        // readings; a refresh that only moves the number is not inside an
-                        // animation transaction and swaps at once.
-                        .id("\(mode.rawValue):\(percent)")
-                        .transition(AnyTransition.opacity)
                     Text(PercentText.sideWord(mode)).usageFont(.small).foregroundStyle(UsageColors.muted)
                 }
+                // On the pair, not on the figure alone: when a refresh changes the digit count
+                // ("100%" to "9%") the word after the figure has to move with the fade, and it
+                // only does if it is inside the same animation.
+                .figureChange(percent)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: toggleMode)
                 UsageBar(presentation: p)
@@ -448,6 +453,9 @@ struct WindowRow: View {
                         Text(figureText)
                             .usageFont(.figure)
                             .foregroundStyle(SeverityPalette.figureColor(shown))
+                            // The figure fades to its next value while its bar moves, on a
+                            // refresh as on a mode flip.
+                            .figureChange(figureText)
                         Text(PercentText.sideWord(mode)).usageFont(.small).foregroundStyle(UsageColors.muted)
                     }
                 }
