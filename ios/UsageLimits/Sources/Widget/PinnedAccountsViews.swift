@@ -260,7 +260,7 @@ struct PinnedAccountsCircularView: View {
             Image(systemName: "pin")
                 .font(.footnote)
             Text(verbatim: String(localized: "Pin in Settings"))
-                .font(.system(size: 10, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.6)
