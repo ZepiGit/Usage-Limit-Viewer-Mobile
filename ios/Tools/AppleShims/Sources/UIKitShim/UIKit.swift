@@ -42,3 +42,31 @@ public final class UIPasteboard {
     public static let general = UIPasteboard()
     public var string: String?
 }
+
+/// A bitmap, for the inline widget's glyph: drawn with a renderer, used as a template.
+public final class UIImage: @unchecked Sendable {
+    public enum RenderingMode { case automatic, alwaysOriginal, alwaysTemplate }
+    public init() {}
+    public func withRenderingMode(_ mode: RenderingMode) -> UIImage { self }
+}
+
+public final class UIColor {
+    public static let black = UIColor()
+    public func setFill() {}
+}
+
+public final class UIBezierPath {
+    public init(cgPath: CGPathShim) {}
+    public func fill() {}
+}
+
+public final class UIGraphicsImageRendererContext {}
+
+public final class UIGraphicsImageRenderer {
+    public init(size: AppleShims.CGSize) {}
+    public func image(actions: (UIGraphicsImageRendererContext) -> Void) -> UIImage { UIImage() }
+}
+
+extension Image {
+    public init(uiImage: UIImage) { self.init("") }
+}
