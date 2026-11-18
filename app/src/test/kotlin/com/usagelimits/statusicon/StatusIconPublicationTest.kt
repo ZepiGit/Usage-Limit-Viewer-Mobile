@@ -17,6 +17,7 @@ import androidx.work.WorkManager
 import com.usagelimits.R
 import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.UsageLimitsApp
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.SnapshotStatus
@@ -27,6 +28,7 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.sync.NotificationPublisher
+import com.usagelimits.core.sync.RATE_LIMITED_PAUSE_MESSAGE
 import com.usagelimits.core.sync.resetTestWorkManager
 import com.usagelimits.ui.IconStyle
 import com.usagelimits.ui.ProviderIconCatalog
@@ -50,6 +52,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowLooper
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -78,6 +81,8 @@ class StatusIconPublicationTest {
         // Robolectric keeps one DataStore per sandbox, so start every test from the default.
         app.container.settingsStore.setStatusIconsEnabled(false)
         app.container.settingsStore.setPinnedAccounts(emptyList())
+        app.container.settingsStore.setPercentDisplay(PercentDisplay.LEFT)
+        app.container.settingsStore.setSyncInterval(AppSettings.DEFAULT_SYNC_INTERVAL_MINUTES)
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
     }
 
@@ -117,8 +122,8 @@ class StatusIconPublicationTest {
     private fun StatusBarNotification.iconPixels(): Bitmap =
         (notification.smallIcon.loadDrawable(app) as BitmapDrawable).bitmap
 
-    private fun expectedIcon(provider: ProviderId, content: StatusIconContent): Bitmap =
-        StatusIconRenderer.render(provider, StatusIcon(content, outdated = false), app.resources.displayMetrics.density)
+    private fun expectedIcon(provider: ProviderId, content: StatusIconContent, outdated: Boolean = false): Bitmap =
+        StatusIconRenderer.render(provider, StatusIcon(content, outdated), app.resources.displayMetrics.density)
 
     @Test
     @Config(sdk = [37], qualifiers = "xxhdpi")
@@ -550,6 +555,65 @@ class StatusIconPublicationTest {
         assertEquals(2, records.size)
         assertTrue(records.all { expectedIcon(ProviderId.CLAUDE, StatusIconContent.Error).sameAs(it.iconPixels()) })
         assertTrue(records.all { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() == "Reconnect required" })
+    }
+
+    @Test
+    @Config(qualifiers = "en")
+    fun `rate-limited pinned accounts show a failure or a figure during the pause`() = runBlocking {
+        val repository = app.container.repository
+        val retryAfter = 120.minutes.inWholeMilliseconds
+        val failed = account(ProviderId.CLAUDE, "Fully rate limited", left = 42.0)
+        val attemptedAt = System.currentTimeMillis()
+        repository.saveFailure(failed.localId, RATE_LIMITED_PAUSE_MESSAGE, attemptedAt,
+            backgroundNotBefore = attemptedAt + retryAfter)
+
+        suspend fun partialReading(name: String, fetchedAt: Long): ProviderAccount {
+            val account = repository.upsertFromLogin(ProviderId.XAI, name, null, name, null, emptyMap())
+            repository.saveSnapshot(
+                UsageSnapshot(account.localId, fetchedAt, SnapshotStatus.PARTIAL,
+                    windows = listOf(UsageWindow("xai-credits", "Weekly credits", WindowCategory.WEEKLY,
+                        usedPercent = 20.0, periodSeconds = 604_800, resetAt = null, exhausted = false)),
+                    errorMessage = RATE_LIMITED_PAUSE_MESSAGE),
+                backgroundNotBefore = fetchedAt + retryAfter,
+            )
+            return account
+        }
+
+        val fresh = partialReading("Fresh partial reading", attemptedAt)
+        // A two-hour pause can outlive the default one-hour staleness threshold.
+        val stale = partialReading("Stale partial reading", attemptedAt - 90.minutes.inWholeMilliseconds)
+        pin(failed, fresh, stale)
+        app.container.publication.cacheMoved()
+
+        val records = statusRecords()
+        assertEquals(6, records.size)
+        fun assertPosted(account: ProviderAccount, content: StatusIconContent, title: String, outdated: Boolean = false) {
+            val members = records.filter {
+                shadowOf(it.notification.contentIntent).savedIntent.getStringExtra("accountId") == account.localId
+            }
+            assertEquals("summary and child for ${account.label}", 2, members.size)
+            assertEquals(1, members.count { it.isSummary() })
+            val expected = expectedIcon(account.provider, content, outdated)
+            for (record in members) {
+                val pixels = record.iconPixels()
+                assertTrue("${account.label} shows $content", expected.sameAs(pixels))
+                val centre = pixels.width * 53 / 72
+                assertEquals("${account.label}: underline below the figure", outdated,
+                    Color.alpha(pixels.getPixel(centre, pixels.height * 23 / 24)) > 0)
+                if (content == StatusIconContent.Error) {
+                    assertTrue("the exclamation mark has a stem", Color.alpha(pixels.getPixel(centre, pixels.height / 3)) > 0)
+                    assertEquals("a gap separates the stem from the dot", 0, Color.alpha(pixels.getPixel(centre, pixels.height * 2 / 3)))
+                    assertTrue("the exclamation mark has a dot", Color.alpha(pixels.getPixel(centre, pixels.height * 19 / 24)) > 0)
+                    assertTrue("the old window is retained, not its figure",
+                        record.notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString().startsWith("5h limit · Resets "))
+                }
+                assertEquals(title, record.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+            }
+        }
+
+        assertPosted(failed, StatusIconContent.Error, "Refresh failed")
+        assertPosted(fresh, StatusIconContent.Figure(80), "80% left")
+        assertPosted(stale, StatusIconContent.Figure(80), "80% left, may be out of date", outdated = true)
     }
 
     @Test

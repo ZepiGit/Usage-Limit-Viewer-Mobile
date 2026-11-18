@@ -41,6 +41,8 @@ The app decides in this order; the first that applies wins:
 
 An underline under the number or the lone glyph means the reading is stale or its reset time has passed since it was read; the last figure stays. The other signs are never underlined.
 
+If a provider rate-limits the app, automatic refresh for that account pauses for 15 minutes to 6 hours; if the refresh failed and you see "!", you can refresh manually to try again or wait for the pause to end.
+
 <p align="center"><img src="images/status-icons/legend.png" width="900" alt="Every provider glyph with 42, 5, 0, 99, an underlined 42, the glyph alone, the underlined glyph alone, a crossed circle, an exclamation mark and a dash"></p>
 <p align="center"><em>Every state for every provider, drawn by the app's own renderer in a unit test at xxhdpi size, not captured on a device. The last row is the disc used for a provider the app does not know.</em></p>
 
@@ -77,7 +79,7 @@ If the widget cannot read the app's data before the first unlock after a restart
 
 On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting, reordering accounts or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, makes the app post it again without waiting for a sync. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
 
-After the phone restarts, the icons normally return with the next sync under the same conditions, or earlier if you turn the switch off and on or pin the account again. Android decides when the sync runs.
+After the phone restarts, the icons normally return under the same conditions with the refresh that starts when you open the app, or with the next background refresh at your chosen interval if you leave it closed.
 
 This holds when a publication runs to its end. Around a crash or a permission change it is best effort:
 

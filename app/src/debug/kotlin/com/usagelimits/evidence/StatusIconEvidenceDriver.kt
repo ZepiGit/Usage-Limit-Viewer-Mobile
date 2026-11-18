@@ -17,6 +17,7 @@ import com.usagelimits.core.sync.SyncWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -191,10 +192,13 @@ internal class StatusIconEvidenceDriver(
 
     private data class Fixture(val alias: String, val provider: ProviderId, val left: Double)
 
-    private companion object {
-        val COMMANDS = setOf("seed", "enable", "pin", "unpin", "update", "reorder", "states", "reset-readings", "presentation", "cache", "same-provider")
-        val WORK_FIXTURE = Fixture("evidence-claude-work", ProviderId.CLAUDE, 87.0)
-        val FIXTURES = listOf(
+    companion object {
+        fun observingStartup(app: UsageLimitsApp, onSnapshot: suspend (List<WorkInfo>) -> Unit) =
+            StatusIconEvidenceDriver(app, prepareEmptyInstall = { quiesceStartup(app, onSnapshot) })
+
+        private val COMMANDS = setOf("seed", "enable", "pin", "unpin", "update", "reorder", "states", "reset-readings", "presentation", "cache", "same-provider")
+        private val WORK_FIXTURE = Fixture("evidence-claude-work", ProviderId.CLAUDE, 87.0)
+        private val FIXTURES = listOf(
             Fixture("evidence-claude", ProviderId.CLAUDE, 42.0),
             Fixture("evidence-codex", ProviderId.CODEX, 5.0),
             Fixture("evidence-gemini", ProviderId.ANTIGRAVITY, 100.0),
@@ -203,13 +207,17 @@ internal class StatusIconEvidenceDriver(
             Fixture("evidence-cursor", ProviderId.DEVIN, 42.0),
         )
 
-        suspend fun quiesceStartup(app: UsageLimitsApp) = withTimeout(45_000L) {
+        private suspend fun quiesceStartup(
+            app: UsageLimitsApp,
+            onSnapshot: (suspend (List<WorkInfo>) -> Unit)? = null,
+        ) = withTimeout(45_000L) {
             app.startupJob?.join()
             val work = WorkManager.getInstance(app)
             // The default class tag includes periodic, short-chain and one-shot sync work.
             val syncWork = SyncWorker::class.java.name
             val workInfo = work.getWorkInfosByTagFlow(syncWork)
-            workInfo.first { requests ->
+            val startupInfo = if (onSnapshot == null) workInfo else workInfo.onEach(onSnapshot)
+            startupInfo.first { requests ->
                 requests.none { !it.state.isFinished && (it.state == WorkInfo.State.RUNNING || it.runAttemptCount != 0) }
             }
             work.cancelAllWorkByTag(syncWork).await()
