@@ -17,9 +17,11 @@ import com.usagelimits.core.sync.SyncWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -191,10 +193,13 @@ internal class StatusIconEvidenceDriver(
 
     private data class Fixture(val alias: String, val provider: ProviderId, val left: Double)
 
-    private companion object {
-        val COMMANDS = setOf("seed", "enable", "pin", "unpin", "update", "reorder", "states", "reset-readings", "presentation", "cache", "same-provider")
-        val WORK_FIXTURE = Fixture("evidence-claude-work", ProviderId.CLAUDE, 87.0)
-        val FIXTURES = listOf(
+    companion object {
+        fun observingStartup(app: UsageLimitsApp, onSnapshot: suspend (List<WorkInfo>) -> Unit) =
+            StatusIconEvidenceDriver(app, prepareEmptyInstall = { quiesceStartup(app, onSnapshot) })
+
+        private val COMMANDS = setOf("seed", "enable", "pin", "unpin", "update", "reorder", "states", "reset-readings", "presentation", "cache", "same-provider")
+        private val WORK_FIXTURE = Fixture("evidence-claude-work", ProviderId.CLAUDE, 87.0)
+        private val FIXTURES = listOf(
             Fixture("evidence-claude", ProviderId.CLAUDE, 42.0),
             Fixture("evidence-codex", ProviderId.CODEX, 5.0),
             Fixture("evidence-gemini", ProviderId.ANTIGRAVITY, 100.0),
@@ -203,15 +208,29 @@ internal class StatusIconEvidenceDriver(
             Fixture("evidence-cursor", ProviderId.DEVIN, 42.0),
         )
 
-        suspend fun quiesceStartup(app: UsageLimitsApp) = withTimeout(45_000L) {
+        private fun WorkInfo.hasActiveAttempt() = !state.isFinished && (state == WorkInfo.State.RUNNING || runAttemptCount != 0)
+
+        private suspend fun quiesceStartup(
+            app: UsageLimitsApp,
+            onSnapshot: (suspend (List<WorkInfo>) -> Unit)? = null,
+        ) = withTimeout(45_000L) {
             app.startupJob?.join()
             val work = WorkManager.getInstance(app)
             // The default class tag includes periodic, short-chain and one-shot sync work.
             val syncWork = SyncWorker::class.java.name
             val workInfo = work.getWorkInfosByTagFlow(syncWork)
-            workInfo.first { requests ->
-                requests.none { !it.state.isFinished && (it.state == WorkInfo.State.RUNNING || it.runAttemptCount != 0) }
-            }
+            val startupInfo = if (onSnapshot == null) workInfo else workInfo.onEach(onSnapshot)
+            // Let due work start without waiting the full deadline for unmet constraints.
+            withTimeoutOrNull(5_000L) {
+                startupInfo.first { requests ->
+                    // Include work that can become due between this snapshot and cancellation.
+                    val dueBy = System.currentTimeMillis() + 250L
+                    requests.none {
+                        it.hasActiveAttempt() ||
+                            (it.state == WorkInfo.State.ENQUEUED && it.nextScheduleTimeMillis <= dueBy)
+                    }
+                }
+            } ?: startupInfo.first { requests -> requests.none { it.hasActiveAttempt() } }
             work.cancelAllWorkByTag(syncWork).await()
             val remaining = workInfo.first()
             check(remaining.all { it.state.isFinished }) { "Sync work is still scheduled; clear app data and retry" }
