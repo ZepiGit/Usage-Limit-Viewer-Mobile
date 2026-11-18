@@ -50,8 +50,7 @@ import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
 
-/** Sync cadence choices. 15 minutes is WorkManager's floor for periodic work. */
-private val INTERVAL_CHOICES = listOf(15, 30, 60, 180)
+private val INTERVAL_CHOICES = listOf(5, 15, 30, 60, 180)
 
 @Composable
 fun SettingsScreen(
@@ -103,11 +102,6 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.titleMedium,
                     color = UsageColors.Ink,
                 )
-                Text(
-                    text = stringResource(R.string.settings_interval_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = UsageColors.Muted,
-                )
                 Spacer(Modifier.height(10.dp))
                 SegmentedRow {
                     INTERVAL_CHOICES.forEach { minutes ->
@@ -119,6 +113,12 @@ fun SettingsScreen(
                         )
                     }
                 }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = stringResource(R.string.settings_interval_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = UsageColors.Muted,
+                )
             }
         }
 

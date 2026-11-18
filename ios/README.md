@@ -30,6 +30,16 @@ Kimi use device codes; Meta Muse uses the Meta device grant, and Kimi additional
 These code paths are implemented, but live account sign-in has not been verified
 by synthetic tests alone.
 
+If a usage or balance read still returns HTTP 429 after its retry budget, iOS
+keeps usable results and shows a notice that automatic reads for the account
+are paused. The pause lasts at least 15 minutes, honors a longer `Retry-After`
+up to six hours, and survives app restarts. An explicit refresh can retry
+immediately; it renews the pause if a required read is still throttled and clears
+it on an unthrottled success.
+
+Codex's optional reset-credit read is tried once per pass. On a 429 the app
+uses the credits embedded in the usage response, and usage refresh continues.
+
 ## Building and checking
 
 For the portable package, from the repository root:

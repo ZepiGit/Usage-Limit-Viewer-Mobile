@@ -31,6 +31,11 @@ class CreditSyncPolicyTest {
         assertTrue(SyncWorker.creditCacheNeedsSync(listOf(entry("a", now), entry("b", null)), 15, now))
     }
 
+    @Test fun `automatic credit syncs become due at five minutes and clamp smaller values`() {
+        assertFalse(SyncWorker.creditCacheNeedsSync(listOf(entry("a", now - 4 * minute)), 1, now))
+        assertTrue(SyncWorker.creditCacheNeedsSync(listOf(entry("a", now - 5 * minute)), 5, now))
+    }
+
     @Test fun `one fresh account cannot hide a due one`() {
         assertTrue(SyncWorker.creditCacheNeedsSync(listOf(entry("a", now), entry("b", now - 60 * minute)), 15, now))
     }

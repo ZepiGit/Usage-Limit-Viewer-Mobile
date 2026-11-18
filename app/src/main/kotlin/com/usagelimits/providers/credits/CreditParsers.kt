@@ -4,6 +4,7 @@ import com.usagelimits.core.model.CreditBalance
 import com.usagelimits.core.model.CreditNumbers
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.network.JsonSupport
+import com.usagelimits.core.network.RATE_LIMITED_REQUEST_MESSAGE
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -23,6 +24,8 @@ sealed class CreditError(message: String) : Exception(message) {
     class Malformed(detail: String) :
         CreditError("The provider answered in a shape this app does not understand ($detail).")
     class Unavailable(detail: String) : CreditError("No balance could be read ($detail).")
+    class RateLimited(val retryAfterMs: Long?) :
+        CreditError(RATE_LIMITED_REQUEST_MESSAGE)
     class TeamIdRequired :
         CreditError("This xAI key is not tied to one team. Enter the team id from console.x.ai.")
     class NoKey : CreditError("No key was entered.")

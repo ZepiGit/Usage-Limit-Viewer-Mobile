@@ -9,9 +9,9 @@ import Foundation
 /// row in the new language and leaves the data untouched.
 ///
 /// Only whole sentences the kit itself produces are recognised, and anything else — a
-/// provider's own error text, a sentence from a later build, several messages joined into one
-/// status line — is `nil`: the caller shows it exactly as stored. Associated values carry what
-/// the sentence interpolates (a window list, a diagnostic detail), which is data as well.
+/// provider's own error text, a sentence from a later build, most joined status lines — is
+/// `nil`: the caller shows it exactly as stored. Associated values carry what the sentence
+/// interpolates (a window list, a diagnostic detail), which is data as well.
 ///
 /// The Android twin is `storedMessageText`, which matches the same sentences by regular
 /// expression. A test feeds every producer's real output through `classify`, so rewording a
@@ -26,7 +26,13 @@ public enum StoredMessage: Sendable, Equatable {
     case restricted(labels: String)
     case malformedResponse(detail: String)
     case noUsage(detail: String)
+    case rateLimited(trailingStatus: String?)
+    case rateLimitRequest
+    case rateLimitRequestWithStatus(trailingStatus: String)
     case noCredentials
+
+    static let rateLimitedPauseMessage = "Rate limited. Automatic refresh is paused. Refresh manually to try now."
+    static let rateLimitedRequestMessage = "Rate limited. Try again later."
 
     // Sign-in. These are thrown rather than stored, but they reach the same `NoticeLine`s and
     // alerts as a stored status, so the display reads them the same way.
@@ -70,7 +76,10 @@ public enum StoredMessage: Sendable, Equatable {
             return .signInExpired
         }
 
+        if let throttle = classifyRateLimit(message) { return throttle }
+
         switch message {
+        case rateLimitedRequestMessage: return .rateLimitRequest
         case "Some usage data could not be read": return .someUsageUnreadable
         case "Some billing data could not be updated": return .someBillingNotUpdated
         case "One billing view rejected authentication; some usage could not be refreshed.":
@@ -146,6 +155,24 @@ public enum StoredMessage: Sendable, Equatable {
             }
         }
         return nil
+    }
+
+    // The snapshot puts the failure first. Leave the remainder intact: window labels can contain the separator.
+    private static func classifyRateLimit(_ message: String) -> StoredMessage? {
+        guard message.hasPrefix(rateLimitedPauseMessage) || message.hasPrefix("No usage could be read (")
+            || message.hasPrefix("No balance could be read (") else { return nil }
+        let separator = message.range(of: " · ")
+        let first = message[..<(separator?.lowerBound ?? message.endIndex)]
+        if first == rateLimitedPauseMessage {
+            return .rateLimited(trailingStatus: separator.map { String(message[$0.upperBound...]) })
+        }
+        guard (first.hasPrefix("No usage could be read (") && first.hasSuffix(" is rate limiting this account)."))
+            || (first.hasPrefix("No balance could be read (") && first.hasSuffix(" is rate limiting this key)."))
+        else { return nil }
+        if let separator {
+            return .rateLimitRequestWithStatus(trailingStatus: String(message[separator.upperBound...]))
+        }
+        return .rateLimitRequest
     }
 
     /// The wording an earlier build stored for the same condition as `signInExpired`.

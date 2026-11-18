@@ -13,9 +13,8 @@ public actor CreditSyncEngine {
     private let repository: CreditRepository
     private let now: @Sendable () -> Date
 
-    /// A second refresh asked for while one runs joins it. Two overlapping runs could land out
-    /// of order and let an older balance overwrite a newer one.
-    private var running: Task<Void, any Error>?
+    /// Credit passes do not overlap: a late balance could otherwise overwrite a newer one.
+    private var running: (automatic: Bool, task: Task<Void, any Error>)?
 
     public init(
         providers: [CreditProviderID: any CreditProvider], credentials: any CredentialStore,
@@ -27,40 +26,59 @@ public actor CreditSyncEngine {
         self.now = now
     }
 
-    public func sync() async throws {
-        if let running { return try await running.value }
-        let task = Task { try await self.syncAll() }
-        running = task
-        defer { running = nil }
+    public func sync(automatic: Bool = false) async throws {
+        while let running {
+            if automatic || !running.automatic { return try await running.task.value }
+            // A manual request must get a pass that did not skip accounts on its behalf.
+            _ = try? await running.task.value
+            try Task.checkCancellation()
+        }
+        let task = Task {
+            defer { running = nil }
+            try await syncAll(automatic: automatic)
+        }
+        running = (automatic, task)
         try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
 
-    private func syncAll() async throws {
+    private func syncAll(automatic: Bool) async throws {
         try Task.checkCancellation()
         let accounts = await repository.accounts()
         try await withThrowingTaskGroup(of: Void.self) { group in
             for account in accounts {
-                group.addTask { try await self.sync(account) }
+                group.addTask { try await self.sync(account, automatic: automatic) }
             }
             try await group.waitForAll()
         }
     }
 
-    private func sync(_ account: CreditAccount) async throws {
-        let balances: [CreditBalance]?
-        let message: String?
+    private func sync(_ account: CreditAccount, automatic: Bool) async throws {
+        let deadline = automatic ? await repository.automaticSyncNotBefore(accountID: account.id) : nil
+        try Task.checkCancellation()
+        if RateLimitCooldown.shouldSkip(automatic: automatic, until: deadline, now: now()) { return }
+
+        // Best-effort, like the usage sink: an unwritable file must not fail the account.
         do {
-            balances = try await fetch(account)
-            message = nil
+            let balances = try await fetch(account)
+            try? await repository.record(accountID: account.id, balances: balances, error: nil,
+                at: now(), accountCreatedAt: account.createdAt)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             try Task.checkCancellation()
-            balances = nil
-            message = Self.message(for: error)
+            let time = now()
+            let rateLimitedUntil: TimeInterval?
+            if case .rateLimited(_, let retryAfter)? = error as? CreditError {
+                rateLimitedUntil = RateLimitCooldown.deadline(from: time, retryAfter: retryAfter)
+            } else if case .rateLimited(let retryAfter)? = error as? HTTPError {
+                rateLimitedUntil = RateLimitCooldown.deadline(from: time, retryAfter: retryAfter)
+            } else {
+                rateLimitedUntil = nil
+            }
+            let message = rateLimitedUntil == nil ? Self.message(for: error) : StoredMessage.rateLimitedPauseMessage
+            try? await repository.record(accountID: account.id, balances: nil, error: message,
+                at: time, rateLimitedUntil: rateLimitedUntil, accountCreatedAt: account.createdAt)
         }
-        // Best-effort, like the usage sink: an unwritable file must not fail the account.
-        try? await repository.record(accountID: account.id, balances: balances, error: message, at: now())
     }
 
     /// Fetches with the stored key. Also what the add flow calls to prove a key first.

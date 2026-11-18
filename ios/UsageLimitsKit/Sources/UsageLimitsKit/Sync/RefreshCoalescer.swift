@@ -23,14 +23,15 @@ import Foundation
 /// screen closed must not take the sync away from the one that is still asking.
 public actor RefreshCoalescer {
 
-    private let pass: @Sendable () async -> Void
+    private let pass: @Sendable (Bool) async -> Void
     /// The pass in progress, or the one that just ended while its follow-up has yet to begin.
     private var running: Task<Void, Never>?
     /// The follow-up, joined by every request made while `running` has not ended. It becomes
     /// `running` when it begins, so a request after that queues the next one.
     private var queued: Task<Void, Never>?
+    private var queuedIsAutomatic = true
 
-    public init(_ pass: @escaping @Sendable () async -> Void) {
+    public init(_ pass: @escaping @Sendable (Bool) async -> Void) {
         self.pass = pass
     }
 
@@ -38,11 +39,19 @@ public actor RefreshCoalescer {
     /// pass that started after the request has run in full. Await `value` to wait for it; the
     /// pass runs whether or not anybody does.
     @discardableResult
-    public func request() -> Task<Void, Never> {
-        if let queued { return queued }
+    public func request(automatic: Bool = false) -> Task<Void, Never> {
+        if let queued {
+            queuedIsAutomatic = queuedIsAutomatic && automatic
+            return queued
+        }
         let previous = running
-        let task = Task { await run(after: previous) }
-        if previous == nil { running = task } else { queued = task }
+        let task = Task { await run(automatic: automatic, after: previous) }
+        if previous == nil {
+            running = task
+        } else {
+            queued = task
+            queuedIsAutomatic = automatic
+        }
         return task
     }
 
@@ -52,15 +61,19 @@ public actor RefreshCoalescer {
     /// write, so a request lands either before a pass begins and is covered by it, or after and
     /// gets a follow-up. There is no moment at which a request is accepted and then nobody runs
     /// it.
-    private func run(after previous: Task<Void, Never>?) async {
+    private func run(automatic: Bool, after previous: Task<Void, Never>?) async {
+        let origin: Bool
         if let previous {
             await previous.value
             // Only one follow-up exists at a time, and it is never replaced before it begins, so
-            // `queued` is this pass.
+            // `queued` is this pass. Only an explicit request can make the follow-up manual.
+            origin = queuedIsAutomatic
             running = queued
             queued = nil
+        } else {
+            origin = automatic
         }
-        await pass()
+        await pass(origin)
         // A follow-up that exists will take over `running` when it begins.
         if queued == nil { running = nil }
     }

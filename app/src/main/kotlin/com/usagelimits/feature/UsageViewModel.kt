@@ -210,6 +210,7 @@ class UsageViewModel(
         viewModelScope.launch {
             refreshing.value = true
             try {
+                SyncWorker.reconcileForManualRefresh(appContext, container.settingsStore.settings)
                 val outcomes = container.syncEngine.syncAll() + container.creditSyncEngine.syncAll()
                 val failures = outcomes.count { !it.success }
                 transientMessage.value = when {
@@ -229,6 +230,7 @@ class UsageViewModel(
         viewModelScope.launch {
             refreshing.value = true
             try {
+                SyncWorker.reconcileForManualRefresh(appContext, container.settingsStore.settings)
                 container.syncEngine.syncAccount(accountId)
                 container.publication.cacheMoved()
             } finally {
@@ -342,10 +344,11 @@ class UsageViewModel(
 
     fun setSyncInterval(minutes: Int) {
         viewModelScope.launch {
-            container.settingsStore.setSyncInterval(minutes)
-            // Apply interval changes immediately. UPDATE preserves the existing schedule
-            // rather than starting an immediate pass.
-            SyncWorker.schedulePeriodic(appContext, minutes)
+            withContext(NonCancellable) {
+                container.settingsStore.setSyncInterval(minutes)
+                // Read the persisted choice during scheduling so an older caller cannot undo it.
+                SyncWorker.scheduleBackgroundSync(appContext)
+            }
             // Staleness uses this interval at render time, so repaint widgets when it changes.
             container.publication.presentationChanged()
         }

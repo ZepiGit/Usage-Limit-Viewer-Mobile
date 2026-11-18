@@ -2336,6 +2336,26 @@
         }
       }
     },
+    "Rate limited. Automatic refresh is paused. Refresh manually to try now." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zu viele Anfragen. Die automatische Aktualisierung pausiert. Aktualisiere manuell, um es jetzt erneut zu versuchen."
+          }
+        }
+      }
+    },
+    "Rate limited. Try again later." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zu viele Anfragen. Versuche es später erneut."
+          }
+        }
+      }
+    },
     "Reconnect" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3495,6 +3515,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "fal-Schlüssel mit dem Scope billing:usage:read (Vorlage BILLING), kein Inferenz-Schlüssel."
+          }
+        }
+      }
+    },
+    "iOS decides when to refresh and may refresh less often." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS entscheidet, wann aktualisiert wird, und aktualisiert möglicherweise seltener."
           }
         }
       }

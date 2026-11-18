@@ -106,6 +106,7 @@ class DeleteDuringRefreshTest {
         override fun observeAll(): Flow<List<UsageSnapshotEntity>> = flowOf(emptyList())
         override suspend fun getAll(): List<UsageSnapshotEntity> = emptyList()
         override suspend fun getForAccount(accountId: String): UsageSnapshotEntity? = null
+        override suspend fun backgroundNotBefore(accountId: String): Long? = null
         override suspend fun upsert(snapshot: UsageSnapshotEntity) = Unit
         override suspend fun deleteForAccount(accountId: String) = Unit
     }

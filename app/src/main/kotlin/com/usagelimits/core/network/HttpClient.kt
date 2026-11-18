@@ -21,6 +21,9 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.net.ProtocolException
 import java.security.cert.CertificateException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLHandshakeException
 import javax.net.ssl.SSLPeerUnverifiedException
@@ -173,13 +176,7 @@ class HttpClient(
                     response.code == 401 -> throw ProviderException.Unauthorized()
                     response.code == 403 -> throw ProviderException.Forbidden()
                     response.code == 429 -> throw ProviderException.RateLimited(
-                        // Bound the parse before the multiply: a negative header would turn
-                        // delay() into a no-op hot retry, and a huge one overflows Long and
-                        // can come out negative too.
-                        retryAfterMs = response.header("Retry-After")
-                            ?.toLongOrNull()
-                            ?.coerceIn(0L, MAX_RETRY_AFTER_SECONDS)
-                            ?.times(1000),
+                        retryAfterMs = retryAfterMs(response.header("Retry-After"), response.header("Date")),
                     )
                     response.code >= 500 -> throw ProviderException.ServerError(
                         response.code,
@@ -246,6 +243,26 @@ class HttpClient(
         val host = runCatching { java.net.URI(url).host }.getOrNull()?.lowercase()
         val isLoopback = host == "localhost" || host == "127.0.0.1" || host == "::1"
         if (!isLoopback) throw ProviderException.Unexpected("refusing plaintext request")
+    }
+
+    private fun retryAfterMs(value: String?, serverDate: String?): Long? {
+        if (value == null) return null
+        value.toLongOrNull()?.let { seconds ->
+            return seconds.coerceIn(0L, MAX_RETRY_AFTER_SECONDS) * 1_000
+        }
+        val retryAt = httpDateMs(value) ?: return null
+        // A server date gives the intended delay even if the device clock differs.
+        val responseAt = httpDateMs(serverDate) ?: System.currentTimeMillis()
+        return (retryAt - responseAt).coerceIn(0L, MAX_RETRY_AFTER_SECONDS * 1_000)
+    }
+
+    private fun httpDateMs(value: String?): Long? {
+        if (value == null) return null
+        return try {
+            ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
+        } catch (_: DateTimeParseException) {
+            null
+        }
     }
 
     private fun backoffMs(attempt: Int): Long =

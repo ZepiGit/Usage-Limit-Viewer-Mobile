@@ -13,7 +13,7 @@ import FoundationNetworking
 /// figures from before the sync it just ran. None of those is visible from inside the parts.
 /// A clock a test can move, for the cases that are about time passing rather than a fixed
 /// instant. `Sendable` by lock rather than by actor so a `@Sendable` now-closure can read it.
-private final class MovableClock: @unchecked Sendable {
+final class MovableClock: @unchecked Sendable {
     private let lock = NSLock()
     private var current: Date
     init(_ start: Date) { current = start }

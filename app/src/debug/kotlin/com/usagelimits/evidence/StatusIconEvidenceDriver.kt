@@ -1,11 +1,10 @@
 package com.usagelimits.evidence
 
-import android.annotation.SuppressLint
 import android.os.SystemClock
 import android.util.AtomicFile
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import androidx.work.impl.WorkManagerImpl
+import androidx.work.await
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
@@ -14,9 +13,9 @@ import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.sync.SyncWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -24,7 +23,6 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 /** Drives the real cache and publication seam; never constructs or cancels notifications. */
 internal class StatusIconEvidenceDriver(
@@ -75,7 +73,7 @@ internal class StatusIconEvidenceDriver(
                 "cache" -> container.publication.cacheMoved()
             }
         } catch (_: TimeoutCancellationException) {
-            failure = "Empty-install startup sync did not finish within 45 seconds; clear app data and retry"
+            failure = "Sync work did not become idle within 45 seconds; clear app data and retry"
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -205,34 +203,23 @@ internal class StatusIconEvidenceDriver(
             Fixture("evidence-cursor", ProviderId.DEVIN, 42.0),
         )
 
-        @SuppressLint("RestrictedApi")
         suspend fun quiesceStartup(app: UsageLimitsApp) = withTimeout(45_000L) {
             app.startupJob?.join()
             val work = WorkManager.getInstance(app)
-            // The initial sync sees an empty cache; let its non-cancellable publication finish.
-            while (true) {
-                val initial = work.getWorkInfosForUniqueWork("usage_sync_now").get(5, TimeUnit.SECONDS)
-                if (initial.isNotEmpty() && initial.all { it.state == WorkInfo.State.SUCCEEDED || it.state == WorkInfo.State.FAILED }) break
-                check(initial.none { it.state == WorkInfo.State.CANCELLED }) { "Startup sync was cancelled; clear app data and retry" }
-                delay(25)
+            // The default class tag includes periodic, short-chain and one-shot sync work.
+            val syncWork = SyncWorker::class.java.name
+            val workInfo = work.getWorkInfosByTagFlow(syncWork)
+            workInfo.first { requests ->
+                requests.none { !it.state.isFinished && (it.state == WorkInfo.State.RUNNING || it.runAttemptCount != 0) }
             }
-            // WorkManager 2.12 increments periodCount after doWork returns, unlike cancellation
-            // states which can precede SyncWorker's non-cancellable publication.
-            val database = WorkManagerImpl.getInstance(app).workDatabase
-            while (true) {
-                val periodic = work.getWorkInfosForUniqueWork("usage_sync_periodic").get(5, TimeUnit.SECONDS)
-                check(periodic.none { it.state.isFinished }) { "Periodic startup was interrupted; clear app data and retry" }
-                if (periodic.isNotEmpty() && periodic.all { info ->
-                        info.state == WorkInfo.State.ENQUEUED &&
-                            (database.workSpecDao().getWorkSpec(info.id.toString())?.periodCount ?: 0) > 0
-                    }) break
-                delay(25)
+            work.cancelAllWorkByTag(syncWork).await()
+            val remaining = workInfo.first()
+            check(remaining.all { it.state.isFinished }) { "Sync work is still scheduled; clear app data and retry" }
+            // WorkManager 2.12 increments attempts when claiming RUNNING and preserves them on cancel.
+            // A request that raced the cancellation can still be publishing in NonCancellable.
+            check(remaining.none { it.state == WorkInfo.State.CANCELLED && it.runAttemptCount != 0 }) {
+                "An attempted sync was cancelled before it could be verified idle; clear app data and retry"
             }
-            work.cancelUniqueWork("usage_sync_periodic").result.get(5, TimeUnit.SECONDS)
-            work.cancelUniqueWork("usage_sync_now").result.get(5, TimeUnit.SECONDS)
-            while (listOf("usage_sync_periodic", "usage_sync_now").any { name ->
-                    work.getWorkInfosForUniqueWork(name).get(5, TimeUnit.SECONDS).any { it.state == WorkInfo.State.RUNNING }
-                }) delay(25)
         }
     }
 }

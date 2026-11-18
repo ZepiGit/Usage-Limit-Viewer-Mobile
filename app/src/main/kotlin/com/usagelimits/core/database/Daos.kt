@@ -62,6 +62,9 @@ interface UsageSnapshotDao {
     suspend fun getForAccount(accountId: String): UsageSnapshotEntity?
 
 
+    @Query("SELECT backgroundNotBefore FROM usage_snapshots WHERE accountId = :accountId")
+    suspend fun backgroundNotBefore(accountId: String): Long?
+
     @Upsert
     suspend fun upsert(snapshot: UsageSnapshotEntity)
 
@@ -150,6 +153,9 @@ interface CreditDao {
 
     @Query("SELECT * FROM credit_snapshots WHERE accountId = :accountId")
     suspend fun getSnapshot(accountId: String): CreditSnapshotEntity?
+
+    @Query("SELECT backgroundNotBefore FROM credit_snapshots WHERE accountId = :accountId")
+    suspend fun backgroundNotBefore(accountId: String): Long?
 
     @Upsert
     suspend fun upsertAccount(account: CreditAccountEntity)

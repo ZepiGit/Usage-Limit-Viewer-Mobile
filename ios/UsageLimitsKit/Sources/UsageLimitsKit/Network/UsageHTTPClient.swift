@@ -60,11 +60,8 @@ public enum HTTPError: Error {
     /// this case, and request headers are never included in any error.
     case status(code: Int, body: String)
 
-    /// A 429 that outlasted the retry budget. `retryAfter` is the server's
-    /// hint when one was sent, parseable and plausible — and already clamped
-    /// to the same ceiling the client itself honours, so a caller acting on
-    /// the hint cannot be talked into parking a background task for a day
-    /// either.
+    /// A 429 that outlasted the retry budget. `retryAfter` is the server's parseable
+    /// delay, without the cap used for in-request waits. Callers schedule their own cooldown.
     case rateLimited(retryAfter: TimeInterval?)
 }
 
@@ -112,11 +109,6 @@ public actor UsageHTTPClient {
     /// server suggested it or backoff computed it. One policy for both, so
     /// hostile input can never park a background task for minutes on end.
     private static let maximumWait: TimeInterval = 30
-
-    /// A Retry-After above a full day is not a schedule; it is a broken clock
-    /// or an attack, so it is rejected as malformed rather than obeyed — or
-    /// even clamped.
-    private static let implausibleRetryAfter: TimeInterval = 86_400
 
     /// Response bodies carried into errors stop here: provider error pages
     /// sometimes echo request material — redirect URIs carry authorisation
@@ -176,8 +168,8 @@ public actor UsageHTTPClient {
     /// burning attempts on foregone conclusions.
     ///
     /// A 429 that outlives the budget surfaces as `.rateLimited` carrying the
-    /// already-clamped server hint, so a caller can schedule a later attempt
-    /// rather than spin. Cancellation is honoured at every seam: waits are
+    /// uncapped server hint, so a caller can schedule a later attempt.
+    /// Cancellation is honoured at every seam: waits are
     /// `Task.sleep`, and `CancellationError` is rethrown rather than absorbed,
     /// so a caller that gives up is never dragged through another attempt.
     /// Total added latency is bounded — each wait at `maximumWait`, each
@@ -286,16 +278,15 @@ public actor UsageHTTPClient {
 
             if budgetSpent {
                 if status == 429 {
-                    return .failed(.rateLimited(retryAfter: Self.honouredRetryAfter(
+                    return .failed(.rateLimited(retryAfter: Self.retryAfter(
                         headerFields["retry-after"], at: now()
                     )))
                 }
                 return .failed(.status(code: status, body: Self.truncated(text)))
             }
 
-            // A plausible Retry-After is honoured within the clamp —
-            // whichever retryable status sent it; otherwise backoff decides.
-            let wait = Self.honouredRetryAfter(headerFields["retry-after"], at: now())
+            let suggested = Self.retryAfter(headerFields["retry-after"], at: now())
+            let wait = suggested.map { min($0, Self.maximumWait) }
                 ?? Self.backoffDelay(afterAttempt: attemptIndex)
             return .waitAndRetry(wait)
         } catch let cancellation as CancellationError {
@@ -363,37 +354,18 @@ public actor UsageHTTPClient {
 
     // MARK: Retry-After
 
-    /// Reads a Retry-After header — delay-seconds or HTTP-date — and returns
-    /// the delay this client will actually honour, or nil when the header is
-    /// absent, malformed or implausible.
-    ///
-    /// The value is attacker-influenced, so it is both sanity-checked and
-    /// clamped: anything above a full day is rejected as malformed rather
-    /// than obeyed or truncated, and everything else is capped at
-    /// `maximumWait`, because a header demanding 86400 seconds must not park
-    /// a background task for a day.
-    private static func honouredRetryAfter(_ raw: String?, at reference: Date) -> TimeInterval? {
+    /// Reads delay-seconds or an HTTP-date. The retry loop and sync policy apply their own caps.
+    private static func retryAfter(_ raw: String?, at reference: Date) -> TimeInterval? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
 
-        let requested: TimeInterval
-        if let seconds = UInt(trimmed) {
-            requested = TimeInterval(seconds)
-        } else if let date = httpDate(trimmed) {
-            // A date already in the past means the provider believes the
-            // window has closed; waiting nothing is the honest reading, and
-            // clock skew must not turn into a negative sleep.
-            requested = max(0, date.timeIntervalSince(reference))
-        } else {
-            // Neither the integer nor the date form: treat the header as
-            // absent rather than guess at hostile input.
-            return nil
+        if trimmed.utf8.allSatisfy({ (48...57).contains($0) }) {
+            // Even an overflowing delay is a valid large delay, not an absent hint.
+            return min(TimeInterval(trimmed) ?? .greatestFiniteMagnitude, .greatestFiniteMagnitude)
         }
-
-        guard requested <= implausibleRetryAfter else { return nil }
-
-        return min(requested, maximumWait)
+        guard let date = httpDate(trimmed) else { return nil }
+        return max(0, date.timeIntervalSince(reference))
     }
 
     /// Parses an HTTP-date in the IMF-fixdate form

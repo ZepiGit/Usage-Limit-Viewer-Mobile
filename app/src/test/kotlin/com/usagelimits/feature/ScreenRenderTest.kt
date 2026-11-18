@@ -1,5 +1,7 @@
 package com.usagelimits.feature
 
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
@@ -7,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.model.PercentDisplay
@@ -23,6 +26,7 @@ import com.usagelimits.feature.accounts.AccountDetailScreen
 import com.usagelimits.feature.accounts.AddAccountScreen
 import com.usagelimits.feature.accounts.AddAccountState
 import com.usagelimits.feature.accounts.AccountsScreen
+import com.usagelimits.feature.overview.AccountCard
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
@@ -130,6 +134,23 @@ class ScreenRenderTest {
             "the window label should be on screen",
             compose.onAllNodesWithText("5h limit", substring = true)
                 .fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test
+    fun `an otherwise current Overview card shows a pause without presenting a failure`() {
+        render {
+            AccountCard(
+                usage = pausedAntigravity(), nowMs = now, staleAfterMs = 3_600_000,
+                percentDisplay = PercentDisplay.LEFT, onRetry = {}, onClick = {},
+            )
+        }
+
+        compose.onNodeWithText(pauseNotice, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("60%", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("showing last known data", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("partial update", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("Stale", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("Error", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test
@@ -286,10 +307,24 @@ class ScreenRenderTest {
             .let { assertTrue("the Security section should be gone", it.isEmpty()) }
     }
 
-    private fun renderSettings(mode: PercentDisplay) = render {
+    @Test
+    @Config(qualifiers = "w393dp-h873dp")
+    fun `settings offers five minutes and explains background delays`() {
+        var chosen: Int? = null
+        renderSettings(PercentDisplay.LEFT) { chosen = it }
+
+        val caption = "Android may refresh less often in Doze or battery saver."
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(caption))
+        compose.onNodeWithText(caption).assertIsDisplayed()
+        compose.onNodeWithText("5m").assertIsDisplayed()
+            .performSemanticsAction(SemanticsActions.OnClick) { it() }
+        assertEquals(5, chosen)
+    }
+
+    private fun renderSettings(mode: PercentDisplay, onSyncIntervalChange: (Int) -> Unit = {}) = render {
         SettingsScreen(
             state = UsageUiState(accounts = listOf(usage()), settings = AppSettings(percentDisplay = mode)),
-            onSyncIntervalChange = {},
+            onSyncIntervalChange = onSyncIntervalChange,
             onNotificationPermissionHandled = {},
             onNotifyBelow20 = {},
             onNotifyBelow10 = {},
@@ -365,7 +400,7 @@ class ScreenRenderTest {
         }
 
         compose.onNode(hasScrollToNodeAction())
-            .performScrollToNode(hasText("Show percentages as", substring = true))
+            .performScrollToNode(hasText("Used"))
         compose.onNodeWithText("Used").performClick()
         assertEquals(PercentDisplay.USED, chosen)
     }
@@ -414,6 +449,21 @@ class ScreenRenderTest {
             .fetchSemanticsNodes().isNotEmpty())
         assertTrue(compose.onAllNodesWithText("The figures below are the last values that loaded successfully.")
             .fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun `account detail shows the pause without treating the current reading as cached`() {
+        renderDetail(pausedAntigravity())
+
+        compose.onNodeWithText(pauseNotice).assertIsDisplayed()
+        compose.onNodeWithText("The figures below are the last values that loaded successfully.").assertDoesNotExist()
+        compose.onNodeWithText("Error").assertDoesNotExist()
+    }
+
+    private val pauseNotice = "Rate limited. Automatic refresh is paused. Refresh manually to try now."
+
+    private fun pausedAntigravity() = usage(provider = ProviderId.ANTIGRAVITY).let {
+        it.copy(snapshot = it.snapshot!!.copy(errorMessage = pauseNotice))
     }
 
     @Test

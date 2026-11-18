@@ -1,0 +1,10 @@
+{
+  "cases": [
+    {"name": "below minimum", "requestedMinutes": 0, "normalizedMinutes": 5, "staleAfterSeconds": 2700.0},
+    {"name": "five minutes", "requestedMinutes": 5, "normalizedMinutes": 5, "staleAfterSeconds": 2700.0},
+    {"name": "fifteen minutes", "requestedMinutes": 15, "normalizedMinutes": 15, "staleAfterSeconds": 2700.0},
+    {"name": "thirty minutes", "requestedMinutes": 30, "normalizedMinutes": 30, "staleAfterSeconds": 3600.0},
+    {"name": "one hour", "requestedMinutes": 60, "normalizedMinutes": 60, "staleAfterSeconds": 7200.0},
+    {"name": "three hours", "requestedMinutes": 180, "normalizedMinutes": 180, "staleAfterSeconds": 21600.0}
+  ]
+}
