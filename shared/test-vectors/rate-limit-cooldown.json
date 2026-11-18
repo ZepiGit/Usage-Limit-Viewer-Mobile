@@ -1,0 +1,12 @@
+{
+  "cases": [
+    {"name":"hour hint still active at five minutes","now":1700000300,"rateLimitedAt":1700000000,"retryAfter":3600,"automatic":true,"skip":true},
+    {"name":"hour hint expires at exactly one hour","now":1700003600,"rateLimitedAt":1700000000,"retryAfter":3600,"automatic":true,"skip":false},
+    {"name":"manual refresh bypasses an active deadline","now":1700000300,"rateLimitedAt":1700000000,"retryAfter":3600,"automatic":false,"skip":false},
+    {"name":"missing hint still active before fifteen minutes","now":1700000899,"rateLimitedAt":1700000000,"retryAfter":null,"automatic":true,"skip":true},
+    {"name":"missing hint expires at fifteen minutes","now":1700000900,"rateLimitedAt":1700000000,"retryAfter":null,"automatic":true,"skip":false},
+    {"name":"a short hint cannot shorten the minimum","now":1700000120,"rateLimitedAt":1700000000,"retryAfter":120,"automatic":true,"skip":true},
+    {"name":"a huge hint remains active just before six hours","now":1700021599,"rateLimitedAt":1700000000,"retryAfter":604800,"automatic":true,"skip":true},
+    {"name":"a huge hint expires at the six-hour cap","now":1700021600,"rateLimitedAt":1700000000,"retryAfter":604800,"automatic":true,"skip":false}
+  ]
+}

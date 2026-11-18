@@ -24,24 +24,7 @@ public actor AccountRepository {
         /// reorder joins the end of the list instead of tying for the front.
         var sortOrder: Int?
 
-        private enum CodingKeys: String, CodingKey { case account, snapshot, sortOrder }
-
-        init(account: ProviderAccount, snapshot: UsageSnapshot?, sortOrder: Int? = nil) {
-            self.account = account
-            self.snapshot = snapshot
-            self.sortOrder = sortOrder
-        }
-
-        /// Lenient on the new key, for the reason spelled out on `load`: a register written
-        /// before manual ordering existed has no `sortOrder`, and the synthesised decoder would
-        /// reject the whole file — which this type treats as a register it must not overwrite,
-        /// stranding every account the user had connected.
-        init(from decoder: any Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            account = try c.decode(ProviderAccount.self, forKey: .account)
-            snapshot = try c.decodeIfPresent(UsageSnapshot.self, forKey: .snapshot)
-            sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder)
-        }
+        var automaticSyncNotBefore: TimeInterval? = nil
     }
 
     private let fileURL: URL
@@ -106,6 +89,11 @@ public actor AccountRepository {
         return ordered().map { AccountUsage(account: $0.account, snapshot: $0.snapshot) }
     }
 
+    func automaticSyncNotBefore(accountID: String) -> TimeInterval? {
+        ensureLoaded()
+        return records[accountID]?.automaticSyncNotBefore
+    }
+
     /// The user's own order where they have one, oldest first everywhere else.
     ///
     /// Accounts never dragged sort after every dragged one and keep their age order, so adding
@@ -133,7 +121,8 @@ public actor AccountRepository {
         updated[account.id] = Stored(
             account: account,
             snapshot: records[account.id]?.snapshot,
-            sortOrder: records[account.id]?.sortOrder)
+            sortOrder: records[account.id]?.sortOrder,
+            automaticSyncNotBefore: records[account.id]?.automaticSyncNotBefore)
         try persist(updated)
     }
 
@@ -150,12 +139,13 @@ public actor AccountRepository {
     /// them with nothing. Showing yesterday's numbers with a staleness marker is far more useful
     /// than blanking a card because one refresh did not come back — and the caller can tell the
     /// two apart, which it could not if the windows were simply gone.
-    public func record(_ outcome: SyncOutcome, at time: Date) throws {
+    public func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date? = nil) throws {
         try requireLoaded()
         var updated = records
         switch outcome {
         case .success(let accountID, let result):
-            guard var stored = updated[accountID] else { return }
+            guard var stored = updated[accountID],
+                  accountCreatedAt == nil || stored.account.createdAt == accountCreatedAt else { return }
             stored.snapshot = UsageSnapshot(
                 accountID: accountID,
                 fetchedAt: time,
@@ -170,13 +160,18 @@ public actor AccountRepository {
                 applicableResetCreditCount: result.applicableResetCreditCount,
                 errorMessage: result.errorMessage,
                 connectionStatus: result.connectionStatus)
+            if result.status != .failed { stored.automaticSyncNotBefore = nil }
             if let plan = result.plan, plan != stored.account.plan {
                 stored.account = stored.account.withPlan(plan)
             }
             updated[accountID] = stored
 
-        case .failure(let accountID, let message):
-            guard var stored = updated[accountID] else { return }
+        case .failure(let accountID, let message), .rateLimited(let accountID, let message, _):
+            guard var stored = updated[accountID],
+                  accountCreatedAt == nil || stored.account.createdAt == accountCreatedAt else { return }
+            if case .rateLimited(_, _, let retryAfter) = outcome {
+                stored.automaticSyncNotBefore = RateLimitCooldown.deadline(from: time, retryAfter: retryAfter)
+            }
             let previous = stored.snapshot
             stored.snapshot = UsageSnapshot(
                 accountID: accountID,
@@ -303,8 +298,12 @@ public struct RepositorySink: SyncSink {
         self.repository = repository
     }
 
-    public func record(_ outcome: SyncOutcome, at time: Date) async {
-        try? await repository.record(outcome, at: time)
+    public func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date) async {
+        try? await repository.record(outcome, at: time, accountCreatedAt: accountCreatedAt)
+    }
+
+    public func automaticSyncNotBefore(accountID: String) async -> TimeInterval? {
+        await repository.automaticSyncNotBefore(accountID: accountID)
     }
 }
 

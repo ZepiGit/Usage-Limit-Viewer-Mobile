@@ -30,6 +30,11 @@ Kimi use device codes; Meta Muse uses the Meta device grant, and Kimi additional
 These code paths are implemented, but live account sign-in has not been verified
 by synthetic tests alone.
 
+When either a usage or credit sync ends in HTTP 429, iOS pauses automatic reads
+for that account for at least 15 minutes, honoring longer `Retry-After` delays
+up to six hours. The pause survives app restarts; an explicit refresh can retry
+immediately, and a successful read clears it.
+
 ## Building and checking
 
 For the portable package, from the repository root:

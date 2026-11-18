@@ -97,6 +97,7 @@ public enum ProviderError: Error, LocalizedError {
     /// The credential was rejected (HTTP 401/403); refreshing the token is the only fix the
     /// caller can make.
     case unauthorised
+    case rateLimited(endpoint: String, retryAfter: TimeInterval?)
     /// The endpoint was unreachable, answered with an error status, or had nothing for this
     /// account.
     case noData(String)
@@ -108,9 +109,19 @@ public enum ProviderError: Error, LocalizedError {
         case .unauthorised:
             // Share the evaluator's sign-in-expired message so reconnect detection and alerts agree.
             return NotificationEvaluator.signInExpiredMessage
+        case .rateLimited(let endpoint, _):
+            return "No usage could be read (\(endpoint) is rate limiting this account)."
         case .noData(let detail):
             return "No usage could be read (\(detail))."
         }
+    }
+}
+
+private extension ProviderError {
+    func preferringRateLimit(_ other: ProviderError) -> ProviderError {
+        guard case .rateLimited(_, let ownHint) = self else { return other }
+        guard case .rateLimited(_, let otherHint) = other else { return self }
+        return (otherHint ?? 0) > (ownHint ?? 0) ? other : self
     }
 }
 
@@ -156,8 +167,8 @@ enum ProviderHTTP {
             case .status(let code, _):
                 try translate(status: code, endpoint: endpoint)
                 throw ProviderError.noData("\(endpoint) answered HTTP \(code)")
-            case .rateLimited:
-                throw ProviderError.noData("\(endpoint) is rate limiting this account")
+            case .rateLimited(let retryAfter):
+                throw ProviderError.rateLimited(endpoint: endpoint, retryAfter: retryAfter)
             default:
                 throw ProviderError.noData("\(endpoint) could not be reached")
             }
@@ -433,6 +444,7 @@ public struct AntigravityClient: SyncProvider, Sendable {
         let requestBody = try JSONSerialization.data(withJSONObject: ["project": projectID], options: [])
 
         var authRejection: ProviderError?
+        var rateLimit: ProviderError?
         var firstFailure: Error?
         var allRows: [AntigravityQuotaParser.Row] = []
 
@@ -452,8 +464,10 @@ public struct AntigravityClient: SyncProvider, Sendable {
                     continue
                 case .status(let code, _):
                     failure = .noData("antigravity quota answered HTTP \(code)")
-                case .rateLimited:
-                    failure = .noData("antigravity quota is rate limiting this account")
+                case .rateLimited(let retryAfter):
+                    let limit = ProviderError.rateLimited(endpoint: "antigravity quota", retryAfter: retryAfter)
+                    rateLimit = rateLimit?.preferringRateLimit(limit) ?? limit
+                    continue
                 case .transport:
                     failure = .noData("antigravity quota could not be reached")
                 default:
@@ -492,9 +506,9 @@ public struct AntigravityClient: SyncProvider, Sendable {
             return UsageResult(windows: allWindows)
         }
 
-        // An authorisation rejection outranks the other failures because it is the only one
-        // the caller can fix unilaterally, and a needless token refresh costs less than a
-        // wrong diagnosis.
+        // Honor a throttle when no host supplied usage; a different shard's auth rejection
+        // must not cause immediate retries against the throttled host.
+        if let rateLimit { throw rateLimit }
         if let authRejection {
             throw authRejection
         }
@@ -616,9 +630,15 @@ public struct XaiClient: SyncProvider, Sendable {
 
     /// Picks which failure to surface when both routes were tried and both failed.
     ///
-    /// The authorisation rejection wins because one token refresh repairs both routes at
-    /// once; anything else would have the user retry twice for a single fault.
+    /// A final throttle takes priority over renewal. Without throttling, one token refresh
+    /// may repair both routes at once.
     private static func preferredFailure(_ first: Error?, _ second: Error?) -> Error {
+        let primary = first as? ProviderError
+        let fallback = second as? ProviderError
+        if case .rateLimited? = primary, let primary {
+            return fallback.map { primary.preferringRateLimit($0) } ?? primary
+        }
+        if case .rateLimited? = fallback, let fallback { return fallback }
         for candidate in [first, second].compactMap({ $0 }) {
             if let providerError = candidate as? ProviderError, case .unauthorised = providerError {
                 return providerError

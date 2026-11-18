@@ -205,28 +205,26 @@ final class UsageHTTPClientTests: XCTestCase {
 
     // MARK: - Retry-After, which the server controls
 
-    func testAnAbsurdRetryAfterDoesNotParkTheApp() async {
-        // A header saying 86400 must not hold a background refresh for a day. The value is
-        // attacker-influenced input, so it is bounded rather than obeyed.
-        let (client, _) = client(
-            [.respond(status: 429, body: "slow down", headers: ["Retry-After": "86400"])],
-            maxRetries: 0)
-
-        let started = Date()
-        do {
-            _ = try await client.request(url: "https://api.example.com/usage")
-            XCTFail("expected a rate-limited failure")
-        } catch let error as HTTPError {
-            guard case .rateLimited(let retryAfter) = error else {
-                return XCTFail("wrong error: \(error)")
+    func testFinalRetryAfterIsNotLimitedByTheInRequestWait() async {
+        for (header, expected) in [("3600", 3_600.0), ("604800", 604_800.0),
+                                   ("Thu, 04 Sep 2025 16:33:20 GMT", 3_600.0)] {
+            let (client, transport) = client(
+                [.respond(status: 429, body: "slow down", headers: ["Retry-After": header])],
+                maxRetries: 0)
+            do {
+                _ = try await client.request(url: "https://api.example.com/usage")
+                XCTFail("expected a rate-limited failure")
+            } catch let error as HTTPError {
+                guard case .rateLimited(let retryAfter) = error else {
+                    return XCTFail("wrong error: \(error)")
+                }
+                XCTAssertEqual(retryAfter, expected, header)
+            } catch {
+                XCTFail("wrong error: \(error)")
             }
-            // Whatever is reported back is already bounded, so a caller acting on the hint
-            // cannot be talked into a day-long wait either.
-            if let retryAfter { XCTAssertLessThanOrEqual(retryAfter, 30) }
-        } catch {
-            XCTFail("wrong error: \(error)")
+            let attempts = await transport.attempts
+            XCTAssertEqual(attempts, 1)
         }
-        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
     }
 
     func testA429SurfacesAsRateLimitedRatherThanAsAPlainStatus() async {

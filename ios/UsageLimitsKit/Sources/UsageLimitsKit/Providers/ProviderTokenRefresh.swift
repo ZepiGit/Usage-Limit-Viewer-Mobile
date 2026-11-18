@@ -111,8 +111,8 @@ enum TokenExchange {
             case .status(let code, _):
                 try rejectFailure(status: code, endpoint: endpoint)
                 throw ProviderError.noData("\(endpoint) answered HTTP \(code)")
-            case .rateLimited:
-                throw ProviderError.noData("\(endpoint) is rate limiting this account")
+            case .rateLimited(let retryAfter):
+                throw ProviderError.rateLimited(endpoint: endpoint, retryAfter: retryAfter)
             default:
                 throw ProviderError.noData("\(endpoint) could not be reached")
             }

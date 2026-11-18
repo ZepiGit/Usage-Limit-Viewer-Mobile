@@ -140,8 +140,8 @@ final class RefreshCoalescerTests: XCTestCase {
             transport: GatedTransport(gate: gate),
             now: { [now] in now })
         let announcements = Announcements()
-        let coalescer = RefreshCoalescer {
-            _ = try? await container.refresh()
+        let coalescer = RefreshCoalescer { automatic in
+            _ = try? await container.refresh(automatic: automatic)
             await announcements.record((try? await container.pendingNotifications()) ?? [])
         }
         return (container, coalescer, gate, announcements)
@@ -182,6 +182,41 @@ final class RefreshCoalescerTests: XCTestCase {
                 await wait.value
                 self.sawOnRelease = await look()
             }
+        }
+    }
+
+    func testOnlyAnExplicitRequestMakesAQueuedPassManual() async throws {
+        actor Origins {
+            var automatic: [Bool] = []
+            func append(_ value: Bool) { automatic.append(value) }
+        }
+        await SerialScheduling.run {
+            let gate = Gate()
+            let origins = Origins()
+            let coalescer = RefreshCoalescer { automatic in
+                await origins.append(automatic)
+                await gate.hold()
+            }
+
+            let first = await coalescer.request(automatic: true)
+            await SerialScheduling.settle()
+            let pendingAutomatic = await coalescer.request(automatic: true)
+            let pendingManual = await coalescer.request(automatic: false)
+            let stillAutomatic = await coalescer.request(automatic: true)
+            await SerialScheduling.settle()
+            let firstOrigin = await origins.automatic
+            XCTAssertEqual(firstOrigin, [true], "new requests must not change the running pass")
+
+            await gate.release(1)
+            await SerialScheduling.settle()
+            let last = await coalescer.request(automatic: true)
+            await gate.release()
+            for request in [first, pendingAutomatic, pendingManual, stillAutomatic, last] {
+                await request.value
+            }
+            let sequence = await origins.automatic
+            XCTAssertEqual(sequence, [true, false, true],
+                "a manual request must survive coalescing without promoting later automatic work")
         }
     }
 
