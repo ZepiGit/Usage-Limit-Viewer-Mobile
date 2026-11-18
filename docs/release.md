@@ -90,7 +90,7 @@ Use the candidate artifact and repeat the relevant steps on Android and iOS with
    4. Lock the phone with a PIN, with lock-screen notifications allowed. The status notifications appear there in the phone's own form (rows, cards or icons only). Then hide them: turn off lock-screen display for the Status bar icons category where the phone offers it, otherwise the system-wide option. Hiding notification content is a different setting and does not count.
    5. With TalkBack on, move through the three rows: note what it reads for each, and whether the provider can be told apart. Tap a row: it opens that account's detail screen.
    6. Swipe one row away. It stays away after a settings change and returns after the next refresh; unpinning removes it.
-   7. Switch the "Status bar icons" category off in Android: the icons disappear, alerts still arrive, and the app's Status bar icons section names the category and opens its settings. Switch it on and return to the app: all pinned icons come back, a swiped-away one too. Repeat with the app's notifications switched off on an Android 12 or older phone if one is available.
+   7. Switch the "Status bar icons" category off in Android: the icons disappear, alerts still arrive, and the app's Status bar icons section names the category and opens its settings. Open **Open category settings** from the app, switch it on there and go back to the app's Settings: all pinned icons come back at once, a swiped-away one too. Switched off and on again without the app's Settings screen seeing it, they come back with the next sync instead. Repeat with the app's notifications switched off on an Android 12 or older phone if one is available.
 
 ## Owner responsibilities
 
