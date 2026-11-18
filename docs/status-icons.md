@@ -9,7 +9,7 @@ Why it is built this way is recorded in [ADR 0003](adr/0003-status-icons-and-loc
 ## Setup on Android
 
 1. Open Settings and find **Status bar icons**.
-2. Turn on **Show status bar icons**. If notifications are not allowed, the app asks for permission, or opens Android's notification settings when it can no longer ask. Until notifications are allowed, the section says "Status bar icons cannot be shown until notifications are allowed." The **Notifications** card in Settings offers the same way back later.
+2. Turn on **Show status bar icons**. If notifications are not allowed, the app asks for permission on Android 13 and later while Android still offers its dialog; otherwise, and on Android 12 and earlier, where notifications are on by default but can be switched off for the app, it opens Android's notification settings for the app. Until notifications are allowed, the section says "Status bar icons cannot be shown until notifications are allowed." The **Notifications** card in Settings offers the same way back later. If you switched off only the **Status bar icons** notification category, alerts still arrive and the section says "Status bar icons cannot be shown while their notification category is turned off.", with **Open category settings** to switch it on again. Back in the app, the icons appear without waiting for a sync, whichever of the two you switched on.
 3. Under **Pinned accounts**, pin up to three accounts. With three pinned, the section reads "3 of 3 pinned" and the other accounts cannot be pinned until you unpin one.
 
 Turning the switch on or off, pinning and unpinning make the app post or remove the icons without waiting for a sync. After that the icons follow every refresh, by hand or in the background. When a reading turns stale or a reset time passes without a refresh, the app schedules a repaint for that moment; Android may run it later. Removing an account also releases its pin.
@@ -85,7 +85,7 @@ This holds when a publication runs to its end. Around a crash or a permission ch
 
 - If the app is stopped between saving the list of accounts it means to show and posting them, the missing icons wait for the next sync.
 - If that saved list is lost, a later repaint can bring back an icon you swiped away before the next sync.
-- If you withdraw the notification permission and grant it again with no publication in between, the icons may wait for the next sync.
+- If you withdraw the notification permission, or switch notifications or the Status bar icons category off, and allow them again with no publication in between and without returning to the app's Settings, the icons may wait for the next sync.
 
 ## Limits
 

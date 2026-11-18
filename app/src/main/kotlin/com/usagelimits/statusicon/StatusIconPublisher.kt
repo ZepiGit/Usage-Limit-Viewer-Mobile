@@ -118,10 +118,11 @@ class StatusIconPublisher(
 
     /** [restoreDismissed] is true after a sync and false for every other publication. */
     suspend fun publish(restoreDismissed: Boolean): Unit = serial.withLock {
-        // Missing permission is Settings' to explain; posting would only throw. Nothing is shown,
-        // so a publication after the permission is given counts every pinned account as new. If
-        // no publication ran while it was missing, restoration may wait for the next sync.
-        if (!hasPermission()) {
+        // Notifications switched off for the app, or for the "Status bar icons" category alone, are
+        // Settings' to explain; Android would drop or remove anything posted. Nothing is shown,
+        // so a publication after they are allowed again counts every pinned account as new. If
+        // no publication ran while they were off, restoration may wait for the next sync.
+        if (!canShow()) {
             shown.write(emptyList())
             return@withLock
         }
@@ -292,13 +293,22 @@ class StatusIconPublisher(
         )
     }
 
-    private fun hasPermission(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    private fun canShow(): Boolean =
+        manager.areNotificationsEnabled() &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+            !categoryBlocked(manager)
 
     companion object {
         /** Separate from the alert channel, so a person can silence one without the other. */
         const val CHANNEL_ID = "status_icons"
+
+        /**
+         * Whether the person switched the "Status bar icons" category off in Android. A category
+         * the app has not created yet is not blocked: the app creates it open.
+         */
+        fun categoryBlocked(manager: NotificationManager): Boolean =
+            manager.getNotificationChannel(CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE
 
         /**
          * How long one account's time may wait for the clock to move on before the publication

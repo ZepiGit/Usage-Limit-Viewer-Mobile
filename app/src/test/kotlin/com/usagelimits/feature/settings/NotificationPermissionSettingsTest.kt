@@ -160,13 +160,45 @@ class NotificationPermissionSettingsTest {
 
     @Test
     @Config(sdk = [32])
-    fun `Android before 13 never presents notifications as blocked`() {
+    fun `Android before 13 has no permission to deny, so notifications left on read as allowed`() {
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
         render()
         scrollTo("Notifications allowed")
         compose.onNodeWithText("Notifications allowed").assertIsDisplayed()
         compose.onNodeWithText("Notifications not allowed").assertDoesNotExist()
         compose.onNodeWithText("Allow notifications").assertDoesNotExist()
+        org.junit.Assert.assertNull(shadowOf(compose.activity).lastRequestedPermission)
+    }
+
+    @Test
+    @Config(sdk = [30])
+    fun `Android before 13 with notifications switched off says so and leads to the app's notification settings, never a dialog`() {
+        shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).setNotificationsEnabled(false)
+        render()
+        scrollTo("Notifications not allowed")
+        compose.onNodeWithText("Notifications not allowed").assertIsDisplayed()
+        compose.onNodeWithText("Allow notifications").assertDoesNotExist()
+        compose.onNodeWithText("Open notification settings").assertIsEnabled().performClick()
+        val intent = shadowOf(compose.activity).nextStartedActivity
+        assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, intent.action)
+        assertEquals(app.packageName, intent.getStringExtra(Settings.EXTRA_APP_PACKAGE))
+        org.junit.Assert.assertNull(shadowOf(compose.activity).lastRequestedPermission)
+
+        compose.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).setNotificationsEnabled(true)
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.onNodeWithText("Notifications allowed").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a granted permission with notifications switched off leads to the app's notification settings, not the dialog`() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        shadowOf(app.getSystemService(android.app.NotificationManager::class.java)).setNotificationsEnabled(false)
+        render()
+        scrollTo("Notifications not allowed")
+        compose.onNodeWithText("Allow notifications").assertDoesNotExist()
+        compose.onNodeWithText("Open notification settings").performClick()
+        assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, shadowOf(compose.activity).nextStartedActivity.action)
         org.junit.Assert.assertNull(shadowOf(compose.activity).lastRequestedPermission)
     }
 

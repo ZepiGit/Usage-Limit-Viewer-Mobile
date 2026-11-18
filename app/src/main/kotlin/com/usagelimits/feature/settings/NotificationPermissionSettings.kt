@@ -2,6 +2,7 @@ package com.usagelimits.feature.settings
 
 import android.Manifest
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -35,13 +36,19 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.usagelimits.R
+import com.usagelimits.statusicon.StatusIconPublisher
 import com.usagelimits.ui.components.OutlineButton
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.theme.UsageColors
 
 /**
- * The notification permission as Settings sees it: whether it is allowed, whether Android still
- * offers its dialog, and the one way to ask.
+ * Whether Android lets this app show notifications, as Settings sees it: whether they are
+ * allowed, whether Android still offers its dialog, and the one way to ask.
+ *
+ * Allowed means the app's notifications are switched on in Android, on every level, and from
+ * Android 13 also that the runtime permission is granted. Before Android 13 there is no dialog:
+ * notifications are on by default but a person can switch them off, and only the app's
+ * notification settings switch them on again.
  *
  * Shared by every Settings card that depends on the permission, so they cannot disagree about
  * it. [request] shows the system dialog while Android still offers it (once, before any answer,
@@ -49,6 +56,9 @@ import com.usagelimits.ui.theme.UsageColors
  * settings, because Android reports dismissal and permanent denial alike. The state is reread
  * after the dialog answers and whenever the screen resumes, which is how a return from the system
  * settings is noticed.
+ *
+ * [statusIconsBlocked] is the "Status bar icons" category switched off on its own; alerts are
+ * unaffected by it, so only the status icon section reads it.
  */
 @Stable
 internal class NotificationPermissionState(
@@ -73,6 +83,8 @@ internal class NotificationPermissionState(
         private set
     var requestable by mutableStateOf(canRequest())
         private set
+    var statusIconsBlocked by mutableStateOf(StatusIconPublisher.categoryBlocked(manager))
+        private set
 
     /** True while the dialog is open, so a second tap cannot stack a second request. */
     var requesting by mutableStateOf(false)
@@ -96,23 +108,43 @@ internal class NotificationPermissionState(
         reread()
     }
 
-    /** Reads the grant again; tells [onAllowed] when it has just been given. */
+    /** Opens the "Status bar icons" category's own settings, or the app's where it has none. */
+    fun openStatusIconSettings() {
+        val category = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            .putExtra(Settings.EXTRA_CHANNEL_ID, StatusIconPublisher.CHANNEL_ID)
+        context.startFirstAvailable(category, *notificationSettingsIntents(context))
+    }
+
+    /**
+     * Reads the grant and the status icon category again; tells [onAllowed] when notifications
+     * have just been allowed, or the category switched on again while they are, since either
+     * lets the status icons appear.
+     */
     internal fun reread() {
         val now = readAllowed()
-        val became = now && !allowed
+        val blocked = StatusIconPublisher.categoryBlocked(manager)
+        val became = now && (!allowed || (statusIconsBlocked && !blocked))
         allowed = now
+        statusIconsBlocked = blocked
         requestable = canRequest()
         if (became) onAllowed()
     }
 
-    private fun readAllowed() = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
-        context, Manifest.permission.POST_NOTIFICATIONS,
-    ) == PackageManager.PERMISSION_GRANTED
+    private val manager get() = context.getSystemService(NotificationManager::class.java)
 
-    // Android reports dismissal and permanent denial alike; system settings safely handles both.
-    private fun canRequest() = !asked || activity?.let {
+    private fun readAllowed() = manager.areNotificationsEnabled() && granted()
+
+    private fun granted() = Build.VERSION.SDK_INT < 33 ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+    // The dialog only grants the permission, which counts as granted before Android 13, so there
+    // it is never offered; notifications switched off in Android, with or without the permission,
+    // are switched on again only in the app's notification settings. Android reports dismissal
+    // and permanent denial alike; system settings safely handles both.
+    private fun canRequest() = !granted() && (!asked || activity?.let {
         ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.POST_NOTIFICATIONS)
-    } == true
+    } == true)
 }
 
 /**
@@ -175,12 +207,13 @@ internal fun NotificationPermissionSettings(permission: NotificationPermissionSt
 }
 
 private fun openNotificationSettings(context: Context) {
-    val notifications = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-    val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-        android.net.Uri.fromParts("package", context.packageName, null))
-    context.startFirstAvailable(notifications, details)
+    context.startFirstAvailable(*notificationSettingsIntents(context))
 }
+
+private fun notificationSettingsIntents(context: Context) = arrayOf(
+    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", context.packageName, null)),
+)
 
 private tailrec fun Context.activity(): Activity? = when (this) {
     is Activity -> this
