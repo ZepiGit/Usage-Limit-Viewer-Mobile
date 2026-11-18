@@ -306,7 +306,7 @@
     <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
     <string name="message_order_save_failed">Die Reihenfolge der Konten konnte nicht gespeichert werden. Versuche es erneut.</string>
     <string name="message_icon_save_failed">Die Symbolauswahl konnte nicht gespeichert werden. Versuche es erneut.</string>
-    <string name="message_pin_refused_full">Das Konto konnte nicht angeheftet werden: Es sind schon 3 angeheftet. Löse zuerst eines.</string>
+    <string name="message_pin_refused_full">Das Konto konnte nicht angeheftet werden: Es sind schon %1$d angeheftet. Löse zuerst eines.</string>
     <string name="message_pin_refused_gone">Das Konto konnte nicht angeheftet werden: Es wurde entfernt.</string>
     <string name="message_refresh_failed">Aktualisierung fehlgeschlagen</string>
     <string name="message_refresh_partly_failed">Bei %1$d von %2$d Konten ist die Aktualisierung fehlgeschlagen</string>

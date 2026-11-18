@@ -53,7 +53,7 @@ A usage account the person selected for a status icon. At most three can be sele
 _Avoid_: Favourite, starred account
 
 **Status icon**:
-The small mark for one pinned account: its provider glyph with a short form of its headline's figure, a sign that stands in for the figure, or the glyph alone.
+The small mark for one pinned account: its provider glyph with a short form of its headline's figure, a sign that stands in for the figure, or the glyph alone. Underlined when its reading is stale or reset due (`outdated` in code and in the shared vectors); never for an error or an exhausted window.
 _Avoid_: Notification icon, status bar item
 
 **Provider glyph**:

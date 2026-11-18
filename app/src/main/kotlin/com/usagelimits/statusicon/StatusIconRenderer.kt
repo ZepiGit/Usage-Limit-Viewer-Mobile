@@ -22,8 +22,8 @@ import kotlin.math.roundToInt
  *
  * The status bar keeps only a small icon's alpha and tints it with one system colour, so the
  * bitmap is white ink on transparency and carries nothing in its colour. Android fits whatever it
- * gets into a fixed square slot (`docs/research/statusbar-wide-icon-scaling.md` on the prototype
- * branch), so the 3:2 frame is drawn at about 15 × 10 dp beside the clock. The longer side is
+ * gets into a fixed square slot (`docs/research/statusbar-icons-platform-facts.md`, section 1,
+ * "Small icon rules"), so the 3:2 frame is drawn at about 15 × 10 dp beside the clock. The longer side is
  * authored at 48 dp for the device density, the size above which the system downscales anyway.
  *
  * The owner chose this layout after seeing the measured emulator pixels; it is smaller than the

@@ -49,7 +49,8 @@ import kotlin.math.roundToInt
  * the status icon as their small icon. That shape is what the prototype found keeps separate icons
  * on Android 16: single notifications with distinct group keys and no summary are regrouped into
  * one generated stack after a few seconds, a shared summary shows one icon for all
- * (`docs/research/statusbar-android16-grouping-exemptions.md` on `prototype/statusbar-icons`).
+ * (`docs/research/statusbar-icons-platform-facts.md`, section 2, "One icon per notification,
+ * and grouping").
  * Both records sit at stable identities derived from the account, so a later publication replaces
  * them in place, and only-alert-once keeps a changing figure silent.
  *
@@ -67,8 +68,8 @@ import kotlin.math.roundToInt
  * "The last time" is [ShownSelection], the list of accounts the previous publication meant to
  * show. It is not a record of dismissals: nothing listens for a swipe.
  *
- * This holds for publications that run to their end. The spec's "Limits of the dismissal rule"
- * name what it does not promise: a process that dies between storing the selection and posting
+ * This holds for publications that run to their end. `docs/status-icons.md#swiping-an-icon-away`
+ * names what it does not promise: a process that dies between storing the selection and posting
  * leaves those icons missing until the next sync; a selection that was not stored can let a
  * repaint bring a dismissed icon back early; a permission revoked and granted again with no
  * publication in between may wait for the next sync.

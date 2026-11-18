@@ -220,8 +220,10 @@ internal class StatusIconEvidenceDriver(
             val syncWork = SyncWorker::class.java.name
             val workInfo = work.getWorkInfosByTagFlow(syncWork)
             val startupInfo = if (onSnapshot == null) workInfo else workInfo.onEach(onSnapshot)
-            // Let due work start without waiting the full deadline for unmet constraints.
-            withTimeoutOrNull(5_000L) {
+            // Let due work start without waiting the full deadline for unmet constraints. The grace
+            // runs out only while a due sync cannot start; otherwise this returns at once, so a
+            // slow emulator start-up gets 15 s without slowing a normal seed.
+            withTimeoutOrNull(15_000L) {
                 startupInfo.first { requests ->
                     // Include work that can become due between this snapshot and cancellation.
                     val dueBy = System.currentTimeMillis() + 250L

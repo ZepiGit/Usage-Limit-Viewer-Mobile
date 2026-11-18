@@ -308,7 +308,7 @@
     <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
     <string name="message_order_save_failed">Could not save account order. Try again.</string>
     <string name="message_icon_save_failed">Could not save the icon choice. Try again.</string>
-    <string name="message_pin_refused_full">Could not pin the account: 3 are pinned already. Unpin one first.</string>
+    <string name="message_pin_refused_full" tools:ignore="PluralsCandidate">Could not pin the account: %1$d are pinned already. Unpin one first.</string>
     <string name="message_pin_refused_gone">Could not pin the account: it has been removed.</string>
     <string name="message_refresh_failed">Refresh failed</string>
     <!-- Only raised when some but not all of several accounts failed, so the noun is always plural. -->
