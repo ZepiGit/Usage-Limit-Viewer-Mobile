@@ -87,7 +87,7 @@ Ordering that an app can influence:
 
 No public API documents control over status-bar icon order against other apps' icons. Priority and channel importance decide interruption, not that order (section 4).
 
-**Observed order (ticket 04, [run 44196948542](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44196948542)).** On API 30, 36 and 37, the account icons and shade rows followed the app's account order on first post and after reordering. On API 30, a newly pinned Grok account ranked ahead of Claude and Codex until the next sync republished the three groups. That API 30 image also showed a keyboard notification between account icons. This is an emulator observation, not a guarantee for every transition or device.
+**Observed order (ticket 04, [run 44196948542](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44196948542)).** On API 30, 36 and 37, the account icons and shade rows followed the app's account order on first post and after reordering. On API 30, a newly pinned Grok account ranked ahead of Claude and Codex until the next sync republished the three groups. That API 30 image also showed a keyboard notification between account icons. [Run 44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612), with the default-importance channel and group-alert suppression, showed the same on all three images, including the API 30 exception. This is an emulator observation, not a guarantee for every transition or device.
 
 ## 4. Channel importance
 

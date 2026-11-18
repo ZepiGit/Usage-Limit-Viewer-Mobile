@@ -49,13 +49,13 @@ The app-wide choice of which side of a usage window the percentages count: **Lef
 _Avoid_: Percent mode, toggle, view mode
 
 **Pinned account**:
-An account the person chose to keep visible through a status icon. At most three, shown in the app's account order; credit accounts cannot be pinned.
+A usage account the person selected for a status icon. At most three can be selected; credit accounts cannot be.
 _Avoid_: Favourite, starred account
 
 **Status icon**:
-The small persistent mark for one pinned account: its provider glyph and the figure of its headline, or a sign that stands in for the figure. Android shows it in the status bar, iOS in a Lock Screen widget.
+The small mark for one pinned account: its provider glyph with a short form of its headline's figure, a sign that stands in for the figure, or the glyph alone.
 _Avoid_: Notification icon, status bar item
 
 **Provider glyph**:
-The one-colour silhouette that stands for a provider in a status icon. It is not the provider artwork a person chooses under Provider icons.
+The one-colour silhouette that stands for a provider in a status icon; not the provider artwork chosen under Provider icons.
 _Avoid_: Logo, provider icon

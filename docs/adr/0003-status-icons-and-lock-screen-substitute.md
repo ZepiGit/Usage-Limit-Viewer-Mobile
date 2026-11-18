@@ -4,106 +4,80 @@ status: accepted
 
 # Status icons: one notification group per pinned account on Android, a Lock Screen widget on iOS
 
-A person can pin up to three usage accounts and see each one as a status icon: the provider glyph
-and the figure of the account's headline ([ADR 0002](0002-one-account-headline-per-platform.md)),
-in the app's display mode. The feature is off until the person turns it on (issue 60). The
-platform facts behind this decision, with their sources, are collected in
-[Status bar icons: platform facts](../research/statusbar-icons-platform-facts.md). Where this
-record relies on something observed rather than documented, it says whether the evidence is an
-emulator in CI or AOSP source; none of it was checked on a physical phone.
+A person can pin up to three usage accounts and see each one as a status icon: its provider glyph
+and the figure of its headline ([ADR 0002](0002-one-account-headline-per-platform.md)) in the
+app's display mode (issue 60). How it looks and behaves is described in
+[Status icons](../status-icons.md); the platform facts and their sources are in
+[Status bar icons: platform facts](../research/statusbar-icons-platform-facts.md). The evidence
+below comes from CI emulators and AOSP source, not from a phone.
 
 ## Android
 
-Each pinned account gets a notification group of its own, holding one summary and one child, both
-with the status icon as their small icon. Three pinned accounts are six notification records.
-Simpler shapes lose icons on Android 16: single notifications with their own group keys but no
-summary are regrouped into one generated stack about three seconds after posting, and one shared
-group shows a single icon for all accounts. Only complete groups kept three separate icons. This was
-seen on API 36 emulators and matches the delayed regrouping pass in
-[`GroupHelper`](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android16-release/services/core/java/com/android/server/notification/GroupHelper.java)
-on `android16-release`.
+Each pinned account gets a notification group of its own, with one summary and one child, both
+carrying the drawn status icon as their small icon. On Android 16, summary-less notifications with
+their own group keys were regrouped into one generated stack, and one shared group showed one icon
+for all accounts; of the shapes tested, only complete groups kept three icons (prototype runs
+[43974065784](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/43974065784) and
+[43977478191](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/43977478191)).
 
-The small icon is a bitmap drawn after every publication. The status bar keeps only its alpha and
-tints it with one system colour, so the glyph's shape has to tell providers apart; colour cannot.
+The channel has default importance with no sound, vibration, lights or badge, and both records
+ask Android to suppress the group's alerts. The owner chose this over low importance: from
+`android-16.0.0_r4` on, AOSP hides the status-bar icons of silent notifications by default, and on
+the API 37 image a low-importance channel showed no icons while this channel showed three (run
+[44156767429](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44156767429)). He
+accepted that the rows sit in the alerting part of the shade.
 
-The row in the shade leads with the reading ("42% left", or the state in words), with the window
-and next reset below it. The provider's name is the header's sub-text, so a screen reader can tell
-rows apart; the account name follows it only when another pinned account has the same provider.
-The large icon is the provider artwork chosen under Provider icons; white marks are drawn on a dark
-tile so they do not vanish on a light shade.
+The owner also chose the row: the reading as the title, window and reset below, the provider
+artwork as the large icon, and the provider's name in the header, with the account name added
+only when two pinned accounts share a provider. And he chose Android's normal lock-screen policy
+over hiding the notifications there.
 
-The channel has default importance but is silent: no sound, no vibration, no lights, no badge, and
-every notification is ongoing and alerts only once. From `android-16.0.0_r4` on, AOSP's default
-for "hide silent notifications in the status bar" is on
-([`PreferencesHelper`](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-16.0.0_r4/services/core/java/com/android/server/notification/PreferencesHelper.java)),
-so a low-importance channel shows no status-bar icon unless the person changes a system setting.
-On the API 37 emulator a low-importance channel showed no account icons, and the silent
-default-importance channel showed all three with that setting untouched. Whether Pixel or other
-manufacturers ship the same default was not established. The research notes recommended low
-importance; they predate this finding.
+The icon is a 3:2 bitmap with the glyph left of the figure, the owner's choice against the
+stacked layout (glyph above figure) recommended after the prototype. Android fits the bitmap into a
+square slot, so it is drawn smaller: about 24 × 14 px against 23 × 26 px for "Codex 42" on an API
+36 emulator at 280 dpi (run
+[43989808585](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/43989808585)).
 
-A quiet channel alone does not stop a new default-importance notification from waking a dozing
-screen where ambient notifications are on. Both records therefore ask Android to suppress the
-group's alerts: the summary defers to the children, the children to the summary. That is a
-request; no device has shown it working.
-
-The icon is a 3:2 bitmap with the glyph to the left of the figure. The owner chose this after seeing
-measured emulator pixels, against the recommendation that followed the prototype: the stacked
-layout, glyph above figure. The status bar fits any small icon into a fixed square slot and does not
-widen it, so a wider bitmap is drawn smaller: on an API 36 emulator at 280 dpi the painted part of a
-"Codex 42" icon was about 24 × 14 px in 3:2 against 23 × 26 px stacked. The owner accepted the
-smaller drawing to have the glyph beside the figure rather than above it.
-
-Icons are ordered by ranking time, because a sort key does not order separate groups. Each
-publication posts the accounts in reverse account order, each with a real clock reading later than
-the one before, so the first account is the newest and leads. The times are never made up: in the
-prototype, an API 36 emulator ignored a notification posted with a fixed time years in the past.
+A sort key does not order separate groups, so the publisher attempts the order through ranking
+time: it posts the accounts in reverse order, each with a real clock reading taken before the
+notification is built and later than the previous account's. If the clock jumps back or stands
+still, it posts the rest without the order. It never invents a time; an API 36 emulator ignored
+one set years in the past (run
+[43972180341](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/43972180341)).
 
 ## iOS
 
-Third-party apps cannot add items to the iOS status bar; Apple publishes no API for it. The
-"Pinned accounts" Lock Screen widget stands in for the status icons, with the same glyphs, pins
-and content rules, in the rectangular, circular and inline forms. There is no Live Activity.
-
-Apple describes the inline form as one row of text with at most one image (WidgetKit's
-`accessoryInline`; WWDC22 "Complications and widgets: Reloaded"), so it cannot hold three glyphs. It
-shows only the first pinned account, its glyph and its figure with the side ("42% left"), and no
-names (the owner's choice). Without the glyph that row would not say which account it is, so whether
-a real Lock Screen keeps the glyph is a release gate.
+Apps cannot add items to the iOS status bar. The Pinned accounts Lock Screen widget stands in,
+with the same glyphs, pins and content rules. The inline form allows one row of text and at most
+one image, so it shows only the first pinned account, glyph and figure, without names (the
+owner's choice). Whether a real Lock Screen keeps that glyph is a release gate.
 
 ## Considered options
 
-- A Live Activity on iOS. Rejected: it ends after at most eight hours, and keeping it current
-  without the app running needs a push server, which this app does not have.
-- An Android 16 Live Update chip. Rejected: Android shows one chip per app, not one per account
-  (seen on the API 37 emulator with three promoted notifications, and in AOSP's
-  `NotifChipsViewModel`), and Google limits Live Updates to activities a person starts and that
-  end. Google also says not to repost a Live Update the person dismissed, while status icons
-  return with the next sync.
-- One composite icon for all pinned accounts (bars or rings in one bitmap, under one shared
-  summary). Rejected: at status-bar size it cannot show three exact figures with their state
-  marks. The prototype keeps it as a fallback idea.
-- A low-importance channel plus a hint to turn off "hide silent notifications" in system settings.
-  Rejected: on current AOSP the feature would show nothing until the person changed a setting
-  that affects every app.
-- The stacked layout. Rejected by the owner, as described above.
+- A Live Activity. Rejected: it ends after at most eight hours, and keeping it current without the
+  app running needs a push server, which this app does not have.
+- An Android 16 Live Update chip. Rejected: Google limits Live Updates to activities a person
+  starts and that end, and asks apps not to repost one the person dismissed. On the API 37 image
+  three promoted notifications produced one chip, as AOSP's `NotifChipsViewModel` keeps one per
+  app (run 44156767429).
+- One composite icon for all accounts. Rejected: at status-bar size it cannot show three figures
+  with their state marks.
+- Low importance plus a hint to change the system setting. Rejected: the feature would show
+  nothing until the person changed a setting that affects every app.
 
 ## Consequences
 
-- The status rows sit in the alerting section of the shade, not under "Silent", although the
-  channel has no sound, vibration or lights. On API 30, 36 and 37 emulators in CI the records
-  carried none of the three and no heads-up appeared in the sampled frames. The emulator has no
-  audio output, and nobody has listened on a phone.
-- The notifications appear on the lock screen as Android shows normal notifications there. The
-  app does not hide them with secret visibility; a person who wants them off the lock screen
-  uses Android's notification settings.
-- Visibility is not guaranteed. Status-bar width, other apps' icons, the person's settings and
-  manufacturer skins can still hide icons. A note in the app's Settings says so; the app does not
-  work around it.
-- Order is best effort. With the default-importance channel, on API 30, 36 and 37 emulators, the
-  icons and rows followed the app's account order on first post and after a reorder (run
-  44216665612). On the API 30 emulator a newly pinned account came first until the next sync
-  restored the app's order.
-- On Android 14 and later a person can swipe an ongoing notification away. The icon returns with
-  the next sync; unpinning is how to remove it for good.
-- On iOS the widget follows WidgetKit's reload budget, so the Lock Screen can lag a sync.
+- Nothing about visibility is guaranteed: status-bar width, other apps' icons, the person's
+  settings and manufacturer versions of Android can hide icons. Settings says so.
+- Quiet updates are requested, not proven. The CI records carried no sound, vibration or light and
+  no heads-up showed in the sampled frames; silence on a phone and a dozing screen are release
+  checks.
+- Order was observed, not guaranteed. On API 30, 36 and 37 emulators the icons followed the
+  app's order on first post and after a reorder (runs
+  [44196948542](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44196948542) and
+  [44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612));
+  on API 30 a newly pinned account came first until the next sync. That exception has not been
+  put to the owner.
+- A swiped-away icon normally returns with the next sync, best effort, as
+  [Status icons](../status-icons.md#swiping-an-icon-away) describes.
+- On iOS the widget redraws on WidgetKit's schedule, so the Lock Screen can lag the app.

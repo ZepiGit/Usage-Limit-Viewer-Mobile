@@ -1,80 +1,85 @@
 # Status icons
 
-A status icon keeps one account in view while you use other apps: the provider glyph and the figure of the account's headline, the one usage window that speaks for the account at that moment. You pin up to three usage accounts. Android shows each one in the status bar next to the clock. iOS lets no app put anything there, so the Pinned accounts Lock Screen widget shows the same icons instead.
+A status icon keeps one account in view while you use other apps: the provider glyph and a short form of the figure of the account's headline, the one usage window that speaks for the account at that moment. You pin up to three usage accounts. On Android each one becomes a notification whose icon sits in the status bar. iOS lets no app put anything into its status bar, so the Pinned accounts Lock Screen widget shows the same icons instead.
 
-The figure follows the app's display mode, Left or Used, like every other surface. Status icons are off until you turn them on. Credit balances cannot be pinned, because they have no percentage.
+The figure follows the app's display mode, Left or Used. Status icons are off until you turn them on. Credit balances cannot be pinned, because they have no percentage.
 
 Why it is built this way is recorded in [ADR 0003](adr/0003-status-icons-and-lock-screen-substitute.md).
 
 ## Setup on Android
 
 1. Open Settings and find **Status bar icons**.
-2. Turn on **Show status bar icons**. If notifications are not allowed, the app asks for permission now. Until you allow them, the section says "Status bar icons cannot be shown until notifications are allowed."
+2. Turn on **Show status bar icons**. If notifications are not allowed, the app asks for permission, or opens Android's notification settings when it can no longer ask. Until notifications are allowed, the section says "Status bar icons cannot be shown until notifications are allowed." The **Notifications** card in Settings offers the same way back later.
 3. Under **Pinned accounts**, pin up to three accounts. With three pinned, the section reads "3 of 3 pinned" and the other accounts cannot be pinned until you unpin one.
 
-The icons appear at once and change after every refresh, whether you pulled to refresh or the app refreshed in the background. They also change without a refresh when a reading turns stale or a reset time passes. Turning the switch off or unpinning an account removes its icon at once. Removing an account also releases its pin.
+Turning the switch on, pinning, unpinning and turning it off publish right away. After that the icons follow every refresh, by hand or in the background. When a reading turns stale or a reset time passes without a refresh, the app schedules a repaint for that moment; Android may run it later. Removing an account also releases its pin.
 
 <p align="center"><img src="images/status-icons/android-16-status-bar.png" width="900" alt="Android 16 status bar, enlarged: the clock, then a Claude icon with 42, a Codex icon with 5, and the Antigravity glyph alone"></p>
 <p align="center"><em>Android 16 emulator in CI, status bar enlarged four times: Claude 42, Codex 5, Antigravity at 100 (glyph alone). Synthetic accounts.</em></p>
 
-<p align="center"><img src="images/status-icons/android-17-status-bar.png" width="900" alt="Android 17 status bar, enlarged, with the same three account icons"></p>
-<p align="center"><em>The same on the Android 17 emulator, with Android's "hide silent notifications" setting left at its default.</em></p>
+<p align="center"><img src="images/status-icons/android-17-status-bar.png" width="900" alt="Android 17 status bar, enlarged: the clock, then a Claude icon with 42, a Codex icon with 5, and the Antigravity glyph alone"></p>
+<p align="center"><em>Android 17 emulator in CI, with "Hide silent notifications in status bar" left at its default (on): Claude 42, Codex 5, Antigravity glyph alone.</em></p>
 
 ## Setup on iOS
 
 1. In the app, open Settings → **Pinned accounts**, turn on **Show pinned accounts** and pin up to three accounts.
-2. Touch and hold the Lock Screen, tap Customize, then add the **Pinned accounts** widget in one of its three forms.
+2. Touch and hold the Lock Screen and tap Customize. For the inline form, tap the date above the clock and choose Pinned accounts. For the rectangular or circular form, tap the widget area below the clock and add Pinned accounts there.
 
-The widget has no settings of its own; pins and order come from the app. With the feature off or nothing pinned, it shows "Pin an account in Settings" ("Pin in Settings" inline).
+The widget has no settings of its own; pins and order come from the app. With the feature off or nothing pinned, the rectangular form shows "Pin an account in Settings", the circular form a pin symbol, and the inline form "Pin in Settings".
 
 ## What the icon shows
 
-| You see | Meaning |
-| --- | --- |
-| Glyph and a number, such as 42 or 5 | The headline's figure from 0 to 99, without a leading zero. Under 1% shows 0, over 99% shows 99. |
-| Glyph alone | The figure is 100 and the window is not exhausted, such as a fresh allowance in Left. |
-| Underlined number or glyph | The reading is stale, or its reset time has passed since it was read. The last figure stays. |
-| Crossed circle | The window is exhausted: nothing is left, in either display mode. |
-| "!" | The last refresh failed or the account needs signing in again. The old number is not repeated. |
-| Dash | The provider reports no percentage for the account, or the account has no reading yet. |
+The app decides in this order; the first that applies wins:
 
-The icon's number is a shorthand. Spoken and written texts use the full figure ("<1% left", ">99% used", "100% left").
+| You see | When |
+| --- | --- |
+| "!" | The last refresh failed, or the account needs signing in again. A partial result with a usable headline still shows its figure. |
+| Crossed circle | The headline is exhausted, in either display mode. |
+| Dash | The account has no headline yet, or its provider reports no percentage. |
+| Glyph alone | The figure is exactly 100. |
+| Glyph and a number, such as 42 or 5 | Any other figure, written without a leading zero. "<1" is shown as 0 and ">99" as 99. |
+
+An underline under the number or the lone glyph means the reading is stale or its reset time has passed since it was read; the last figure stays. The other signs are never underlined.
 
 <p align="center"><img src="images/status-icons/legend.png" width="900" alt="Every provider glyph with 42, 5, 0, 99, an underlined 42, the glyph alone, the underlined glyph alone, a crossed circle, an exclamation mark and a dash"></p>
 <p align="center"><em>Every state for every provider, drawn by the app's own renderer in a unit test at xxhdpi size, not captured on a device. The last row is the disc used for a provider the app does not know.</em></p>
 
 ## Android notification rows
 
-Each status icon is a notification, so pulling down the shade shows one row per pinned account:
+Pulling down the shade shows one row per pinned account. Tapping a row opens that account's detail screen.
 
-- The title is the figure with its side, such as "42% left", or the state in words: "Exhausted", "No percentage reported", "Refresh failed", "Reconnect required". An underlined icon adds ", may be out of date".
-- Below it, the window and its next reset, such as "5h limit · Resets 6:36 AM".
-- In the header, next to "Usage Limits", the provider's name ("Claude", "OpenAI Codex"). When two pinned accounts have the same provider, the account name follows it ("Claude · Claude work"), so the rows can be told apart. Screen readers get the provider's name from this header.
-- On the right, the provider artwork you chose under Provider icons. White marks are drawn on a dark tile so they stay visible on a light shade.
+- **Title:** the figure with its side, such as "42% left", or the state in words: "Exhausted", "No percentage reported", "Refresh failed", "Reconnect required". A stale or reset-due reading adds ", may be out of date". Written figures keep the full value, such as "<1% left".
+- **Text below:** the window and its next reset, such as "5h limit · Resets 6:36 AM"; only the window when no reset is known, "Reset due" once it has passed, and no text when the account has no headline.
+- **Header:** Android's standard header with "Usage Limits" and the provider's name ("Claude", "OpenAI Codex"). When two pinned accounts have the same provider, the account name follows it ("Claude · Claude work"). Some collapsed views hide the header.
+- **Large icon:** the provider artwork you chose under Provider icons, without a text description. White marks are drawn on a dark tile.
 
-Tapping a row opens that account. The rows never sound, vibrate or flash a light. The notifications live in their own channel, **Status bar icons**, separate from usage alerts, so turning on status icons does not change when you are alerted.
+The provider's name is in the header as text that accessibility services can read; what TalkBack actually says has not been checked.
 
-<p align="center"><img src="images/status-icons/android-16-shade-and-lock-screen.png" width="1000" alt="Five emulator frames: three status rows in the shade, two Claude rows told apart by account name, the rows after a reorder, and two lock screens showing the same rows"></p>
-<p align="center"><em>Android 16 emulator in CI, synthetic accounts. From left: the shade with three pinned accounts; two Claude accounts, told apart by name in the header; the shade after reordering accounts in the app; the lock screen with three accounts; the lock screen with the two Claude accounts. The lock screen is the emulator's swipe lock screen without a PIN.</em></p>
+The notifications use their own channel, **Status bar icons**, separate from usage alerts. The app creates it with default importance and no sound, vibration, light or badge, and asks Android not to alert for the group. The rows therefore sort with normal notifications rather than under "Silent".
+
+<p align="center"><img src="images/status-icons/android-16-shade-and-lock-screen.png" width="1000" alt="Five emulator frames: the shade with three status rows; two Claude rows told apart by account name; the shade after a reorder; a lock screen with three account rows; a lock screen with the two Claude rows"></p>
+<p align="center"><em>Android 16 emulator in CI, synthetic accounts. From left: the shade with three pinned accounts; two Claude accounts, told apart by name in the header; the shade after reordering accounts in the app; the lock screen with three accounts; the lock screen with only the two Claude accounts pinned. The lock screen is the emulator's swipe lock without a PIN.</em></p>
 
 ## iOS Lock Screen forms
 
 - **Rectangular:** up to three cells side by side in the app's account order, each a glyph and its content as in the table above.
-- **Circular:** the first pinned account, drawn like one rectangular cell, on the system's round background.
-- **Inline:** one line above the clock with the first pinned account only: its glyph, then its figure with the side, "42% left", or a word for a state without a number ("Exhausted", "Error", "Sign-in expired", "Unknown"). Apple allows one line of text and at most one image there, so the other accounts are left out; use the rectangular form to see all three. The inline line cannot be underlined, so an outdated figure says so instead: "42% left · Stale".
+- **Circular:** the first pinned account, drawn like one rectangular cell, on the accessory background.
+- **Inline:** the first pinned account only. The widget hands iOS its glyph as the line's one image and its figure with the side as the text, "42% left", or a word for a state without a number ("Exhausted", "Error", "Sign-in expired", "Unknown"). An outdated figure adds "· Stale", because the inline line cannot be underlined. Apple allows one line of text and at most one image there; use the rectangular form to see all three accounts. Whether a real Lock Screen shows the glyph and the whole text has not been checked yet.
 
-VoiceOver reads each account's name, the full figure and its side, and "Stale" for an outdated reading.
+Each cell's accessibility label is the account's title (provider, plus plan where known), the full figure with its side ("42% remaining") or the state, and "Stale" for an outdated reading. Two accounts with the same provider and plan get the same title.
+
+If the widget cannot read the app's data before the first unlock after a restart, it shows "Locked" (the circular form a lock symbol) and asks iOS to try again in 15 minutes.
 
 <p align="center"><img src="images/status-icons/ios-pinned-accounts-views.png" width="900" alt="The Pinned accounts widget in rectangular, circular and inline sizes: three accounts with 42, an underlined 7 and the Kimi glyph alone; exhausted, error and unknown; one account; a stale first account"></p>
 <p align="center"><em>View renderings at the three accessory sizes, made on macOS in CI with synthetic accounts, white on black. These are not Lock Screen screenshots: there is no wallpaper and no system tinting, and the third column is the app's inline view, not the system's inline slot.</em></p>
 
 ## Swiping an icon away
 
-On Android 14 and later you can swipe a status notification away while the phone is unlocked. It comes back with the next sync, so a slip of the finger does not end the feature. Changing a setting, reordering accounts or pinning a different account does not bring it back sooner. Unpinning the account and pinning it again shows it at once. To get rid of an icon for good, unpin the account. On Android 13 and earlier the rows cannot be swiped away.
+On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting, reordering accounts or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, shows it right away. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
 
-After a restart of the phone, the icons return with the next sync. Android decides when that runs, so it can take a while.
+After the phone restarts, the icons return with the next sync, or right away if you turn the switch off and on or pin the account again. Android decides when the sync runs.
 
-The rule holds when a publication runs to its end. Around a crash or a permission change it is best effort:
+This holds when a publication runs to its end. Around a crash or a permission change it is best effort:
 
 - If the app is stopped between saving which accounts it shows and posting them, the missing icons wait for the next sync.
 - If that saved list is lost, a later repaint can bring back an icon you swiped away before the next sync.
@@ -83,14 +88,28 @@ The rule holds when a publication runs to its end. Around a crash or a permissio
 ## Limits
 
 - **Android does not promise that the icons are visible.** The status bar's width, cut-outs, other apps' icons, your notification settings and manufacturer versions of Android can each hide icons or fold them into an overflow dot. The Settings section says so: "Android decides how many icons fit. Notification settings control their visibility."
-- **The rows sit under Notifications, not under "Silent".** The channel has normal importance so that its icons show on current Android, which hides silent notifications' icons by default. It has no sound, vibration or light.
-- **The rows appear on the lock screen** the way Android shows normal notifications, under your lock-screen notification settings. To keep them off the lock screen, use Android's notification settings for Usage Limits: the **Status bar icons** category's lock-screen option where your Android version offers one, or the system's lock-screen notification setting, which applies to every app.
-- **Order follows the app's account order** on the tested Android versions, including after a reorder. On the Android 11 emulator, a newly pinned account came first until the next sync put it in its place. If the phone's clock jumps back or stands still while the icons are posted, that one publication posts them without keeping the order.
-- **iOS updates on WidgetKit's schedule.** The widget plans its changes ahead for the moments a reading turns stale or a reset passes, but iOS decides when it actually redraws, so the Lock Screen can lag the app.
-- **The iOS inline form shows one account.** Use the rectangular form for all three.
+- **Why default importance.** From Android 16 r4 on, AOSP hides the status-bar icons of silent, low-importance notifications by default. On the Android 17 emulator that setting stayed on and still did not hide these icons, because their channel has default importance.
+- **Lock screen.** The app sets no lock-screen visibility of its own, so Android's lock-screen notification settings decide whether the rows appear there and how much they show. To keep them off the lock screen, turn off lock-screen display for the Status bar icons category where your Android version offers it; otherwise use the system setting, which applies to every app.
+- **Order.** The app posts the icons so that they follow its account order, but Android ranks them. On the tested emulators they followed it at first post and after a reorder; on the Android 11 emulator a newly pinned account came first until the next sync. If the phone's clock jumps back or stands still while the icons are posted, that publication gives up the order.
+- **iOS updates on WidgetKit's schedule.** The widget plans its changes ahead for the moments a reading turns stale or a reset passes, but iOS decides when it redraws, so the Lock Screen can lag the app.
 
 ## What has been checked, and where
 
-On Android, CI emulators running Android 11, 16 and 17 checked the following with synthetic accounts: three icons and three rows; updates, reorder, swiping away and unpinning; the rows' section; the lock screen with the emulator's swipe lock; and that the notification records carry no sound, vibration or light and that no heads-up appeared in the sampled frames. The method is in [Status icon device evidence](status-icon-evidence.md). On iOS, CI renders the widget's views in English and German at the accessory sizes.
+Android, CI emulators with synthetic accounts, [run 44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612), method in [Status icon device evidence](status-icon-evidence.md):
 
-Nobody has checked these on a phone yet: that a phone stays silent and still (the emulator has no audio output), that a dozing screen stays dark when an icon changes (the app asks Android for this, and the emulator does not exercise it), manufacturer versions of Android, a lock screen with a PIN, and on iOS the real Lock Screen: whether the inline glyph and words show in full, the system tinting, and the circular background. These checks are in the [release device checklist](release.md#device-checklist).
+| Check | Android 11 | Android 16 | Android 17 |
+| --- | --- | --- | --- |
+| Three icons and three rows | Yes | Yes | Yes, with the hide-silent setting on |
+| Rows' place in the shade | Under "Notifications" | Alerting section | Alerting section |
+| Order at first post and after a reorder | Followed | Followed | Followed |
+| Newly pinned account | Came first until the next sync | In order | In order |
+| Swipe away | Refused (ongoing) | Gone, returned after the sync event | Gone, returned after the sync event |
+| Records with sound, vibration or light | None | None | None |
+| Heads-up in the sampled frames | None | None | None |
+| Lock screen (swipe lock, no PIN) | Captured | Captured | Captured |
+
+The sync here is the app's publication event fed with synthetic readings, not a real provider refresh. Tapping a row is wired in code and was not tapped in the matrix.
+
+iOS: the widget's views were rendered on macOS in CI, in English and German, at the three accessory sizes ([run 44210074686](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44210074686)).
+
+Not yet checked on a phone: that it stays silent and still, that a dozing screen does not light up for a changed figure, manufacturer versions of Android, a lock screen with a PIN, what TalkBack and VoiceOver say, and on iOS the real Lock Screen (inline glyph and words, system tinting, the circular background). These are in the [release device checklist](release.md#device-checklist).

@@ -11,8 +11,10 @@ data, a fallback inside `UsageViewModel.leadAt`, and on iOS `GlanceAccount.repre
 next to an unused `mostCritical` in the Kit. The concept now has one name, the headline (see
 `GLOSSARY.md`), and one definition per platform in the model layer: `UsageSnapshot.headlineAt` in
 `core/model/Usage.kt` and `headline(fetchedAt:at:)` in the Kit's `Model/Headline.swift`, which the
-widget export's `representative(at:)` calls. Every caller uses it, so the app, the widgets and the
-status icons cannot pick different windows for the same account at the same moment.
+widget export's `representative(at:)` calls. Every surface that asks which window speaks for an
+account uses it, so those surfaces cannot pick different windows for the same account at the same
+moment. Views that choose by another rule, such as the next reset across accounts, are not
+headlines and keep their own selection.
 
 The rule is the one the widgets already followed on both platforms. Windows whose reset is due
 drop out, unless that would leave none. If any remaining window is global, only global windows

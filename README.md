@@ -151,8 +151,10 @@ per widget. Credits show money, so this does not apply to them.
 | **Pinned accounts** | 16+ | Up to three pinned accounts on the Lock Screen, as glyph and figure. See [Status icons](docs/status-icons.md). |
 | **Usage Ring** | 16+ | One account as a ring, also as a round Lock Screen widget. |
 
-The iOS 16 widgets pick accounts by the app's own ranking. To choose accounts yourself, use the
-iOS 17 widgets. Every widget follows the app's left/used setting, on every iOS version.
+Usage Limits, Usage Limits (Clear) and Usage Ring pick accounts by the app's own ranking.
+Pinned accounts shows the accounts you pin in the app. To choose accounts for a Home Screen widget,
+use the configurable iOS 17 widgets. Every widget follows the app's left/used setting, on every
+iOS version.
 
 </details>
 
