@@ -29,11 +29,11 @@ The status icons on Android (`app/src/main/kotlin/com/usagelimits/statusicon/Sta
 
 ### Glyph path grammar
 
-The file must be strict UTF-8 JSON of the shape below, and CI rejects anything else before it can ship: `tools/check_glyph_file.py` runs in the Android unit-test job and the iOS Linux job. The apps' loaders (Android `StatusIconGlyphs.kt`, iOS `StatusIconGlyphs.swift`) read it with their platform's JSON reader and trust the shipped file beyond their own schema check, which covers the shape and this subset of SVG path data:
+The file must be strict UTF-8 JSON of the shape below, and CI rejects anything else before it can ship: `tools/check_glyph_file.py` runs in the Android unit-test job, in the iOS Linux job, and as the first step of the release workflow. The apps' loaders (Android `StatusIconGlyphs.kt`, iOS `StatusIconGlyphs.swift`) read it with their platform's JSON reader and trust the shipped file beyond their own schema check, which covers the shape and this subset of SVG path data:
 
 - Commands, absolute only: `M` (2 numbers), `L` (2), `H` (1), `V` (1), `C` (6), `Z` (none). Lower-case relative commands, `Q`, `S`, `T`, `A` and any other letter are rejected.
 - A path starts with `M`. A command repeats while numbers follow it; pairs after `M` continue as `L`. Numbers after `Z` without a new command are rejected.
-- Numbers: an optional `-`, then digits with at most one decimal point (`12`, `1.5`, `.5`, `-0.4`). No `+`, no exponent.
+- Numbers: an optional `-`, then ASCII digits with at most one decimal point (`12`, `1.5`, `.5`, `-0.4`). No `+`, no exponent.
 - Separators: spaces and commas.
 - The file is one object with exactly three keys. `grid` is the JSON number 24 (`"24"` in quotes is rejected). `glyphs` is an object naming exactly the providers this build knows, no more and no fewer. Every path, in `glyphs` and in `fallback` (the disc), is a JSON string; a number, `null` or an array is rejected.
 

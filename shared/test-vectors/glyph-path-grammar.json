@@ -85,6 +85,10 @@
     {
       "name": "empty",
       "path": ""
+    },
+    {
+      "name": "digits of another script",
+      "path": "M٢٠.٥ 0H1Z"
     }
   ],
   "acceptFiles": [

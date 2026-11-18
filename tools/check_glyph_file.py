@@ -21,7 +21,8 @@ GLYPH_FILE = ROOT / "shared/glyphs/status-icon-glyphs.json"
 VECTORS = ROOT / "shared/test-vectors/glyph-path-grammar.json"
 
 ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "Z": 0}
-NUMBER = re.compile(r"-?(?:\d+(?:\.\d*)?|\.\d+)")
+# ASCII digits only: without re.ASCII, \d also matches digits of other scripts, which the apps reject.
+NUMBER = re.compile(r"-?(?:\d+(?:\.\d*)?|\.\d+)", re.ASCII)
 
 
 class Invalid(ValueError):
