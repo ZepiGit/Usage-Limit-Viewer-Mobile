@@ -521,14 +521,10 @@ public actor UsageLimitsContainer {
             percentDisplay: settings.percentDisplay, at: now(), texts: texts)
     }
 
+    /// Adds an account or reconnects one. Whether it is new is decided inside the repository's
+    /// upsert, which gives a new account a new instance; a pin left for an earlier instance of
+    /// the same account (removed while the settings file could not be written) does not name it.
     public func add(_ account: ProviderAccount) async throws {
-        // A pin left behind by an earlier removal whose settings write failed belongs to an
-        // account that no longer exists; dropped before the first publication, so the same
-        // account signing in again is not pinned without being pinned again. A reconnect of an
-        // account that still exists keeps its pin.
-        if await !repository.accounts().contains(where: { $0.id == account.id }) {
-            try? await settingsStore.releasePin(account.id)
-        }
         try await repository.upsert(account)
         await publishCurrent(await repository.usage())
     }
@@ -558,13 +554,15 @@ public actor UsageLimitsContainer {
     /// unreachable, and still granting access to a paid account.
     public func remove(id: String) async throws {
         let accounts = await repository.accounts()
-        if let account = accounts.first(where: { $0.id == id }) {
-            try await credentials.delete(reference: account.credentialReference)
+        let removed = accounts.first(where: { $0.id == id })
+        if let removed {
+            try await credentials.delete(reference: removed.credentialReference)
         }
         try await repository.remove(id: id)
 
-        // Best-effort on disk; the pin leaves the settings in use either way.
-        try? await settingsStore.releasePin(id)
+        // Best-effort: a key left on disk names this instance only, so it never selects the
+        // same account added again.
+        if let removed { try? await settingsStore.releasePin(removed.pinKey) }
 
         // The ledger is cleared too. Its keys embed the account id, so an account removed and
         // added back under the same id would inherit records saying every one of its edges had
@@ -660,7 +658,8 @@ public actor UsageLimitsContainer {
             GlanceModel.build(
                 usage, now: time, scope: .allAccounts, staleAfter: settings.staleAfter,
                 providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay,
-                statusIconsEnabled: settings.statusIconsEnabled, pinnedAccountIDs: settings.pinnedAccountIDs)
+                statusIconsEnabled: settings.statusIconsEnabled,
+                pinnedAccountIDs: PinnedAccounts.resolve(keys: settings.pinnedAccountKeys, accounts: usage.map(\.account)))
                 .with(credits: GlanceModel.buildCredits(credits, now: time, staleAfter: settings.staleAfter)),
             toDirectory: containerDirectory)
 

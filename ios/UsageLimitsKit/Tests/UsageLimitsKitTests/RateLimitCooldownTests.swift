@@ -190,7 +190,7 @@ final class RateLimitCooldownTests: XCTestCase {
         let subject = container(transport, credentials: credentials, at: start)
         try await addUsage("xai", to: subject, credentials: credentials, provider: .xai)
         try await subject.save(settings: AppSettings(syncIntervalMinutes: 15,
-            statusIconsEnabled: true, pinnedAccountIDs: ["xai"]))
+            statusIconsEnabled: true, pinnedAccountKeys: await subject.pinKeys(["xai"])))
 
         let reading = try await subject.refresh(automatic: true)
         let partial = try XCTUnwrap(reading.first?.snapshot)
@@ -333,7 +333,7 @@ final class RateLimitCooldownTests: XCTestCase {
         try await addUsage("limited", to: subject, credentials: credentials)
         try await addUsage("healthy", to: subject, credentials: credentials)
         try await subject.save(settings: AppSettings(syncIntervalMinutes: 15,
-            statusIconsEnabled: true, pinnedAccountIDs: ["limited"]))
+            statusIconsEnabled: true, pinnedAccountKeys: await subject.pinKeys(["limited"])))
         try await subject.refresh(automatic: true)
         let failureTime = start.addingTimeInterval(60)
         let failed = try await container(transport, credentials: credentials, at: failureTime).refresh(automatic: true)

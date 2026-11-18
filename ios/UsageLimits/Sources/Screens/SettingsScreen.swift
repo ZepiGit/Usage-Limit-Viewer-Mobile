@@ -78,16 +78,16 @@ struct SettingsScreen: View {
                     Text("Show up to three pinned usage accounts in the Lock Screen widget.")
                         .usageFont(.small)
                         .foregroundStyle(UsageColors.muted)
-                    let pinnedIDs = selectedPinnedIDs
+                    let pinnedKeys = selectedPinKeys
                     ForEach(store.accounts, id: \.account.id) { usage in
-                        Toggle(isOn: pinBinding(for: usage.account.id)) {
+                        Toggle(isOn: pinBinding(for: usage.account.pinKey)) {
                             Text(verbatim: usage.account.label)
                         }
                         .disabled(
-                            !store.settings.pinnedAccountIDs.contains(usage.account.id)
-                                && pinnedIDs.count >= PinnedAccounts.limit)
+                            !store.settings.pinnedAccountKeys.contains(usage.account.pinKey)
+                                && pinnedKeys.count >= PinnedAccounts.limit)
                     }
-                    Text("\(pinnedIDs.count) of \(PinnedAccounts.limit) pinned")
+                    Text("\(pinnedKeys.count) of \(PinnedAccounts.limit) pinned")
                         .usageFont(.small)
                         .foregroundStyle(UsageColors.muted)
                 }
@@ -117,27 +117,29 @@ struct SettingsScreen: View {
         }
     }
 
-    private var selectedPinnedIDs: [String] {
+    /// The pinned accounts that count, as keys: only pins for an account that exists now, at
+    /// most the limit, in account order.
+    private var selectedPinKeys: [String] {
         PinnedAccounts.select(
             enabled: true,
-            pinnedIDs: store.settings.pinnedAccountIDs,
-            usageAccountIDs: store.accounts.map { $0.account.id })
+            pinnedIDs: store.settings.pinnedAccountKeys,
+            usageAccountIDs: store.accounts.map { $0.account.pinKey })
     }
 
-    private func pinBinding(for accountID: String) -> Binding<Bool> {
+    private func pinBinding(for pinKey: String) -> Binding<Bool> {
         Binding(
-            get: { store.settings.pinnedAccountIDs.contains(accountID) },
-            set: { setPinned($0, accountID: accountID) })
+            get: { store.settings.pinnedAccountKeys.contains(pinKey) },
+            set: { setPinned($0, pinKey: pinKey) })
     }
 
-    private func setPinned(_ pinned: Bool, accountID: String) {
+    private func setPinned(_ pinned: Bool, pinKey: String) {
         if pinned {
-            let selected = selectedPinnedIDs
-            guard !store.settings.pinnedAccountIDs.contains(accountID),
+            let selected = selectedPinKeys
+            guard !store.settings.pinnedAccountKeys.contains(pinKey),
                 selected.count < PinnedAccounts.limit else { return }
-            store.settings.pinnedAccountIDs = selected + [accountID]
+            store.settings.pinnedAccountKeys = selected + [pinKey]
         } else {
-            store.settings.pinnedAccountIDs.removeAll { $0 == accountID }
+            store.settings.pinnedAccountKeys.removeAll { $0 == pinKey }
         }
     }
 
