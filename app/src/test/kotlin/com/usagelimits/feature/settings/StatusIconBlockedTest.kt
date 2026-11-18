@@ -399,6 +399,8 @@ class StatusIconBlockedTest {
     @Test
     fun `the feature switched off while blocked stays off when allowed again`() {
         renderTwoPinned()
+        val viewModelJob = vm.viewModelScope.coroutineContext[Job]!!
+        val observers = viewModelJob.children.toSet()
         returnAfter { switchOff(Block.APP) }
         shown(Block.APP.note)
 
@@ -408,7 +410,10 @@ class StatusIconBlockedTest {
 
         returnAfter { shadowOf(manager).setNotificationsEnabled(true) }
         shown("Status bar icons can be shown.")
-        ShadowLooper.idleMainLooper()
+        // The switch and the return each started a publication in the view model. One still under
+        // way holds the publisher's lock and resumes on the main looper, which the blocking call
+        // below occupies: the two then wait for each other for ever. So they end first.
+        compose.waitDrained { (viewModelJob.children.toSet() - observers).isEmpty() }
         runBlocking { app.container.publication.presentationChanged() }
         assertEquals("switched off stays off", 0, statusRecords().size)
     }
