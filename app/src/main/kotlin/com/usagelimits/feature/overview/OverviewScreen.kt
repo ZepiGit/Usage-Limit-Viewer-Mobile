@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -115,7 +116,12 @@ fun OverviewScreen(
     onAddCredit: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
-    val motion = UsageMotion.current
+    // Content arriving for the first time replaces the skeleton in one cut. It is not a list
+    // change, and its fade-in would leave the list blank for the delay, right after launch.
+    // Items take the list motion from the composition after that.
+    var contentShown by remember { mutableStateOf(false) }
+    SideEffect { if (state.loaded) contentShown = true }
+    val listMotion = if (contentShown) UsageMotion.current else UsageMotion.Reduced
 
     var reordering by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
@@ -158,13 +164,13 @@ fun OverviewScreen(
         // account or a balance arrives or leaves, its neighbours glide to their new places
         // instead of jumping while the card fades.
         if (state.accounts.isNotEmpty()) {
-            item(key = "lead") { Box(itemMotion(motion)) { LeadStrip(state, nowMs, onPercentDisplayChange) } }
+            item(key = "lead") { Box(itemMotion(listMotion)) { LeadStrip(state, nowMs, onPercentDisplayChange) } }
         }
 
         item(key = "accounts-header") {
             SectionHeader(
                 title = stringResource(R.string.overview_section_accounts),
-                modifier = itemMotion(motion),
+                modifier = itemMotion(listMotion),
                 trailing = {
                     if (state.accounts.isNotEmpty()) {
                         TextAction(stringResource(if (reordering) R.string.action_done else R.string.overview_reorder), { reordering = !reordering }, color = UsageColors.Muted)
@@ -174,13 +180,13 @@ fun OverviewScreen(
         }
 
         if (state.accounts.isEmpty()) {
-            item(key = "accounts-empty") { EmptyBox(stringResource(R.string.overview_no_accounts), itemMotion(motion)) }
+            item(key = "accounts-empty") { EmptyBox(stringResource(R.string.overview_no_accounts), itemMotion(listMotion)) }
         }
 
         items(items = shown, key = { it.account.localId }) { usage ->
             // Under a dragging finger the neighbours move at once: a move that waits reads as lag.
             ReorderableItem(reorderState, key = usage.account.localId,
-                animateItemModifier = itemMotion(motion, sequenced = !dragging)) { isDragging ->
+                animateItemModifier = itemMotion(listMotion, sequenced = !dragging)) { isDragging ->
                 AccountCard(usage = usage, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
                     percentDisplay = state.settings.percentDisplay,
                     showTier = state.settings.showSubscriptionTier, showRenewal = state.settings.showRenewalTime,
@@ -202,28 +208,28 @@ fun OverviewScreen(
 
         item(key = "add-account") {
             AddButton(stringResource(R.string.overview_add_account), stringResource(R.string.overview_add_account_hint),
-                onAddAccount, itemMotion(motion))
+                onAddAccount, itemMotion(listMotion))
         }
 
         // Prepaid balances sit below the usage accounts: a different kind of number (money left,
         // no windows, no reset), so they are not mixed into the ranked list above.
         item(key = "credits-header") {
-            SectionHeader(title = stringResource(R.string.overview_section_credits), modifier = itemMotion(motion))
+            SectionHeader(title = stringResource(R.string.overview_section_credits), modifier = itemMotion(listMotion))
         }
         if (state.credits.isEmpty()) {
-            item(key = "credits-empty") { EmptyBox(stringResource(R.string.overview_no_credits), itemMotion(motion)) }
+            item(key = "credits-empty") { EmptyBox(stringResource(R.string.overview_no_credits), itemMotion(listMotion)) }
         }
         items(items = state.credits, key = { "credit-${it.id}" }) { entry ->
             com.usagelimits.feature.credits.CreditCard(
                 entry = entry, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
-                modifier = itemMotion(motion),
+                modifier = itemMotion(listMotion),
                 onClick = { onCreditClick(entry.id) },
                 onRetry = onRefresh,
             )
         }
         item(key = "add-credit") {
             AddButton(stringResource(R.string.overview_add_credit), stringResource(R.string.overview_add_credit_hint),
-                onAddCredit, itemMotion(motion))
+                onAddCredit, itemMotion(listMotion))
         }
     }
 }

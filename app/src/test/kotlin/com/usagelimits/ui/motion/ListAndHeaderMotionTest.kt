@@ -87,6 +87,23 @@ class ListAndHeaderMotionTest {
         assertEquals(addButtonTop(), first)
     }
 
+    // Content arriving for the first time is not a list change: the CI emulator showed the list
+    // blank for the fade-in's delay after the system splash screen had gone.
+    @Test
+    fun `the first load replaces the skeleton in one cut`() {
+        state = UsageUiState(loaded = false)
+        setOverview(motion = true)
+
+        FrameRecorder(compose).use { recorder ->
+            recorder.frame()
+            compose.change { state = UsageUiState(accounts = listOf(demoAccount("one", ProviderId.CODEX))) }
+            val first = recorder.next(1).single()
+            compose.mainClock.advanceTimeBy(1_000)
+
+            assertTrue("the frame after the load is already the settled screen", first.sameAs(recorder.frame()))
+        }
+    }
+
     @Test
     fun `the refresh icon fades into the spinner instead of cutting`() {
         setOverview(motion = true)
