@@ -308,6 +308,8 @@
     <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
     <string name="message_order_save_failed">Could not save account order. Try again.</string>
     <string name="message_icon_save_failed">Could not save the icon choice. Try again.</string>
+    <string name="message_pin_refused_full" tools:ignore="PluralsCandidate">Could not pin the account: %1$d are pinned already. Unpin one first.</string>
+    <string name="message_pin_refused_gone">Could not pin the account: it has been removed.</string>
     <string name="message_refresh_failed">Refresh failed</string>
     <!-- Only raised when some but not all of several accounts failed, so the noun is always plural. -->
     <string name="message_refresh_partly_failed" tools:ignore="PluralsCandidate">%1$d of %2$d accounts failed to refresh</string>
@@ -484,6 +486,32 @@
         <item quantity="other">%d usage alerts</item>
     </plurals>
     <string name="notification_more" tools:ignore="PluralsCandidate">+%1$d more</string>
+
+    <!-- Status icons for pinned accounts: channel and shade row (statusicon/StatusIconTexts.kt). -->
+    <string name="status_icon_channel_name">Status bar icons</string>
+    <string name="status_icon_channel_description">A figure for each pinned account, without sound or vibration</string>
+    <!-- %1$s is the figure with its percent sign, %2$s the side word ("left" / "used"). -->
+    <string name="status_icon_text_figure">%1$s %2$s</string>
+    <!-- The same, for an underlined icon: the reading is stale or its reset is due. -->
+    <string name="status_icon_text_figure_outdated">%1$s %2$s, may be out of date</string>
+    <string name="status_icon_text_unknown">No percentage reported</string>
+    <string name="status_icon_text_reconnect">Reconnect required</string>
+    <string name="status_icon_text_refresh_failed">Refresh failed</string>
+    <string name="settings_section_status_icons">Status bar icons</string>
+    <string name="settings_status_icons_switch">Show status bar icons</string>
+    <string name="settings_status_icons_subtitle">A small icon with the account\'s figure next to the clock, updated after every refresh</string>
+    <string name="settings_status_icons_blocked">Status bar icons cannot be shown until notifications are allowed.</string>
+    <string name="settings_status_icons_allowed">Status bar icons can be shown.</string>
+    <string name="settings_status_icons_category_blocked">Status bar icons cannot be shown while their notification category is turned off.</string>
+    <string name="settings_status_icons_open_category">Open category settings</string>
+    <string name="settings_status_icons_choose">Pinned accounts</string>
+    <!-- %1$d accounts pinned out of at most %2$d. Not a plural: "pinned" after a count does not inflect, as in accounts_shown. -->
+    <string name="settings_status_icons_pinned_count" tools:ignore="PluralsCandidate">%1$d of %2$d pinned</string>
+    <string name="settings_status_icons_pin">Pin %1$s</string>
+    <!-- Spoken by a disabled pin switch; %2$d is the limit, so the count is always several. -->
+    <string name="settings_status_icons_pin_full" tools:ignore="PluralsCandidate">Pin %1$s. %2$d of %2$d are pinned; unpin one first.</string>
+    <string name="settings_status_icons_no_accounts">Add an account to show its icon.</string>
+    <string name="settings_status_icons_note">Android decides how many icons fit. Notification settings control their visibility.</string>
 
     <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
     <string name="loopback_signed_in">Signed in</string>

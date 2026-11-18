@@ -111,6 +111,9 @@ targets:
       - path: Sources/Assets.xcassets
       - path: Sources/Resources/Localizable.xcstrings
         buildPhase: resources
+      # The status icon silhouettes, the same file Android's status bar draws from.
+      - path: ../../shared/glyphs/status-icon-glyphs.json
+        buildPhase: resources
     dependencies:
       - package: UsageLimitsKit
     settings:
@@ -165,7 +168,38 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: UsageLimits
 
+  # Renders the Pinned accounts widget's views at accessory sizes for a person to look at
+  # (.github/workflows/screenshots.yml). Hosted in the app, because `String(localized:)` reads the
+  # main bundle's catalog; it compiles the widget's views itself, since the app target leaves
+  # Widget/** to the extension.
+  UsageLimitsRenderingTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RenderingTests
+      - path: Sources/Theme
+      - path: Sources/Widget/PinnedAccountsViews.swift
+      - path: ../../shared/glyphs/status-icon-glyphs.json
+        buildPhase: resources
+    dependencies:
+      - target: UsageLimits
+      - package: UsageLimitsKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.usagelimits.app.renderingtests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/UsageLimits.app/UsageLimits
+        BUNDLE_LOADER: $(TEST_HOST)
+
 schemes:
+  UsageLimitsRendering:
+    build:
+      targets:
+        UsageLimits: all
+    test:
+      config: Debug
+      targets:
+        - UsageLimitsRenderingTests
   UsageLimitsScreenshots:
     build:
       targets:

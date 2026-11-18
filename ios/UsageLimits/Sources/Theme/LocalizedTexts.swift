@@ -88,6 +88,19 @@ struct LocalizedPercentTexts: PercentTexts {
     func spoken(_ figure: String, _ mode: PercentDisplay) -> String { PercentText.spoken(figure, mode) }
 }
 
+struct LocalizedPinnedAccountTexts: PinnedAccountTexts {
+    var error: String { String(localized: "Error") }
+    var signInExpired: String { String(localized: "Sign-in expired") }
+    var exhausted: String { String(localized: "Exhausted") }
+    var unknown: String { String(localized: "Unknown") }
+    var outdated: String { String(localized: "Stale") }
+
+    func sideWord(_ mode: PercentDisplay) -> String { PercentText.sideWord(mode) }
+
+    func withSign(_ token: String) -> String { PercentText.figure(token: token) }
+    func spoken(_ figure: String, _ mode: PercentDisplay) -> String { PercentText.spoken(figure, mode) }
+}
+
 /// The page the sign-in leaves in the browser, from the catalog. The kit's `LoopbackListener`
 /// serves it and has no bundle of its own; see `LoopbackPageTexts`.
 ///

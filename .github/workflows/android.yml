@@ -16,6 +16,8 @@ on:
       - 'tools/test_android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
       - 'shared/**'
+      - 'tools/check_glyph_file.py'
+      - 'tools/test_check_glyph_file.py'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
@@ -30,6 +32,8 @@ on:
       - 'tools/test_android_runtime_smoke.py'
       - 'tools/run_android_runtime.sh'
       - 'shared/**'
+      - 'tools/check_glyph_file.py'
+      - 'tools/test_check_glyph_file.py'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -59,6 +63,12 @@ jobs:
           # Enhanced caching has separate Terms of Use; keep the MIT cache provider.
           cache-provider: basic
 
+      # The glyph file ships inside both apps; nothing malformed may reach them.
+      - name: Check the status icon glyph file
+        run: |
+          python3 -m unittest discover -s tools -p 'test_check_glyph_file.py'
+          python3 tools/check_glyph_file.py
+
       # The emulator smoke's pixel logic, on synthetic frames; no device needed.
       - name: Test the runtime smoke's own checks
         run: python3 -m unittest discover -s tools -p 'test_android_runtime_smoke.py'
@@ -83,8 +93,23 @@ jobs:
             app/build/test-results/testDebugUnitTest
             app/build/reports/lint-results-debug.*
             app/build/reports/widget-renderings
+            app/build/reports/status-icons
             app/schemas
           if-no-files-found: error
+
+      # The renderer's contact and true-size sheets are written on every test run; a missing
+      # one means the status icons went unreviewed, which the upload above would not notice.
+      - name: Check the status icon sheets are there
+        if: always()
+        run: |
+          missing=0
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            for kind in contact true-size; do
+              f="app/build/reports/status-icons/status-icons-$kind-$density.png"
+              if [ ! -s "$f" ]; then echo "::error::missing $f"; missing=1; fi
+            done
+          done
+          exit $missing
 
   assemble:
     name: Debug APK
@@ -140,6 +165,13 @@ jobs:
           "$build_tools/aapt" dump badging "$apk" > app/build/reports/apk-metadata.txt
           "$build_tools/apksigner" verify --verbose --print-certs "$apk" > app/build/reports/apk-signature.txt
           sha256sum "$apk" > app/build/reports/apk-sha256.txt
+          # The status icon glyphs ship as a Java resource at the APK root, byte for byte the shared
+          # file, as the iOS job checks for the widget extension. Without it every status icon
+          # publication fails and is only logged, so a packaging change must fail here instead.
+          if ! unzip -p "$apk" status-icon-glyphs.json | cmp -s - shared/glyphs/status-icon-glyphs.json; then
+            echo "::error::$apk lacks status-icon-glyphs.json or it differs from shared/glyphs/status-icon-glyphs.json" >&2
+            exit 1
+          fi
           if [ -n "${ANDROID_KEYSTORE_PATH:-}" ]; then
             mkdir -p "$RUNNER_TEMP/previous-release"
             # Baseline: the newest published release other than the version being built, so a run that

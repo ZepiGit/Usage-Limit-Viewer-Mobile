@@ -8,6 +8,7 @@ import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.CreditEntry
+import com.usagelimits.core.model.MAX_PINNED_ACCOUNTS
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -67,6 +69,11 @@ data class UsageUiState(
     val credits: List<CreditEntry> = emptyList(),
     /** False only before the first repository emission, so an empty list is not read as "no accounts". */
     val loaded: Boolean = true,
+    /**
+     * Pin changes made but not yet stored, by account id: true to pin, false to unpin. Settings
+     * shows them at once, so a toggle does not spring back while earlier changes are published.
+     */
+    val pendingPins: Map<String, Boolean> = emptyMap(),
 ) {
     val accountCount: Int get() = accounts.size
 
@@ -149,6 +156,9 @@ class UsageViewModel(
     private val refreshing = MutableStateFlow(false)
     private val transientMessage = MutableStateFlow<String?>(null)
 
+    /** The latest pin request per account not yet done; see [UsageUiState.pendingPins]. */
+    private val pinRequests = MutableStateFlow<Map<String, PinRequest>>(emptyMap())
+
     val state: StateFlow<UsageUiState> = combine(
         combine(container.repository.observeAccountUsage(), container.creditRepository.observeEntries()) { accounts, credits ->
             accounts to credits
@@ -156,9 +166,9 @@ class UsageViewModel(
         container.settingsStore.settings,
         refreshing,
         transientMessage,
-        container.settingsStore.diagnostics,
-    ) { (accounts, credits), settings, isRefreshing, message, diagnostics ->
-        UsageUiState(accounts, settings, isRefreshing, message, diagnostics, credits)
+        combine(container.settingsStore.diagnostics, pinRequests) { diagnostics, pending -> diagnostics to pending.mapValues { it.value.pinned } },
+    ) { (accounts, credits), settings, isRefreshing, message, (diagnostics, pending) ->
+        UsageUiState(accounts, settings, isRefreshing, message, diagnostics, credits, pendingPins = pending)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState(loaded = false))
 
     private val _resetCreditInFlight = MutableStateFlow<String?>(null)
@@ -322,11 +332,12 @@ class UsageViewModel(
                     container.credentialStore.delete(account.credentialReference)
                     container.repository.deleteAccount(accountId)
                 }
-                // A widget pinned to this account would otherwise render the empty snapshot
-                // for ever; dropping its config returns it to the automatic scope.
-                // Keep the widget's exact scope. A removed account must leave an empty
-                // widget, rather than silently exposing other accounts through auto mode.
-                container.publication.presentationChanged()
+                // Its pin goes with it, so it no longer counts against the three a person may pin.
+                // release stores that change in turn with the other status icon changes and
+                // publishes the presentation event, which also repaints the widgets. A widget
+                // set to this account keeps its exact scope and shows nothing, rather than
+                // silently exposing other accounts through the automatic scope.
+                container.statusIconChanges.release(accountId)
             }
         }
     }
@@ -365,6 +376,56 @@ class UsageViewModel(
             // repaint immediately rather than on their next tick.
             container.publication.presentationChanged()
         }
+    }
+
+    /** Turns the status icons on or off; stored and published in turn with every other change. */
+    fun setStatusIcons(enabled: Boolean) {
+        viewModelScope.launch { container.statusIconChanges.setEnabled(enabled) }
+    }
+
+    /**
+     * Pins or unpins one account, applied in turn to the pins stored then. A pin the rules no
+     * longer allow when its turn comes (three pinned, or the account gone) is refused.
+     */
+    fun setPinned(accountId: String, pinned: Boolean) {
+        val request = PinRequest(nextPinRequest++, pinned)
+        pinRequests.update { it + (accountId to request) }
+        viewModelScope.launch {
+            try {
+                val applied = container.statusIconChanges.setPinned(accountId, pinned)
+                // A refusal of the person's latest wish for this account is told, not dropped:
+                // the account went away or the limit was reached while the pin waited its turn.
+                if (!applied && pinRequests.value[accountId] == request) {
+                    transientMessage.value = if (container.repository.account(accountId) == null) {
+                        appContext.getString(R.string.message_pin_refused_gone)
+                    } else {
+                        appContext.getString(R.string.message_pin_refused_full, MAX_PINNED_ACCOUNTS)
+                    }
+                }
+            } finally {
+                // Only this request's own entry: a later tap on the same account, even one asking
+                // for the same state, is a request of its own and stays shown until its turn.
+                pinRequests.update { if (it[accountId] == request) it - accountId else it }
+            }
+        }
+    }
+
+    /** One tap on a pin toggle: its own identity, and the state it asks for. */
+    private data class PinRequest(val generation: Long, val pinned: Boolean)
+
+    private var nextPinRequest = 0L
+
+
+    /**
+     * Settings saw notifications become allowed, through the dialog or the system's settings, or
+     * the "Status bar icons" category switched on again.
+     *
+     * Nothing could be shown before, so every pinned account's icon appears now, from the cache,
+     * also one swiped away before the block. Not a cache move: no reading is new, so alerts are
+     * not evaluated, and no provider is asked.
+     */
+    fun notificationsAllowed() {
+        viewModelScope.launch { container.publication.notificationsAllowedAgain() }
     }
 
     fun recordNotificationPermissionHandled() {

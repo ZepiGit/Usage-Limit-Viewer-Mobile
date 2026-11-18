@@ -229,6 +229,38 @@ final class AccountRepositoryTests: XCTestCase {
         XCTAssertEqual(snapshot?.windows.first?.usedPercent, 35)
     }
 
+    // MARK: - Account instances
+
+    func testAnInsertionGetsANewInstanceAndAReconnectKeepsIt() async throws {
+        let repository = AccountRepository(directory: directory)
+        try await repository.upsert(account("a"))
+        let firstAccounts = await repository.accounts()
+        let first = try XCTUnwrap(firstAccounts.first?.instanceID)
+
+        try await repository.upsert(account("a"))
+        let reopened = await AccountRepository(directory: directory).accounts()
+        XCTAssertEqual(reopened.first?.instanceID, first, "a reconnect is the same instance, across a reopen")
+
+        try await repository.remove(id: "a")
+        try await repository.upsert(account("a"))
+        let againAccounts = await repository.accounts()
+        let again = try XCTUnwrap(againAccounts.first?.instanceID)
+        XCTAssertNotEqual(again, first, "removed and added again is a new instance")
+    }
+
+    func testARowFromBeforeInstancesKeepsItsAccountIdAsItsPinKey() async throws {
+        let json = #"[{"account": {"id": "a", "provider": "codex", "externalAccountID": "ext-a", "credentialReference": "ref-a", "createdAt": "1970-01-01T00:00:00Z"}}]"#
+        try Data(json.utf8).write(to: accountsFile)
+        let repository = AccountRepository(directory: directory)
+
+        try await repository.upsert(account("a"))
+
+        let accounts = await repository.accounts()
+        let stored = try XCTUnwrap(accounts.first)
+        XCTAssertNil(stored.instanceID, "a reconnect does not turn an existing row into a new instance")
+        XCTAssertEqual(stored.pinKey, "a", "so a pin made for it before still applies")
+    }
+
     // MARK: - A read that fails must not become an empty register
 
     private var accountsFile: URL { directory.appendingPathComponent(AccountRepository.fileName) }

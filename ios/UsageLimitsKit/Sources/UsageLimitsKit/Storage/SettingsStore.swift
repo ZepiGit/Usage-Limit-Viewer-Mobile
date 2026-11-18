@@ -45,6 +45,19 @@ public actor SettingsStore {
         return normalised
     }
 
+    /// Unpins `key` in the settings in use even when the file cannot be written, then saves.
+    ///
+    /// For an account that is gone, so its pin no longer counts against the limit. Removal stays
+    /// successful when this write fails; the stale key on disk is harmless, because it names an
+    /// instance that no longer exists. Throws the write error afterwards.
+    public func releasePin(_ key: String) throws {
+        var settings = settings()
+        guard settings.pinnedAccountKeys.contains(key) else { return }
+        settings.pinnedAccountKeys.removeAll { $0 == key }
+        current = settings.normalised()
+        try save(settings)
+    }
+
     private static func load(from url: URL) -> AppSettings {
         guard
             let data = try? Data(contentsOf: url),

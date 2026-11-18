@@ -306,6 +306,8 @@
     <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
     <string name="message_order_save_failed">Die Reihenfolge der Konten konnte nicht gespeichert werden. Versuche es erneut.</string>
     <string name="message_icon_save_failed">Die Symbolauswahl konnte nicht gespeichert werden. Versuche es erneut.</string>
+    <string name="message_pin_refused_full">Das Konto konnte nicht angeheftet werden: Es sind schon %1$d angeheftet. Löse zuerst eines.</string>
+    <string name="message_pin_refused_gone">Das Konto konnte nicht angeheftet werden: Es wurde entfernt.</string>
     <string name="message_refresh_failed">Aktualisierung fehlgeschlagen</string>
     <string name="message_refresh_partly_failed">Bei %1$d von %2$d Konten ist die Aktualisierung fehlgeschlagen</string>
     <string name="message_reset_applied">Limit zurückgesetzt</string>
@@ -479,6 +481,28 @@
         <item quantity="other">%d Nutzungswarnungen</item>
     </plurals>
     <string name="notification_more">+%1$d weitere</string>
+
+    <!-- Status icons for pinned accounts: channel and shade row (statusicon/StatusIconTexts.kt). -->
+    <string name="status_icon_channel_name">Statusleisten-Symbole</string>
+    <string name="status_icon_channel_description">Der Wert jedes angehefteten Kontos, ohne Ton oder Vibration</string>
+    <string name="status_icon_text_figure">%1$s %2$s</string>
+    <string name="status_icon_text_figure_outdated">%1$s %2$s, möglicherweise veraltet</string>
+    <string name="status_icon_text_unknown">Kein Prozentwert gemeldet</string>
+    <string name="status_icon_text_reconnect">Neuverbindung erforderlich</string>
+    <string name="status_icon_text_refresh_failed">Aktualisierung fehlgeschlagen</string>
+    <string name="settings_section_status_icons">Statusleisten-Symbole</string>
+    <string name="settings_status_icons_switch">Statusleisten-Symbole anzeigen</string>
+    <string name="settings_status_icons_subtitle">Ein kleines Symbol mit dem Wert des Kontos neben der Uhr, nach jeder Aktualisierung neu</string>
+    <string name="settings_status_icons_blocked">Statusleisten-Symbole können erst angezeigt werden, wenn Benachrichtigungen erlaubt sind.</string>
+    <string name="settings_status_icons_allowed">Statusleisten-Symbole können angezeigt werden.</string>
+    <string name="settings_status_icons_category_blocked">Statusleisten-Symbole können nicht angezeigt werden, solange ihre Benachrichtigungskategorie ausgeschaltet ist.</string>
+    <string name="settings_status_icons_open_category">Kategorie-Einstellungen öffnen</string>
+    <string name="settings_status_icons_choose">Angeheftete Konten</string>
+    <string name="settings_status_icons_pinned_count">%1$d von %2$d angeheftet</string>
+    <string name="settings_status_icons_pin">%1$s anheften</string>
+    <string name="settings_status_icons_pin_full">%1$s anheften. %2$d von %2$d sind angeheftet; löse zuerst eines.</string>
+    <string name="settings_status_icons_no_accounts">Füge ein Konto hinzu, um sein Symbol anzuzeigen.</string>
+    <string name="settings_status_icons_note">Android entscheidet, wie viele Symbole passen. Die Benachrichtigungseinstellungen bestimmen ihre Sichtbarkeit.</string>
 
     <!-- Page the browser shows after the sign-in redirect (core/oauth/LoopbackServer.kt, texts via ResourceLoopbackPageTexts). -->
     <string name="loopback_signed_in">Angemeldet</string>

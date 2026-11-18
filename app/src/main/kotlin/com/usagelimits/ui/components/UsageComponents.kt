@@ -359,6 +359,9 @@ fun ToggleRow(
     subtitle: String,
     checked: Boolean,
     onChange: (Boolean) -> Unit,
+    /** What a screen reader calls the switch; the title unless the title alone would not say it. */
+    description: String = title,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
@@ -370,7 +373,7 @@ fun ToggleRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
-                color = UsageColors.Ink,
+                color = if (enabled) UsageColors.Ink else UsageColors.Faint,
             )
             Text(
                 text = subtitle,
@@ -381,7 +384,8 @@ fun ToggleRow(
         Spacer(Modifier.width(12.dp))
         Switch(
             checked = checked,
-            modifier = Modifier.semantics { contentDescription = title },
+            enabled = enabled,
+            modifier = Modifier.semantics { contentDescription = description },
             onCheckedChange = onChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = UsageColors.Ground,

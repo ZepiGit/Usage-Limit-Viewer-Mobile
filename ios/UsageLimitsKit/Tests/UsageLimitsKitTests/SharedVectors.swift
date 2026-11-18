@@ -2,14 +2,14 @@ import Foundation
 
 enum SharedVectors {
     /// Test sources sit five directories below the repository root, on Linux and macOS.
-    static func file(_ name: String) -> URL {
+    static func file(_ name: String, directory: String = "shared/test-vectors") -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // UsageLimitsKitTests
             .deletingLastPathComponent() // Tests
             .deletingLastPathComponent() // UsageLimitsKit
             .deletingLastPathComponent() // ios
             .deletingLastPathComponent() // repository root
-            .appendingPathComponent("shared/test-vectors/\(name)")
+            .appendingPathComponent("\(directory)/\(name)")
     }
 
     static func parse<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
