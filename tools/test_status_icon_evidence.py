@@ -3,9 +3,11 @@ import json
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
+from android_runtime_smoke import png_bytes
 from check_status_icon_release import verify
 from status_icon_evidence import (
     Evidence, SystemDialog, SystemUIBootANR,
@@ -431,61 +433,144 @@ class DefaultEvidenceParserTest(unittest.TestCase):
 
 
 class SwipeEvidenceTest(unittest.TestCase):
-    def test_api30_swipes_observed_content_without_expandable_row_id(self):
-        # Run44133402554 API30 swipe-before-shade.xml: no expandableNotificationRow.
+    @contextmanager
+    def shade_device(self, api, samples, events=("", "")):
+        samples = iter(samples)
+        events = iter(events)
+        observed = []
+        actions = []
+        screenshot = png_bytes(720, 1560, 3, [bytes(720 * 3)] * 1560)
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Evidence(directory)
+            evidence.report["api"] = api
+            evidence.state = {"localIds": {"evidence-claude": "uuid-claude"}}
+
+            def xml(name, timeout=12):
+                root = next(samples)
+                observed.append(root)
+                evidence.save(name + ".xml", ET.tostring(root, encoding="unicode"))
+                return root
+
+            def screen(name):
+                (evidence.directory / (name + ".png")).write_bytes(screenshot)
+
+            def adb(*args, **kwargs):
+                if args[:2] == ("shell", "input"):
+                    actions.append((len(observed), args[2:]))
+                if "logcat" in args and "events" in args:
+                    actions.append((len(observed), ("events",)))
+                    return next(events)
+                return ""
+
+            with patch.object(evidence, "adb", side_effect=adb), patch.object(evidence, "xml", side_effect=xml), \
+                    patch.object(evidence, "screen", side_effect=screen), patch("status_icon_evidence.time.sleep"):
+                yield evidence, actions, observed
+
+    @staticmethod
+    def modern_shade(outer, inner, title_bounds, above=""):
+        return ET.fromstring(f'''<hierarchy>
+          {above}
+          <node package="com.android.systemui" resource-id="com.android.systemui:id/expandableNotificationRow" bounds="{outer}">
+            <node package="com.android.systemui" resource-id="com.android.systemui:id/expandableNotificationRow" bounds="{inner}">
+              <node package="com.android.systemui" resource-id="android:id/status_bar_latest_event_content" bounds="{inner}">
+                <node package="com.android.systemui" resource-id="android:id/title" text="Claude" bounds="{title_bounds}"/>
+              </node>
+            </node>
+          </node>
+        </hierarchy>''')
+
+    def test_api30_swipes_nearest_content_without_expandable_row_id(self):
+        # API 30's observed shade has content bounds but no expandableNotificationRow.
         root = ET.fromstring('''<hierarchy><node package="com.android.systemui"
             resource-id="com.android.systemui:id/notification_stack_scroller" bounds="[0,0][720,1420]">
-          <node package="com.android.systemui" class="android.widget.FrameLayout"
-              resource-id="com.android.systemui:id/expanded" bounds="[7,762][713,947]">
-            <node package="com.android.systemui" class="android.widget.FrameLayout"
-                resource-id="android:id/status_bar_latest_event_content" bounds="[7,762][713,947]">
-              <node package="com.android.systemui" resource-id="android:id/notification_main_column"
-                  bounds="[35,843][685,912]">
-                <node package="com.android.systemui" resource-id="android:id/line1" bounds="[35,843][685,877]">
-                  <node package="com.android.systemui" resource-id="android:id/title"
-                      text="Claude (synthetic)" bounds="[35,843][685,877]"/>
-                </node>
+          <node package="com.android.systemui" resource-id="android:id/status_bar_latest_event_content" bounds="[7,718][713,979]">
+            <node package="com.android.systemui" resource-id="android:id/status_bar_latest_event_content" bounds="[7,762][713,947]">
+              <node package="com.android.systemui" resource-id="android:id/notification_main_column" bounds="[35,843][685,912]">
+                <node package="com.android.systemui" resource-id="android:id/title" text="Claude (synthetic)" bounds="[35,843][685,877]"/>
               </node>
             </node>
           </node>
         </node></hierarchy>''')
         records = parse_notifications(dump(PAIR.replace("Claude", "Claude (synthetic)")))
-        with tempfile.TemporaryDirectory() as directory:
-            evidence = Evidence(directory)
-            evidence.report["api"] = 30
-            evidence.state = {"localIds": {"evidence-claude": "uuid-claude"}}
-            (evidence.directory / "swipe-before-shade.png").write_bytes(b"synthetic screenshot")
-            with patch.object(evidence, "adb") as adb, patch.object(evidence, "xml", return_value=root), \
-                    patch.object(evidence, "screen"), patch.object(evidence, "settled"), \
-                    patch("status_icon_evidence.time.sleep"), patch("status_icon_evidence.png_frame", return_value=(720, 4, [])):
-                evidence.swipe_claude(records)
-            self.assertEqual([
-                (("shell", "cmd", "statusbar", "expand-notifications"), {}),
-                (("shell", "input", "swipe", "183", "854", "718", "854", "300"), {}),
-            ], adb.call_args_list)
+        with self.shade_device(30, [root, root, ET.Element("hierarchy")]) as (evidence, actions, _):
+            evidence.swipe_claude(records)
+        self.assertEqual([(2, ("swipe", "183", "854", "718", "854", "500"))],
+                         [action for action in actions if action[1][0] != "events"])
 
-
-    def test_modern_swipe_keeps_outer_account_group_instead_of_inner_content(self):
+    def test_modern_swipe_waits_for_two_matching_outer_row_bounds(self):
+        moving = self.modern_shade("[28,649][692,803]", "[28,663][692,797]", "[119,684][320,718]")
+        first = self.modern_shade("[28,737][692,883]", "[28,751][692,877]", "[119,772][320,806]")
+        second = self.modern_shade("[28,737][692,883]", "[28,755][692,877]", "[119,776][320,810]")
         for api in (36, 37):
-            with self.subTest(api=api), tempfile.TemporaryDirectory() as directory:
-                root = ET.fromstring('''<hierarchy>
-                  <node package="com.android.systemui" resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[28,737][692,883]">
-                    <node package="com.android.systemui" resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[28,751][692,877]">
-                      <node package="com.android.systemui" resource-id="android:id/status_bar_latest_event_content" bounds="[28,751][692,877]">
-                        <node package="com.android.systemui" resource-id="android:id/title" text="Claude" bounds="[119,772][320,806]"/>
-                      </node>
-                    </node>
-                  </node>
-                </hierarchy>''')
-                evidence = Evidence(directory)
-                evidence.report["api"] = api
-                evidence.state = {"localIds": {"evidence-claude": "uuid-claude"}}
-                (evidence.directory / "swipe-before-shade.png").write_bytes(b"synthetic screenshot")
-                with patch.object(evidence, "adb") as adb, patch.object(evidence, "xml", return_value=root), \
-                        patch.object(evidence, "screen"), patch.object(evidence, "settled"), \
-                        patch("status_icon_evidence.time.sleep"), patch("status_icon_evidence.png_frame", return_value=(720, 4, [])):
+            with self.subTest(api=api), self.shade_device(api, [moving, first, second, ET.Element("hierarchy")]) as (evidence, actions, _):
+                evidence.swipe_claude(parse_notifications(dump()))
+                self.assertEqual([(3, ("swipe", "194", "810", "718", "810", "500"))],
+                                 [action for action in actions if action[1][0] != "events"])
+                before = ET.parse(evidence.directory / "swipe-before-shade.xml").getroot()
+                self.assertEqual(ET.tostring(second), ET.tostring(before))
+
+    def test_swipe_collapses_observed_group_then_waits_for_new_geometry(self):
+        # Failed API 36 capture: the Antigravity group above Claude exposed this button.
+        expanded = '''<node package="com.android.systemui" resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[28,438][692,645]">
+          <node package="com.android.systemui" resource-id="android:id/status_bar_latest_event_content" bounds="[28,438][692,645]">
+            <node package="com.android.systemui" resource-id="android:id/header_text" text="Antigravity" bounds="[263,472][363,501]"/>
+            <node package="com.android.systemui" resource-id="android:id/expand_button" content-desc="Collapse" clickable="true" bounds="[594,438][692,536]"/>
+          </node>
+        </node>'''
+        collapsed = '''<node package="com.android.systemui" resource-id="com.android.systemui:id/expandableNotificationRow" bounds="[28,438][692,584]">
+          <node package="com.android.systemui" resource-id="android:id/expand_button" content-desc="Expand" clickable="true" bounds="[594,438][692,584]"/>
+        </node>
+        <node package="com.android.systemui" resource-id="android:id/expand_button" content-desc="Collapse" clickable="true" bounds="[20,20][80,80]"/>'''
+        original = self.modern_shade("[28,649][692,803]", "[28,663][692,797]", "[119,684][320,718]", expanded)
+        final = self.modern_shade("[28,588][692,742]", "[28,602][692,736]", "[119,623][320,657]", collapsed)
+        samples = [original, original, final, final, ET.Element("hierarchy")]
+        with self.shade_device(36, samples) as (evidence, actions, _):
+            evidence.swipe_claude(parse_notifications(dump()))
+        self.assertEqual([(2, ("tap", "643", "487")), (4, ("swipe", "194", "665", "718", "665", "500"))],
+                         [action for action in actions if action[1][0] != "events"])
+
+    def test_swipe_refuses_to_gesture_while_row_keeps_moving(self):
+        first = self.modern_shade("[28,649][692,803]", "[28,663][692,797]", "[119,684][320,718]")
+        second = self.modern_shade("[28,737][692,883]", "[28,751][692,877]", "[119,772][320,806]")
+        with self.shade_device(36, [first, second] * 4) as (evidence, actions, observed):
+            with self.assertRaisesRegex(AssertionError, "layout did not stabilize"):
+                evidence.swipe_claude(parse_notifications(dump()))
+        self.assertEqual(8, len(observed))
+        self.assertEqual([], actions)
+
+    def test_swipe_reports_only_new_target_cancellations(self):
+        summary = "0|com.usagelimits.debug|2001|status-icon:uuid-claude|10123"
+        child = "0|com.usagelimits.debug|2002|status-icon:uuid-claude|10123"
+        historical = f"11-18 09:40:00.651   648   648 I notification_canceled: [{summary},2,42,5,0,2,6,NULL]"
+        unrelated = "11-18 09:40:55.651   648   648 I notification_canceled: [0|com.usagelimits.debug|2003|status-icon:uuid-codex|10123,2,42,5,0,2,6,NULL]"
+        summary_cancel = f"11-18 09:40:55.651   648   648 I notification_canceled: [{summary},2,98794,19699,0,2,6,NULL]"
+        child_cancel = f"11-18 09:40:55.651   648   648 I notification_canceled: [{child},12,98793,19696,8210,-1,-1,NULL]"
+        dismiss = "11-18 09:40:55.624  1036  1036 I sysui_multi_action: [757,803,799,notification_dismissed,802,1]"
+        frame = "11-18 09:40:55.976  1036  1036 W FrameTracker: Missed SF frame:JANK_COMPOSER, 78337, 68276430, CUJ=J<NOTIFICATION_SHADE_ROW_SWIPE>"
+        root = self.modern_shade("[28,649][692,803]", "[28,663][692,797]", "[119,684][320,718]")
+        target_cancellations = [
+            {"key": summary, "reason": 2, "raw": summary_cancel},
+            {"key": child, "reason": 12, "raw": child_cancel},
+        ]
+        for outcome, post_swipe, cancellations in (
+            ("row-retained-without-target-cancel", root, []),
+            ("target-dismissal-observed", ET.Element("hierarchy"), target_cancellations),
+        ):
+            with self.subTest(outcome=outcome):
+                after = "\n".join([historical, dismiss, unrelated, *(event["raw"] for event in cancellations), frame])
+                with self.shade_device(36, [root, root, post_swipe], (historical, after)) as (evidence, actions, _):
                     evidence.swipe_claude(parse_notifications(dump()))
-                adb.assert_called_with("shell", "input", "swipe", "194", "810", "718", "810", "300")
+                    self.assertEqual([(2, ("events",)), (2, ("swipe", "194", "726", "718", "726", "500")),
+                                      (2, ("events",))], actions)
+                    report = evidence.report["swipe"]
+                    self.assertEqual(outcome, report["outcome"])
+                    self.assertEqual(cancellations, report["cancellations"])
+                    self.assertEqual([dismiss], report["systemUiDismissEvents"])
+                    self.assertEqual([frame], report["frameEvents"])
+                    saved = json.loads((evidence.directory / "swipe.json").read_text())
+                    self.assertEqual(json.loads(json.dumps(report)), saved)
+                    self.assertEqual(historical + "\n", (evidence.directory / "swipe-before-events.txt").read_text())
+                    self.assertEqual(after + "\n", (evidence.directory / "swipe-after-events.txt").read_text())
 
 
 class TransitionEvidenceTest(unittest.TestCase):
