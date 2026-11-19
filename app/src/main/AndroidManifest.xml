@@ -38,7 +38,7 @@
             android:resizeableActivity="true"
             android:screenOrientation="unspecified"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode"
-            android:theme="@style/Theme.UsageLimits">
+            android:theme="@style/Theme.UsageLimits.App">
         </activity>
 
         <activity-alias

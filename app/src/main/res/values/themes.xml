@@ -5,6 +5,22 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowBackground">#0F0F0E</item>
         <!--
+          The widget picker shows the user the exact panel colour they are choosing. OEM
+          "dark mode for third-party apps" (OxygenOS/ColorOS) is Force Dark, which repaints light
+          fills dark, so a White swatch would preview as black; this theme is already dark, so
+          opting out costs nothing and keeps the swatches honest.
+        -->
+        <item name="android:isLightTheme" tools:targetApi="q">false</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
+    </style>
+
+    <!--
+      The app's own activity, and with it every launcher alias. Only this activity has the launch
+      overlay, so only it changes the system splash screen; the widget configuration screen keeps
+      the system's.
+    -->
+    <style name="Theme.UsageLimits.App">
+        <!--
           Android 12+ shows its own splash screen before the first frame. Without this colour it
           was white on the API 37 emulator although windowBackground is dark, so every cold start
           flashed white before the dark app.
@@ -15,17 +31,10 @@
           chose, rising out of this same ground. The system's own would be a second one, and
           because the launcher icons are not adaptive it sets them on a white plate that no
           colour attribute removes (seen on the emulator). The splash is then the bare ground,
-          as the starting window was before Android 12.
+          as the starting window was before Android 12. The plate's colour is the ground's as
+          well, so a system that still draws one behind an empty icon draws it unseen.
         -->
         <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">@android:color/transparent</item>
         <item name="android:windowSplashScreenIconBackgroundColor" tools:targetApi="s">#0F0F0E</item>
-        <!--
-          The widget picker shows the user the exact panel colour they are choosing. OEM
-          "dark mode for third-party apps" (OxygenOS/ColorOS) is Force Dark, which repaints light
-          fills dark, so a White swatch would preview as black; this theme is already dark, so
-          opting out costs nothing and keeps the swatches honest.
-        -->
-        <item name="android:isLightTheme" tools:targetApi="q">false</item>
-        <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
     </style>
 </resources>
