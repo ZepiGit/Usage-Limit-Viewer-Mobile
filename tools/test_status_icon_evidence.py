@@ -11,7 +11,7 @@ from android_runtime_smoke import png_bytes
 from check_status_icon_release import verify
 from status_icon_evidence import (
     Evidence, SystemDialog, SystemUIBootANR,
-    assert_snapshot, parse_notifications, swipe_accounts, systemui_anr,
+    ACCOUNTS, assert_order_split, assert_snapshot, parse_notifications, posted_order, swipe_accounts, systemui_anr,
 )
 
 
@@ -122,12 +122,54 @@ class NotificationEvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "keys"):
             assert_snapshot(parse_notifications(dump(PAIR.replace("|10123", "|10124"))), ["uuid-claude"], baseline=baseline)
 
-    def test_reorder_records_observations_without_asserting_sort_order(self):
+    def test_rank_change_records_dump_order_without_asserting_it(self):
         codex = PAIR.replace("uuid-claude", "uuid-codex").replace("Claude", "Codex")
         before = parse_notifications(dump(PAIR + codex))
         after = parse_notifications(dump(codex + PAIR))
         report = assert_snapshot(after, ["uuid-claude", "uuid-codex"], baseline=before)
         self.assertEqual(["uuid-codex", "uuid-claude"], report["accountDumpOrder"])
+
+    def _pins(self, stamps):
+        """Three pinned pairs whose summary and child carry the given `when` per alias."""
+        body = ""
+        for alias, stamp in stamps.items():
+            pair = PAIR.replace("uuid-claude", "uuid-" + alias.removeprefix("evidence-"))
+            body += pair.replace("when=1794880000001", f"when={stamp}").replace("when=1794880000002", f"when={stamp}")
+        return parse_notifications(dump(body))
+
+    def _split_state(self, overview, all_accounts=None, pin_order=None):
+        return {"accounts": ACCOUNTS, "pins": [ACCOUNTS[1], ACCOUNTS[2], ACCOUNTS[0]],
+                "pinOrder": ACCOUNTS[:3] if pin_order is None else pin_order,
+                "overview": overview, "allAccounts": overview if all_accounts is None else all_accounts,
+                "localIds": {alias: "uuid-" + alias.removeprefix("evidence-") for alias in ACCOUNTS}}
+
+    def test_order_split_reads_the_posted_order_from_the_apps_times(self):
+        records = self._pins({ACCOUNTS[2]: 100, ACCOUNTS[0]: 300, ACCOUNTS[1]: 200})
+        self.assertEqual(ACCOUNTS[:3], posted_order(records, self._split_state(ACCOUNTS)["localIds"]))
+        with self.assertRaisesRegex(AssertionError, "same time"):
+            posted_order(self._pins({ACCOUNTS[0]: 300, ACCOUNTS[1]: 300, ACCOUNTS[2]: 100}), self._split_state(ACCOUNTS)["localIds"])
+
+    def test_order_split_accepts_a_rank_that_differs_from_stored_pins(self):
+        ranked = [ACCOUNTS[3], ACCOUNTS[2], ACCOUNTS[1], ACCOUNTS[4], ACCOUNTS[0], ACCOUNTS[5]]
+        records = self._pins({ACCOUNTS[0]: 300, ACCOUNTS[1]: 200, ACCOUNTS[2]: 100})
+        result = assert_order_split(self._split_state(ranked), records, pins_in=ACCOUNTS[:3])
+        self.assertEqual(ACCOUNTS[:3], result["posted"])
+        self.assertEqual(ranked, result["overview"])
+
+    def test_order_split_rejects_each_broken_contract(self):
+        ranked = [ACCOUNTS[3], ACCOUNTS[2], ACCOUNTS[1], ACCOUNTS[4], ACCOUNTS[0], ACCOUNTS[5]]
+        good = self._pins({ACCOUNTS[0]: 300, ACCOUNTS[1]: 200, ACCOUNTS[2]: 100})
+        cases = (
+            ("All accounts", self._split_state(ranked, all_accounts=ACCOUNTS), good),
+            ("cannot tell them apart", self._split_state(ACCOUNTS), good),
+            ("Pins left the stored order", self._split_state(ranked, pin_order=[ACCOUNTS[2], ACCOUNTS[0], ACCOUNTS[1]]), good),
+            ("Posted icon order", self._split_state(ranked), self._pins({ACCOUNTS[2]: 300, ACCOUNTS[0]: 200, ACCOUNTS[1]: 100})),
+            ("Stored order moved", {**self._split_state(ranked), "accounts": list(reversed(ACCOUNTS))}, good),
+            ("missing overview", {key: value for key, value in self._split_state(ranked).items() if key != "overview"}, good),
+        )
+        for message, state, records in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(AssertionError, message):
+                assert_order_split(state, records, pins_in=ACCOUNTS[:3])
 
     def test_unknown_dump_shape_fails_instead_of_passing_empty_state(self):
         with self.assertRaisesRegex(AssertionError, "Notification List"):
@@ -278,7 +320,7 @@ class DefaultEvidenceParserTest(unittest.TestCase):
             subject.assert_visible_icons(two, three)
 
 
-    def test_initial_and_reordered_captures_require_provider_headers_without_assuming_visible_order(self):
+    def test_initial_and_reranked_captures_require_provider_headers_without_assuming_visible_order(self):
         expected = ["evidence-claude", "evidence-codex", "evidence-gemini"]
         accounts = [("claude", "42% left", "Claude"), ("codex", "5% left", "OpenAI Codex"),
                     ("gemini", "100% left", "Antigravity")]
@@ -307,7 +349,7 @@ class DefaultEvidenceParserTest(unittest.TestCase):
             </node>
           </node>
         </hierarchy>'''
-        for name in ("03-enabled", "05-reordered"):
+        for name in ("03-enabled", "05-reranked"):
             for notification, xml, failure in (
                 (posted.replace("android.subText=String (OpenAI Codex)", "android.subText=String (OpenAI Codex (synthetic))", 1), shade, "sub-text"),
                 (posted.replace("android.subText=String (Claude)", "missingSubText=Claude", 1), shade, "sub-text"),
@@ -354,7 +396,7 @@ class DefaultEvidenceParserTest(unittest.TestCase):
             subject.assert_duplicate_rows(records, ET.fromstring('<hierarchy/>'), local_ids)
         self.assertFalse(subject.assert_duplicate_rows(records, ET.fromstring('<hierarchy/>'), local_ids, require_names=False)["namesExposed"])
 
-    def test_same_provider_completion_preserves_current_reordered_accounts(self):
+    def test_same_provider_completion_preserves_current_stored_accounts(self):
         import json
         import status_icon_evidence as subject
         original = {alias: "uuid-" + alias for alias in subject.ACCOUNTS}

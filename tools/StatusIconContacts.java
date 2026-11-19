@@ -58,7 +58,7 @@ class StatusIconContacts {
             }
             if (!hasScenarioFrames) continue;
 
-            List<String> names = List.of("03-enabled-shade.png", "14-same-provider-shade.png", "05-reordered-shade.png", "03-enabled-lockscreen.png", "14-same-provider-lockscreen.png");
+            List<String> names = List.of("03-enabled-shade.png", "14-same-provider-shade.png", "05-reranked-shade.png", "03-enabled-lockscreen.png", "14-same-provider-lockscreen.png");
             BufferedImage[] frames = new BufferedImage[names.size()];
             int frameWidth = 360, frameHeight = 0;
             for (int index = 0; index < names.size(); index++) {

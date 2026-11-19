@@ -14,6 +14,8 @@ on:
       - 'app/src/main/kotlin/com/usagelimits/core/sync/**'
       - 'app/src/main/kotlin/com/usagelimits/UsageLimits*.kt'
       - 'app/src/main/kotlin/com/usagelimits/widget/WidgetPresentationWorker.kt'
+      # The driver reports the All accounts selection beside the pinned order (ADR 0004).
+      - 'app/src/main/kotlin/com/usagelimits/widget/WidgetData.kt'
       - 'app/src/main/kotlin/com/usagelimits/ui/PercentWords.kt'
       - 'app/src/main/kotlin/com/usagelimits/core/time/**'
       - 'app/src/main/kotlin/com/usagelimits/feature/UsageViewModel.kt'

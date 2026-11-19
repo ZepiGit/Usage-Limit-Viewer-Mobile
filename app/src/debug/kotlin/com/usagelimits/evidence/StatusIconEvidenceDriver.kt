@@ -12,8 +12,12 @@ import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WidgetScope
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.model.pinnedAccountIds
 import com.usagelimits.core.sync.SyncWorker
+import com.usagelimits.feature.UsageUiState
+import com.usagelimits.widget.WidgetDataBuilder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
@@ -55,11 +59,12 @@ internal class StatusIconEvidenceDriver(
                     reading(fixtureAccount("evidence-claude"), 87.0)
                     container.publication.cacheMoved()
                 }
-                "reorder" -> {
-                    repository.reorderAccounts(listOf("evidence-gemini", "evidence-claude", "evidence-codex", "evidence-xai", "evidence-copilot", "evidence-cursor")
-                        .map { fixtureAccount(it).localId })
-                    container.settingsStore.setAccountsManuallyOrdered(true)
-                    container.publication.presentationChanged()
+                // A synthetic reading, not a user action: Antigravity drops to 2% left, which moves
+                // it to the top of Overview's automatic order while the stored order, and with it
+                // the pinned icons' order, stays as seeded (ADR 0004).
+                "rerank" -> {
+                    reading(fixtureAccount("evidence-gemini"), 2.0)
+                    container.publication.cacheMoved()
                 }
                 "states" -> {
                     reading(fixtureAccount("evidence-claude"), 0.0, exhausted = true)
@@ -105,12 +110,15 @@ internal class StatusIconEvidenceDriver(
         settings.setNotifyOnAuthExpired(false)
         settings.setNotifyOnResetApproaching(false)
         settings.setNotifyOnResetCreditExpiring(false)
-        val accounts = FIXTURES.map { fixture ->
+        // Added newest-first, then arranged by the repository writer into the order a build with
+        // Overview dragging left behind: a pre-upgrade stored order that differs from the order
+        // of addition, from the pin order the runner uses and from the automatic rank. Fixture
+        // set-up, not user behaviour; nothing in the app writes this order any more.
+        val added = FIXTURES.asReversed().map { fixture ->
             repository.upsertFromLogin(fixture.provider, fixture.alias, null,
                 "${fixture.provider.displayName} (synthetic)", null, mapOf("screenshotFixture" to "true"))
         }
-        repository.reorderAccounts(accounts.map { it.localId })
-        settings.setAccountsManuallyOrdered(true)
+        repository.reorderAccounts(FIXTURES.map { fixture -> added.single { it.externalAccountId == fixture.alias }.localId })
         initialReadings()
         container.publication.cacheMoved()
         seeded = true
@@ -164,6 +172,11 @@ internal class StatusIconEvidenceDriver(
         }
         val byId = aliases.associate { (alias, id) -> id to alias }
         val settings = container.settingsStore.settings.first()
+        // The two automatic-order projections at one instant: Overview's list and the All
+        // accounts widget's selection, before any layout trims it.
+        val usage = repository.accountUsageOnce()
+        val rankedAt = System.currentTimeMillis()
+        fun aliasesOf(ids: List<String>) = JSONArray(ids.mapNotNull { byId[it] })
         val completion = JSONObject()
             .put("token", token ?: JSONObject.NULL)
             .put("command", command ?: JSONObject.NULL)
@@ -171,7 +184,13 @@ internal class StatusIconEvidenceDriver(
             .put("completedElapsedRealtimeMs", completedElapsedRealtimeMs)
             .put("accounts", JSONArray(aliases.map { it.first }))
             .put("pins", JSONArray(settings.pinnedAccountIds.mapNotNull { byId[it] }))
+            // The order the publisher posts pinned icons in: stored order, not pin order.
+            .put("pinOrder", JSONArray(pinnedAccountIds(settings.statusIconsEnabled, settings.pinnedAccountIds,
+                accounts.map { it.localId }).mapNotNull { byId[it] }))
             .put("enabled", settings.statusIconsEnabled)
+            .put("overview", aliasesOf(UsageUiState(usage).overviewAccountsAt(rankedAt).map { it.account.localId }))
+            .put("allAccounts", aliasesOf(WidgetDataBuilder.build(usage, rankedAt, WidgetScope.ALL_ACCOUNTS, null, null)
+                .accounts.map { it.accountId }))
             .put("localIds", JSONObject(aliases.toMap()))
         if (command == "same-provider" && error == null) {
             val localIds = aliases.toMap()
@@ -197,7 +216,7 @@ internal class StatusIconEvidenceDriver(
         fun observingStartup(app: UsageLimitsApp, onSnapshot: suspend (List<WorkInfo>) -> Unit) =
             StatusIconEvidenceDriver(app, prepareEmptyInstall = { quiesceStartup(app, onSnapshot) })
 
-        private val COMMANDS = setOf("seed", "enable", "pin", "unpin", "update", "reorder", "states", "reset-readings", "presentation", "cache", "same-provider")
+        private val COMMANDS = setOf("seed", "enable", "pin", "unpin", "update", "rerank", "states", "reset-readings", "presentation", "cache", "same-provider")
         private val WORK_FIXTURE = Fixture("evidence-claude-work", ProviderId.CLAUDE, 87.0)
         private val FIXTURES = listOf(
             Fixture("evidence-claude", ProviderId.CLAUDE, 42.0),
