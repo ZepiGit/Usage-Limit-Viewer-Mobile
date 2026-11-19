@@ -17,8 +17,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.InputModeManager
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -82,6 +85,10 @@ class NavigationShellTest {
     private var motionOn by mutableStateOf(true)
     private val tab = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
     private val pushed = Destination.AddAccount.route
+    private val keyboard = object : InputModeManager {
+        override val inputMode = InputMode.Keyboard
+        override fun requestInputMode(inputMode: InputMode) = inputMode == InputMode.Keyboard
+    }
 
     /** Each stand-in screen writes its name on a row of its own, so two screens can be told apart while both are drawn. */
     @Composable
@@ -94,7 +101,7 @@ class NavigationShellTest {
         motionOn = motion
         compose.setContent {
             UsageLimitsTheme {
-                CompositionLocalProvider(LocalMotionEnabled provides motionOn) {
+                CompositionLocalProvider(LocalMotionEnabled provides motionOn, LocalInputModeManager provides keyboard) {
                     nav = rememberNavController()
                     focus = LocalFocusManager.current
                     Box(Modifier.fillMaxSize().background(UsageColors.Ground)) {
@@ -199,7 +206,6 @@ class NavigationShellTest {
         setShell(motion)
         val accounts = compose.onNode(hasText("Accounts") and tab)
         val root = compose.onRoot()
-        root.performKeyInput { pressKey(Key.Tab) }
         accounts.requestFocus()
         compose.mainClock.advanceTimeByFrame()
         val focused = accounts.fetchSemanticsNode()
@@ -226,9 +232,11 @@ class NavigationShellTest {
         if (motion) {
             assertInert("the first return frame")
             tapAtTab()
-            repeat(12) { compose.mainClock.advanceTimeByFrame() }
-            assertInert("before the return finishes")
-            settle()
+            repeat(14) {
+                compose.mainClock.advanceTimeByFrame()
+                assertEquals("no accessible tabs before the return finishes", 0, tabs().size)
+            }
+            compose.mainClock.advanceTimeUntil(timeoutMillis = 320) { tabs().size == 4 }
             assertEquals(Destination.Overview.route, route)
         }
         assertEquals("tabs are usable on return", 4, tabs().size)
