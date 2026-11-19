@@ -167,6 +167,20 @@ def assert_order_split(state, records, pins_in):
             "pinOrder": state["pinOrder"], "posted": posted}
 
 
+def assert_account_titles(records, local_id, title):
+    """Both records of one pinned account carry `title`: proof the app posted that reading.
+
+    Stable keys and the `when` order cannot tell a fresh post from records left over from the
+    previous reading; the title the app built from the new reading can.
+    """
+    pair = [record for record in records if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL
+            and record["tag"] == "status-icon:" + local_id]
+    assert sorted(record["summary"] for record in pair) == [False, True], "Expected one summary and one child for " + local_id
+    titles = {("summary" if record["summary"] else "child"): record["title"] for record in pair}
+    assert titles == {"summary": title, "child": title}, f"Expected {title!r} on summary and child of {local_id}; got {titles}"
+    return titles
+
+
 def parse_alert_events(events):
     """AOSP event: notification key, buzz, beep, blink, optional politeness/mute reason."""
     observations = []
@@ -203,16 +217,16 @@ def parse_swipe_events(before, after, keys):
     return result
 
 
-def dump_section(text, heading, *, end_heading=None, indent_fallback=None):
+def dump_section(text, heading, *, end_heading=None):
+    """The lines under `heading`: up to `end_heading` when given, which must then follow exactly once."""
     matches = list(re.finditer(r"(?m)^([ \t]*)" + heading + r"[ \t]*$", text))
     assert len(matches) == 1, "Missing/ambiguous dump section: " + heading
     match = matches[0]
     section = text[match.end():]
     if end_heading is not None:
-        end = re.search(r"(?m)^[ \t]*" + re.escape(end_heading) + r"[ \t]*$", section)
-        if end is not None:
-            return section[:end.start()].rstrip("\n")
-        assert match[0].strip() == indent_fallback, "Missing dump section boundary: " + end_heading
+        ends = list(re.finditer(r"(?m)^[ \t]*" + re.escape(end_heading) + r"[ \t]*$", section))
+        assert len(ends) == 1, "Missing/ambiguous dump section boundary: " + end_heading
+        return section[:ends[0].start()].rstrip("\n")
     indent = len(match[1].expandtabs(4))
     lines = []
     for line in section.splitlines():
@@ -225,12 +239,17 @@ def dump_section(text, heading, *, end_heading=None, indent_fallback=None):
     return "\n".join(lines)
 
 
-def assert_no_heads_up(systemui, records):
+# The section SystemUI dumps right after the heads-up manager's, per image. Each image can
+# outdent the heading or a field independently of its siblings (API 30 wrote `mUser=0` two
+# columns out in run 44586152463), so the section ends at this heading, never at an indent.
+HEADS_UP_END = {30: "StatusBarTouchableRegionManager state:",
+                36: "ShadeTouchableRegionManager state:", 37: "ShadeTouchableRegionManager state:"}
+
+
+def assert_no_heads_up(systemui, records, api):
     """Only the manager's active entries are authoritative; other sections repeat keys."""
-    # API36/37 can outdent the heading or a field independently of the sibling.
-    section = dump_section(systemui, r"HeadsUpManager(?:Phone)? state:",
-                           end_heading="ShadeTouchableRegionManager state:",
-                           indent_fallback="HeadsUpManagerPhone state:")
+    assert api in HEADS_UP_END, "Unsupported evidence API: " + str(api)
+    section = dump_section(systemui, r"HeadsUpManager(?:Phone)? state:", end_heading=HEADS_UP_END[api])
     keys = {record["key"] for record in records if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL}
     assert not any(key in section for key in keys), "Status record in active heads-up manager entry"
     known = (r"mTouchAcceptanceDelay=\d+", r"mSnoozeLengthMs=\d+", r"now=\d+", r"mUser=\d+",
@@ -630,7 +649,7 @@ class Evidence:
                 self._assert_first_post_collection(name, entry["ranking"])
             finally:
                 self._save_early_timing(name, self.early)
-        entry["headsUp"] = assert_no_heads_up(presentation["systemui"], records)
+        entry["headsUp"] = assert_no_heads_up(presentation["systemui"], records, self.report["api"])
         entry["visibleIcons"] = assert_visible_icons(presentation["systemui"], records)
         if name in ("03-enabled", "05-reranked"):
             entry["providerHeaders"] = assert_provider_headers(entry["ranking"], shade, self.state["localIds"])
@@ -640,7 +659,7 @@ class Evidence:
             entry["shadeSection"] = assert_alerting_section(presentation["systemui"], records, self.report["api"], shade)
         if self.early is not None:
             entry["early"] = {"samples": self.early["samples"], "commandStarted": self.early["commandStarted"],
-                              "headsUp": assert_no_heads_up(self.early["systemui"], records),
+                              "headsUp": assert_no_heads_up(self.early["systemui"], records, self.report["api"]),
                               "alertEvents": parse_alert_events(self.early["events"])}
             assert not re.search(r"Application (?:Not Responding|not responding|Error):", self.early["window"]), "System error during early frames"
             self.early = None
@@ -825,7 +844,7 @@ class Evidence:
             result.update(label="Emulator non-secure swipe keyguard only; normal PRIVATE notification policy, no AOD/secure-phone claim",
                           keyguardShowing=True, secure=False, originalDisabled=disabled, temporarySwipeEnabled=changed,
                           accessibility=[{field: node.get(field) for field in ("text", "content-desc", "resource-id", "bounds", "focused", "accessibility-focused")} for node in lock_xml.iter("node") if node.get("package") == "com.android.systemui" and (node.get("text") or node.get("content-desc"))],
-                          headsUp=assert_no_heads_up(policy["systemui"], records))
+                          headsUp=assert_no_heads_up(policy["systemui"], records, self.report["api"]))
             if name == "14-same-provider-lockscreen":
                 result["duplicateRows"] = assert_duplicate_rows(records, lock_xml, self.state["localIds"], require_names=False)
             self.report.setdefault("lockscreens", {})[name] = result
@@ -948,9 +967,11 @@ class Evidence:
         self.transition("update", "04-updated")
         full = self.capture("04-updated", "full six; Claude42 ->87 through repository/cacheMoved", ACCOUNTS[:3], baseline=full)
         before = assert_order_split(self.state, full, pins_in=ACCOUNTS[:3])
+        before["antigravityTitles"] = assert_account_titles(full, self.state["localIds"][ACCOUNTS[2]], "100% left")
         self.transition("rerank", "05-reranked")
         full = self.capture("05-reranked", "full six; synthetic Antigravity reading 100 -> 2 through repository/cacheMoved over the seeded legacy stored order", ACCOUNTS[:3], baseline=full)
         after = assert_order_split(self.state, full, pins_in=ACCOUNTS[:3])
+        after["antigravityTitles"] = assert_account_titles(full, self.state["localIds"][ACCOUNTS[2]], "2% left")
         assert self.state["pins"] == before["pins"], "The reading changed the stored pins"
         assert before["overview"][-1] == ACCOUNTS[2] and after["overview"][:2] == [ACCOUNTS[3], ACCOUNTS[2]], (
             f"The reading did not move Antigravity up the automatic order: {before['overview']} -> {after['overview']}")

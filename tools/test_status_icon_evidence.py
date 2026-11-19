@@ -11,7 +11,7 @@ from android_runtime_smoke import png_bytes
 from check_status_icon_release import verify
 from status_icon_evidence import (
     Evidence, SystemDialog, SystemUIBootANR,
-    ACCOUNTS, assert_order_split, assert_snapshot, parse_notifications, posted_order, swipe_accounts, systemui_anr,
+    ACCOUNTS, HEADS_UP_END, assert_order_split, assert_snapshot, parse_notifications, posted_order, swipe_accounts, systemui_anr,
 )
 
 
@@ -311,7 +311,7 @@ class DefaultEvidenceParserTest(unittest.TestCase):
         outdented_field = "    " + manager.replace("      snoozed packages: 0", "  snoozed packages: 0")
         for api, dump_section in ((36, manager), (37, outdented_field)):
             with self.subTest(api=api):
-                report = subject.assert_no_heads_up(flags + dump_section + later, records)
+                report = subject.assert_no_heads_up(flags + dump_section + later, records, api)
                 self.assertEqual([], report["activeStatusKeys"])
                 self.assertEqual(["false"], report["presentationFlags"])
 
@@ -322,9 +322,9 @@ class DefaultEvidenceParserTest(unittest.TestCase):
             ("  ShadeTouchableRegionManager state: unknown\n", "Unrecognized heads-up active section"),
         ):
             with self.subTest(entry=entry), self.assertRaisesRegex(AssertionError, error):
-                subject.assert_no_heads_up(flags + outdented_field + entry + later, records)
+                subject.assert_no_heads_up(flags + outdented_field + entry + later, records, 37)
         with self.assertRaisesRegex(AssertionError, "Active heads-up presentation flag"):
-            subject.assert_no_heads_up(flags.replace("false", "true") + manager + later, records)
+            subject.assert_no_heads_up(flags.replace("false", "true") + manager + later, records, 36)
 
     def test_shade_requires_every_account_child_in_alerting(self):
         import status_icon_evidence as subject
@@ -681,7 +681,7 @@ class TransitionEvidenceTest(unittest.TestCase):
         posted = "".join(PAIR.replace("uuid-claude", local_ids[alias]) for alias in accounts[:3])
         keys = [f"0|com.usagelimits.debug|2002|status-icon:{local_ids[alias]}|10123" for alias in accounts[:3]]
         manager = ("HeadsUpManager state:\n  mTouchAcceptanceDelay=700\n  mSnoozeLengthMs=60000\n"
-                   "  now=123\n  mUser=0\n  snoozed packages: 0\n    ShadeTouchableRegionManager state:\n")
+                   "  now=123\n  mUser=0\n  snoozed packages: 0\n    {boundary}\n")
         later = "    ShadeListBuilder shade notifications:\n" + "".join(
             f"      [{index}] {key} (parent=<root>) rank={index} section=6:5:Alerting\n"
             for index, key in enumerate(keys)
@@ -716,11 +716,11 @@ class TransitionEvidenceTest(unittest.TestCase):
                                                "accounts": accounts, "pins": accounts[:3], "localIds": local_ids,
                                                "completedElapsedRealtimeMs": 100000})
                         if args[:3] == ("shell", "sh", "-c") and "/proc/uptime" in args[3]:
-                            return "systemuiDumpStartedUptime=101.25\n" + manager + collection + later
+                            return "systemuiDumpStartedUptime=101.25\n" + manager.format(boundary=HEADS_UP_END[api]) + collection + later
                         if args == ("shell", "dumpsys", "notification", "--noredact"):
                             return dump(posted)
                         if args[-1] == "com.android.systemui/.SystemUIService":
-                            return manager + later
+                            return manager.format(boundary=HEADS_UP_END[api]) + later
                         if args == ("shell", "cmd", "statusbar", "expand-notifications"):
                             self.shade_expanded = True
                         if args == ("exec-out", "cat", "/sdcard/status-icon-evidence.xml"):
