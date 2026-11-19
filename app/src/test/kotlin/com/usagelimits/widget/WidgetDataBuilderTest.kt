@@ -55,7 +55,9 @@ class WidgetDataBuilderTest {
         val data = WidgetDataBuilder.build(listOf(
             usage("lead", ProviderId.CODEX, usedPercent = 0.0),
             usage("other", ProviderId.CLAUDE, usedPercent = 20.0, status = SnapshotStatus.FAILED),
-        ), now, WidgetScope.ALL_ACCOUNTS, null, null)
+        // Custom keeps its saved order, so the roomier account leads and a pooled minimum (80)
+        // would differ from the lead's own figure. All accounts would rank "other" first (ADR 0004).
+        ), now, WidgetScope.CUSTOM, null, null, customAccountIds = listOf("lead", "other"))
         assertEquals("2 accounts", data.selectionStatusLabel)
         assertEquals(100.0, data.summaryLineLong!!.remainingPercent!!, 0.001)
         assertEquals(Severity.ERROR, data.overallSeverity)

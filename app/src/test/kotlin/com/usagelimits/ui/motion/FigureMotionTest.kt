@@ -95,7 +95,7 @@ class FigureMotionTest {
                 val screen = @Composable {
                     OverviewScreen(
                         state = UsageUiState(accounts = accounts, settings = AppSettings(percentDisplay = mode)),
-                        nowMs = MOTION_NOW, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onReorder = {},
+                        nowMs = MOTION_NOW, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
                         onPercentDisplayChange = {},
                     )
                 }

@@ -162,9 +162,7 @@
 
     <!-- Overview screen and account cards (feature/overview/OverviewScreen.kt). -->
     <string name="overview_section_accounts">Konten</string>
-    <string name="overview_reorder">Sortieren</string>
     <string name="overview_no_accounts">Noch keine Konten. Füge eines hinzu, um die Nutzung zu verfolgen.</string>
-    <string name="overview_move_account">%1$s verschieben</string>
     <string name="overview_add_account">Konto hinzufügen</string>
     <string name="overview_add_account_hint">Ein weiteres KI-Abo überwachen</string>
     <string name="overview_section_credits">Guthaben</string>
@@ -304,7 +302,6 @@
     <string name="credit_of_total">von %1$s</string>
 
     <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
-    <string name="message_order_save_failed">Die Reihenfolge der Konten konnte nicht gespeichert werden. Versuche es erneut.</string>
     <string name="message_icon_save_failed">Die Symbolauswahl konnte nicht gespeichert werden. Versuche es erneut.</string>
     <string name="message_pin_refused_full">Das Konto konnte nicht angeheftet werden: Es sind schon %1$d angeheftet. Löse zuerst eines.</string>
     <string name="message_pin_refused_gone">Das Konto konnte nicht angeheftet werden: Es wurde entfernt.</string>

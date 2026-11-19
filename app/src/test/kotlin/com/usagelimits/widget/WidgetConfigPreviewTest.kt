@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
@@ -159,6 +160,46 @@ class WidgetConfigPreviewTest {
             UsageSnapshot("a", now, SnapshotStatus.OK, windows = listOf(
                 UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 40.0, 604_800, now + 86_400_000, false))),
         )
+    }
+
+    /**
+     * The preview of an All accounts widget shows the two accounts the placed widget would, in
+     * Overview's order (ADR 0004), not the stored one; Custom keeps its saved order.
+     */
+    @Test
+    fun `the All accounts preview leads with the account Overview ranks first`() {
+        val now = System.currentTimeMillis()
+        fun usage(id: String, provider: ProviderId, left: Double) = AccountUsage(
+            // The plan makes each title unique to the preview; the provider list says only the name.
+            ProviderAccount(id, provider, "ext-$id", "$id@example.invalid", null, "Fixture", "ref-$id", now, now),
+            UsageSnapshot(id, now, SnapshotStatus.OK, windows = listOf(
+                UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 100.0 - left, 604_800, now + 86_400_000, false))),
+        )
+        // Stored order: Codex (90 left), Kimi (50 left), Claude (12 left).
+        val stored = listOf(usage("codex", ProviderId.CODEX, 90.0), usage("kimi", ProviderId.KIMI, 50.0),
+            usage("claude", ProviderId.CLAUDE, 12.0))
+        fun configured(scope: String, custom: String = "[]") = WidgetConfigEntity(7, scope, null, null, 1L,
+            customAccountIdsJson = custom, layoutMetricsJson = WidgetMetrics().toJson())
+        var config by mutableStateOf(configured("ALL_ACCOUNTS"))
+        compose.setContent {
+            UsageLimitsTheme {
+                androidx.compose.runtime.key(config) {
+                    WidgetConfigScreen(stored, config, "Usage Bars", saving = false, error = null,
+                        percentDisplay = PercentDisplay.LEFT, onCancel = {}, onSave = { _, _, _, _, _ -> })
+                }
+            }
+        }
+        compose.waitForIdle()
+        fun top(title: String) = compose.onAllNodesWithText(title).fetchSemanticsNodes().map { it.boundsInRoot.top }
+        assertEquals("the two tightest accounts are previewed", 1, top("Claude Fixture").size)
+        assertEquals(1, top("Kimi Fixture").size)
+        assertTrue("the roomiest is trimmed", top("OpenAI Codex Fixture").none())
+        assertTrue("Claude (12 left) leads Kimi (50 left)", top("Claude Fixture").single() < top("Kimi Fixture").single())
+
+        compose.runOnIdle { config = configured("CUSTOM", """["codex","claude"]""") }
+        compose.waitForIdle()
+        assertEquals(1, top("OpenAI Codex Fixture").size)
+        assertTrue("Custom keeps its saved order", top("OpenAI Codex Fixture").single() < top("Claude Fixture").first())
     }
 
     @Test

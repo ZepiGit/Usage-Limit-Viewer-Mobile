@@ -10,6 +10,7 @@ import com.usagelimits.core.model.UsageSegment
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.model.inOverviewOrder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -29,6 +30,10 @@ data class AccountUsage(
                 it.windows.isNotEmpty() || it.resetCredits.isNotEmpty() || it.resetCreditCount != null
         }?.fetchedAt
 }
+
+/** Overview's automatic order (ADR 0004); see [com.usagelimits.core.model.inOverviewOrder]. */
+fun List<AccountUsage>.inOverviewOrder(nowMs: Long): List<AccountUsage> =
+    inOverviewOrder(nowMs, AccountUsage::account, AccountUsage::snapshot)
 
 /**
  * Runs a block with the database's write serialisation held for its whole duration.

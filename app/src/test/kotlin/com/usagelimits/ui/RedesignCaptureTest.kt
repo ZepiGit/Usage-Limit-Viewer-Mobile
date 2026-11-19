@@ -143,11 +143,11 @@ class RedesignCaptureTest {
     private fun screens(): List<Pair<String, @Composable () -> Unit>> = listOf(
         "overview" to {
             OverviewScreen(state = state, nowMs = NOW, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
+                onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
         },
         "overview-empty" to {
             OverviewScreen(state = UsageUiState(), nowMs = NOW, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {})
+                onPercentDisplayChange = {})
         },
         "account-detail" to {
             AccountDetailScreen(usage = claude, nowMs = NOW, staleAfterMs = state.staleAfterMs, percentDisplay = com.usagelimits.core.model.PercentDisplay.LEFT, resetInFlight = false,
