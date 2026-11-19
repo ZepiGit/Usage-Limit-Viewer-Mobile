@@ -80,11 +80,15 @@ names (the owner's choice). Whether a real Lock Screen keeps that glyph is a rel
   no heads-up showed in the sampled frames; silence on a phone and a dozing screen are release
   checks.
 - Order was observed, not guaranteed. On API 30, 36 and 37 emulators the icons followed the
-  app's order on first post and after a reorder (runs
+  app's order on first post and after a reorder (historical runs
   [44196948542](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44196948542) and
-  [44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612));
+  [44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612),
+  from before the app stopped offering a reorder);
   on API 30 a newly pinned account came first until the next sync. The owner accepted that
   exception as a known limit.
+- The "app's order" the icons follow is the stored account order, not Overview's automatic order;
+  [ADR 0004](0004-automatic-overview-order-and-stored-order.md) splits the two and keeps the
+  icons on the stored one, so a changed reading does not move them.
 - A swiped-away icon normally returns with the next sync, or at once when the app's Settings
   screen, which showed notifications or the status icon category blocked, sees them allowed again
   (that counts like turning the feature on); a block it did not see waits for the next sync. Best

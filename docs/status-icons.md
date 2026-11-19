@@ -59,8 +59,8 @@ The provider's name is in the header as text that accessibility services can rea
 
 The notifications use their own channel, **Status bar icons**, separate from usage alerts. The app creates it with default importance and no sound, vibration, light or badge, and asks Android not to alert for the group. The rows therefore sort with normal notifications rather than under "Silent".
 
-<p align="center"><img src="images/status-icons/android-16-shade-and-lock-screen.png" width="1000" alt="Five emulator frames: the shade with three status rows; two Claude rows told apart by account name; the shade after a reorder; a lock screen with three account rows; a lock screen with the two Claude rows"></p>
-<p align="center"><em>Android 16 emulator in CI, synthetic accounts. From left: the shade with three pinned accounts; two Claude accounts, told apart by name in the header; the shade after reordering accounts in the app; the lock screen with three accounts; the lock screen with only the two Claude accounts pinned. The lock screen is the emulator's swipe lock without a PIN.</em></p>
+<p align="center"><img src="images/status-icons/android-16-shade-and-lock-screen.png" width="1000" alt="Five emulator frames: the shade with three status rows; two Claude rows told apart by account name; the shade after a reorder in an earlier build; a lock screen with three account rows; a lock screen with the two Claude rows"></p>
+<p align="center"><em>Android 16 emulator in CI, synthetic accounts. From left: the shade with three pinned accounts; two Claude accounts, told apart by name in the header; the shade after reordering accounts in the app, which builds before issue 88 allowed; the lock screen with three accounts; the lock screen with only the two Claude accounts pinned. The lock screen is the emulator's swipe lock without a PIN.</em></p>
 
 ## iOS Lock Screen forms
 
@@ -77,7 +77,7 @@ If the widget cannot read the app's data before the first unlock after a restart
 
 ## Swiping an icon away
 
-On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting, reordering accounts or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, makes the app post it again without waiting for a sync. So does allowing the app's notifications or the Status bar icons category again after they were switched off in Android, when the app's Settings screen showed the block and sees them allowed again: Android removed every icon then, and every pinned account's icon comes back at once, the swiped one too. Otherwise they come back with the next sync. An account you unpinned, or the feature switched off, while they were blocked stays that way. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
+On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, makes the app post it again without waiting for a sync. So does allowing the app's notifications or the Status bar icons category again after they were switched off in Android, when the app's Settings screen showed the block and sees them allowed again: Android removed every icon then, and every pinned account's icon comes back at once, the swiped one too. Otherwise they come back with the next sync. An account you unpinned, or the feature switched off, while they were blocked stays that way. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
 
 After the phone restarts, the icons normally return under the same conditions with the refresh that starts when you open the app, or with the next background refresh at your chosen interval if you leave it closed; Android may run it later.
 
@@ -92,18 +92,18 @@ This holds when a publication runs to its end. Around a crash or a permission ch
 - **Android does not promise that the icons are visible.** The status bar's width, cut-outs, other apps' icons, your notification settings and manufacturer versions of Android can each hide icons or fold them into an overflow dot. The Settings section says so: "Android decides how many icons fit. Notification settings control their visibility."
 - **Why default importance.** From Android 16 r4 on, AOSP hides the status-bar icons of silent, low-importance notifications by default. On the Android 17 emulator that setting stayed on and still did not hide these icons, because their channel has default importance.
 - **Lock screen.** The app sets no lock-screen visibility of its own, so Android decides whether the rows appear there and how much they show; the emulators already differed (see the table below). To keep them off the lock screen, turn off lock-screen display for the Status bar icons category where your Android version offers it; otherwise use the system setting, which applies to every app.
-- **Order.** The app posts the icons so that they follow its account order, but Android ranks them. On the tested emulators they followed it at first post and after a reorder; on the Android 11 emulator a newly pinned account came first until the next sync. If the app detects that the clock jumped back, or the clock does not move on within a short wait, it posts the remaining icons of that publication without the order.
+- **Order.** The app posts the icons so that they follow the stored account order, but Android ranks them. The stored order is the arrangement from before the app stopped offering a reorder, or the order the accounts were added in, with new accounts last; Overview's automatic order, which follows the readings, does not move the icons ([ADR 0004](adr/0004-automatic-overview-order-and-stored-order.md)). The app offers no way to change the stored order. On the tested emulators the icons followed the app's order at first post and after a reorder (historical, see below); on the Android 11 emulator a newly pinned account came first until the next sync. If the app detects that the clock jumped back, or the clock does not move on within a short wait, it posts the remaining icons of that publication without the order.
 - **iOS updates on WidgetKit's schedule.** The widget plans its changes ahead for the moments a reading turns stale or a reset passes, but iOS decides when it redraws, so the Lock Screen can lag the app.
 
 ## What has been checked, and where
 
-Android, CI emulators with synthetic accounts, [run 44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612), method in [Status icon device evidence](status-icon-evidence.md):
+Android, historical: CI emulators with synthetic accounts, [run 44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612), method in [Status icon device evidence](status-icon-evidence.md):
 
 | Check | Android 11 | Android 16 | Android 17 |
 | --- | --- | --- | --- |
 | Three icons and three rows | Yes | Yes | Yes, with the hide-silent setting on |
 | Rows' place in the shade | Under "Notifications" | Alerting section | Alerting section |
-| Order at first post and after a reorder | Followed | Followed | Followed |
+| Order at first post and after a reorder (historical: the reorder step was replaced, see below) | Followed | Followed | Followed |
 | Newly pinned account | Came first until the next sync | In order | In order |
 | Swipe away | Refused (ongoing) | Gone, returned after the sync event | Gone, returned after the sync event |
 | Records with sound, vibration or light | None | None | None |
@@ -111,6 +111,8 @@ Android, CI emulators with synthetic accounts, [run 44216665612](https://github.
 | Lock screen (swipe lock, no PIN) | Two rows, the third icon in the overflow strip | Three rows | Icons only, no rows |
 
 The sync here is the app's publication event fed with synthetic readings, not a real provider refresh. Tapping a row is wired in code and was not tapped in the matrix.
+
+Since issue 88 the scenario no longer reorders accounts in the app. It seeds a stored order that differs from the pin order and from the automatic order, changes one synthetic reading so that Overview and All accounts reorder, and asserts that the stored order, the pins and the order in which the app stamps the pinned icons stay as they were; what SystemUI then draws remains an observation in the run's report. Runs of that scenario: none linked yet (PENDING-CI).
 
 iOS: the widget's views were rendered on macOS in CI, in English and German, at the three accessory sizes ([run 44210074686](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44210074686)).
 
