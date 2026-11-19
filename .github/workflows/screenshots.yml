@@ -79,7 +79,7 @@ jobs:
           done
           python3 ../Tools/export-screenshots.py \
             "$GITHUB_WORKSPACE/iphone-attachments" "$GITHUB_WORKSPACE/ios-marketing-screenshots" \
-            iphone-overview iphone-accounts iphone-resets iphone-settings \
+            iphone-overview iphone-overview-order iphone-accounts iphone-resets iphone-settings \
             iphone-custom-layout iphone-custom-layout-restored
           python3 ../Tools/export-screenshots.py \
             "$GITHUB_WORKSPACE/ipad-attachments" "$GITHUB_WORKSPACE/ios-marketing-screenshots" \

@@ -14,7 +14,7 @@ class ScreenshotExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             records = []
-            names = ["iphone-custom-layout", "iphone-custom-layout-restored"]
+            names = ["iphone-custom-layout", "iphone-custom-layout-restored", "iphone-overview", "iphone-overview-order"]
             for index, name in enumerate(names):
                 filename = f"attachment-{index}.png"
                 (root / filename).write_bytes(name.encode())
