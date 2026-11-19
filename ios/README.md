@@ -75,14 +75,14 @@ figures fade together with their side word, and rows keep an identity based on t
 window rather than their position. Widget motion is unchanged.
 
 `MotionUITests` in the `UsageLimits` scheme launches the real Debug app with synthetic
-accounts. `-motion-log` exposes transactions from the real modifiers in a noninteractive
+accounts. `-motion-log` shows what the real modifiers decided for each change in a noninteractive
 overlay; `-reduce-motion` overrides the system preference only in Debug. The overlay
 also hosts both busy-mark variants, so progress accessibility can be checked without
 submitting a real key. `-motion-delayed-demo`, with `-marketing-demo`, delays the fixture
 load until after the first frame to exercise the skeleton-to-content cut. Release builds
 ignore all three motion-test arguments.
 
-These UI tests check animation transactions, resolved transitions, filter/deep-link
+These UI tests check the animation each modifier attached, resolved transitions, filter/deep-link
 behavior and accessibility roles. They do not measure rendered intermediate frames,
 interrupted animations or a live change of the system Reduce Motion setting; those
 remain simulator/device checks. UIKit navigation, sheets, alerts and refresh controls

@@ -76,12 +76,13 @@ private struct MotionModifier<Value: Equatable>: ViewModifier {
     var armed = true
 
     func body(content: Content) -> some View {
-        content
-            .loggingMotion(motion.rawValue, value: value)
+        let animation = armed ? motion.animation(reduceMotion: reduceMotion) : nil
+        return content
+            .loggingMotion(motion.rawValue, value: value, animated: animation != nil)
             // Nil is not "no opinion": for the update in which `value` changes it clears
             // whatever animation the surrounding transaction carries, so an unarmed change is a
             // cut even inside someone else's `withAnimation`.
-            .animation(armed ? motion.animation(reduceMotion: reduceMotion) : nil, value: value)
+            .animation(animation, value: value)
     }
 }
 
@@ -90,11 +91,11 @@ private struct PressReleaseModifier: ViewModifier {
     let isPressed: Bool
 
     func body(content: Content) -> some View {
-        content
-            .loggingMotion("pressRelease", value: isPressed)
-            // Nil on the way down: feedback for a touch must not lag behind the finger.
-            .animation(
-                isPressed ? nil : Motion.stateChange.animation(reduceMotion: reduceMotion), value: isPressed)
+        // Nil on the way down: feedback for a touch must not lag behind the finger.
+        let animation = isPressed ? nil : Motion.stateChange.animation(reduceMotion: reduceMotion)
+        return content
+            .loggingMotion("pressRelease", value: isPressed, animated: animation != nil)
+            .animation(animation, value: isPressed)
     }
 }
 
@@ -234,14 +235,13 @@ extension View {
     }
 
     /// In a DEBUG build launched with `-motion-log`, notes each change of `value` and whether
-    /// the transaction that reaches this view for it carries an animation. Applied inside the
-    /// `animation(_:value:)` it reports on, so it sees what that modifier decided. In every
-    /// other build and launch it is this view, untouched.
+    /// the modifier attached an animation to it, as the modifier decided it with the real
+    /// environment. In every other build and launch it is this view, untouched.
     @ViewBuilder
-    fileprivate func loggingMotion<Value: Equatable>(_ name: String, value: Value) -> some View {
+    fileprivate func loggingMotion<Value: Equatable>(_ name: String, value: Value, animated: Bool) -> some View {
         #if DEBUG
         if MotionLog.isEnabled {
-            modifier(MotionLogProbe(name: name, value: value))
+            modifier(MotionLogProbe(name: name, value: value, animated: animated))
         } else {
             self
         }
@@ -316,7 +316,8 @@ private func noteTransition(_ name: String, fades: Bool) {
 ///
 /// A test cannot see an animation, and asking the Kit whether a motion has a timing under Reduce
 /// Motion proves nothing about the views. So in a DEBUG build launched with `-motion-log` the
-/// real modifiers report what reached their content, and the app prints this log as one text.
+/// real modifiers report what they attached to each change, with the environment the views
+/// really have, and the app prints this log as one text.
 @MainActor
 final class MotionLog: ObservableObject {
     static let shared = MotionLog()
@@ -357,28 +358,20 @@ final class MotionLog: ObservableObject {
     }
 }
 
-/// The value a motion last ran for, held by reference so that noting it changes no view state.
-private final class LastValue<Value: Equatable> {
-    var value: Value?
-}
-
+/// Notes each change of `value` with the decision the modifier made for it.
+///
+/// A change, not a transaction: a `transaction` closure was the first design, and on the
+/// simulator it never ran for changes inside `List` rows (a mode flip on Overview logged
+/// nothing while its figures and bars changed), so it could not say what a row did.
 private struct MotionLogProbe<Value: Equatable>: ViewModifier {
-    @State private var last = LastValue<Value>()
     let name: String
     let value: Value
+    let animated: Bool
 
     func body(content: Content) -> some View {
-        // The value a view starts with is where it begins, not a change.
-        let _ = start()
-        content.transaction { transaction in
-            guard last.value != value else { return }
-            last.value = value
-            MotionLog.shared.note(name, transaction.animation != nil ? "animated" : "none")
+        content.onChange(of: value) { _ in
+            MotionLog.shared.note(name, animated ? "animated" : "none")
         }
-    }
-
-    private func start() {
-        if last.value == nil { last.value = value }
     }
 }
 #endif

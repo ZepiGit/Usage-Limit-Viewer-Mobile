@@ -1,6 +1,6 @@
 import XCTest
 
-/// Reads transactions from the real modifiers, not a second implementation of their rules.
+/// Reads what the real modifiers decided for each change, not a second implementation of their rules.
 final class MotionUITests: XCTestCase {
     override func setUp() {
         super.setUp()
@@ -20,10 +20,12 @@ final class MotionUITests: XCTestCase {
         return app
     }
 
-    private func waitUntil(_ condition: @escaping () -> Bool) {
+    private func waitUntil(_ what: String, in app: XCUIApplication, _ condition: @escaping () -> Bool) {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in condition() }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 10), .completed)
+        // The log in the message, so a failure on CI says what the modifiers did instead.
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 10), .completed,
+                       "\(what); motion log: \(app.staticTexts["motion-log"].label)")
     }
 
     private func tab(_ title: String, in app: XCUIApplication) {
@@ -48,7 +50,7 @@ final class MotionUITests: XCTestCase {
     }
 
     private func waitFor(_ event: String, after number: Int, in app: XCUIApplication) {
-        waitUntil { self.entries(app).contains { $0.number > number && $0.event == event } }
+        waitUntil("\(event) after #\(number)", in: app) { self.entries(app).contains { $0.number > number && $0.event == event } }
     }
 
     private func filterToCodex(_ app: XCUIApplication) {
@@ -56,7 +58,7 @@ final class MotionUITests: XCTestCase {
         let filter = app.buttons["OpenAI Codex"]
         XCTAssertTrue(filter.waitForExistence(timeout: 10))
         filter.tap()
-        waitUntil { filter.value as? String == "Selected" }
+        waitUntil("Codex filter selected", in: app) { filter.value as? String == "Selected" }
     }
 
     func testProviderFilterAnimatesInNormalMotion() {
@@ -87,7 +89,7 @@ final class MotionUITests: XCTestCase {
         // deliberately has no tap action. The overlay is above it and never takes touches.
         lead.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.45))
             .withOffset(CGVector(dx: 24, dy: 0)).tap()
-        waitUntil { lead.label != oldLabel }
+        waitUntil("the lead reads the other side", in: app) { lead.label != oldLabel }
         waitFor("enterAfterExit none", after: beforeFigure, in: app)
         waitFor("move none", after: beforeFigure, in: app)
         XCTAssertTrue(entries(app).contains { $0.event == "figure identity" })
@@ -96,16 +98,21 @@ final class MotionUITests: XCTestCase {
 
     func testDeepLinkCutsThroughAnActiveFilter() throws {
         guard #available(iOS 16.4, *) else {
-            throw XCTSkip("XCUIApplication.open requires iOS 16.4")
+            throw XCTSkip("XCUIDevice.system.open requires iOS 16.4")
         }
         let app = launch()
         filterToCodex(app)
         waitFor("moveAfterExit animated", after: 0, in: app)
         let before = checkpoint(app)
-        app.open(URL(string: "usagelimits://account/demo-kimi")!)
+        // Through the system, as a widget's link arrives: `XCUIApplication.open` relaunches the
+        // app (seen on CI), which would lose the filter this test is about.
+        XCUIDevice.shared.system.open(URL(string: "usagelimits://account/demo-kimi")!)
+        let confirm = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Open"]
+        if confirm.waitForExistence(timeout: 3) { confirm.tap() }
         let target = app.staticTexts["account-title-demo-kimi"]
         XCTAssertTrue(target.waitForExistence(timeout: 10))
-        waitUntil { target.isHittable }
+        XCTAssertGreaterThanOrEqual(checkpoint(app), before, "the same process, not a relaunch")
+        waitUntil("the target card is on screen", in: app) { target.isHittable }
         waitFor("moveAfterExit none", after: before, in: app)
         XCTAssertFalse(entries(app).contains { $0.number > before && $0.event == "moveAfterExit animated" })
 
