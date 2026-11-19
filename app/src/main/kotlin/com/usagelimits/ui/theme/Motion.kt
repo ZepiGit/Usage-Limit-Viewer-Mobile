@@ -13,14 +13,10 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -63,6 +59,9 @@ private const val QUICK = 120
 private const val SHORT = 180
 private const val MEDIUM = 240
 private const val LONG = 320
+
+/** A timeline one millisecond long whose only event is at its end: see [peekIn]. */
+private const val GESTURE_END_STEP = 1
 
 /** Things that travel or grow: fast out of rest, slow into place. */
 private val Standard: Easing = FastOutSlowInEasing
@@ -108,6 +107,9 @@ class UsageMotion private constructor(val enabled: Boolean) {
      */
     fun <T> enterAfterMove(): FiniteAnimationSpec<T> = spec(MEDIUM - BRIEF, Fade, delayMs = 2 * BRIEF)
 
+    /** What a finger moves away: it fades over the whole of the move, so every position shows it. */
+    fun <T> gestureFade(): FiniteAnimationSpec<T> = spec(MEDIUM, Fade)
+
     /** The launch icon rising, then the overlay dissolving over the content. */
     fun <T> launchReveal(): FiniteAnimationSpec<T> = spec(LONG, Reveal)
     fun <T> launchDissolve(): FiniteAnimationSpec<T> = spec(MEDIUM, Fade)
@@ -152,15 +154,16 @@ fun UsageMotion.axisOut(offsetPx: Int): ExitTransition =
     fadeOut(exit()) + slideOutHorizontally(move()) { offsetPx }
 
 /**
- * Navigation chrome leaving with the screen it belongs to and returning with it.
+ * The back gesture: the finger scrubs through the pop, and may stop anywhere in it. A
+ * fade-through held half-way is an almost empty screen (what leaves is gone before what arrives
+ * has come), so here the screen below is there from the start, shifted by [offsetPx], and the
+ * one on top fades over the whole of the move while it shifts away.
  *
- * The bottom bar shifts by [offsetPx], the distance the screens shift, without giving up its
- * height until it is gone: the content above it is anchored to the top, so nothing visible
- * depends on that height and no frame of the motion costs a layout pass. (Sliding by its whole
- * height would carry its labels through the system's navigation buttons.) The side rail does
- * change the width the centred content sits in, so it gives its width back gradually.
+ * With motion off nothing moves while the finger is down: both screens keep their state until
+ * the very end of the gesture's timeline, which only a completed gesture reaches, and change
+ * there in one step. (An immediate step would show the screen below as soon as the finger moved.)
  */
-fun UsageMotion.barIn(offsetPx: Int): EnterTransition = fadeIn(enterAfterExit()) + slideInVertically(move()) { offsetPx }
-fun UsageMotion.barOut(offsetPx: Int): ExitTransition = fadeOut(exit()) + slideOutVertically(move()) { offsetPx }
-fun UsageMotion.railIn(): EnterTransition = fadeIn(enterAfterExit()) + expandHorizontally(move())
-fun UsageMotion.railOut(): ExitTransition = fadeOut(exit()) + shrinkHorizontally(move())
+fun UsageMotion.peekIn(offsetPx: Int): EnterTransition =
+    if (enabled) slideInHorizontally(move()) { offsetPx } else fadeIn(snap(delayMillis = GESTURE_END_STEP))
+fun UsageMotion.peelOut(offsetPx: Int): ExitTransition =
+    if (enabled) fadeOut(gestureFade()) + slideOutHorizontally(move()) { offsetPx } else fadeOut(snap(delayMillis = GESTURE_END_STEP))

@@ -28,6 +28,7 @@ class MotionVectorsTest {
         "enterAfterExit" to { it.enterAfterExit() },
         "moveAfterExit" to { it.moveAfterExit() },
         "enterAfterMove" to { it.enterAfterMove() },
+        "gestureFade" to { it.gestureFade() },
         "launchReveal" to { it.launchReveal() },
         "launchDissolve" to { it.launchDissolve() },
     )

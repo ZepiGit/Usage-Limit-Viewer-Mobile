@@ -7,6 +7,7 @@
     {"name": "enterAfterExit", "durationMs": 150, "delayMs": 90, "platforms": ["android", "ios"]},
     {"name": "moveAfterExit", "durationMs": 240, "delayMs": 90, "platforms": ["android", "ios"]},
     {"name": "enterAfterMove", "durationMs": 150, "delayMs": 180, "platforms": ["android", "ios"]},
+    {"name": "gestureFade", "durationMs": 240, "delayMs": 0, "platforms": ["android"]},
     {"name": "launchReveal", "durationMs": 320, "delayMs": 0, "platforms": ["android"]},
     {"name": "launchDissolve", "durationMs": 240, "delayMs": 0, "platforms": ["android"]}
   ]
