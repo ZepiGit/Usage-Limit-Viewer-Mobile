@@ -183,7 +183,7 @@ their side can break a card until the app catches up. Details:
 
 ## Build it yourself
 
-**Android** (Android SDK 36, JDK 21):
+**Android** (Android SDK Platform 37, JDK 21):
 
 ```bash
 ./gradlew :app:assembleDebug        # build the app
