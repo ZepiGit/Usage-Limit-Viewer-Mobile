@@ -37,6 +37,7 @@ extension Motion {
 
 // MARK: - Reduce Motion
 
+#if DEBUG
 private struct ReduceMotionOverrideKey: EnvironmentKey {
     static let defaultValue: Bool? = nil
 }
@@ -53,17 +54,18 @@ extension EnvironmentValues {
     }
 }
 
-/// Whether motion is reduced here: the system's setting, unless the environment overrides it.
-///
-/// The one reading of that question. Every modifier in this file and every `withAnimation`
-/// call site declares this, so nothing can follow the system setting and miss the override, or
-/// the other way round.
+#endif
+
+/// The system preference, with a Debug-only override for UI tests.
 @propertyWrapper
 struct ReducesMotion: DynamicProperty {
     @Environment(\.accessibilityReduceMotion) private var system
+    #if DEBUG
     @Environment(\.reduceMotionOverride) private var forced
-
     var wrappedValue: Bool { forced ?? system }
+    #else
+    var wrappedValue: Bool { system }
+    #endif
 }
 
 // MARK: - Modifiers
@@ -78,7 +80,9 @@ private struct MotionModifier<Value: Equatable>: ViewModifier {
     func body(content: Content) -> some View {
         let animation = armed ? motion.animation(reduceMotion: reduceMotion) : nil
         return content
+            #if DEBUG
             .loggingMotion(motion.rawValue, value: value, animated: animation != nil)
+            #endif
             // Nil is not "no opinion": for the update in which `value` changes it clears
             // whatever animation the surrounding transaction carries, so an unarmed change is a
             // cut even inside someone else's `withAnimation`.
@@ -94,7 +98,9 @@ private struct PressReleaseModifier: ViewModifier {
         // Nil on the way down: feedback for a touch must not lag behind the finger.
         let animation = isPressed ? nil : Motion.stateChange.animation(reduceMotion: reduceMotion)
         return content
+            #if DEBUG
             .loggingMotion("pressRelease", value: isPressed, animated: animation != nil)
+            #endif
             .animation(animation, value: isPressed)
     }
 }
@@ -109,7 +115,9 @@ private struct ListItemMotionModifier: ViewModifier {
 
     private var transition: AnyTransition {
         let fades = armed ? Motion.enterAfterMove.fadeThrough(reduceMotion: reduceMotion) : nil
+        #if DEBUG
         noteTransition("item", fades: fades != nil)
+        #endif
         // `.identity`, not an opacity transition without animations: a transition that carries
         // its own animation plays it whatever the surrounding transaction says, so when nothing
         // is to move there must be no transition at all.
@@ -151,7 +159,9 @@ private struct FigureUnitModifier<Key: Hashable>: ViewModifier {
 
     private var transition: AnyTransition {
         let fades = Motion.enterAfterExit.fadeThrough(reduceMotion: reduceMotion)
+        #if DEBUG
         noteTransition("figure", fades: fades != nil)
+        #endif
         guard let fades else { return AnyTransition.identity }
         return AnyTransition.asymmetric(
             insertion: AnyTransition.opacity.animation(fades.enter),
@@ -234,21 +244,17 @@ extension View {
         modifier(PressReleaseModifier(isPressed: isPressed))
     }
 
-    /// In a DEBUG build launched with `-motion-log`, notes each change of `value` and whether
-    /// the modifier attached an animation to it, as the modifier decided it with the real
-    /// environment. In every other build and launch it is this view, untouched.
+    #if DEBUG
+    /// Logs the real modifier's decision, not the animation applied or rendered by SwiftUI.
     @ViewBuilder
     fileprivate func loggingMotion<Value: Equatable>(_ name: String, value: Value, animated: Bool) -> some View {
-        #if DEBUG
         if MotionLog.isEnabled {
             modifier(MotionLogProbe(name: name, value: value, animated: animated))
         } else {
             self
         }
-        #else
-        self
-        #endif
     }
+    #endif
 }
 
 // MARK: - Waiting
@@ -302,22 +308,13 @@ struct ActivityMark: View {
 
 // MARK: - Motion log
 
-/// For the motion log of a DEBUG build: which transition a view resolved to, `fade` when it
-/// carries its animations and `identity` when the change is a cut. Nothing in a release build.
+#if DEBUG
 @MainActor
 private func noteTransition(_ name: String, fades: Bool) {
-    #if DEBUG
     if MotionLog.isEnabled { MotionLog.shared.noteTransition(name, fades: fades) }
-    #endif
 }
 
-#if DEBUG
-/// What the modifiers in this file did, for a UI test to read off the screen.
-///
-/// A test cannot see an animation, and asking the Kit whether a motion has a timing under Reduce
-/// Motion proves nothing about the views. So in a DEBUG build launched with `-motion-log` the
-/// real modifiers report what they attached to each change, with the environment the views
-/// really have, and the app prints this log as one text.
+/// Decisions of the real modifiers with their environment, not applied transactions or frames.
 @MainActor
 final class MotionLog: ObservableObject {
     static let shared = MotionLog()
@@ -389,7 +386,7 @@ private struct MotionLogProbe<Value: Equatable>: ViewModifier {
     }
 }
 
-/// A value and whether its modifier animates its changes, compared as one.
+/// A value and its modifier's animation decision, compared as one.
 private struct Change<Value: Equatable>: Equatable {
     let value: Value
     let animated: Bool

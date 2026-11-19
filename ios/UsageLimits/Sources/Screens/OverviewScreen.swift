@@ -334,11 +334,11 @@ private struct LeadStrip: View {
 /// Which account and which of its windows the lead strip shows; equal values for the empty strip.
 private struct LeadSubject: Hashable {
     let account: String?
-    let window: GlanceRow.Window?
+    let window: String?
 
     init(lead: GlanceAccount?, row: GlanceRow?) {
         account = lead?.id
-        window = row?.window
+        window = row?.sourceWindowID
     }
 }
 
@@ -426,11 +426,11 @@ private struct AccountCard: View {
             // Identified by the window a row shows, not by its position: when another window
             // takes a slot it is a new row, so its figure and bar do not animate from the values
             // of the window that was there.
-            ForEach(account.identifiedRows) { item in
+            ForEach(account.rows, id: \.sourceWindowID) { row in
                 WindowRow(
-                    row: item.row, now: now,
-                    severity: account.displaySeverity(of: item.row, at: now, staleAfter: store.settings.staleAfter),
-                    validity: account.readingValidity(of: item.row, at: now, staleAfter: store.settings.staleAfter),
+                    row: row, now: now,
+                    severity: account.displaySeverity(of: row, at: now, staleAfter: store.settings.staleAfter),
+                    validity: account.readingValidity(of: row, at: now, staleAfter: store.settings.staleAfter),
                     mode: store.settings.percentDisplay)
             }
         }
@@ -495,12 +495,12 @@ struct WindowRow: View {
                     }
                 }
                 .figureUnit(key: presentation.hasFigure ? [figureText, sideWord] : [figureText], anchor: .trailing)
-                .subject(row.window)
+                .subject(row.sourceWindowID)
             }
 
             if row.segments.isEmpty {
                 UsageBar(presentation: presentation)
-                    .subject(row.window)
+                    .subject(row.sourceWindowID)
                     .accessibilityLabel(String(localized: "\(rowLabel): \(PercentText.spoken(figureText, mode))"))
             } else {
                 GeometryReader { geometry in

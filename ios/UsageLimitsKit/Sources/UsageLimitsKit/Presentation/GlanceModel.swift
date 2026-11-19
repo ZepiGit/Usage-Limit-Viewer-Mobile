@@ -16,6 +16,8 @@ public enum GlanceScope: String, Sendable, Codable {
 
 /// One bar.
 public struct GlanceRow: Sendable, Equatable, Codable {
+    /// App-only identity; not encoded or compared as part of the exported reading.
+    public let sourceWindowID: String?
     public let label: String
     /// Carried so a summary line can be chosen by horizon rather than by position in `rows`.
     public let category: WindowCategory
@@ -34,8 +36,10 @@ public struct GlanceRow: Sendable, Equatable, Codable {
         resetAt: Date?,
         severity: Severity,
         scope: UsageScope = .global,
-        segments: [UsageSegment] = []
+        segments: [UsageSegment] = [],
+        sourceWindowID: String? = nil
     ) {
+        self.sourceWindowID = sourceWindowID
         self.label = label
         self.category = category
         self.remainingPercent = remainingPercent.flatMap {
@@ -45,6 +49,12 @@ public struct GlanceRow: Sendable, Equatable, Codable {
         self.severity = severity
         self.scope = scope
         self.segments = segments
+    }
+
+    public static func == (lhs: GlanceRow, rhs: GlanceRow) -> Bool {
+        lhs.label == rhs.label && lhs.category == rhs.category
+            && lhs.remainingPercent == rhs.remainingPercent && lhs.resetAt == rhs.resetAt
+            && lhs.severity == rhs.severity && lhs.scope == rhs.scope && lhs.segments == rhs.segments
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -666,6 +676,6 @@ public enum GlanceModel {
             remainingPercent: window.remainingPercent,
             resetAt: window.resetAt,
             severity: window.severity,
-            scope: window.scope, segments: window.segments)
+            scope: window.scope, segments: window.segments, sourceWindowID: window.id)
     }
 }

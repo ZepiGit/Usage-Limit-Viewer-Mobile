@@ -317,7 +317,6 @@ struct AddCreditSheet: View {
                 Button { submit(provider) } label: {
                     if isWorking {
                         ActivityMark(still: .progressIndicator)
-                            .accessibilityIdentifier("credit-busy-progress")
                     } else { Text("Add") }
                 }
                 .buttonStyle(InkButtonStyle())

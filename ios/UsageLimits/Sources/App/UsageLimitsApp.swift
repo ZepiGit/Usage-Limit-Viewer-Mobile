@@ -161,27 +161,19 @@ struct RootView: View {
 }
 
 #if DEBUG
-/// Observed separately so publishing a note never re-evaluates the screens being measured.
+/// Observed separately so publishing a note never re-evaluates the screens being logged.
 private struct MotionLogOverlay: View {
     @ObservedObject private var log = MotionLog.shared
 
     var body: some View {
-        VStack(spacing: 2) {
-            Text(verbatim: log.text)
-                .font(.caption2)
-                .lineLimit(1)
-                .accessibilityIdentifier("motion-log")
-            HStack(spacing: 8) {
-                ActivityMark(still: .dots)
-                    .accessibilityIdentifier("motion-log-busy-text")
-                ActivityMark(still: .progressIndicator)
-                    .accessibilityIdentifier("motion-log-busy-progress")
-            }
-        }
-        .padding(4)
-        .frame(maxWidth: .infinity)
-        .background(UsageColors.ground)
-        .allowsHitTesting(false)
+        Text(verbatim: log.text)
+            .font(.caption2)
+            .lineLimit(1)
+            .accessibilityIdentifier("motion-log")
+            .padding(4)
+            .frame(maxWidth: .infinity)
+            .background(UsageColors.ground)
+            .allowsHitTesting(false)
     }
 }
 #endif

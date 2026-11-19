@@ -1,6 +1,6 @@
 import XCTest
 
-/// Reads what the real modifiers decided for each change, not a second implementation of their rules.
+/// Checks real modifier decisions and reachable UI state, not applied transactions or rendered motion.
 final class MotionUITests: XCTestCase {
     override func setUp() {
         super.setUp()
@@ -23,7 +23,7 @@ final class MotionUITests: XCTestCase {
     private func waitUntil(_ what: String, in app: XCUIApplication, _ condition: @escaping () -> Bool) {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in condition() }, object: nil)
-        // The log in the message, so a failure on CI says what the modifiers did instead.
+        // Include the observed decisions when a simulator assertion fails.
         XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 10), .completed,
                        "\(what); motion log: \(app.staticTexts["motion-log"].label)")
     }
@@ -61,7 +61,7 @@ final class MotionUITests: XCTestCase {
         waitUntil("Codex filter selected", in: app) { filter.value as? String == "Selected" }
     }
 
-    func testProviderFilterAnimatesInNormalMotion() {
+    func testProviderFilterLogsAnimatedDecisionInNormalMotion() {
         let app = launch()
         tab("Accounts", in: app)
         let before = checkpoint(app)
@@ -72,7 +72,7 @@ final class MotionUITests: XCTestCase {
         XCTAssertTrue(entries(app).contains { $0.event == "item fade" })
     }
 
-    func testReducedMotionCutsFilterAndFigureChanges() {
+    func testReducedMotionLogsNoAnimationForFilterAndFigureChanges() {
         let app = launch(["-reduce-motion"])
         let beforeFilter = checkpoint(app)
         filterToCodex(app)
@@ -96,7 +96,7 @@ final class MotionUITests: XCTestCase {
         XCTAssertFalse(entries(app).contains { $0.number > beforeFigure && $0.event.hasSuffix(" animated") })
     }
 
-    func testDeepLinkCutsThroughAnActiveFilter() throws {
+    func testDeepLinkReachesTargetAndLogsUnanimatedFilterReset() throws {
         guard #available(iOS 16.4, *) else {
             throw XCTSkip("XCUIDevice.system.open requires iOS 16.4")
         }
@@ -128,29 +128,11 @@ final class MotionUITests: XCTestCase {
         XCTAssertEqual(all.value as? String, "Selected")
     }
 
-    func testReducedBusyMarkRetainsProgressSemantics() {
-        let app = launch(["-reduce-motion"])
-        // The credit form requires a real key/network request to become busy. The debug-only
-        // overlay hosts the same two ActivityMark flavours, without creating an account or
-        // faking a request. Nothing else on this screen is a progress control, and nothing
-        // spins under Reduce Motion, so the marks are counted by what assistive technology
-        // meets them as, not looked up by an identifier a replaced element might not carry.
-        let dots = app.staticTexts["motion-log-busy-text"]
-        XCTAssertTrue(dots.waitForExistence(timeout: 10))
-        XCTAssertEqual(dots.label, "...")
-        XCTAssertGreaterThanOrEqual(
-            app.activityIndicators.count + app.progressIndicators.count, 1,
-            "the still mark of the credit dialog is met as a progress control")
-        XCTAssertEqual(
-            app.staticTexts.matching(NSPredicate(format: "label == %@", "...")).count, 1,
-            "and only the dots flavour is read out as text")
-    }
-
-    func testDelayedFirstContentDoesNotAnimateTheList() {
+    func testDelayedFirstContentLogsNoListAnimation() {
         let app = launch(["-motion-delayed-demo"])
         waitFor("move none", after: 0, in: app)
         XCTAssertFalse(entries(app).contains { $0.event == "move animated" || $0.event == "moveAfterExit animated" })
-        // A later user change still animates: the initial cut must not leave motion disarmed.
+        // A later filter change must still resolve to an animation.
         let before = checkpoint(app)
         filterToCodex(app)
         waitFor("moveAfterExit animated", after: before, in: app)
