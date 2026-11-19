@@ -26,6 +26,7 @@ open class UIWindowScene: UIScene {
 }
 
 public final class UIApplication {
+    public static let significantTimeChangeNotification = Notification.Name("UIApplicationSignificantTimeChangeNotification")
     public static let shared = UIApplication()
     public var connectedScenes: Set<UIScene> { [] }
     public var supportsAlternateIcons: Bool { true }

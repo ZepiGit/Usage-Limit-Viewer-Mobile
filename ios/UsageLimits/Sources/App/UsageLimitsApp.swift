@@ -1,4 +1,6 @@
+import Combine
 import SwiftUI
+import UIKit
 import UsageLimitsKit
 
 @main
@@ -36,44 +38,56 @@ struct UsageLimitsApp: App {
     /// Which tab is showing. Lifted out of `TabView`'s own state so a widget tap can select
     /// one: a deep link that opened the app on whatever tab was last used would make the
     /// tile's destination a coin toss.
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tab: RootView.Tab = .overview
+    @State private var router = OverviewRouter()
+    @State private var detail: DetailRoute?
+
+    private struct DetailRoute: Identifiable {
+        let id: String
+        let unavailable: Bool
+    }
 
     var body: some Scene {
         WindowGroup {
-            RootView(tab: $tab)
+            RootView(tab: $tab, openAccount: openAccount)
+                .fullScreenCover(item: $detail) { route in
+                    NavigationStack {
+                        AccountDetailScreen(accountID: route.id, unavailable: route.unavailable)
+                            .navigationTitle("Account details")
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Close") { detail = nil }
+                                        .accessibilityIdentifier("overview-close-detail")
+                                }
+                            }
+                    }
+                    .environmentObject(store)
+                    .environment(\.providerIconChoices, store.settings.providerIcons)
+                    .modifier(StoreErrorAlert(store: store))
+                }
                 .environmentObject(store)
                 .environment(\.providerIconChoices, store.settings.providerIcons)
-                // Six failure paths in the store wrote `lastError` and NOTHING read it. A spend
-                // the provider refused dismissed its dialog, left the credit count unchanged and
-                // said nothing — indistinguishable from a button that did nothing at all. A
-                // failed disconnect left the row in place with no explanation, and a build with
-                // no App Group entitlement showed a permanently empty account list while the
-                // sentence explaining why sat in a property no view had ever read.
-                //
-                // One alert at the root rather than one per screen: these are failures of the
-                // whole run, they are raised from tabs the user may have left by the time the
-                // call returns, and a per-screen alert would miss exactly those.
-                .alert(
-                    "Something went wrong",
-                    isPresented: Binding(
-                        get: { store.lastError != nil },
-                        set: { if !$0 { store.clearError() } })
-                ) {
-                    Button("OK", role: .cancel) { store.clearError() }
-                } message: {
-                    // `lastError` is often a kit error read from English text; a sentence the kit
-                    // wrote is shown in the current language, anything else as it came.
-                    Text(verbatim: DisplayText.stored(store.lastError ?? ""))
-                }
-                // Widget links require the usagelimits scheme in CFBundleURLTypes for system routing.
+                .modifier(StoreErrorAlert(store: store, enabled: detail == nil))
                 .onOpenURL { url in
-                    Task { await handle(url) }
+                    apply(router.open(url, loadedAccountIDs: loadedAccountIDs))
                 }
-                // A tapped alert names one account, so it lands on the screen where that
-                // account's card, its error and its actions are.
+                .onChange(of: store.hasLoaded) { loaded in
+                    if loaded { apply(router.accountsLoaded(store.accounts.map(\.account.id))) }
+                }
+                .onChange(of: scenePhase) { phase in
+                    if phase == .active { store.updatePresentationClock() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+                    store.updatePresentationClock()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+                    store.updatePresentationClock()
+                }
                 .task {
                     guard !store.isMarketingDemo else { return }
-                    NotificationRouter.shared.onAccountTapped = { _ in tab = .accounts }
+                    NotificationRouter.shared.onAccountTapped = openAccount
                 }
                 .preferredColorScheme(.dark)
                 // Cached first, then the network. A cold launch that waited for the slowest
@@ -97,51 +111,58 @@ struct UsageLimitsApp: App {
         }
     }
 
-    /// Answers one widget link.
-    ///
-    /// Both destinations land on the overview, which is the screen the tiles summarise; the
-    /// refresh link additionally fetches. The fetch happens HERE rather than in the extension
-    /// because the app process is the only one that can read the keychain — which is the
-    /// arrangement that keeps tokens out of widget state, not an accident of layering.
-    ///
-    /// An unrecognised URL is ignored rather than treated as a refresh: a link this build does
-    /// not know is a link from a future one, and guessing at its meaning is how a tap starts
-    /// doing something the user did not ask for.
-    private func handle(_ url: URL) async {
-        guard url.scheme == "usagelimits" else { return }
-        switch url.host {
-        case "refresh":
-            tab = .overview
-            await store.refresh()
-        case "glance":
-            tab = .overview
-        case "account":
-            store.focusedAccountID = url.lastPathComponent
-            tab = .accounts
-        default:
-            break
+    private var loadedAccountIDs: [String]? {
+        store.hasLoaded ? store.accounts.map(\.account.id) : nil
+    }
+
+    private func openAccount(_ id: String) {
+        apply(router.notification(accountID: id, loadedAccountIDs: loadedAccountIDs))
+    }
+
+    private func apply(_ destination: OverviewDestination?) {
+        guard let destination else { return }
+        tab = .overview
+        switch destination {
+        case .overview:
+            detail = nil
+        case .refreshOverview:
+            detail = nil
+            Task { await store.refresh() }
+        case .account(let id):
+            detail = DetailRoute(id: id, unavailable: false)
+        case .unavailable(let id):
+            detail = DetailRoute(id: id, unavailable: true)
         }
     }
 }
 
-/// The four destinations from the reference design.
-///
-/// A `TabView` rather than a custom bar: iOS already adapts the tab bar for larger widths, for
-/// Dynamic Type and for VoiceOver, and a hand-rolled bar would have to re-earn all three.
-struct RootView: View {
+private struct StoreErrorAlert: ViewModifier {
+    @ObservedObject var store: UsageStore
+    var enabled = true
 
-    enum Tab: Hashable { case overview, accounts, resets, settings }
+    func body(content: Content) -> some View {
+        content.alert("Something went wrong", isPresented: Binding(
+            get: { enabled && store.lastError != nil },
+            set: { if enabled && !$0 { store.clearError() } }
+        )) {
+            Button("OK", role: .cancel) { store.clearError() }
+        } message: {
+            Text(verbatim: DisplayText.stored(store.lastError ?? ""))
+        }
+    }
+}
+
+struct RootView: View {
+    enum Tab: Hashable { case overview, resets, settings }
 
     @Binding var tab: Tab
+    let openAccount: (String) -> Void
 
     var body: some View {
         TabView(selection: $tab) {
-            OverviewScreen()
+            OverviewScreen(isSelected: tab == .overview, openAccount: openAccount)
                 .tabItem { Label("Overview", systemImage: "gauge.with.dots.needle.33percent") }
                 .tag(Tab.overview)
-            AccountsScreen()
-                .tabItem { Label("Accounts", systemImage: "person.2") }
-                .tag(Tab.accounts)
             ResetsScreen()
                 .tabItem { Label("Resets", systemImage: "clock.arrow.circlepath") }
                 .tag(Tab.resets)

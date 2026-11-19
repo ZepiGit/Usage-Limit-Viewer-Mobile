@@ -1,6 +1,39 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "% left" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "% übrig"
+          }
+        }
+      }
+    },
+    "% used" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "% verbraucht"
+          }
+        }
+      }
+    },
+    "%@ need attention" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Konten benötigen Aufmerksamkeit"
+          }
+        }
+      }
+    },
     "%@ needs to be reconnected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -177,6 +210,17 @@
         }
       }
     },
+    "%@ · next reset %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · nächster Reset %2$@"
+          }
+        }
+      }
+    },
     "%@%%" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -206,28 +250,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@, %2$@, Reset um %3$@, in %4$@, %5$@"
-          }
-        }
-      }
-    },
-    "%@, %@: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@, %2$@: %3$@"
-          }
-        }
-      }
-    },
-    "%@, %@: remaining unknown" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@, %2$@: Restwert unbekannt"
           }
         }
       }
@@ -488,17 +510,6 @@
         }
       }
     },
-    "%lld/%lld connected" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld/%lld verbunden"
-          }
-        }
-      }
-    },
     "%lldd" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -554,17 +565,6 @@
         }
       }
     },
-    "+ Add account" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "+ Konto hinzufügen"
-          }
-        }
-      }
-    },
     "+%lld more" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -572,6 +572,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "+%lld weitere"
+          }
+        }
+      }
+    },
+    "1 needs attention" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 Konto benötigt Aufmerksamkeit"
           }
         }
       }
@@ -605,6 +616,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Für dieses Konto wird bereits ein Reset angefordert."
+          }
+        }
+      }
+    },
+    "Account details" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kontodetails"
+          }
+        }
+      }
+    },
+    "Add an AI subscription to see its limits and resets here. Sign-in details stay on this device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Füge ein KI-Abo hinzu, um hier seine Nutzungslimits und Resets zu sehen. Deine Anmeldedaten bleiben auf diesem Gerät."
+          }
+        }
+      }
+    },
+    "All accounts have room" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Konten haben noch Spielraum"
           }
         }
       }
@@ -686,17 +730,6 @@
         }
       }
     },
-    "Accounts" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Konten"
-          }
-        }
-      }
-    },
     "Accounts · drag to reorder" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -726,17 +759,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Guthaben hinzufügen"
-          }
-        }
-      }
-    },
-    "Add a subscription to see how much usage is left and when it resets." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Füge ein Abo hinzu, um zu sehen, wie viel Nutzung übrig ist und wann sie zurückgesetzt wird."
           }
         }
       }
@@ -980,6 +1002,17 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Close" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schließen"
+          }
+        }
+      }
+    },
     "Closest Resets" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1020,17 +1053,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Verbinden"
-          }
-        }
-      }
-    },
-    "Connected accounts" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verbundene Konten"
           }
         }
       }
@@ -1372,6 +1394,17 @@
     "Grok" : {
       "extractionState" : "manual",
       "shouldTranslate" : false
+    },
+    "Headline: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maßgebliches Zeitfenster: %@"
+          }
+        }
+      }
     },
     "Healthy" : {
       "extractionState" : "manual",
@@ -1733,17 +1766,6 @@
         }
       }
     },
-    "Never updated" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nie aktualisiert"
-          }
-        }
-      }
-    },
     "New custom layout" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1751,6 +1773,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Neues eigenes Layout"
+          }
+        }
+      }
+    },
+    "Next reset %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächster Reset %@"
+          }
+        }
+      }
+    },
+    "No accounts match this filter." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Konten entsprechen diesem Filter."
           }
         }
       }
@@ -1843,13 +1887,13 @@
         }
       }
     },
-    "No limit to report" : {
+    "No prepaid balances tracked." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kein Limit zu melden"
+            "value" : "Keine Prepaid-Guthaben erfasst."
           }
         }
       }
@@ -1916,6 +1960,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nichts geplant"
+          }
+        }
+      }
+    },
+    "Nothing to monitor yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nichts zu verfolgen"
           }
         }
       }
@@ -2133,17 +2188,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OpenRouter, DeepSeek, Moonshot, xAI, fal.ai und Novita. Schlüssel bleiben im Schlüsselbund dieses Geräts."
-          }
-        }
-      }
-    },
-    "Opens the provider's normal sign-in page in your browser." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Öffnet die normale Anmeldeseite des Anbieters in deinem Browser."
           }
         }
       }
@@ -2444,6 +2488,17 @@
         }
       }
     },
+    "Reset due" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset fällig"
+          }
+        }
+      }
+    },
     "Reset limit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2506,6 +2561,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reset in %@"
+          }
+        }
+      }
+    },
+    "Resets today" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resets heute"
           }
         }
       }
@@ -2648,17 +2714,6 @@
         }
       }
     },
-    "Show renewal time" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Erneuerungszeit anzeigen"
-          }
-        }
-      }
-    },
     "Show subscription tier" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2705,6 +2760,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anmeldung abgelaufen"
+          }
+        }
+      }
+    },
+    "Sign-in expired · showing last known data" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anmeldung abgelaufen · letzte bekannte Daten"
           }
         }
       }
@@ -2819,6 +2885,17 @@
         }
       }
     },
+    "The brighter line is the account’s headline." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die hellere Zeile zeigt das maßgebliche Zeitfenster des Kontos."
+          }
+        }
+      }
+    },
     "The browser opens %@'s own sign-in page. This app never sees your password." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2896,17 +2973,6 @@
         }
       }
     },
-    "The renewal line names when the longest allowance comes back. It is shown on the overview only — a widget has room for the number you are about to run out of, not a second date competing with it." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Erneuerungszeile nennt, wann das längste Kontingent zurückkommt. Sie erscheint nur in der Übersicht – ein Widget hat Platz für die Zahl, bei der es gleich knapp wird, nicht für ein zweites Datum, das damit konkurriert."
-          }
-        }
-      }
-    },
     "The same tile with a transparent background." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2969,6 +3035,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dieses Konto kann keine Reset-Credits verwenden."
+          }
+        }
+      }
+    },
+    "This account is no longer on this device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Konto ist nicht mehr auf diesem Gerät."
           }
         }
       }
@@ -3046,6 +3123,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Morgen"
+          }
+        }
+      }
+    },
+    "Track a prepaid credit balance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prepaid-Guthaben erfassen"
           }
         }
       }
@@ -3277,28 +3365,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Credit verwenden"
-          }
-        }
-      }
-    },
-    "Use the actions rotor to show percentage left" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Über den Aktionen-Rotor Prozent übrig anzeigen"
-          }
-        }
-      }
-    },
-    "Use the actions rotor to show percentage used" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Über den Aktionen-Rotor Prozent verbraucht anzeigen"
           }
         }
       }

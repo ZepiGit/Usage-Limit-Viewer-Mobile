@@ -189,7 +189,7 @@ extension Color {
 enum UsageFont {
     case title, lead, widgetLead, money, widgetMoney, rowMoney
     case section, body, bodyStrong, figure, figureLarge, ringFigure
-    case small, smallStrong, micro
+    case small, smallStrong, micro, compactFigure, accountTitle, emptyTitle
 
     fileprivate var spec: (size: CGFloat, weight: Font.Weight, design: Font.Design, style: Font.TextStyle) {
         switch self {
@@ -205,6 +205,9 @@ enum UsageFont {
         case .figure: return (14, .medium, .monospaced, .subheadline)
         case .figureLarge: return (16, .medium, .monospaced, .headline)
         case .ringFigure: return (16, .semibold, .monospaced, .headline)
+        case .compactFigure: return (13, .medium, .monospaced, .subheadline)
+        case .accountTitle: return (15, .medium, .default, .headline)
+        case .emptyTitle: return (20, .medium, .default, .title3)
         case .small: return (12, .regular, .default, .caption)
         case .smallStrong: return (12, .medium, .default, .caption)
         case .micro: return (11, .medium, .default, .caption2)
@@ -544,10 +547,12 @@ struct UsageBar: View {
     /// cannot disagree with the figure beside it.
     let presentation: WindowPresentation
     var height: CGFloat = 6
+    private let emphasis: Double
 
-    init(presentation: WindowPresentation, height: CGFloat = 6) {
+    init(presentation: WindowPresentation, height: CGFloat = 6, emphasis: Double = 1) {
         self.presentation = presentation
         self.height = height
+        self.emphasis = emphasis
     }
 
     /// The LEFT-only bar for a skeleton and for money, which are out of scope for the percentage
@@ -568,7 +573,7 @@ struct UsageBar: View {
                 // (an exhausted window on a mode flip, a failed reading that recovers) grows from
                 // or shrinks to its figure instead of being inserted or removed whole.
                 RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                    .fill(SeverityPalette.fill(presentation.fillState) ?? Color.clear)
+                    .fill((SeverityPalette.fill(presentation.fillState) ?? Color.clear).opacity(emphasis))
                     // An unknown percentage draws nothing rather than a full or empty bar:
                     // either would state a fact the provider did not report.
                     .frame(width: geometry.size.width * fraction)
@@ -589,11 +594,12 @@ struct UsageBar: View {
 struct ProviderBadge: View {
     @Environment(\.providerIconChoices) private var choices
     let provider: ProviderID
+    var size: CGFloat = 32
 
     var body: some View {
         ProviderMark(assetName: ProviderIconCatalog.selected(for: provider, id: choices[provider.rawValue]).assetName)
-            .padding(4)
-            .frame(width: 32, height: 32)
+            .padding(size == 32 ? 4 : 0)
+            .frame(width: size, height: size)
             .accessibilityLabel(provider.displayName)
     }
 

@@ -211,6 +211,11 @@ public struct ZStack: View {
     public var body: some View { ShimLeaf() }
 }
 
+public struct ViewThatFits: View {
+    public init(in axes: Axis.Set, @ViewBuilder content: () -> any View) {}
+    public var body: some View { ShimLeaf() }
+}
+
 public struct LazyVStack: View {
     public init(alignment: HorizontalAlignment? = nil, spacing: CGFloat? = nil,
                 @ViewBuilder content: () -> any View) {}

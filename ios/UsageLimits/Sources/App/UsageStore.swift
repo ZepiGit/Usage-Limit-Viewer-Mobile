@@ -11,10 +11,11 @@ import UsageLimitsKit
 @MainActor
 final class UsageStore: ObservableObject {
 
-    @Published private(set) var accounts: [AccountUsage] = []
+    @Published private(set) var accounts: [AccountUsage] = [] {
+        didSet { if !isMarketingDemo { updatePresentationClock() } }
+    }
     /// Prepaid balances, kept apart from the usage accounts: no windows, no resets.
     @Published private(set) var credits: [CreditEntry] = []
-    @Published var focusedAccountID: String?
     private var settingsWrite: Task<Void, Never>?
 
     /// Writable, because the settings screen binds straight to it.
@@ -24,6 +25,7 @@ final class UsageStore: ObservableObject {
     /// through the binding chain too, since mutating a nested struct rewrites the whole value.
     @Published var settings = AppSettings() {
         didSet {
+            if settings.staleAfter != oldValue.staleAfter { updatePresentationClock() }
             guard settings != oldValue, !isLoadingSettings else { return }
             let previous = settingsWrite
             // Queued saves also adopt pins removed while they were waiting.
@@ -54,9 +56,13 @@ final class UsageStore: ObservableObject {
     @Published private(set) var hasLoaded = false
     @Published private(set) var lastError: String?
 
-    /// Ticks so countdowns move without every view owning a timer.
     @Published private(set) var now = Date()
-
+    private(set) var timeZone = TimeZone.current
+    var presentationCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
+    }
     private var clock: Task<Void, Never>?
 
     /// Built lazily and kept, because it owns the credential store and the account cache: a
@@ -70,6 +76,7 @@ final class UsageStore: ObservableObject {
         #if DEBUG
         if MarketingDemo.isEnabled {
             now = MarketingDemo.now
+            timeZone = TimeZone(secondsFromGMT: 0)!
             if !MarketingDemo.delaysLoad {
                 accounts = MarketingDemo.accounts
                 hasLoaded = true
@@ -78,23 +85,36 @@ final class UsageStore: ObservableObject {
         }
         #endif
 
-        // A countdown that only moves when the data refreshes is worse than no countdown: it
-        // reads as a live number while being up to half an hour stale.
-        clock = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30 * NSEC_PER_SEC)
-                await MainActor.run { self?.now = Date() }
-            }
-        }
+        updatePresentationClock()
     }
 
     deinit { clock?.cancel() }
 
-    /// What the Overview screen leads with.
-    ///
-    /// The staleness threshold follows the user's chosen sync interval rather than a constant:
-    /// at the three-hour setting the settings screen offers, a fixed hour would mark accounts
-    /// stale before the next refresh arrives.
+    func updatePresentationClock() {
+        guard !isMarketingDemo else { return }
+        clock?.cancel()
+        timeZone = .current
+        let date = Date()
+        now = date
+        let boundary = glance.nextOverviewUpdate(after: date, in: timeZone)
+        // Countdown text still ticks between presentation boundaries.
+        let delay = min(30, max(0, boundary.timeIntervalSinceNow))
+        clock = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) }
+            catch { return }
+            self?.updatePresentationClock()
+        }
+    }
+
+    #if DEBUG
+    func finishDemoLoad() {
+        guard MarketingDemo.isEnabled, !hasLoaded else { return }
+        accounts = MarketingDemo.accounts
+        hasLoaded = true
+    }
+    #endif
+
+    /// The in-memory snapshot in register order. Overview projects its rank separately.
     var glance: GlanceSnapshot {
         GlanceModel.build(
             accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons,
@@ -118,38 +138,6 @@ final class UsageStore: ObservableObject {
             updated.notifications.mutedAccountIDs.insert(accountID)
         }
         settings = updated
-    }
-
-    /// The plan tier for one account, as a label, or nil when the provider never stated one.
-    ///
-    /// Named `tierLabel` rather than `planLabel` so the call to the kit's free `planLabel(_:)`
-    /// inside it cannot be misread as recursion.
-    func tierLabel(accountID: String) -> String? {
-        accounts.first { $0.account.id == accountID }.flatMap { usage in
-            guard let tier = planLabel(usage.account.plan), tier.caseInsensitiveCompare(usage.account.provider.displayName) != .orderedSame else { return nil }
-            return tier
-        }
-    }
-
-    /// When this account's LONGEST allowance comes back, when that is not simply the next reset.
-    ///
-    /// Suppressed when it coincides with the soonest reset, which the card already shows: two
-    /// lines stating the same instant in different words is noise, and the one the user acts on
-    /// is the sooner one. Same rule as Android.
-    func renewalLabel(accountID: String, now: Date) -> String? {
-        guard let usage = accounts.first(where: { $0.account.id == accountID }) else { return nil }
-        let windows = usage.snapshot?.windows ?? []
-        guard windows.count >= 2 else { return nil }
-        // A provider that does not state a window's duration sorts BELOW every window that
-        // does, rather than being taken for the longest.
-        guard let longest = windows.max(by: { ($0.periodSeconds ?? -1) < ($1.periodSeconds ?? -1) })
-        else { return nil }
-        guard let renewsAt = longest.resetAt, renewsAt > now else { return nil }
-        let soonest = windows.compactMap(\.resetAt).filter { $0 > now }.min()
-        guard renewsAt != soonest else { return nil }
-        return Countdown.renewsLine(
-            label: DisplayText.windowLabel(longest.label, category: longest.category, scope: longest.scope),
-            until: renewsAt, from: now, texts: LocalizedCountdownTexts())
     }
 
     /// Every window that has a reset time, soonest first — the Resets screen.
@@ -179,16 +167,7 @@ final class UsageStore: ObservableObject {
     /// render while the real answer is on its way.
     func load() async {
         #if DEBUG
-        if MarketingDemo.isEnabled {
-            if !hasLoaded {
-                // Only this opt-in fixture waits: it drives the same empty-to-loaded update
-                // as a cache read, after the screens have drawn their first skeletons.
-                try? await Task.sleep(nanoseconds: NSEC_PER_SEC)
-                accounts = MarketingDemo.accounts
-                hasLoaded = true
-            }
-            return
-        }
+        if MarketingDemo.isEnabled { return }
         #endif
         defer { hasLoaded = true }
         guard let container else {

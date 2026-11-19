@@ -1,380 +1,337 @@
 import SwiftUI
 import UsageLimitsKit
 
-/// The screen the app opens on: what is left, and when it comes back.
-///
-/// Everything shown here is decided in `UsageLimitsKit` — which accounts lead, which two
-/// windows each shows, what counts as stale. This file only lays them out, which is what keeps
-/// the two platforms saying the same thing about the same account.
 struct OverviewScreen: View {
-
-    @ReducesMotion private var reduceMotion
     @EnvironmentObject private var store: UsageStore
-
-    /// Whether a change of the rows is one to animate: not before the first content is on
-    /// screen, which replaces the skeleton in one cut.
+    @ReducesMotion private var reduceMotion
+    @State private var filter = OverviewFilter.all
     @State private var listMotionArmed = false
+    @State private var isAdding = false
+    @State private var isAddingCredit = false
+
+    let isSelected: Bool
+    let openAccount: (String) -> Void
 
     var body: some View {
         let glance = store.glance
-        // Built once per evaluation: the rows and the motion's value are the same list.
-        let ordered = glance.overviewOrderedAccounts(at: store.now)
+        let projection = glance.overview(filter: filter, at: store.now, in: store.timeZone)
         return NavigationStack {
-            List {
-                Section {
-                    ScreenHeader(title: "Usage Limits", stamp: stamp(glance))
-                        .plainRow()
-
-                    // Until the cache has been read the lists are empty because nothing has
-                    // asked yet, not because there are no accounts: drawing the empty state
-                    // here is a false "No accounts yet" on every cold start.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    header(projection.header, attentionCount: projection.attentionCount)
                     if !store.hasLoaded {
-                        LoadingOverview().plainRow()
-                    } else if !store.accounts.isEmpty {
-                        LeadStrip(
-                            snapshot: glance, now: store.now, mode: store.settings.percentDisplay,
-                            toggleMode: toggleMode)
-                            .plainRow()
+                        loading
+                    } else if glance.accounts.isEmpty {
+                        empty
+                    } else {
+                        filters(attentionCount: projection.attentionCount)
+                        accountList(projection.accounts, staleAfter: glance.staleAfter)
+                        Text("The brighter line is the account’s headline.")
+                            .usageFont(.small)
+                            .foregroundStyle(UsageColors.faint)
+                        addAccount.buttonStyle(OutlineButtonStyle(fullWidth: true))
                     }
+                    if store.hasLoaded { credits }
                 }
-
-                if store.hasLoaded {
-                    Section {
-                        if store.accounts.isEmpty {
-                            EmptyStateCard().plainRow()
-                        } else {
-                            ForEach(ordered) { account in
-                                AccountCard(
-                                    account: account,
-                                    provider: store.accounts.first { $0.account.id == account.id }?.account.provider,
-                                    now: store.now,
-                                    tier: store.settings.showSubscriptionTier
-                                        ? store.tierLabel(accountID: account.id) : nil,
-                                    renewal: store.settings.showRenewalTime
-                                        ? store.renewalLabel(accountID: account.id, now: store.now)
-                                        : nil)
-                                    .plainRow()
-                            }
-                        }
-                    }
-
-                    Section {
-                        SectionTitle(text: String(localized: "Credits"))
-                            .padding(.top, 28)
-                            .plainRow()
-                        ForEach(store.credits) { entry in
-                            CreditCard(entry: entry, now: store.now, staleAfter: store.settings.staleAfter)
-                                .plainRow()
-                        }
-                        // Both arms are looked up here: a ternary of two literals would be taken for a
-                        // plain String and shown as written.
-                        NavigationLink(
-                            store.credits.isEmpty
-                                ? String(localized: "Add a credit balance")
-                                : String(localized: "Manage credits")
-                        ) {
-                            CreditsScreen()
-                        }
-                        .usageFont(.bodyStrong)
-                        .foregroundStyle(UsageColors.ink)
-                        .frame(minHeight: 44)
-                        .plainRow()
-                    }
-                }
+                .listMotion(value: projection.accounts.map(\.id), armed: listMotionArmed && isSelected)
+                .padding(16)
+                .readableWidth()
             }
-            // Both lists in one value, so a credit row that arrives or leaves moves its
-            // neighbours the way an account row does.
-            .listMotion(.move, value: [ordered.map(\.id), store.credits.map(\.id)], armed: listMotionArmed)
-            .armingListMotion($listMotionArmed, loaded: store.hasLoaded)
-            .readableWidth()
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
+            .accessibilityIdentifier("overview-scroll")
             .background(UsageColors.ground)
             .navigationTitle("Overview")
             .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
             .refreshable { await store.refresh() }
+            .sheet(isPresented: $isAdding) { AddAccountSheet() }
+            .sheet(isPresented: $isAddingCredit) { AddCreditSheet() }
+            .armingListMotion($listMotionArmed, loaded: store.hasLoaded)
+            .onChange(of: isSelected) { selected in
+                if !selected { filter = .all }
+            }
         }
     }
 
-    /// Flips the global percentage mode, through the same property the Settings picker writes, so
-    /// persistence, the widget snapshot and the timeline reload follow without a second path.
-    ///
-    /// Inside an animation, so whatever else depends on the mode changes with it. The figures and
-    /// the bars bring their own motion: each figure fades through together with its side word
-    /// (`figureUnit`) while its bar moves. Under Reduce Motion the animation is nil and the flip
-    /// is applied at once.
+    private func header(_ header: OverviewHeader, attentionCount: Int) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { title; Spacer(minLength: 0); headerActions }
+                VStack(alignment: .leading, spacing: 4) { title; headerActions }
+            }
+            if !store.hasLoaded {
+                Text("Loading usage").usageFont(.small).foregroundStyle(UsageColors.faint)
+            } else if store.accounts.isEmpty {
+                Text("No accounts yet").usageFont(.small).foregroundStyle(UsageColors.faint)
+            } else if let subtitle = headerSubtitle(header, attentionCount: attentionCount) {
+                Text(verbatim: subtitle).usageFont(.small).foregroundStyle(UsageColors.faint)
+            }
+        }
+    }
+
+    private var title: some View {
+        Text("Usage Limits").usageFont(.title).foregroundStyle(UsageColors.ink)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private var headerActions: some View {
+        HStack(spacing: 8) {
+            if store.hasLoaded && !store.accounts.isEmpty {
+                let mode = store.settings.percentDisplay
+                Button(action: toggleMode) {
+                    Text(mode == .left ? String(localized: "% left") : String(localized: "% used"))
+                        .usageFont(.smallStrong)
+                        .foregroundStyle(UsageColors.muted)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 32)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(UsageColors.control, lineWidth: 1))
+                        .padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(mode == .left ? String(localized: "Show percentage used") : String(localized: "Show percentage left"))
+                .accessibilityValue(mode == .left ? String(localized: "Left") : String(localized: "Used"))
+                .accessibilityIdentifier("overview-display-mode")
+            }
+            Button { Task { await store.refresh() } } label: {
+                Group {
+                    if store.isRefreshing { ActivityMark(still: .progressIndicator) }
+                    else { Image(systemName: "arrow.clockwise") }
+                }
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(UsageColors.ink)
+            .accessibilityLabel(store.isRefreshing ? String(localized: "Refreshing…") : String(localized: "Refresh"))
+            .disabled(store.isRefreshing)
+        }
+    }
+
+    private func headerSubtitle(_ header: OverviewHeader, attentionCount: Int) -> String? {
+        let phrase: String? = switch header.kind {
+        case .attention: attentionCount == 1 ? String(localized: "1 needs attention")
+            : String(localized: "\(attentionCount.formatted()) need attention")
+        case .room: String(localized: "All accounts have room")
+        case .resetOnly, .none: nil
+        }
+        if let reset = header.resetAt {
+            let stamp = Countdown.absolute(reset, now: store.now, calendar: store.presentationCalendar)
+            if let phrase { return String(localized: "\(phrase) · next reset \(stamp)") }
+            return String(localized: "Next reset \(stamp)")
+        }
+        return phrase
+    }
+
+    private func filters(attentionCount: Int) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { filterButtons(attentionCount: attentionCount) }
+                .fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 0) { filterButtons(attentionCount: attentionCount) }
+        }
+    }
+
+    private func filterButtons(attentionCount: Int) -> some View {
+        ForEach(OverviewFilter.allCases, id: \.self) { option in
+            let selected = filter == option
+            Button { filter = option } label: {
+                HStack(spacing: 5) {
+                    Text(filterLabel(option))
+                    if option == .needsAttention && attentionCount > 0 {
+                        Text(attentionCount.formatted()).monospacedDigit()
+                    }
+                }
+                .usageFont(selected ? .bodyStrong : .body)
+                .foregroundStyle(selected ? UsageColors.ink : UsageColors.muted)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 32)
+                .background(selected ? UsageColors.raised : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? UsageColors.muted : UsageColors.rule, lineWidth: 1))
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(DisplayText.selection(selected))
+            .accessibilityIdentifier("overview-filter-\(option.rawValue)")
+        }
+        .motion(.stateChange, value: filter)
+    }
+
+    private func filterLabel(_ option: OverviewFilter) -> String {
+        switch option {
+        case .all: return String(localized: "All")
+        case .needsAttention: return String(localized: "Needs attention")
+        case .resetsToday: return String(localized: "Resets today")
+        }
+    }
+
+    private func accountList(_ rows: [OverviewProjection.Entry], staleAfter: TimeInterval) -> some View {
+        UsageCard(padding: 0, spacing: 0) {
+            if rows.isEmpty {
+                Text("No accounts match this filter.")
+                    .usageFont(.body)
+                    .foregroundStyle(UsageColors.muted)
+                    .frame(minHeight: 56, alignment: .leading)
+                    .padding(.horizontal, 16)
+            }
+            ForEach(rows) { row in
+                if row.id != rows.first?.id { LedgerDivider() }
+                OverviewAccountRow(entry: row, staleAfter: staleAfter) { openAccount(row.id) }
+                    .listItemMotion(armed: listMotionArmed && isSelected)
+            }
+        }
+    }
+
+    private var loading: some View {
+        VStack(spacing: 8) {
+            AccountSkeletonCard()
+            AccountSkeletonCard()
+            #if DEBUG
+            if store.isMarketingDemo {
+                Button { store.finishDemoLoad() } label: { Text(verbatim: "Load demo accounts") }
+                    .accessibilityIdentifier("overview-release-demo-load")
+            }
+            #endif
+        }
+    }
+
+    private var empty: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image("OverviewBrandMark")
+                .resizable().scaledToFit().frame(width: 192, height: 192)
+                .frame(maxWidth: .infinity, minHeight: 128, maxHeight: 128)
+                .accessibilityHidden(true)
+            Text("Nothing to monitor yet").usageFont(.emptyTitle).foregroundStyle(UsageColors.ink)
+            Text("Add an AI subscription to see its limits and resets here. Sign-in details stay on this device.")
+                .usageFont(.body).foregroundStyle(UsageColors.muted)
+            addAccount.buttonStyle(InkButtonStyle(fullWidth: true))
+            Button { isAddingCredit = true } label: {
+                Label("Track a prepaid credit balance", systemImage: "plus")
+            }
+            .buttonStyle(OutlineButtonStyle(fullWidth: true))
+            .accessibilityIdentifier("overview-add-credit")
+        }
+    }
+
+    private var addAccount: some View {
+        Button { isAdding = true } label: { Label("Add account", systemImage: "plus") }
+            .accessibilityIdentifier("overview-add-account")
+    }
+
+    private var credits: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                SectionTitle(text: String(localized: "Credits"))
+                Spacer()
+                Button { isAddingCredit = true } label: { Label("Add", systemImage: "plus") }
+                    .buttonStyle(TextActionStyle())
+            }
+            if store.credits.isEmpty {
+                DashedBox {
+                    Text("No prepaid balances tracked.").usageFont(.body).foregroundStyle(UsageColors.muted)
+                }
+            } else {
+                ForEach(store.credits) { entry in
+                    CreditCard(entry: entry, now: store.now, staleAfter: store.settings.staleAfter)
+                }
+                NavigationLink(String(localized: "Manage credits")) { CreditsScreen() }
+                    .usageFont(.bodyStrong)
+                    .foregroundStyle(UsageColors.ink)
+                    .frame(minHeight: 44)
+            }
+        }
+    }
+
     private func toggleMode() {
         withAnimation(Motion.contentSwap.animation(reduceMotion: reduceMotion)) {
             store.settings.percentDisplay = store.settings.percentDisplay == .used ? .left : .used
         }
     }
-
-    /// The one line that dates this screen: how many accounts, and the instant their numbers
-    /// were read — or that a read is under way, which replaces the stamp rather than adding a
-    /// spinner that would shift the layout.
-    ///
-    /// The instant, not an age: this screen does re-render on a clock, but naming the instant
-    /// matches the widget, and one wording across both surfaces is worth more than the marginal
-    /// readability of "12 minutes ago".
-    private func stamp(_ glance: GlanceSnapshot) -> String {
-        if !store.hasLoaded || store.isRefreshing { return String(localized: "Refreshing…") }
-        let accounts = String(localized: "\(glance.accountCount) accounts")
-        guard let updated = glance.updatedAt else {
-            let never = String(localized: "Never updated")
-            return String(localized: "\(accounts) · \(never)")
-        }
-        let asOf = Countdown.asOfLine(updatedAt: updated, now: store.now, texts: LocalizedCountdownTexts()) ?? ""
-        return String(localized: "\(accounts) · \(asOf)")
-    }
 }
 
-private extension View {
-    /// A row that looks like the card it contains rather than like a table row.
-    func plainRow() -> some View {
-        self
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-    }
-}
-
-/// Keep the account, remaining quota and countdown together so the next reset is unambiguous.
-private struct LeadStrip: View {
-
-    let snapshot: GlanceSnapshot
-    let now: Date
-    let mode: PercentDisplay
-    /// Tapping the figure switches the mode. Scoped to the figure: the rest of the band has no
-    /// action of its own, and a whole-card tap would invite accidental flips while scrolling.
-    let toggleMode: () -> Void
-
-    var body: some View {
-        let lead = snapshot.nextResettingAccount(at: now)
-        let row = lead?.nextResettingRow(at: now) ?? lead?.representative(at: now)
-        let stale = lead.map {
-            [.stale, .error].contains($0.severity(at: now, staleAfter: snapshot.staleAfter))
-                && $0.nextResettingRow(at: now) != nil
-        } ?? false
-        UsageCard(padding: 0, spacing: 0) {
-            band(lead: lead, row: row, stale: stale)
-            UsageColors.rule.frame(height: 1)
-            HStack(spacing: 0) {
-                cell(String(localized: "Connected accounts")) {
-                    Text(verbatim: "\(connected)/\(snapshot.accountCount)").usageFont(.figureLarge).foregroundStyle(UsageColors.ink)
-                        .accessibilityLabel("\(connected)/\(snapshot.accountCount) connected")
-                }
-                Image(AppIconChoice.active.previewAsset)
-                    .resizable().scaledToFit().frame(width: 40, height: 40)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .accessibilityHidden(true)
-                    .padding(.trailing, 16)
-            }
-        }
-    }
-
-    private func band(lead: GlanceAccount?, row: GlanceRow?, stale: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let lead, let row {
-                // Aged to now, like every other surface: a stale account's last number is
-                // still shown, but it stops speaking in a severity colour.
-                let severity = stale ? Severity.stale : lead.displaySeverity(of: row, at: now, staleAfter: snapshot.staleAfter)
-                // Built from the raw row, so an aged severity cannot turn an exhausted window into
-                // a partial one in USED; the lead's `stale` verdict outranks the row's own validity.
-                let p = WindowPresentation(
-                    remaining: row.remainingPercent, severity: row.severity,
-                    validity: stale ? ReadingValidity.stale : lead.readingValidity(of: row, at: now, staleAfter: snapshot.staleAfter),
-                    mode: mode)
-                let percent = PercentText.figure(p)
-                let side = PercentText.sideWord(mode)
-                let rowLabel = DisplayText.windowLabel(row.label, category: row.category, scope: row.scope)
-                Text(verbatim: String(localized: "\(lead.title) · \(rowLabel)"))
-                    .usageFont(.small).foregroundStyle(UsageColors.muted).lineLimit(1)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(verbatim: percent)
-                        .usageFont(.lead).foregroundStyle(SeverityPalette.figureColor(severity))
-                    Text(side).usageFont(.small).foregroundStyle(UsageColors.muted)
-                }
-                // The pair is one unit, keyed by what it reads: on a mode flip or a refresh the
-                // old figure leaves with its own word before the new pair arrives, so "60%" is
-                // never drawn beside "used".
-                .figureUnit(key: [percent, side], anchor: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: toggleMode)
-                UsageBar(presentation: p)
-                    .subject(LeadSubject(lead: lead, row: row))
-                    .padding(.vertical, 4)
-                if let resetAt = row.resetAt {
-                    Text(verbatim: Countdown.resetsInLine(until: resetAt, from: now, texts: LocalizedCountdownTexts()))
-                        .usageFont(.small).foregroundStyle(UsageColors.faint)
-                }
-            } else {
-                Text(verbatim: "—").usageFont(.small).foregroundStyle(UsageColors.faint)
-            }
-        }
-        // Another account or another window leading is another subject, not this one with new
-        // values: the band is replaced in one cut, so the figure does not fade out under the
-        // new account's name and the bar does not glide from the old window's fill.
-        .subject(LeadSubject(lead: lead, row: row))
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(spoken(lead: lead, row: row))
-        // The figure's tap is unreachable once the children are folded into one element, so the
-        // switch is offered as a named action as well.
-        .accessibilityHint(switchHint)
-        .accessibilityAction(named: switchActionName, toggleMode)
-        // For UI tests, which reach the figure's tap through this element's frame.
-        .accessibilityIdentifier("overview-lead")
-    }
-
-    /// Worded as the destination, not the current state: the current mode is already in the
-    /// spoken label, so the rotor entry has to say what activating it will change.
-    private var switchActionName: String {
-        mode == .used ? String(localized: "Show percentage left") : String(localized: "Show percentage used")
-    }
-
-    /// A whole sentence per mode rather than the action name lower-cased into one: lower-casing
-    /// is wrong in a language that capitalises its nouns.
-    private var switchHint: String {
-        mode == .used
-            ? String(localized: "Use the actions rotor to show percentage left")
-            : String(localized: "Use the actions rotor to show percentage used")
-    }
-
-    private func cell<Value: View>(_ title: String, @ViewBuilder value: () -> Value) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).usageFont(.small).foregroundStyle(UsageColors.muted)
-            value()
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func spoken(lead: GlanceAccount?, row: GlanceRow?) -> String {
-        guard let lead, let row else { return String(localized: "No limit to report") }
-        // Validity never changes the figure, so the lead's `stale` override is not needed here.
-        let p = lead.presentation(of: row, at: now, staleAfter: snapshot.staleAfter, mode: mode)
-        let figure = PercentText.figure(p)
-        let rowLabel = DisplayText.windowLabel(row.label, category: row.category, scope: row.scope)
-        // Gated on the figure rather than on the raw percentage, so the sentence agrees with what
-        // is drawn: an exhausted window with no percentage reads "100% used" in USED and is
-        // still "remaining unknown" in LEFT, as before.
-        guard p.hasFigure else { return String(localized: "\(lead.title), \(rowLabel): remaining unknown") }
-        let said = PercentText.spoken(figure, mode)
-        return String(localized: "\(lead.title), \(rowLabel): \(said)")
-    }
-
-    /// Counted through the connection status, so an account that needs signing in again stops
-    /// counting as connected.
-    private var connected: Int {
-        snapshot.accounts.filter { $0.connectionStatus == .connected }.count
-    }
-}
-
-/// Which account and which of its windows the lead strip shows; equal values for the empty strip.
-private struct LeadSubject: Hashable {
-    let account: String?
-    let window: String?
-
-    init(lead: GlanceAccount?, row: GlanceRow?) {
-        account = lead?.id
-        window = row?.sourceWindowID
-    }
-}
-
-/// The overview's final layout in `raised` blocks at real size, so nothing jumps when the cache
-/// arrives. No shimmer: it would animate a screen that is about to be replaced.
-private struct LoadingOverview: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            UsageCard {
-                SkeletonBar(width: 0.4, height: 12)
-                SkeletonBar(width: 0.3, height: 30)
-                UsageBar(remainingPercent: nil, severity: .healthy)
-            }
-            AccountSkeletonCard()
-            AccountSkeletonCard()
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Loading usage")
-    }
-}
-
-/// One account: who it is, how it is doing, and its two horizons.
-private struct AccountCard: View {
-
+private struct OverviewAccountRow: View {
     @EnvironmentObject private var store: UsageStore
+    let entry: OverviewProjection.Entry
+    let staleAfter: TimeInterval
+    let open: () -> Void
 
-    let account: GlanceAccount
-    let provider: ProviderID?
-    let now: Date
-    /// The plan the provider reports — Plus, Pro, Max — or nil when it is switched off or the
-    /// provider never said.
-    let tier: String?
-    /// When the long allowance comes back, when the user has asked to see it.
-    let renewal: String?
-
-    /// A failure the user can answer with another try, as opposed to one that needs a sign-in.
-    private var canRetry: Bool {
-        account.severity == .error && account.connectionStatus != .reconnectRequired
+    private var account: GlanceAccount { entry.account }
+    private var expired: Bool { account.connectionStatus == .reconnectRequired }
+    private var title: String {
+        store.settings.showSubscriptionTier ? account.title : provider?.displayName ?? account.title
     }
+    private var provider: ProviderID? { account.providerID.flatMap(ProviderID.init(rawValue:)) }
 
     var body: some View {
-        UsageCard {
-            HStack(spacing: 10) {
-                if let provider { ProviderBadge(provider: provider) }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 0) {
-                        Text(provider?.displayName ?? account.title)
-                            .usageFont(.section)
-                            .foregroundStyle(UsageColors.ink)
-                        if let tier {
-                            Text(verbatim: " · \(tier)")
-                                .usageFont(.body)
-                                .foregroundStyle(UsageColors.muted)
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    if let provider { ProviderBadge(provider: provider, size: 28).accessibilityHidden(true) }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: title).usageFont(.accountTitle).foregroundStyle(UsageColors.ink)
+                        if let identity = account.subtitle {
+                            Text(verbatim: identity).usageFont(.small).foregroundStyle(UsageColors.muted)
                         }
                     }
-                    .lineLimit(1)
-                    if let subtitle = account.subtitle {
-                        Text(subtitle)
-                            .usageFont(.small)
-                            .foregroundStyle(UsageColors.faint)
+                    Spacer(minLength: 0)
+                    mark
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 16)).foregroundStyle(UsageColors.faint)
+                        .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(account.candidates, id: \.sourceWindowID) { row in
+                        WindowRow(row: row, now: store.now,
+                            severity: expired ? .stale : account.displaySeverity(of: row, at: store.now, staleAfter: staleAfter),
+                            validity: account.readingValidity(of: row, at: store.now, staleAfter: staleAfter),
+                            mode: store.settings.percentDisplay, compact: true,
+                            headline: row.sourceWindowID == entry.headlineWindowID,
+                            expired: expired, calendar: store.presentationCalendar)
                     }
-                    if let renewal {
-                        Text(renewal)
-                            .usageFont(.small)
-                            .foregroundStyle(UsageColors.faint)
-                            .lineLimit(1)
+                    if expired {
+                        Text("Sign-in expired · showing last known data")
+                            .usageFont(.small).foregroundStyle(UsageColors.negativeText)
+                    }
+                    if let message = account.statusMessage, !expired || message != NotificationEvaluator.signInExpiredMessage {
+                        Text(verbatim: DisplayText.stored(message)).usageFont(.small).foregroundStyle(UsageColors.muted)
+                    }
+                    if !expired && [.stale, .error, .unknown].contains(account.severity) {
+                        Text(verbatim: SeverityPalette.label(account.severity))
+                            .usageFont(.small).foregroundStyle(UsageColors.muted)
                     }
                 }
-
-                Spacer()
-
-                StatusMark(
-                    severity: account.severity,
-                    label: account.connectionStatus == .reconnectRequired ? String(localized: "Reconnect") : nil)
+                .padding(.leading, 38)
             }
-
-            if let message = account.statusMessage {
-                NoticeLine(
-                    message: message,
-                    dot: account.severity == .error ? UsageColors.negative : UsageColors.warning,
-                    retry: canRetry ? { Task { await store.refresh() } } : nil)
-            }
-
-            // Identified by the window a row shows, not by its position: when another window
-            // takes a slot it is a new row, so its figure and bar do not animate from the values
-            // of the window that was there.
-            ForEach(account.rows, id: \.sourceWindowID) { row in
-                WindowRow(
-                    row: row, now: now,
-                    severity: account.displaySeverity(of: row, at: now, staleAfter: store.settings.staleAfter),
-                    validity: account.readingValidity(of: row, at: now, staleAfter: store.settings.staleAfter),
-                    mode: store.settings.percentDisplay)
-            }
+            .padding(.leading, 16)
+            .padding(.trailing, 12)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(OverviewRowButtonStyle())
+        .accessibilityIdentifier("overview-account-\(account.id)")
+    }
+
+    @ViewBuilder private var mark: some View {
+        let raw = account.candidates.map(\.severity).filter { $0 != .unknown }.max() ?? .unknown
+        let severity: Severity = if expired { .error }
+            else if raw == .exhausted && account.baseSeverity == .limited { .limited }
+            else { raw }
+        if severity != .healthy {
+            Circle()
+                .fill(severity == .medium ? Color.clear : SeverityPalette.accent(severity))
+                .overlay(Circle().stroke(SeverityPalette.accent(severity), lineWidth: severity == .medium ? 1.5 : 0))
+                .frame(width: 8, height: 8)
+                .accessibilityLabel(expired ? String(localized: "Reconnect") : SeverityPalette.label(severity))
+        }
+    }
+}
+
+private struct OverviewRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? UsageColors.raised : Color.clear)
+            .pressRelease(isPressed: configuration.isPressed)
     }
 }
 
@@ -393,11 +350,15 @@ struct WindowRow: View {
     /// Which side the figure and the bar count. Not defaulted: a caller that forgets it would
     /// silently show LEFT on a screen the user switched to USED.
     let mode: PercentDisplay
+    var compact = false
+    var headline = false
+    var expired = false
+    var calendar = Calendar.current
 
     private var shown: Severity { severity ?? row.severity }
     /// Built from the raw row — an aged `severity` replaces it for the figure's colour only.
     private var presentation: WindowPresentation {
-        WindowPresentation(remaining: row.remainingPercent, severity: row.severity, validity: validity, mode: mode)
+        WindowPresentation(remaining: row.remainingPercent, severity: row.severity, validity: expired ? .stale : validity, mode: mode)
     }
     private let segmentColors = [UsageColors.data, UsageColors.ink, UsageColors.faint, UsageColors.muted]
 
@@ -411,35 +372,73 @@ struct WindowRow: View {
     private var sideWord: String { PercentText.sideWord(mode) }
 
     var body: some View {
+        if compact {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    name.frame(minWidth: 58, alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: false)
+                    bar.frame(minWidth: 24)
+                    figure.frame(minWidth: 42, alignment: .trailing)
+                        .fixedSize(horizontal: true, vertical: false)
+                    resetStamp.frame(minWidth: 66, alignment: .trailing)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    name
+                    figure
+                    bar
+                    resetStamp
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(compactAccessibilityLabel)
+        } else {
+            detail
+        }
+    }
+
+    private var name: some View {
+        Text(verbatim: rowLabel)
+            .usageFont(headline ? .smallStrong : .small)
+            .foregroundStyle(headline && !expired ? UsageColors.ink : UsageColors.faint)
+    }
+
+    private var bar: some View {
+        UsageBar(presentation: presentation, height: 4,
+            emphasis: headline && !expired ? 1 : 0.4)
+            .subject(row.sourceWindowID)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var resetStamp: some View {
+        if validity == .resetDue {
+            Text("Reset due").usageFont(.small).foregroundStyle(UsageColors.faint)
+        } else if let resetAt = row.resetAt {
+            Text(verbatim: Countdown.absolute(resetAt, now: now, calendar: calendar))
+                .usageFont(.small).foregroundStyle(UsageColors.faint)
+        }
+    }
+
+    private var compactAccessibilityLabel: Text {
+        let reading = String(localized: "\(rowLabel): \(PercentText.spoken(figureText, mode))")
+        var parts = [headline ? String(localized: "Headline: \(reading)") : reading]
+        if validity == .resetDue { parts.append(String(localized: "Reset due")) }
+        else if let resetAt = row.resetAt { parts.append(Countdown.absolute(resetAt, now: now, calendar: calendar)) }
+        if validity == .stale || validity == .error { parts.append(SeverityPalette.label(shown)) }
+        return Text(verbatim: parts.joined(separator: ", "))
+    }
+
+    private var detail: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(verbatim: rowLabel)
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)
                 Spacer()
-                // The figure and its side word, or the dash that stands for a missing figure, as
-                // one unit keyed by what it reads: it fades through as a whole while the bar
-                // moves, on a refresh as on a mode flip, so the old figure is never drawn beside
-                // the new side word and a dash never beside a figure.
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    if !presentation.hasFigure {
-                        // A missing value is a small dash, not a figure-sized one: it is the
-                        // absence of a number and should not hold the weight of one. Gated on the
-                        // figure, so an exhausted window with no percentage still reads "100%" in
-                        // USED.
-                        Text(figureText).usageFont(.small).foregroundStyle(UsageColors.faint)
-                    } else {
-                        Text(figureText)
-                            .usageFont(.figure)
-                            .foregroundStyle(SeverityPalette.figureColor(shown))
-                        Text(sideWord).usageFont(.small).foregroundStyle(UsageColors.muted)
-                    }
-                }
-                .figureUnit(key: presentation.hasFigure ? [figureText, sideWord] : [figureText], anchor: .trailing)
-                .subject(row.sourceWindowID)
+                figure
             }
 
-            if row.segments.isEmpty {
+            if row.segments.isEmpty || presentation.fillState == .noFill {
                 UsageBar(presentation: presentation)
                     .subject(row.sourceWindowID)
                     .accessibilityLabel(String(localized: "\(rowLabel): \(PercentText.spoken(figureText, mode))"))
@@ -450,7 +449,8 @@ struct WindowRow: View {
                         ForEach(row.segments.indices, id: \.self) { index in
                             let start = min(row.segments.prefix(index).reduce(0) { $0 + $1.usedPercent }, totalUsed)
                             let end = min(start + row.segments[index].usedPercent, totalUsed)
-                            Rectangle().fill(segmentColors[index % segmentColors.count])
+                            Rectangle().fill(validity == .current && !expired
+                                ? segmentColors[index % segmentColors.count] : UsageColors.staleMark)
                                 .frame(width: geometry.size.width * CGFloat((end - start) / 100))
                                 .offset(x: geometry.size.width * CGFloat(start / 100))
                         }
@@ -475,12 +475,28 @@ struct WindowRow: View {
                 }
             }
 
-            if let resetAt = row.resetAt {
+            if validity == .resetDue {
+                Text("Reset due").usageFont(.small).foregroundStyle(UsageColors.faint)
+            } else if let resetAt = row.resetAt {
                 Text(verbatim: Countdown.resetsInLine(until: resetAt, from: now, texts: LocalizedCountdownTexts()))
                     .usageFont(.small)
                     .foregroundStyle(UsageColors.faint)
             }
         }
+    }
+
+    private var figure: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(figureText)
+                .usageFont(!presentation.hasFigure ? .small : compact ? .compactFigure : .figure)
+                .foregroundStyle(!presentation.hasFigure || expired ? UsageColors.faint
+                    : compact && !headline ? UsageColors.muted : SeverityPalette.figureColor(shown))
+            if presentation.hasFigure && !compact {
+                Text(sideWord).usageFont(.small).foregroundStyle(UsageColors.muted)
+            }
+        }
+        .figureUnit(key: presentation.hasFigure ? [figureText, sideWord] : [figureText], anchor: .trailing)
+        .subject(row.sourceWindowID)
     }
 
     /// "Opus usage: 20%": the segment's own label is data, and its share is a used figure whatever
@@ -503,15 +519,3 @@ struct WindowRow: View {
     }
 }
 
-struct EmptyStateCard: View {
-    var body: some View {
-        DashedBox {
-            Text("No accounts yet")
-                .usageFont(.body)
-                .foregroundStyle(UsageColors.ink)
-            Text("Add a subscription to see how much usage is left and when it resets.")
-                .usageFont(.body)
-                .foregroundStyle(UsageColors.muted)
-        }
-    }
-}

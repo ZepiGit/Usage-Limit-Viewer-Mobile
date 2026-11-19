@@ -38,6 +38,12 @@ struct AddAccountSheet: View {
     /// The region picked for a regional provider, or nil until the user picks.
     @State private var region: ProviderRegion?
 
+    private let initialProvider: ProviderID?
+
+    init(initialProvider: ProviderID? = nil) {
+        self.initialProvider = initialProvider
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -78,6 +84,9 @@ struct AddAccountSheet: View {
                     }
                 }
             }
+        }
+        .onAppear {
+            if let initialProvider, stage == .choosing { select(initialProvider) }
         }
         .onDisappear { login?.cancel() }
     }
