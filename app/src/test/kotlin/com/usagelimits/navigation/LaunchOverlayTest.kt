@@ -9,8 +9,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.LocalSaveableStateRegistry
+import androidx.compose.runtime.saveable.SaveableStateRegistry
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.core.app.ApplicationProvider
@@ -71,19 +72,50 @@ class LaunchOverlayTest {
 
     // The system kills the process in the background and later restores the activity from its
     // saved state: a new process, so the process flag is clear, but not a launch.
+    //
+    // The saved state is carried over by hand, one frame at a time. StateRestorationTester does
+    // both halves between two frames when the clock is paused, so nothing is composed anew, and
+    // with a running clock it would play a wrongly replayed overlay to its end before returning.
     @Test
     fun `a process the system restores does not replay the launch`() {
         compose.mainClock.autoAdvance = false
-        val restoration = StateRestorationTester(compose)
-        restoration.setContent { LaunchOverlay() }
+        var registry by mutableStateOf(SaveableStateRegistry(null) { true })
+        var alive by mutableStateOf(true)
+        compose.setContent {
+            if (alive) CompositionLocalProvider(LocalSaveableStateRegistry provides registry) { LaunchOverlay() }
+        }
         compose.onNodeWithTag("launchOverlay").assertExists()
         compose.mainClock.advanceTimeBy(1_000)
+        compose.onNodeWithTag("launchOverlay").assertDoesNotExist()
 
+        val saved = registry.performSave()
+        compose.change { alive = false }
+        compose.mainClock.advanceTimeByFrame()
         launchOverlayShown = false
-        restoration.emulateSavedInstanceStateRestore()
+        compose.change {
+            registry = SaveableStateRegistry(saved) { true }
+            alive = true
+        }
         compose.mainClock.advanceTimeByFrame()
 
         compose.onNodeWithTag("launchOverlay").assertDoesNotExist()
+    }
+
+    // The control for the test above: the same sequence without saved state is a launch.
+    @Test
+    fun `a new process without saved state plays the launch`() {
+        compose.mainClock.autoAdvance = false
+        var alive by mutableStateOf(true)
+        compose.setContent { if (alive) LaunchOverlay() }
+        compose.mainClock.advanceTimeBy(1_000)
+
+        compose.change { alive = false }
+        compose.mainClock.advanceTimeByFrame()
+        launchOverlayShown = false
+        compose.change { alive = true }
+        compose.mainClock.advanceTimeByFrame()
+
+        compose.onNodeWithTag("launchOverlay").assertExists()
     }
 
     @Test
