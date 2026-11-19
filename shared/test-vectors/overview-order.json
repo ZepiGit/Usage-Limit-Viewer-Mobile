@@ -92,6 +92,26 @@
       "expected": { "automatic": ["b", "a"], "stored": ["a", "b"], "custom": [] }
     },
     {
+      "name": "a reset at a fractional second is not yet due at the whole second before it",
+      "now": 1799999700000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "5h", "scope": "global", "remainingPercent": 5, "exhausted": false, "resetAt": 1799999700125 }, { "id": "weekly", "scope": "global", "remainingPercent": 70, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["a", "b"], "stored": ["a", "b"], "custom": [] }
+    },
+    {
+      "name": "a reset at a fractional second is due at exactly that millisecond",
+      "now": 1799999700125,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "5h", "scope": "global", "remainingPercent": 5, "exhausted": false, "resetAt": 1799999700125 }, { "id": "weekly", "scope": "global", "remainingPercent": 70, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["b", "a"], "stored": ["a", "b"], "custom": [] }
+    },
+    {
       "name": "when every window is reset due the last figure still ranks the account",
       "now": 1800000000000,
       "accounts": [
