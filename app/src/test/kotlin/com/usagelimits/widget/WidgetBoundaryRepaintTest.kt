@@ -1,8 +1,7 @@
 package com.usagelimits.widget
 
 import android.appwidget.AppWidgetManager
-import android.appwidget.AppWidgetProviderInfo
-import android.content.ComponentName
+import android.content.Intent
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
@@ -35,7 +34,6 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLooper
 
@@ -48,12 +46,12 @@ import org.robolectric.shadows.ShadowLooper
  * projection on the clock it is given. The clock here is a variable: no wall time decides the
  * outcome, and the timeout only fails a hung collector.
  *
- * The app's own sync cannot interfere: start-up scheduling has finished and its work is
- * cancelled before seeding, and WorkManager is the test manager, which runs nothing whose
- * network constraint or delay the test does not release. It never does, so neither the
- * periodic sync nor the aged-cache sync a widget update broadcast asks for can write the cache
- * or publish while the session runs (as in `SyncWorkerSchedulingTest`). Room, DataStore and
- * [WidgetUpdater.refreshAll] stay real.
+ * The projection runs for a configuration id with no widget bound to it, so the repaint has no
+ * placed widget to update: the test starts no Glance session worker and sends no update
+ * broadcast, and has none to end. The app's own sync cannot interfere either: start-up
+ * scheduling has finished and its work is cancelled before seeding, and WorkManager is the test
+ * manager, which runs nothing whose network constraint or delay the test does not release (as
+ * in `SyncWorkerSchedulingTest`). Room, DataStore and [WidgetUpdater.refreshAll] stay real.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [36])
@@ -92,10 +90,11 @@ class WidgetBoundaryRepaintTest {
         )))
         val config = WidgetConfigEntity(301, "ALL_ACCOUNTS", null, null, fetchedAt)
         app.container.widgetConfigDao.upsert(config)
-        shadowOf(AppWidgetManager.getInstance(app)).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
-            provider = ComponentName(app, DetailedUsageWidgetReceiver::class.java)
-        })
-        val glanceId = GlanceAppWidgetManager(app).getGlanceIdBy(config.appWidgetId)
+        // The configuration's id, not a bound launcher widget: with nothing placed, refreshAll
+        // finds no widget to update, so neither a Glance session worker nor an update broadcast
+        // exists in this test. It still writes the repaint time the projection observes.
+        val glanceId = checkNotNull(GlanceAppWidgetManager(app).getGlanceIdBy(
+            Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, config.appWidgetId)))
 
         var clock = resetAt - 1
         val views = Channel<WidgetUpdater.WidgetView>(Channel.UNLIMITED)
