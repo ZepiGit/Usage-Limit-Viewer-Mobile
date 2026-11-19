@@ -5,7 +5,11 @@ import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.Configuration
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.testing.SynchronousExecutor
+import androidx.work.testing.WorkManagerTestInitHelper
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.ProviderId
@@ -13,6 +17,7 @@ import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.resetTestWorkManager
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
@@ -42,6 +47,13 @@ import org.robolectric.shadows.ShadowLooper
  * repaint ([WidgetUpdater.refreshAll]) is what has to reach the flow, which then rebuilds the
  * projection on the clock it is given. The clock here is a variable: no wall time decides the
  * outcome, and the timeout only fails a hung collector.
+ *
+ * The app's own sync cannot interfere: start-up scheduling has finished and its work is
+ * cancelled before seeding, and WorkManager is the test manager, which runs nothing whose
+ * network constraint or delay the test does not release. It never does, so neither the
+ * periodic sync nor the aged-cache sync a widget update broadcast asks for can write the cache
+ * or publish while the session runs (as in `SyncWorkerSchedulingTest`). Room, DataStore and
+ * [WidgetUpdater.refreshAll] stay real.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [36])
@@ -50,12 +62,18 @@ class WidgetBoundaryRepaintTest {
 
     @Before fun setUp() {
         runBlocking { app.startupJob?.join() }
+        WorkManager.getInstance(app).cancelAllWork().result.get()
+        resetTestWorkManager()
+        WorkManagerTestInitHelper.initializeTestWorkManager(app, Configuration.Builder().setExecutor(SynchronousExecutor()).build())
     }
 
     @After fun drain() {
-        WorkManager.getInstance(app).cancelAllWork().result.get()
-        ShadowLooper.idleMainLooper()
-        resetTestWorkManager()
+        try {
+            WorkManager.getInstance(app).cancelAllWork().result.get()
+            ShadowLooper.idleMainLooper()
+        } finally {
+            resetTestWorkManager()
+        }
     }
 
     @Test fun `a running All accounts session reranks when the repaint follows a reset`() = runBlocking {
@@ -103,6 +121,9 @@ class WidgetBoundaryRepaintTest {
             // The same rebuild ages the reset-due mark, which had the same gap before #88.
             assertTrue(after.snapshot.accounts.single { it.accountId == alpha.localId }
                 .rows.single { it.windowId == "5h" }.resetElapsed)
+            assertTrue("no sync ran: the repaint alone moved the session",
+                WorkManager.getInstance(app).getWorkInfosByTag(SyncWorker::class.java.name).get()
+                    .none { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.SUCCEEDED || it.runAttemptCount > 0 })
         } finally {
             session.cancelAndJoin()
         }
