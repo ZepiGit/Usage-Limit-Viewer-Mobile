@@ -79,10 +79,12 @@ struct UsageLimitsApp: App {
                 .onChange(of: scenePhase) { phase in
                     if phase == .active { store.updatePresentationClock() }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
+                    .receive(on: RunLoop.main)) { _ in
                     store.updatePresentationClock()
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+                .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)
+                    .receive(on: RunLoop.main)) { _ in
                     store.updatePresentationClock()
                 }
                 .task {

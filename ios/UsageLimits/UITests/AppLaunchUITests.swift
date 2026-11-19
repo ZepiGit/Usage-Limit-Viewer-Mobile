@@ -119,9 +119,9 @@ final class AppLaunchUITests: XCTestCase {
     func testEachScreenOpensWithNoAccountsConnected() {
         // The state every user sees first, on a fresh install with nothing signed in — and the
         // one most likely to divide by a count of zero or unwrap an empty list.
-        let app = launch(["-marketing-demo", "-overview-empty-demo"])
+        let app = launch()
         XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.buttons["overview-account-demo-codex"].exists)
+        XCTAssertTrue(scrollTo(app.buttons["overview-add-account"], in: app))
 
         for tab in ["Resets", "Settings", "Overview"] {
             let button = tabButton(tab, in: app)
@@ -157,7 +157,9 @@ final class AppLaunchUITests: XCTestCase {
     }
 
     func testOverviewOpensAddCredit() {
-        let app = launch(["-marketing-demo", "-overview-empty-demo"])
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(scrollTo(app.buttons["overview-add-account"], in: app))
         let add = app.buttons["overview-add-credit"]
         XCTAssertTrue(scrollTo(add, in: app))
         add.tap()
@@ -179,7 +181,8 @@ final class AppLaunchUITests: XCTestCase {
 
     func testTheAddAccountSheetOffersEveryProvider() {
         // Overview must still reach every provider's sign-in path.
-        let app = launch(["-marketing-demo", "-overview-empty-demo"])
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
 
         let add = app.buttons["overview-add-account"]
         XCTAssertTrue(scrollTo(add, in: app), "the add-account button should be there")
@@ -198,11 +201,12 @@ final class AppLaunchUITests: XCTestCase {
 
     func testLandscapeAndLargeTextKeepTheProviderPickerReachable() {
         let app = XCUIApplication()
-        app.launchArguments += ["-ui-testing", "-marketing-demo", "-overview-empty-demo", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
+        app.launchArguments += ["-ui-testing", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
         app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
         waitForOrientation(app, landscape: true)
         defer { XCUIDevice.shared.orientation = .portrait }
+        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
         let add = app.buttons["overview-add-account"]
         XCTAssertTrue(scrollTo(add, in: app))
         add.tap()

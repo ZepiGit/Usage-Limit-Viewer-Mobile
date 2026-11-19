@@ -290,23 +290,6 @@ struct SectionTitle: View {
     }
 }
 
-/// A screen's page title and the one line that dates its data.
-struct ScreenHeader: View {
-    var title: String? = nil
-    let stamp: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let title {
-                Text(title).usageFont(.title).foregroundStyle(UsageColors.ink)
-                    .accessibilityAddTraits(.isHeader)
-            }
-            Text(stamp).usageFont(.small).foregroundStyle(UsageColors.faint)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 /// A placeholder bar at a real element's size, for a screen that has not loaded yet.
 struct SkeletonBar: View {
     var width: CGFloat = 1

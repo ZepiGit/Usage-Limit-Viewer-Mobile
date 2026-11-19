@@ -1,14 +1,18 @@
 import XCTest
-import UsageLimitsKit
+@testable import UsageLimitsKit
 
 final class OverviewProjectionTests: XCTestCase {
-    func testSharedOverviewFilterAndHeaderAnswers() throws {
+    func testSharedOverviewFilterAndHeaderAnswers() async throws {
         let fixture = try Data(contentsOf: SharedVectors.file("overview-filters-header.json"))
         let vectors = try parse(fixture)
         for vector in vectors {
             let zone = try XCTUnwrap(TimeZone(identifier: vector.zone), vector.name)
+            var usage: [AccountUsage] = []
+            for account in vector.accounts {
+                usage.append(try await account.usageForProjection())
+            }
             for mode in [PercentDisplay.left, .used] {
-                let snapshot = GlanceModel.build(vector.accounts.map(\.usage), now: vector.now,
+                let snapshot = GlanceModel.build(usage, now: vector.now,
                     scope: .allAccounts, staleAfter: vector.staleAfter, percentDisplay: mode)
                 for filter in OverviewFilter.allCases {
                     let overview = snapshot.overview(filter: filter, at: vector.now, in: zone)
@@ -133,13 +137,33 @@ private struct Expected: Decodable {
 
 private struct Account: Decodable {
     let usage: AccountUsage
+    let pauseUntil: Date?
+
+    func usageForProjection() async throws -> AccountUsage {
+        guard let pauseUntil else { return usage }
+        let reading = try XCTUnwrap(usage.snapshot)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = AccountRepository(directory: directory)
+        try await repository.upsert(usage.account)
+        let result = UsageResult(windows: reading.windows, status: reading.status,
+            errorMessage: StoredMessage.rateLimitedPauseMessage, connectionStatus: reading.connectionStatus,
+            rateLimit: .init(retryAfter: pauseUntil.timeIntervalSince(reading.fetchedAt)))
+        try await repository.record(.success(accountID: usage.account.id, result: result), at: reading.fetchedAt)
+        let reopened = AccountRepository(directory: directory)
+        let deadline = await RepositorySink(repository: reopened).automaticSyncNotBefore(accountID: usage.account.id)
+        XCTAssertEqual(deadline, pauseUntil.timeIntervalSince1970, usage.account.id)
+        let saved = await reopened.usage()
+        return try XCTUnwrap(saved.first)
+    }
 
     init(from decoder: Decoder) throws {
         try requireExactKeys(decoder, ["id", "createdAt", "connection", "pauseUntil", "reading"])
         let c = try decoder.container(keyedBy: Keys.self)
         let id = try c.decode(String.self, forKey: Keys("id"))
         let connection = try c.decode(ConnectionStatus.self, forKey: Keys("connection"))
-        let pause = try c.decodeIfPresent(Int64.self, forKey: Keys("pauseUntil")).map(ms)
+        pauseUntil = try c.decodeIfPresent(Int64.self, forKey: Keys("pauseUntil")).map(ms)
         let account = ProviderAccount(id: id, provider: .codex, externalAccountID: id, email: nil,
             displayName: nil, plan: nil, credentialReference: "", createdAt: ms(try c.decode(Int64.self,
                 forKey: Keys("createdAt"))), lastSuccessfulSync: nil)
@@ -150,11 +174,10 @@ private struct Account: Decodable {
             let reading = try c.superDecoder(forKey: Keys("reading"))
             try requireExactKeys(reading, ["fetchedAt", "status", "windows"])
             let r = try reading.container(keyedBy: Keys.self)
-            let error = pause.map { _ in "Temporarily rate limited." }
             snapshot = UsageSnapshot(accountID: id, fetchedAt: ms(try r.decode(Int64.self, forKey: Keys("fetchedAt"))),
                 status: try r.decode(SnapshotStatus.self, forKey: Keys("status")),
                 windows: try r.decode([OverviewOrderVectorsTests.Window].self, forKey: Keys("windows")).map(\.window),
-                errorMessage: error, connectionStatus: connection)
+                connectionStatus: connection)
         }
         usage = AccountUsage(account: account, snapshot: snapshot)
     }
