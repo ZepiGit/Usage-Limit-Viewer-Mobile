@@ -10,7 +10,15 @@ final class MarketingScreenshotTests: XCTestCase {
 
     func testCaptureIPhoneScreens() {
         let app = launchDemo()
+        let claude = app.staticTexts["Claude"].firstMatch
+        let codex = app.staticTexts["OpenAI Codex"].firstMatch
+        XCTAssertTrue(claude.waitForExistence(timeout: 10))
+        XCTAssertTrue(codex.waitForExistence(timeout: 10))
+        XCTAssertTrue(claude.isHittable && codex.isHittable)
+        XCTAssertLessThan(claude.frame.minY, codex.frame.minY)
+        XCTAssertFalse(app.navigationBars["Overview"].buttons["Reorder"].exists)
         capture("iphone-overview", in: app)
+        capture("iphone-overview-order", in: app)
         for screen in ["Accounts", "Resets", "Settings"] {
             let matches = app.buttons.matching(identifier: screen)
             let tab = matches.allElementsBoundByIndex.first { $0.isHittable } ?? matches.firstMatch

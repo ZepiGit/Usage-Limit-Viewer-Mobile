@@ -15,38 +15,26 @@ struct OverviewScreen: View {
     /// screen, which replaces the skeleton in one cut.
     @State private var listMotionArmed = false
 
-    /// Whether the list is in reordering mode.
-    ///
-    /// Owned here rather than taken from the environment, because leaving the screen should end
-    /// it: an edit mode that persists across tabs leaves a user back on a list whose rows do not
-    /// respond to a tap, with no memory of having asked for that.
-    @State private var editMode: EditMode = .inactive
-
     var body: some View {
         let glance = store.glance
         // Built once per evaluation: the rows and the motion's value are the same list.
-        let ordered = store.orderedAccounts
+        let ordered = glance.overviewOrderedAccounts(at: store.now)
         return NavigationStack {
             List {
                 Section {
                     ScreenHeader(title: "Usage Limits", stamp: stamp(glance))
                         .plainRow()
-                        .moveDisabled(true)
 
                     // Until the cache has been read the lists are empty because nothing has
                     // asked yet, not because there are no accounts: drawing the empty state
                     // here is a false "No accounts yet" on every cold start.
                     if !store.hasLoaded {
-                        LoadingOverview().plainRow().moveDisabled(true)
+                        LoadingOverview().plainRow()
                     } else if !store.accounts.isEmpty {
-                        // Never draggable: it is the headline, not one of the accounts, and a
-                        // list that lets it be dropped between two cards makes the whole gesture
-                        // read as broken.
                         LeadStrip(
                             snapshot: glance, now: store.now, mode: store.settings.percentDisplay,
                             toggleMode: toggleMode)
                             .plainRow()
-                            .moveDisabled(true)
                     }
                 }
 
@@ -67,21 +55,16 @@ struct OverviewScreen: View {
                                         : nil)
                                     .plainRow()
                             }
-                            .onMove(perform: move)
                         }
                     }
 
-                    // Prepaid balances: a separate list with its own screen, below the usage
-                    // accounts and outside the reorder gesture.
                     Section {
                         SectionTitle(text: String(localized: "Credits"))
                             .padding(.top, 28)
                             .plainRow()
-                            .moveDisabled(true)
                         ForEach(store.credits) { entry in
                             CreditCard(entry: entry, now: store.now, staleAfter: store.settings.staleAfter)
                                 .plainRow()
-                                .moveDisabled(true)
                         }
                         // Both arms are looked up here: a ternary of two literals would be taken for a
                         // plain String and shown as written.
@@ -96,7 +79,6 @@ struct OverviewScreen: View {
                         .foregroundStyle(UsageColors.ink)
                         .frame(minHeight: 44)
                         .plainRow()
-                        .moveDisabled(true)
                     }
                 }
             }
@@ -106,37 +88,12 @@ struct OverviewScreen: View {
             .armingListMotion($listMotionArmed, loaded: store.hasLoaded)
             .readableWidth()
             .listStyle(.plain)
-            .environment(\.editMode, $editMode)
             .scrollContentBackground(.hidden)
             .background(UsageColors.ground)
             .navigationTitle("Overview")
             .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
-            .toolbar {
-                // `|| editMode.isEditing` is the half that matters. Gated on the count alone,
-                // the button — and with it the only way OUT of reorder mode — vanished the
-                // moment a second account was disconnected on another tab: a TabView child is
-                // not torn down on a switch, so `editMode` came back still `.active`, the last
-                // card stayed in drag mode, and pull-to-refresh was suppressed with no control
-                // left to turn any of it off. Killing the app was the only exit.
-                if store.accounts.count > 1 || editMode.isEditing {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(editMode.isEditing ? String(localized: "Done") : String(localized: "Reorder")) {
-                            withAnimation(Motion.contentSwap.animation(reduceMotion: reduceMotion)) {
-                                editMode = editMode.isEditing ? .inactive : .active
-                            }
-                        }
-                    }
-                }
-            }
-            // And ended outright once there is nothing left to reorder, so the mode cannot
-            // outlive its purpose even while the button is on screen.
-            .onChange(of: store.accounts.count) { count in
-                if count < 2 { editMode = .inactive }
-            }
-            // Suspended while reordering: a pull that starts on a row being dragged is a refresh
-            // the user did not ask for, and it would replace the list under their finger.
-            .refreshable { if !editMode.isEditing { await store.refresh() } }
+            .refreshable { await store.refresh() }
         }
     }
 
@@ -151,17 +108,6 @@ struct OverviewScreen: View {
         withAnimation(Motion.contentSwap.animation(reduceMotion: reduceMotion)) {
             store.settings.percentDisplay = store.settings.percentDisplay == .used ? .left : .used
         }
-    }
-
-    /// Hands the store the WHOLE new order rather than the pair that swapped.
-    ///
-    /// The repository renumbers every row it is given, so sending the complete list is what
-    /// makes a partially-applied write impossible — and the list is short enough that there is
-    /// nothing to save by sending less.
-    private func move(from offsets: IndexSet, to destination: Int) {
-        var ids = store.orderedAccounts.map(\.id)
-        ids.move(fromOffsets: offsets, toOffset: destination)
-        Task { await store.reorderAccounts(ids: ids) }
     }
 
     /// The one line that dates this screen: how many accounts, and the instant their numbers
@@ -185,11 +131,6 @@ struct OverviewScreen: View {
 
 private extension View {
     /// A row that looks like the card it contains rather than like a table row.
-    ///
-    /// The overview was a `ScrollView` of cards until reordering arrived. `List` is what gives
-    /// the drag its native feel — the lift, the gap, the haptic — and none of that is worth
-    /// reimplementing on a drag gesture; stripping the row chrome is what keeps the design the
-    /// ScrollView had.
     func plainRow() -> some View {
         self
             .listRowBackground(Color.clear)

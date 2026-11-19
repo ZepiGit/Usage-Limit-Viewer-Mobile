@@ -83,9 +83,11 @@ alerts and refresh controls retain system motion.
 ## Marketing screenshots
 
 Run the manual **Marketing screenshots** workflow to capture the actual SwiftUI app on an
-iPhone and an iPad simulator. The `ios-marketing-screenshots` artifact contains seven PNGs and
-`CAPTURE.txt` with the source commit and simulator models. The phone captures Overview,
-Accounts, Resets, Settings, and the custom layout before and after restoration; the iPad captures Overview.
+iPhone and an iPad simulator. The `ios-marketing-screenshots` artifact includes `CAPTURE.txt`
+with the source commit and simulator models. The phone captures Overview, Accounts, Resets,
+Settings, and the custom layout before and after restoration; the iPad captures Overview.
+`iphone-overview-order.png` captures Overview after asserting that Claude appears above Codex
+(out of their stored order) and that there is no Reorder control.
 
 The separate `UsageLimitsScreenshots` test scheme launches a Debug build with
 `-marketing-demo`. This uses five synthetic accounts in memory, a fixed clock and a visible

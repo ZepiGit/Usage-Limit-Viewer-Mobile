@@ -44,7 +44,41 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
         // Same capture, same result at every date inside the freshness window — no entry can
         // carry a generation the request did not capture.
         XCTAssertTrue(entries.allSatisfy { $0 == entries[0] })
-        XCTAssertEqual(entries[0].accounts.map(\.id), ["a", "b"])
+        XCTAssertEqual(entries[0].accounts.map(\.id), ["b", "a"])
+    }
+
+    func testResetEntryReordersAllAccountsWithoutMovingFirstPin() throws {
+        let boundary = now.addingTimeInterval(90.125)
+        let justBefore = now.addingTimeInterval(90)
+        let crossing = account("b", used: 99)
+        let windows = [
+            UsageWindow(id: "short", label: "5h", category: .fiveHour, usedPercent: 99,
+                periodSeconds: 18_000, resetAt: boundary, exhausted: false),
+            UsageWindow(id: "weekly", label: "Weekly", category: .weekly, usedPercent: 5,
+                periodSeconds: 604_800, resetAt: nil, exhausted: false)
+        ]
+        let storedFirst = account("a", used: 45)
+        let second = AccountUsage(account: crossing.account, snapshot: UsageSnapshot(
+            accountID: "b", fetchedAt: now, status: .ok, windows: windows))
+        let export = GlanceModel.build([storedFirst, second], now: now, scope: .allAccounts,
+            statusIconsEnabled: true, pinnedAccountIDs: ["b", "a"])
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try GlanceSnapshotCodec.write(export, toDirectory: directory)
+        let source = GlanceSnapshotCodec.load(fromDirectory: directory)
+        let request = capture(source)
+        let resetEntry = try XCTUnwrap(request.presentationBoundaries(after: now).first)
+        XCTAssertEqual(resetEntry, boundary)
+        XCTAssertEqual(request.selectedSnapshot(at: justBefore).accounts.map(\.id), ["b", "a"])
+        XCTAssertEqual(request.selectedSnapshot(at: resetEntry).accounts.map(\.id), ["a", "b"])
+        XCTAssertEqual(export.overviewOrderedAccounts(at: justBefore).map(\.id), ["b", "a"])
+        XCTAssertEqual(export.overviewOrderedAccounts(at: resetEntry).map(\.id), ["a", "b"])
+        for date in [now, resetEntry] {
+            let pins = PinnedAccountsCapture.capture(source: source, at: date).accounts
+            XCTAssertEqual(pins.first?.id, "a") // The circular accessory also takes this entry.
+            XCTAssertEqual(PinnedAccountText.inlineRow(pins, texts: EnglishPinnedAccountTexts())?.text, "55% left")
+        }
     }
 
     func testNonCustomRequestNeverResolvesAPreset() {
@@ -116,7 +150,7 @@ final class ConfiguredWidgetPlanningTests: XCTestCase {
 
     func testPublishedModeChangesNeitherSelectedReadingsNorTheirReset() {
         let scopes: [(GlanceScope, String?, [String])] = [
-            (.allAccounts, nil, ["a", "b"]), (.account, "b", ["b"]), (.closestResets, nil, ["a", "b"])
+            (.allAccounts, nil, ["b", "a"]), (.account, "b", ["b"]), (.closestResets, nil, ["a", "b"])
         ]
         for (scope, accountID, expectedIDs) in scopes {
             let left = capture(.loaded(loadedSnapshot(percentDisplay: .left)), scope: scope,
