@@ -1,0 +1,39 @@
+name: Merge gate
+
+# The one check branch protection requires. Android and iOS filter on paths and the status icon
+# evidence runs on push only, so none of them can be required. This workflow runs on every pull
+# request, waits for every other workflow run on the head commit and fails if any of them failed
+# (tools/merge_gate.py). After re-running a failed job elsewhere, re-run this gate too.
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Full 40-character commit SHA to judge'
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: merge-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Merge gate
+    runs-on: ubuntu-latest
+    # Above the script's 120 minute deadline, so the gate fails with its own reason, not GitHub's.
+    timeout-minutes: 130
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test the gate's own decisions
+        run: python3 -m unittest discover -s tools -p 'test_merge_gate.py'
+      - name: Wait for the other runs on the head commit and judge them
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha || inputs.sha }}
+        run: python3 tools/merge_gate.py "$SHA"

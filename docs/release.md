@@ -24,6 +24,8 @@ On Windows, use `gradlew.bat`. The debug APK is `app/build/outputs/apk/debug/app
 
 CI runs `:app:testDebugUnitTest :app:lintDebug`. Lint aborts on errors and writes HTML and XML reports under `app/build/reports/`. Existing warnings remain warnings, with no baseline hiding them.
 
+Branch protection on `main` requires one check, `Merge gate` (`.github/workflows/gate.yml`). It runs on every pull request, waits for every other workflow run on the head commit, whatever started it, and passes only if none failed; a cancelled run counts only when the same workflow also succeeded on that commit. It decides once and does not notice later re-runs: after re-running a failed job in another workflow and seeing it pass, open the pull request's Merge gate run and choose "Re-run all jobs" (or push a new commit).
+
 ## Dependency updates
 
 The Android toolchain moves together, outside Dependabot: AGP, Gradle, Kotlin, KSP and the Compose compiler must remain compatible. The coordinated API 37 upgrade removes the first-wave AndroidX, Coroutines, Serialization and OkHttp version bounds now that their current stable versions pass the consumer tests. Library and security updates may advance normally; the coupled toolchain remains excluded. Room, WorkManager, Lifecycle, Glance and Compose updates stay grouped separately so unrelated libraries do not block each other.
