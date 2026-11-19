@@ -10,8 +10,10 @@ import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.map
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.updateAll
 import androidx.glance.action.ActionParameters
@@ -144,7 +146,19 @@ object WidgetUpdater {
             })
         }
 
-    fun observe(context: Context, glanceId: GlanceId): kotlinx.coroutines.flow.Flow<WidgetView> =
+    /**
+     * One widget instance's view, rebuilt at [now] whenever its inputs move.
+     *
+     * The inputs include the time of the last repaint ([refreshAll]). A running Glance session
+     * is not restarted by `updateAll`, so without it a session would keep the rank, reset-due
+     * and stale marks it computed at its last data emission, through every presentation
+     * boundary the [WidgetPresentationWorker] repaints for.
+     */
+    fun observe(
+        context: Context,
+        glanceId: GlanceId,
+        now: () -> Long = System::currentTimeMillis,
+    ): kotlinx.coroutines.flow.Flow<WidgetView> =
         kotlinx.coroutines.flow.flow {
             val app = context.applicationContext as? UsageLimitsApp ?: return@flow
             val container = app.container
@@ -153,13 +167,14 @@ object WidgetUpdater {
                 container.repository.observeAccountUsage(),
                 container.widgetConfigDao.observe(appWidgetId),
                 container.settingsStore.settings,
-            ) { accounts, config, settings ->
+                container.settingsStore.diagnostics.map { it.lastWidgetRefreshAt }.distinctUntilChanged(),
+            ) { accounts, config, settings, _ ->
                 val custom = runCatching {
                     val ids = org.json.JSONArray(config?.customAccountIdsJson ?: "[]")
                     (0 until ids.length()).map { ids.getString(it) }
                 }.getOrDefault(emptyList())
                 WidgetView(
-                    WidgetDataBuilder.build(accounts, System.currentTimeMillis(),
+                    WidgetDataBuilder.build(accounts, now(),
                         WidgetScope.fromName(config?.scope), config?.accountId, config?.provider,
                         Severity.staleAfterMs(settings.syncIntervalMinutes), custom, settings.providerIcons),
                     WidgetStyle.fromStored(
