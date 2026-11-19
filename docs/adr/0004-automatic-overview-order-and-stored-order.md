@@ -25,7 +25,8 @@ the list without a new reading. Android does this in `inOverviewOrder` (`core/mo
 scope, the App Group export on iOS, and the stored-order ties in Closest Resets and Most Critical.
 This is the order in the account database: the arrangement a build with dragging left behind, or
 the order the accounts were added in. New accounts go last, and reconnecting keeps an account's
-position. Nothing in the app writes it any more. The repository writer (`UsageRepository.reorderAccounts`
+position. No UI can reorder existing accounts; changing which accounts are pinned leaves the
+stored ordering rule intact. The repository writer (`UsageRepository.reorderAccounts`
 on Android, `AccountRepository.reorder(ids:)` on iOS) and its tests remain so that saved
 arrangements and test fixtures keep working. The legacy "manually ordered" preference stays in
 storage but no view reads it. **Custom** keeps its own saved list of IDs, in its saved order.
@@ -51,11 +52,16 @@ Custom orders for the same inputs, worked out by hand from the rule above.
 
 - Overview and All accounts lead with the same account at the same moment. Any other widget
   selection or the pinned icons may lead with a different one; this is intended.
-- Pin order no longer follows any action in the app. A person who wants a different icon order
-  has to unpin and pin again; the icons still follow the stored order, not the order of pinning.
-- The status-icon device evidence can no longer show "icons follow a reorder in the app". It now
-  seeds a pre-upgrade stored order with the repository writer as a fixture, changes one reading
-  so that the automatic order moves, and asserts that the stored order and the order the app posts
-  the pinned icons in stay as they were ([Status icon device evidence](../status-icon-evidence.md)).
+- The order the app asks Android for, through each pinned account's notification `when`, is the
+  stored order; pinning or unpinning changes which accounts are posted, not their order. What
+  SystemUI draws is Android's decision: on API 30 the shade has listed an account whose reading
+  had just changed first, against the app's `when` order (frame `05-reranked`, run
+  [44586152463](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44586152463)
+  on `343bd88`), and listed the stored order again in the next frames.
+- The status-icon device evidence no longer has a reorder step. It seeds a pre-upgrade stored
+  order with the repository writer as a fixture and changes one reading so that the driver's
+  Overview and All accounts projections move. It then asserts that the stored order and the
+  notification `when` order the app posts stay as they were, and that the changed account's records
+  carry the new reading ([Status icon device evidence](../status-icon-evidence.md)).
 - On iOS, an export written before `createdAt` existed cannot rank ties by added time; the widget
   uses the export's order until the app writes the next export.

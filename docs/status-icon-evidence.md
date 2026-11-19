@@ -58,8 +58,9 @@ Since issue 88 ([ADR 0004](adr/0004-automatic-overview-order-and-stored-order.md
 - `allAccounts` equals `overview`, and `overview` differs from the stored order.
 - Before the reading Antigravity is last in `overview`; after it xAI (exhausted) and Antigravity (2% left) lead.
 - `pinOrder` is Claude, Codex, Antigravity (stored order, not the pin order Codex, Antigravity, Claude), and the `when` the app stamped on each pinned account, newest first, gives the same order on both summary and child.
+- Antigravity's summary and child, found by their account tag, are titled `100% left` before the rerank and `2% left` after it, with the six record keys unchanged: the reading was posted, not only computed.
 
-These assert what the app computed and asked Android for. Whether SystemUI draws the icons and shade rows in that order stays an observation in the report, as before. The seeded stored order is fixture set-up through the repository writer; no command writes an order as a person would.
+These assert what the driver's projections computed and what the app asked Android for; they are not a rendered Overview or placed widget. Whether SystemUI draws the icons and shade rows in that order stays an observation in the report, as before. The seeded stored order is fixture set-up through the repository writer; no command writes an order as a person would.
 
 ## Notification header evidence
 
