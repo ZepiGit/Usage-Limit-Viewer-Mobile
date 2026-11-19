@@ -210,7 +210,7 @@ Then open the generated project in Xcode, set up signing and run it.
 | set up a specific service | the `docs/providers-*` guides, e.g. [Codex](docs/providers-codex.md), [Kimi](docs/providers-kimi.md), [Z.ai](docs/providers-zai.md) |
 | use the Credits section | [Credits](docs/credits.md) |
 
-For development, read the [Architecture](docs/architecture.md) and [Release guide](docs/release.md).
+For development, read the [Architecture](docs/architecture.md) and [Release guide](docs/release.md). Reviews check changes against the [Coding standards](CODING_STANDARDS.md).
 
 Found a problem or have a feature request? Please open an [issue](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/issues/new/choose).
 For vulnerabilities, follow the [security policy](SECURITY.md) to report privately.
