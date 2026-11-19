@@ -18,6 +18,8 @@ import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
 import com.usagelimits.UsageLimitsApp
+import com.usagelimits.core.database.UsageRepository
+import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.sync.NotificationPublisher
 import com.usagelimits.core.sync.SyncWorker
@@ -373,38 +375,70 @@ class StatusIconEvidenceDriverTest {
      * The order split the CI scenario shows on a device (ADR 0004). Seed arranges a pre-upgrade
      * stored order through the repository writer; Overview and All accounts rank by the headline,
      * the pinned icons follow the stored order. A synthetic reading for Antigravity then moves it
-     * up the automatic order while the stored order, the pin list and the icons' order stay put.
+     * up the automatic order while the stored order, the pin list and the icons' order stay put,
+     * and the publication posts that reading.
+     *
+     * Both clocks are scripted (standard 1): accounts are added at fixed, distinct instants, and
+     * the publisher's wall clock moves only when it waits for the next tick, as in
+     * `StatusIconClockTest`, so the order of the `when` stamps cannot depend on the host.
      */
     @Test
     fun `a reading reranks Overview and All accounts while the pinned icons keep the stored order`() = runBlocking {
-        val seeded = command("seed")
+        var added = 1_700_000_000_000L
+        // A starting point only: the readings the driver writes are fresh against it, and from
+        // here the publisher's clock advances by the script alone.
+        var wall = System.currentTimeMillis()
+        val container = object : AppContainer(app) {
+            override val repository by lazy {
+                UsageRepository(database.accountDao(), database.usageSnapshotDao(), transactions = transactions,
+                    nowMs = { added += 60_000; added })
+            }
+            override val statusIconPublisher by lazy {
+                StatusIconPublisher(app, settingsStore, repository::accountUsageOnce,
+                    now = { wall }, nextTick = { wall += 1 }, monotonic = { 0L })
+            }
+        }
+        val driver = StatusIconEvidenceDriver(app, container, prepareEmptyInstall = {})
+        val seeded = command("seed", driver = driver)
         val stored = listOf("evidence-claude", "evidence-codex", "evidence-gemini", "evidence-xai", "evidence-copilot", "evidence-cursor")
         assertEquals(stored, seeded.strings("accounts"))
-        // Each fixture added after the previous one, newest first: stored order is not addition order.
-        val created = app.container.repository.accounts().associate { it.externalAccountId to it.createdAt }
+        // Added newest-first: each account in stored order was added strictly after the next one.
+        val created = container.repository.accounts().associate { it.externalAccountId to it.createdAt }
         assertTrue("addition order runs against the stored order: $created",
-            stored.zipWithNext().all { (a, b) -> created.getValue(a) >= created.getValue(b) })
-        assertTrue(command("enable").getBoolean("success"))
-        for (alias in listOf("evidence-codex", "evidence-gemini", "evidence-claude")) assertTrue(command("pin", alias).getBoolean("success"))
-        val before = command("update")
+            stored.zipWithNext().all { (a, b) -> created.getValue(a) > created.getValue(b) })
+        assertTrue(command("enable", driver = driver).getBoolean("success"))
+        for (alias in listOf("evidence-codex", "evidence-gemini", "evidence-claude")) {
+            assertTrue(command("pin", alias, driver = driver).getBoolean("success"))
+        }
+        val before = command("update", driver = driver)
         val pinOrder = listOf("evidence-claude", "evidence-codex", "evidence-gemini")
         assertEquals("pins follow the stored order, not the pin order", pinOrder, before.strings("pinOrder"))
         assertEquals("Antigravity (100 left) ranks last before the reading", "evidence-gemini", before.strings("overview").last())
         assertEquals(before.strings("overview"), before.strings("allAccounts"))
-        assertEquals(pinOrder, postedOrder())
+        assertEquals(pinOrder, postedOrder(container))
+        val gemini = before.getJSONObject("localIds").getString("evidence-gemini")
+        assertEquals("summary and child show the reading before", listOf("100% left", "100% left"), titles(gemini))
+        val keys = statusRecords().map { it.key }.toSet()
 
-        val after = command("rerank")
+        val after = command("rerank", driver = driver)
         assertEquals("xAI (exhausted) then Antigravity (2 left) lead", listOf("evidence-xai", "evidence-gemini"), after.strings("overview").take(2))
         assertEquals(after.strings("overview"), after.strings("allAccounts"))
         assertEquals(stored, after.strings("accounts"))
         assertEquals(before.strings("pins"), after.strings("pins"))
         assertEquals("the icons keep the stored order", pinOrder, after.strings("pinOrder"))
-        assertEquals(pinOrder, postedOrder())
+        assertEquals(pinOrder, postedOrder(container))
+        assertEquals("the publication posted the new reading on summary and child", listOf("2% left", "2% left"), titles(gemini))
+        assertEquals("the same six records were updated in place", keys, statusRecords().map { it.key }.toSet())
     }
 
+    /** The titles of one account's status records, summary first. */
+    private fun titles(localId: String): List<String> = statusRecords().filter { it.tag == "status-icon:$localId" }
+        .sortedByDescending { it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 }
+        .map { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }
+
     /** Pinned accounts in the order the publisher stamped them: the newest `when` leads. */
-    private suspend fun postedOrder(): List<String> {
-        val aliases = app.container.repository.accounts().associate { it.localId to it.externalAccountId }
+    private suspend fun postedOrder(container: AppContainer): List<String> {
+        val aliases = container.repository.accounts().associate { it.localId to it.externalAccountId }
         return statusRecords().groupBy { it.tag.removePrefix("status-icon:") }
             .mapValues { (_, records) -> records.maxOf { it.notification.`when` } }
             .entries.sortedByDescending { it.value }.map { aliases.getValue(it.key) }

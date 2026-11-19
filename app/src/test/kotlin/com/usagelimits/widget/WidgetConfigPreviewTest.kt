@@ -168,12 +168,13 @@ class WidgetConfigPreviewTest {
      */
     @Test
     fun `the All accounts preview leads with the account Overview ranks first`() {
-        val now = System.currentTimeMillis()
+        // A fixed instant and no reset: nothing in this order depends on the clock the preview reads.
+        val fetchedAt = 1_800_000_000_000L
         fun usage(id: String, provider: ProviderId, left: Double) = AccountUsage(
             // The plan makes each title unique to the preview; the provider list says only the name.
-            ProviderAccount(id, provider, "ext-$id", "$id@example.invalid", null, "Fixture", "ref-$id", now, now),
-            UsageSnapshot(id, now, SnapshotStatus.OK, windows = listOf(
-                UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 100.0 - left, 604_800, now + 86_400_000, false))),
+            ProviderAccount(id, provider, "ext-$id", "$id@example.invalid", null, "Fixture", "ref-$id", fetchedAt, fetchedAt),
+            UsageSnapshot(id, fetchedAt, SnapshotStatus.OK, windows = listOf(
+                UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 100.0 - left, 604_800, null, false))),
         )
         // Stored order: Codex (90 left), Kimi (50 left), Claude (12 left).
         val stored = listOf(usage("codex", ProviderId.CODEX, 90.0), usage("kimi", ProviderId.KIMI, 50.0),
@@ -196,10 +197,11 @@ class WidgetConfigPreviewTest {
         assertTrue("the roomiest is trimmed", top("OpenAI Codex Fixture").none())
         assertTrue("Claude (12 left) leads Kimi (50 left)", top("Claude Fixture").single() < top("Kimi Fixture").single())
 
-        compose.runOnIdle { config = configured("CUSTOM", """["codex","claude"]""") }
+        // Saved Kimi, Claude, Codex: against both the stored order (Codex, Kimi) and the rank (Claude, Kimi).
+        compose.runOnIdle { config = configured("CUSTOM", """["kimi","claude","codex"]""") }
         compose.waitForIdle()
-        assertEquals(1, top("OpenAI Codex Fixture").size)
-        assertTrue("Custom keeps its saved order", top("OpenAI Codex Fixture").single() < top("Claude Fixture").first())
+        assertTrue("Custom previews its first two saved accounts", top("OpenAI Codex Fixture").none())
+        assertTrue("Custom keeps its saved order", top("Kimi Fixture").single() < top("Claude Fixture").first())
     }
 
     @Test

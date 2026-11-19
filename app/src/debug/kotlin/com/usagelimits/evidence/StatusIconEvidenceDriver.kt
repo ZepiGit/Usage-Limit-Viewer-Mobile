@@ -6,6 +6,7 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.await
 import com.usagelimits.UsageLimitsApp
+import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
@@ -33,9 +34,10 @@ import java.io.File
 /** Drives the real cache and publication seam; never constructs or cancels notifications. */
 internal class StatusIconEvidenceDriver(
     private val app: UsageLimitsApp,
+    /** The app's own container on a device; a test supplies one with scripted clocks. */
+    private val container: AppContainer = app.container,
     private val prepareEmptyInstall: suspend () -> Unit = { quiesceStartup(app) },
 ) {
-    private val container get() = app.container
     private val repository get() = container.repository
     private val sequence = Mutex()
     private var seeded = false
