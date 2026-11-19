@@ -6,7 +6,10 @@ name: Merge gate
 # not release.yml) and fails if one of them failed (tools/merge_gate.py, docs/release.md). It
 # decides from the runs visible when it stops polling and cannot know that no other run will
 # appear. It runs the script from the pull request itself, so a pull request that changes it proves
-# nothing about itself by passing.
+# nothing about itself by passing. A tag pushed onto the head commit starts CI too (path filters do
+# not apply to tags, #98); those push runs are judged like any other, so a failed one blocks the
+# pull request until it is re-run or the head moves on by a commit, and a passed one can stand in
+# for a cancelled run of the same workflow.
 on:
   pull_request:
 

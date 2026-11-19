@@ -90,6 +90,9 @@ class VerdictTest(unittest.TestCase):
             "sibling also cancelled": [run(1, event="push", conclusion="cancelled"), run(2, conclusion="cancelled")],
             "sibling only skipped": [run(1, event="push", conclusion="cancelled"), run(2, conclusion="skipped")],
             "success only in another workflow": [run(1, conclusion="cancelled"), run(2, "iOS")],
+            # A run the gate does not judge cannot stand in for one it judges.
+            "success only in a manual run": [run(1, conclusion="cancelled"),
+                                             run(2, event="workflow_dispatch")],
         }
         for name, runs in cases.items():
             with self.subTest(name):
@@ -116,6 +119,13 @@ class VerdictTest(unittest.TestCase):
                 passed, reason = verdict([run(1), run(2, "iOS"), other])
                 self.assertTrue(passed, reason)
                 self.assertEqual(reason, "all 2 judged runs visible for this commit passed")
+
+    def test_a_ci_run_started_by_a_tag_push_is_judged_like_any_push_run(self):
+        # Decided for #92: the gate does not guess from the ref name (#98 decides whether CI runs on tags).
+        tag_run = {**run(3, event="push", conclusion="failure"), "head_branch": "v0.3.1"}
+        passed, reason = verdict([run(1), run(2, "iOS"), tag_run])
+        self.assertFalse(passed)
+        self.assertEqual(reason, "Android (push) run 3 concluded failure")
 
     def test_a_workflow_the_gate_has_never_heard_of_is_judged(self):
         passed, reason = verdict([run(1), run(2, "Lint", conclusion="failure")])
@@ -246,6 +256,29 @@ class WaitTest(unittest.TestCase):
         with self.assertRaises(GaveUp):
             wait(clock, slow)
         self.assertLessEqual(clock.now, merge_gate.DEADLINE + request)
+
+    def test_a_success_that_arrives_after_the_deadline_does_not_pass(self):
+        clock = Clock()
+        request = 40
+        open_until = merge_gate.DEADLINE - 30
+
+        def last_request_slow():
+            asked_at = clock.now
+            clock.now += request if asked_at >= open_until else 0
+            return [run(7, status="in_progress", conclusion=None) if asked_at < open_until else run(7)]
+        with self.assertRaises(GaveUp):
+            wait(clock, last_request_slow)
+
+    def test_no_request_starts_at_the_deadline(self):
+        clock = Clock()
+        asked = []
+
+        def listing():
+            asked.append(clock.now)
+            return [run(7, status="in_progress", conclusion=None)]
+        with self.assertRaises(GaveUp):
+            wait(clock, listing)
+        self.assertLess(max(asked), merge_gate.DEADLINE)
 
     def test_an_api_error_breaks_the_settling_but_not_the_gate(self):
         clock = Clock()

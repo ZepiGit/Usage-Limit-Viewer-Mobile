@@ -102,7 +102,7 @@ def verdict(all_runs):
             continue
         if conclusion == "cancelled":
             if run["workflow_id"] not in succeeded:
-                problems.append(f"{label(run)} was cancelled and no run of {run['name']} on this commit succeeded")
+                problems.append(f"{label(run)} was cancelled and no judged run of {run['name']} on this commit succeeded")
         elif conclusion in FAILING:
             problems.append(f"{label(run)} concluded {conclusion}")
         else:
@@ -158,7 +158,8 @@ def wait_for_runs(list_now, clock, sleep, log):
     """All listed runs once the judged ones have settled and finished; GaveUp at the deadline."""
     start = clock()
     previous, streak, runs, last_line = None, 0, [], None
-    while True:
+    # No fetch starts at or after the deadline.
+    while clock() - start < DEADLINE:
         try:
             runs = list_now()
         except Transient as error:
@@ -170,8 +171,8 @@ def wait_for_runs(list_now, clock, sleep, log):
             streak = streak + 1 if ids == previous else 1
             previous = ids
             busy = [run for run in current if not finished(run)]
-            # Time is read after the request, so one slow request cannot carry the gate past its deadline.
-            if streak >= STABLE_POLLS and clock() - start >= MIN_SETTLE and not busy:
+            # Time is read after the request: a listing that arrives after the deadline never passes.
+            if streak >= STABLE_POLLS and MIN_SETTLE <= clock() - start < DEADLINE and not busy:
                 return runs
             waiting = "; ".join(f"{label(run)} {state(run)}" for run in busy) or "the set of runs to settle"
             line = f"{len(current)} judged runs, waiting for {waiting}"
@@ -180,11 +181,12 @@ def wait_for_runs(list_now, clock, sleep, log):
             log(f"t+{int(elapsed)}s: {line}")
             last_line = line
         if elapsed >= DEADLINE:
-            busy = [run for run in judged(runs) if not finished(run)]
-            what = "; ".join(f"{label(run)} {state(run)} {run['html_url']}" for run in busy)
-            raise GaveUp(f"gave up after {DEADLINE // 60} minutes waiting for "
-                         f"{what or 'the set of runs to settle (' + line + ')'}", runs)
+            break
         sleep(min(INTERVAL, DEADLINE - elapsed))
+    busy = [run for run in judged(runs) if not finished(run)]
+    what = "; ".join(f"{label(run)} {state(run)} {run['html_url']}" for run in busy)
+    raise GaveUp(f"gave up after {DEADLINE // 60} minutes waiting for "
+                 f"{what or 'the set of runs to settle (' + line + ')'}", runs)
 
 
 def tables(runs):
