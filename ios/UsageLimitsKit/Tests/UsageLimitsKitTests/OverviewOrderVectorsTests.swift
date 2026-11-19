@@ -112,7 +112,7 @@ final class OverviewOrderVectorsTests: XCTestCase {
         }
     }
 
-    private struct Window: Decodable {
+    struct Window: Decodable {
         let window: UsageWindow
 
         init(from decoder: Decoder) throws {
