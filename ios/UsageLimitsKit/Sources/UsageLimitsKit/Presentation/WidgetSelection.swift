@@ -13,7 +13,7 @@ extension GlanceSnapshot {
         providerID: String? = nil, customAccountIDs: [String] = []) -> GlanceSnapshot {
         let selected: [GlanceAccount]
         switch scope {
-        case .allAccounts: selected = accounts
+        case .allAccounts: selected = overviewOrderedAccounts(at: now)
         case .account: selected = accounts.filter { $0.id == accountID }
         case .provider: selected = accounts.filter { $0.providerID == providerID }
         case .custom:

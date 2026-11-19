@@ -73,6 +73,42 @@ final class GlanceSnapshotCodecTests: XCTestCase {
             JSONSerialization.jsonObject(with: GlanceSnapshotCodec.encode(original)) as? [String: Any])
     }
 
+    func testExportWritesTheAccountAddedTime() throws {
+        let date = now.addingTimeInterval(-900.125)
+        let account = ProviderAccount(id: "a", provider: .codex, externalAccountID: "a",
+            email: nil, displayName: nil, plan: nil, credentialReference: "ref",
+            createdAt: date, lastSuccessfulSync: nil)
+        let export = GlanceModel.build([AccountUsage(account: account, snapshot: nil)],
+            now: now, scope: .allAccounts)
+        let json = try encodedJSON(export)
+        let accounts = try XCTUnwrap(json["accounts"] as? [[String: Any]])
+        XCTAssertEqual(accounts.first?["createdAt"] as? Double, date.timeIntervalSinceReferenceDate)
+        XCTAssertEqual(GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(export)).accounts.first?.createdAt, date)
+    }
+
+    func testOldExportKeepsCacheOrderUntilRepublished() throws {
+        let accounts = ["healthy", "tight"].enumerated().map { index, id in
+            let account = ProviderAccount(id: id, provider: .codex, externalAccountID: id,
+                email: nil, displayName: nil, plan: nil, credentialReference: id,
+                createdAt: now, lastSuccessfulSync: now)
+            let window = UsageWindow(id: "short", label: "5h", category: .fiveHour,
+                usedPercent: index == 0 ? 30 : 90, periodSeconds: 18_000, resetAt: nil, exhausted: false)
+            return AccountUsage(account: account, snapshot: UsageSnapshot(accountID: id, fetchedAt: now,
+                status: .ok, windows: [window]))
+        }
+        let export = GlanceModel.build(accounts, now: now, scope: .allAccounts)
+        var json = try encodedJSON(export)
+        json["accounts"] = try XCTUnwrap(json["accounts"] as? [[String: Any]]).map { account in
+            account.filter { $0.key != "createdAt" }
+        }
+        let old = GlanceSnapshotCodec.decode(try JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(old.selecting(scope: .allAccounts, now: now).accounts.map(\.id), ["healthy", "tight"])
+        XCTAssertTrue(old.accounts.allSatisfy { $0.createdAt == nil })
+        let republished = GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(export))
+        XCTAssertEqual(republished.accounts.map(\.id), ["healthy", "tight"])
+        XCTAssertEqual(republished.selecting(scope: .allAccounts, now: now).accounts.map(\.id), ["tight", "healthy"])
+    }
+
     func testSnapshotWrittenBeforePercentDisplayStillDecodesAsLeft() throws {
         // The file already on a user's phone at the moment of upgrade. If the missing key failed
         // the decode, every widget would go blank until the app next ran and republished.

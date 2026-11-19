@@ -90,6 +90,8 @@ public struct GlanceSeverityStep: Sendable, Equatable, Codable {
 /// One account block.
 public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     public let id: String
+    /// The account-added time; absent in exports predating automatic order.
+    public let createdAt: Date?
     public let title: String
     public let subtitle: String?
     public let rows: [GlanceRow]
@@ -132,9 +134,11 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         connectionStatus: ConnectionStatus = .unknown,
         resetDates: [Date]? = nil,
         iconAssetName: String? = nil,
-        statusMessage: String? = nil
+        statusMessage: String? = nil,
+        createdAt: Date? = nil
     ) {
         self.id = id
+        self.createdAt = createdAt
         self.title = title
         self.subtitle = subtitle
         self.rows = rows
@@ -152,6 +156,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, subtitle, rows, severity, baseSeverity, baseSeverityAfterResets, candidates, fetchedAt, providerID, connectionStatus, resetDates, iconAssetName, statusMessage
+        case createdAt
     }
 
     /// Lenient on the optional keys: a snapshot written before them must still decode, or every
@@ -159,6 +164,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
         title = try c.decode(String.self, forKey: .title)
         subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
         rows = try c.decode([GlanceRow].self, forKey: .rows)
@@ -336,6 +342,27 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
         pinnedAccountIDs = try c.decodeIfPresent([String].self, forKey: .pinnedAccountIDs) ?? []
         percentDisplay = PercentDisplay.fromLoose(
             raw: try c.decodeIfPresent(String.self, forKey: .percentDisplay))
+    }
+
+    /// Overview and All accounts rank the same accounts without changing the register order.
+    /// Older App Group snapshots keep their entire cache order until the app republishes.
+    public func overviewOrderedAccounts(at date: Date) -> [GlanceAccount] {
+        var ranked: [(index: Int, reconnect: Bool, remaining: Double, createdAt: Date)] = []
+        ranked.reserveCapacity(accounts.count)
+        for (index, account) in accounts.enumerated() {
+            guard let createdAt = account.createdAt else { return accounts }
+            let headline = account.representative(at: date)
+            let remaining = headline?.severity == .exhausted ? 0 : headline?.remainingPercent ?? .infinity
+            ranked.append((index, account.connectionStatus == .reconnectRequired, remaining, createdAt))
+        }
+        ranked.sort { left, right in
+            if left.reconnect != right.reconnect { return left.reconnect }
+            if left.remaining != right.remaining { return left.remaining < right.remaining }
+            if left.createdAt != right.createdAt { return left.createdAt < right.createdAt }
+            return accounts[left.index].id.unicodeScalars
+                .lexicographicallyPrecedes(accounts[right.index].id.unicodeScalars)
+        }
+        return ranked.map { accounts[$0.index] }
     }
 
     public func nextResettingAccount(at date: Date) -> GlanceAccount? {
@@ -666,7 +693,8 @@ public enum GlanceModel {
             connectionStatus: usage.snapshot?.connectionStatus ?? .unknown,
             resetDates: usage.snapshot?.windows.compactMap(\.resetAt),
             iconAssetName: ProviderIconCatalog.selected(for: usage.account.provider, id: providerIcons[usage.account.provider.rawValue]).assetName,
-            statusMessage: usage.snapshot?.statusMessage)
+            statusMessage: usage.snapshot?.statusMessage,
+            createdAt: usage.account.createdAt)
     }
 
     private static func row(_ window: UsageWindow) -> GlanceRow {

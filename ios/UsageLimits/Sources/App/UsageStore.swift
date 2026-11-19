@@ -14,10 +14,7 @@ final class UsageStore: ObservableObject {
     @Published private(set) var accounts: [AccountUsage] = []
     /// Prepaid balances, kept apart from the usage accounts: no windows, no resets.
     @Published private(set) var credits: [CreditEntry] = []
-    @Published private var pendingAccountOrder: [String]?
     @Published var focusedAccountID: String?
-    private var orderWrite: Task<Void, Never>?
-    private var orderGeneration = 0
     private var settingsWrite: Task<Void, Never>?
 
     /// Writable, because the settings screen binds straight to it.
@@ -104,48 +101,6 @@ final class UsageStore: ObservableObject {
             percentDisplay: settings.percentDisplay,
             statusIconsEnabled: settings.statusIconsEnabled,
             pinnedAccountIDs: PinnedAccounts.resolve(keys: settings.pinnedAccountKeys, accounts: accounts.map(\.account)))
-    }
-
-    /// The accounts in the order the overview should show them.
-    ///
-    /// Uses repository order regardless of the manual-order flag, with a pending drag order
-    /// applied while it is being persisted. The glance summary and next reset are selected
-    /// separately from the displayed account list.
-    var orderedAccounts: [GlanceAccount] {
-        let values = GlanceModel.build(accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay).accounts
-        guard let order = pendingAccountOrder else { return values }
-        let byID = Dictionary(uniqueKeysWithValues: values.map { ($0.id, $0) })
-        return order.compactMap { byID[$0] } + values.filter { !order.contains($0.id) }
-    }
-
-    func reorderAccounts(ids: [String]) async {
-        guard let container else { return }
-        var seen = Set<String>()
-        let order = ids.filter { seen.insert($0).inserted }
-        pendingAccountOrder = order
-        orderGeneration += 1
-        let generation = orderGeneration
-        let previous = orderWrite
-        let write = Task { @MainActor [weak self] in
-            await previous?.value
-            guard let self else { return }
-            do {
-                let updated = try await container.reorder(ids: order)
-                if self.orderGeneration == generation {
-                    self.accounts = updated
-                    self.pendingAccountOrder = nil
-                    self.settings.accountsManuallyOrdered = true
-                    self.lastError = nil
-                }
-            } catch {
-                if self.orderGeneration == generation {
-                    self.pendingAccountOrder = nil
-                    self.lastError = String(localized: "Could not save account order. Try again.")
-                }
-            }
-        }
-        orderWrite = write
-        await write.value
     }
 
     func notificationsEnabled(accountID: String) -> Bool {

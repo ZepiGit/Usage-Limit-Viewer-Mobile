@@ -1101,17 +1101,6 @@
         }
       }
     },
-    "Could not save account order. Try again." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Reihenfolge der Konten konnte nicht gespeichert werden. Versuche es erneut."
-          }
-        }
-      }
-    },
     "Could not save this layout. Try again." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1266,17 +1255,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anzeige"
-          }
-        }
-      }
-    },
-    "Done" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Fertig"
           }
         }
       }
@@ -2451,17 +2429,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ entfernen?"
-          }
-        }
-      }
-    },
-    "Reorder" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sortieren"
           }
         }
       }

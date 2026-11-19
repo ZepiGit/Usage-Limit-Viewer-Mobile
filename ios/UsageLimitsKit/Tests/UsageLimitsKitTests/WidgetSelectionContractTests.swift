@@ -91,14 +91,16 @@ final class WidgetSelectionContractTests: XCTestCase {
         XCTAssertEqual(selected.nextResetAt, now.addingTimeInterval(9000))
     }
 
-    /// The export itself stays in overview order — the configured "All accounts" choice
-    /// depends on it, so the legacy fix must not change the shared export's ordering.
-    func testConfiguredAllAccountsPreservesOverviewOrder() {
+    func testConfiguredAllAccountsRanksWithoutMovingStoredOrder() {
         let values = [account("c", used: 0, reset: nil), account("a", used: 100, reset: nil),
             account("b", used: 50, reset: nil)]
         let export = GlanceModel.build(values, now: now, scope: .allAccounts)
         XCTAssertEqual(export.accounts.map(\.id), ["c", "a", "b"])
-        XCTAssertEqual(export.selecting(scope: .allAccounts, now: now).accounts.map(\.id), ["c", "a", "b"])
+        XCTAssertEqual(export.selecting(scope: .allAccounts, now: now).accounts.map(\.id), ["a", "b", "c"])
+        XCTAssertEqual(export.selecting(scope: .provider, now: now, providerID: "codex").accounts.map(\.id),
+            ["c", "a", "b"])
+        XCTAssertEqual(export.selecting(scope: .custom, now: now, customAccountIDs: ["c", "b"]).accounts.map(\.id),
+            ["c", "b"])
     }
 
     /// "Is anything wrong anywhere" across the SELECTION — the lead's own severity would

@@ -8,19 +8,34 @@ public enum GlanceSnapshotCodec {
     /// The file name inside the shared container, so neither side hard-codes it twice.
     public static let fileName = "glance-snapshot.json"
 
-    /// ISO-8601 on both sides. The default strategy encodes a `Date` as a floating-point count
-    /// of seconds since 2001, which is correct but unreadable — and this file is the first thing
-    /// anyone will look at when a widget shows the wrong time.
+    private static let iso8601 = Date.ISO8601FormatStyle()
+
     private static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var value = encoder.singleValueContainer()
+            let seconds = date.timeIntervalSinceReferenceDate
+            // Keep whole seconds readable. A fractional reset or fetch instant must not be
+            // rounded: it can change which headline ranks at the same presentation date.
+            if seconds.rounded(.towardZero) == seconds {
+                try value.encode(iso8601.format(date))
+            } else {
+                try value.encode(seconds)
+            }
+        }
         encoder.outputFormatting = [.sortedKeys]
         return encoder
     }
 
     private static func decoder() -> JSONDecoder {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let value = try decoder.singleValueContainer()
+            if let seconds = try? value.decode(Double.self) {
+                return Date(timeIntervalSinceReferenceDate: seconds)
+            }
+            return try iso8601.parse(value.decode(String.self))
+        }
         return decoder
     }
 
@@ -133,9 +148,7 @@ public enum GlanceSnapshotCodec {
         // Zero bytes is the atomic writer caught mid-replace, not a decodable empty snapshot.
         guard !data.isEmpty else { return .corrupt }
 
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let snapshot = try? decoder.decode(GlanceSnapshot.self, from: data) else {
+        guard let snapshot = try? decoder().decode(GlanceSnapshot.self, from: data) else {
             return .corrupt
         }
         return .decoded(snapshot)
