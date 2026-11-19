@@ -19,6 +19,10 @@ WORKFLOWS = {
     "iOS": (2, ".github/workflows/ios.yml"),
     "Status icon device evidence": (3, ".github/workflows/status-icons.yml"),
     "Merge gate": (9, ".github/workflows/gate.yml"),
+    "Marketing screenshots": (4, ".github/workflows/screenshots.yml"),
+    "Dependabot Updates": (5, "dynamic/dependabot/dependabot-updates"),
+    "Release": (6, ".github/workflows/release.yml"),
+    "Lint": (7, ".github/workflows/lint.yml"),
 }
 
 
@@ -95,9 +99,28 @@ class VerdictTest(unittest.TestCase):
                 self.assertIn("cancelled", reason)
 
     def test_no_other_run_passes(self):
-        passed, reason = verdict([])
-        self.assertTrue(passed)
-        self.assertIn("no other workflow ran", reason)
+        for runs in ([], [run(9, "Merge gate", status="in_progress", conclusion=None)]):
+            with self.subTest(runs=len(runs)):
+                passed, reason = verdict(runs)
+                self.assertTrue(passed)
+                self.assertEqual(reason, "no other workflow run was visible for this commit")
+
+    def test_failed_manual_dependabot_and_release_runs_do_not_block_passing_ci(self):
+        others = {
+            "workflow_dispatch": run(21, "Marketing screenshots", event="workflow_dispatch", conclusion="failure"),
+            "dynamic": run(22, "Dependabot Updates", event="dynamic", conclusion="failure"),
+            "release push": run(23, "Release", event="push", conclusion="failure"),
+        }
+        for name, other in others.items():
+            with self.subTest(name):
+                passed, reason = verdict([run(1), run(2, "iOS"), other])
+                self.assertTrue(passed, reason)
+                self.assertEqual(reason, "all 2 judged runs visible for this commit passed")
+
+    def test_a_workflow_the_gate_has_never_heard_of_is_judged(self):
+        passed, reason = verdict([run(1), run(2, "Lint", conclusion="failure")])
+        self.assertFalse(passed)
+        self.assertIn("Lint (pull_request) run 2 concluded failure", reason)
 
     def test_an_unknown_or_missing_conclusion_fails_closed(self):
         for conclusion in ("stale", "something_new", None):
@@ -125,13 +148,13 @@ class ListRunsTest(unittest.TestCase):
             return served[key], next_url
         return fetch, requested
 
-    def test_follows_every_page_and_leaves_out_the_gates_own_runs(self):
+    def test_follows_every_page(self):
         fetch, requested = self.pages(
             {"total_count": 4, "workflow_runs": [run(1), run(2, "Merge gate")]},
             {"total_count": 4, "workflow_runs": [run(3, "iOS"), run(4, "Status icon device evidence", event="push")]},
         )
         runs = list_runs(fetch, REPO, SHA, api="https://api.example")
-        self.assertEqual([r["id"] for r in runs], [1, 3, 4])
+        self.assertEqual([r["id"] for r in runs], [1, 2, 3, 4])
         self.assertEqual(len(requested), 2)
         self.assertIn(f"head_sha={SHA}", requested[0])
         self.assertIn("per_page=100", requested[0])
@@ -169,6 +192,23 @@ class WaitTest(unittest.TestCase):
         self.assertGreaterEqual(clock.now, first_poll_with_both + (merge_gate.STABLE_POLLS - 1) * merge_gate.INTERVAL)
         self.assertFalse(verdict(runs)[0])
 
+    def test_a_run_replaced_by_another_of_the_same_count_is_judged_only_after_three_sightings(self):
+        clock = Clock()
+        swap = merge_gate.MIN_SETTLE
+        runs = wait(clock, timeline(clock, (0, [run(1), run(2, "iOS")]),
+                                    (swap, [run(1), run(3, "iOS", conclusion="failure")])))
+        self.assertEqual([r["id"] for r in runs], [1, 3])
+        self.assertEqual(clock.now, swap + (merge_gate.STABLE_POLLS - 1) * merge_gate.INTERVAL)
+
+    def test_runs_the_gate_does_not_judge_neither_delay_nor_unsettle_it(self):
+        clock = Clock()
+        manual = run(21, "Marketing screenshots", event="workflow_dispatch", status="in_progress", conclusion=None)
+        own = run(22, "Merge gate", status="in_progress", conclusion=None)
+        runs = wait(clock, timeline(clock, (0, [run(1), own]), (merge_gate.MIN_SETTLE - 1, [run(1), own, manual])))
+        self.assertEqual(clock.now, merge_gate.MIN_SETTLE)
+        self.assertEqual([r["id"] for r in runs], [1, 22, 21])
+        self.assertTrue(verdict(runs)[0])
+
     def test_waits_while_any_run_is_queued_in_progress_waiting_requested_or_pending(self):
         for status in ("queued", "in_progress", "waiting", "requested", "pending"):
             with self.subTest(status):
@@ -194,6 +234,18 @@ class WaitTest(unittest.TestCase):
         self.assertIn("Android (pull_request) run 7 in_progress", str(caught.exception))
         self.assertIn(stuck["html_url"], str(caught.exception))
         self.assertEqual(caught.exception.runs, [run(1, "iOS"), stuck])
+
+    def test_slow_requests_do_not_carry_the_gate_past_its_deadline_by_more_than_one_request(self):
+        clock = Clock()
+        request = 40
+        stuck = run(7, status="in_progress", conclusion=None)
+
+        def slow():
+            clock.now += request
+            return [stuck]
+        with self.assertRaises(GaveUp):
+            wait(clock, slow)
+        self.assertLessEqual(clock.now, merge_gate.DEADLINE + request)
 
     def test_an_api_error_breaks_the_settling_but_not_the_gate(self):
         clock = Clock()
@@ -229,6 +281,21 @@ class MainTest(unittest.TestCase):
             self.assertIn("| Android | push | 11 | cancelled | https://github.com/", text)
             self.assertIn("| iOS | pull_request | 13 | failure | https://github.com/", text)
             self.assertIn("Merge gate failed: iOS (pull_request) run 13 concluded failure", text)
+
+    def test_lists_the_runs_it_does_not_judge_with_the_reason(self):
+        runs = [run(1), run(21, "Marketing screenshots", event="workflow_dispatch", conclusion="failure"),
+                run(23, "Release", event="push", conclusion="failure"), run(24, "Merge gate", status="in_progress", conclusion=None)]
+        code, log, summary = self.gate(lambda now: {"total_count": 4, "workflow_runs": runs})
+        self.assertEqual(code, 0)
+        for text in (log, summary):
+            judged_part, not_judged_part = text.split("Not judged:")
+            self.assertIn("| Android | pull_request | 1 | success |", judged_part)
+            self.assertIn("| Marketing screenshots | workflow_dispatch | 21 | failure | https://github.com/"
+                          f"{REPO}/actions/runs/21 | event workflow_dispatch |", not_judged_part)
+            self.assertIn("| Release | push | 23 | failure |", not_judged_part)
+            self.assertIn("| path .github/workflows/release.yml |", not_judged_part)
+            self.assertIn("| Merge gate | pull_request | 24 | in_progress |", not_judged_part)
+            self.assertIn("Merge gate passed: all 1 judged runs visible for this commit passed", text)
 
     def test_passes_with_exit_status_zero(self):
         code, log, _ = self.gate(lambda now: {"total_count": 1, "workflow_runs": [run(1)]})

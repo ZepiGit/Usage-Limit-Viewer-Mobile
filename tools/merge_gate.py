@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Pass a pull request's head commit only when every other workflow run on it has passed.
+"""Pass a pull request's head commit only when no CI run visible on it has failed.
 
 The Android and iOS workflows filter on paths and the status icon evidence runs on push only, so
-none of their checks can be required by branch protection. The gate is the one required check: it
-always runs, waits for the runs GitHub started for the commit, under any event, and judges them.
+none of their checks can be required by branch protection. The gate always runs: it waits for the
+pull_request and push runs it can see on the commit, leaving out its own and release builds, and
+judges them. It cannot know whether another run will still appear after it decides.
 
 Usage: merge_gate.py <full commit SHA>
 Environment: GITHUB_REPOSITORY, GITHUB_TOKEN (actions: read), optional GITHUB_API_URL and
@@ -19,8 +20,13 @@ import time
 import urllib.error
 import urllib.request
 
-# The gate's own runs are never judged (earlier attempts, or the run of a force-pushed head).
 GATE_WORKFLOW = ".github/workflows/gate.yml"
+# CI is what pull requests and branch pushes start. Manual, scheduled and Dependabot update runs
+# (other events) and release builds (tag pushes) can share the commit but are not CI for it, so
+# they neither block nor delay the gate; it lists them as not judged. Its own runs are earlier
+# attempts or the run for another head.
+JUDGED_EVENTS = {"pull_request", "push"}
+NOT_JUDGED_PATHS = {GATE_WORKFLOW, ".github/workflows/release.yml"}
 
 # Runs started by one push appear seconds apart. The gate decides only after the set of runs has
 # been the same on STABLE_POLLS consecutive polls and MIN_SETTLE seconds have passed. A run the
@@ -68,10 +74,26 @@ def state(run):
     return "completed without a conclusion" if run["status"] == "completed" else run["status"]
 
 
-def verdict(runs):
-    """(passed, reason) for the finished runs on one commit, the gate's own excluded."""
+def not_judged_because(run):
+    """Why the gate leaves this run out, or None when it judges it."""
+    if run["path"] in NOT_JUDGED_PATHS:
+        return f"path {run['path']}"
+    if run["event"] not in JUDGED_EVENTS:
+        return f"event {run['event']}"
+    return None
+
+
+def judged(runs):
+    return [run for run in runs if not_judged_because(run) is None]
+
+
+def verdict(all_runs):
+    """(passed, reason) for every run listed on one commit, once the judged ones have finished."""
+    runs = judged(all_runs)
     if not runs:
-        return True, "no other workflow ran on this commit"
+        if all(run["path"] == GATE_WORKFLOW for run in all_runs):
+            return True, "no other workflow run was visible for this commit"
+        return True, "no pull_request or push run that the gate judges was visible for this commit"
     succeeded = {run["workflow_id"] for run in runs if run["conclusion"] == "success"}
     problems = []
     for run in runs:
@@ -87,7 +109,7 @@ def verdict(runs):
             problems.append(f"{label(run)} has unknown conclusion {conclusion!r}")
     if problems:
         return False, "; ".join(problems)
-    return True, f"all {len(runs)} runs on this commit passed"
+    return True, f"all {len(runs)} judged runs visible for this commit passed"
 
 
 def parse_next_link(header):
@@ -99,7 +121,7 @@ def parse_next_link(header):
 
 
 def list_runs(fetch, repo, sha, api="https://api.github.com"):
-    """Every workflow run on the commit except the gate's own, following all pages."""
+    """Every workflow run on the commit, judged or not, following all pages."""
     url = f"{api}/repos/{repo}/actions/runs?head_sha={sha}&per_page=100"
     runs, totals = {}, set()
     while url:
@@ -109,7 +131,7 @@ def list_runs(fetch, repo, sha, api="https://api.github.com"):
             runs[run["id"]] = run
     if totals != {len(runs)}:
         raise Transient(f"listing gave {len(runs)} runs against a total of {sorted(totals)}")
-    return [run for run in runs.values() if run["path"] != GATE_WORKFLOW]
+    return list(runs.values())
 
 
 def http_fetch(token):
@@ -133,40 +155,51 @@ def http_fetch(token):
 
 
 def wait_for_runs(list_now, clock, sleep, log):
-    """The runs once they have settled and all finished; GaveUp at the deadline."""
+    """All listed runs once the judged ones have settled and finished; GaveUp at the deadline."""
     start = clock()
     previous, streak, runs, last_line = None, 0, [], None
     while True:
-        elapsed = clock() - start
         try:
             runs = list_now()
         except Transient as error:
             previous, streak = None, 0
             line = f"listing failed, trying again: {error}"
         else:
-            ids = frozenset(run["id"] for run in runs)
+            current = judged(runs)
+            ids = frozenset(run["id"] for run in current)
             streak = streak + 1 if ids == previous else 1
             previous = ids
-            busy = [run for run in runs if not finished(run)]
-            if streak >= STABLE_POLLS and elapsed >= MIN_SETTLE and not busy:
+            busy = [run for run in current if not finished(run)]
+            # Time is read after the request, so one slow request cannot carry the gate past its deadline.
+            if streak >= STABLE_POLLS and clock() - start >= MIN_SETTLE and not busy:
                 return runs
             waiting = "; ".join(f"{label(run)} {state(run)}" for run in busy) or "the set of runs to settle"
-            line = f"{len(runs)} runs, waiting for {waiting}"
+            line = f"{len(current)} judged runs, waiting for {waiting}"
+        elapsed = clock() - start
         if line != last_line:
             log(f"t+{int(elapsed)}s: {line}")
             last_line = line
         if elapsed >= DEADLINE:
-            busy = [run for run in runs if not finished(run)]
+            busy = [run for run in judged(runs) if not finished(run)]
             what = "; ".join(f"{label(run)} {state(run)} {run['html_url']}" for run in busy)
             raise GaveUp(f"gave up after {DEADLINE // 60} minutes waiting for "
                          f"{what or 'the set of runs to settle (' + line + ')'}", runs)
-        sleep(INTERVAL)
+        sleep(min(INTERVAL, DEADLINE - elapsed))
 
 
-def table(runs):
+def tables(runs):
     lines = ["| Workflow | Event | Run | Conclusion | Link |", "| --- | --- | --- | --- | --- |"]
+    left_out = []
     for run in sorted(runs, key=lambda run: (run["name"], run["id"])):
-        lines.append(f"| {run['name']} | {run['event']} | {run['id']} | {state(run)} | {run['html_url']} |")
+        row = f"| {run['name']} | {run['event']} | {run['id']} | {state(run)} | {run['html_url']} |"
+        if reason := not_judged_because(run):
+            left_out.append(f"{row} {reason} |")
+        else:
+            lines.append(row)
+    if left_out:
+        lines += ["", "Not judged:", "",
+                  "| Workflow | Event | Run | Conclusion | Link | Reason |", "| --- | --- | --- | --- | --- | --- |",
+                  *left_out]
     return "\n".join(lines)
 
 
@@ -188,7 +221,7 @@ def main(argv, env=os.environ, fetch=None, clock=time.monotonic, sleep=time.slee
         runs, passed, reason = error.runs, False, str(error)
     except ApiError as error:
         runs, passed, reason = [], False, str(error)
-    report = f"{table(runs)}\n\nMerge gate {'passed' if passed else 'failed'}: {reason}"
+    report = f"{tables(runs)}\n\nMerge gate {'passed' if passed else 'failed'}: {reason}"
     say(report)
     if summary := env.get("GITHUB_STEP_SUMMARY"):
         with open(summary, "a", encoding="utf-8") as file:

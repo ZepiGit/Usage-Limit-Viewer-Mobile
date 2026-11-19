@@ -1,16 +1,14 @@
 name: Merge gate
 
-# The one check branch protection requires. Android and iOS filter on paths and the status icon
-# evidence runs on push only, so none of them can be required. This workflow runs on every pull
-# request, waits for every other workflow run on the head commit and fails if any of them failed
-# (tools/merge_gate.py). After re-running a failed job elsewhere, re-run this gate too.
+# Meant as the one required check for main: Android and iOS filter on paths and the status icon
+# evidence runs on push only, so none of their checks can be required. This workflow runs on every
+# pull request, waits for the pull_request and push runs it can see on the head commit (not its own,
+# not release.yml) and fails if one of them failed (tools/merge_gate.py, docs/release.md). It
+# decides from the runs visible when it stops polling and cannot know that no other run will
+# appear. It runs the script from the pull request itself, so a pull request that changes it proves
+# nothing about itself by passing.
 on:
   pull_request:
-  workflow_dispatch:
-    inputs:
-      sha:
-        description: 'Full 40-character commit SHA to judge'
-        required: true
 
 permissions:
   contents: read
@@ -35,5 +33,5 @@ jobs:
       - name: Wait for the other runs on the head commit and judge them
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SHA: ${{ github.event.pull_request.head.sha || inputs.sha }}
+          SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 tools/merge_gate.py "$SHA"
