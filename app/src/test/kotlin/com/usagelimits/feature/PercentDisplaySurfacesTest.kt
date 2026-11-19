@@ -230,21 +230,21 @@ class PercentDisplaySurfacesTest {
         assertEquals(PercentDisplay.USED, chosen)
     }
 
-    // MARK: - R3: reduced motion
+    // MARK: - R3: what a screen reader reaches during a flip
 
-    /** Nodes showing the LEFT figure ("60%") and the USED figure ("40%") once the flip has played. */
+    /** Nodes showing the LEFT figure ("60%") and the USED figure ("40%") a moment after the mode flips. */
     private data class FigureNodes(val old: Int, val new: Int)
 
     /**
-     * Counts the nodes still showing the old LEFT figure a moment after the mode flips. With the
-     * clock held back, an animated change leaves the outgoing figure on screen mid-fade; with
-     * animations off the figure is replaced at once.
+     * What the accessibility tree holds [advanceMs] after the mode flips, in the lead strip and
+     * in the row apart. Whatever the screen does meanwhile, the tree describes the current state
+     * only: the old figure is out of it at once, with animations on or off.
      *
-     * Any "60%" left over after the flip is an outgoing figure, the lead strip's or the row's:
-     * both fade. The new figure is counted too, so a flip that never reached the screen cannot
-     * pass as "the old figure is gone".
+     * That the old pair is still DRAWN while it fades, and that it is not when animations are
+     * off, is a matter of pixels and is pinned in FigureMotionTest for the lead and for a row,
+     * through the same system setting; a node's existence says nothing about what is visible.
      */
-    private fun figureNodesAfterFlip(animationScale: Float, advanceMs: Long): FigureNodes {
+    private fun figureNodesAfterFlip(animationScale: Float, advanceMs: Long): Pair<FigureNodes, FigureNodes> {
         val resolver = ApplicationProvider.getApplicationContext<Context>().contentResolver
         Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, animationScale)
         var mode by mutableStateOf(PercentDisplay.LEFT)
@@ -268,7 +268,11 @@ class PercentDisplaySurfacesTest {
             }
         }
         compose.mainClock.advanceTimeBy(1_000)
-        assertTrue("the screen starts on the LEFT figure", text("60%").isNotEmpty() && text("40%").isEmpty())
+        val lead = flipTo("Show percentage used") or flipTo("Show percentage left")
+        // The merged tree, which is what a screen reader walks: the lead is one node, the row another.
+        fun inLead(value: String) = compose.onAllNodes(hasText(value) and lead).fetchSemanticsNodes().size
+        fun inRow(value: String) = compose.onAllNodes(hasText(value) and !lead).fetchSemanticsNodes().size
+        assertEquals("the lead and the row start on the LEFT figure", listOf(1, 1, 0, 0), listOf(inLead("60%"), inRow("60%"), inLead("40%"), inRow("40%")))
         compose.runOnUiThread {
             mode = PercentDisplay.USED
             // With the clock held back no frame or looper turn delivers the write to the
@@ -276,28 +280,28 @@ class PercentDisplaySurfacesTest {
             Snapshot.sendApplyNotifications()
         }
         compose.mainClock.advanceTimeBy(advanceMs)
-        return FigureNodes(old = text("60%").size, new = text("40%").size)
+        return FigureNodes(inLead("60%"), inLead("40%")) to FigureNodes(inRow("60%"), inRow("40%"))
     }
 
     @Test
-    fun `with animations on the old figure fades out instead of vanishing`() {
-        val nodes = figureNodesAfterFlip(animationScale = 1f, advanceMs = 32)
-        assertTrue("the outgoing figure should still be composed mid-fade", nodes.old >= 1)
-        assertTrue("the incoming figure is already on screen", nodes.new >= 1)
+    fun `with animations on a screen reader reaches the new figure at once, in the lead and in the row`() {
+        val (lead, row) = figureNodesAfterFlip(animationScale = 1f, advanceMs = 32)
+        assertEquals("the lead mid-fade", FigureNodes(old = 0, new = 1), lead)
+        assertEquals("the row mid-fade", FigureNodes(old = 0, new = 1), row)
     }
 
     @Test
     fun `with animations on the old figure is gone once the fade has finished`() {
-        val nodes = figureNodesAfterFlip(animationScale = 1f, advanceMs = 1_000)
-        assertEquals(0, nodes.old)
-        assertTrue("the new figure replaced it", nodes.new >= 1)
+        val (lead, row) = figureNodesAfterFlip(animationScale = 1f, advanceMs = 1_000)
+        assertEquals(FigureNodes(old = 0, new = 1), lead)
+        assertEquals(FigureNodes(old = 0, new = 1), row)
     }
 
     @Test
     fun `with animations off the figure changes at once`() {
-        val nodes = figureNodesAfterFlip(animationScale = 0f, advanceMs = 32)
-        assertEquals(0, nodes.old)
-        assertTrue("the new figure replaced it", nodes.new >= 1)
+        val (lead, row) = figureNodesAfterFlip(animationScale = 0f, advanceMs = 32)
+        assertEquals(FigureNodes(old = 0, new = 1), lead)
+        assertEquals(FigureNodes(old = 0, new = 1), row)
     }
 
     // MARK: - Account detail

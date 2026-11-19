@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,10 +35,12 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -77,7 +81,7 @@ import com.usagelimits.ui.text.windowLabelRes
 import com.usagelimits.ui.components.Dot
 import com.usagelimits.ui.components.EmptyBox
 import com.usagelimits.ui.components.ErrorBlock
-import com.usagelimits.ui.components.FigureText
+import com.usagelimits.ui.components.FigureWithSide
 import com.usagelimits.ui.components.OutlineButton
 import com.usagelimits.ui.components.RuleDivider
 import com.usagelimits.ui.components.ScreenTitle
@@ -257,12 +261,15 @@ private fun OverviewHeader(state: UsageUiState, nowMs: Long, onRefresh: () -> Un
             else -> "$count · ${Countdown.freshnessLabel(state.lastUpdated, nowMs, countdownTexts)}"
         },
         action = {
+            val interaction = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    // An icon action's press highlight is round, not the square of its touch target.
+                    // The 48dp square takes the press, corners included; the highlight alone is
+                    // round, as an icon action's is.
+                    .clickable(interaction, indication = null, enabled = !state.isRefreshing, role = Role.Button, onClick = onRefresh)
                     .clip(CircleShape)
-                    .clickable(enabled = !state.isRefreshing, role = Role.Button, onClick = onRefresh),
+                    .indication(interaction, ripple()),
                 contentAlignment = Alignment.Center,
             ) {
                 // The icon gives way to the spinner in the same slot, and back, rather than cutting.
@@ -341,19 +348,22 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
                 val severity = if (lead.stale) Severity.STALE else worst.severity
                 Text("${lead.usage.account.label} · $windowLabel",
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted, maxLines = 1)
-                // The accessibility action lives on the card's merged node above, so a screen reader
-                // finds one button. `clickable` would add a second focus stop of its own; this tap
-                // is the finger's route to the same action and creates no semantics node.
-                Row(
-                    Modifier.pointerInput(flipTo, onPercentDisplayChange) { detectTapGestures { onPercentDisplayChange(flipTo) } },
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    FigureText(percent, MaterialTheme.typography.headlineMedium, SeverityPalette.figureColor(severity))
-                    Text(side, Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
+                // Keyed on whose reading this is: a lead that passes to another account or window
+                // shows that one's figure and bar at once, not the old one's fading out under the
+                // new name or a bar gliding from the other window's value.
+                key(lead.usage.account.localId, worst.id) {
+                    // The accessibility action lives on the card's merged node above, so a screen reader
+                    // finds one button. `clickable` would add a second focus stop of its own; this tap
+                    // is the finger's route to the same action and creates no semantics node.
+                    FigureWithSide(
+                        percent, side, SeverityPalette.figureColor(severity),
+                        MaterialTheme.typography.headlineMedium, MaterialTheme.typography.bodyMedium, spacing = 8.dp,
+                        modifier = Modifier.pointerInput(flipTo, onPercentDisplayChange) { detectTapGestures { onPercentDisplayChange(flipTo) } },
+                        sideModifier = Modifier.padding(bottom = 4.dp),
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    UsageBar(p, Modifier.fillMaxWidth())
                 }
-                Spacer(Modifier.height(2.dp))
-                UsageBar(p, Modifier.fillMaxWidth())
                 if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {
                 Text("—", style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
@@ -537,8 +547,10 @@ fun AccountCard(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 // Ungrouped windows first — they are the account's headline limits.
+                // Each row is the window it shows, not its place in the list: another window that
+                // takes the slot starts from its own reading, without the old one's figure or bar.
                 windows.filter { it.group == null }.take(4).forEach { window ->
-                    UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                    key(window.id) { UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale) }
                 }
 
                 val groups = windows.filter { it.group != null }.groupBy { it.group!! }
@@ -550,7 +562,7 @@ fun AccountCard(
                         color = UsageColors.Muted,
                     )
                     groupWindows.forEach { window ->
-                        UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                        key(window.id) { UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale) }
                     }
                 }
             }

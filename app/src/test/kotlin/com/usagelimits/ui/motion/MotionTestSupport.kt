@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
@@ -16,6 +17,7 @@ import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * Shared by the motion tests: synthetic accounts, and frames stepped on the Compose test clock.
@@ -27,7 +29,15 @@ internal typealias MotionRule = AndroidComposeTestRule<ActivityScenarioRule<Comp
 
 internal const val MOTION_NOW = 1_757_000_000_000L
 
-internal fun demoAccount(id: String, provider: ProviderId, usedPercent: Double? = 40.0) = AccountUsage(
+internal fun demoAccount(
+    id: String,
+    provider: ProviderId,
+    usedPercent: Double? = 40.0,
+    windowId: String = "5h",
+    windowLabel: String = "5h limit",
+    category: WindowCategory = WindowCategory.FIVE_HOUR,
+    resetInMs: Long = 3_600_000,
+) = AccountUsage(
     account = ProviderAccount(
         localId = id, provider = provider, externalAccountId = "ext-$id", email = "$id@example.invalid",
         displayName = id, plan = "Plus", credentialReference = "ref-$id", createdAt = 0L,
@@ -37,8 +47,8 @@ internal fun demoAccount(id: String, provider: ProviderId, usedPercent: Double? 
         accountId = id, fetchedAt = MOTION_NOW, status = SnapshotStatus.OK,
         windows = listOf(
             UsageWindow(
-                id = "5h", label = "5h limit", category = WindowCategory.FIVE_HOUR, usedPercent = usedPercent,
-                periodSeconds = 18_000, resetAt = MOTION_NOW + 3_600_000, exhausted = usedPercent == 100.0,
+                id = windowId, label = windowLabel, category = category, usedPercent = usedPercent,
+                periodSeconds = 18_000, resetAt = MOTION_NOW + resetInMs, exhausted = usedPercent == 100.0,
             ),
         ),
     ),
@@ -111,6 +121,35 @@ internal fun Bitmap.sameAs(other: Bitmap, left: Int = 0, top: Int = 0, right: In
 }
 
 internal val Color.argb: Int get() = toArgb()
+
+/** A rectangle of a frame in pixels, [right] and [bottom] exclusive. */
+internal data class Region(val left: Int, val top: Int, val right: Int, val bottom: Int) {
+    fun union(other: Region) = Region(minOf(left, other.left), minOf(top, other.top), maxOf(right, other.right), maxOf(bottom, other.bottom))
+}
+
+internal fun Rect.toRegion(margin: Int = 2) = Region(
+    left.roundToInt() - margin, top.roundToInt() - margin, right.roundToInt() + margin, bottom.roundToInt() + margin,
+)
+
+/** How many pixels of [region] are drawn on (differ from [ground]), at whatever opacity. */
+internal fun Bitmap.ink(region: Region, ground: Int): Int {
+    var count = 0
+    for (y in region.top until region.bottom) for (x in region.left until region.right) if (getPixel(x, y) != ground) count++
+    return count
+}
+
+/**
+ * How many pixels of [region] this frame draws on that [reference] leaves bare. Zero means that
+ * everything visible here is part of what [reference] shows, however faded: the way to tell
+ * "the old content, fading" from "something else is on screen as well".
+ */
+internal fun Bitmap.inkOutside(reference: Bitmap, region: Region, ground: Int): Int {
+    var count = 0
+    for (y in region.top until region.bottom) for (x in region.left until region.right) {
+        if (getPixel(x, y) != ground && reference.getPixel(x, y) == ground) count++
+    }
+    return count
+}
 
 private val captureDir: File? = System.getProperty("capture.dir")?.takeIf { it.isNotBlank() }?.let(::File)
 

@@ -61,6 +61,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,11 +77,13 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.UsageWindow
@@ -155,7 +158,10 @@ private fun QuotaBarTrack(target: Float, fill: Color?, modifier: Modifier, heigh
                 val fraction = if (motion.enabled) animated.value else target
                 if (fraction > 0f && fill != null) {
                     // Whole pixels, as the layout this replaces produced: the edge stays crisp at every step.
-                    drawRoundRect(fill, size = Size((size.width * fraction).roundToInt().toFloat(), size.height),
+                    val width = (size.width * fraction).roundToInt().toFloat()
+                    // From the start edge, which is the right one in a right-to-left layout.
+                    val left = if (layoutDirection == LayoutDirection.Rtl) size.width - width else 0f
+                    drawRoundRect(fill, topLeft = Offset(left, 0f), size = Size(width, size.height),
                         cornerRadius = CornerRadius(BarRadius.toPx()))
                 }
             },
@@ -250,10 +256,8 @@ fun UsageWindowRow(
             if (!p.hasFigure) {
                 Text(percent, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {
-                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    FigureText(percent, UsageType.Figure, SeverityPalette.figureColor(severity), alignment = Alignment.BottomEnd)
-                    Text(shownSide, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
-                }
+                FigureWithSide(percent, shownSide, SeverityPalette.figureColor(severity), UsageType.Figure,
+                    MaterialTheme.typography.bodySmall, spacing = 4.dp, alignment = Alignment.BottomEnd)
             }
         }
         if (window.segments.isEmpty()) {
@@ -297,51 +301,89 @@ fun UsageWindowRow(
 }
 
 /**
- * A figure that fades through to its next value, as its bar moves to it: the old figure leaves,
- * then the new one arrives, so two numbers are never read on top of each other.
+ * One content replacing another by fading through: what was there leaves, then the new content
+ * arrives, so the two are never read on top of each other. The slot takes the new content's
+ * size as part of the same motion; [alignment] is the corner the content is anchored to while
+ * the size changes.
  *
- * The slot takes the new figure's width as part of the same motion, so the word after a figure
- * that gains or loses a digit glides instead of jumping. [alignment] is the side the figure is
- * anchored to while the width changes. The colour travels with the text: an outgoing figure
- * keeps the colour it had.
+ * What is leaving is still drawn but no longer true, so it is taken out of the accessibility
+ * tree at once: a screen reader only ever reaches the current content.
  */
 @Composable
-fun FigureText(
-    text: String,
-    style: TextStyle,
-    color: Color,
+fun <T> FadeThrough(
+    state: T,
     modifier: Modifier = Modifier,
-    alignment: Alignment = Alignment.BottomStart,
+    alignment: Alignment = Alignment.TopStart,
+    content: @Composable (T) -> Unit,
 ) {
     val motion = UsageMotion.current
     if (!motion.enabled) {
-        // Even a snapped transition keeps the outgoing figure for one more frame.
-        Text(text, modifier, style = style, color = color)
+        // Even a snapped transition keeps the outgoing content for one more frame.
+        Box(modifier, contentAlignment = alignment) { content(state) }
         return
     }
+    // AnimatedContent keeps calling the lambda it was given for content on its way out, so the
+    // current state is read through a State, not captured.
+    val current by rememberUpdatedState(state)
     AnimatedContent(
-        targetState = text to color,
+        targetState = state,
         modifier = modifier,
         transitionSpec = {
             fadeIn(motion.enterAfterExit()) togetherWith fadeOut(motion.exit()) using
                 SizeTransform(clip = false) { from, to ->
-                    // A slot that narrows waits until the old, wider figure has left, or what
-                    // follows would slide over it; one that widens makes room at once.
+                    // A slot that narrows waits until the old, wider content has left, or its
+                    // neighbours would slide over it; one that widens makes room at once.
                     if (to.width < from.width) motion.moveAfterExit() else motion.move()
                 }
         },
         contentAlignment = alignment,
-        label = "figure",
-    ) { (shownText, shownColor) ->
-        Text(shownText, style = style, color = shownColor)
+        label = "fadeThrough",
+    ) { shown ->
+        Box(if (shown == current) Modifier else Modifier.clearAndSetSemantics {}) { content(shown) }
+    }
+}
+
+private data class FigureReading(val figure: String, val side: String, val color: Color)
+
+/**
+ * A percentage and the word that says which side it counts ("60% left"), as one unit.
+ *
+ * They change together, by fading through: on a display-mode flip the old figure leaves with its
+ * own word before the new pair arrives, so no frame shows a figure beside the other side's word.
+ * The colour travels with the figure: an outgoing figure keeps the colour it had.
+ *
+ * The unit animates from its own previous reading. Where the same slot can come to show another
+ * window or another account, the caller gives it that identity with `key`, so one window's figure
+ * never fades out under another window's name.
+ */
+@Composable
+fun FigureWithSide(
+    figure: String,
+    side: String,
+    color: Color,
+    figureStyle: TextStyle,
+    sideStyle: TextStyle,
+    spacing: Dp,
+    modifier: Modifier = Modifier,
+    alignment: Alignment = Alignment.BottomStart,
+    /** Lifts the word to the figure's baseline where the two styles differ much in size. */
+    sideModifier: Modifier = Modifier,
+) {
+    FadeThrough(FigureReading(figure, side, color), modifier, alignment) { reading ->
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(spacing)) {
+            Text(reading.figure, style = figureStyle, color = reading.color)
+            Text(reading.side, sideModifier, style = sideStyle, color = UsageColors.Muted)
+        }
     }
 }
 
 /**
  * One card per group: a tone step on the ground, no border, radius 8.
  *
- * A card that can be pressed takes [onClick] here rather than a `clickable` on [modifier]: the
- * press highlight has to sit inside the clip, or it spills past the rounded corners.
+ * A card that can be pressed takes [onClick] here rather than a `clickable` on [modifier]. The
+ * press is taken by the card's whole box, corners included, as before; only its highlight is
+ * drawn inside the clip, so it does not spill past the rounded corners (the rule of #26: clip
+ * the indication, not the target).
  */
 @Composable
 fun UsageCard(
@@ -350,12 +392,14 @@ fun UsageCard(
     onClick: (() -> Unit)? = null,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(interaction, indication = null, onClick = onClick) else Modifier)
             .clip(MaterialTheme.shapes.medium)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .background(UsageColors.Surface)
+            .then(if (onClick != null) Modifier.indication(interaction, ripple()) else Modifier)
             .padding(contentPadding),
         content = content,
     )
@@ -512,13 +556,15 @@ fun OutlineButton(
 /** Text only, flush with the content edge, 44dp touch. */
 @Composable
 fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, color: Color = UsageColors.Ink, enabled: Boolean = true) {
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .heightIn(min = 44.dp)
             .widthIn(min = 44.dp)
-            // Clipped first, so the press highlight has the control corners every other control has.
+            // The whole box takes the press; its highlight alone gets the corners every control has.
+            .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
             .clip(MaterialTheme.shapes.small)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+            .indication(interaction, ripple()),
         contentAlignment = Alignment.CenterStart,
     ) {
         Text(text, style = MaterialTheme.typography.labelLarge, color = color)

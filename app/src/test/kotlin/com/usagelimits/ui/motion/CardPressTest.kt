@@ -6,12 +6,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.overview.AccountCard
+import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import org.junit.Assert.assertEquals
@@ -72,5 +75,36 @@ class CardPressTest {
         val corners = listOf(left + 1 to top + 1, right - 2 to top + 1, left + 1 to bottom - 2, right - 2 to bottom - 2)
         val spilled = corners.filter { (x, y) -> before.at(x, y) != pressed.at(x, y) }
         assertEquals("corner pixels the highlight changed outside the rounded card", emptyList<Pair<Int, Int>>(), spilled)
+    }
+
+    @Test
+    fun `the refresh action's press highlight is round inside its square touch target`() {
+        compose.setContent {
+            UsageLimitsTheme {
+                OverviewScreen(state = UsageUiState(), nowMs = MOTION_NOW, onRefresh = {}, onAccountClick = {},
+                    onAddAccount = {}, onReorder = {}, onPercentDisplayChange = {})
+            }
+        }
+        compose.waitForIdle()
+        val refresh = compose.onNode(hasContentDescription("Refresh usage") and hasClickAction())
+        val bounds = refresh.fetchSemanticsNode().boundsInWindow
+        val left = bounds.left.roundToInt()
+        val top = bounds.top.roundToInt()
+        val right = bounds.right.roundToInt()
+        val bottom = bounds.bottom.roundToInt()
+        val before = compose.softwareFrame()
+
+        refresh.performTouchInput { down(center) }
+        compose.mainClock.advanceTimeBy(1_000)
+        ShadowLooper.idleMainLooper(1, TimeUnit.SECONDS)
+        val pressed = compose.softwareFrame()
+        refresh.performTouchInput { up() }
+
+        // Just inside the circle, at mid-height on the left: lit. Clear of the 20dp icon in the middle.
+        assertNotEquals("the pressed action shows a highlight", before.at(left + 6, (top + bottom) / 2), pressed.at(left + 6, (top + bottom) / 2))
+        // The square's corners lie outside the circle: untouched.
+        val corners = listOf(left + 2 to top + 2, right - 3 to top + 2, left + 2 to bottom - 3, right - 3 to bottom - 3)
+        val spilled = corners.filter { (x, y) -> before.at(x, y) != pressed.at(x, y) }
+        assertEquals("corner pixels the highlight changed outside the circle", emptyList<Pair<Int, Int>>(), spilled)
     }
 }
