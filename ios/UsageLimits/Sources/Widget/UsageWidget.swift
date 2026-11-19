@@ -104,12 +104,10 @@ struct UsageProvider: TimelineProvider {
 
     // MARK: Snapshot shaping
 
-    /// The legacy tiles' stated focus is the account most in need of attention — but the
-    /// published export follows the overview's order, which is the user's, not urgency's.
-    /// Without a selection pass of its own, every legacy tile inherited whatever order the
-    /// exporter currently used, so reordering the overview moved the tile's lead with no
-    /// widget edit anywhere. The pass runs against a COPY of the export; the export itself
-    /// keeps overview order, because the configured widgets' "All accounts" depends on it.
+    /// The legacy tiles' stated focus is the account most in need of attention. The published
+    /// export is in register order, the order accounts were stored in, not in order of urgency,
+    /// so the tiles run a selection pass of their own. It runs against a COPY of the export:
+    /// the export keeps register order, because Pinned accounts and the Provider scope read it.
     static func criticalSelection(of snapshot: GlanceSnapshot, now: Date) -> GlanceSnapshot {
         snapshot.selecting(scope: .mostCritical, now: now)
     }
