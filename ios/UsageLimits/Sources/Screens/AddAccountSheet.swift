@@ -154,7 +154,7 @@ struct AddAccountSheet: View {
                 .usageFont(.section)
                 .foregroundStyle(UsageColors.ink)
             HStack(spacing: 8) {
-                ActivityMark()
+                ActivityMark(still: .dots)
                 Text("Asking \(provider.displayName) for a code…")
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)
@@ -202,7 +202,7 @@ struct AddAccountSheet: View {
             }
 
             HStack(spacing: 8) {
-                ActivityMark()
+                ActivityMark(still: .dots)
                 Text("Waiting for you to approve it…")
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)

@@ -9,6 +9,7 @@ import UsageLimitsKit
 struct ResetsScreen: View {
 
     @EnvironmentObject private var store: UsageStore
+    @State private var listMotionArmed = false
 
     /// Resets that fall on one calendar day, soonest first.
     private struct Day {
@@ -39,7 +40,8 @@ struct ResetsScreen: View {
     }
 
     var body: some View {
-        NavigationStack {
+        let visibleDays = days
+        return NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     if store.upcomingResets.isEmpty {
@@ -51,13 +53,15 @@ struct ResetsScreen: View {
                                 .usageFont(.body)
                                 .foregroundStyle(UsageColors.muted)
                         }
+                        .listItemMotion(armed: listMotionArmed)
                     } else {
-                        ForEach(days, id: \.start) { day in
+                        ForEach(visibleDays, id: \.start) { day in
                             Text(dayTitle(day.start))
                                 .usageFont(.smallStrong)
                                 .foregroundStyle(UsageColors.muted)
                                 .padding(.top, 16)
                                 .accessibilityAddTraits(.isHeader)
+                                .listItemMotion(armed: listMotionArmed)
                             // One card per day, split by hairlines: a card per reset is a stack
                             // of identical boxes with nothing to tell one from the next.
                             UsageCard(padding: 0, spacing: 0) {
@@ -71,9 +75,11 @@ struct ResetsScreen: View {
                                         isNext: nextKey == "\(entry.account.id)/\(entry.window.id)")
                                 }
                             }
+                            .listItemMotion(armed: listMotionArmed)
                         }
                     }
                 }
+                .listMotion(value: visibleDays.map(\.start), armed: listMotionArmed)
                 .padding(16)
                 .readableWidth()
             }
@@ -82,6 +88,7 @@ struct ResetsScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
             .refreshable { await store.refresh() }
+            .armingListMotion($listMotionArmed, loaded: store.hasLoaded)
         }
     }
 

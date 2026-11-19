@@ -66,6 +66,29 @@ framework shims; a pass there does not establish an Xcode build or UI behavior.
 See the [release guide](../docs/release.md) for unsigned archives, distribution signing
 and the [device checklist](../docs/release.md#device-checklist).
 
+## Motion checks
+
+The app's motion modifiers share one Reduce Motion rule. Accounts, Overview and Resets
+show their first loaded content without list motion; subsequent list changes animate.
+An account deep link also cuts through the active filter before scrolling. Percentage
+figures fade together with their side word, and rows keep an identity based on their
+window rather than their position. Widget motion is unchanged.
+
+`MotionUITests` in the `UsageLimits` scheme launches the real Debug app with synthetic
+accounts. `-motion-log` exposes transactions from the real modifiers in a noninteractive
+overlay; `-reduce-motion` overrides the system preference only in Debug. The overlay
+also hosts both busy-mark variants, so progress accessibility can be checked without
+submitting a real key. `-motion-delayed-demo`, with `-marketing-demo`, delays the fixture
+load until after the first frame to exercise the skeleton-to-content cut. Release builds
+ignore all three motion-test arguments.
+
+These UI tests check animation transactions, resolved transitions, filter/deep-link
+behavior and accessibility roles. They do not measure rendered intermediate frames,
+interrupted animations or a live change of the system Reduce Motion setting; those
+remain simulator/device checks. UIKit navigation, sheets, alerts and refresh controls
+retain system motion. The app uses ease-in-out curves; matching Android durations does
+not imply matching easing or interruption behavior.
+
 ## Marketing screenshots
 
 Run the manual **Marketing screenshots** workflow to capture the actual SwiftUI app on an

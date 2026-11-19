@@ -7,8 +7,8 @@ import UsageLimitsKit
 // file is the only one that turns a `Motion` into a SwiftUI `Animation`, and the only one that
 // reads Reduce Motion. A screen therefore says WHAT moves (`.motion(.move, value:)`) and cannot
 // invent a duration or forget the accessibility setting. The one exception is `withAnimation`,
-// which is a function and has no environment: its caller reads the setting and passes it to
-// `animation(reduceMotion:)` below.
+// which is a function and has no environment: its caller declares `@ReducesMotion` and passes
+// the value to `animation(reduceMotion:)` below.
 //
 // Compiled into the widget extension with the rest of `Theme`, so nothing here may use an API
 // that is unavailable to extensions.
@@ -23,46 +23,150 @@ extension Motion {
         let animation = Animation.easeInOut(duration: timing.duration)
         return timing.delay > 0 ? animation.delay(timing.delay) : animation
     }
+
+    /// The two animations of a fade-through that ends with this motion: what leaves goes over
+    /// `exit`, what arrives comes over this one, which starts when the exit is over. Nil when
+    /// the change is to be a cut.
+    fileprivate func fadeThrough(reduceMotion: Bool) -> (exit: Animation, enter: Animation)? {
+        guard let exit = Motion.exit.animation(reduceMotion: reduceMotion),
+              let enter = animation(reduceMotion: reduceMotion)
+        else { return nil }
+        return (exit, enter)
+    }
 }
 
+// MARK: - Reduce Motion
+
+private struct ReduceMotionOverrideKey: EnvironmentKey {
+    static let defaultValue: Bool? = nil
+}
+
+extension EnvironmentValues {
+    /// Stands in for the system's Reduce Motion setting below the view that sets it. Nil, the
+    /// default, means "ask the system".
+    ///
+    /// It exists so a UI test can run the real views with motion reduced: a test cannot switch
+    /// the simulator's setting, but the app can set an environment value at its root.
+    var reduceMotionOverride: Bool? {
+        get { self[ReduceMotionOverrideKey.self] }
+        set { self[ReduceMotionOverrideKey.self] = newValue }
+    }
+}
+
+/// Whether motion is reduced here: the system's setting, unless the environment overrides it.
+///
+/// The one reading of that question. Every modifier in this file and every `withAnimation`
+/// call site declares this, so nothing can follow the system setting and miss the override, or
+/// the other way round.
+@propertyWrapper
+struct ReducesMotion: DynamicProperty {
+    @Environment(\.accessibilityReduceMotion) private var system
+    @Environment(\.reduceMotionOverride) private var forced
+
+    var wrappedValue: Bool { forced ?? system }
+}
+
+// MARK: - Modifiers
+
 private struct MotionModifier<Value: Equatable>: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ReducesMotion private var reduceMotion
     let motion: Motion
     let value: Value
+    /// False while a change of `value` is not one to animate: see `listMotion`.
+    var armed = true
 
     func body(content: Content) -> some View {
-        content.animation(motion.animation(reduceMotion: reduceMotion), value: value)
+        content
+            .loggingMotion(motion.rawValue, value: value)
+            // Nil is not "no opinion": for the update in which `value` changes it clears
+            // whatever animation the surrounding transaction carries, so an unarmed change is a
+            // cut even inside someone else's `withAnimation`.
+            .animation(armed ? motion.animation(reduceMotion: reduceMotion) : nil, value: value)
     }
 }
 
 private struct PressReleaseModifier: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ReducesMotion private var reduceMotion
     let isPressed: Bool
 
     func body(content: Content) -> some View {
-        // Nil on the way down: feedback for a touch must not lag behind the finger.
-        content.animation(
-            isPressed ? nil : Motion.stateChange.animation(reduceMotion: reduceMotion), value: isPressed)
+        content
+            .loggingMotion("pressRelease", value: isPressed)
+            // Nil on the way down: feedback for a touch must not lag behind the finger.
+            .animation(
+                isPressed ? nil : Motion.stateChange.animation(reduceMotion: reduceMotion), value: isPressed)
     }
 }
 
 private struct ListItemMotionModifier: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ReducesMotion private var reduceMotion
+    let armed: Bool
 
     func body(content: Content) -> some View {
         content.transition(transition)
     }
 
     private var transition: AnyTransition {
+        let fades = armed ? Motion.enterAfterMove.fadeThrough(reduceMotion: reduceMotion) : nil
+        noteTransition("item", fades: fades != nil)
         // `.identity`, not an opacity transition without animations: a transition that carries
-        // its own animation plays it whatever the surrounding transaction says, so under Reduce
-        // Motion there must be no transition at all.
-        guard let enter = Motion.enterAfterMove.animation(reduceMotion: reduceMotion),
-              let exit = Motion.exit.animation(reduceMotion: reduceMotion)
-        else { return AnyTransition.identity }
+        // its own animation plays it whatever the surrounding transaction says, so when nothing
+        // is to move there must be no transition at all.
+        guard let fades else { return AnyTransition.identity }
         return AnyTransition.asymmetric(
-            insertion: AnyTransition.opacity.animation(enter),
-            removal: AnyTransition.opacity.animation(exit))
+            insertion: AnyTransition.opacity.animation(fades.enter),
+            removal: AnyTransition.opacity.animation(fades.exit))
+    }
+}
+
+private struct ListMotionArming: ViewModifier {
+    @Binding var armed: Bool
+    let loaded: Bool
+
+    func body(content: Content) -> some View {
+        // Both run after an update, never in one: the body that first draws the loaded content
+        // has already been evaluated unarmed when either of them sets the flag.
+        content
+            .onAppear { if loaded { armed = true } }
+            .onChange(of: loaded) { loaded in if loaded { armed = true } }
+    }
+}
+
+private struct FigureUnitModifier<Key: Hashable>: ViewModifier {
+    @ReducesMotion private var reduceMotion
+    let key: Key
+    let anchor: HorizontalAlignment
+
+    func body(content: Content) -> some View {
+        // While the old unit leaves, both units exist. A stack of their own keeps them in one
+        // place, on one baseline and against the same edge; as direct children of the row or the
+        // column around them they would be laid out as two items, side by side or one above the
+        // other, and push everything else for as long as the fade lasts.
+        ZStack(alignment: Alignment(horizontal: anchor, vertical: .firstTextBaseline)) {
+            content.id(key).transition(transition)
+        }
+        .motion(.enterAfterExit, value: key)
+    }
+
+    private var transition: AnyTransition {
+        let fades = Motion.enterAfterExit.fadeThrough(reduceMotion: reduceMotion)
+        noteTransition("figure", fades: fades != nil)
+        guard let fades else { return AnyTransition.identity }
+        return AnyTransition.asymmetric(
+            insertion: AnyTransition.opacity.animation(fades.enter),
+            removal: AnyTransition.opacity.animation(fades.exit)
+                .combined(with: AnyTransition.modifier(active: Leaving(isLeaving: true), identity: Leaving(isLeaving: false))))
+    }
+}
+
+/// Takes a view out of the accessibility tree the moment it starts to leave, not when its fade
+/// ends: what is read out and what a test finds is the current state only, never the outgoing
+/// figure beside the new one.
+private struct Leaving: ViewModifier {
+    let isLeaving: Bool
+
+    func body(content: Content) -> some View {
+        content.accessibilityHidden(isLeaving)
     }
 }
 
@@ -73,13 +177,54 @@ extension View {
         modifier(MotionModifier(motion: motion, value: value))
     }
 
-    /// A figure fades to its next value, on a mode flip and on a refresh alike.
+    /// The container of a list whose items come and go: when `value`, the identities of what is
+    /// shown, changes, what stays moves to its new place over `motion`.
     ///
-    /// A content transition rather than `.id` with a view transition: the text stays one view,
-    /// so the fade also runs when the figure changes outside an animation transaction (a
-    /// refresh), and a figure that is interrupted fades on from where it is.
-    func figureChange(_ figure: String) -> some View {
-        contentTransition(ContentTransition.opacity).motion(.contentSwap, value: figure)
+    /// Only a change a person makes while looking at a settled list is such a motion: a filter,
+    /// an item added or removed. While `armed` is false a change is applied in one cut, which is
+    /// what the first content replacing a skeleton and a jump to a target are. `armingListMotion`
+    /// sets the flag for the first of those.
+    func listMotion<Value: Equatable>(
+        _ motion: Motion = .moveAfterExit, value: Value, armed: Bool
+    ) -> some View {
+        modifier(MotionModifier(motion: motion, value: value, armed: armed))
+    }
+
+    /// One item of a list that fades through: it leaves over `exit`, the list around it then
+    /// moves over `moveAfterExit` (`listMotion` on the container), and a new item arrives over
+    /// `enterAfterMove`, as that move ends. Nothing new is drawn over something still fading out
+    /// or still in the way. Unarmed, like its container, it comes and goes in one cut.
+    func listItemMotion(armed: Bool) -> some View {
+        modifier(ListItemMotionModifier(armed: armed))
+    }
+
+    /// Arms a list's motion once its first content is on screen: on appearing with the content
+    /// loaded, or when it loads later. The update that brings the first content is over by then,
+    /// so the content replaces the skeleton in one cut and only later changes move.
+    func armingListMotion(_ armed: Binding<Bool>, loaded: Bool) -> some View {
+        modifier(ListMotionArming(armed: armed, loaded: loaded))
+    }
+
+    /// A figure and the word that says which side it counts, as one unit that fades through
+    /// whenever `key`, what the unit reads, changes: the old unit goes over `exit`, then the new
+    /// one arrives over `enterAfterExit`, on a mode flip and on a refresh alike.
+    ///
+    /// A view transition on the pair rather than a content transition on the figure: a figure
+    /// that cross-fades beside a word that has already changed shows "60%" next to "used" for
+    /// as long as the fade runs. As one unit, the old figure only ever stands beside its own
+    /// word, and the new one is not drawn until the old has gone.
+    ///
+    /// `anchor` is the edge the unit keeps while the old and the new one overlap: the side it
+    /// is aligned to where it stands.
+    func figureUnit<Key: Hashable>(key: Key, anchor: HorizontalAlignment) -> some View {
+        modifier(FigureUnitModifier(key: key, anchor: anchor))
+    }
+
+    /// What this view shows is another subject now (another account, another window), not the
+    /// same one with new values: the old is replaced in one cut, whatever animation runs around
+    /// it, and nothing inside animates from the old subject's values.
+    func subject<ID: Hashable>(_ id: ID) -> some View {
+        self.id(id).transition(AnyTransition.identity)
     }
 
     /// A press highlight appears at once and lets go over `stateChange`, the way system controls
@@ -88,25 +233,152 @@ extension View {
         modifier(PressReleaseModifier(isPressed: isPressed))
     }
 
-    /// One item of a list that fades through: it leaves over `exit`, the list around it then
-    /// moves over `moveAfterExit` (`.motion(.moveAfterExit, value:)` on the container), and a new
-    /// item arrives over `enterAfterMove`, as that move ends. Nothing new is drawn over something
-    /// still fading out or still in the way.
-    func listItemMotion() -> some View {
-        modifier(ListItemMotionModifier())
+    /// In a DEBUG build launched with `-motion-log`, notes each change of `value` and whether
+    /// the transaction that reaches this view for it carries an animation. Applied inside the
+    /// `animation(_:value:)` it reports on, so it sees what that modifier decided. In every
+    /// other build and launch it is this view, untouched.
+    @ViewBuilder
+    fileprivate func loggingMotion<Value: Equatable>(_ name: String, value: Value) -> some View {
+        #if DEBUG
+        if MotionLog.isEnabled {
+            modifier(MotionLogProbe(name: name, value: value))
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
 
-/// The app's small in-place wait: a spinner, or three dots under Reduce Motion, where a
+// MARK: - Waiting
+
+/// The app's small in-place wait: a spinner, or a still mark under Reduce Motion, where a
 /// spinning mark is exactly the motion the user asked not to see.
 struct ActivityMark: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// What stands in for the spinner under Reduce Motion.
+    enum Still {
+        /// Three dots as text: for a mark beside a sentence that already says what is awaited.
+        case dots
+        /// Three dots drawn in the spinner's own box, which assistive technology still meets as
+        /// a progress indicator: for a mark that is all there is to read, such as a button's
+        /// label, where text would resize the button and be read out as "...".
+        case progressIndicator
+    }
+
+    @ReducesMotion private var reduceMotion
+    var still: Still = .dots
 
     var body: some View {
-        if reduceMotion {
-            Text(verbatim: "...")
+        if !reduceMotion {
+            spinner
         } else {
-            ProgressView().tint(UsageColors.muted).controlSize(.small)
+            switch still {
+            case .dots:
+                Text(verbatim: "...")
+            case .progressIndicator:
+                // The hidden spinner reserves its own size, so whatever holds the mark keeps its
+                // size whichever way the setting is. The representation is what accessibility
+                // gets in place of the drawing: the system's progress indicator, in the
+                // system's own words.
+                spinner.hidden()
+                    .overlay {
+                        HStack(spacing: 2) {
+                            ForEach(0..<3, id: \.self) { _ in
+                                Circle().fill(UsageColors.muted).frame(width: 3, height: 3)
+                            }
+                        }
+                    }
+                    .accessibilityRepresentation { ProgressView().controlSize(.small) }
+            }
         }
     }
+
+    private var spinner: some View {
+        ProgressView().tint(UsageColors.muted).controlSize(.small)
+    }
 }
+
+// MARK: - Motion log
+
+/// For the motion log of a DEBUG build: which transition a view resolved to, `fade` when it
+/// carries its animations and `identity` when the change is a cut. Nothing in a release build.
+@MainActor
+private func noteTransition(_ name: String, fades: Bool) {
+    #if DEBUG
+    if MotionLog.isEnabled { MotionLog.shared.noteTransition(name, fades: fades) }
+    #endif
+}
+
+#if DEBUG
+/// What the modifiers in this file did, for a UI test to read off the screen.
+///
+/// A test cannot see an animation, and asking the Kit whether a motion has a timing under Reduce
+/// Motion proves nothing about the views. So in a DEBUG build launched with `-motion-log` the
+/// real modifiers report what reached their content, and the app prints this log as one text.
+@MainActor
+final class MotionLog: ObservableObject {
+    static let shared = MotionLog()
+
+    /// Decided once: launch arguments do not change while the process lives.
+    nonisolated static let isEnabled = ProcessInfo.processInfo.arguments.contains("-motion-log")
+
+    /// `#<count> | <n> <motion> <outcome> | …`: how many notes there have been, then each motion
+    /// and outcome once with the number of its latest note, newest first. An animated motion
+    /// reads `animated` or `none`, a transition `fade` or `identity`.
+    @Published private(set) var text = "#0"
+
+    private var count = 0
+    private var latest: [String: Int] = [:]
+    private var publishIsPending = false
+    private var transitions: [String: Bool] = [:]
+
+    func noteTransition(_ name: String, fades: Bool) {
+        guard transitions[name] != fades else { return }
+        transitions[name] = fades
+        note(name, fades ? "fade" : "identity")
+    }
+
+    func note(_ name: String, _ outcome: String) {
+        count += 1
+        latest["\(name) \(outcome)"] = count
+        guard !publishIsPending else { return }
+        publishIsPending = true
+        // Notes arrive while SwiftUI is updating views. Publishing there would change view
+        // state inside the very update being reported, so the text follows in a later turn.
+        Task { @MainActor in self.publish() }
+    }
+
+    private func publish() {
+        publishIsPending = false
+        let entries = latest.sorted { $0.value > $1.value }.map { "\($0.value) \($0.key)" }
+        text = (["#\(count)"] + entries).joined(separator: " | ")
+    }
+}
+
+/// The value a motion last ran for, held by reference so that noting it changes no view state.
+private final class LastValue<Value: Equatable> {
+    var value: Value?
+}
+
+private struct MotionLogProbe<Value: Equatable>: ViewModifier {
+    @State private var last = LastValue<Value>()
+    let name: String
+    let value: Value
+
+    func body(content: Content) -> some View {
+        // The value a view starts with is where it begins, not a change.
+        let _ = start()
+        content.transaction { transaction in
+            guard last.value != value else { return }
+            last.value = value
+            MotionLog.shared.note(name, transaction.animation != nil ? "animated" : "none")
+        }
+    }
+
+    private func start() {
+        if last.value == nil { last.value = value }
+    }
+}
+#endif

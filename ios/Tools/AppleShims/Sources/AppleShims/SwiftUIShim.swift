@@ -99,6 +99,9 @@ extension View {
     public func font(_ value: Font?) -> Self { self }
     public func accessibilityElement(children: AccessibilityChildBehavior = .ignore) -> Self { self }
     public func accessibilityHidden(_ value: Bool) -> Self { self }
+    public func accessibilityRepresentation<V: View>(@ViewBuilder representation: () -> V) -> Self { self }
+    public func hidden() -> Self { self }
+    public func allowsHitTesting(_ enabled: Bool) -> Self { self }
     public func accessibilityValue(_ value: Any) -> Self { self }
     public func accessibilityAddTraits(_ value: Any) -> Self { self }
     public func accessibilityAddTraits(_ traits: AccessibilityTraits) -> Self { self }

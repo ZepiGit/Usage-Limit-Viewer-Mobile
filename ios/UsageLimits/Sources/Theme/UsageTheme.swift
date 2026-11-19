@@ -525,7 +525,9 @@ struct SegmentedRow: View {
                     .padding(.vertical, 4))
             // On the row, not on each cell: the selected label is heavier and so a little wider,
             // and its neighbours and the frame have to move with it while the fill changes hands.
-            .motion(.stateChange, value: options.map(\.selected))
+            // Keyed on which options are selected, not on the options there are: a cell that
+            // arrives with the first content, or with a new account, is not a selection changing.
+            .motion(.stateChange, value: options.filter(\.selected).map(\.id))
         }
     }
 }
