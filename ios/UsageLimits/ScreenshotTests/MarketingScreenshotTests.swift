@@ -10,16 +10,21 @@ final class MarketingScreenshotTests: XCTestCase {
 
     func testCaptureIPhoneScreens() {
         let app = launchDemo()
-        let claude = app.staticTexts["Claude"].firstMatch
-        let codex = app.staticTexts["OpenAI Codex"].firstMatch
+        let claude = app.buttons["overview-account-demo-claude"]
+        let codex = app.buttons["overview-account-demo-codex"]
         XCTAssertTrue(claude.waitForExistence(timeout: 10))
         XCTAssertTrue(codex.waitForExistence(timeout: 10))
-        XCTAssertTrue(claude.isHittable && codex.isHittable)
         XCTAssertLessThan(claude.frame.minY, codex.frame.minY)
         XCTAssertFalse(app.navigationBars["Overview"].buttons["Reorder"].exists)
         capture("iphone-overview", in: app)
-        capture("iphone-overview-order", in: app)
-        for screen in ["Accounts", "Resets", "Settings"] {
+        reach(codex, in: app)
+        codex.tap()
+        XCTAssertTrue(app.navigationBars["Account details"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["account-title-demo-codex"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.tabBars.buttons["Overview"].isHittable)
+        app.buttons["overview-close-detail"].tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        for screen in ["Resets", "Settings"] {
             let matches = app.buttons.matching(identifier: screen)
             let tab = matches.allElementsBoundByIndex.first { $0.isHittable } ?? matches.firstMatch
             XCTAssertTrue(tab.waitForExistence(timeout: 10))
@@ -28,6 +33,28 @@ final class MarketingScreenshotTests: XCTestCase {
             capture("iphone-\(screen.lowercased())", in: app)
         }
         verifyCustomLayout(in: app)
+
+        XCUIApplication().terminate()
+        let expired = launchDemo(["-overview-expired-demo", "-reduce-motion"])
+        let expiredCodex = expired.buttons["overview-account-demo-codex"]
+        let expiredClaude = expired.buttons["overview-account-demo-claude"]
+        XCTAssertTrue(expiredCodex.waitForExistence(timeout: 10))
+        XCTAssertTrue(expiredClaude.waitForExistence(timeout: 10))
+        XCTAssertTrue(expiredCodex.isHittable)
+        XCTAssertLessThan(expiredCodex.frame.minY, expiredClaude.frame.minY)
+        XCTAssertTrue(expiredCodex.label.contains("Sign-in expired · showing last known data"))
+        capture("iphone-overview-order", in: expired)
+        expiredCodex.tap()
+        XCTAssertTrue(expired.navigationBars["Account details"].waitForExistence(timeout: 10))
+        XCTAssertTrue(expired.staticTexts["account-title-demo-codex"].waitForExistence(timeout: 10))
+        XCTAssertTrue(expired.staticTexts["Sign-in expired — reconnect this account"].exists)
+        capture("iphone-overview-detail", in: expired, requiresDemoLabel: false)
+        expired.terminate()
+
+        let empty = launchDemo(["-overview-empty-demo"])
+        XCTAssertTrue(empty.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
+        XCTAssertFalse(empty.buttons["overview-account-demo-codex"].exists)
+        capture("iphone-overview-empty", in: empty)
     }
 
     func testCaptureIPadOverview() {
@@ -35,16 +62,18 @@ final class MarketingScreenshotTests: XCTestCase {
         capture("ipad-overview", in: app)
     }
 
-    private func launchDemo() -> XCUIApplication {
+    private func launchDemo(_ arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += [
             "-ui-testing", "-marketing-demo",
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"
-        ]
+        ] + arguments
         app.launch()
         XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["5/5 connected"].waitForExistence(timeout: 10))
+        if !arguments.contains("-overview-empty-demo") {
+            XCTAssertTrue(app.buttons["overview-account-demo-codex"].waitForExistence(timeout: 10))
+        }
         XCTAssertTrue(app.staticTexts["marketing-demo-label"].firstMatch.exists)
         XCTAssertEqual(app.alerts.count, 0)
         return app
