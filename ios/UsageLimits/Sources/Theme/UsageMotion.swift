@@ -363,15 +363,40 @@ final class MotionLog: ObservableObject {
 /// A change, not a transaction: a `transaction` closure was the first design, and on the
 /// simulator it never ran for changes inside `List` rows (a mode flip on Overview logged
 /// nothing while its figures and bars changed), so it could not say what a row did.
+///
+/// The decision travels with the value: the action of `onChange(of:perform:)` is the closure of
+/// the evaluation before the change, so a flag it captured would be the old one (seen on CI: a
+/// list disarmed in the same update as its change was logged as animated).
 private struct MotionLogProbe<Value: Equatable>: ViewModifier {
+    @State private var last = LastValue<Value>()
     let name: String
     let value: Value
     let animated: Bool
 
     func body(content: Content) -> some View {
-        content.onChange(of: value) { _ in
-            MotionLog.shared.note(name, animated ? "animated" : "none")
+        // The value a view starts with is where it begins, not a change.
+        let _ = start()
+        content.onChange(of: Change(value: value, animated: animated)) { change in
+            // Arming or disarming alone is not a change of the value.
+            guard last.value != change.value else { return }
+            last.value = change.value
+            MotionLog.shared.note(name, change.animated ? "animated" : "none")
         }
     }
+
+    private func start() {
+        if last.value == nil { last.value = value }
+    }
+}
+
+/// A value and whether its modifier animates its changes, compared as one.
+private struct Change<Value: Equatable>: Equatable {
+    let value: Value
+    let animated: Bool
+}
+
+/// The value a motion was last noted for, held by reference so that noting it changes no view state.
+private final class LastValue<Value: Equatable> {
+    var value: Value?
 }
 #endif
