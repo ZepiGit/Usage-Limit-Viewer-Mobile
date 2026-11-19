@@ -160,6 +160,23 @@ class NotificationEvidenceTest(unittest.TestCase):
         self.assertEqual(ACCOUNTS[:3], result["posted"])
         self.assertEqual(ranked, result["overview"])
 
+    def test_rerank_needs_the_new_reading_on_summary_and_child(self):
+        import status_icon_evidence as subject
+        def titled(summary, child):
+            pair = PAIR.replace("uuid-claude", "uuid-gemini")
+            first, second = pair.split("    NotificationRecord(0x124")
+            return parse_notifications(dump(first.replace("android.title=String (Claude)", f"android.title=String ({summary})")
+                                             + "    NotificationRecord(0x124"
+                                             + second.replace("android.title=String (Claude)", f"android.title=String ({child})")))
+        self.assertEqual({"summary": "2% left", "child": "2% left"},
+                         subject.assert_account_titles(titled("2% left", "2% left"), "uuid-gemini", "2% left"))
+        # Records the reading never reached: the previous post stays, keys and times unchanged.
+        for summary, child in (("100% left", "100% left"), ("2% left", "100% left"), ("100% left", "2% left")):
+            with self.subTest(summary=summary, child=child), self.assertRaisesRegex(AssertionError, "Expected '2% left'"):
+                subject.assert_account_titles(titled(summary, child), "uuid-gemini", "2% left")
+        with self.assertRaisesRegex(AssertionError, "one summary and one child"):
+            subject.assert_account_titles(titled("2% left", "2% left"), "uuid-claude", "2% left")
+
     def test_order_split_rejects_each_broken_contract(self):
         ranked = [ACCOUNTS[3], ACCOUNTS[2], ACCOUNTS[1], ACCOUNTS[4], ACCOUNTS[0], ACCOUNTS[5]]
         good = self._pins({ACCOUNTS[0]: 300, ACCOUNTS[1]: 200, ACCOUNTS[2]: 100})
@@ -227,12 +244,48 @@ class DefaultEvidenceParserTest(unittest.TestCase):
         key = records[0]["key"]
         sibling = "    StatusBarTouchableRegionManager state:"
         empty = "    HeadsUpManagerPhone state:\n      mTouchAcceptanceDelay=700\n      mSnoozeLengthMs=60000\n      now=123\n      mUser=0\n      snoozed packages: 0\n      mBarState=0\n      mTouchableRegion=SkRegion()\n" + sibling + "\n      key=" + key
-        subject.assert_no_heads_up(empty, records)
+        subject.assert_no_heads_up(empty, records, 30)
         for active in ("      HeadsUpEntry\n        mEntry=" + key + "\n", "      mAlertEntries={" + key + "=entry}\n"):
             with self.subTest(active=active), self.assertRaisesRegex(AssertionError, "heads.up|Heads.up"):
-                subject.assert_no_heads_up(empty.replace(sibling, active + sibling), records)
-        with self.assertRaisesRegex(AssertionError, "Missing dump section boundary"):
-            subject.assert_no_heads_up(empty.replace("HeadsUpManagerPhone state:", "HeadsUpManager state:"), records)
+                subject.assert_no_heads_up(empty.replace(sibling, active + sibling), records, 30)
+        for broken in (empty.replace(sibling, "    OtherManager state:"), empty.replace(sibling, sibling + "\n" + sibling)):
+            with self.subTest(broken=broken), self.assertRaisesRegex(AssertionError, "Missing/ambiguous dump section boundary"):
+                subject.assert_no_heads_up(broken, records, 30)
+        with self.assertRaisesRegex(AssertionError, "Missing/ambiguous dump section boundary"):
+            subject.assert_no_heads_up(empty, records, 36)
+
+    # Run 44586152463, attempt 1, API 30: artifact status-icons-api30-343bd88f8a39568d29dd5f1a8de7dc968bc9d103
+    # (14562185143), 03-enabled-systemui.txt lines 477-486, verbatim. SystemUI outdented `mUser`.
+    API30_OUTDENTED = ("    HeadsUpManagerPhone state:\n"
+                       "      mTouchAcceptanceDelay=700\n"
+                       "      mSnoozeLengthMs=60000\n"
+                       "      now=101938\n"
+                       "  mUser=0\n"
+                       "      snoozed packages: 0\n"
+                       "      mBarState=0\n"
+                       "      mTouchableRegion=SkRegion()\n"
+                       "    StatusBarTouchableRegionManager state:\n"
+                       "      mTouchableRegion=SkRegion((0,0,720,42))\n")
+
+    def test_api30_heads_up_section_ends_at_the_status_bar_region_manager_despite_an_outdent(self):
+        import status_icon_evidence as subject
+        records = parse_notifications(dump())
+        report = subject.assert_no_heads_up(self.API30_OUTDENTED, records, 30)
+        self.assertIn("mUser=0", report["managerSection"])
+        self.assertIn("mTouchableRegion=SkRegion()", report["managerSection"])
+        self.assertNotIn("(0,0,720,42)", report["managerSection"])
+
+    def test_api30_outdented_active_entry_before_the_boundary_still_fails(self):
+        import status_icon_evidence as subject
+        records = parse_notifications(dump())
+        boundary = "    StatusBarTouchableRegionManager state:\n"
+        for entry, error in (
+            ("  mAlertEntries={" + records[1]["key"] + "=entry}\n", "Status record in active heads-up manager entry"),
+            ("  HeadsUpEntry\n", "Unrecognized heads-up active section"),
+            ("  mHasPinnedNotification=true\n", "Unrecognized heads-up active section"),
+        ):
+            with self.subTest(entry=entry), self.assertRaisesRegex(AssertionError, error):
+                subject.assert_no_heads_up(self.API30_OUTDENTED.replace(boundary, entry + boundary), records, 30)
 
     def test_heads_up_uses_shade_touchable_region_manager_bound_despite_outdents(self):
         import status_icon_evidence as subject
