@@ -66,6 +66,20 @@ framework shims; a pass there does not establish an Xcode build or UI behavior.
 See the [release guide](../docs/release.md) for unsigned archives, distribution signing
 and the [device checklist](../docs/release.md#device-checklist).
 
+## Motion checks
+
+`MotionUITests` launches the Debug app with synthetic accounts. `-motion-log` reports the
+real modifiers' decisions; `-reduce-motion` overrides the preference, and
+`-motion-delayed-demo` with `-marketing-demo` exercises the first-load decision. These hooks
+are absent from Release. The tests also check filter selection, the deep-link destination,
+and the lead's accessible label. They do not observe the applied animation or rendered frames.
+
+Kit tests cover the selected source window ID and the unchanged widget export. No iOS motion
+has been visually verified. Device checks include same-label window replacement (first frame
+and VoiceOver), list and figure transitions, deep-link cuts, live Reduce Motion changes and the
+real credit dialog's still busy mark (size and progress semantics). UIKit navigation, sheets,
+alerts and refresh controls retain system motion.
+
 ## Marketing screenshots
 
 Run the manual **Marketing screenshots** workflow to capture the actual SwiftUI app on an

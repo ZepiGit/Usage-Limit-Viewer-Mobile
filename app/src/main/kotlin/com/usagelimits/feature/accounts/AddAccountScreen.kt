@@ -1,8 +1,7 @@
 package com.usagelimits.feature.accounts
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
-import com.usagelimits.ui.theme.LocalMotionEnabled
+import com.usagelimits.ui.theme.UsageMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -98,7 +97,7 @@ fun AddAccountScreen(
 
         Crossfade(
             targetState = state,
-            animationSpec = tween(if (LocalMotionEnabled.current) 180 else 0),
+            animationSpec = UsageMotion.current.contentSwap(),
             label = "signInStep",
         ) { displayedState ->
             // Crossfade remembers outgoing content, so read the latest state through a State.

@@ -73,8 +73,10 @@ final class UsageStore: ObservableObject {
         #if DEBUG
         if MarketingDemo.isEnabled {
             now = MarketingDemo.now
-            accounts = MarketingDemo.accounts
-            hasLoaded = true
+            if !MarketingDemo.delaysLoad {
+                accounts = MarketingDemo.accounts
+                hasLoaded = true
+            }
             return
         }
         #endif
@@ -222,7 +224,16 @@ final class UsageStore: ObservableObject {
     /// render while the real answer is on its way.
     func load() async {
         #if DEBUG
-        if MarketingDemo.isEnabled { return }
+        if MarketingDemo.isEnabled {
+            if !hasLoaded {
+                // Only this opt-in fixture waits: it drives the same empty-to-loaded update
+                // as a cache read, after the screens have drawn their first skeletons.
+                try? await Task.sleep(nanoseconds: NSEC_PER_SEC)
+                accounts = MarketingDemo.accounts
+                hasLoaded = true
+            }
+            return
+        }
         #endif
         defer { hasLoaded = true }
         guard let container else {

@@ -315,7 +315,9 @@ struct AddCreditSheet: View {
 
             HStack(spacing: 10) {
                 Button { submit(provider) } label: {
-                    if isWorking { ProgressView().tint(UsageColors.muted).controlSize(.small) } else { Text("Add") }
+                    if isWorking {
+                        ActivityMark(still: .progressIndicator)
+                    } else { Text("Add") }
                 }
                 .buttonStyle(InkButtonStyle())
                 .disabled(isWorking || key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

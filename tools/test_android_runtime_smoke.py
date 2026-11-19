@@ -1,8 +1,11 @@
 """Runtime smoke pixel, picker geometry, host focus and setting checks: python3 -m unittest discover -s tools"""
 
 import json
+import os
 from pathlib import Path
+import subprocess
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
@@ -406,6 +409,386 @@ class PostDropFrameTest(unittest.TestCase):
                 root = self.dropped_widget()
                 root[0][0][0].set(attribute, value)
                 self.assertIsNone(runtime_smoke.post_drop_frame(root, self.launcher, "Mini Rings", self.initial))
+
+
+class FakeDevice:
+    """adb at the subprocess seam, on a clock the test owns; it also stands in for the script's `time`.
+
+    Every call is recorded with the timeout it was given and when it started. It costs `seconds(command)`
+    of the fake clock; one that costs more than its timeout raises TimeoutExpired once the timeout has
+    passed, with its effect on the device already applied, which is what a late adb answer looks like.
+    The screen is the empty-account app as far as the capture walks it: two tabs, the Accounts filter
+    and the Add account screen.
+    """
+
+    STILL = png_bytes(2, 2, 4, [GROUND * 2, GROUND * 2])
+    BOXES = {"Overview": (0, 1400, 180, 1560), "Accounts": (180, 1400, 360, 1560), "Add account": (40, 600, 680, 700),
+             "All": (40, 200, 200, 260), "Needs attention": (200, 200, 400, 260)}
+    SCALE = ("shell", "settings", "put", "global", "animator_duration_scale")
+
+    def __init__(self):
+        self.now = self.started = 1000.0
+        self.scale = "0.0"
+        self.calls = []
+        self.frames = 0
+        self.screen = None
+        self.filter = "All"
+        self.seconds = lambda command: 0.25
+        # A test's hook: raise to fail a command, or return bytes to answer it without its effect.
+        self.before = lambda command: None
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+    def run(self, args, check, capture_output, timeout):
+        command = tuple(args[3:])
+        self.calls.append((command, timeout, self.now))
+        seconds = self.seconds(command)
+        answer = self.before(command)
+        if answer is None:
+            answer = self.answer(command)
+        if seconds > timeout:
+            self.now += timeout
+            raise subprocess.TimeoutExpired(args, timeout)
+        self.now += seconds
+        return SimpleNamespace(stdout=answer)
+
+    def answer(self, command):
+        if command[:2] == ("exec-out", "screencap"):
+            self.frames += 1
+            return self.STILL
+        if command[:2] == ("exec-out", "cat"):
+            return self.hierarchy()
+        if command[:-1] == self.SCALE:
+            self.scale = command[-1]
+        elif command[:3] == ("shell", "settings", "get"):
+            return self.scale.encode()
+        elif "resolve-activity" in command:
+            return b"priority=0\ncom.usagelimits/.UsageLimitsActivity"
+        elif command[:3] == ("shell", "am", "force-stop"):
+            self.screen = None
+        elif command[:3] == ("shell", "am", "start"):
+            self.screen, self.filter = "Overview", "All"
+        elif command[:3] == ("shell", "input", "keyevent"):
+            self.screen = "Overview"
+        elif command[:3] == ("shell", "input", "tap"):
+            x, y = int(command[3]), int(command[4])
+            label = next((label for label in self.visible() if self.BOXES[label][0] <= x < self.BOXES[label][2]
+                          and self.BOXES[label][1] <= y < self.BOXES[label][3]), None)
+            if label in ("All", "Needs attention"):
+                self.filter = label
+            elif label:
+                self.screen = label
+        return b""
+
+    def visible(self):
+        return {"Overview": ("Overview", "Accounts", "Add account"),
+                "Accounts": ("Overview", "Accounts", "All", "Needs attention")}.get(self.screen, ())
+
+    def hierarchy(self):
+        def node(label):
+            chosen = str(label in (self.screen, self.filter)).lower()
+            state = (f'checkable="true" checked="{chosen}"' if label in ("All", "Needs attention")
+                     else f'selected="{chosen}"')
+            box = "[{},{}][{},{}]".format(*self.BOXES[label])
+            return (f'<node package="com.usagelimits" enabled="true" clickable="{str(chosen == "false").lower()}" '
+                    f'{state} bounds="{box}"><node package="com.usagelimits" text="{label}" bounds="{box}"/></node>')
+
+        nodes = "".join(node(label) for label in self.visible())
+        if self.screen == "Add account":
+            nodes = ('<node package="com.usagelimits" text="You can connect several accounts per provider." '
+                     'bounds="[40,300][680,360]"/>')
+        return f"<hierarchy>{nodes}</hierarchy>".encode()
+
+    def restores(self):
+        """The index of every call that asked for the scale to go back to 0."""
+        return [index for index, call in enumerate(self.calls) if call[0] == self.SCALE + ("0.0",)]
+
+
+class MotionCaptureTest(unittest.TestCase):
+    """#81: the slow-motion frame capture is evidence: it fails nothing, except a scale it changed and left unknown."""
+
+    MOTION = str(runtime_smoke.MOTION_SCALE)
+
+    def device(self, scale_after_restore="0.0"):
+        """A stand-in for adb that remembers the animator scale it was given."""
+        state = {"scale": "0.0", "puts": []}
+        still = png_bytes(2, 2, 4, [GROUND * 2, GROUND * 2])
+
+        def adb(*args, **kwargs):
+            if args[:2] == ("exec-out", "screencap"):
+                return still
+            if args[:3] == ("shell", "settings", "put"):
+                state["puts"].append(args[-1])
+                state["scale"] = args[-1] if args[-1] != "0.0" else scale_after_restore
+                return ""
+            if args[:3] == ("shell", "settings", "get"):
+                return state["scale"]
+            if "resolve-activity" in args:
+                return "priority=0\ncom.usagelimits/.UsageLimitsActivity"
+            return ""
+        return state, adb
+
+    def capture(self, device, write=None):
+        """capture_motion on the fake device and its clock: what it returned or raised, and what it reported.
+
+        The job summary it appended to is kept in `self.summary`.
+        """
+        with TemporaryDirectory() as directory, patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device), \
+                patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(Path(directory) / "summary.md")}):
+            smoke = Smoke(Path(directory), "test-device")
+            if write is not None:
+                text = smoke.text
+                smoke.text = lambda name, value: write(name, value) if name == "motion.json" else text(name, value)
+            try:
+                outcome = smoke.capture_motion("motion")
+            except BaseException as error:
+                outcome = error
+            report, summary = Path(directory) / "motion.json", Path(directory) / "summary.md"
+            self.summary = summary.read_text() if summary.exists() else None
+            return outcome, json.loads(report.read_text()) if report.exists() else None
+
+    def assert_within_budget(self, device):
+        """No call may be allowed to run past the capture's budget, nor the restore past its own allowance."""
+        budget_end = device.started + runtime_smoke.MOTION_BUDGET_SECONDS
+        restore = device.restores()[0]
+        for command, timeout, started in device.calls[:restore]:
+            self.assertLessEqual(started + timeout, budget_end + 1e-6, command)
+        restore_end = device.calls[restore][2] + runtime_smoke.MOTION_RESTORE_SECONDS
+        for command, timeout, started in device.calls[restore:]:
+            self.assertLessEqual(started + timeout, restore_end + 1e-6, command)
+        self.assertLessEqual(device.calls[restore][2], budget_end + 1e-6)
+        self.assertLessEqual(device.now, budget_end + runtime_smoke.MOTION_RESTORE_SECONDS + 1e-6)
+
+    def test_a_sequence_counts_its_distinct_frames(self):
+        moving = runtime_smoke.motion_sequence("tab", "crossfade", [{"sha256": "a"}, {"sha256": "b"}, {"sha256": "b"}])
+        self.assertEqual((2, True), (moving["distinctFrames"], moving["framesDiffer"]))
+        still = runtime_smoke.motion_sequence("tab", "crossfade", [{"sha256": "a"}, {"sha256": "a"}])
+        self.assertEqual((1, False), (still["distinctFrames"], still["framesDiffer"]))
+        # Two whole-screen screenshots that differ in a byte are not a measurement of motion.
+        self.assertNotIn("motionObserved", moving)
+
+    def test_a_failed_capture_is_recorded_and_animations_are_turned_off_again(self):
+        state, adb = self.device()
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "adb", side_effect=adb), \
+                    patch.object(smoke, "wait_for", side_effect=AssertionError("UI did not reach motion-launched")):
+                self.assertEqual("capture failed", smoke.capture_motion("motion"))
+            report = json.loads((Path(directory) / "motion.json").read_text())
+        self.assertEqual([str(runtime_smoke.MOTION_SCALE), "0.0"], state["puts"])
+        self.assertEqual("0.0", report["animatorScaleRestored"])
+        self.assertIn("UI did not reach motion-launched", report["error"])
+        # The launch frames taken before the failure are kept.
+        self.assertEqual(["launch"], [sequence["name"] for sequence in report["sequences"]])
+        self.assertFalse(report["sequences"][0]["framesDiffer"])
+
+    def test_animations_left_on_fail_the_smoke(self):
+        _, adb = self.device(scale_after_restore=str(runtime_smoke.MOTION_SCALE))
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "adb", side_effect=adb), \
+                    patch.object(smoke, "wait_for", side_effect=AssertionError("UI did not reach motion-launched")):
+                with self.assertRaisesRegex(AssertionError, "not turned off again"):
+                    smoke.capture_motion("motion")
+
+    def test_a_deadline_shortens_a_call_and_never_lengthens_it(self):
+        device = FakeDevice()
+        with TemporaryDirectory() as directory, patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device):
+            smoke = Smoke(Path(directory), "test-device")
+            smoke.adb("shell", "true")
+            smoke.adb("shell", "true", timeout=5, deadline=device.now + 100)
+            smoke.adb("shell", "true", deadline=device.now + 3)
+            with self.assertRaises(runtime_smoke.BudgetExhausted):
+                smoke.adb("shell", "true", deadline=device.now)
+            # Without a deadline the retries pause a second each, as they always did.
+            before = device.now
+            with self.assertRaisesRegex(AssertionError, "UI did not reach never"):
+                smoke.wait_for("never", lambda root: False)
+            self.assertEqual(12 * (3 * 0.25 + 1), device.now - before)
+        self.assertEqual([40, 5, 3] + [40] * 36, [timeout for _, timeout, _ in device.calls])
+
+    def test_the_five_motions_are_captured_within_the_budget_and_animations_end_off(self):
+        device = FakeDevice()
+        outcome, report = self.capture(device)
+        self.assertEqual("captured", outcome)
+        self.assertEqual(["launch", "tab", "segment", "push", "pop"], [sequence["name"] for sequence in report["sequences"]])
+        self.assertEqual((self.MOTION, "0.0", 1), (report["animatorScaleReadBack"], report["animatorScaleRestored"],
+                                                  report["animatorScaleRestoreAttempts"]))
+        self.assertEqual(("0.0", "Overview", "All"), (device.scale, device.screen, device.filter))
+        self.assertNotIn("error", report)
+        self.assertNotIn("reason", report)
+        self.assert_within_budget(device)
+
+    def test_a_set_command_that_times_out_after_android_applied_it_is_still_restored(self):
+        device = FakeDevice()
+        device.seconds = lambda command: float("inf") if command == device.SCALE + (self.MOTION,) else 0.25
+        outcome, report = self.capture(device)
+        self.assertEqual("capture failed", outcome)
+        self.assertIn("TimeoutExpired", report["error"])
+        # The device did take the value, so only the restore stands between it and the rest of the smoke.
+        self.assertEqual([self.MOTION, "0.0"], [call[0][-1] for call in device.calls if call[0][:-1] == device.SCALE])
+        self.assertEqual(("0.0", "0.0"), (device.scale, report["animatorScaleRestored"]))
+        self.assertEqual((0, []), (device.frames, report["sequences"]))
+        self.assert_within_budget(device)
+
+    def test_a_capture_that_fails_before_it_asked_for_a_scale_does_not_touch_the_device_again(self):
+        for case, scale in (("the device is fine", "0.0"), ("the device would not even answer a restore", None)):
+            with self.subTest(case):
+                device = FakeDevice()
+
+                def before(command):
+                    if "resolve-activity" in command or scale is None:
+                        raise subprocess.CalledProcessError(1, command)
+                device.before = before
+                outcome, report = self.capture(device)
+                # Nothing was changed, so nothing is owed: no restore, no read-back, and no failed job.
+                self.assertEqual("capture failed", outcome)
+                self.assertIn("CalledProcessError", report["error"])
+                self.assertEqual(1, len(device.calls))
+                self.assertNotIn("animatorScaleRestored", report)
+                self.assertEqual("Motion capture (optional evidence): capture failed; " + report["error"] + "\n", self.summary)
+
+    def test_a_report_that_cannot_be_written_does_not_fail_the_job(self):
+        def full_disk(name, value):
+            raise OSError(28, "No space left on device")
+        device = FakeDevice()
+        outcome, report = self.capture(device, write=full_disk)
+        self.assertEqual("captured", outcome)
+        self.assertIsNone(report)
+        self.assertEqual("0.0", device.scale)
+        self.assertIn("No space left on device", self.summary)
+
+    def test_the_outcome_and_its_reason_go_to_the_job_summary(self):
+        device = FakeDevice()
+        self.assertEqual("captured", self.capture(device)[0])
+        self.assertEqual("Motion capture (optional evidence): captured\n", self.summary)
+        device = FakeDevice()
+        device.scale = "null"
+        device.before = lambda command: b"" if command == device.SCALE + (self.MOTION,) else None
+        self.assertEqual("skipped", self.capture(device)[0])
+        self.assertEqual("Motion capture (optional evidence): skipped; animator scale read back as 'null', not 10\n", self.summary)
+
+    def test_a_ui_that_never_becomes_ready_or_a_call_that_hangs_ends_as_skipped_within_the_budget(self):
+        dump = ("shell", "uiautomator", "dump")
+        budget = runtime_smoke.MOTION_BUDGET_SECONDS
+
+        def slow_start(command):
+            """Three slow answers at the start leave less than a default timeout for a call that hangs later."""
+            return "resolve-activity" in command or command[:2] == ("shell", "am")
+
+        for case, seconds, tree, step, kept, launch_frames in (
+            ("the tree never shows the target", lambda command: 20 if command[:3] == dump else 0.25,
+             b"<hierarchy/>", "wait for launched", ["launch"], 24),
+            ("uiautomator never answers", lambda command: float("inf") if command[:3] == dump else 0.25,
+             None, "wait for launched", ["launch"], 24),
+            ("screenshots crawl", lambda command: 40 if command[:2] == ("exec-out", "screencap") else 0.25,
+             None, "launch frames", ["launch"], 3),
+            ("a tap hangs late in the budget", lambda command: float("inf") if command[:3] == ("shell", "input", "tap")
+             else 35 if slow_start(command) else 0.25, None, "tap Accounts tab", ["launch"], 24),
+            ("the back key hangs late in the budget", lambda command: float("inf") if command[-1] == "BACK"
+             else 35 if slow_start(command) else 0.25, None, "pop trigger", ["launch", "tab", "segment", "push"], 24),
+        ):
+            with self.subTest(case):
+                device = FakeDevice()
+                device.seconds = seconds
+                device.before = lambda command: tree if command[:2] == ("exec-out", "cat") else None
+                outcome, report = self.capture(device)
+                self.assertEqual("skipped", outcome)
+                self.assertEqual(f"time budget of {budget} s exhausted at step {step}", report["reason"])
+                # What was photographed before the budget ran out stays in the report.
+                self.assertEqual(kept, [sequence["name"] for sequence in report["sequences"]])
+                self.assertEqual(launch_frames, len(report["sequences"][0]["frames"]))
+                self.assertEqual((self.MOTION, "0.0", "0.0"),
+                                 (report["animatorScaleReadBack"], device.scale, report["animatorScaleRestored"]))
+                self.assert_within_budget(device)
+                # The budget was used up, and the restore still ran on its own allowance.
+                self.assertGreaterEqual(device.calls[device.restores()[0]][2], device.started + budget)
+
+    def test_a_scale_that_does_not_read_back_is_skipped_without_frames(self):
+        for read_back in ("0.0", "null", "1.0"):
+            with self.subTest(read_back=read_back):
+                device = FakeDevice()
+                device.scale = read_back
+                device.before = lambda command: b"" if command == device.SCALE + (self.MOTION,) else None
+                outcome, report = self.capture(device)
+                self.assertEqual("skipped", outcome)
+                self.assertEqual(f"animator scale read back as {read_back!r}, not {self.MOTION}", report["reason"])
+                self.assertEqual((0, []), (device.frames, report["sequences"]))
+                self.assertFalse([call for call in device.calls if call[0][:2] == ("shell", "am")])
+                self.assertEqual(("0.0", "0.0"), (device.scale, report["animatorScaleRestored"]))
+
+    def test_a_restore_that_fails_once_is_tried_again(self):
+        restore = FakeDevice.SCALE + ("0.0",)
+        read = ("shell", "settings", "get", "global", "animator_duration_scale")
+
+        def fault(command, device):
+            raise subprocess.CalledProcessError(1, command)
+
+        for case, target, first, attempts in (
+            ("the device ignores the first restore", restore, lambda command, device: b"", 2),
+            ("the first restore command fails", restore, fault, 2),
+            ("the first read-back fails", read, fault, 2),
+            ("the restore is applied although adb times out", restore, None, 1),
+        ):
+            with self.subTest(case):
+                device = FakeDevice()
+                seen = []
+
+                def before(command):
+                    # Only once the capture is over: the same read is also what checks the motion scale.
+                    if command == target and device.restores():
+                        seen.append(command)
+                        if first is not None and len(seen) == 1:
+                            return first(command, device)
+
+                device.before = before
+                if first is None:
+                    device.seconds = lambda command: float("inf") if command == restore else 0.25
+                outcome, report = self.capture(device)
+                self.assertEqual("captured", outcome)
+                self.assertEqual(("0.0", "0.0", attempts), (device.scale, report["animatorScaleRestored"],
+                                                            report["animatorScaleRestoreAttempts"]))
+                self.assertNotIn("smokeStopped", report)
+                self.assert_within_budget(device)
+
+    def test_a_restore_that_never_reads_zero_stops_the_smoke(self):
+        restore = FakeDevice.SCALE + ("0.0",)
+        for case, read_back in (("the device keeps the motion scale", self.MOTION), ("adb stops answering", None)):
+            with self.subTest(case):
+                device = FakeDevice()
+                if read_back is None:
+                    device.seconds = lambda command: float("inf") if device.restores() else 0.25
+                device.before = lambda command: b"" if command == restore else None
+                outcome, report = self.capture(device)
+                self.assertIsInstance(outcome, AssertionError)
+                self.assertRegex(str(outcome), "not turned off again")
+                # The capture itself went through; what stops the smoke is named in the report.
+                self.assertEqual(("captured", read_back, 3), (report["result"], report["animatorScaleRestored"],
+                                                              report["animatorScaleRestoreAttempts"]))
+                self.assertEqual(3, len(device.restores()))
+                self.assertIn("Animations were not turned off again", report["smokeStopped"])
+                self.assertIn(report["smokeStopped"], self.summary)
+                self.assert_within_budget(device)
+
+    def test_an_interrupt_during_a_burst_restores_the_scale_and_propagates(self):
+        device = FakeDevice()
+
+        def before(command):
+            if command[:2] == ("exec-out", "screencap") and device.frames == 2:
+                raise KeyboardInterrupt
+        device.before = before
+        outcome, report = self.capture(device)
+        self.assertIsInstance(outcome, KeyboardInterrupt)
+        self.assertEqual(("0.0", "0.0"), (device.scale, report["animatorScaleRestored"]))
+        self.assertEqual("capture failed", report["result"])
+        self.assertIn("KeyboardInterrupt", report["error"])
+        self.assertEqual([("launch", 2)], [(sequence["name"], len(sequence["frames"])) for sequence in report["sequences"]])
 
 
 class PngTest(unittest.TestCase):

@@ -5,11 +5,14 @@ import UsageLimitsKit
 /// anything at a provider.
 struct AccountsScreen: View {
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: UsageStore
     @State private var isAdding = false
     @State private var providerFilter: ProviderID?
     @State private var attentionOnly = false
+    /// Whether a change of the cards shown is one a person made on a settled list (a filter, an
+    /// account added or removed) and so moves. Not armed until the first content is on screen,
+    /// and disarmed while a widget or a link jumps to an account: those are cuts.
+    @State private var listMotionArmed = false
 
     private var filteredAccounts: [AccountUsage] {
         store.accounts.filter { usage in
@@ -37,7 +40,9 @@ struct AccountsScreen: View {
     }
 
     var body: some View {
-        NavigationStack {
+        // Filtered once per evaluation: the cards and the motion's value are the same list.
+        let visible = filteredAccounts
+        return NavigationStack {
             ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
@@ -49,15 +54,21 @@ struct AccountsScreen: View {
                         AccountSkeletonCard()
                         AccountSkeletonCard()
                     } else if store.accounts.isEmpty {
-                        EmptyStateCard()
+                        // An item like the cards, so the first account arriving and the last one
+                        // leaving fade through with it instead of being drawn over it.
+                        EmptyStateCard().listItemMotion(armed: listMotionArmed)
                     }
-                    ForEach(filteredAccounts, id: \.account.id) { usage in
+                    ForEach(visible, id: \.account.id) { usage in
                         AccountSummaryCard(usage: usage, now: store.now).id(usage.account.id)
+                            .listItemMotion(armed: listMotionArmed)
                     }
 
                     AddAccountButton { isAdding = true }
                 }
-                .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: store.accounts.map { $0.account.id })
+                // Keyed on the cards that are shown, not on the accounts that exist, so a filter
+                // change fades through like an account arriving or leaving: the cards that go
+                // fade out first, then the rest (and the add button) move while the new arrive.
+                .listMotion(value: visible.map { $0.account.id }, armed: listMotionArmed)
                 .padding(16)
                 .readableWidth()
             }
@@ -68,12 +79,24 @@ struct AccountsScreen: View {
             .marketingDemoLabel()
             .refreshable { await store.refresh() }
             .sheet(isPresented: $isAdding) { AddAccountSheet() }
+            .armingListMotion($listMotionArmed, loaded: store.hasLoaded)
             .task(id: store.focusedAccountID) {
                 guard let id = store.focusedAccountID else { return }
+                // Disarmed in the same turn that resets the filters, so the update that brings
+                // the target's card back sees both: the card is there at once, not after a
+                // fade-through that would delay the very thing the tap asked for.
+                listMotionArmed = false
                 providerFilter = nil; attentionOnly = false
                 await Task.yield()
                 proxy.scrollTo(id, anchor: .center)
                 store.focusedAccountID = nil
+            }
+            // Armed again once the jump is over. From here and not from the task: this runs
+            // after an update that has seen the focus cleared, which is no earlier than the one
+            // that drew the unfiltered list, whereas a line after the scroll could still land in
+            // that same update and animate it. Not before the first content: that is still a cut.
+            .onChange(of: store.focusedAccountID) { focused in
+                if focused == nil, store.hasLoaded { listMotionArmed = true }
             }
             }
         }
@@ -108,6 +131,9 @@ private struct AccountSummaryCard: View {
                     Text(usage.account.label)
                         .usageFont(.section)
                         .foregroundStyle(UsageColors.ink)
+                        // For UI tests: the label is also a filter's title, so only the id says
+                        // that this is the account's card.
+                        .accessibilityIdentifier("account-title-\(usage.account.id)")
                     // Through the shared `planLabel`, so "claude_max_20x" reads as "Claude Max
                     // 20×" here exactly as it does on Android, rather than as the raw value
                     // one platform happened to print.
@@ -200,7 +226,8 @@ private struct AccountSummaryCard: View {
                         category: window.category,
                         remainingPercent: window.remainingPercent,
                         resetAt: window.resetAt,
-                        severity: window.severity, scope: window.scope, segments: window.segments),
+                        severity: window.severity, scope: window.scope, segments: window.segments,
+                        sourceWindowID: window.id),
                     now: now,
                     // The account's aged verdict outranks a row's own: a stale or failed account
                     // keeps its last numbers, but they stop looking fresh.

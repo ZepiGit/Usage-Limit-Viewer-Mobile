@@ -607,6 +607,33 @@ extension GlanceModelTests {
         XCTAssertTrue(labels.contains("Monthly"), "expected the exhausted monthly row, got \(labels)")
     }
 
+    func testSameLabelWindowsCarryTheSelectedSourceIDWhenTheWinnerChanges() throws {
+        func selected(_ firstUsed: Double, _ secondUsed: Double) throws -> (row: GlanceRow, lead: GlanceRow) {
+            let snapshot = GlanceModel.build([withWindows([
+                UsageWindow(id: "first", label: "Weekly", category: .weekly, usedPercent: firstUsed,
+                    periodSeconds: 604_800, resetAt: nil, exhausted: false),
+                UsageWindow(id: "second", label: "Weekly", category: .weekly, usedPercent: secondUsed,
+                    periodSeconds: 604_800, resetAt: nil, exhausted: false),
+            ])], now: now, scope: .allAccounts)
+            let account = try XCTUnwrap(snapshot.accounts.first)
+            // With no reset to lead, Overview falls back to the representative window.
+            let lead = try XCTUnwrap(snapshot.nextResettingAccount(at: now)?.representative(at: now))
+            return (try XCTUnwrap(account.rows.first), lead)
+        }
+
+        let before = try selected(90, 20)
+        let after = try selected(10, 80)
+        XCTAssertEqual(before.row.sourceWindowID, "first")
+        XCTAssertEqual(after.row.sourceWindowID, "second")
+        XCTAssertEqual(before.lead.sourceWindowID, before.row.sourceWindowID)
+        XCTAssertEqual(after.lead.sourceWindowID, after.row.sourceWindowID)
+        XCTAssertEqual(before.row.remainingPercent, 10)
+        XCTAssertEqual(after.row.remainingPercent, 20)
+        XCTAssertEqual(before.row.label, after.row.label)
+        let sameWinner = try selected(80, 10)
+        XCTAssertEqual(sameWinner.row.sourceWindowID, before.row.sourceWindowID)
+    }
+
     func testTheWeeklyWindowStillWinsWhenNothingIsMoreUrgent() {
         // The other direction: with both equally healthy, the better-understood category keeps
         // the slot. The change is one of ranking, not of preference.

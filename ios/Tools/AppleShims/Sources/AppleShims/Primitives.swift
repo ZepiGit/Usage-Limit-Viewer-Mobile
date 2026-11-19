@@ -6,6 +6,8 @@
 
 // MARK: - Property wrappers
 
+public protocol DynamicProperty {}
+
 @propertyWrapper
 public struct State<Value> {
     // Boxed so the setter can be `nonmutating`, exactly as real SwiftUI's is. Without that,
@@ -501,6 +503,8 @@ public struct Alignment {
     public static let bottom = Alignment(); public static let topLeading = Alignment()
     public static let topTrailing = Alignment(); public static let bottomLeading = Alignment()
     public static let bottomTrailing = Alignment()
+    init() {}
+    public init(horizontal: HorizontalAlignment, vertical: VerticalAlignment) {}
 }
 
 public enum TextAlignment {
@@ -627,13 +631,24 @@ public enum ColorScheme { case light, dark }
 
 public struct Animation {
     public static func easeInOut(duration: Double) -> Animation { Animation() }
+    public func delay(_ delay: Double) -> Animation { self }
 }
 
 public struct AnyTransition {
     public static let opacity = AnyTransition()
+    public static let identity = AnyTransition()
+    public static func asymmetric(insertion: AnyTransition, removal: AnyTransition) -> AnyTransition {
+        AnyTransition()
+    }
+    public func animation(_ animation: Animation?) -> AnyTransition { self }
+    public func combined(with other: AnyTransition) -> AnyTransition { self }
+    public static func modifier<M: ViewModifier>(active: M, identity: M) -> AnyTransition {
+        AnyTransition()
+    }
 }
 
 public struct ContentTransition {
+    public static let opacity = ContentTransition()
     public static func numericText() -> ContentTransition { ContentTransition() }
 }
 

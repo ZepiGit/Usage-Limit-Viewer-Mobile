@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -186,9 +187,12 @@ fun AccountDetailScreen(
                 UsageCard(contentPadding = PaddingValues(0.dp)) {
                     var first = true
                     fun divide(): Boolean { val had = !first; first = false; return had }
+                    // A row is the window it shows, not its place: see AccountCard.
                     ungrouped.forEach { window ->
                         if (divide()) RuleDivider(Modifier.padding(horizontal = 16.dp))
-                        UsageWindowRow(window, nowMs, percentDisplay, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                        key(window.id) {
+                            UsageWindowRow(window, nowMs, percentDisplay, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                        }
                     }
                     groups.forEach { (group, rows) ->
                         if (divide()) RuleDivider(Modifier.padding(horizontal = 16.dp))
@@ -199,7 +203,9 @@ fun AccountDetailScreen(
                             color = UsageColors.Ink,
                         )
                         rows.forEach { window ->
-                            UsageWindowRow(window, nowMs, percentDisplay, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                            key(window.id) {
+                                UsageWindowRow(window, nowMs, percentDisplay, rowPadding, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                            }
                         }
                     }
                 }

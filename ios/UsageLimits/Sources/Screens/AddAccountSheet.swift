@@ -13,7 +13,6 @@ import UsageLimitsKit
 /// selected flow before it starts so the browser step is predictable.
 struct AddAccountSheet: View {
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var store: UsageStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -60,7 +59,7 @@ struct AddAccountSheet: View {
                 }
                 .id(stageIdentity)
                 .transition(AnyTransition.opacity)
-                .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.18), value: stage)
+                .motion(.contentSwap, value: stage)
                 .padding(16)
                 .readableWidth()
             }
@@ -155,7 +154,7 @@ struct AddAccountSheet: View {
                 .usageFont(.section)
                 .foregroundStyle(UsageColors.ink)
             HStack(spacing: 8) {
-                if reduceMotion { Text(verbatim: "...") } else { ProgressView().tint(UsageColors.muted).controlSize(.small) }
+                ActivityMark(still: .dots)
                 Text("Asking \(provider.displayName) for a code…")
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)
@@ -203,7 +202,7 @@ struct AddAccountSheet: View {
             }
 
             HStack(spacing: 8) {
-                if reduceMotion { Text(verbatim: "...") } else { ProgressView().tint(UsageColors.muted).controlSize(.small) }
+                ActivityMark(still: .dots)
                 Text("Waiting for you to approve it…")
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)

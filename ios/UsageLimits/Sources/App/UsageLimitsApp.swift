@@ -150,5 +150,30 @@ struct RootView: View {
                 .tag(Tab.settings)
         }
         .tint(UsageColors.ink)
+        #if DEBUG
+        .overlay(alignment: .top) {
+            if MotionLog.isEnabled { MotionLogOverlay() }
+        }
+        .environment(\.reduceMotionOverride,
+            ProcessInfo.processInfo.arguments.contains("-reduce-motion") ? true : nil)
+        #endif
     }
 }
+
+#if DEBUG
+/// Observed separately so publishing a note never re-evaluates the screens being logged.
+private struct MotionLogOverlay: View {
+    @ObservedObject private var log = MotionLog.shared
+
+    var body: some View {
+        Text(verbatim: log.text)
+            .font(.caption2)
+            .lineLimit(1)
+            .accessibilityIdentifier("motion-log")
+            .padding(4)
+            .frame(maxWidth: .infinity)
+            .background(UsageColors.ground)
+            .allowsHitTesting(false)
+    }
+}
+#endif

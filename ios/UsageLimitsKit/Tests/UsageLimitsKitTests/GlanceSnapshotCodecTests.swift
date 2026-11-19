@@ -35,6 +35,20 @@ final class GlanceSnapshotCodecTests: XCTestCase {
             statusIconsEnabled: false, pinnedAccountIDs: [])
     }
 
+    func testSourceWindowIDStaysInMemoryWithoutChangingRowEqualityOrWireKeys() throws {
+        let row = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 20,
+            resetAt: now, severity: .low, sourceWindowID: "selected-window")
+        let encoded = try JSONEncoder().encode(row)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(Set(json.keys), ["label", "category", "remainingPercent", "resetAt", "severity", "scope", "segments"])
+        let decoded = try JSONDecoder().decode(GlanceRow.self, from: encoded)
+        XCTAssertNil(decoded.sourceWindowID)
+        XCTAssertEqual(decoded, row)
+        let other = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 20,
+            resetAt: now, severity: .low, sourceWindowID: "another-window")
+        XCTAssertEqual(row, other)
+    }
+
     func testTheRoundTripPreservesEverything() throws {
         let original = snapshot()
 
@@ -162,6 +176,7 @@ final class GlanceSnapshotCodecTests: XCTestCase {
 
         XCTAssertEqual(account.candidates, account.rows)
         XCTAssertEqual(account.rows.first?.segments, [])
+        XCTAssertNil(account.rows.first?.sourceWindowID)
         XCTAssertEqual(account.representative(at: now)?.label, "Weekly")
         XCTAssertEqual(account.severity(at: now, staleAfter: 3600), .medium)
     }

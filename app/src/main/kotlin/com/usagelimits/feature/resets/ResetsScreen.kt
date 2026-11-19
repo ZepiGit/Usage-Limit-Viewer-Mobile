@@ -40,7 +40,9 @@ import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.text.windowLabelRes
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
+import com.usagelimits.ui.theme.UsageMotion
 import com.usagelimits.ui.theme.UsageType
+import com.usagelimits.ui.theme.itemMotion
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -63,6 +65,7 @@ fun ResetsScreen(
     val resets = state.upcomingResets(nowMs)
     val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
     val next = resets.firstOrNull()
+    val motion = UsageMotion.current
 
     LazyColumn(
         modifier = modifier
@@ -71,7 +74,7 @@ fun ResetsScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item {
+        item(key = "title") {
             ScreenTitle(
                 title = stringResource(R.string.resets_title),
                 stamp = if (resets.isEmpty()) stringResource(R.string.resets_none_upcoming)
@@ -79,9 +82,10 @@ fun ResetsScreen(
             )
         }
 
+        // A day that empties out, or one a refresh adds, fades while the days after it glide.
         if (resets.isEmpty()) {
-            item {
-                EmptyBox(stringResource(R.string.resets_empty))
+            item(key = "empty") {
+                EmptyBox(stringResource(R.string.resets_empty), itemMotion(motion))
             }
         }
 
@@ -90,14 +94,14 @@ fun ResetsScreen(
                 item(key = "header-$date") {
                     Text(
                         text = dayLabel(date, today),
-                        modifier = Modifier.padding(top = 16.dp),
+                        modifier = itemMotion(motion).padding(top = 16.dp),
                         style = MaterialTheme.typography.labelMedium,
                         color = UsageColors.Muted,
                     )
                 }
                 // The day is the LazyColumn item; duplicate window IDs inside its card are safe.
                 item(key = "day-$date") {
-                    UsageCard(contentPadding = PaddingValues(0.dp)) {
+                    UsageCard(itemMotion(motion), contentPadding = PaddingValues(0.dp)) {
                         dayResets.forEachIndexed { index, reset ->
                             if (index > 0) RuleDivider(Modifier.padding(horizontal = 16.dp))
                             ResetRow(reset, nowMs, zone, isNext = reset == next)

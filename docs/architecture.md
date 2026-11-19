@@ -34,6 +34,24 @@ Strings live in one catalog per platform: Android's `values` and `values-de`, an
 
 The app's display mode is the only choice for every screen and usage widget. Android widgets and their configuration preview read the app setting; iOS widgets read it from the published snapshot. Widget configuration controls selection and appearance, never the display mode.
 
+## Motion
+
+App-defined motion takes its timing from named specs: `stateChange` (120 ms), `contentSwap` (180 ms), `move` (240 ms), and the stages of a fade-through. Android defines them in `ui/theme/Motion.kt`. iOS keeps the timings in the Kit's `Presentation/Motion.swift` and applies them in `Theme/UsageMotion.swift`.
+
+[`shared/test-vectors/motion.json`](../shared/test-vectors/motion.json) holds each motion's duration and delay, and `MotionVectorsTest` and `MotionTests` read it. That is what the two platforms are held to: the same motion lasts and waits the same time. It is not frame-by-frame sameness. Android fades linearly and eases position changes; iOS uses SwiftUI's ease-in-out. Android interruption tests inspect rendered frames; the timing vectors say nothing about interruption or frame pacing. Three Android motions have no iOS counterpart, because the system plays that part there: the launch pair and the back gesture's fade.
+
+Both apps configure a fade-through for list changes and for a figure and its side word together ("60% left"). Bars move to new lengths for the same window. A different source window or account starts a new presentation instead of interpolating from the previous reading. First load and deep-link filter resets do not request list motion.
+
+App-defined motion uses the platform preference: Android's animator duration scale and iOS Reduce Motion. On iOS, Debug builds can override that preference with `-reduce-motion`. `MotionUITests` checks the real modifiers' decisions through `-motion-log`, not the resulting transactions or rendered frames. A wait still needs a visible indicator: iOS uses a still mark under Reduce Motion and retains the credit dialog's progress representation.
+
+System motion stays the system's: tab switches, pushes, sheets, alerts and pull to refresh on iOS; dialogs, snackbars and switches on Android. On Android, tabs fade through in place. Push and pop also shift along the reading axis. The bottom bar and side rail stop taking taps, focus or accessibility actions as soon as they leave, and become interactive when the entrance finishes. A width change swaps the bar and rail without animating. A back gesture previews the underlying route with motion on. With motion off it does not preview; only a completed gesture pops the route. Reduced navigation does not animate the bar or screen, but their changes need not appear on the same frame: the chrome follows the route immediately, while Navigation Compose can display the previous screen briefly.
+
+The launch is the app's overlay on every Android version: the icon the user chose rises out of the ground and dissolves over the content. The app activity's theme leaves Android 12's system splash screen as the bare ground with no icon, because the system would draw a second one, on a white plate; the widget configuration screen has no overlay and keeps the system's splash screen. A process that the system brings back with the screens a person left is a return, not a launch, and plays nothing.
+
+Compose can use its fallback spring when the app's route tweens are interrupted. The reorder library's drop spring, Material's ripple and selection indicator, and iOS widget animations keep their own timing.
+
+The quota bar's fill and segment pill read animation values during drawing. The bottom bar reads opacity and position in its layer without changing the slot height on each tick. Those reads do not trigger recomposition; `BarMotionTest` also counts zero measure passes for a fill. The side rail changes layout width, and a figure's changing width can remeasure its row and neighbouring content.
+
 ## Storage and sync
 
 Android encrypts credentials with a Keystore key and stores account metadata, readings and widget configuration in Room. iOS uses Keychain credentials and local account files. Widget inputs contain presentation data rather than tokens; see [Security](security.md). Time-horizon summary rows use `summaryLineShort` and `summaryLineLong`, distinct from the single account headline. The iOS snapshot retains its legacy `headlineShort` and `headlineLong` encoded keys for compatibility. `GlanceRow` construction and decoding treat nonfinite or out-of-range percentages as unknown, matching `UsageWindow`.

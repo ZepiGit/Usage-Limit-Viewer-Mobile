@@ -8,8 +8,12 @@ import UsageLimitsKit
 /// the two platforms saying the same thing about the same account.
 struct OverviewScreen: View {
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ReducesMotion private var reduceMotion
     @EnvironmentObject private var store: UsageStore
+
+    /// Whether a change of the rows is one to animate: not before the first content is on
+    /// screen, which replaces the skeleton in one cut.
+    @State private var listMotionArmed = false
 
     /// Whether the list is in reordering mode.
     ///
@@ -20,6 +24,8 @@ struct OverviewScreen: View {
 
     var body: some View {
         let glance = store.glance
+        // Built once per evaluation: the rows and the motion's value are the same list.
+        let ordered = store.orderedAccounts
         return NavigationStack {
             List {
                 Section {
@@ -49,7 +55,7 @@ struct OverviewScreen: View {
                         if store.accounts.isEmpty {
                             EmptyStateCard().plainRow()
                         } else {
-                            ForEach(store.orderedAccounts) { account in
+                            ForEach(ordered) { account in
                                 AccountCard(
                                     account: account,
                                     provider: store.accounts.first { $0.account.id == account.id }?.account.provider,
@@ -94,7 +100,10 @@ struct OverviewScreen: View {
                     }
                 }
             }
-            .animation(reduceMotion ? nil : Animation.easeInOut(duration: 0.24), value: store.orderedAccounts.map(\.id))
+            // Both lists in one value, so a credit row that arrives or leaves moves its
+            // neighbours the way an account row does.
+            .listMotion(.move, value: [ordered.map(\.id), store.credits.map(\.id)], armed: listMotionArmed)
+            .armingListMotion($listMotionArmed, loaded: store.hasLoaded)
             .readableWidth()
             .listStyle(.plain)
             .environment(\.editMode, $editMode)
@@ -113,7 +122,9 @@ struct OverviewScreen: View {
                 if store.accounts.count > 1 || editMode.isEditing {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(editMode.isEditing ? String(localized: "Done") : String(localized: "Reorder")) {
-                            withAnimation(reduceMotion ? nil : Animation.easeInOut(duration: 0.2)) { editMode = editMode.isEditing ? .inactive : .active }
+                            withAnimation(Motion.contentSwap.animation(reduceMotion: reduceMotion)) {
+                                editMode = editMode.isEditing ? .inactive : .active
+                            }
                         }
                     }
                 }
@@ -132,9 +143,12 @@ struct OverviewScreen: View {
     /// Flips the global percentage mode, through the same property the Settings picker writes, so
     /// persistence, the widget snapshot and the timeline reload follow without a second path.
     ///
-    /// The crossfade is skipped under reduced motion, as every other animation on this screen is.
+    /// Inside an animation, so whatever else depends on the mode changes with it. The figures and
+    /// the bars bring their own motion: each figure fades through together with its side word
+    /// (`figureUnit`) while its bar moves. Under Reduce Motion the animation is nil and the flip
+    /// is applied at once.
     private func toggleMode() {
-        withAnimation(reduceMotion ? nil : Animation.easeInOut(duration: 0.2)) {
+        withAnimation(Motion.contentSwap.animation(reduceMotion: reduceMotion)) {
             store.settings.percentDisplay = store.settings.percentDisplay == .used ? .left : .used
         }
     }
@@ -231,22 +245,23 @@ private struct LeadStrip: View {
                     validity: stale ? ReadingValidity.stale : lead.readingValidity(of: row, at: now, staleAfter: snapshot.staleAfter),
                     mode: mode)
                 let percent = PercentText.figure(p)
+                let side = PercentText.sideWord(mode)
                 let rowLabel = DisplayText.windowLabel(row.label, category: row.category, scope: row.scope)
                 Text(verbatim: String(localized: "\(lead.title) · \(rowLabel)"))
                     .usageFont(.small).foregroundStyle(UsageColors.muted).lineLimit(1)
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(verbatim: percent)
                         .usageFont(.lead).foregroundStyle(SeverityPalette.figureColor(severity))
-                        // Keyed on the figure and the mode, so a flip fades between the two
-                        // readings; a refresh that only moves the number is not inside an
-                        // animation transaction and swaps at once.
-                        .id("\(mode.rawValue):\(percent)")
-                        .transition(AnyTransition.opacity)
-                    Text(PercentText.sideWord(mode)).usageFont(.small).foregroundStyle(UsageColors.muted)
+                    Text(side).usageFont(.small).foregroundStyle(UsageColors.muted)
                 }
+                // The pair is one unit, keyed by what it reads: on a mode flip or a refresh the
+                // old figure leaves with its own word before the new pair arrives, so "60%" is
+                // never drawn beside "used".
+                .figureUnit(key: [percent, side], anchor: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: toggleMode)
                 UsageBar(presentation: p)
+                    .subject(LeadSubject(lead: lead, row: row))
                     .padding(.vertical, 4)
                 if let resetAt = row.resetAt {
                     Text(verbatim: Countdown.resetsInLine(until: resetAt, from: now, texts: LocalizedCountdownTexts()))
@@ -256,6 +271,10 @@ private struct LeadStrip: View {
                 Text(verbatim: "—").usageFont(.small).foregroundStyle(UsageColors.faint)
             }
         }
+        // Another account or another window leading is another subject, not this one with new
+        // values: the band is replaced in one cut, so the figure does not fade out under the
+        // new account's name and the bar does not glide from the old window's fill.
+        .subject(LeadSubject(lead: lead, row: row))
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
@@ -264,6 +283,8 @@ private struct LeadStrip: View {
         // switch is offered as a named action as well.
         .accessibilityHint(switchHint)
         .accessibilityAction(named: switchActionName, toggleMode)
+        // For UI tests, which reach the figure's tap through this element's frame.
+        .accessibilityIdentifier("overview-lead")
     }
 
     /// Worded as the destination, not the current state: the current mode is already in the
@@ -307,6 +328,17 @@ private struct LeadStrip: View {
     /// counting as connected.
     private var connected: Int {
         snapshot.accounts.filter { $0.connectionStatus == .connected }.count
+    }
+}
+
+/// Which account and which of its windows the lead strip shows; equal values for the empty strip.
+private struct LeadSubject: Hashable {
+    let account: String?
+    let window: String?
+
+    init(lead: GlanceAccount?, row: GlanceRow?) {
+        account = lead?.id
+        window = row?.sourceWindowID
     }
 }
 
@@ -391,7 +423,10 @@ private struct AccountCard: View {
                     retry: canRetry ? { Task { await store.refresh() } } : nil)
             }
 
-            ForEach(Array(account.rows.enumerated()), id: \.offset) { _, row in
+            // Identified by the window a row shows, not by its position: when another window
+            // takes a slot it is a new row, so its figure and bar do not animate from the values
+            // of the window that was there.
+            ForEach(account.rows, id: \.sourceWindowID) { row in
                 WindowRow(
                     row: row, now: now,
                     severity: account.displaySeverity(of: row, at: now, staleAfter: store.settings.staleAfter),
@@ -431,6 +466,9 @@ struct WindowRow: View {
         DisplayText.windowLabel(row.label, category: row.category, scope: row.scope)
     }
 
+    /// "left" or "used": the word that says which side the figure counts.
+    private var sideWord: String { PercentText.sideWord(mode) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
@@ -438,23 +476,31 @@ struct WindowRow: View {
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)
                 Spacer()
-                if !presentation.hasFigure {
-                    // A missing value is a small dash, not a figure-sized one: it is the absence
-                    // of a number and should not hold the weight of one. Gated on the figure, so
-                    // an exhausted window with no percentage still reads "100%" in USED.
-                    Text(figureText).usageFont(.small).foregroundStyle(UsageColors.faint)
-                } else {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                // The figure and its side word, or the dash that stands for a missing figure, as
+                // one unit keyed by what it reads: it fades through as a whole while the bar
+                // moves, on a refresh as on a mode flip, so the old figure is never drawn beside
+                // the new side word and a dash never beside a figure.
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if !presentation.hasFigure {
+                        // A missing value is a small dash, not a figure-sized one: it is the
+                        // absence of a number and should not hold the weight of one. Gated on the
+                        // figure, so an exhausted window with no percentage still reads "100%" in
+                        // USED.
+                        Text(figureText).usageFont(.small).foregroundStyle(UsageColors.faint)
+                    } else {
                         Text(figureText)
                             .usageFont(.figure)
                             .foregroundStyle(SeverityPalette.figureColor(shown))
-                        Text(PercentText.sideWord(mode)).usageFont(.small).foregroundStyle(UsageColors.muted)
+                        Text(sideWord).usageFont(.small).foregroundStyle(UsageColors.muted)
                     }
                 }
+                .figureUnit(key: presentation.hasFigure ? [figureText, sideWord] : [figureText], anchor: .trailing)
+                .subject(row.sourceWindowID)
             }
 
             if row.segments.isEmpty {
                 UsageBar(presentation: presentation)
+                    .subject(row.sourceWindowID)
                     .accessibilityLabel(String(localized: "\(rowLabel): \(PercentText.spoken(figureText, mode))"))
             } else {
                 GeometryReader { geometry in

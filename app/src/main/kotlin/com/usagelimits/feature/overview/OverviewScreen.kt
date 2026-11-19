@@ -7,12 +7,12 @@ import com.usagelimits.core.model.presentation
 import com.usagelimits.core.model.readingValidity
 import com.usagelimits.core.model.title
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,20 +28,25 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -76,6 +81,7 @@ import com.usagelimits.ui.text.windowLabelRes
 import com.usagelimits.ui.components.Dot
 import com.usagelimits.ui.components.EmptyBox
 import com.usagelimits.ui.components.ErrorBlock
+import com.usagelimits.ui.components.FigureWithSide
 import com.usagelimits.ui.components.OutlineButton
 import com.usagelimits.ui.components.RuleDivider
 import com.usagelimits.ui.components.ScreenTitle
@@ -87,10 +93,11 @@ import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.components.UsageWindowRow
-import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
+import com.usagelimits.ui.theme.UsageMotion
 import com.usagelimits.ui.theme.UsageType
+import com.usagelimits.ui.theme.itemMotion
 
 /**
  * The landing screen: a lead strip answering "what runs out first, and when does anything come
@@ -113,6 +120,12 @@ fun OverviewScreen(
     onAddCredit: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
+    // Content arriving for the first time replaces the skeleton in one cut. It is not a list
+    // change, and its fade-in would leave the list blank for the delay, right after launch.
+    // Items take the list motion from the composition after that.
+    var contentShown by remember { mutableStateOf(false) }
+    SideEffect { if (state.loaded) contentShown = true }
+    val listMotion = if (contentShown) UsageMotion.current else UsageMotion.Reduced
 
     var reordering by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
@@ -141,7 +154,7 @@ fun OverviewScreen(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        item { OverviewHeader(state, nowMs, onRefresh) }
+        item(key = "header") { OverviewHeader(state, nowMs, onRefresh) }
 
         // Until the first emission `accounts` is empty only because nothing has arrived, so the
         // final layout is drawn in grey rather than flashing "no accounts".
@@ -151,11 +164,17 @@ fun OverviewScreen(
             return@LazyColumn
         }
 
-        if (state.accounts.isNotEmpty()) item { LeadStrip(state, nowMs, onPercentDisplayChange) }
+        // From here down every item has a stable key and the list's item motion, so when an
+        // account or a balance arrives or leaves, its neighbours glide to their new places
+        // instead of jumping while the card fades.
+        if (state.accounts.isNotEmpty()) {
+            item(key = "lead") { Box(itemMotion(listMotion)) { LeadStrip(state, nowMs, onPercentDisplayChange) } }
+        }
 
-        item {
+        item(key = "accounts-header") {
             SectionHeader(
                 title = stringResource(R.string.overview_section_accounts),
+                modifier = itemMotion(listMotion),
                 trailing = {
                     if (state.accounts.isNotEmpty()) {
                         TextAction(stringResource(if (reordering) R.string.action_done else R.string.overview_reorder), { reordering = !reordering }, color = UsageColors.Muted)
@@ -165,11 +184,13 @@ fun OverviewScreen(
         }
 
         if (state.accounts.isEmpty()) {
-            item { EmptyBox(stringResource(R.string.overview_no_accounts)) }
+            item(key = "accounts-empty") { EmptyBox(stringResource(R.string.overview_no_accounts), itemMotion(listMotion)) }
         }
 
         items(items = shown, key = { it.account.localId }) { usage ->
-            ReorderableItem(reorderState, key = usage.account.localId) { isDragging ->
+            // Under a dragging finger the neighbours move at once: a move that waits reads as lag.
+            ReorderableItem(reorderState, key = usage.account.localId,
+                animateItemModifier = itemMotion(listMotion, sequenced = !dragging)) { isDragging ->
                 AccountCard(usage = usage, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
                     percentDisplay = state.settings.percentDisplay,
                     showTier = state.settings.showSubscriptionTier, showRenewal = state.settings.showRenewalTime,
@@ -189,20 +210,31 @@ fun OverviewScreen(
             }
         }
 
-        item { AddButton(stringResource(R.string.overview_add_account), stringResource(R.string.overview_add_account_hint), onAddAccount) }
+        item(key = "add-account") {
+            AddButton(stringResource(R.string.overview_add_account), stringResource(R.string.overview_add_account_hint),
+                onAddAccount, itemMotion(listMotion))
+        }
 
         // Prepaid balances sit below the usage accounts: a different kind of number (money left,
         // no windows, no reset), so they are not mixed into the ranked list above.
-        item { SectionHeader(title = stringResource(R.string.overview_section_credits)) }
-        if (state.credits.isEmpty()) item { EmptyBox(stringResource(R.string.overview_no_credits)) }
+        item(key = "credits-header") {
+            SectionHeader(title = stringResource(R.string.overview_section_credits), modifier = itemMotion(listMotion))
+        }
+        if (state.credits.isEmpty()) {
+            item(key = "credits-empty") { EmptyBox(stringResource(R.string.overview_no_credits), itemMotion(listMotion)) }
+        }
         items(items = state.credits, key = { "credit-${it.id}" }) { entry ->
             com.usagelimits.feature.credits.CreditCard(
                 entry = entry, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
+                modifier = itemMotion(listMotion),
                 onClick = { onCreditClick(entry.id) },
                 onRetry = onRefresh,
             )
         }
-        item { AddButton(stringResource(R.string.overview_add_credit), stringResource(R.string.overview_add_credit_hint), onAddCredit) }
+        item(key = "add-credit") {
+            AddButton(stringResource(R.string.overview_add_credit), stringResource(R.string.overview_add_credit_hint),
+                onAddCredit, itemMotion(listMotion))
+        }
     }
 }
 
@@ -229,21 +261,29 @@ private fun OverviewHeader(state: UsageUiState, nowMs: Long, onRefresh: () -> Un
             else -> "$count · ${Countdown.freshnessLabel(state.lastUpdated, nowMs, countdownTexts)}"
         },
         action = {
+            val interaction = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clickable(enabled = !state.isRefreshing, role = Role.Button, onClick = onRefresh),
+                    // The 48dp square takes the press, corners included; the highlight alone is
+                    // round, as an icon action's is.
+                    .clickable(interaction, indication = null, enabled = !state.isRefreshing, role = Role.Button, onClick = onRefresh)
+                    .clip(CircleShape)
+                    .indication(interaction, ripple()),
                 contentAlignment = Alignment.Center,
             ) {
-                if (state.isRefreshing) {
-                    Spinner()
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = stringResource(R.string.overview_refresh_usage),
-                        tint = UsageColors.Muted,
-                        modifier = Modifier.size(20.dp),
-                    )
+                // The icon gives way to the spinner in the same slot, and back, rather than cutting.
+                Crossfade(state.isRefreshing, animationSpec = UsageMotion.current.stateChange(), label = "refresh") { refreshing ->
+                    if (refreshing) {
+                        Spinner()
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = stringResource(R.string.overview_refresh_usage),
+                            tint = UsageColors.Muted,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
         },
@@ -269,7 +309,6 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
     // The figure flips the one global setting; the label names where it goes.
     val flipTo = if (mode == PercentDisplay.USED) PercentDisplay.LEFT else PercentDisplay.USED
     val flipLabel = stringResource(percentFlipLabelRes(mode))
-    val motionEnabled = LocalMotionEnabled.current
     // A stale lead says how old it is instead of promising a reset the cache cannot vouch for.
     val countdownTexts = rememberCountdownTexts()
     val reset = if (lead?.stale == true) Countdown.freshnessLabel(lead.usage.snapshot?.fetchedAt, nowMs, countdownTexts)
@@ -309,27 +348,22 @@ private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: 
                 val severity = if (lead.stale) Severity.STALE else worst.severity
                 Text("${lead.usage.account.label} · $windowLabel",
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted, maxLines = 1)
-                // The accessibility action lives on the card's merged node above, so a screen reader
-                // finds one button. `clickable` would add a second focus stop of its own; this tap
-                // is the finger's route to the same action and creates no semantics node.
-                Row(
-                    Modifier.pointerInput(flipTo, onPercentDisplayChange) { detectTapGestures { onPercentDisplayChange(flipTo) } },
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    // No animation when the system has animations off: the figure just changes.
-                    Crossfade(
-                        targetState = percent,
-                        animationSpec = if (motionEnabled) tween(200) else snap(),
-                        label = "leadFigure",
-                    ) { shown ->
-                        Text(shown, style = MaterialTheme.typography.headlineMedium,
-                            color = SeverityPalette.figureColor(severity))
-                    }
-                    Text(side, Modifier.padding(bottom = 4.dp), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
+                // Keyed on whose reading this is: a lead that passes to another account or window
+                // shows that one's figure and bar at once, not the old one's fading out under the
+                // new name or a bar gliding from the other window's value.
+                key(lead.usage.account.localId, worst.id) {
+                    // The accessibility action lives on the card's merged node above, so a screen reader
+                    // finds one button. `clickable` would add a second focus stop of its own; this tap
+                    // is the finger's route to the same action and creates no semantics node.
+                    FigureWithSide(
+                        percent, side, SeverityPalette.figureColor(severity),
+                        MaterialTheme.typography.headlineMedium, MaterialTheme.typography.bodyMedium, spacing = 8.dp,
+                        modifier = Modifier.pointerInput(flipTo, onPercentDisplayChange) { detectTapGestures { onPercentDisplayChange(flipTo) } },
+                        sideModifier = Modifier.padding(bottom = 4.dp),
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    UsageBar(p, Modifier.fillMaxWidth())
                 }
-                Spacer(Modifier.height(2.dp))
-                UsageBar(p, Modifier.fillMaxWidth())
                 if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
             } else {
                 Text("—", style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
@@ -447,7 +481,7 @@ fun AccountCard(
     // A card that is old or failed keeps its figures, in grey.
     val stale = severity == Severity.STALE || severity == Severity.ERROR
 
-    UsageCard(modifier = modifier.clickable(onClick = onClick)) {
+    UsageCard(modifier = modifier, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 44.dp)) {
             com.usagelimits.ui.ProviderBadge(provider = usage.account.provider, size = 34.dp)
             Spacer(Modifier.width(12.dp))
@@ -513,8 +547,10 @@ fun AccountCard(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 // Ungrouped windows first — they are the account's headline limits.
+                // Each row is the window it shows, not its place in the list: another window that
+                // takes the slot starts from its own reading, without the old one's figure or bar.
                 windows.filter { it.group == null }.take(4).forEach { window ->
-                    UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                    key(window.id) { UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale) }
                 }
 
                 val groups = windows.filter { it.group != null }.groupBy { it.group!! }
@@ -526,7 +562,7 @@ fun AccountCard(
                         color = UsageColors.Muted,
                     )
                     groupWindows.forEach { window ->
-                        UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale)
+                        key(window.id) { UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale) }
                     }
                 }
             }

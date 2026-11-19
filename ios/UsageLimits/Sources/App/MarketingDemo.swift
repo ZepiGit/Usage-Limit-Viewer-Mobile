@@ -9,6 +9,11 @@ enum MarketingDemo {
         ProcessInfo.processInfo.arguments.contains("-marketing-demo")
     }
 
+    /// Exercises the first-frame skeleton followed by loaded content, without opening storage.
+    static var delaysLoad: Bool {
+        ProcessInfo.processInfo.arguments.contains("-motion-delayed-demo")
+    }
+
     // A fixed clock keeps relative and absolute reset labels consistent across every capture.
     static let now = Date(timeIntervalSince1970: 1_789_206_060) // 2026-09-12 09:41 UTC
 
