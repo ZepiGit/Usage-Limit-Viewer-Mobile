@@ -140,7 +140,9 @@ def posted_order(records, local_ids):
             continue
         alias = aliases.get(record["tag"].removeprefix("status-icon:"))
         assert alias, "Status record for an unknown account: " + record["key"]
-        stamp = int(record["when"])
+        # API 30 dumps `when=<ms>`; API 36/37 dump `when=<ms>/<ms>` (observed in run 44577120237),
+        # the first being the notification's own `when`.
+        stamp = int(str(record["when"]).split("/", 1)[0])
         assert stamps.setdefault(alias, stamp) == stamp, "Summary and child of " + alias + " carry different times"
     assert len(set(stamps.values())) == len(stamps), "Two pinned accounts carry the same time: " + str(stamps)
     return sorted(stamps, key=stamps.get, reverse=True)

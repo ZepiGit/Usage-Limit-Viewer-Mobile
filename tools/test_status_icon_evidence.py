@@ -146,6 +146,10 @@ class NotificationEvidenceTest(unittest.TestCase):
     def test_order_split_reads_the_posted_order_from_the_apps_times(self):
         records = self._pins({ACCOUNTS[2]: 100, ACCOUNTS[0]: 300, ACCOUNTS[1]: 200})
         self.assertEqual(ACCOUNTS[:3], posted_order(records, self._split_state(ACCOUNTS)["localIds"]))
+        # API 36/37 write the app's `when` first, then a second time (run 44577120237, API 36 dump).
+        api36 = self._pins({ACCOUNTS[2]: "1795109475022/1795109475022", ACCOUNTS[0]: "1795109475040/1795109475040",
+                            ACCOUNTS[1]: "1795109475033/1795109475033"})
+        self.assertEqual(ACCOUNTS[:3], posted_order(api36, self._split_state(ACCOUNTS)["localIds"]))
         with self.assertRaisesRegex(AssertionError, "same time"):
             posted_order(self._pins({ACCOUNTS[0]: 300, ACCOUNTS[1]: 300, ACCOUNTS[2]: 100}), self._split_state(ACCOUNTS)["localIds"])
 
