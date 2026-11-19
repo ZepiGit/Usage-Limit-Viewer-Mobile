@@ -27,9 +27,44 @@ SETTING = "Show subscription tier"
 # The animator scale while motion frames are captured: slow enough for `screencap`, which takes
 # a few hundred milliseconds a frame on the software-rendered emulator.
 MOTION_SCALE = 10
+# The motion frames are optional evidence inside a mandatory gate with a 60-minute job limit, so
+# they get a fixed share of it: the five bursts need about 25 s on the CI emulator, and whatever
+# is not captured after this many seconds is given up.
+MOTION_BUDGET_SECONDS = 150
+# Turning animations off again has an allowance of its own, so a capture that used up its budget
+# cannot take the restore's time: three attempts of one command and one read-back each.
+MOTION_RESTORE_SECONDS = 60
+MOTION_RESTORE_ATTEMPTS = 3
 
 
-def run(*args, timeout=40, binary=False):
+class BudgetExhausted(Exception):
+    """A deadline was reached before the next step under it could start."""
+
+
+class CaptureSkipped(Exception):
+    """The motion capture decided not to take frames; the message is the reason it reports."""
+
+
+def scale_is(text, value):
+    """Whether `settings get` printed this animator scale; "null" or anything unreadable is not it."""
+    try:
+        return float(text) == value
+    except ValueError:
+        return False
+
+
+def remaining(deadline, step):
+    """Seconds left until a `time.monotonic()` deadline; none left ends the caller's work."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise BudgetExhausted(step)
+    return left
+
+
+def run(*args, timeout=40, binary=False, deadline=None):
+    # A deadline only ever shortens the timeout: nothing started under it runs past it.
+    if deadline is not None:
+        timeout = min(timeout, remaining(deadline, " ".join(map(str, args))))
     result = subprocess.run(args, check=True, capture_output=True, timeout=timeout)
     return result.stdout if binary else result.stdout.decode().strip()
 
@@ -202,14 +237,15 @@ def scaled_crop(frame, box, scale):
 
 
 def motion_sequence(name, says, samples):
-    """One captured motion: its frames in order, and whether more than one distinct frame was seen.
+    """One captured motion: its frames in order, and how many of the screenshots differ.
 
-    Frames are compared by the bytes `screencap -p` wrote, so a status-bar clock that ticks during
-    the burst counts as one more distinct frame; the pictures are the evidence, this is the index.
+    Frames are compared by the bytes `screencap -p` wrote for the whole screen, so `framesDiffer`
+    is already true when the status-bar clock ticks during the burst. It does not measure motion
+    and nothing may read it as proof of one; the pictures are the evidence, this is their index.
     """
     distinct = len({sample["sha256"] for sample in samples})
     return {"name": name, "says": says, "frames": samples, "distinctFrames": distinct,
-            "motionObserved": distinct > 1}
+            "framesDiffer": distinct > 1}
 
 
 def matches(root, label):
@@ -291,11 +327,11 @@ class Smoke:
     def text(self, name, value):
         (self.directory / name).write_text(value + "\n")
 
-    def dump(self, name):
+    def dump(self, name, deadline=None):
         remote = "/sdcard/usage-runtime-window.xml"
-        self.adb("shell", "rm", "-f", remote)
-        self.adb("shell", "uiautomator", "dump", remote)
-        xml = self.adb("exec-out", "cat", remote)
+        self.adb("shell", "rm", "-f", remote, deadline=deadline)
+        self.adb("shell", "uiautomator", "dump", remote, deadline=deadline)
+        xml = self.adb("exec-out", "cat", remote, deadline=deadline)
         self.text(name + ".xml", xml)
         return ET.fromstring(xml)
 
@@ -1109,21 +1145,22 @@ class Smoke:
                         "min": min(measured), "max": max(measured)}
             self.text(phase + "-performance.json", json.dumps(report, indent=2))
 
-    def wait_for(self, name, predicate):
+    def wait_for(self, name, predicate, deadline=None):
         last_error = None
         for _ in range(12):
             try:
-                root = self.dump(name)
+                root = self.dump(name, deadline=deadline)
                 if predicate(root):
                     return root
             except (subprocess.SubprocessError, ET.ParseError) as error:
                 last_error = error
-            time.sleep(1)
+            # Under a deadline the pause ends with it, and a passed one ends the retries (BudgetExhausted).
+            time.sleep(1 if deadline is None else min(1, remaining(deadline, name)))
         raise AssertionError(f"UI did not reach {name}; last dump error: {last_error}")
 
-    def tap(self, node):
+    def tap(self, node, deadline=None):
         x1, y1, x2, y2 = bounds(node)
-        self.adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+        self.adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2), deadline=deadline)
 
     def launch(self, name):
         activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
@@ -1249,18 +1286,47 @@ class Smoke:
         raise AssertionError(f"No accepted press frame (capture start/end s after the {hold_ms} ms hold began, "
                              f"reason): {timings}; see {name}-ripple.json")
 
-    def burst(self, name, seconds):
-        """Screenshots taken back to back for `seconds`, each with when it started and ended."""
-        samples, started = [], time.monotonic()
+    def burst(self, name, seconds, samples, deadline=None):
+        """Screenshots taken back to back for `seconds`, each with when it started and ended.
+
+        They are appended to `samples` as they are written, so the frames taken before a failure,
+        the deadline or an interrupt stay with the caller.
+        """
+        started = time.monotonic()
         while len(samples) < 4 or (time.monotonic() - started < seconds and len(samples) < 24):
             begin = time.monotonic() - started
-            data = self.adb("exec-out", "screencap", "-p", binary=True)
+            data = self.adb("exec-out", "screencap", "-p", binary=True, deadline=deadline)
             filename = f"{name}-{len(samples):02d}"
             self.write_screenshot(filename, data)
             samples.append({"file": filename + ".png", "startSeconds": round(begin, 3),
                             "endSeconds": round(time.monotonic() - started, 3),
                             "sha256": hashlib.sha256(data).hexdigest()})
-        return samples
+
+    def restore_animations(self, report):
+        """Put the animator scale back to 0 and read it back; returns whether a read-back said 0.
+
+        It runs on an allowance of its own, whatever the capture used up. A command that fails is
+        not the answer: Android can apply a value although adb reports a timeout, so every attempt
+        reads the value back, and an attempt that did not confirm 0 is repeated.
+        """
+        limits = {"timeout": MOTION_RESTORE_SECONDS / (2 * MOTION_RESTORE_ATTEMPTS),
+                  "deadline": time.monotonic() + MOTION_RESTORE_SECONDS}
+        report["animatorScaleRestored"] = None
+        for attempt in range(1, MOTION_RESTORE_ATTEMPTS + 1):
+            report["animatorScaleRestoreAttempts"] = attempt
+            try:
+                self.adb("shell", "settings", "put", "global", "animator_duration_scale", "0.0", **limits)
+            except (subprocess.SubprocessError, BudgetExhausted) as error:
+                report["animatorScaleRestoreError"] = f"{type(error).__name__}: {error}"
+            try:
+                report["animatorScaleRestored"] = self.adb(
+                    "shell", "settings", "get", "global", "animator_duration_scale", **limits)
+            except (subprocess.SubprocessError, BudgetExhausted) as error:
+                report["animatorScaleRestoreError"] = f"{type(error).__name__}: {error}"
+                continue
+            if scale_is(report["animatorScaleRestored"], 0):
+                return True
+        return False
 
     def capture_motion(self, name):
         """#81: frame sequences of the app's main motions, slowed down so a screenshot can catch them.
@@ -1270,72 +1336,128 @@ class Smoke:
         order of events are the app's own, only stretched. Window and transition scales stay 0, so
         system window motion (the splash screen's exit) is not part of what these frames show.
 
-        This is evidence, not a gate: a capture that goes wrong is recorded in the report and the
-        smoke carries on, because the next step force-stops and relaunches the app anyway. Only
-        failing to turn animations off again is fatal, since every later check relies on that.
+        This is evidence, not a gate. It has MOTION_BUDGET_SECONDS for everything it does: the time
+        left is the upper limit of every adb and UIAutomator call and of every pause, and when it is
+        used up the capture ends as `skipped` with the frames it has. A capture that goes wrong is
+        recorded as `capture failed`, one whose scale did not read back as MOTION_SCALE as `skipped`,
+        and the smoke carries on, because the next step force-stops and relaunches the app anyway.
+
+        The one exception: the animator scale is put back to 0 on every way out, an interrupt
+        included, and read back. If no read-back confirms 0 the smoke stops here, since every later
+        check assumes animations are off and could not be trusted. A process killed outright never
+        gets that far; discarding the AVD is what covers it.
         """
         report = {"result": "incomplete", "animatorScale": MOTION_SCALE, "sequences": [],
                   "scope": "Empty-account build: cold start, tab switch, segment selection, push and pop. "
                            "Motions that need accounts (bars, figures, list items) are covered by the "
-                           "Robolectric frame tests under com.usagelimits.ui.motion."}
+                           "Robolectric frame tests under com.usagelimits.ui.motion. framesDiffer only "
+                           "says that two screenshots of the whole screen differ in some byte, which a "
+                           "status-bar clock tick also causes; it does not measure motion."}
+        deadline = time.monotonic() + MOTION_BUDGET_SECONDS
+        step = "resolve activity"
 
         def record():
             self.text(name + ".json", json.dumps(report, indent=2))
 
+        def at(label):
+            nonlocal step
+            step = label
+
+        def adb(*args):
+            return self.adb(*args, deadline=deadline)
+
+        def wait(label, predicate):
+            at(f"wait for {label}")
+            return self.wait_for(f"{name}-{label}", predicate, deadline=deadline)
+
         def sequence(label, says, seconds, trigger):
-            trigger()
-            report["sequences"].append(motion_sequence(label, says, self.burst(f"{name}-{label}", seconds)))
-            record()
+            samples = []
+            try:
+                at(f"{label} trigger")
+                trigger()
+                at(f"{label} frames")
+                self.burst(f"{name}-{label}", seconds, samples, deadline=deadline)
+            finally:
+                # Whatever ended the burst, the frames it wrote stay in the report.
+                if samples:
+                    report["sequences"].append(motion_sequence(label, says, samples))
+                    record()
 
         def tap(node, what):
+            at(f"tap {what}")
             assert node is not None, f"Motion capture found no {what}"
-            self.tap(node)
+            self.tap(node, deadline=deadline)
 
-        activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
-        self.adb("shell", "settings", "put", "global", "animator_duration_scale", str(MOTION_SCALE))
         try:
-            report["animatorScaleReadBack"] = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
-            self.adb("shell", "am", "force-stop", PACKAGE)
+            activity = adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
+            assert activity.startswith(PACKAGE + "/"), activity
+            at("set animator scale")
+            adb("shell", "settings", "put", "global", "animator_duration_scale", str(MOTION_SCALE))
+            read_back = adb("shell", "settings", "get", "global", "animator_duration_scale")
+            report["animatorScaleReadBack"] = read_back
+            if not scale_is(read_back, MOTION_SCALE):
+                # Frames taken at another scale would not show what the sequences say they show.
+                raise CaptureSkipped(f"animator scale read back as {read_back!r}, not {MOTION_SCALE}")
+            at("stop the app")
+            adb("shell", "am", "force-stop", PACKAGE)
             sequence("launch", "Process start: a bare ground, the launch overlay's icon rising once, then the overlay dissolving over Overview.",
-                     9, lambda: self.adb("shell", "am", "start", "-n", activity))
-            root = self.wait_for(name + "-launched", lambda root: navigation_target(root, "Overview") is not None)
+                     9, lambda: adb("shell", "am", "start", "-n", activity))
+            root = wait("launched", lambda root: navigation_target(root, "Overview") is not None)
 
             sequence("tab", "Overview to Accounts: two peers fade through in place.", 3,
                      lambda: tap(navigation_target(root, "Accounts"), "Accounts tab"))
-            root = self.wait_for(name + "-accounts", lambda root: selected_tab(root, "Accounts")
-                                 and self.control(root, PACKAGE, label="Needs attention") is not None)
+            root = wait("accounts", lambda root: selected_tab(root, "Accounts")
+                        and self.control(root, PACKAGE, label="Needs attention") is not None)
 
             sequence("segment", "Accounts filter: the selected pill fades from All to Needs attention.", 2.5,
                      lambda: tap(self.control(root, PACKAGE, label="Needs attention"), "Needs attention segment"))
-            root = self.wait_for(name + "-segment-selected", lambda root: (
+            root = wait("segment-selected", lambda root: (
                 (held := self.control(root, PACKAGE, label="Needs attention")) is not None and self.selected(held)))
             tap(self.control(root, PACKAGE, label="All"), "All segment")
-            root = self.wait_for(name + "-segment-restored", lambda root: (
+            root = wait("segment-restored", lambda root: (
                 (default := self.control(root, PACKAGE, label="All")) is not None and self.selected(default)))
 
             tap(navigation_target(root, "Overview"), "Overview tab")
-            root = self.wait_for(name + "-overview", lambda root: selected_tab(root, "Overview")
-                                 and self.control(root, PACKAGE, label="Add account") is not None)
+            root = wait("overview", lambda root: selected_tab(root, "Overview")
+                        and self.control(root, PACKAGE, label="Add account") is not None)
 
             sequence("push", "Overview to Add account: the old screen leaves, the new one arrives shifted "
                      "from the end side, and the bottom bar leaves with the old screen.", 4,
                      lambda: tap(self.control(root, PACKAGE, label="Add account"), "Add account button"))
-            self.wait_for(name + "-pushed", lambda root: navigation_target(root, "Overview") is None
-                          and bool(matches(root, "You can connect several accounts per provider.")))
+            wait("pushed", lambda root: navigation_target(root, "Overview") is None
+                 and bool(matches(root, "You can connect several accounts per provider.")))
 
             sequence("pop", "Back to Overview: the reverse shift, and the bottom bar returns.", 4,
-                     lambda: self.adb("shell", "input", "keyevent", "BACK"))
-            self.wait_for(name + "-popped", lambda root: selected_tab(root, "Overview"))
+                     lambda: adb("shell", "input", "keyevent", "BACK"))
+            wait("popped", lambda root: selected_tab(root, "Overview"))
             report["result"] = "captured"
-        except (AssertionError, subprocess.SubprocessError, ET.ParseError, struct.error, zlib.error) as error:
+        except CaptureSkipped as skipped:
+            report["result"] = "skipped"
+            report["reason"] = str(skipped)
+        except Exception as error:
+            # Optional evidence must not fail the gate, so any failure in it is recorded, not raised.
+            # A call that the budget cut short fails like any other; the clock tells them apart.
+            if isinstance(error, BudgetExhausted) or time.monotonic() >= deadline:
+                report["result"] = "skipped"
+                report["reason"] = f"time budget of {MOTION_BUDGET_SECONDS} s exhausted at step {step}"
+            else:
+                report["result"] = "capture failed"
+                report["error"] = f"{type(error).__name__}: {error}"
+        except BaseException as error:
+            # KeyboardInterrupt, SystemExit: passed on once the scale is back and the report is written.
             report["result"] = "capture failed"
             report["error"] = f"{type(error).__name__}: {error}"
+            raise
         finally:
-            self.adb("shell", "settings", "put", "global", "animator_duration_scale", "0.0")
-            restored = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
-            report["animatorScaleRestored"] = restored
+            restored = self.restore_animations(report)
+            if not restored:
+                report["smokeStopped"] = (
+                    f"Animations were not turned off again: the animator scale read "
+                    f"{report['animatorScaleRestored']!r} after {MOTION_RESTORE_ATTEMPTS} attempts. Every later "
+                    "check of the smoke assumes animations are off, so the smoke stops here.")
             record()
-            assert float(restored) == 0.0, f"Animations were not turned off again: {restored}"
+        # The one way this optional capture stops the mandatory smoke; see the docstring.
+        assert restored, report["smokeStopped"]
         return report["result"]
 
     def setting(self, name):
@@ -1482,6 +1604,8 @@ def main():
             smoke.navigate(tab, marker, "current-" + tab.lower())
         smoke.setting_is_disabled("current-persisted")
         smoke.capture("current-persisted")
+        # Optional evidence on a time budget: no failure in it fails the smoke. It raises only when it
+        # cannot confirm that animations are off again, which everything below relies on.
         motion = smoke.capture_motion("motion")
         smoke.adb("shell", "am", "force-stop", PACKAGE)
         smoke.launch("current-relaunch")
