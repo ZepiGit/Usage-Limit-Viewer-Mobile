@@ -1,12 +1,11 @@
-import Foundation
-import Testing
+import XCTest
 import UsageLimitsKit
 
-struct OverviewOrderVectorsTests {
-    @Test func overviewAndConfiguredAllAccountsFollowSharedOrder() throws {
+final class OverviewOrderVectorsTests: XCTestCase {
+    func testOverviewAndConfiguredAllAccountsFollowSharedOrder() throws {
         let data = try Data(contentsOf: SharedVectors.file("overview-order.json"))
         let file = try SharedVectors.parse(VectorFile.self, from: data)
-        try #require(file.vectors.isEmpty == false)
+        XCTAssertFalse(file.vectors.isEmpty)
 
         for vector in file.vectors {
             let now = date(vector.now)
@@ -14,18 +13,18 @@ struct OverviewOrderVectorsTests {
             for mode in [PercentDisplay.left, .used] {
                 let context = "\(vector.name), \(mode)"
                 let cache = GlanceModel.build(accounts, now: now, scope: .allAccounts, percentDisplay: mode)
-                #expect(cache.overviewOrderedAccounts(at: now).map(\.id) == vector.expected.automatic, "Overview: \(context)")
+                XCTAssertEqual(cache.overviewOrderedAccounts(at: now).map(\.id), vector.expected.automatic, "Overview: \(context)")
                 let published = GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(cache))
-                #expect(published.accounts.map(\.id) == vector.expected.stored, "Export: \(context)")
+                XCTAssertEqual(published.accounts.map(\.id), vector.expected.stored, "Export: \(context)")
                 let request = ConfiguredWidgetCapture(source: .loaded(published), preset: .notRead,
                     scope: .allAccounts, accountID: nil, providerID: nil, transparent: false)
-                #expect(request.selectedSnapshot(at: now).accounts.map(\.id) == vector.expected.automatic,
+                XCTAssertEqual(request.selectedSnapshot(at: now).accounts.map(\.id), vector.expected.automatic,
                     "All accounts: \(context)")
-                #expect(published.selecting(scope: .provider, now: now, providerID: ProviderID.codex.rawValue)
-                    .accounts.map(\.id) == vector.expected.stored, "Provider: \(context)")
+                XCTAssertEqual(published.selecting(scope: .provider, now: now, providerID: ProviderID.codex.rawValue)
+                    .accounts.map(\.id), vector.expected.stored, "Provider: \(context)")
                 let custom = ConfiguredWidgetCapture(source: .loaded(published), preset: .matched(accountIDs: vector.custom),
                     scope: .custom, accountID: nil, providerID: nil, transparent: false)
-                #expect(custom.selectedSnapshot(at: now).accounts.map(\.id) == vector.expected.custom, "Custom: \(context)")
+                XCTAssertEqual(custom.selectedSnapshot(at: now).accounts.map(\.id), vector.expected.custom, "Custom: \(context)")
             }
         }
     }
