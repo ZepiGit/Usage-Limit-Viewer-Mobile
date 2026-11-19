@@ -27,9 +27,9 @@ SETTING = "Show subscription tier"
 # The animator scale while motion frames are captured: slow enough for `screencap`, which takes
 # a few hundred milliseconds a frame on the software-rendered emulator.
 MOTION_SCALE = 10
-# The motion frames are optional evidence inside a mandatory gate with a 60-minute job limit, so
-# they get a fixed share of it: the five bursts need about 25 s on the CI emulator, and whatever
-# is not captured after this many seconds is given up.
+# The motion frames are optional evidence at the end of a job with a 60-minute limit, so they get
+# a fixed share of it: the five bursts need about 25 s on the CI emulator, and whatever is not
+# captured after this many seconds is given up.
 MOTION_BUDGET_SECONDS = 150
 # Turning animations off again has an allowance of its own, so a capture that used up its budget
 # cannot take the restore's time: three attempts of one command and one read-back each.
@@ -1316,12 +1316,12 @@ class Smoke:
             report["animatorScaleRestoreAttempts"] = attempt
             try:
                 self.adb("shell", "settings", "put", "global", "animator_duration_scale", "0.0", **limits)
-            except (subprocess.SubprocessError, BudgetExhausted) as error:
+            except (OSError, subprocess.SubprocessError, BudgetExhausted) as error:
                 report["animatorScaleRestoreError"] = f"{type(error).__name__}: {error}"
             try:
                 report["animatorScaleRestored"] = self.adb(
                     "shell", "settings", "get", "global", "animator_duration_scale", **limits)
-            except (subprocess.SubprocessError, BudgetExhausted) as error:
+            except (OSError, subprocess.SubprocessError, BudgetExhausted) as error:
                 report["animatorScaleRestoreError"] = f"{type(error).__name__}: {error}"
                 continue
             if scale_is(report["animatorScaleRestored"], 0):
@@ -1336,16 +1336,17 @@ class Smoke:
         order of events are the app's own, only stretched. Window and transition scales stay 0, so
         system window motion (the splash screen's exit) is not part of what these frames show.
 
-        This is evidence, not a gate. It has MOTION_BUDGET_SECONDS for everything it does: the time
-        left is the upper limit of every adb and UIAutomator call and of every pause, and when it is
-        used up the capture ends as `skipped` with the frames it has. A capture that goes wrong is
-        recorded as `capture failed`, one whose scale did not read back as MOTION_SCALE as `skipped`,
-        and the smoke carries on, because the next step force-stops and relaunches the app anyway.
+        This is evidence, not a gate, and runs after every mandatory check has passed and is on
+        record. It has MOTION_BUDGET_SECONDS for everything it does: the time left is the upper limit
+        of every adb and UIAutomator call and of every pause, and when it is used up the capture ends
+        as `skipped` with the frames it has. A capture that goes wrong is recorded as `capture
+        failed`, one whose scale did not read back as MOTION_SCALE as `skipped`. None of that, and no
+        file it cannot write, fails the job; the outcome goes to the log and the job summary.
 
-        The one exception: the animator scale is put back to 0 on every way out, an interrupt
-        included, and read back. If no read-back confirms 0 the smoke stops here, since every later
-        check assumes animations are off and could not be trusted. A process killed outright never
-        gets that far; discarding the AVD is what covers it.
+        The one exception: from the moment it asks for another animator scale, and not before, it
+        owes the device a scale of 0, on every way out, an interrupt included, and read back. A
+        scale it changed and cannot confirm as 0 again fails the job: an emulator left in an unknown
+        state is not a passed run.
         """
         report = {"result": "incomplete", "animatorScale": MOTION_SCALE, "sequences": [],
                   "scope": "Empty-account build: cold start, tab switch, segment selection, push and pop. "
@@ -1355,9 +1356,7 @@ class Smoke:
                            "status-bar clock tick also causes; it does not measure motion."}
         deadline = time.monotonic() + MOTION_BUDGET_SECONDS
         step = "resolve activity"
-
-        def record():
-            self.text(name + ".json", json.dumps(report, indent=2))
+        scale_touched = False
 
         def at(label):
             nonlocal step
@@ -1381,7 +1380,6 @@ class Smoke:
                 # Whatever ended the burst, the frames it wrote stay in the report.
                 if samples:
                     report["sequences"].append(motion_sequence(label, says, samples))
-                    record()
 
         def tap(node, what):
             at(f"tap {what}")
@@ -1392,6 +1390,8 @@ class Smoke:
             activity = adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
             assert activity.startswith(PACKAGE + "/"), activity
             at("set animator scale")
+            # Before the command, not after it: Android can apply a value that adb reports as failed.
+            scale_touched = True
             adb("shell", "settings", "put", "global", "animator_duration_scale", str(MOTION_SCALE))
             read_back = adb("shell", "settings", "get", "global", "animator_duration_scale")
             report["animatorScaleReadBack"] = read_back
@@ -1435,7 +1435,7 @@ class Smoke:
             report["result"] = "skipped"
             report["reason"] = str(skipped)
         except Exception as error:
-            # Optional evidence must not fail the gate, so any failure in it is recorded, not raised.
+            # Optional evidence must not fail the job, so any failure in it is recorded, not raised.
             # A call that the budget cut short fails like any other; the clock tells them apart.
             if isinstance(error, BudgetExhausted) or time.monotonic() >= deadline:
                 report["result"] = "skipped"
@@ -1449,14 +1449,25 @@ class Smoke:
             report["error"] = f"{type(error).__name__}: {error}"
             raise
         finally:
-            restored = self.restore_animations(report)
+            restored = not scale_touched or self.restore_animations(report)
             if not restored:
                 report["smokeStopped"] = (
                     f"Animations were not turned off again: the animator scale read "
-                    f"{report['animatorScaleRestored']!r} after {MOTION_RESTORE_ATTEMPTS} attempts. Every later "
-                    "check of the smoke assumes animations are off, so the smoke stops here.")
-            record()
-        # The one way this optional capture stops the mandatory smoke; see the docstring.
+                    f"{report['animatorScaleRestored']!r} after {MOTION_RESTORE_ATTEMPTS} attempts.")
+            outcome = "Motion capture (optional evidence): " + report["result"] + "".join(
+                f"; {report[key]}" for key in ("reason", "error", "smokeStopped") if key in report)
+            try:
+                self.text(name + ".json", json.dumps(report, indent=2))
+            except OSError as error:
+                outcome += f"; could not write {name}.json: {error}"
+            print(outcome)
+            if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+                try:
+                    with open(summary, "a") as file:
+                        file.write(outcome + "\n")
+                except OSError as error:
+                    print(f"Motion capture could not write the job summary: {error}")
+        # The one way this optional capture fails the job; see the docstring.
         assert restored, report["smokeStopped"]
         return report["result"]
 
@@ -1604,9 +1615,6 @@ def main():
             smoke.navigate(tab, marker, "current-" + tab.lower())
         smoke.setting_is_disabled("current-persisted")
         smoke.capture("current-persisted")
-        # Optional evidence on a time budget: no failure in it fails the smoke. It raises only when it
-        # cannot confirm that animations are off again, which everything below relies on.
-        motion = smoke.capture_motion("motion")
         smoke.adb("shell", "am", "force-stop", PACKAGE)
         smoke.launch("current-relaunch")
         smoke.navigate("Overview", "0 accounts monitored", "current-relaunch-overview")
@@ -1627,9 +1635,11 @@ def main():
     smoke.text("result.json", json.dumps({"result": "passed", "commit": os.environ["GITHUB_SHA"],
         "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": ["Overview", "Accounts", "Resets", "Settings"],
         "widgets": placed_widgets, "segmentPress": "segment-ripple.json",
-        "motionFrames": {"report": "motion.json", "result": motion},
+        "motionFrames": {"report": "motion.json"},
         "scope": "Empty-account release smoke with four launcher widgets; provider-authenticated quotas were not tested."}, indent=2))
     print("Release APK upgrade, persisted setting, four tabs, segment press highlight, four widgets, Mini Rings move/resize, night mode, process loss, launcher restart, reboot and offline/online checks passed; startup observations recorded.")
+    # Optional evidence, last: everything mandatory has passed and is on record above.
+    smoke.capture_motion("motion")
 
 
 if __name__ == "__main__":

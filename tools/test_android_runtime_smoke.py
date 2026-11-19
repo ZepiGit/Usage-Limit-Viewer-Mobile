@@ -1,6 +1,7 @@
 """Runtime smoke pixel, picker geometry, host focus and setting checks: python3 -m unittest discover -s tools"""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
@@ -508,7 +509,7 @@ class FakeDevice:
 
 
 class MotionCaptureTest(unittest.TestCase):
-    """#81: the slow-motion frame capture is evidence, and must always hand animations back off."""
+    """#81: the slow-motion frame capture is evidence: it fails nothing, except a scale it changed and left unknown."""
 
     MOTION = str(runtime_smoke.MOTION_SCALE)
 
@@ -531,15 +532,24 @@ class MotionCaptureTest(unittest.TestCase):
             return ""
         return state, adb
 
-    def capture(self, device):
-        """capture_motion on the fake device and its clock: what it returned or raised, and what it reported."""
+    def capture(self, device, write=None):
+        """capture_motion on the fake device and its clock: what it returned or raised, and what it reported.
+
+        The job summary it appended to is kept in `self.summary`.
+        """
         with TemporaryDirectory() as directory, patch.object(runtime_smoke.subprocess, "run", device.run), \
-                patch.object(runtime_smoke, "time", device):
+                patch.object(runtime_smoke, "time", device), \
+                patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(Path(directory) / "summary.md")}):
+            smoke = Smoke(Path(directory), "test-device")
+            if write is not None:
+                text = smoke.text
+                smoke.text = lambda name, value: write(name, value) if name == "motion.json" else text(name, value)
             try:
-                outcome = Smoke(Path(directory), "test-device").capture_motion("motion")
+                outcome = smoke.capture_motion("motion")
             except BaseException as error:
                 outcome = error
-            report = Path(directory) / "motion.json"
+            report, summary = Path(directory) / "motion.json", Path(directory) / "summary.md"
+            self.summary = summary.read_text() if summary.exists() else None
             return outcome, json.loads(report.read_text()) if report.exists() else None
 
     def assert_within_budget(self, device):
@@ -627,19 +637,42 @@ class MotionCaptureTest(unittest.TestCase):
         self.assertEqual((0, []), (device.frames, report["sequences"]))
         self.assert_within_budget(device)
 
-    def test_a_failed_activity_resolution_is_recorded_and_animations_are_confirmed_off(self):
-        device = FakeDevice()
+    def test_a_capture_that_fails_before_it_asked_for_a_scale_does_not_touch_the_device_again(self):
+        for case, scale in (("the device is fine", "0.0"), ("the device would not even answer a restore", None)):
+            with self.subTest(case):
+                device = FakeDevice()
 
-        def before(command):
-            if "resolve-activity" in command:
-                raise subprocess.CalledProcessError(1, command)
-        device.before = before
-        outcome, report = self.capture(device)
-        self.assertEqual("capture failed", outcome)
-        self.assertIn("CalledProcessError", report["error"])
-        self.assertEqual(1, len(device.restores()))
-        self.assertEqual(("0.0", "0.0"), (device.scale, report["animatorScaleRestored"]))
-        self.assertEqual((0, []), (device.frames, report["sequences"]))
+                def before(command):
+                    if "resolve-activity" in command or scale is None:
+                        raise subprocess.CalledProcessError(1, command)
+                device.before = before
+                outcome, report = self.capture(device)
+                # Nothing was changed, so nothing is owed: no restore, no read-back, and no failed job.
+                self.assertEqual("capture failed", outcome)
+                self.assertIn("CalledProcessError", report["error"])
+                self.assertEqual(1, len(device.calls))
+                self.assertNotIn("animatorScaleRestored", report)
+                self.assertEqual("Motion capture (optional evidence): capture failed; " + report["error"] + "\n", self.summary)
+
+    def test_a_report_that_cannot_be_written_does_not_fail_the_job(self):
+        def full_disk(name, value):
+            raise OSError(28, "No space left on device")
+        device = FakeDevice()
+        outcome, report = self.capture(device, write=full_disk)
+        self.assertEqual("captured", outcome)
+        self.assertIsNone(report)
+        self.assertEqual("0.0", device.scale)
+        self.assertIn("No space left on device", self.summary)
+
+    def test_the_outcome_and_its_reason_go_to_the_job_summary(self):
+        device = FakeDevice()
+        self.assertEqual("captured", self.capture(device)[0])
+        self.assertEqual("Motion capture (optional evidence): captured\n", self.summary)
+        device = FakeDevice()
+        device.scale = "null"
+        device.before = lambda command: b"" if command == device.SCALE + (self.MOTION,) else None
+        self.assertEqual("skipped", self.capture(device)[0])
+        self.assertEqual("Motion capture (optional evidence): skipped; animator scale read back as 'null', not 10\n", self.summary)
 
     def test_a_ui_that_never_becomes_ready_or_a_call_that_hangs_ends_as_skipped_within_the_budget(self):
         dump = ("shell", "uiautomator", "dump")
@@ -739,7 +772,8 @@ class MotionCaptureTest(unittest.TestCase):
                 self.assertEqual(("captured", read_back, 3), (report["result"], report["animatorScaleRestored"],
                                                               report["animatorScaleRestoreAttempts"]))
                 self.assertEqual(3, len(device.restores()))
-                self.assertIn("animations", report["smokeStopped"])
+                self.assertIn("Animations were not turned off again", report["smokeStopped"])
+                self.assertIn(report["smokeStopped"], self.summary)
                 self.assert_within_budget(device)
 
     def test_an_interrupt_during_a_burst_restores_the_scale_and_propagates(self):
