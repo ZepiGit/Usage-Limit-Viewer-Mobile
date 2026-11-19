@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.content.Context
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -17,6 +18,7 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
@@ -25,6 +27,7 @@ import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.overview.AccountCard
 import com.usagelimits.feature.overview.OverviewScreen
+import com.usagelimits.ui.components.FigureWithSide
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
@@ -225,6 +228,30 @@ class FigureMotionTest {
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(1, text("40%").size)
         assertEquals(0, text("60%").size)
+    }
+
+    @Test
+    fun `a colour change updates the same figure without a fade`() {
+        compose.mainClock.autoAdvance = false
+        var color by mutableStateOf(UsageColors.Ink)
+        compose.setContent {
+            UsageLimitsTheme {
+                CompositionLocalProvider(LocalMotionEnabled provides true) {
+                    val style = MaterialTheme.typography.bodyLarge
+                    FigureWithSide("60%", "left", color, style, style, 4.dp)
+                }
+            }
+        }
+        val figure = text("60%").single().boundsInWindow.toRegion(margin = 0)
+        FrameRecorder(compose).use { recorder ->
+            val before = recorder.frame()
+            compose.change { color = UsageColors.Muted }
+            val frames = recorder.next(20)
+            val settled = recorder.frame()
+            fun Bitmap.matches(other: Bitmap) = sameAs(other, figure.left, figure.top, figure.right, figure.bottom)
+            assertTrue("the figure actually changes colour", !before.matches(settled))
+            assertTrue("the same figure stays drawn in its new colour", frames.all { it.matches(settled) })
+        }
     }
 
     // MARK: - Another window, another account

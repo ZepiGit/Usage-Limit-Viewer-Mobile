@@ -60,9 +60,6 @@ private const val SHORT = 180
 private const val MEDIUM = 240
 private const val LONG = 320
 
-/** A timeline one millisecond long whose only event is at its end: see [peekIn]. */
-private const val GESTURE_END_STEP = 1
-
 /** Things that travel or grow: fast out of rest, slow into place. */
 private val Standard: Easing = FastOutSlowInEasing
 /** Opacity alone: an eased fade reads as a pause at each end. */
@@ -159,11 +156,8 @@ fun UsageMotion.axisOut(offsetPx: Int): ExitTransition =
  * has come), so here the screen below is there from the start, shifted by [offsetPx], and the
  * one on top fades over the whole of the move while it shifts away.
  *
- * With motion off nothing moves while the finger is down: both screens keep their state until
- * the very end of the gesture's timeline, which only a completed gesture reaches, and change
- * there in one step. (An immediate step would show the screen below as soon as the finger moved.)
+ * With motion off the gesture has no preview at all: the navigation shell takes it away from
+ * the library, which would otherwise seek these.
  */
-fun UsageMotion.peekIn(offsetPx: Int): EnterTransition =
-    if (enabled) slideInHorizontally(move()) { offsetPx } else fadeIn(snap(delayMillis = GESTURE_END_STEP))
-fun UsageMotion.peelOut(offsetPx: Int): ExitTransition =
-    if (enabled) fadeOut(gestureFade()) + slideOutHorizontally(move()) { offsetPx } else fadeOut(snap(delayMillis = GESTURE_END_STEP))
+fun UsageMotion.peekIn(offsetPx: Int): EnterTransition = slideInHorizontally(move()) { offsetPx }
+fun UsageMotion.peelOut(offsetPx: Int): ExitTransition = fadeOut(gestureFade()) + slideOutHorizontally(move()) { offsetPx }

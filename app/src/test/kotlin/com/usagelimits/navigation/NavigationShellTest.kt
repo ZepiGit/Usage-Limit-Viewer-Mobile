@@ -17,9 +17,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasText
@@ -27,7 +29,10 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
@@ -174,27 +179,62 @@ class NavigationShellTest {
         }
     }
 
-    // MARK: - A bar that is leaving
+    @Test
+    fun `the bar takes input only when usable`() = assertUsableChrome(NavigationLayout.BOTTOM_BAR, motion = true)
 
     @Test
-    fun `tabs that are fading out take no tap, no focus and are gone for a screen reader`() {
-        setShell(motion = true)
-        val accountsTab = compose.onNode(hasText("Accounts") and tab).fetchSemanticsNode().boundsInWindow.center
-        FrameRecorder(compose).use { recorder ->
-            val rest = recorder.frame()
-            val strip = barStrip(rest)
-            push()
-            val leaving = recorder.next(4).last()
-            assertTrue("the bar is still on screen, fading", leaving.weight(strip) in 1 until rest.weight(strip))
+    fun `the rail takes input only when usable`() = assertUsableChrome(NavigationLayout.SIDE_RAIL, motion = true)
 
-            assertEquals("tabs a screen reader can reach while the bar leaves", 0, tabs().size)
-            assertFalse("focus finds nothing to move to", compose.runOnUiThread<Boolean> { focus.moveFocus(FocusDirection.Next) })
-            compose.onRoot().performTouchInput { click(Offset(accountsTab.x, accountsTab.y)) }
-            settle()
+    @Test
+    fun `reduced motion removes the focused bar on the first exit frame`() =
+        assertUsableChrome(NavigationLayout.BOTTOM_BAR, motion = false)
 
-            assertEquals("a tap where the Accounts tab was does not leave the pushed screen", pushed, route)
-            assertEquals("the bar is gone", 0L, recorder.frame().weight(strip))
+    @Test
+    fun `reduced motion removes the focused rail on the first exit frame`() =
+        assertUsableChrome(NavigationLayout.SIDE_RAIL, motion = false)
+
+    @OptIn(ExperimentalTestApi::class)
+    private fun assertUsableChrome(edge: NavigationLayout, motion: Boolean) {
+        layout = edge
+        setShell(motion)
+        val accounts = compose.onNode(hasText("Accounts") and tab)
+        val root = compose.onRoot()
+        root.performKeyInput { pressKey(Key.Tab) }
+        accounts.requestFocus()
+        compose.mainClock.advanceTimeByFrame()
+        val focused = accounts.fetchSemanticsNode()
+        assertEquals(true, focused.config[SemanticsProperties.Focused])
+        val position = focused.boundsInWindow.center
+        fun tapAtTab() = root.performTouchInput { click(Offset(position.x, position.y)) }
+        fun assertInert(phase: String) {
+            assertEquals("accessible tabs on $phase", 0, tabs().size)
+            val focused = SemanticsMatcher.expectValue(SemanticsProperties.Focused, true)
+            assertEquals("retained focus on $phase", 0, compose.onAllNodes(focused, useUnmergedTree = true).fetchSemanticsNodes().size)
+            assertFalse("new focus on $phase", compose.runOnUiThread<Boolean> { focus.moveFocus(FocusDirection.Next) })
         }
+
+        push()
+        compose.mainClock.advanceTimeByFrame()
+        assertInert("the first exit frame")
+        root.performKeyInput { pressKey(Key.Enter) }
+        tapAtTab()
+        settle()
+        assertEquals(pushed, route)
+
+        back()
+        compose.mainClock.advanceTimeByFrame()
+        if (motion) {
+            assertInert("the first return frame")
+            tapAtTab()
+            repeat(12) { compose.mainClock.advanceTimeByFrame() }
+            assertInert("before the return finishes")
+            settle()
+            assertEquals(Destination.Overview.route, route)
+        }
+        assertEquals("tabs are usable on return", 4, tabs().size)
+        tapAtTab()
+        settle()
+        assertEquals(Destination.Accounts.route, route)
     }
 
     // MARK: - Interrupted
@@ -262,9 +302,8 @@ class NavigationShellTest {
     }
 
     /**
-     * With motion off a route change is a cut. The navigation library needs two frames for it
-     * and the bar one, so the second frame of four is the old screen without its bar (or the
-     * pushed one with it): two whole things, 16 ms apart, and never anything part-way.
+     * With motion off the chrome changes immediately when the route changes. The NavHost
+     * settles later, but neither the chrome nor the screens draw an intermediate animation.
      */
     @Test
     fun `with motion off a push and a back are cuts with nothing part-way`() {
@@ -310,9 +349,6 @@ class NavigationShellTest {
             assertTrue("and it comes back whole", recorder.frame().sameAs(rest))
         }
     }
-
-    private fun classify(frame: Bitmap, before: Bitmap, after: Bitmap) =
-        if (frame.sameAs(after)) "after" else if (frame.sameAs(before)) "before" else "other"
 
     // MARK: - A window that changes width
 
@@ -428,28 +464,32 @@ class NavigationShellTest {
         setShell(motion = false)
         FrameRecorder(compose).use { recorder ->
             val rest = recorder.frame()
+            val strip = barStrip(rest)
             push()
             settle()
             val onPushed = recorder.frame()
 
-            startGesture(edge, progress = 0.3f)
-            val held = recorder.next(2).toMutableList()
-            compose.change { dispatcher.dispatchOnBackProgressed(gesture(edge, 0.8f)) }
-            held += recorder.next(2)
-            held.saveSequence("shell-predictive-back-held-reduced-${edgeName(edge)}")
-            assertEquals("while the gesture is held, every frame is the pushed screen at rest",
-                List(held.size) { true }, held.map { it.sameAs(onPushed) })
+            fun holdAtEnd(): List<Bitmap> {
+                startGesture(edge, progress = 0.3f)
+                val held = recorder.next(2)
+                compose.change { dispatcher.dispatchOnBackProgressed(gesture(edge, 1f)) }
+                val end = recorder.next(3)
+                assertTrue("even at 100%, every held frame is the pushed screen", (held + end).all { it.sameAs(onPushed) })
+                assertTrue("the preview never enters the semantics tree", compose.onAllNodesWithText("Overview screen").fetchSemanticsNodes().isEmpty())
+                assertEquals(pushed, route)
+                return held + end
+            }
 
+            holdAtEnd().saveSequence("shell-predictive-back-held-reduced-${edgeName(edge)}")
             compose.change { dispatcher.dispatchOnBackCancelled() }
-            assertTrue("cancelled: the next frame is the pushed screen at rest", recorder.next(1).single().sameAs(onPushed))
+            assertTrue("cancel leaves the pushed screen untouched", recorder.next(3).all { it.sameAs(onPushed) })
             assertEquals(pushed, route)
 
-            startGesture(edge, progress = 0.8f)
+            holdAtEnd()
             compose.change { dispatcher.onBackPressed() }
             val completing = recorder.next(4)
-            val pictures = completing.map { classify(it, onPushed, rest) }
-            assertFalse("completed: every frame is one screen or the other, whole, with or without its bar: $pictures", "other" in pictures)
-            assertEquals("and it ends on Overview at rest", "after", pictures.last())
+            assertNothingPartWay(shares(completing, rest, onPushed, strip))
+            assertTrue("commit ends on Overview at rest", completing.last().sameAs(rest))
             assertEquals(Destination.Overview.route, route)
         }
     }

@@ -1,13 +1,9 @@
 package com.usagelimits.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -137,8 +133,8 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.betweenTabs() =
     initialState.isTab() && targetState.isTab()
 
 /**
- * Chrome that is on its way out is a picture of the tabs, not the tabs: it takes no tap and no
- * focus, and a screen reader does not find it. The screen it belonged to is already gone.
+ * Chrome that is on its way out or not yet in is a picture of the tabs, not the tabs: it takes
+ * no tap and no focus, and a screen reader does not find it. Its screen is gone, or not there yet.
  */
 private fun Modifier.inert(): Modifier = this
     .clearAndSetSemantics {}
@@ -161,22 +157,11 @@ private enum class ChromeEdge {
 /**
  * The bottom bar or the side rail, leaving and returning with the screens it belongs to.
  *
- * [active] says whether this is the chrome for the window's width at all. The other one is not
- * composed and keeps no memory of having been shown, so a window that changes width swaps bar
- * and rail at once: that is a different layout, not a route change, and plays nothing. The same
- * holds before the first route is known, so a launch or a rotation does not play an entrance.
- *
- * Nothing is emitted while it is hidden and at rest: the scaffold tells an empty bottom-bar slot
- * from a zero-height bar, and pads for the system navigation bar only when the slot is empty.
- *
- * Opacity and position are two values that each animate from wherever they are, so a push or a
- * back that interrupts the chrome reverses it without a step. `AnimatedVisibility` does not: an
- * entrance it has to abandon is first shown in full and then faded out (measured in
- * NavigationShellTest: a bar that was 55 % in jumped to 100 % within one frame).
- *
- * Both values are read where they are used, in the draw and layout phases; a frame of this
- * motion recomposes nothing. The bar keeps its height while it shifts: the content above it is
- * anchored to the top, so nothing visible depends on that height.
+ * [active] selects the chrome for the current width, so a layout change does not animate.
+ * A settled hidden bar emits nothing: Scaffold distinguishes an empty slot from a zero-height bar.
+ * Retarget opacity and position from their current values so a reversal does not jump.
+ * Controls are usable only from the end of entrance to the start of exit. With motion off,
+ * visibility and interaction both follow the route immediately.
  */
 @Composable
 private fun NavigationChrome(
@@ -189,24 +174,16 @@ private fun NavigationChrome(
 ) {
     if (!active) return
     if (!motion.enabled) {
-        // With motion off the chrome changes in one step, as close to the screens' own as the
-        // navigation library allows: it swaps two screens with snapped specs two frames after
-        // the route changed, a visibility with the same specs one frame after, and chrome that
-        // changed at once would be two frames ahead (measured in NavigationShellTest). After a
-        // completed back gesture the two land in the same frame.
-        val state = remember { MutableTransitionState(visible) }
-        state.targetState = visible
-        if (state.currentState || state.targetState) {
-            AnimatedVisibility(state, enter = fadeIn(snap()), exit = fadeOut(snap())) { content() }
-        }
+        if (visible) content()
         return
     }
     val opacity = remember { Animatable(if (visible) 1f else 0f) }
     // 0 in place, 1 out of the way.
     val away = remember { Animatable(if (visible) 0f else 1f) }
     var present by remember { mutableStateOf(visible) }
+    var arrived by remember { mutableStateOf(visible) }
     LaunchedEffect(visible) {
-        if (visible) present = true
+        if (visible) present = true else arrived = false
         coroutineScope {
             launch {
                 when {
@@ -219,7 +196,7 @@ private fun NavigationChrome(
             }
             launch { away.animateTo(if (visible) 0f else 1f, motion.move()) }
         }
-        if (!visible) present = false
+        if (visible) arrived = true else present = false
     }
     if (!visible && !present) return
 
@@ -237,7 +214,7 @@ private fun NavigationChrome(
             }
             .graphicsLayer { alpha = opacity.value }
     }
-    Box(if (visible) placed else placed.inert()) { content() }
+    Box(if (visible && arrived) placed else placed.inert()) { content() }
 }
 
 /**
@@ -271,6 +248,7 @@ internal fun NavigationShell(
     // appears at once, so a launch or a rotation does not play its entrance.
     val routeKnown = currentRoute != null
     val motion = UsageMotion.current
+    val reducedBack = !motion.enabled && routeKnown && navController.previousBackStackEntry != null
     val shift = with(LocalDensity.current) { AxisShift.roundToPx() }
 
     fun navigateToTab(route: String) {
@@ -349,7 +327,7 @@ internal fun NavigationShell(
                 //
                 // The back gesture scrubs through its own form of the pop (see `peekIn`), whichever
                 // edge it starts from: the library's default for it (a scale and a spring fade) is
-                // a third motion nobody chose, and it ignores the reduced-motion rule.
+                // a third motion nobody chose.
                 val forward = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -shift else shift
                 NavHost(
                     navController = navController,
@@ -362,6 +340,11 @@ internal fun NavigationShell(
                     predictivePopExitTransition = { motion.peelOut(if (betweenTabs()) 0 else forward) },
                     builder = routes,
                 )
+                // The later handler takes precedence over NavHost. Even 100% seek is not a
+                // commit, so with motion off only handle completion, not gesture progress.
+                BackHandler(enabled = reducedBack) {
+                    navController.popBackStack()
+                }
             }
         }
     }

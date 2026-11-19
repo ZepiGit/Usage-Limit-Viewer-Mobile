@@ -301,19 +301,15 @@ fun UsageWindowRow(
 }
 
 /**
- * One content replacing another by fading through: what was there leaves, then the new content
- * arrives, so the two are never read on top of each other. The slot takes the new content's
- * size as part of the same motion; [alignment] is the corner the content is anchored to while
- * the size changes.
- *
- * What is leaving is still drawn but no longer true, so it is taken out of the accessibility
- * tree at once: a screen reader only ever reaches the current content.
+ * Fade through when [contentKey] changes; other state updates replace the content in place.
+ * The slot resizes around [alignment]. Outgoing content is drawn but not exposed to accessibility.
  */
 @Composable
-fun <T> FadeThrough(
+private fun <T> FadeThrough(
     state: T,
-    modifier: Modifier = Modifier,
-    alignment: Alignment = Alignment.TopStart,
+    modifier: Modifier,
+    alignment: Alignment,
+    contentKey: (T) -> Any?,
     content: @Composable (T) -> Unit,
 ) {
     val motion = UsageMotion.current
@@ -337,20 +333,25 @@ fun <T> FadeThrough(
                 }
         },
         contentAlignment = alignment,
+        contentKey = contentKey,
         label = "fadeThrough",
     ) { shown ->
-        Box(if (shown == current) Modifier else Modifier.clearAndSetSemantics {}) { content(shown) }
+        Box(if (contentKey(shown) == contentKey(current)) Modifier else Modifier.clearAndSetSemantics {}) { content(shown) }
     }
 }
 
-private data class FigureReading(val figure: String, val side: String, val color: Color)
+private data class FigureReading(val figure: String, val side: String, val color: Color) {
+    val words = figure to side
+}
 
 /**
  * A percentage and the word that says which side it counts ("60% left"), as one unit.
  *
  * They change together, by fading through: on a display-mode flip the old figure leaves with its
  * own word before the new pair arrives, so no frame shows a figure beside the other side's word.
- * The colour travels with the figure: an outgoing figure keeps the colour it had.
+ * The colour travels with the figure: an outgoing figure keeps the colour it had. A colour that
+ * changes under the same figure and word (a reading going stale) changes in place: nothing that
+ * is read has changed, so nothing leaves.
  *
  * The unit animates from its own previous reading. Where the same slot can come to show another
  * window or another account, the caller gives it that identity with `key`, so one window's figure
@@ -369,7 +370,7 @@ fun FigureWithSide(
     /** Lifts the word to the figure's baseline where the two styles differ much in size. */
     sideModifier: Modifier = Modifier,
 ) {
-    FadeThrough(FigureReading(figure, side, color), modifier, alignment) { reading ->
+    FadeThrough(FigureReading(figure, side, color), modifier, alignment, contentKey = FigureReading::words) { reading ->
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(spacing)) {
             Text(reading.figure, style = figureStyle, color = reading.color)
             Text(reading.side, sideModifier, style = sideStyle, color = UsageColors.Muted)
