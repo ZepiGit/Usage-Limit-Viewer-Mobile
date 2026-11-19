@@ -212,6 +212,22 @@ jobs:
             exit 1
           fi
 
+      # Debug-only code is compiled out with `#if DEBUG`, so a symbol that only the Release branch
+      # still needs breaks no Debug build. release.yml builds Release only for a tag; this compiles
+      # the same configuration for the same destination on every pull request. It compiles only:
+      # nothing is signed, archived or run.
+      - name: Build the Release configuration
+        working-directory: ios/UsageLimits
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -scheme UsageLimits \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
       # Discover an installed iPhone simulator; fail if none is available.
       - name: Pick and boot a simulator
         id: simulator
