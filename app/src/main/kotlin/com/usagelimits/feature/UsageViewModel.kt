@@ -26,7 +26,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -68,11 +67,6 @@ data class UsageUiState(
     val credits: List<CreditEntry> = emptyList(),
     /** False only before the first repository emission, so an empty list is not read as "no accounts". */
     val loaded: Boolean = true,
-    /**
-     * The account store could not be read. Screens say so instead of claiming no accounts, and an
-     * account link says the account could not be read rather than that it is gone.
-     */
-    val storageError: Boolean = false,
     /**
      * Pin changes made but not yet stored, by account id: true to pin, false to unpin. Settings
      * shows them at once, so a toggle does not spring back while earlier changes are published.
@@ -152,10 +146,6 @@ class UsageViewModel(
         combine(container.settingsStore.diagnostics, pinRequests) { diagnostics, pending -> diagnostics to pending.mapValues { it.value.pinned } },
     ) { (accounts, credits), settings, isRefreshing, message, (diagnostics, pending) ->
         UsageUiState(accounts, settings, isRefreshing, message, diagnostics, credits, pendingPins = pending)
-    }.catch { error ->
-        // A read that failed is not an empty register: say the store is unreadable.
-        android.util.Log.w("UsageViewModel", "account store could not be read", error)
-        emit(UsageUiState(loaded = false, storageError = true))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState(loaded = false))
 
     private val _resetCreditInFlight = MutableStateFlow<String?>(null)

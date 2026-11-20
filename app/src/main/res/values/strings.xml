@@ -216,7 +216,6 @@
 
     <!-- Account detail (feature/accounts/AccountDetailScreen.kt). -->
     <string name="account_unavailable">This account is no longer available.</string>
-    <string name="account_unreadable">This account could not be read from storage.</string>
     <string name="account_back_to_overview">Back to Overview</string>
     <string name="account_remove_body">Its stored credentials are deleted from this device. Nothing changes on the provider side, and you can add the account again at any time.</string>
     <string name="account_last_attempt_just_now">Last attempt just now</string>

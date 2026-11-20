@@ -349,29 +349,38 @@ internal fun NavigationShell(
  */
 @Composable
 fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeClass,
-    requestedAccountId: String? = null, onAccountHandled: () -> Unit = {}) {
+    request: ExternalRequest? = null, onRequestHandled: (ExternalRequest) -> Unit = {}) {
     val navController = rememberNavController()
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val viewModel: UsageViewModel =
         viewModel(factory = UsageViewModel.Factory(container, appContext))
     val state by viewModel.state.collectAsState()
-    // A status icon or widget row names an account. The link waits for the store's first answer,
-    // opens the detail over Overview whichever tab is showing, and is consumed once; an account
-    // that is gone, or a store that could not be read, gets its own detail state with a way back.
-    val route = AccountRoute.resolve(requestedAccountId,
-        state.accounts.map { it.account.localId }.takeIf { state.loaded }, state.storageError)
-    LaunchedEffect(route) {
-        val target = route ?: return@LaunchedEffect
-        val accountId = when (target) {
-            is AccountRoute.Detail -> target.accountId
-            is AccountRoute.Unavailable -> target.accountId
-            is AccountRoute.Unreadable -> target.accountId
+    // A status icon or widget row names an account: the link waits for the store's first answer
+    // and opens the detail over Overview whichever tab is showing; an account that is gone gets its
+    // own detail state with a way back. A usage alert or a whole-widget tap opens Overview, over
+    // whatever was showing. Each request is handled once.
+    val route = (request as? ExternalRequest.OpenAccount)?.let {
+        AccountRoute.resolve(it.accountId, state.accounts.map { usage -> usage.account.localId }.takeIf { state.loaded })
+    }
+    LaunchedEffect(request, route) {
+        when (request) {
+            null -> return@LaunchedEffect
+            is ExternalRequest.OpenOverview -> navController.navigate(Destination.Overview.route) {
+                popUpTo(navController.graph.findStartDestination().id)
+                launchSingleTop = true
+            }
+            is ExternalRequest.OpenAccount -> {
+                val accountId = when (val target = route ?: return@LaunchedEffect) {
+                    is AccountRoute.Detail -> target.accountId
+                    is AccountRoute.Unavailable -> target.accountId
+                }
+                navController.navigate(Destination.AccountDetail.of(accountId)) {
+                    popUpTo(navController.graph.findStartDestination().id)
+                    launchSingleTop = true
+                }
+            }
         }
-        navController.navigate(Destination.AccountDetail.of(accountId)) {
-            popUpTo(navController.graph.findStartDestination().id)
-            launchSingleTop = true
-        }
-        onAccountHandled()
+        onRequestHandled(request)
     }
     val resetInFlight by viewModel.resetCreditInFlight.collectAsState()
 
@@ -523,7 +532,6 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                 AccountDetailScreen(
                     usage = usage,
                     loaded = state.loaded,
-                    storageError = state.storageError,
                     onBack = { navController.popBackStack() },
                     nowMs = nowMs,
                     staleAfterMs = state.staleAfterMs,

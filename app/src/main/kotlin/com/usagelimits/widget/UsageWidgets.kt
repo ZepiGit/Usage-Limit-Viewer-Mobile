@@ -17,7 +17,6 @@ import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.LocalSize
-import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.LinearProgressIndicator
@@ -47,6 +46,7 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.usagelimits.R
 import com.usagelimits.UsageLimitsActivity
+import com.usagelimits.navigation.ExternalRequest
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
@@ -200,7 +200,7 @@ class CompactUsageWidget : GlanceAppWidget() {
                         .panelCorner()
                         .background(style.background.color)
                         .padding(10.dp)
-                        .clickable(actionStartActivity<UsageLimitsActivity>())
+                        .clickable(androidx.glance.appwidget.action.actionStartActivity(ExternalRequest.openOverview(context)))
                     val empty = snapshot.emptyText(context.resources)
                     if (empty != null) {
                         Column(root) {
@@ -450,7 +450,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
                     Column(
                         GlanceModifier.fillMaxSize().panelCorner()
                             .background(style.background.color).padding(10.dp)
-                            .clickable(actionStartActivity<UsageLimitsActivity>()),
+                            .clickable(androidx.glance.appwidget.action.actionStartActivity(ExternalRequest.openOverview(context))),
                     ) {
                         if (snapshot.accounts.size != 1) {
                             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

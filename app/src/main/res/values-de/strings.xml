@@ -210,7 +210,6 @@
 
     <!-- Account detail (feature/accounts/AccountDetailScreen.kt). -->
     <string name="account_unavailable">Dieses Konto ist nicht mehr verfügbar.</string>
-    <string name="account_unreadable">Dieses Konto konnte nicht aus dem Speicher gelesen werden.</string>
     <string name="account_back_to_overview">Zurück zur Übersicht</string>
     <string name="account_remove_body">Die gespeicherten Zugangsdaten werden von diesem Gerät gelöscht. Beim Anbieter ändert sich nichts, und du kannst das Konto jederzeit erneut hinzufügen.</string>
     <string name="account_last_attempt_just_now">Letzter Versuch gerade eben</string>

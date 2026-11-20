@@ -12,7 +12,6 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.LocalSize
-import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.SizeMode
@@ -35,7 +34,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.usagelimits.R
-import com.usagelimits.UsageLimitsActivity
+import com.usagelimits.navigation.ExternalRequest
 import com.usagelimits.core.model.CreditFormat
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.time.Countdown
@@ -71,7 +70,7 @@ class CreditsWidget : GlanceAppWidget() {
                 CompositionLocalProvider(LocalWidgetStyle provides style) {
                     Column(
                         GlanceModifier.fillMaxSize().panelCorner().background(style.background.color).padding(10.dp)
-                            .clickable(actionStartActivity<UsageLimitsActivity>()),
+                            .clickable(androidx.glance.appwidget.action.actionStartActivity(ExternalRequest.openOverview(context))),
                     ) {
                         when {
                             snapshot.rows.isEmpty() -> Text(
