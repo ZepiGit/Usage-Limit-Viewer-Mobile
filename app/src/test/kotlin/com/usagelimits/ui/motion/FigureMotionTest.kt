@@ -372,6 +372,29 @@ class FigureMotionTest {
         }
     }
 
+    /**
+     * A window that stays blocked and gains its first figure (or loses it) is a new reading: in
+     * Left the dash is replaced at once, not faded out while the chip's word stays.
+     */
+    @Test
+    fun `a blocked window that gains or loses its figure replaces the dash at once`() {
+        fun blocked(used: Double?) = demoAccount("one", ProviderId.CODEX, used).let { usage ->
+            usage.copy(snapshot = usage.snapshot!!.copy(windows = listOf(
+                usage.snapshot.windows.single().copy(exhausted = true))))
+        }
+        accounts = listOf(blocked(null))
+        setCard(motion = true)
+        assertEquals(1, rowText("—").size)
+
+        compose.change { accounts = listOf(blocked(40.0)) }
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals("the first figure replaces the dash", listOf("60%"), listOf("—", "60%").filter { rowText(it).isNotEmpty() })
+
+        compose.change { accounts = listOf(blocked(null)) }
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals("a lost figure is the dash at once", listOf("—"), listOf("—", "60%").filter { rowText(it).isNotEmpty() })
+    }
+
     @Test
     fun `a reading that becomes known replaces the dash at once`() {
         accounts = listOf(demoAccount("one", ProviderId.CODEX, null))
@@ -379,7 +402,8 @@ class FigureMotionTest {
         assertEquals(1, rowText("—").size)
 
         compose.change { accounts = listOf(demoAccount("one", ProviderId.CODEX, 40.0)) }
-        compose.mainClock.advanceTimeByFrame()
+        // The dash leaves over the fade's exit and is gone once that has passed.
+        compose.mainClock.advanceTimeBy(80)
 
         assertEquals(listOf("60%"), listOf("—", "60%").filter { rowText(it).isNotEmpty() })
     }

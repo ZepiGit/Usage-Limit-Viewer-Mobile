@@ -46,6 +46,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -758,11 +759,31 @@ private fun LineBar(line: WindowLine, modifier: Modifier = Modifier) {
  * blocked window whose figure is "—" in one mode and "100%" in the other: keyed on the reading,
  * the node survives the flip. A new reading that gains or loses its figure is a different node and
  * replaces the old one at once.
+ *
+ * What the figure's fade is keyed on, from the reading and not from the display mode:
+ * - [FigureFade.MEASURED]: the window has a figure, whether or not it is blocked;
+ * - [FigureFade.BLOCKED]: blocked and without a measurement, so one mode shows "—" and the other "100%";
+ * - [FigureFade.UNKNOWN]: neither.
+ *
+ * A pure mode change stays in one state and fades with the chip. A reading that gains or loses its
+ * figure changes state, blocked or not, and the figure is replaced at once.
  */
+internal enum class FigureFade { MEASURED, BLOCKED, UNKNOWN }
+
+internal fun figureFade(hasMeasurement: Boolean, blocked: Boolean): FigureFade = when {
+    hasMeasurement -> FigureFade.MEASURED
+    blocked -> FigureFade.BLOCKED
+    else -> FigureFade.UNKNOWN
+}
+
 @Composable
 private fun LineFigure(line: WindowLine) {
-    val reading = line.presentation.hasFigure || line.window.exhausted
-    key(reading) {
+    // The fade's identity is the reading. A blocked window's "—" and "100%" are one state, so they
+    // fade with the chip; a reading that gains or loses its figure changes state and is cut in.
+    // The reading, not the token: a blocked window's "100%" in Used mode is the verdict, not a
+    // measurement, so a mode flip stays in one key and fades, while a reading that gains or loses
+    // its figure changes key and is replaced.
+    key(figureFade(line.window.usedPercent != null, line.presentation.exhausted)) {
         FadingFigure(line.figure, line.figureColor, GridFigureStyle, SilentCell)
     }
 }
