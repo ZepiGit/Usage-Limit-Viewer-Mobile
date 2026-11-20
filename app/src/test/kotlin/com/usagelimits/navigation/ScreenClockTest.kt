@@ -15,7 +15,9 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.Timeout
 import java.time.ZoneId
 
 /**
@@ -25,6 +27,9 @@ import java.time.ZoneId
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ScreenClockTest {
+    /** A bound in real time: a test that stops making progress fails here instead of blocking the run. */
+    @get:Rule val timeout: Timeout = Timeout.seconds(60)
+
     private val origin = 1_800_000_000_000L
     private val utc = ZoneId.of("Etc/UTC")
 
@@ -92,6 +97,23 @@ class ScreenClockTest {
         loop.cancel()
     }
 
+    @Test fun `a wake that resumes just after a boundary shows the screen past it`() = runTest {
+        // A reread publishes B - 1; the loop only resumes after B (a busy main thread). The screen
+        // must stand past B at once, not wait for the next tick because B already dropped out.
+        var lag = 0L
+        val boundary = origin + 5_000
+        val clock = ScreenClock(now = { origin + currentTime + lag }, zone = { utc })
+        val loop = launch { clock.run { at, _ -> boundary.takeIf { it > at } } }
+        runCurrent()
+        advanceTimeBy(4_999)
+        clock.reread()
+        assertEquals("the reread shows B - 1", boundary - 1, clock.nowMs)
+        lag = 2
+        runCurrent()
+        assertEquals("the resumed round shows the instant it planned against, past B", boundary + 1, clock.nowMs)
+        loop.cancel()
+    }
+
     @Test fun `the wait is measured from when the boundary was computed`() = runTest {
         // Reading the boundary takes 2 s of the clock (a slow projection on a busy main thread).
         // The wake-up still lands at the boundary, not 2 s after it.
@@ -115,8 +137,8 @@ class ScreenClockTest {
         owner.lifecycle.currentState = Lifecycle.State.CREATED
         // repeatOnLifecycle watches the lifecycle on the main dispatcher: here, the test's own.
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val loop = launch { clock.runWhileStarted(owner.lifecycle) { _, _ -> null } }
         try {
-            val loop = launch { clock.runWhileStarted(owner.lifecycle) { _, _ -> null } }
             runCurrent()
             owner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_START); runCurrent()
             advanceTimeBy(TICK_INTERVAL_MS); runCurrent()
@@ -128,8 +150,12 @@ class ScreenClockTest {
 
             owner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_START); runCurrent()
             assertEquals("START reads the time at once", origin + 6 * TICK_INTERVAL_MS, clock.nowMs)
-            loop.cancel()
         } finally {
+            // The loop runs on the main dispatcher: it has to end while that is still the test's
+            // own, also after a failed assertion. Reset first, and its cancellation would wait for
+            // a main dispatcher that is gone, which hung this test under a mutant.
+            loop.cancel()
+            runCurrent()
             Dispatchers.resetMain()
         }
     }

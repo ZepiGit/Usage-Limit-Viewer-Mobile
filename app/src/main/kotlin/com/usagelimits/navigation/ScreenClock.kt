@@ -33,7 +33,8 @@ internal const val TICK_INTERVAL_MS = 30_000L
 
 /**
  * The shell's clock: the instant and zone Overview ranks, filters and heads its list for, and the
- * instant every relative time in the shell is computed for. (Resets keeps its own zone.)
+ * instant the shell passes to Overview, Resets and the account detail. Resets keeps its own zone,
+ * and Settings reads the clock itself for its diagnostics.
  *
  * It moves at the next countdown tick, and earlier at [boundary] when that comes first (a reset
  * falling due, a reading turning stale, the next local day), so Overview reorders at the moment
@@ -61,23 +62,22 @@ internal class ScreenClock(
     }
 
     /**
-     * Runs until cancelled: waits until the next tick or [boundary], whichever is sooner, then
-     * reads the clock again. [reread] ends the wait early and plans from there (a new reading or a
-     * new stale threshold can move the boundary while the loop waits). [boundary] is asked afresh
-     * each round, and the delay is measured from the time read at that moment, not from when the
-     * round's clock value was taken.
+     * Runs until cancelled. Each round reads the clock and shows that instant, asks [boundary] for
+     * the next one after it, and waits until then or the next tick, whichever is sooner; [reread]
+     * ends the wait early (a new reading or a new stale threshold can move the boundary). The delay
+     * is measured from the time read after the boundary is found, as finding it takes time too.
      */
     suspend fun run(boundary: (nowMs: Long, zone: ZoneId) -> Long?) {
         while (true) {
+            // The instant the plan is made against is the instant the screen shows: a round that
+            // resumed just after a boundary moves the screen past it here, before the boundaries
+            // that have already passed drop out of the plan.
             val at = now()
+            nowMs = at
+            zoneId = zone()
             val next = boundary(at, zoneId)?.takeIf { it > at }
-            // Measured from now, after the boundary was found: finding it takes time too.
             val wait = if (next == null) TICK_INTERVAL_MS else minOf(TICK_INTERVAL_MS, (next - now()).coerceAtLeast(0))
-            // A reread already moved the clock; a timeout reaches a tick or a boundary and moves it.
-            if (withTimeoutOrNull(wait) { wake.receive() } == null) {
-                nowMs = now()
-                zoneId = zone()
-            }
+            withTimeoutOrNull(wait) { wake.receive() }
         }
     }
 
