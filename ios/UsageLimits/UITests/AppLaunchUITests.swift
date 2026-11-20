@@ -535,6 +535,11 @@ final class AppLaunchUITests: XCTestCase {
         let choice = app.buttons.matching(identifier: option).firstMatch
         XCTAssertTrue(choice.waitForExistence(timeout: 10), "missing menu option \(option)")
         choice.tap()
+        let selection = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", option),
+            object: control
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [selection], timeout: 10), .completed, "\(identifier) did not select \(option)")
     }
 
     func testDisconnectClosesDetailAfterRemovingRealStoredAccount() {
