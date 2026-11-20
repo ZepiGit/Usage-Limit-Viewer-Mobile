@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
@@ -37,8 +38,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * A row's figure fades through on a mode flip or refresh, without carrying another window's value.
- * The lead strip was removed in #88 01b; its flip moved to the header chip, which does not animate figures.
+ * A row's figure fades through on a mode flip or refresh, without carrying another window's value,
+ * and the header chip's word changes in step with it (#88 01b review, item 9): no frame shows the
+ * old figure under the new word or the new figure under the old word.
  *
  * Native graphics, because the pixel checks need real glyphs, and the legacy mode measures every
  * character as one pixel wide.
@@ -123,7 +125,71 @@ class FigureMotionTest {
         assertTrue("the flip ends on the settled picture", frames.last().sameAs(settled))
     }
 
+    /** The summed per-channel difference of two frames inside [region]. */
+    private fun distance(a: Bitmap, b: Bitmap, region: Region): Long {
+        var sum = 0L
+        for (y in region.top until region.bottom) for (x in region.left until region.right) {
+            val p = a.getPixel(x, y)
+            val q = b.getPixel(x, y)
+            for (shift in intArrayOf(16, 8, 0)) sum += kotlin.math.abs((p shr shift and 0xFF) - (q shr shift and 0xFF))
+        }
+        return sum
+    }
+
+    /**
+     * Where one part of the screen stands on each frame of a flip: 'o' while it still looks like
+     * the frame before the flip, 'n' once it looks like the settled frame, '-' in between (the
+     * fade-through's dim middle). "Looks like" is within a quarter of the whole change, measured in
+     * the union of the old and new text boxes, so a box that resizes does not read as both.
+     */
+    private fun phases(before: Bitmap, frames: List<Bitmap>, settled: Bitmap, region: Region): String {
+        val whole = distance(before, settled, region)
+        check(whole > 0) { "the part does not change in this flip" }
+        return frames.joinToString("") { frame ->
+            when {
+                distance(frame, before, region) * 4 < whole -> "o"
+                distance(frame, settled, region) * 4 < whole -> "n"
+                else -> "-"
+            }
+        }
+    }
+
+    /** The chip's and the row figure's phases over a LEFT to USED flip. */
+    private fun phasesDuringFlip(name: String): Pair<String, String> {
+        val chipBefore = text("% left").single().boundsInWindow.toRegion(margin = 0)
+        val figureBefore = rowText("60%").single().boundsInWindow.toRegion(margin = 0)
+        return FrameRecorder(compose).use { recorder ->
+            val before = recorder.frame()
+            compose.change { mode = PercentDisplay.USED }
+            val frames = recorder.next(24)
+            compose.mainClock.advanceTimeBy(1_000)
+            val settled = recorder.frame()
+            (listOf(before) + frames + settled).saveSequence(name)
+            val chip = chipBefore.union(text("% used").single().boundsInWindow.toRegion(margin = 0))
+            val figure = figureBefore.union(rowText("40%").single().boundsInWindow.toRegion(margin = 0))
+            phases(before, frames, settled, chip) to phases(before, frames, settled, figure)
+        }
+    }
+
+    private fun assertChipAndFiguresSwitchTogether(phases: Pair<String, String>) {
+        val (chip, figure) = phases
+        val wrong = chip.indices.filter { (chip[it] == 'n' && figure[it] == 'o') || (chip[it] == 'o' && figure[it] == 'n') }
+        assertEquals("frames where the chip and the figure stand on opposite sides of the switch\nchip   $chip\nfigure $figure",
+            emptyList<Int>(), wrong)
+        // Both halves were seen, so the check is not vacuous.
+        assertTrue("the old pair is seen mid-flip:\nchip   $chip\nfigure $figure", chip.indices.any { chip[it] == 'o' && figure[it] == 'o' })
+        assertTrue("the new pair is seen mid-flip:\nchip   $chip\nfigure $figure", chip.indices.any { chip[it] == 'n' && figure[it] == 'n' })
+    }
+
     // MARK: - Mode flip
+
+    // Through the real switch: the system setting the theme observes, not a composition local.
+    @Test
+    fun `with the system's animations on the chip and the figures change at the same point`() {
+        setAnimatorScale(1f)
+        setOverview(motion = null)
+        assertChipAndFiguresSwitchTogether(phasesDuringFlip("row-and-chip-flip-system-on"))
+    }
 
     @Test
     fun `on a mode flip a row's figure leaves before the new figure arrives`() {
@@ -132,7 +198,7 @@ class FigureMotionTest {
     }
 
     @Test
-    fun `during a flip a screen reader reaches only the current row description`() {
+    fun `during a flip a screen reader reaches only the current row description and no figure text`() {
         setCard(motion = true)
         compose.change { mode = PercentDisplay.USED }
 
@@ -145,6 +211,18 @@ class FigureMotionTest {
                             ?.any { description in it } == true
                     }).fetchSemanticsNodes().size)
             }
+            // The merged tree, which is what a screen reader walks, without the nodes it skips: the
+            // leaving and the arriving figure are not a second, separate figure there, nor part of
+            // the pressable row's text; the line's sentence says it once.
+            assertEquals("frame $frame: figure texts a screen reader reaches", emptyList<String>(),
+                listOf("60%", "40%").filter { figure ->
+                    compose.onAllNodes(hasText(figure, substring = true) and
+                        !SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.HideFromAccessibility))
+                        .fetchSemanticsNodes().isNotEmpty()
+                })
+            assertEquals("frame $frame: the chip states the new side only", 1,
+                compose.onAllNodes(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "% used"))
+                    .fetchSemanticsNodes().size)
         }
     }
 

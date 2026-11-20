@@ -174,6 +174,43 @@ class GermanScreenRenderTest {
     }
 
     @Test
+    fun `the overview row shows the German figure, chip word and reset stamp, and speaks them`() {
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(usage), settings = AppSettings(percentDisplay = PercentDisplay.LEFT)),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"), onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                onPercentDisplayChange = {},
+            )
+        }
+        // 15:33:20 UTC plus one hour: the stamp in German 24-hour time, with no English left.
+        assertEquals("the chip shows the German side once", 1, compose.onAllNodesWithText("% übrig", useUnmergedTree = true).fetchSemanticsNodes().size)
+        assertEquals("the figure is drawn with the German percent spacing", 1,
+            compose.onAllNodesWithText("73 %", useUnmergedTree = true).fetchSemanticsNodes().size)
+        assertEquals("the stamp is drawn", 1, compose.onAllNodesWithText("16:33", useUnmergedTree = true).fetchSemanticsNodes().size)
+        assertEquals("and spoken with the line", 1,
+            compose.onAllNodesWithContentDescription("73 % übrig, 16:33", substring = true).fetchSemanticsNodes().size)
+        assertShown("4:33 PM", expected = false)
+    }
+
+    @Test
+    fun `without a claim or a future reset the German header has no subtitle`() {
+        val low = usage.copy(snapshot = usage.snapshot!!.copy(windows = usage.snapshot!!.windows.map {
+            it.copy(usedPercent = 85.0, resetAt = null)
+        }))
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(low), settings = AppSettings()),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"), onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                onPercentDisplayChange = {},
+            )
+        }
+        assertShown("Alle Konten haben noch Spielraum", expected = false, substring = true)
+        assertShown("Nächster Reset", expected = false, substring = true)
+        assertShown("nächster Reset", expected = false, substring = true)
+        assertShown("Next reset", expected = false, substring = true)
+    }
+
+    @Test
     fun `the overview row counts what is left in German`() {
         renderOverview(PercentDisplay.LEFT)
 

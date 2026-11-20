@@ -104,6 +104,13 @@ import com.usagelimits.ui.components.SkeletonBar
 import com.usagelimits.ui.components.Spinner
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.FadingFigure
+import com.usagelimits.ui.components.FadingLabel
+import com.usagelimits.ui.components.segmentLegends
+import com.usagelimits.ui.components.ConflictingAvailabilityNote
+import com.usagelimits.ui.components.SegmentLegend
+import com.usagelimits.ui.components.SegmentedUsageBar
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.BoxWithConstraints
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.percentFlipLabelRes
 import com.usagelimits.ui.percentSpokenClauseRes
@@ -361,7 +368,8 @@ private fun ModeChip(mode: PercentDisplay, onPercentDisplayChange: (PercentDispl
                 .padding(horizontal = 10.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(shown, style = MaterialTheme.typography.labelMedium, color = UsageColors.Muted)
+            // In step with the figures: the old side's word leaves with the old figures.
+            FadingLabel(shown, MaterialTheme.typography.labelMedium, UsageColors.Muted)
         }
     }
 }
@@ -566,7 +574,9 @@ private fun AccountMark(usage: AccountUsage, expired: Boolean) {
     val raw = snapshot?.windows.orEmpty().map { it.severity }.filter { it != Severity.UNKNOWN }.maxOrNull() ?: Severity.UNKNOWN
     val mark = when {
         expired -> Severity.ERROR
-        raw == Severity.EXHAUSTED && snapshot?.severity == Severity.LIMITED -> Severity.LIMITED
+        // The scope rule, not the snapshot's overall verdict, which a failed read overrides: a
+        // retained exhausted model window beside an open global one is limited, not exhausted.
+        raw == Severity.EXHAUSTED && snapshot?.quotaSeverity == Severity.LIMITED -> Severity.LIMITED
         else -> raw
     }
     if (mark == Severity.HEALTHY || mark == Severity.UNKNOWN) return
@@ -580,7 +590,7 @@ private fun AccountMark(usage: AccountUsage, expired: Boolean) {
 
 /** What one window line shows, worked out once so the grid can size its columns from every line. */
 private class WindowLine(
-    val id: String,
+    val window: UsageWindow,
     val label: String,
     val figure: String,
     val figureColor: androidx.compose.ui.graphics.Color,
@@ -588,17 +598,22 @@ private class WindowLine(
     val presentation: com.usagelimits.core.model.WindowPresentation,
     val emphasised: Boolean,
     val spoken: String,
-)
+    /** The reported breakdown, one legend per segment; empty when the provider gives none. */
+    val legends: List<String>,
+) {
+    val id: String get() = window.id
+    val group: String? get() = window.group
+}
 
 /**
  * Every window of one account as grid lines: label | flexible 4dp bar | figure | reset stamp.
  *
  * The columns are shared by every line of every row in the card ([GridColumns]): the label column
  * is as wide as the widest label (58dp at least), the figure column as the widest figure (42dp at
- * least) and the stamp column as the widest stamp (66dp at least), and the bar takes what is left.
- * So within the card every bar starts and every figure ends at the same place, whether a stamp
- * reads "14:05" or "Thu 02:49", at any font scale. When the text is so large that the bar would fall below 24dp,
- * the label column gives way and long labels end in an ellipsis; the figure is never cut.
+ * least) and the stamp column as the widest stamp (66dp at least), and the bar takes what is left,
+ * 24dp at least. So within the card every bar starts and every figure ends at the same place,
+ * whether a stamp reads "14:05" or "Thu 02:49". When that does not fit the width, the windows
+ * stack instead of cutting a column (see [WindowLines]).
  */
 /** The figure cell's type: mono 13sp, as the hand-off's grid. */
 private val GridFigureStyle = UsageType.Figure.copy(fontSize = 13.sp, lineHeight = 18.sp)
@@ -612,6 +627,7 @@ private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, 
     val locale = currentLocale()
     val spokenSide = stringResource(percentSpokenClauseRes(state.settings.percentDisplay))
     val staleWord = stringResource(SeverityPalette.labelRes(Severity.STALE))
+    val conflictNote = stringResource(R.string.usage_conflicting_availability)
     return snapshot.windows.map { window ->
         val validity = when {
             stale || expired -> ReadingValidity.STALE
@@ -624,14 +640,16 @@ private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, 
         val headline = window.id == entry.headlineWindowId
         val stamp = if (validity == ReadingValidity.RESET_DUE) texts.resetDue()
             else window.resetAt?.let { Countdown.absoluteResetStamp(it, nowMs, zone, locale, texts) }
-        val reading = "$label, $figure $spokenSide"
-        val spoken = listOfNotNull(
+        // A pool's windows can share a label ("Weekly" in two pools), so the pool is spoken with it.
+        val reading = listOfNotNull(window.group, "$label, $figure $spokenSide").joinToString(", ")
+        val legends = segmentLegends(window)
+        val spoken = (listOfNotNull(
             if (headline) stringResource(R.string.overview_headline_spoken, reading) else reading,
             stamp,
             staleWord.takeIf { validity == ReadingValidity.STALE && !expired },
-        ).joinToString(", ")
+        ) + legends + listOfNotNull(conflictNote.takeIf { window.hasConflictingAvailability })).joinToString(", ")
         WindowLine(
-            id = window.id, label = label, figure = figure,
+            window = window, label = label, figure = figure, legends = legends,
             figureColor = when {
                 !p.hasFigure || expired -> UsageColors.Faint
                 !headline -> UsageColors.Muted
@@ -666,73 +684,134 @@ private fun rememberGridColumns(lines: Collection<List<WindowLine>>): GridColumn
 
 @Composable
 private fun WindowGrid(lines: List<WindowLine>, columns: GridColumns) {
-    val figureStyle = GridFigureStyle
-    Layout(
-        content = {
+    // Ungrouped windows first, as the account's own limits; then each pool under its name, so two
+    // pools whose windows share a label ("Weekly") do not look alike.
+    val groups = lines.groupBy { it.group }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        groups[null]?.let { WindowLines(it, columns) }
+        for ((group, pool) in groups) {
+            if (group == null) continue
+            Text(group, Modifier.padding(top = 2.dp), style = MaterialTheme.typography.labelMedium, color = UsageColors.Muted,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            WindowLines(pool, columns)
+        }
+    }
+}
+
+/**
+ * Window lines in the card's shared columns, each followed by its breakdown and a blocked-limit
+ * note when it has them. When the four columns do not fit (a narrow window, a large font) every
+ * window stacks instead: label and figure on one line, the bar, then the stamp, all readable.
+ */
+@Composable
+private fun WindowLines(lines: List<WindowLine>, columns: GridColumns) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val density = LocalDensity.current
+        val fits = with(density) {
+            val gap = 10.dp.roundToPx()
+            maxOf(58.dp.roundToPx(), columns.label) + 24.dp.roundToPx() + maxOf(42.dp.roundToPx(), columns.figure) +
+                maxOf(66.dp.roundToPx(), columns.stamp) + 3 * gap <= constraints.maxWidth
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             for (line in lines) {
                 key(line.id) {
-                    // The label carries the whole line for a screen reader; the other cells are silent.
-                    Text(line.label, Modifier.semantics(mergeDescendants = true) { contentDescription = line.spoken },
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = if (line.emphasised) FontWeight.Medium else FontWeight.Normal,
-                        color = if (line.emphasised) UsageColors.Ink else UsageColors.Faint,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    // Off the headline the bar recedes: its fill at 40 % over the track.
-                    UsageBar(line.presentation, Modifier.clearAndSetSemantics {}.alpha(if (line.emphasised) 1f else 0.4f), height = 4.dp)
-                    // Hidden from a screen reader (the label speaks the line) but still drawn as text,
-                    // and it fades through like every other figure.
-                    // A dash that becomes a figure (or back) is a new reading, not a changed one:
-                    // keyed apart, it replaces the old one at once rather than fading through.
-                    key(line.presentation.hasFigure) {
-                        FadingFigure(line.figure, line.figureColor, figureStyle, Modifier.semantics { hideFromAccessibility() })
-                    }
-                    Text(line.stamp ?: "", Modifier.clearAndSetSemantics {}, style = MaterialTheme.typography.bodySmall,
-                        color = UsageColors.Faint, textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (fits) GridLine(line, columns) else StackedLine(line)
+                    if (line.legends.isNotEmpty()) SegmentLegend(line.window, line.legends, Modifier.clearAndSetSemantics {})
+                    if (line.window.hasConflictingAvailability) ConflictingAvailabilityNote(Modifier.clearAndSetSemantics {})
                 }
             }
-        },
-    ) { measurables, constraints ->
+        }
+    }
+}
+
+/** The label: it carries the whole line for a screen reader; the other cells are silent. */
+@Composable
+private fun LineLabel(line: WindowLine, modifier: Modifier = Modifier, maxLines: Int = 1) {
+    Text(line.label, modifier.semantics(mergeDescendants = true) { contentDescription = line.spoken },
+        style = MaterialTheme.typography.bodySmall,
+        fontWeight = if (line.emphasised) FontWeight.Medium else FontWeight.Normal,
+        color = if (line.emphasised) UsageColors.Ink else UsageColors.Faint,
+        maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+}
+
+/** The bar: off the headline it recedes, its fill at 40 % over the track; a breakdown draws its segments. */
+@Composable
+private fun LineBar(line: WindowLine, modifier: Modifier = Modifier) {
+    val bar = modifier.clearAndSetSemantics {}.alpha(if (line.emphasised) 1f else 0.4f)
+    if (line.window.segments.isEmpty()) UsageBar(line.presentation, bar, height = 4.dp)
+    else SegmentedUsageBar(line.window, bar, height = 4.dp)
+}
+
+/**
+ * The figure: hidden from a screen reader (the label speaks the line) but still drawn as text, and
+ * it fades through like every other figure. A dash that becomes a figure (or back) is a new
+ * reading, not a changed one: keyed apart, it replaces the old one at once.
+ */
+@Composable
+private fun LineFigure(line: WindowLine) {
+    key(line.presentation.hasFigure) {
+        FadingFigure(line.figure, line.figureColor, GridFigureStyle, SilentCell)
+    }
+}
+
+/**
+ * A cell a screen reader does not reach, because the label's line already says it: its text
+ * stays in its own node, hidden, and is not merged into the pressable row's description.
+ */
+private val SilentCell = Modifier.semantics(mergeDescendants = true) { hideFromAccessibility() }
+
+/** The reset stamp: drawn as text, silent, as the label's line speaks it. */
+@Composable
+private fun LineStamp(line: WindowLine, modifier: Modifier = Modifier, align: TextAlign = TextAlign.End) {
+    Text(line.stamp ?: "", modifier.then(SilentCell), style = MaterialTheme.typography.bodySmall,
+        color = UsageColors.Faint, textAlign = align, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+/** One window as the hand-off's grid line: label | bar | figure | stamp, in the card's columns. */
+@Composable
+private fun GridLine(line: WindowLine, columns: GridColumns) {
+    Layout(content = {
+        LineLabel(line)
+        LineBar(line)
+        LineFigure(line)
+        LineStamp(line)
+    }) { measurables, constraints ->
         val gap = 10.dp.roundToPx()
-        val lineGap = 6.dp.roundToPx()
-        val rows = measurables.chunked(4)
         val width = constraints.maxWidth
-        fun widest(column: Int, min: Int) = rows.maxOfOrNull { it[column].maxIntrinsicWidth(Constraints.Infinity) }?.coerceAtLeast(min) ?: min
-        val figureW = widest(2, maxOf(42.dp.roundToPx(), columns.figure))
-        val stampW = widest(3, maxOf(66.dp.roundToPx(), columns.stamp)).coerceAtMost(width / 3)
-        val minBar = 24.dp.roundToPx()
-        val labelW = widest(0, maxOf(58.dp.roundToPx(), columns.label))
-            .coerceAtMost((width - figureW - stampW - 3 * gap - minBar).coerceAtLeast(0))
+        val figureW = maxOf(42.dp.roundToPx(), columns.figure)
+        val stampW = maxOf(66.dp.roundToPx(), columns.stamp)
+        val labelW = maxOf(58.dp.roundToPx(), columns.label)
         val barW = (width - labelW - figureW - stampW - 3 * gap).coerceAtLeast(0)
-        val placed = rows.map { cells ->
-            listOf(
-                cells[0].measure(Constraints.fixedWidth(labelW)),
-                cells[1].measure(Constraints.fixedWidth(barW)),
-                // As wide as its text, not the column: the placement below puts its end at the
-                // column's end. Stretched to the column, a fading figure would sit at its start.
-                cells[2].measure(Constraints(maxWidth = figureW.coerceAtLeast(0))),
-                cells[3].measure(Constraints.fixedWidth(stampW)),
-            )
-        }
-        val heights = placed.map { cells -> cells.maxOf { it.height } }
-        val total = heights.sum() + lineGap * (heights.size - 1).coerceAtLeast(0)
-        layout(width, total) {
-            var y = 0
-            placed.forEachIndexed { index, cells ->
-                val h = heights[index]
-                var x = 0
-                cells.forEachIndexed { column, cell ->
-                    val cellX = when (column) {
-                        // Figures and stamps sit at the end of their columns.
-                        2 -> x + figureW - cell.width
-                        3 -> x + stampW - cell.width
-                        else -> x
-                    }
-                    cell.placeRelative(cellX, y + (h - cell.height) / 2)
-                    x += when (column) { 0 -> labelW; 1 -> barW; 2 -> figureW; else -> stampW } + gap
-                }
-                y += h + lineGap
+        val cells = listOf(
+            measurables[0].measure(Constraints.fixedWidth(labelW)),
+            measurables[1].measure(Constraints.fixedWidth(barW)),
+            // As wide as its text, not the column: placed with its end at the column's end.
+            // Stretched to the column, a fading figure would sit at its start.
+            measurables[2].measure(Constraints(maxWidth = figureW)),
+            measurables[3].measure(Constraints.fixedWidth(stampW)),
+        )
+        val h = cells.maxOf { it.height }
+        layout(width, h) {
+            var x = 0
+            cells.forEachIndexed { column, cell ->
+                val cellX = if (column == 2) x + figureW - cell.width else x
+                cell.placeRelative(cellX, (h - cell.height) / 2)
+                x += when (column) { 0 -> labelW; 1 -> barW; 2 -> figureW; else -> stampW } + gap
             }
         }
+    }
+}
+
+/** One window stacked, when the columns do not fit: label and figure, the bar, then the stamp. */
+@Composable
+private fun StackedLine(line: WindowLine) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            LineLabel(line, Modifier.weight(1f), maxLines = 2)
+            LineFigure(line)
+        }
+        LineBar(line, Modifier.fillMaxWidth())
+        if (line.stamp != null) LineStamp(line, Modifier.fillMaxWidth(), align = TextAlign.Start)
     }
 }
 

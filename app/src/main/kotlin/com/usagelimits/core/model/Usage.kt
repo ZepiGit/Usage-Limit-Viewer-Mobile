@@ -178,8 +178,15 @@ data class UsageSnapshot(
      * Severity ignoring age. Prefer [severityAt] wherever a clock is available.
      */
     val severity: Severity
+        get() = if (status == SnapshotStatus.FAILED) Severity.ERROR else quotaSeverity
+
+    /**
+     * What the reported windows say by the scope rule, whatever became of the latest read: a
+     * model or pool running dry is [Severity.LIMITED], not the whole account [Severity.EXHAUSTED],
+     * unless every known pool is dry. [severity] is this unless the read failed.
+     */
+    val quotaSeverity: Severity
         get() {
-            if (status == SnapshotStatus.FAILED) return Severity.ERROR
             val global = windows.filter { it.scope == UsageScope.GLOBAL }
             if (global.any { it.severity == Severity.EXHAUSTED }) return Severity.EXHAUSTED
             if (restrictedWindows.isNotEmpty()) {
