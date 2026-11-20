@@ -81,6 +81,15 @@ import org.robolectric.shadows.ShadowLooper
  */
 private val captureDir: File? = System.getProperty("capture.dir")?.takeIf { it.isNotBlank() }?.let(::File)
 
+/** Runs [block] on this still and releases its pixels afterwards, also when drawing or encoding throws. */
+private inline fun Bitmap.useOnce(block: (Bitmap) -> Unit) {
+    try {
+        block(this)
+    } finally {
+        recycle()
+    }
+}
+
 private fun Bitmap.save(name: String) {
     val dir = captureDir ?: return
     dir.mkdirs()
@@ -218,8 +227,10 @@ class RedesignCaptureTest {
             // forceRedraw never sees a frame and times out (tried sdk 34 and 28). Drawing the
             // decor view in software is what the widget captures below do, and it works.
             val root = compose.activity.window.decorView
-            Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
-                .also { root.draw(Canvas(it)) }.save("screen-$name-$mode")
+            Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).useOnce {
+                root.draw(Canvas(it))
+                it.save("screen-$name-$mode")
+            }
         }
     }
 
@@ -311,7 +322,7 @@ class RedesignWidgetCaptureTest {
                                 remote.reapply(app, view)
                                 ShadowLooper.idleMainLooper()
                                 draw(view, (size.width.value * density).toInt(), (size.height.value * density).toInt())
-                                    .save("widget-${placed.name}-$styleName-${if (night) "dark" else "light"}-$sizeIndex")
+                                    .useOnce { it.save("widget-${placed.name}-$styleName-${if (night) "dark" else "light"}-$sizeIndex") }
                                 true
                             }
                         }

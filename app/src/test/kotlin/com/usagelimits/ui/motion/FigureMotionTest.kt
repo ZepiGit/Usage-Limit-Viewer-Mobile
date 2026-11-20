@@ -154,20 +154,44 @@ class FigureMotionTest {
         }
     }
 
-    /** The chip's and the row figure's phases over a LEFT to USED flip. */
+    /**
+     * The chip's and the row figure's phases over a LEFT to USED flip.
+     *
+     * Only the two regions are kept per frame: each full frame is exported (when a capture
+     * directory is given) and released at once, so the 24 frames of the transition never sit in
+     * memory together. The regions span the old and the new text box; the new boxes are known
+     * only after the flip, so they are measured once on a throwaway flip first, in the same layout.
+     */
     private fun phasesDuringFlip(name: String): Pair<String, String> {
         val chipBefore = text("% left").single().boundsInWindow.toRegion(margin = 0)
         val figureBefore = rowText("60%").single().boundsInWindow.toRegion(margin = 0)
+        // The settled boxes of the new pair, then back to LEFT, all with the clock held.
+        compose.change { mode = PercentDisplay.USED }
+        compose.mainClock.advanceTimeBy(1_000)
+        val chip = chipBefore.union(text("% used").single().boundsInWindow.toRegion(margin = 0))
+        val figure = figureBefore.union(rowText("40%").single().boundsInWindow.toRegion(margin = 0))
+        compose.change { mode = PercentDisplay.LEFT }
+        compose.mainClock.advanceTimeBy(1_000)
+
         return FrameRecorder(compose).use { recorder ->
-            val before = recorder.frame()
+            fun regionsOf(frame: Bitmap, index: Int): Pair<Bitmap, Bitmap> =
+                try {
+                    frame.saveFrame(name, index)
+                    frame.crop(chip) to frame.crop(figure)
+                } finally {
+                    frame.recycle()
+                }
+
+            val before = regionsOf(recorder.frame(), 0)
             compose.change { mode = PercentDisplay.USED }
-            val frames = recorder.next(24)
+            val frames = List(24) { index ->
+                compose.mainClock.advanceTimeByFrame()
+                regionsOf(recorder.frame(), index + 1)
+            }
             compose.mainClock.advanceTimeBy(1_000)
-            val settled = recorder.frame()
-            (listOf(before) + frames + settled).saveSequence(name)
-            val chip = chipBefore.union(text("% used").single().boundsInWindow.toRegion(margin = 0))
-            val figure = figureBefore.union(rowText("40%").single().boundsInWindow.toRegion(margin = 0))
-            phases(before, frames, settled, chip) to phases(before, frames, settled, figure)
+            val settled = regionsOf(recorder.frame(), 25)
+            phases(before.first, frames.map { it.first }, settled.first, chip.atOrigin()) to
+                phases(before.second, frames.map { it.second }, settled.second, figure.atOrigin())
         }
     }
 

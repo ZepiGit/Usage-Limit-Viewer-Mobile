@@ -138,6 +138,9 @@ tasks.withType<Test>().configureEach {
     if (System.getProperty("os.name").startsWith("Windows")) forkEvery = 1
     // RedesignCaptureTest writes PNGs only when -PcaptureDir=<abs path> is given.
     providers.gradleProperty("captureDir").orNull?.let { systemProperty("capture.dir", it) }
+    // Off by default. -PtestGcLog=<abs path> writes the test worker's GC log there, with the heap
+    // after each collection, to measure the live set across the suite. It changes no heap size.
+    providers.gradleProperty("testGcLog").orNull?.let { jvmArgs("-Xlog:gc*,gc+heap=debug:file=$it:uptime,tags") }
     // The cross-platform vectors are read from outside the module; without this a changed
     // vector file would leave the test task up to date, or served from the build cache.
     inputs.dir(rootProject.file("shared/test-vectors")).withPathSensitivity(PathSensitivity.RELATIVE)

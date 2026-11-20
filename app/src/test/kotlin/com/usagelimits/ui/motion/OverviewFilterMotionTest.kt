@@ -74,21 +74,39 @@ class OverviewFilterMotionTest {
             }
         }
         compose.mainClock.advanceTimeBy(1_000)
-        // Closed on every way out, also when the target search or a frame throws.
-        val (before, frames, settled) = FrameRecorder(compose).use { recorder ->
-            val before = recorder.frame()
-            // The semantics action, not a touch: injected touch events advance the held clock.
-            compose.onNode(hasText("Needs attention") and radioButton).performSemanticsAction(SemanticsActions.OnClick)
-            compose.change {}
-            val frames = recorder.next(30)
-            compose.mainClock.advanceTimeBy(1_000)
-            Triple(before, frames, recorder.frame())
-        }
-        (listOf(before) + frames + settled).saveSequence(name)
+        fun pick(label: String) =
+            compose.onNode(hasText(label) and radioButton).performSemanticsAction(SemanticsActions.OnClick)
+
+        // The sentence's box is known only once it shows: measure it on a filter applied and taken
+        // back with the clock held, so every frame below can be kept as just that box.
+        pick("Needs attention"); compose.change {}; compose.mainClock.advanceTimeBy(1_000)
         val bounds = compose.onNodeWithText("No accounts match this filter.").fetchSemanticsNode().boundsInWindow
-        return Run(before, frames, settled, intArrayOf(
-            bounds.left.roundToInt(), bounds.top.roundToInt(), bounds.right.roundToInt(), bounds.bottom.roundToInt(),
-        ))
+        val box = Region(bounds.left.roundToInt(), bounds.top.roundToInt(), bounds.right.roundToInt(), bounds.bottom.roundToInt())
+        pick("All"); compose.change {}; compose.mainClock.advanceTimeBy(1_000)
+
+        // Closed on every way out, also when the target search or a frame throws. Each full frame
+        // is exported (with a capture directory) and released at once; only the box is kept.
+        val (before, frames, settled) = FrameRecorder(compose).use { recorder ->
+            fun boxOf(frame: Bitmap, index: Int): Bitmap =
+                try {
+                    frame.saveFrame(name, index)
+                    frame.crop(box)
+                } finally {
+                    frame.recycle()
+                }
+
+            val before = boxOf(recorder.frame(), 0)
+            // The semantics action, not a touch: injected touch events advance the held clock.
+            pick("Needs attention")
+            compose.change {}
+            val frames = List(30) { index ->
+                compose.mainClock.advanceTimeByFrame()
+                boxOf(recorder.frame(), index + 1)
+            }
+            compose.mainClock.advanceTimeBy(1_000)
+            Triple(before, frames, boxOf(recorder.frame(), 31))
+        }
+        return Run(before, frames, settled, with(box.atOrigin()) { intArrayOf(left, top, right, bottom) })
     }
 
     private data class Probes(val sentence: Pair<Int, Int>, val content: Pair<Int, Int>, val plain: Pair<Int, Int>)
