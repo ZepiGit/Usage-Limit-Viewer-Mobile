@@ -44,7 +44,7 @@ import com.usagelimits.ui.theme.UsageColors
 import java.math.BigDecimal
 
 @DrawableRes
-private fun creditIcon(id: CreditProviderId): Int = when (id) {
+internal fun creditIcon(id: CreditProviderId): Int = when (id) {
     CreditProviderId.OPENROUTER -> R.drawable.icon_credit_openrouter
     CreditProviderId.DEEPSEEK -> R.drawable.icon_credit_deepseek
     CreditProviderId.MOONSHOT -> R.drawable.icon_credit_moonshot
