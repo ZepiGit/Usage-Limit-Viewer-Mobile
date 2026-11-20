@@ -392,8 +392,9 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         current.accounts.nextOverviewBoundary(at, zone, current.staleAfterMs)
     }
     val nowMs = clock.nowMs
-    // New readings bring new resets and staleness thresholds: wait for the boundary they set.
-    LaunchedEffect(state.accounts) { clock.reread() }
+    // The two inputs of the boundary: new readings bring new resets, a new sync interval a new
+    // staleness threshold. Either one reads the clock and plans the next wake-up from there.
+    LaunchedEffect(state.accounts, state.staleAfterMs) { clock.reread() }
     // Overview's filter is view state: never stored, and All again when another tab is chosen.
     // An account detail opened from the list, and the way back to it, keep the filter.
     var overviewFilter by rememberSaveable { mutableStateOf(OverviewFilter.ALL) }

@@ -1,7 +1,14 @@
 package com.usagelimits.navigation
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
@@ -65,6 +72,66 @@ class ScreenClockTest {
         advanceTimeBy(1); runCurrent()
         assertEquals(origin + 3_600_000 + TICK_INTERVAL_MS, clock.nowMs)
         loop.cancel()
+    }
+
+    @Test fun `a stale threshold moved forward while the clock waits wakes it at the new boundary`() = runTest {
+        val clock = clock()
+        // The boundary is when the reading turns stale: fetched at origin, stale after the interval.
+        var staleAfter = 60 * 60_000L
+        val loop = launch { clock.run { _, _ -> origin + staleAfter } }
+        runCurrent()
+        advanceTimeBy(1_000); runCurrent()
+        // A shorter sync interval: the reading turns stale 5 s from now, before the next tick.
+        staleAfter = 6_000
+        clock.reread()
+        runCurrent()
+        advanceTimeBy(4_999); runCurrent()
+        assertEquals("not before the new boundary", origin + 1_000, clock.nowMs)
+        advanceTimeBy(1); runCurrent()
+        assertEquals("at the new boundary, not at the tick planned before the change", origin + 6_000, clock.nowMs)
+        loop.cancel()
+    }
+
+    @Test fun `the wait is measured from when the boundary was computed`() = runTest {
+        // Reading the boundary takes 2 s of the clock (a slow projection on a busy main thread).
+        // The wake-up still lands at the boundary, not 2 s after it.
+        var computing = 0L
+        val clock = ScreenClock(now = { origin + currentTime + computing }, zone = { utc })
+        val loop = launch { clock.run { _, _ -> (origin + 7_000).also { computing = 2_000 } } }
+        runCurrent()
+        advanceTimeBy(4_999); runCurrent()
+        assertEquals("not before the boundary", origin, clock.nowMs)
+        advanceTimeBy(1); runCurrent()
+        assertEquals("at the boundary on the clock it was computed against", origin + 7_000, clock.nowMs)
+        loop.cancel()
+    }
+
+    @Test fun `the clock runs only while started, and reads the time again on every start`() = runTest {
+        val clock = clock()
+        // A lifecycle this test moves by hand; the registry's main-thread check does not apply here.
+        val owner = object : LifecycleOwner {
+            override val lifecycle = LifecycleRegistry.createUnsafe(this)
+        }
+        owner.lifecycle.currentState = Lifecycle.State.CREATED
+        // repeatOnLifecycle watches the lifecycle on the main dispatcher: here, the test's own.
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        try {
+            val loop = launch { clock.runWhileStarted(owner.lifecycle) { _, _ -> null } }
+            runCurrent()
+            owner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_START); runCurrent()
+            advanceTimeBy(TICK_INTERVAL_MS); runCurrent()
+            assertEquals("ticks while started", origin + TICK_INTERVAL_MS, clock.nowMs)
+
+            owner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_STOP); runCurrent()
+            advanceTimeBy(5 * TICK_INTERVAL_MS); runCurrent()
+            assertEquals("no tick after STOP", origin + TICK_INTERVAL_MS, clock.nowMs)
+
+            owner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_START); runCurrent()
+            assertEquals("START reads the time at once", origin + 6 * TICK_INTERVAL_MS, clock.nowMs)
+            loop.cancel()
+        } finally {
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun `the boundary is asked again after every wake-up`() = runTest {

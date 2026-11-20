@@ -17,8 +17,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.ZoneId
@@ -32,8 +32,8 @@ import java.time.ZoneId
 internal const val TICK_INTERVAL_MS = 30_000L
 
 /**
- * The one clock the screens read: the instant and zone every relative time, rank, filter and
- * header on screen is computed for.
+ * The shell's clock: the instant and zone Overview ranks, filters and heads its list for, and the
+ * instant every relative time in the shell is computed for. (Resets keeps its own zone.)
  *
  * It moves at the next countdown tick, and earlier at [boundary] when that comes first (a reset
  * falling due, a reading turning stale, the next local day), so Overview reorders at the moment
@@ -61,35 +61,49 @@ internal class ScreenClock(
     }
 
     /**
-     * Runs until cancelled: waits until the next tick or [boundary], whichever is sooner, or
-     * until [reread]; then reads the clock again. [boundary] is asked afresh each round, so a new
-     * reading or a passed reset moves the next wake-up.
+     * Runs until cancelled: waits until the next tick or [boundary], whichever is sooner, then
+     * reads the clock again. [reread] ends the wait early and plans from there (a new reading or a
+     * new stale threshold can move the boundary while the loop waits). [boundary] is asked afresh
+     * each round, and the delay is measured from the time read at that moment, not from when the
+     * round's clock value was taken.
      */
     suspend fun run(boundary: (nowMs: Long, zone: ZoneId) -> Long?) {
         while (true) {
-            val at = nowMs
+            val at = now()
             val next = boundary(at, zoneId)?.takeIf { it > at }
-            val wait = if (next == null) TICK_INTERVAL_MS else minOf(TICK_INTERVAL_MS, next - at)
-            withTimeoutOrNull(wait) { wake.receive() }
-            nowMs = now()
-            zoneId = zone()
+            // Measured from now, after the boundary was found: finding it takes time too.
+            val wait = if (next == null) TICK_INTERVAL_MS else minOf(TICK_INTERVAL_MS, (next - now()).coerceAtLeast(0))
+            // A reread already moved the clock; a timeout reaches a tick or a boundary and moves it.
+            if (withTimeoutOrNull(wait) { wake.receive() } == null) {
+                nowMs = now()
+                zoneId = zone()
+            }
+        }
+    }
+
+    /**
+     * [run] while [lifecycle] is at least STARTED: no tick behind a stopped activity, and on every
+     * start the clock is read at once and the next wake-up planned from there.
+     */
+    suspend fun runWhileStarted(lifecycle: Lifecycle, boundary: (nowMs: Long, zone: ZoneId) -> Long?) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            reread()
+            run(boundary)
         }
     }
 }
 
-/** A [ScreenClock] for this composition, re-read on foreground return and on time changes. */
+/**
+ * A [ScreenClock] for this composition. Its loop runs only while the lifecycle is STARTED, so it
+ * does not tick behind a stopped activity; on every start it reads the clock and plans again.
+ * Time, date and zone changes re-read it too.
+ */
 @Composable
 internal fun rememberScreenClock(boundary: (nowMs: Long, zone: ZoneId) -> Long?): ScreenClock {
     val clock = remember { ScreenClock() }
     val currentBoundary by rememberUpdatedState(boundary)
-    LaunchedEffect(clock) { clock.run { at, zone -> currentBoundary(at, zone) } }
-
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, clock) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START) clock.reread() }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
+    LaunchedEffect(lifecycle, clock) { clock.runWhileStarted(lifecycle) { at, zone -> currentBoundary(at, zone) } }
 
     val context = LocalContext.current
     DisposableEffect(context, clock) {
