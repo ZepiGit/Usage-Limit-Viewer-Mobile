@@ -18,7 +18,8 @@ class ScreenshotExportTests(unittest.TestCase):
                 "iphone-custom-layout", "iphone-custom-layout-restored",
                 "iphone-overview", "iphone-overview-dials", "iphone-overview-order",
                 "iphone-overview-detail", "iphone-overview-empty",
-                "iphone-settings", "iphone-settings-layout",
+                "iphone-settings", "iphone-settings-layout", "iphone-settings-credits",
+                "iphone-credits-compact", "iphone-credits-expanded",
                 "ipad-overview", "ipad-overview-dials",
             ]
             for index, name in enumerate(names):
@@ -45,14 +46,30 @@ class ScreenshotExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             records = []
-            for index, name in enumerate(["iphone-overview", "iphone-settings", "ipad-overview"]):
+            for index, name in enumerate([
+                "iphone-overview", "iphone-settings", "ipad-overview", "iphone-credits-expanded",
+            ]):
                 filename = f"attachment-{index}.png"
                 (root / filename).write_bytes(name.encode())
                 records.append({"suggestedHumanReadableName": f"{name}_0_UUID.png", "exportedFileName": filename})
             (root / "manifest.json").write_text(json.dumps(records))
-            for name in ["iphone-overview-dials", "iphone-settings-layout", "ipad-overview-dials"]:
+            for name in [
+                "iphone-overview-dials", "iphone-settings-layout", "ipad-overview-dials",
+                "iphone-credits-compact", "iphone-settings-credits",
+            ]:
                 with self.subTest(name=name), self.assertRaisesRegex(ValueError, "found 0"):
                     screenshots.export(root, root / "output", [name])
+
+    def test_a_missing_expanded_capture_does_not_use_compact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "compact.png").write_bytes(b"compact")
+            (root / "manifest.json").write_text(json.dumps([{
+                "suggestedHumanReadableName": "iphone-credits-compact_0_UUID.png",
+                "exportedFileName": "compact.png",
+            }]))
+            with self.assertRaisesRegex(ValueError, "found 0"):
+                screenshots.export(root, root / "output", ["iphone-credits-expanded"])
 
     def test_a_missing_capture_does_not_use_a_longer_name(self):
         with tempfile.TemporaryDirectory() as directory:

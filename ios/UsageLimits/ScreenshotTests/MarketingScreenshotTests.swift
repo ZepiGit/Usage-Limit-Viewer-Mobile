@@ -61,6 +61,84 @@ final class MarketingScreenshotTests: XCTestCase {
         capture("iphone-overview-empty", in: empty)
     }
 
+    func testCaptureIPhoneCredits() {
+        let app = launchDemo(["-overview-credits-demo"])
+        defer { app.terminate() }
+        let settings = app.buttons.matching(identifier: "Settings")
+        let settingsTab = settings.allElementsBoundByIndex.first { $0.isHittable } ?? settings.firstMatch
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: 10))
+        settingsTab.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+
+        let showCredits = app.switches["settings-overview-show-credits"]
+        scrollToCreditControl(showCredits, in: app)
+        XCTAssertEqual(showCredits.value as? String, "1")
+        let layout = app.segmentedControls["settings-overview-credit-layout"]
+        let showFirst = app.descendants(matching: .any)["settings-overview-show-first"].firstMatch
+        let manage = app.buttons["settings-manage-credit-accounts"]
+        for enabled in [false, true] {
+            scrollToCreditControl(showCredits, in: app)
+            showCredits.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+            let changed = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", enabled ? "1" : "0"), object: showCredits)
+            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 10), .completed)
+            if !enabled {
+                XCTAssertFalse(layout.exists)
+                XCTAssertFalse(showFirst.exists)
+                scrollToCreditControl(manage, in: app)
+            }
+        }
+
+        scrollToCreditControl(layout, in: app)
+        XCTAssertTrue(layout.buttons["Normal"].isSelected)
+        layout.buttons["Compact"].tap()
+        XCTAssertTrue(layout.buttons["Compact"].isSelected)
+        scrollToCreditControl(showFirst, in: app)
+        showFirst.tap()
+        let creditsFirst = app.buttons["Credit accounts"]
+        XCTAssertTrue(creditsFirst.waitForExistence(timeout: 10))
+        XCTAssertTrue(creditsFirst.isHittable)
+        creditsFirst.tap()
+        scrollToCreditControl(manage, in: app)
+        XCTAssertTrue(layout.isHittable && showFirst.isHittable && showCredits.isHittable && manage.isHittable)
+        XCTAssertEqual(showCredits.value as? String, "1")
+        capture("iphone-settings-credits", in: app)
+
+        let overview = app.buttons.matching(identifier: "Overview")
+        let overviewTab = overview.allElementsBoundByIndex.first { $0.isHittable } ?? overview.firstMatch
+        XCTAssertTrue(overviewTab.waitForExistence(timeout: 10))
+        overviewTab.tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        let compact = app.buttons["overview-credits-compact"]
+        XCTAssertTrue(compact.waitForExistence(timeout: 10))
+        XCTAssertTrue(compact.isHittable)
+        XCTAssertEqual(compact.label, "Credits · 3 balances")
+        XCTAssertTrue((compact.value as? String)?.contains("DeepSeek $3.18") == true)
+        let claude = app.buttons["overview-account-demo-claude"]
+        XCTAssertTrue(claude.waitForExistence(timeout: 10))
+        XCTAssertLessThan(compact.frame.minY, claude.frame.minY)
+        let heading = app.staticTexts["overview-credits-heading"]
+        XCTAssertFalse(heading.exists)
+        capture("iphone-credits-compact", in: app)
+
+        compact.tap()
+        let collapse = app.buttons["overview-credits-collapse"]
+        XCTAssertTrue(collapse.waitForExistence(timeout: 10))
+        XCTAssertTrue(heading.waitForExistence(timeout: 10))
+        XCTAssertEqual(heading.label, "Credits")
+        XCTAssertFalse(compact.exists)
+        let deepseek = app.staticTexts["DeepSeek"]
+        scrollToCreditControl(deepseek, in: app)
+        XCTAssertTrue(app.staticTexts["$3.18"].isHittable)
+        XCTAssertTrue(heading.isHittable && collapse.isHittable)
+        capture("iphone-credits-expanded", in: app)
+        collapse.tap()
+        XCTAssertTrue(compact.waitForExistence(timeout: 10))
+        XCTAssertTrue(compact.isHittable)
+        XCTAssertFalse(collapse.exists)
+        XCTAssertFalse(heading.exists)
+    }
+
     func testCaptureIPadOverview() {
         let app = launchDemo()
         capture("ipad-overview", in: app)
@@ -91,6 +169,35 @@ final class MarketingScreenshotTests: XCTestCase {
             app.swipeUp()
         }
         XCTAssertTrue(element.exists && element.isHittable)
+    }
+
+    private func scrollToCreditControl(_ element: XCUIElement, in app: XCUIApplication) {
+        if element.exists && element.isHittable { return }
+        let container = ["settings-form", "overview-scroll"].lazy
+            .map { app.descendants(matching: .any)[$0].firstMatch }
+            .first { $0.exists && $0.isHittable }
+        guard let container else {
+            XCTFail("Credit controls require a visible Settings or Overview scroller")
+            return
+        }
+        let bounds = container.frame
+        let frame = bounds.intersection(app.frame)
+        let firstUp = element.exists && element.frame.maxY < frame.minY + 60
+        let firstButton = container.buttons.firstMatch
+        let gutterX = firstButton.exists ? max(frame.minX + 4, firstButton.frame.minX - 8) : frame.minX + 16
+        let x = (gutterX - bounds.minX) / bounds.width
+        let high = (frame.minY + 0.30 * frame.height - bounds.minY) / bounds.height
+        let low = (frame.minY + 0.75 * frame.height - bounds.minY) / bounds.height
+        let top = container.coordinate(withNormalizedOffset: CGVector(dx: x, dy: high))
+        let bottom = container.coordinate(withNormalizedOffset: CGVector(dx: x, dy: low))
+        for towardStart in [firstUp, !firstUp] {
+            let (start, end) = towardStart ? (top, bottom) : (bottom, top)
+            for _ in 0..<12 {
+                start.press(forDuration: 0.05, thenDragTo: end)
+                if element.exists && element.isHittable { return }
+            }
+        }
+        XCTAssertTrue(element.exists && element.isHittable, "Credit capture control must be visible: \(element)")
     }
 
     private func selectDials(in app: XCUIApplication, captureSettings: Bool) {

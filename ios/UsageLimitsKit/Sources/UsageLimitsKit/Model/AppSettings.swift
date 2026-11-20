@@ -4,6 +4,14 @@ public enum OverviewLayout: String, Codable, Sendable {
     case list, dials
 }
 
+public enum OverviewCreditLayout: String, Codable, Sendable {
+    case normal, compact
+}
+
+public enum OverviewShowFirst: String, Codable, Sendable {
+    case usageProviders, creditAccounts
+}
+
 /// Everything the user can change.
 ///
 /// One type rather than several stores so a single value can be persisted, passed to the
@@ -25,6 +33,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
     /// Retained for saved settings compatibility. Both Overview layouts always show reset stamps.
     public var showRenewalTime: Bool
     public var overviewLayout: OverviewLayout
+    public var overviewCreditLayout: OverviewCreditLayout
+    public var overviewShowFirst: OverviewShowFirst
+    public var overviewShowCredits: Bool
     public var providerIcons: [String: String]
 
     /// Whether quota figures count down what is left or up what has been used.
@@ -45,6 +56,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
         showSubscriptionTier: Bool = true,
         showRenewalTime: Bool = false,
         overviewLayout: OverviewLayout = .list,
+        overviewCreditLayout: OverviewCreditLayout = .normal,
+        overviewShowFirst: OverviewShowFirst = .usageProviders,
+        overviewShowCredits: Bool = true,
         providerIcons: [String: String] = [:],
         percentDisplay: PercentDisplay = .left,
         statusIconsEnabled: Bool = false,
@@ -56,6 +70,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
         self.showSubscriptionTier = showSubscriptionTier
         self.showRenewalTime = showRenewalTime
         self.overviewLayout = overviewLayout
+        self.overviewCreditLayout = overviewCreditLayout
+        self.overviewShowFirst = overviewShowFirst
+        self.overviewShowCredits = overviewShowCredits
         self.providerIcons = providerIcons
         self.percentDisplay = percentDisplay
         self.statusIconsEnabled = statusIconsEnabled
@@ -81,6 +98,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
                 Bool.self, forKey: .showRenewalTime) ?? false,
             overviewLayout: (try? container.decode(String.self, forKey: .overviewLayout))
                 .flatMap(OverviewLayout.init(rawValue:)) ?? .list,
+            overviewCreditLayout: (try? container.decode(OverviewCreditLayout.self, forKey: .overviewCreditLayout)) ?? .normal,
+            overviewShowFirst: (try? container.decode(OverviewShowFirst.self, forKey: .overviewShowFirst)) ?? .usageProviders,
+            overviewShowCredits: (try? container.decode(Bool.self, forKey: .overviewShowCredits)) ?? true,
             providerIcons: try container.decodeIfPresent([String: String].self, forKey: .providerIcons) ?? [:],
             // Decoded through the raw String, so an unknown stored name reads as the default
             // instead of failing the whole decode and resetting every preference.

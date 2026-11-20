@@ -9,6 +9,7 @@ import UsageLimitsKit
 struct SettingsScreen: View {
 
     @EnvironmentObject private var store: UsageStore
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private let intervals = [5, 15, 30, 60, 180]
 
@@ -86,7 +87,31 @@ struct SettingsScreen: View {
                         .pickerStyle(.segmented)
                         .accessibilityIdentifier("settings-overview-layout")
                     }
+                    if store.settings.overviewShowCredits {
+                        creditLayoutControl
+                        VStack(alignment: .leading, spacing: 4) {
+                            Picker("Show first", selection: $store.settings.overviewShowFirst) {
+                                Text("Usage providers").tag(OverviewShowFirst.usageProviders)
+                                Text("Credit accounts").tag(OverviewShowFirst.creditAccounts)
+                            }
+                            .pickerStyle(.menu)
+                            .accessibilityIdentifier("settings-overview-show-first")
+                            Text("Which block sits at the top of Overview.")
+                                .usageFont(.small).foregroundStyle(UsageColors.muted)
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Show credits", isOn: $store.settings.overviewShowCredits)
+                            .accessibilityIdentifier("settings-overview-show-credits")
+                        Text("Hide prepaid balances from Overview without removing them.")
+                            .usageFont(.small).foregroundStyle(UsageColors.muted)
+                            #if DEBUG
+                            .accessibilityIdentifier(creditHelpIdentifier)
+                            #endif
+                    }
                     Toggle("Show subscription tier", isOn: $store.settings.showSubscriptionTier)
+                    NavigationLink("Manage credit accounts") { CreditsScreen() }
+                        .accessibilityIdentifier("settings-manage-credit-accounts")
                 }
                 .listRowBackground(UsageColors.surface)
 
@@ -134,10 +159,36 @@ struct SettingsScreen: View {
         }
     }
 
+    private var creditLayoutControl: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if typeSize >= .accessibility1 {
+                creditLayoutPicker.pickerStyle(.menu)
+            } else {
+                Text("Credit accounts").accessibilityHidden(true)
+                creditLayoutPicker.pickerStyle(.segmented)
+            }
+            Text("Normal lists the balances. Compact shows a count and the balance furthest below its threshold.")
+                .usageFont(.small).foregroundStyle(UsageColors.muted)
+        }
+    }
+
+    private var creditLayoutPicker: some View {
+        Picker("Credit accounts", selection: $store.settings.overviewCreditLayout) {
+            Text("Normal").tag(OverviewCreditLayout.normal)
+            Text("Compact").tag(OverviewCreditLayout.compact)
+        }
+        .accessibilityIdentifier("settings-overview-credit-layout")
+    }
+
     #if DEBUG
     private var layoutHelpIdentifier: String {
-        UsageLimitsApp.isUITesting && store.uiTestSavedOverviewLayout == store.settings.overviewLayout
+        UsageLimitsApp.isUITesting && store.uiTestSavedSettings?.overviewLayout == store.settings.overviewLayout
             ? "settings-overview-layout-saved" : "settings-overview-layout-help"
+    }
+
+    private var creditHelpIdentifier: String {
+        UsageLimitsApp.isUITesting && store.uiTestSavedSettings == store.settings
+            ? "settings-overview-credits-saved" : "settings-overview-credits-help"
     }
     #endif
 
@@ -155,17 +206,22 @@ struct SettingsScreen: View {
         let settings = store.settings
         let sample = SettingsUsagePreview.projection
         return previewPanel(settings.overviewLayout == .list ? "settings-preview-list" : "settings-preview-dials") {
-            if settings.overviewLayout == .list {
-                ForEach(sample.accounts) { entry in
-                    if entry.id != sample.accounts.first?.id { LedgerDivider(inset: 0) }
-                    OverviewAccountContent(entry: entry, staleAfter: SettingsUsagePreview.snapshot.staleAfter,
-                        now: SettingsUsagePreview.now, mode: settings.percentDisplay, calendar: SettingsUsagePreview.calendar,
-                        showSubscriptionTier: settings.showSubscriptionTier, preview: true)
+            OverviewBlocks(showCredits: settings.overviewShowCredits, showFirst: settings.overviewShowFirst) {
+                if settings.overviewLayout == .list {
+                    ForEach(sample.accounts) { entry in
+                        if entry.id != sample.accounts.first?.id { LedgerDivider(inset: 0) }
+                        OverviewAccountContent(entry: entry, staleAfter: SettingsUsagePreview.snapshot.staleAfter,
+                            now: SettingsUsagePreview.now, mode: settings.percentDisplay, calendar: SettingsUsagePreview.calendar,
+                            showSubscriptionTier: settings.showSubscriptionTier, preview: true)
+                    }
+                } else {
+                    OverviewDials(entries: sample.accounts, now: SettingsUsagePreview.now,
+                        staleAfter: SettingsUsagePreview.snapshot.staleAfter, mode: settings.percentDisplay,
+                        calendar: SettingsUsagePreview.calendar, preview: true)
                 }
-            } else {
-                OverviewDials(entries: sample.accounts, now: SettingsUsagePreview.now,
-                    staleAfter: SettingsUsagePreview.snapshot.staleAfter, mode: settings.percentDisplay,
-                    calendar: SettingsUsagePreview.calendar, preview: true)
+            } credits: {
+                OverviewCredits(entries: SettingsUsagePreview.credits, now: SettingsUsagePreview.now,
+                    staleAfter: SettingsUsagePreview.snapshot.staleAfter, layout: settings.overviewCreditLayout, preview: true)
             }
         }
     }
@@ -246,6 +302,7 @@ private enum SettingsUsagePreview {
     static let codex = account(.codex, plan: "Plus", used: (28, 56))
     static let snapshot = GlanceModel.build([claude, codex], now: now, scope: .allAccounts)
     static let projection = snapshot.overview(filter: .all, at: now, in: calendar.timeZone)
+    static let credits = OverviewCreditSamples.entries(at: now)
 
     private static func account(_ provider: ProviderID, plan: String, used: (Double, Double)) -> AccountUsage {
         let id = "preview-\(provider.rawValue)"

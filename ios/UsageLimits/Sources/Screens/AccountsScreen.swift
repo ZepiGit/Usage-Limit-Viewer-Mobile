@@ -22,15 +22,7 @@ struct AccountDetailScreen: View {
                     // Not "no longer on this device": the list is empty because the register
                     // could not be read, and the account may well still be in it. The pull this
                     // offers is the screen's own refresh, which reads the register again.
-                    UsageCard {
-                        Text("Can't read accounts")
-                            .usageFont(.section)
-                            .foregroundStyle(UsageColors.ink)
-                            .accessibilityIdentifier("account-register-unreadable")
-                        Text("The accounts stored on this device could not be read. Pull down to try again.")
-                            .usageFont(.body)
-                            .foregroundStyle(UsageColors.muted)
-                    }
+                    UnreadableAccountRegister(identifier: "account-register-unreadable")
                 } else {
                     UsageCard {
                         Text("Account unavailable")
@@ -47,6 +39,22 @@ struct AccountDetailScreen: View {
         }
         .background(UsageColors.ground)
         .refreshable { await store.refresh() }
+    }
+}
+
+struct UnreadableAccountRegister: View {
+    let identifier: String
+
+    var body: some View {
+        UsageCard {
+            Text("Can't read accounts")
+                .usageFont(.section)
+                .foregroundStyle(UsageColors.ink)
+                .accessibilityIdentifier(identifier)
+            Text("The accounts stored on this device could not be read. Pull down to try again.")
+                .usageFont(.body)
+                .foregroundStyle(UsageColors.muted)
+        }
     }
 }
 

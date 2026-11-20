@@ -19,7 +19,7 @@ final class UsageStore: ObservableObject {
     private var settingsWrite: Task<Void, Never>?
     #if DEBUG
     /// Lets UI tests terminate only after the normal settings save has finished.
-    @Published private(set) var uiTestSavedOverviewLayout: OverviewLayout?
+    @Published private(set) var uiTestSavedSettings: AppSettings?
     #endif
 
     /// Writable, because the settings screen binds straight to it.
@@ -41,7 +41,7 @@ final class UsageStore: ObservableObject {
                 if let stored = try? await container.save(settings: value) {
                     if self?.settings == value { self?.applyLoaded(stored) }
                     #if DEBUG
-                    if UsageLimitsApp.isUITesting { self?.uiTestSavedOverviewLayout = stored.overviewLayout }
+                    if UsageLimitsApp.isUITesting { self?.uiTestSavedSettings = stored }
                     #endif
                 }
                 BackgroundRefresh.schedule(after: value.syncIntervalMinutes)
@@ -91,10 +91,13 @@ final class UsageStore: ObservableObject {
         if MarketingDemo.isEnabled {
             now = MarketingDemo.now
             timeZone = TimeZone(secondsFromGMT: 0)!
-            if !MarketingDemo.delaysLoad {
-                accounts = MarketingDemo.accounts
-                hasLoaded = true
+            if MarketingDemo.startsWithCompactCredits {
+                var sampleSettings = settings
+                sampleSettings.overviewCreditLayout = .compact
+                sampleSettings.overviewShowFirst = .creditAccounts
+                applyLoaded(sampleSettings)
             }
+            if !MarketingDemo.delaysLoad { finishDemoLoad() }
             return
         }
         #endif
@@ -121,9 +124,22 @@ final class UsageStore: ObservableObject {
     }
 
     #if DEBUG
+    var hasUnreadableRegisterFixture: Bool { RegisterFixture.isUnreadable }
+
+    func recoverUnreadableRegisterFixture() async {
+        guard RegisterFixture.isUnreadable else { return }
+        do {
+            try RegisterFixture.replaceWithEmptyRegister()
+            await load()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     func finishDemoLoad() {
         guard MarketingDemo.isEnabled, !hasLoaded else { return }
         accounts = MarketingDemo.accounts
+        credits = MarketingDemo.credits
         hasLoaded = true
     }
     #endif
@@ -204,17 +220,14 @@ final class UsageStore: ObservableObject {
         // list: read as empty, an unreadable register would send it to "this account is no
         // longer on this device". No alert is raised for it. The detail says what happened
         // where the link landed, and an alert over that would say it twice.
-        let cached: [AccountUsage]
+        // A refresh can own the account list while this read still tells us whether storage is readable.
         do {
-            cached = try await container.checkedUsage()
+            let cached = try await container.checkedUsage()
+            if !isRefreshing { accounts = cached }
+            registerUnreadable = false
         } catch {
-            cached = []
+            if !isRefreshing { accounts = [] }
             registerUnreadable = true
-        }
-        // A refresh that started while this was reading has newer accounts than the cache does,
-        // and its result must not be overwritten by one that merely finished later.
-        if !isRefreshing {
-            accounts = cached
         }
     }
 
@@ -424,6 +437,7 @@ final class UsageStore: ObservableObject {
         // Screenshot launches must never open the keychain, cached accounts or saved settings.
         if MarketingDemo.isEnabled { return nil }
         if let fixture = RegisterFixture.container() { return fixture }
+        if let fixture = CreditRegisterFixture.container() { return fixture }
         #endif
         guard let directory = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupID) else { return nil }
@@ -446,15 +460,23 @@ private enum RegisterFixture {
     private static let seeded = "-fixture-register"
     /// A register that is present and does not decode.
     private static let unreadable = "-fixture-register-unreadable"
+    private static let directory = FileManager.default.temporaryDirectory.appendingPathComponent("register-fixture")
+    private static let registerFile = directory.appendingPathComponent(AccountRepository.fileName)
+
+    static var isUnreadable: Bool {
+        UsageLimitsApp.isUITesting && ProcessInfo.processInfo.arguments.contains(unreadable)
+    }
+
+    static func replaceWithEmptyRegister() throws {
+        try Data("[]".utf8).write(to: registerFile, options: .atomic)
+    }
 
     static func container() -> UsageLimitsContainer? {
         let arguments = ProcessInfo.processInfo.arguments
-        let isUnreadable = arguments.contains(unreadable)
         guard UsageLimitsApp.isUITesting, isUnreadable || arguments.contains(seeded) else { return nil }
 
         // One fixed place, emptied on every launch: each test starts from the register written
         // below, whatever the test before it removed, and no directory is left behind per run.
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("register-fixture")
         try? FileManager.default.removeItem(at: directory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
@@ -465,8 +487,30 @@ private enum RegisterFixture {
               "displayName": "Codex", "credentialReference": "codex:fixture",
               "createdAt": "2026-09-01T00:00:00Z"}}]
             """
-        try? Data(register.utf8).write(to: directory.appendingPathComponent(AccountRepository.fileName))
+        try? Data(register.utf8).write(to: registerFile)
 
+        return UsageLimitsContainer(directory: directory, credentials: InMemoryCredentialStore())
+    }
+}
+
+private enum CreditRegisterFixture {
+    static func container() -> UsageLimitsContainer? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard UsageLimitsApp.isUITesting, arguments.contains("-fixture-credits") else { return nil }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("credit-register-fixture")
+        if arguments.contains("-fixture-credits-reset") {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let register = """
+                [{"account":{"id":"credit:fixture","provider":"deepseek","label":"DeepSeek",
+                  "credentialReference":"credit:fixture","attributes":{},"sortOrder":0,
+                  "createdAt":"2026-09-01T00:00:00Z"},
+                  "snapshot":{"accountID":"credit:fixture","fetchedAt":"2026-09-01T00:00:00Z",
+                  "lastAttemptAt":"2026-09-01T00:00:00Z","status":"ok",
+                  "balances":[{"currency":"USD","amount":"3.18"}]}}]
+                """
+            try? Data(register.utf8).write(to: directory.appendingPathComponent(CreditRepository.fileName))
+        }
         return UsageLimitsContainer(directory: directory, credentials: InMemoryCredentialStore())
     }
 }

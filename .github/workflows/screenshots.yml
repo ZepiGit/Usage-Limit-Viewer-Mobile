@@ -47,10 +47,13 @@ jobs:
           for form in iphone ipad; do
             if [ "$form" = iphone ]; then
               udid="$iphone"
-              test_name=testCaptureIPhoneScreens
+              test_selection=(
+                -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneScreens
+                -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneCredits
+              )
             else
               udid="$ipad"
-              test_name=testCaptureIPadOverview
+              test_selection=(-only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPadOverview)
             fi
             printf '%s' "$devices" | jq -r --arg id "$udid" '
               .devices | to_entries[] | .key as $runtime | .value[]
@@ -70,7 +73,7 @@ jobs:
               -parallel-testing-enabled NO \
               -test-timeouts-enabled YES \
               -maximum-test-execution-time-allowance 300 \
-              -only-testing:"UsageLimitsScreenshotTests/MarketingScreenshotTests/$test_name" \
+              "${test_selection[@]}" \
               CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
             xcrun xcresulttool export attachments \
               --path "$GITHUB_WORKSPACE/$form-screenshots.xcresult" \
@@ -80,7 +83,8 @@ jobs:
           python3 ../Tools/export-screenshots.py \
             "$GITHUB_WORKSPACE/iphone-attachments" "$GITHUB_WORKSPACE/ios-marketing-screenshots" \
             iphone-overview iphone-overview-dials iphone-overview-order iphone-overview-detail iphone-overview-empty iphone-resets iphone-settings \
-            iphone-settings-layout iphone-custom-layout iphone-custom-layout-restored
+            iphone-settings-layout iphone-custom-layout iphone-custom-layout-restored \
+            iphone-credits-compact iphone-credits-expanded iphone-settings-credits
           python3 ../Tools/export-screenshots.py \
             "$GITHUB_WORKSPACE/ipad-attachments" "$GITHUB_WORKSPACE/ios-marketing-screenshots" \
             ipad-overview ipad-overview-dials

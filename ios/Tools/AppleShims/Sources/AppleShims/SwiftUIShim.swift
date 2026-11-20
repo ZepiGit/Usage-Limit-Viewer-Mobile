@@ -133,6 +133,9 @@ extension View {
     public func buttonStyle(_ value: ButtonStyleShim) -> Self { self }
     public func buttonStyle<S: ButtonStyle>(_ style: S) -> Self { self }
     public func navigationBarTitleDisplayMode(_ mode: NavigationBarItem.TitleDisplayMode) -> Self { self }
+    public func navigationDestination<Value: Hashable>(
+        for type: Value.Type, @ViewBuilder destination: (Value) -> any View
+    ) -> Self { self }
     public func focused(_ condition: FocusState<Bool>.Binding) -> Self { self }
     public func controlSize(_ size: ControlSize) -> Self { self }
     public func tracking(_ value: CGFloat) -> Self { self }
