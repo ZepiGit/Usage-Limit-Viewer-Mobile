@@ -419,7 +419,7 @@ class FakeDevice:
     passed, with its effect on the device already applied, which is what a late adb answer looks like.
     The screen is the seeded debug build as far as the smoke walks it, shaped like the API 37 dump:
     one bar node holding the three tab items, Overview with its filter chips and two account rows
-    (title, then the identity line "<label> · Updated …"), the Resets tab, and the tapped row's
+    (title, then the identity line "<label>"), the Resets tab, and the tapped row's
     detail, which repeats that row's account label under its title.
     """
 
@@ -515,7 +515,7 @@ class FakeDevice:
                 title = label.split(" (", 1)[0]
                 return (f'<node package="{pkg}" enabled="true" clickable="true" bounds="{box(label)}">'
                         f'<node package="{pkg}" text="{title}" bounds="{box(label)}"/>'
-                        f'<node package="{pkg}" text="{label} · Updated just now" bounds="{box(label)}"/></node>')
+                        f'<node package="{pkg}" text="{label}" bounds="{box(label)}"/></node>')
             chosen = str(label in (self.screen, self.filter)).lower()
             state = (f'checkable="true" checked="{chosen}" clickable="{str(chosen == "false").lower()}"'
                      if label in ("All", "Needs attention")

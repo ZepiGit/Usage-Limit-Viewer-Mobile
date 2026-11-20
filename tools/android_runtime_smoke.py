@@ -1296,14 +1296,14 @@ class Smoke:
         """A tap on a List row opens that row's account without the bar, and Back returns to the List.
 
         The second row is tapped, not the first, so a tap that always opened the top account would
-        fail. A row is identified by its identity line ("Kimi (synthetic) · Updated …"); the detail
-        must show the same account label ("Kimi (synthetic)") under its title. Returns the labels of
-        the rows on screen, top to bottom, as the UI showed them.
+        fail. A row is identified by its identity line, the account label ("Kimi (synthetic)"); the
+        detail must show the same label under its title. Returns the labels of the rows on screen,
+        top to bottom, as the UI showed them.
         """
         root = self.dump(name + "-before")
         lines = sorted((node for node in root.iter("node") if node.get("package") == package
-                        and "(synthetic) · " in (node.get("text") or "")), key=lambda node: bounds(node)[1])
-        shown = [node.get("text").split(" · ", 1)[0] for node in lines]
+                        and (node.get("text") or "").endswith(" (synthetic)")), key=lambda node: bounds(node)[1])
+        shown = [node.get("text") for node in lines]
         assert len(shown) >= 2, f"Fewer than two seeded rows on screen: {shown}"
         chosen = shown[1]
         row = self.control(root, package, label=lines[1].get("text"))
