@@ -60,7 +60,7 @@ struct ClaudeCodeFigure: View {
                     #endif
                     ClaudeCodeCanvas(mood: mood, size: size, ink: ink,
                                      elapsed: clock.elapsed(at: ProcessInfo.processInfo.systemUptime),
-                                     amplitude: amplitude, still: false, rendersAsynchronously: true)
+                                     amplitude: amplitude, still: false)
                 }
             } else {
                 ClaudeCodeCanvas(mood: mood, size: size, ink: ink,

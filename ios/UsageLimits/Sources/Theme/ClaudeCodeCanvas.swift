@@ -9,10 +9,9 @@ struct ClaudeCodeCanvas: View {
     let elapsed: TimeInterval
     let amplitude: Double
     let still: Bool
-    var rendersAsynchronously = false
 
     var body: some View {
-        Canvas(rendersAsynchronously: rendersAsynchronously) { context, _ in
+        Canvas { context, _ in
             context.translateBy(x: size, y: size)
             context.scaleBy(x: size / ClaudeCodeMotion.grid, y: size / ClaudeCodeMotion.grid)
             drawFigure(in: context)
