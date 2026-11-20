@@ -79,11 +79,11 @@ jobs:
           done
           python3 ../Tools/export-screenshots.py \
             "$GITHUB_WORKSPACE/iphone-attachments" "$GITHUB_WORKSPACE/ios-marketing-screenshots" \
-            iphone-overview iphone-overview-order iphone-overview-detail iphone-overview-empty iphone-resets iphone-settings \
-            iphone-custom-layout iphone-custom-layout-restored
+            iphone-overview iphone-overview-dials iphone-overview-order iphone-overview-detail iphone-overview-empty iphone-resets iphone-settings \
+            iphone-settings-layout iphone-custom-layout iphone-custom-layout-restored
           python3 ../Tools/export-screenshots.py \
             "$GITHUB_WORKSPACE/ipad-attachments" "$GITHUB_WORKSPACE/ios-marketing-screenshots" \
-            ipad-overview
+            ipad-overview ipad-overview-dials
 
       - name: Upload the screenshots
         uses: actions/upload-artifact@v7

@@ -14,7 +14,13 @@ class ScreenshotExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             records = []
-            names = ["iphone-custom-layout", "iphone-custom-layout-restored", "iphone-overview", "iphone-overview-order", "iphone-overview-detail", "iphone-overview-empty"]
+            names = [
+                "iphone-custom-layout", "iphone-custom-layout-restored",
+                "iphone-overview", "iphone-overview-dials", "iphone-overview-order",
+                "iphone-overview-detail", "iphone-overview-empty",
+                "iphone-settings", "iphone-settings-layout",
+                "ipad-overview", "ipad-overview-dials",
+            ]
             for index, name in enumerate(names):
                 filename = f"attachment-{index}.png"
                 (root / filename).write_bytes(name.encode())
@@ -34,6 +40,19 @@ class ScreenshotExportTests(unittest.TestCase):
             }]))
             with self.assertRaisesRegex(ValueError, "found 0"):
                 screenshots.export(root, root / "output", ["iphone-overview"])
+
+    def test_missing_new_captures_do_not_use_similar_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            records = []
+            for index, name in enumerate(["iphone-overview", "iphone-settings", "ipad-overview"]):
+                filename = f"attachment-{index}.png"
+                (root / filename).write_bytes(name.encode())
+                records.append({"suggestedHumanReadableName": f"{name}_0_UUID.png", "exportedFileName": filename})
+            (root / "manifest.json").write_text(json.dumps(records))
+            for name in ["iphone-overview-dials", "iphone-settings-layout", "ipad-overview-dials"]:
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, "found 0"):
+                    screenshots.export(root, root / "output", [name])
 
     def test_a_missing_capture_does_not_use_a_longer_name(self):
         with tempfile.TemporaryDirectory() as directory:
