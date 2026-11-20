@@ -79,6 +79,17 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(segment.isSelected, "\(option) should be selected in \(identifier)")
     }
 
+    private func setTier(_ enabled: Bool, in app: XCUIApplication) {
+        let toggle = app.switches["Show subscription tier"]
+        XCTAssertTrue(scrollTo(toggle, in: app))
+        let expected = enabled ? "1" : "0"
+        if toggle.value as? String != expected {
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        }
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
+        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 10), .completed)
+    }
+
     func testTheAppLaunches() {
         let app = launch()
 
@@ -197,41 +208,33 @@ final class AppLaunchUITests: XCTestCase {
         selectSegment("Used", in: "settings-percent-display", app: app)
         selectSegment("List", in: "settings-overview-layout", app: app)
         let listPreview = app.descendants(matching: .any)["settings-preview-list"].firstMatch
-        let tier = app.switches["Show subscription tier"]
-        XCTAssertTrue(scrollTo(tier, in: app))
-        if tier.value as? String != "1" { tier.tap() }
+        setTier(true, in: app)
         XCTAssertTrue(scrollTo(listPreview, in: app))
         let tieredTitle = listPreview.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", "Claude Pro")).firstMatch
         XCTAssertTrue(tieredTitle.waitForExistence(timeout: 10))
-        XCTAssertTrue(scrollTo(tier, in: app))
-        tier.tap()
-        XCTAssertEqual(tier.value as? String, "0")
+        setTier(false, in: app)
         XCTAssertTrue(scrollTo(listPreview, in: app))
         XCTAssertTrue(listPreview.staticTexts["Claude"].exists)
         XCTAssertFalse(tieredTitle.exists)
-        XCTAssertTrue(scrollTo(tier, in: app))
-        tier.tap()
-        XCTAssertEqual(tier.value as? String, "1")
+        setTier(true, in: app)
         selectSegment("Dials", in: "settings-overview-layout", app: app)
         let dialsPreview = app.descendants(matching: .any)["settings-preview-dials"].firstMatch
         XCTAssertTrue(scrollTo(dialsPreview, in: app))
-        let previewClaude = dialsPreview.descendants(matching: .any)["settings-preview-dial-claude"].firstMatch
-        XCTAssertTrue(previewClaude.waitForExistence(timeout: 10))
+        let previewClaude = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
+        XCTAssertTrue(scrollTo(previewClaude, in: app))
         XCTAssertEqual(previewClaude.label, "Claude")
         XCTAssertTrue((previewClaude.value as? String)?.contains("82% used") == true)
-        let previewCodex = dialsPreview.descendants(matching: .any)["settings-preview-dial-codex"].firstMatch
+        let previewCodex = app.descendants(matching: .any)["settings-preview-dial-preview-codex"].firstMatch
+        XCTAssertTrue(scrollTo(previewCodex, in: app))
         XCTAssertEqual(previewCodex.label, "OpenAI Codex")
         XCTAssertTrue((previewCodex.value as? String)?.contains("56% used") == true)
         XCTAssertFalse(dialsPreview.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", "Claude Pro")).firstMatch.exists)
-        XCTAssertTrue(scrollTo(tier, in: app))
-        tier.tap()
+        setTier(false, in: app)
         XCTAssertTrue(scrollTo(previewClaude, in: app))
         XCTAssertEqual(previewClaude.label, "Claude")
-        XCTAssertTrue(scrollTo(tier, in: app))
-        tier.tap()
-        XCTAssertEqual(tier.value as? String, "1")
+        setTier(true, in: app)
         tabButton("Overview", in: app).tap()
         XCTAssertFalse(app.buttons["overview-filter-all"].exists)
         XCTAssertFalse(app.buttons["overview-filter-needsAttention"].exists)
@@ -301,8 +304,12 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(restored.buttons["Dials"].isSelected)
         let restoredPreview = app.descendants(matching: .any)["settings-preview-dials"].firstMatch
         XCTAssertTrue(scrollTo(restoredPreview, in: app))
-        XCTAssertEqual(restoredPreview.descendants(matching: .any)["settings-preview-dial-claude"].firstMatch.label, "Claude")
-        XCTAssertEqual(restoredPreview.descendants(matching: .any)["settings-preview-dial-codex"].firstMatch.label, "OpenAI Codex")
+        let claude = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
+        let codex = app.descendants(matching: .any)["settings-preview-dial-preview-codex"].firstMatch
+        XCTAssertTrue(claude.waitForExistence(timeout: 10))
+        XCTAssertTrue(codex.waitForExistence(timeout: 10))
+        XCTAssertEqual(claude.label, "Claude")
+        XCTAssertEqual(codex.label, "OpenAI Codex")
         XCTAssertFalse(app.buttons["overview-dial-demo-claude"].exists)
         XCTAssertFalse(app.buttons["overview-dial-demo-codex"].exists)
     }

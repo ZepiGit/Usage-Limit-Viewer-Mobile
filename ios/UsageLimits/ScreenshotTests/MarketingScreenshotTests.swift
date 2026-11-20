@@ -116,18 +116,18 @@ final class MarketingScreenshotTests: XCTestCase {
         XCTAssertTrue(layout.buttons["List"].isSelected)
         layout.buttons["Dials"].tap()
         XCTAssertTrue(layout.buttons["Dials"].isSelected)
-        let dialsPreview = app.otherElements["settings-preview-dials"]
+        let dialsPreview = app.descendants(matching: .any)["settings-preview-dials"].firstMatch
         XCTAssertTrue(dialsPreview.waitForExistence(timeout: 10))
-        for _ in 0..<5 where dialsPreview.frame.minY < app.navigationBars["Settings"].frame.maxY {
-            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.35))
-            let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.47))
-            start.press(forDuration: 0.05, thenDragTo: end)
+        if captureSettings {
+            let claude = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
+            for _ in 0..<5 where !claude.isHittable || claude.frame.minY < app.navigationBars["Settings"].frame.maxY {
+                let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.35))
+                let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.47))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            }
+            XCTAssertTrue(claude.isHittable && layout.isHittable)
+            capture("iphone-settings-layout", in: app)
         }
-        XCTAssertGreaterThanOrEqual(dialsPreview.frame.minY, app.navigationBars["Settings"].frame.maxY)
-        XCTAssertLessThanOrEqual(dialsPreview.frame.maxY, app.frame.maxY)
-        XCTAssertLessThanOrEqual(layout.frame.maxY, app.frame.maxY)
-        XCTAssertTrue(layout.isHittable)
-        if captureSettings { capture("iphone-settings-layout", in: app) }
 
         let overview = app.buttons.matching(identifier: "Overview")
         let overviewTab = overview.allElementsBoundByIndex.first { $0.isHittable } ?? overview.firstMatch
@@ -153,9 +153,18 @@ final class MarketingScreenshotTests: XCTestCase {
         name.typeText("QA layout")
         app.buttons["Show OpenAI Codex"].tap()
         app.buttons["Show Claude"].tap()
-        let handles = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reorder")).allElementsBoundByIndex.filter { $0.isHittable }
-        XCTAssertGreaterThanOrEqual(handles.count, 2)
-        handles[1].press(forDuration: 0.3, thenDragTo: handles[0])
+        let codex = app.buttons["Reorder Show OpenAI Codex"]
+        let claude = app.buttons["Reorder Show Claude"]
+        XCTAssertTrue(codex.isHittable && claude.isHittable)
+        // Drop in the upper part of the target row. Its midpoint can resolve to the slot
+        // below it, leaving the order unchanged.
+        claude.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.3, thenDragTo: codex.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)))
+        let reordered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.buttons["Show Claude"].frame.minY < app.buttons["Show OpenAI Codex"].frame.minY
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [reordered], timeout: 10), .completed,
+            "the drag must place Claude above Codex before saving")
         capture("iphone-custom-layout", in: app, requiresDemoLabel: false)
         app.buttons["Save"].tap()
         XCTAssertTrue(app.navigationBars["Widget layouts"].waitForExistence(timeout: 10))

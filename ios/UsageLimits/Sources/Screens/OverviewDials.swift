@@ -18,6 +18,12 @@ struct OverviewDials: View {
     var body: some View {
         if dynamicTypeSize >= .accessibility1 {
             singleColumn
+        } else if preview {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 8) { cells }
+                    .frame(minWidth: columnWidth * 2 + 8)
+                singleColumn
+            }
         } else {
             ViewThatFits(in: .horizontal) {
                 LazyVGrid(columns: [
@@ -66,7 +72,6 @@ struct OverviewDials: View {
             OverviewDialTile(entry: entry, now: now, staleAfter: staleAfter,
                 mode: mode, calendar: calendar, preview: preview, identity: identities[entry.id],
                 openAccount: openAccount)
-                .accessibilityIdentifier(preview ? "settings-preview-dial-\(entry.id)" : "overview-dial-\(entry.id)")
         }
         if !preview, let addAccount {
             Button(action: addAccount) {
@@ -123,12 +128,14 @@ private struct OverviewDialTile: View {
             .buttonStyle(OverviewDialButtonStyle())
             .accessibilityLabel(label)
             .accessibilityValue(value)
+            .accessibilityIdentifier("overview-dial-\(entry.id)")
         } else {
             content(presentation, row: row, validity: validity, severity: severity)
                 .background(UsageColors.surface, in: RoundedRectangle(cornerRadius: 16))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(label)
                 .accessibilityValue(value)
+                .accessibilityIdentifier("settings-preview-dial-\(entry.id)")
         }
     }
 
