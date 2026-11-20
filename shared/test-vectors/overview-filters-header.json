@@ -1,0 +1,206 @@
+{
+  "description": "Overview ranks accounts before applying any filter: expired sign-in first, then ADR 0002 headline percent left (exhausted = zero, missing figure last), then creation time and Unicode scalar ID. All keeps that entire rank; Needs attention keeps only reconnectRequired; Resets today keeps accounts with any recorded reset strictly between now and the start of the next local day in the given IANA zone, regardless of connection, reading validity or window scope. The header attention count is over all usage accounts. Its reset is the earliest recorded reset strictly after now across connected accounts and all windows, even beyond today. Header kind: attention when the count is positive, room when the nonempty register has no expired sign-ins and every ADR 0002 headline is current, known, non-exhausted and strictly above 20% left; a usable paused/partial reading can qualify. Otherwise resetOnly if there is a header reset, none if not. attention and room can carry an optional reset too. A headline is not current when the reading failed, age is at least staleAfterMs, or its reset fell due since measurement. No render text is tested. Expected answers are handwritten.",
+  "schema": "vectors: array of { name, zone: IANA ID, zoneRule: string or null, now: epoch ms, staleAfterMs: duration ms, accounts: stored-order array of { id, createdAt: epoch ms, connection: connected|reconnectRequired|unknown, pauseUntil: epoch ms or null, reading: null or { fetchedAt: epoch ms, status: ok|partial|failed, windows: [{ id, scope: global|model|unknown, remainingPercent: number or null, exhausted: boolean, resetAt: epoch ms or null }] in provider order } }, expected: { visible: { all: [ID], needsAttention: [ID], resetsToday: [ID] }, attentionCount: integer, header: { kind: attention|room|resetOnly|none, resetAt: epoch ms or null } } }. All keys must be present, including nullable ones.",
+  "vectors": [
+    {
+      "name": "empty register has no heading claim",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [],
+      "expected": {"visible":{"all":[],"needsAttention":[],"resetsToday":[]},"attentionCount":0,"header":{"kind":"none","resetAt":null}}
+    },
+    {
+      "name": "healthy headlines qualify strictly above 20 and earliest reset can be a different window",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"roomier","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":75,"exhausted":false,"resetAt":1800001200000},{"id":"extra","scope":"model","remainingPercent":1,"exhausted":false,"resetAt":1800000600000}]}},
+        {"id":"near","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":20.01,"exhausted":false,"resetAt":1800057600000}]}}
+      ],
+      "expected": {"visible":{"all":["near","roomier"],"needsAttention":[],"resetsToday":["roomier"]},"attentionCount":0,"header":{"kind":"room","resetAt":1800000600000}}
+    },
+    {
+      "name": "a usable paused partial reading still has room with no future reset",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"paused","createdAt":1700000000000,"connection":"connected","pauseUntil":1800001200000,"reading":{"fetchedAt":1799999940000,"status":"partial","windows":[{"id":"weekly","scope":"global","remainingPercent":55,"exhausted":false,"resetAt":null}]}}
+      ],
+      "expected": {"visible":{"all":["paused"],"needsAttention":[],"resetsToday":[]},"attentionCount":0,"header":{"kind":"room","resetAt":null}}
+    },
+    {
+      "name": "only expired sign-in needs attention and its earlier reset is excluded from the header",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"low","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":20,"exhausted":false,"resetAt":1800001200000}]}},
+        {"id":"expired","createdAt":1700000000000,"connection":"reconnectRequired","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"failed","windows":[{"id":"weekly","scope":"global","remainingPercent":80,"exhausted":false,"resetAt":1800000600000}]}},
+        {"id":"full","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":70,"exhausted":false,"resetAt":1800057600000}]}}
+      ],
+      "expected": {"visible":{"all":["expired","low","full"],"needsAttention":["expired"],"resetsToday":["expired","low"]},"attentionCount":1,"header":{"kind":"attention","resetAt":1800001200000}}
+    },
+    {
+      "name": "two expired sign-ins are counted across the unfiltered list even without a connected reset",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"expired-roomy","createdAt":1700000000000,"connection":"reconnectRequired","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"failed","windows":[{"id":"weekly","scope":"global","remainingPercent":55,"exhausted":false,"resetAt":1800057600000}]}},
+        {"id":"connected","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":95,"exhausted":false,"resetAt":null}]}},
+        {"id":"expired-tight","createdAt":1700000000000,"connection":"reconnectRequired","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"failed","windows":[{"id":"weekly","scope":"global","remainingPercent":9,"exhausted":false,"resetAt":1800000600000}]}}
+      ],
+      "expected": {"visible":{"all":["expired-tight","expired-roomy","connected"],"needsAttention":["expired-tight","expired-roomy"],"resetsToday":["expired-tight"]},"attentionCount":2,"header":{"kind":"attention","resetAt":null}}
+    },
+    {
+      "name": "exact low boundary with a reset is reset only",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"low","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":20,"exhausted":false,"resetAt":1800000600000}]}}
+      ],
+      "expected": {"visible":{"all":["low"],"needsAttention":[],"resetsToday":["low"]},"attentionCount":0,"header":{"kind":"resetOnly","resetAt":1800000600000}}
+    },
+    {
+      "name": "a provider-declared exhausted headline with positive remaining is not room or attention",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"exhausted","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":88,"exhausted":true,"resetAt":1800000600000}]}},
+        {"id":"low","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":5,"exhausted":false,"resetAt":null}]}}
+      ],
+      "expected": {"visible":{"all":["exhausted","low"],"needsAttention":[],"resetsToday":["exhausted"]},"attentionCount":0,"header":{"kind":"resetOnly","resetAt":1800000600000}}
+    },
+    {
+      "name": "unknown figure with a recorded reset is reset only",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"unknown","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":null,"exhausted":false,"resetAt":1800000600000}]}}
+      ],
+      "expected": {"visible":{"all":["unknown"],"needsAttention":[],"resetsToday":["unknown"]},"attentionCount":0,"header":{"kind":"resetOnly","resetAt":1800000600000}}
+    },
+    {
+      "name": "an account with no reading gates the room claim",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"never","createdAt":1700000000000,"connection":"unknown","pauseUntil":null,"reading":null},
+        {"id":"current","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":50,"exhausted":false,"resetAt":null}]}}
+      ],
+      "expected": {"visible":{"all":["current","never"],"needsAttention":[],"resetsToday":[]},"attentionCount":0,"header":{"kind":"none","resetAt":null}}
+    },
+    {
+      "name": "a stale headline at the threshold keeps its reset but cannot claim room",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"stale","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799996400000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":75,"exhausted":false,"resetAt":1800000600000}]}}
+      ],
+      "expected": {"visible":{"all":["stale"],"needsAttention":[],"resetsToday":["stale"]},"attentionCount":0,"header":{"kind":"resetOnly","resetAt":1800000600000}}
+    },
+    {
+      "name": "failed retained data is not an expired sign-in; only connected reset enters the header",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"failed","createdAt":1700000000000,"connection":"unknown","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"failed","windows":[{"id":"weekly","scope":"global","remainingPercent":80,"exhausted":false,"resetAt":1800000600000}]}},
+        {"id":"connected","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":70,"exhausted":false,"resetAt":1800001200000}]}}
+      ],
+      "expected": {"visible":{"all":["connected","failed"],"needsAttention":[],"resetsToday":["connected","failed"]},"attentionCount":0,"header":{"kind":"resetOnly","resetAt":1800001200000}}
+    },
+    {
+      "name": "a failed but still connected account keeps its future reset",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"failed","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"failed","windows":[{"id":"weekly","scope":"global","remainingPercent":80,"exhausted":false,"resetAt":1800000600000}]}}
+      ],
+      "expected": {"visible":{"all":["failed"],"needsAttention":[],"resetsToday":["failed"]},"attentionCount":0,"header":{"kind":"resetOnly","resetAt":1800000600000}}
+    },
+    {
+      "name": "a reset due at now is neither upcoming nor a current headline",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"due","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":90,"exhausted":false,"resetAt":1800000000000}]}}
+      ],
+      "expected": {"visible":{"all":["due"],"needsAttention":[],"resetsToday":[]},"attentionCount":0,"header":{"kind":"none","resetAt":null}}
+    },
+    {
+      "name": "a reset at the next day start is future but not today",
+      "zone": "Etc/UTC",
+      "zoneRule": null,
+      "now": 1800000000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"tomorrow","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":65,"exhausted":false,"resetAt":1800057600000}]}},
+        {"id":"last","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1799999940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":60,"exhausted":false,"resetAt":1800057599999}]}}
+      ],
+      "expected": {"visible":{"all":["last","tomorrow"],"needsAttention":[],"resetsToday":["last"]},"attentionCount":0,"header":{"kind":"room","resetAt":1800057599999}}
+    },
+    {
+      "name": "New York spring: today ends after 23 hours, not 24",
+      "zone": "America/New_York",
+      "zoneRule": "2026-03-08 starts at 00:00 UTC−05:00; at 02:00 clocks advance to 03:00 UTC−04:00. 2026-03-09 starts at 04:00Z, 23 hours later.",
+      "now": 1772946000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"outside","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1772945940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":28,"exhausted":false,"resetAt":1773030600000}]}},
+        {"id":"midnight","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1772945940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":41,"exhausted":false,"resetAt":1773028800000}]}},
+        {"id":"inside","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1772945940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":66,"exhausted":false,"resetAt":1773028799000}]}}
+      ],
+      "expected": {"visible":{"all":["outside","midnight","inside"],"needsAttention":[],"resetsToday":["inside"]},"attentionCount":0,"header":{"kind":"room","resetAt":1773028799000}}
+    },
+    {
+      "name": "New York autumn: today includes the 25th hour",
+      "zone": "America/New_York",
+      "zoneRule": "2026-11-01 starts at 00:00 UTC−04:00; at 02:00 clocks return to 01:00 UTC−05:00. 2026-11-02 starts at 05:00Z, 25 hours later.",
+      "now": 1793505600000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"midnight","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1793505540000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":29,"exhausted":false,"resetAt":1793595600000}]}},
+        {"id":"extra-hour","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1793505540000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":48,"exhausted":false,"resetAt":1793593800000}]}},
+        {"id":"last","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1793505540000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":67,"exhausted":false,"resetAt":1793595599000}]}}
+      ],
+      "expected": {"visible":{"all":["midnight","extra-hour","last"],"needsAttention":[],"resetsToday":["extra-hour","last"]},"attentionCount":0,"header":{"kind":"room","resetAt":1793593800000}}
+    },
+    {
+      "name": "Santiago: a skipped midnight means the next local day starts at 01:00",
+      "zone": "America/Santiago",
+      "zoneRule": "2026-09-05 23:59:59 UTC−04:00 is followed by 2026-09-06 01:00:00 UTC−03:00 at 04:00Z. The next day starts there, not at 00:00 with either offset.",
+      "now": 1788660000000,
+      "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"after","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1788659940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":24,"exhausted":false,"resetAt":1788669000000}]}},
+        {"id":"day-start","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1788659940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":40,"exhausted":false,"resetAt":1788667200000}]}},
+        {"id":"before","createdAt":1700000000000,"connection":"connected","pauseUntil":null,"reading":{"fetchedAt":1788659940000,"status":"ok","windows":[{"id":"weekly","scope":"global","remainingPercent":60,"exhausted":false,"resetAt":1788667199000}]}}
+      ],
+      "expected": {"visible":{"all":["after","day-start","before"],"needsAttention":[],"resetsToday":["before"]},"attentionCount":0,"header":{"kind":"room","resetAt":1788667199000}}
+    }
+  ]
+}
