@@ -14,16 +14,15 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
-import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.feature.UsageUiState
-import com.usagelimits.feature.overview.AccountCard
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.theme.UsageColors
@@ -76,17 +75,19 @@ class ClickTargetTest {
     }
 
     @Test
-    fun `a card takes a tap in every corner of its box`() {
+    fun `a List row takes a tap in every corner of its box`() {
         var opened = 0
         compose.setContent {
             UsageLimitsTheme {
                 Box(Modifier.background(UsageColors.Ground).padding(24.dp)) {
-                    AccountCard(demoAccount("one", ProviderId.CODEX), MOTION_NOW, 3_600_000, PercentDisplay.LEFT) { opened++ }
+                    OverviewScreen(state = UsageUiState(accounts = listOf(demoAccount("one", ProviderId.CODEX))),
+                        nowMs = MOTION_NOW, zone = java.time.ZoneId.of("Etc/UTC"), onRefresh = {}, onAccountClick = { opened++ },
+                        onAddAccount = {}, onPercentDisplayChange = {})
                 }
             }
         }
 
-        compose.onNode(hasClickAction()).tapEveryCorner()
+        compose.onNode(hasClickAction() and hasAnyDescendant(hasContentDescription("Headline", substring = true))).tapEveryCorner()
 
         assertEquals("taps taken in the four corners", 4, opened)
     }

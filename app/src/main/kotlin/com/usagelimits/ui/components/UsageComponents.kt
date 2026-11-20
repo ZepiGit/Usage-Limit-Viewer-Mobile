@@ -379,6 +379,20 @@ fun FigureWithSide(
 }
 
 /**
+ * A figure alone ("60%"), for a row whose side is named once for the whole screen.
+ *
+ * It fades through when the figure changes (a mode flip, a refresh) and changes colour in place,
+ * as [FigureWithSide] does. The caller keys it by window, so another window in the same slot
+ * starts from its own figure.
+ */
+@Composable
+fun FadingFigure(figure: String, color: Color, style: TextStyle, modifier: Modifier = Modifier) {
+    FadeThrough(FigureReading(figure, "", color), modifier, Alignment.CenterEnd, contentKey = FigureReading::words) { reading ->
+        Text(reading.figure, style = style, color = reading.color, maxLines = 1)
+    }
+}
+
+/**
  * One card per group: a tone step on the ground, no border, radius 8.
  *
  * A card that can be pressed takes [onClick] here rather than a `clickable` on [modifier]. The
@@ -417,20 +431,13 @@ fun RuleDivider(modifier: Modifier = Modifier) {
 fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,
-    trailing: (@Composable () -> Unit)? = null,
 ) {
-    Row(
+    Text(
+        text = title,
         modifier = modifier.fillMaxWidth().padding(top = 24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = UsageColors.Ink,
-        )
-        trailing?.invoke()
-    }
+        style = MaterialTheme.typography.titleMedium,
+        color = UsageColors.Ink,
+    )
 }
 
 /** The page title row: 24/500 title, a one-line stamp under it, one bare action at the right edge. */

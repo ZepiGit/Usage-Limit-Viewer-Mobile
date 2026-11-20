@@ -5,15 +5,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
-import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.feature.UsageUiState
-import com.usagelimits.feature.overview.AccountCard
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
@@ -44,16 +43,18 @@ class CardPressTest {
     val compose = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun `the press highlight stays inside the card's rounded corners`() {
+    fun `the press highlight stays inside the List card's rounded corners`() {
         compose.setContent {
             UsageLimitsTheme {
                 Box(Modifier.background(UsageColors.Ground).padding(24.dp)) {
-                    AccountCard(demoAccount("one", ProviderId.CODEX), MOTION_NOW, 3_600_000, PercentDisplay.LEFT) {}
+                    OverviewScreen(state = UsageUiState(accounts = listOf(demoAccount("one", ProviderId.CODEX))),
+                        nowMs = MOTION_NOW, zone = java.time.ZoneId.of("Etc/UTC"), onRefresh = {}, onAccountClick = {},
+                        onAddAccount = {}, onPercentDisplayChange = {})
                 }
             }
         }
         compose.waitForIdle()
-        val card = compose.onNode(hasClickAction())
+        val card = compose.onNode(hasClickAction() and hasAnyDescendant(hasContentDescription("Headline", substring = true)))
         val bounds = card.fetchSemanticsNode().boundsInWindow
         val left = bounds.left.roundToInt()
         val top = bounds.top.roundToInt()

@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -55,9 +56,6 @@ data class UpcomingReset(
     val severity: Severity,
 )
 
-/** The overview lead: [window] of [usage], [stale] when its data is old, failed or past its reset. */
-data class Lead(val usage: AccountUsage, val window: UsageWindow, val stale: Boolean)
-
 /** Everything the screens render. */
 data class UsageUiState(
     val accounts: List<AccountUsage> = emptyList(),
@@ -70,6 +68,11 @@ data class UsageUiState(
     val credits: List<CreditEntry> = emptyList(),
     /** False only before the first repository emission, so an empty list is not read as "no accounts". */
     val loaded: Boolean = true,
+    /**
+     * The account store could not be read. Screens say so instead of claiming no accounts, and an
+     * account link says the account could not be read rather than that it is gone.
+     */
+    val storageError: Boolean = false,
     /**
      * Pin changes made but not yet stored, by account id: true to pin, false to unpin. Settings
      * shows them at once, so a toggle does not spring back while earlier changes are published.
@@ -92,9 +95,6 @@ data class UsageUiState(
      */
     fun overviewAccountsAt(nowMs: Long): List<AccountUsage> = accounts.inOverviewOrder(nowMs)
 
-    fun healthyCountAt(): Int =
-        accounts.count { it.snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.CONNECTED }
-
     /** Newest data wins for the "last updated" line — it describes the screen as a whole. */
     val lastUpdated: Long?
         get() = accounts.mapNotNull { it.measurementAt }.maxOrNull()
@@ -102,27 +102,6 @@ data class UsageUiState(
     fun overallSeverityAt(nowMs: Long): Severity =
         accounts.mapNotNull { it.snapshot?.severityAt(nowMs, staleAfterMs) }.maxOrNull()
             ?: Severity.STALE
-
-    /**
-     * Trusted readings outrank cached ones so a failed account cannot displace live data.
-     * Without any future reset, retain the tightest-window fallback rather than leave a blank.
-     */
-    fun leadAt(nowMs: Long): Lead? {
-        val candidates = accounts.mapNotNull { usage ->
-            val snapshot = usage.snapshot ?: return@mapNotNull null
-            val next = snapshot.windows.filter { (it.remainingPercent != null || it.exhausted) && (it.resetAt ?: Long.MIN_VALUE) > nowMs }
-                .minByOrNull { it.resetAt!! }
-            val window = next ?: snapshot.headlineAt(nowMs) ?: return@mapNotNull null
-            val trusted = snapshot.severityAt(nowMs, staleAfterMs) !in setOf(Severity.STALE, Severity.ERROR)
-            // A reset-due headline means every window has reset since the fetch: nothing current to lead with.
-            Lead(usage, window, stale = !trusted || window.resetElapsedAt(snapshot.fetchedAt, nowMs))
-        }
-        val pool = candidates.filterNot { it.stale }.ifEmpty { candidates }
-        val upcoming = pool.filter { (it.window.remainingPercent != null || it.window.exhausted) && (it.window.resetAt ?: Long.MIN_VALUE) > nowMs }
-        if (upcoming.isNotEmpty()) return upcoming.minByOrNull { it.window.resetAt!! }
-        return pool
-            .minByOrNull { if (it.window.exhausted) -1.0 else it.window.remainingPercent ?: Double.MAX_VALUE }
-    }
 
     /** Chronological reset timeline; past events are dropped by the screen. */
     fun upcomingResets(nowMs: Long): List<UpcomingReset> =
@@ -173,6 +152,10 @@ class UsageViewModel(
         combine(container.settingsStore.diagnostics, pinRequests) { diagnostics, pending -> diagnostics to pending.mapValues { it.value.pinned } },
     ) { (accounts, credits), settings, isRefreshing, message, (diagnostics, pending) ->
         UsageUiState(accounts, settings, isRefreshing, message, diagnostics, credits, pendingPins = pending)
+    }.catch { error ->
+        // A read that failed is not an empty register: say the store is unreadable.
+        android.util.Log.w("UsageViewModel", "account store could not be read", error)
+        emit(UsageUiState(loaded = false, storageError = true))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState(loaded = false))
 
     private val _resetCreditInFlight = MutableStateFlow<String?>(null)

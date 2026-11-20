@@ -1,18 +1,20 @@
 package com.usagelimits.feature
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.isSelectable
-import androidx.compose.ui.unit.height
-import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.height
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.SnapshotStatus
@@ -22,152 +24,95 @@ import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.ui.components.Segment
 import com.usagelimits.ui.theme.UsageLimitsTheme
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.time.ZoneId
 
-/** The overview lead strip: which window leads, whether it is trusted, and what sits beside it. */
+/**
+ * Overview's header on the screen a person reads, in place of the lead strip it replaced.
+ *
+ * The rules (which reset, which claim) are proven by the shared vectors; this proves the screen
+ * says them: the claim and the stamp joined by one separator, the reset alone, nothing at all, and
+ * that a failed, old or reset-due reading is not called current. The zone is fixed, so the stamps
+ * do not depend on the host's; the locale is en-GB, whose short time is 24-hour with no narrow
+ * no-break space before an AM/PM marker.
+ */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "en-rGB")
 class LeadSelectionTest {
 
     @get:Rule
     val compose = createComposeRule()
 
+    // 2025-09-04 15:33:20 UTC.
     private val now = 1_757_000_000_000L
     private val hour = 3_600_000L
+    private val utc = ZoneId.of("Etc/UTC")
 
     private fun usage(
-        id: String, usedPercent: Double, resetIn: Long, fetchedAgo: Long = 60_000,
-        status: SnapshotStatus = SnapshotStatus.OK,
+        id: String, usedPercent: Double, resetIn: Long?, fetchedAgo: Long = 60_000,
+        status: SnapshotStatus = SnapshotStatus.OK, connection: ConnectionStatus = ConnectionStatus.CONNECTED,
     ) = AccountUsage(
         ProviderAccount(id, ProviderId.CODEX, "ext-$id", null, id, null, "ref-$id", now, now),
         UsageSnapshot(id, now - fetchedAgo, status, listOf(
-            UsageWindow("w", "Weekly", WindowCategory.WEEKLY, usedPercent, 604_800, now + resetIn, false),
-        )),
+            UsageWindow("w", "Weekly", WindowCategory.WEEKLY, usedPercent, 604_800, resetIn?.let { now + it }, false),
+        ), connectionStatus = connection),
     )
 
-    @Test
-    fun `a failed account with cached low numbers does not lead while a valid one exists`() {
-        val failed = usage("failed", 80.0, 10 * hour, status = SnapshotStatus.FAILED)
-        val ok = usage("ok", 30.0, 20 * hour)
-        val lead = UsageUiState(accounts = listOf(failed, ok)).leadAt(now)!!
-        assertEquals("ok", lead.usage.account.localId)
-        assertFalse(lead.stale)
-    }
-
-    @Test
-    fun `a stale account does not lead while a valid one exists`() {
-        val old = usage("old", 90.0, 10 * hour, fetchedAgo = 48 * hour)
-        val ok = usage("ok", 30.0, 20 * hour)
-        assertEquals("ok", UsageUiState(accounts = listOf(old, ok)).leadAt(now)!!.usage.account.localId)
-    }
-
-    @Test
-    fun `a window whose reset elapsed since the fetch does not lead`() {
-        val closed = usage("closed", 95.0, -hour, fetchedAgo = 2 * hour)
-        val ok = usage("ok", 30.0, 20 * hour)
-        assertEquals("ok", UsageUiState(accounts = listOf(closed, ok)).leadAt(now)!!.usage.account.localId)
-    }
-
-    @Test
-    fun `with nothing valid the next cached reset leads and is marked stale`() {
-        val failed = usage("failed", 80.0, 10 * hour, status = SnapshotStatus.FAILED)
-        val old = usage("old", 99.0, 20 * hour, fetchedAgo = 48 * hour)
-        val lead = UsageUiState(accounts = listOf(old, failed)).leadAt(now)!!
-        assertEquals("failed", lead.usage.account.localId)
-        assertTrue(lead.stale)
-        assertNull(UsageUiState().leadAt(now))
-    }
-
-    @Test
-    fun `next reset leads even when another account has only two percent left`() {
-        val tight = usage("tight", 98.0, 26 * hour)
-        val soon = usage("soon", 20.0, 2 * hour)
-        val lead = UsageUiState(accounts = listOf(tight, soon)).leadAt(now)!!
-        assertEquals("soon", lead.usage.account.localId)
-        assertEquals(80.0, lead.window.remainingPercent!!, 0.001)
-        assertFalse(lead.stale)
-    }
-
-    @Test
-    fun `an exhausted window with unknown usage leads when its reset comes first`() {
-        val blocked = usage("blocked", 0.0, 3 * hour).let {
-            it.copy(snapshot = it.snapshot!!.copy(windows = it.snapshot.windows.map { w ->
-                w.copy(usedPercent = null, exhausted = true)
-            }))
-        }
-        val nearlyUsed = usage("nearly-used", 90.0, 5 * hour)
-        val lead = UsageUiState(accounts = listOf(nearlyUsed, blocked)).leadAt(now)!!
-        assertEquals("blocked", lead.usage.account.localId)
-        assertFalse(lead.stale)
-    }
-
-    @Test
-    fun `a reset with unknown usage never displaces a measured window`() {
-        val measured = usage("measured", 20.0, 2 * hour)
-        val unknown = measured.snapshot!!.windows.single().copy(id = "unknown", usedPercent = null,
-            resetAt = now + hour)
-        val mixed = measured.copy(snapshot = measured.snapshot.copy(windows = measured.snapshot.windows + unknown))
-        val unknownAccount = usage("unknown", 0.0, hour).let {
-            it.copy(snapshot = it.snapshot!!.copy(windows = listOf(unknown)))
-        }
-        assertEquals("w", UsageUiState(accounts = listOf(mixed)).leadAt(now)!!.window.id)
-        assertEquals("measured", UsageUiState(accounts = listOf(unknownAccount, mixed)).leadAt(now)!!.usage.account.localId)
-        val withoutReset = measured.copy(snapshot = measured.snapshot.copy(
-            windows = measured.snapshot.windows.map { it.copy(resetAt = null) }))
-        assertEquals("measured", UsageUiState(accounts = listOf(unknownAccount, withoutReset)).leadAt(now)!!.usage.account.localId)
-    }
-
-    @Test
-    fun `hero uses the soonest window within an account instead of its tightest`() {
-        val tight = usage("account", 98.0, 26 * hour)
-        val soon = tight.snapshot!!.windows.single().copy(id = "short", label = "5h", usedPercent = 20.0,
-            resetAt = now + 2 * hour)
-        val account = tight.copy(snapshot = tight.snapshot.copy(windows = tight.snapshot.windows + soon))
-        assertEquals("short", UsageUiState(accounts = listOf(account)).leadAt(now)!!.window.id)
-    }
-
-    @Test
-    fun `a trusted window without a reset outranks a cached future reset`() {
-        val cached = usage("cached", 20.0, 2 * hour, status = SnapshotStatus.FAILED)
-        val live = usage("live", 98.0, 0).let {
-            it.copy(snapshot = it.snapshot!!.copy(windows = it.snapshot.windows.map { w -> w.copy(resetAt = null) }))
-        }
-        val lead = UsageUiState(accounts = listOf(live, cached)).leadAt(now)!!
-        assertEquals("live", lead.usage.account.localId)
-        assertFalse(lead.stale)
-    }
-
-    @Test
-    fun `without future resets the tightest window leads rather than the earliest past reset`() {
-        val older = usage("older", 20.0, -2 * hour, fetchedAgo = 3 * hour)
-        val tight = usage("tight", 98.0, -hour, fetchedAgo = 3 * hour)
-        val lead = UsageUiState(accounts = listOf(older, tight)).leadAt(now)!!
-        assertEquals("tight", lead.usage.account.localId)
-        assertTrue(lead.stale)
-    }
-
-    @Test
-    fun `hero shows next resetting account and keeps connections without a duplicate reset stat`() {
-        val tight = usage("tight", 98.0, 26 * hour)
-        val soon = usage("soon", 20.0, 2 * hour + 12 * 60_000)
+    private fun show(vararg accounts: AccountUsage) {
         compose.setContent {
             UsageLimitsTheme {
-                OverviewScreen(state = UsageUiState(accounts = listOf(tight, soon)), nowMs = now, onRefresh = {},
-                    onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {})
+                OverviewScreen(state = UsageUiState(accounts = accounts.toList()), nowMs = now, zone = utc,
+                    onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {})
             }
         }
-        compose.onNodeWithContentDescription("soon, Weekly, 80% left, Reset in 2h 12m").assertIsDisplayed()
-        compose.onNodeWithText("Connected accounts", useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("2/2", useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("Next reset", useUnmergedTree = true).assertDoesNotExist()
+        compose.waitForIdle()
+    }
+
+    private fun shown(text: String) = compose.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+
+    @Test
+    fun `room and the next reset share one line`() {
+        show(usage("tight", 70.0, 26 * hour), usage("soon", 20.0, 2 * hour))
+        compose.onNodeWithText("All accounts have room · next reset 17:33", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `an expired sign-in is counted and its reset is not the header's`() {
+        val expired = usage("expired", 20.0, hour, status = SnapshotStatus.FAILED, connection = ConnectionStatus.RECONNECT_REQUIRED)
+        show(expired, usage("ok", 30.0, 3 * hour))
+        compose.onNodeWithText("1 needs attention · next reset 18:33", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a failed reading cannot claim room but keeps its connected reset`() {
+        show(usage("failed", 20.0, 10 * hour, status = SnapshotStatus.FAILED), usage("ok", 30.0, 20 * hour))
+        compose.onNodeWithText("Next reset Fri 01:33", useUnmergedTree = true).assertIsDisplayed()
+        assertTrue("no room claimed", compose.onAllNodesWithText("All accounts have room", substring = true,
+            useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun `an old reading cannot claim room`() {
+        show(usage("old", 10.0, 10 * hour, fetchedAgo = 48 * hour))
+        compose.onNodeWithText("Next reset Fri 01:33", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `without a claim or a future reset the header has no subtitle`() {
+        show(usage("low", 85.0, null))
+        assertTrue("no claim", !shown("All accounts have room"))
+        assertTrue("no reset", compose.onAllNodesWithText("Next reset", substring = true, useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun `the emphasised line is spoken as the headline`() {
+        show(usage("soon", 20.0, 2 * hour + 12 * 60_000))
+        compose.onNodeWithContentDescription("Headline: Weekly, 80% remaining, 17:45").assertIsDisplayed()
     }
 
     @Test

@@ -3,7 +3,9 @@ package com.usagelimits.widget
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.*
 import com.usagelimits.feature.UsageUiState
-import com.usagelimits.feature.accounts.AccountFilter
+import com.usagelimits.feature.overview.OverviewFilter
+import com.usagelimits.feature.overview.overviewAt
+import java.time.ZoneId
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -20,14 +22,16 @@ class WidgetSelectionContractTest {
     @Test fun `exhausted and low quota remain connected and are excluded from attention`() {
         val accounts = listOf(account("empty", 100.0, now + 100), account("low", 97.0, now + 200),
             account("revoked", 10.0, now + 300, ConnectionStatus.RECONNECT_REQUIRED))
-        assertEquals(2, UsageUiState(accounts).healthyCountAt())
-        assertEquals(listOf("revoked"), accounts.filter { AccountFilter(onlyProblems = true).matches(it) }.map { it.account.localId })
+        val projection = accounts.overviewAt(OverviewFilter.NEEDS_ATTENTION, now, ZoneId.of("Etc/UTC"), 3_600_000)
+        assertEquals(listOf("revoked"), projection.entries.map { it.usage.account.localId })
+        assertEquals(1, projection.attentionCount)
     }
 
     @Test fun `missing data never asserts a valid connection`() {
         val unknown = account("unknown", 0.0, null).copy(snapshot = null)
-        assertEquals(0, UsageUiState(listOf(unknown)).healthyCountAt())
-        assertFalse(AccountFilter(onlyProblems = true).matches(unknown))
+        val projection = listOf(unknown).overviewAt(OverviewFilter.NEEDS_ATTENTION, now, ZoneId.of("Etc/UTC"), 3_600_000)
+        assertEquals(emptyList<String>(), projection.entries.map { it.usage.account.localId })
+        assertEquals(0, projection.attentionCount)
     }
 
     @Test fun `closest resets sorts future timestamps independent of remaining quota`() {

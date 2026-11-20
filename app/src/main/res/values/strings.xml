@@ -161,38 +161,48 @@
     <string name="action_retry">Retry</string>
 
     <!-- Overview screen and account cards (feature/overview/OverviewScreen.kt). -->
-    <string name="overview_section_accounts">Accounts</string>
-    <string name="overview_no_accounts">No accounts yet. Add one to start tracking usage.</string>
     <string name="overview_add_account">Add account</string>
-    <string name="overview_add_account_hint">Monitor another AI subscription</string>
     <string name="overview_section_credits">Credits</string>
     <string name="overview_no_credits">No prepaid balances tracked.</string>
     <string name="overview_add_credit">Add credit balance</string>
     <string name="overview_add_credit_hint">Track prepaid API credit</string>
-    <plurals name="overview_accounts_monitored">
-        <item quantity="one">%1$d account monitored</item>
-        <item quantity="other">%1$d accounts monitored</item>
+    <!-- The header subtitle: a claim, then the next reset; either part may be missing. -->
+    <plurals name="overview_need_attention">
+        <item quantity="one">%1$d needs attention</item>
+        <item quantity="other">%1$d need attention</item>
     </plurals>
+    <string name="overview_all_have_room">All accounts have room</string>
+    <string name="overview_claim_next_reset">%1$s · next reset %2$s</string>
+    <string name="overview_next_reset">Next reset %1$s</string>
+    <string name="overview_no_accounts_yet">No accounts yet</string>
+    <string name="overview_loading_usage">Loading usage</string>
+    <!-- Filter chips; the count follows the label as its own text. -->
+    <string name="overview_filter_all">All</string>
+    <string name="overview_filter_attention">Needs attention</string>
+    <string name="overview_filter_resets_today">Resets today</string>
+    <string name="overview_no_match">No accounts match this filter.</string>
+    <string name="overview_headline_caption">The brighter line is the account’s headline.</string>
+    <string name="overview_sign_in_expired">Sign-in expired · showing last known data</string>
+    <!-- Spoken before the emphasised window's reading. -->
+    <string name="overview_headline_spoken">Headline: %1$s</string>
+    <!-- The display chip: what the figures count now. -->
+    <string name="overview_mode_left" formatted="false">% left</string>
+    <string name="overview_mode_used" formatted="false">% used</string>
+    <!-- C1, the empty Overview. -->
+    <string name="overview_empty_title">Nothing to monitor yet</string>
+    <string name="overview_empty_body">Add an AI subscription to see its limits and resets here. Sign-in details stay on this device.</string>
+    <string name="overview_track_credit">Track a prepaid credit balance</string>
     <string name="overview_refreshing">Refreshing…</string>
     <string name="overview_refresh_usage">Refresh usage</string>
-    <string name="overview_connected_accounts">Connected accounts</string>
-    <string name="overview_loading_usage">Loading usage</string>
     <string name="overview_renews">%1$s renews %2$s</string>
     <string name="overview_no_usage_data">No usage data yet</string>
     <string name="status_reconnect">Reconnect</string>
     <string name="restricted_windows">Restricted: %1$s</string>
     <string name="reset_credits_title">Reset credits</string>
-    <!-- Not a plural: "available", "shown" and "upcoming" after a count do not inflect (also accounts_shown, resets_upcoming_count). -->
+    <!-- Not a plural: "available", "shown" and "upcoming" after a count do not inflect (also resets_upcoming_count). -->
     <string name="reset_credits_available_count" tools:ignore="PluralsCandidate">%1$d available</string>
     <string name="error_partial_update">%1$s · partial update</string>
     <string name="error_showing_last_known">%1$s · showing last known data</string>
-
-    <!-- Accounts screen (feature/accounts/AccountsScreen.kt). -->
-    <string name="accounts_title">Accounts</string>
-    <string name="accounts_shown" tools:ignore="PluralsCandidate">%1$d of %2$d shown</string>
-    <string name="accounts_filter_all">All</string>
-    <string name="accounts_filter_attention">Needs attention</string>
-    <string name="accounts_no_match">No accounts match this filter.</string>
 
     <!-- Resets screen (feature/resets/ResetsScreen.kt). The day pattern is a DateTimeFormatter pattern, not display text. -->
     <string name="resets_title">Resets</string>
@@ -206,6 +216,8 @@
 
     <!-- Account detail (feature/accounts/AccountDetailScreen.kt). -->
     <string name="account_unavailable">This account is no longer available.</string>
+    <string name="account_unreadable">This account could not be read from storage.</string>
+    <string name="account_back_to_overview">Back to Overview</string>
     <string name="account_remove_body">Its stored credentials are deleted from this device. Nothing changes on the provider side, and you can add the account again at any time.</string>
     <string name="account_last_attempt_just_now">Last attempt just now</string>
     <string name="account_last_attempt_ago">Last attempt %1$s ago</string>
@@ -318,7 +330,6 @@
 
     <!-- Navigation tabs (navigation/UsageLimitsNavigation.kt). -->
     <string name="tab_overview">Overview</string>
-    <string name="tab_accounts">Accounts</string>
     <string name="tab_resets">Resets</string>
     <string name="tab_settings">Settings</string>
 
@@ -502,7 +513,7 @@
     <string name="settings_status_icons_category_blocked">Status bar icons cannot be shown while their notification category is turned off.</string>
     <string name="settings_status_icons_open_category">Open category settings</string>
     <string name="settings_status_icons_choose">Pinned accounts</string>
-    <!-- %1$d accounts pinned out of at most %2$d. Not a plural: "pinned" after a count does not inflect, as in accounts_shown. -->
+    <!-- %1$d accounts pinned out of at most %2$d. Not a plural: "pinned" after a count does not inflect. -->
     <string name="settings_status_icons_pinned_count" tools:ignore="PluralsCandidate">%1$d of %2$d pinned</string>
     <string name="settings_status_icons_pin">Pin %1$s</string>
     <!-- Spoken by a disabled pin switch; %2$d is the limit, so the count is always several. -->

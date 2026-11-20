@@ -30,7 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -60,7 +60,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.usagelimits.R
@@ -70,11 +69,12 @@ import com.usagelimits.feature.credits.AddCreditScreen
 import com.usagelimits.feature.credits.AddCreditViewModel
 import com.usagelimits.feature.credits.CreditDetailScreen
 import com.usagelimits.feature.accounts.AccountDetailScreen
-import com.usagelimits.feature.accounts.AccountsScreen
 import com.usagelimits.feature.accounts.AddAccountScreen
 import com.usagelimits.feature.accounts.AddAccountState
 import com.usagelimits.feature.accounts.AddAccountViewModel
+import com.usagelimits.feature.overview.OverviewFilter
 import com.usagelimits.feature.overview.OverviewScreen
+import com.usagelimits.feature.overview.nextOverviewBoundary
 import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.ConstrainedContent
@@ -90,17 +90,8 @@ import com.usagelimits.ui.theme.swapIn
 import com.usagelimits.ui.theme.swapOut
 import com.usagelimits.ui.AppIcons
 
-/**
- * How often relative times refresh.
- *
- * Countdowns are rendered at minute resolution, so a shorter tick would recompose without
- * changing a single character; a longer one would let "1m" sit on screen after it became "now".
- */
-private const val TICK_INTERVAL_MS = 30_000L
-
 internal sealed class Destination(val route: String) {
     data object Overview : Destination("overview")
-    data object Accounts : Destination("accounts")
     data object Resets : Destination("resets")
     data object Settings : Destination("settings")
     data object AddAccount : Destination("add-account")
@@ -121,7 +112,6 @@ private data class TabItem(
 
 private val TABS = listOf(
     TabItem(Destination.Overview, R.string.tab_overview, Icons.Default.Home),
-    TabItem(Destination.Accounts, R.string.tab_accounts, AppIcons.People),
     TabItem(Destination.Resets, R.string.tab_resets, AppIcons.Schedule),
     TabItem(Destination.Settings, R.string.tab_settings, Icons.Default.Settings),
 )
@@ -351,10 +341,11 @@ internal fun NavigationShell(
 }
 
 /**
- * The app shell: four tabs plus two pushed routes.
+ * The app shell: Overview, Resets and Settings, plus the pushed routes (account and credit detail,
+ * add account, add credit).
  *
- * `nowMs` is read once per recomposition and threaded down rather than each countdown calling
- * the clock itself, so every relative time on screen is consistent with the others.
+ * One [ScreenClock] supplies the instant and zone every screen computes for, so every relative
+ * time, rank and filter on screen agrees with the others.
  */
 @Composable
 fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeClass,
@@ -364,11 +355,23 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     val viewModel: UsageViewModel =
         viewModel(factory = UsageViewModel.Factory(container, appContext))
     val state by viewModel.state.collectAsState()
-    LaunchedEffect(requestedAccountId, state.accounts) {
-        if (requestedAccountId != null && state.accounts.any { it.account.localId == requestedAccountId }) {
-            navController.navigate(Destination.AccountDetail.of(requestedAccountId)) { launchSingleTop = true }
-            onAccountHandled()
+    // A status icon or widget row names an account. The link waits for the store's first answer,
+    // opens the detail over Overview whichever tab is showing, and is consumed once; an account
+    // that is gone, or a store that could not be read, gets its own detail state with a way back.
+    val route = AccountRoute.resolve(requestedAccountId,
+        state.accounts.map { it.account.localId }.takeIf { state.loaded }, state.storageError)
+    LaunchedEffect(route) {
+        val target = route ?: return@LaunchedEffect
+        val accountId = when (target) {
+            is AccountRoute.Detail -> target.accountId
+            is AccountRoute.Unavailable -> target.accountId
+            is AccountRoute.Unreadable -> target.accountId
         }
+        navController.navigate(Destination.AccountDetail.of(accountId)) {
+            popUpTo(navController.graph.findStartDestination().id)
+            launchSingleTop = true
+        }
+        onAccountHandled()
     }
     val resetInFlight by viewModel.resetCreditInFlight.collectAsState()
 
@@ -380,13 +383,24 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         }
     }
 
-    // A plain System.currentTimeMillis() read is not a Compose state read, so with no
-    // data change every countdown on screen froze at whatever the tab was composed with.
-    // For an app made of countdowns that is visible within a minute.
-    val nowMs by produceState(initialValue = System.currentTimeMillis()) {
-        while (true) {
-            value = System.currentTimeMillis()
-            delay(TICK_INTERVAL_MS)
+    // A plain System.currentTimeMillis() read is not a Compose state read, so with no data change
+    // every countdown on screen froze at whatever the tab was composed with. The clock moves at the
+    // next tick, at Overview's next boundary (a reset falling due, a reading turning stale, the
+    // next local day) when that is sooner, on returning to the app and on a time or zone change.
+    val clock = rememberScreenClock { at, zone ->
+        val current = viewModel.state.value
+        current.accounts.nextOverviewBoundary(at, zone, current.staleAfterMs)
+    }
+    val nowMs = clock.nowMs
+    // New readings bring new resets and staleness thresholds: wait for the boundary they set.
+    LaunchedEffect(state.accounts) { clock.reread() }
+    // Overview's filter is view state: never stored, and All again when another tab is chosen.
+    // An account detail opened from the list, and the way back to it, keep the filter.
+    var overviewFilter by rememberSaveable { mutableStateOf(OverviewFilter.ALL) }
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    LaunchedEffect(currentRoute) {
+        if (currentRoute != Destination.Overview.route && TABS.any { it.destination.route == currentRoute }) {
+            overviewFilter = OverviewFilter.ALL
         }
     }
 
@@ -399,22 +413,15 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                 OverviewScreen(
                     state = state,
                     nowMs = nowMs,
+                    zone = clock.zoneId,
+                    filter = overviewFilter,
+                    onFilterChange = { overviewFilter = it },
                     onRefresh = viewModel::refresh,
                     onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
                     onAddAccount = { navController.navigate(Destination.AddAccount.route) },
                     onPercentDisplayChange = viewModel::setPercentDisplay,
                     onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
                     onAddCredit = { navController.navigate(Destination.AddCredit.route) },
-                )
-            }
-
-            composable(Destination.Accounts.route) {
-                AccountsScreen(
-                    state = state,
-                    nowMs = nowMs,
-                    onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
-                    onAddAccount = { navController.navigate(Destination.AddAccount.route) },
-                    onRefresh = viewModel::refresh,
                 )
             }
 
@@ -514,6 +521,9 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
 
                 AccountDetailScreen(
                     usage = usage,
+                    loaded = state.loaded,
+                    storageError = state.storageError,
+                    onBack = { navController.popBackStack() },
                     nowMs = nowMs,
                     staleAfterMs = state.staleAfterMs,
                     percentDisplay = state.settings.percentDisplay,

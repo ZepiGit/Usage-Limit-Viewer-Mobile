@@ -56,6 +56,10 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import com.usagelimits.core.model.ConnectionStatus
+import com.usagelimits.core.notifications.NotificationEvaluator
+import com.usagelimits.feature.overview.OverviewFilter
+import java.time.ZoneId
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -140,14 +144,37 @@ class RedesignCaptureTest {
 
     private val state = UsageUiState(accounts = listOf(claude, codex, kimi), settings = AppSettings(), credits = credits)
 
+    /** Codex's sign-in expired: its last figures stay, it ranks first (A1) and its detail is C2. */
+    private val expiredCodex = codex.copy(snapshot = codex.snapshot!!.copy(
+        status = SnapshotStatus.FAILED, connectionStatus = ConnectionStatus.RECONNECT_REQUIRED,
+        errorMessage = NotificationEvaluator.SIGN_IN_EXPIRED_MESSAGE))
+
+    private val utc = ZoneId.of("Etc/UTC")
+
     private fun screens(): List<Pair<String, @Composable () -> Unit>> = listOf(
+        // A1: Overview, List, with an expired sign-in ranked first.
         "overview" to {
-            OverviewScreen(state = state, nowMs = NOW, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+            OverviewScreen(state = state.copy(accounts = listOf(claude, expiredCodex, kimi)), nowMs = NOW, zone = utc,
+                onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+                onCreditClick = {}, onAddCredit = {})
+        },
+        // A1 with Resets today chosen where nothing resets today: the no-match line in the card.
+        "overview-no-match" to {
+            OverviewScreen(state = state.copy(accounts = listOf(kimi)), nowMs = NOW, zone = utc,
+                filter = OverviewFilter.RESETS_TODAY, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
                 onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
         },
+        // C1: no accounts yet.
         "overview-empty" to {
-            OverviewScreen(state = UsageUiState(), nowMs = NOW, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
-                onPercentDisplayChange = {})
+            OverviewScreen(state = UsageUiState(), nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {},
+                onAddAccount = {}, onPercentDisplayChange = {})
+        },
+        // C2: the account detail of an expired sign-in.
+        "account-detail-expired" to {
+            AccountDetailScreen(usage = expiredCodex, nowMs = NOW, staleAfterMs = state.staleAfterMs,
+                percentDisplay = com.usagelimits.core.model.PercentDisplay.LEFT, resetInFlight = false,
+                supportsResetCredits = false, onRefresh = {}, onConsumeResetCredit = {}, onRemove = {},
+                notificationsEnabled = true, onNotificationsChange = {})
         },
         "account-detail" to {
             AccountDetailScreen(usage = claude, nowMs = NOW, staleAfterMs = state.staleAfterMs, percentDisplay = com.usagelimits.core.model.PercentDisplay.LEFT, resetInFlight = false,
@@ -200,6 +227,10 @@ class RedesignCaptureTest {
 
     @Config(qualifiers = "+night")
     @Test fun `screens dark`() = captureAll("dark")
+
+    // A1, C1 and C2 in German: the same screens, the app's German words.
+    @Config(qualifiers = "+de")
+    @Test fun `screens german`() = captureAll("de")
 }
 
 /** The Glance widgets through a real host view, as WidgetAppearanceRenderingTest does it, at 2x. */

@@ -25,8 +25,6 @@ import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.feature.accounts.AccountDetailScreen
 import com.usagelimits.feature.accounts.AddAccountScreen
 import com.usagelimits.feature.accounts.AddAccountState
-import com.usagelimits.feature.accounts.AccountsScreen
-import com.usagelimits.feature.overview.AccountCard
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
@@ -127,9 +125,6 @@ class ScreenRenderTest {
             )
         }
 
-        // `onAllNodes`, not `onNode`: the label legitimately appears twice — once on the
-        // summary card that leads the screen and once on the account card below it — and
-        // asserting a single node fails on correct behaviour.
         assertTrue(
             "the window label should be on screen",
             compose.onAllNodesWithText("5h limit", substring = true)
@@ -137,11 +132,11 @@ class ScreenRenderTest {
     }
 
     @Test
-    fun `an otherwise current Overview card shows a pause without presenting a failure`() {
+    fun `an otherwise current Overview row shows a pause without presenting a failure`() {
         render {
-            AccountCard(
-                usage = pausedAntigravity(), nowMs = now, staleAfterMs = 3_600_000,
-                percentDisplay = PercentDisplay.LEFT, onRetry = {}, onClick = {},
+            OverviewScreen(
+                state = state(pausedAntigravity()), nowMs = now, onRefresh = {}, onAccountClick = {},
+                onAddAccount = {}, onPercentDisplayChange = {},
             )
         }
 
@@ -188,10 +183,13 @@ class ScreenRenderTest {
     }
 
     @Test
-    fun `overview renders a failed account`() {
+    fun `a failed row says why once, with its last figures and a retry`() {
+        val failed = usage(status = SnapshotStatus.FAILED).let {
+            it.copy(snapshot = it.snapshot!!.copy(errorMessage = "Network unavailable"))
+        }
         render {
             OverviewScreen(
-                state = state(usage(status = SnapshotStatus.FAILED)),
+                state = state(failed),
                 nowMs = now,
                 onRefresh = {},
                 onAccountClick = {},
@@ -200,7 +198,11 @@ class ScreenRenderTest {
             )
         }
 
-        compose.waitForIdle()
+        fun shown(text: String) = compose.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        assertTrue("the stored message, worded as a failure", shown("Network unavailable · showing last known data"))
+        assertTrue("the last figure stays", shown("60%"))
+        assertTrue("a retry is offered", shown("Retry"))
+        assertTrue("the bare severity word does not repeat the message", !shown("Error"))
     }
 
     @Test
@@ -223,23 +225,26 @@ class ScreenRenderTest {
         compose.waitForIdle()
     }
 
+    // Tall enough that the lazy list composes all four rows.
+    @Config(qualifiers = "w393dp-h1600dp")
     @Test
-    fun `accounts renders one card per provider`() {
+    fun `overview renders one row per account of four providers`() {
         render {
-            AccountsScreen(
+            OverviewScreen(
                 state = state(
                     usage("a", provider = ProviderId.CODEX),
                     usage("b", provider = ProviderId.CLAUDE),
                     usage("c", provider = ProviderId.ANTIGRAVITY),
                     usage("d", provider = ProviderId.XAI),
                 ),
-                nowMs = now,
-                onAccountClick = {},
-                onAddAccount = {},
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
             )
         }
 
-        compose.waitForIdle()
+        assertEquals("one row per account", 4,
+            compose.onAllNodes(androidx.compose.ui.test.hasClickAction() and
+                androidx.compose.ui.test.hasAnyDescendant(androidx.compose.ui.test.hasContentDescription("Headline", substring = true)))
+                .fetchSemanticsNodes().size)
     }
 
     @Test

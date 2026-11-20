@@ -109,7 +109,7 @@ class GermanScreenRenderTest {
         val notice = "Zu viele Anfragen. Die automatische Aktualisierung pausiert. Aktualisiere manuell, um es jetzt erneut zu versuchen."
         scrollTo(notice)
         assertShown(notice, substring = true)
-        assertShown("73 %", substring = true)
+        assertEquals(1, compose.onAllNodesWithContentDescription("73 % übrig", substring = true).fetchSemanticsNodes().size)
     }
 
     private fun renderSettings(mode: PercentDisplay) = render {
@@ -174,26 +174,23 @@ class GermanScreenRenderTest {
     }
 
     @Test
-    fun `the overview lead and row count what is left in German`() {
+    fun `the overview row counts what is left in German`() {
         renderOverview(PercentDisplay.LEFT)
 
-        assertShown("73 %")
-        assertShown("übrig")
-        assertShown("27 %", expected = false)
-        // A countdown from resources, with the German unit abbreviations.
-        assertShown("Reset in 1 Std.")
-        assertShown("1 Konto überwacht", substring = true)
-        assertShown("Reset in 1h", expected = false, substring = true)
+        assertEquals(1, compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "% übrig"))
+            .fetchSemanticsNodes().size)
+        assertEquals(1, compose.onAllNodesWithContentDescription("73 % übrig", substring = true).fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithContentDescription("27 % verbraucht", substring = true).fetchSemanticsNodes().size)
     }
 
     @Test
-    fun `the overview lead and row count what is used in German`() {
+    fun `the overview row counts what is used in German`() {
         renderOverview(PercentDisplay.USED)
 
-        assertShown("27 %")
-        assertShown("verbraucht")
-        assertShown("73 %", expected = false)
-        assertShown("Reset in 1 Std.")
+        assertEquals(1, compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "% verbraucht"))
+            .fetchSemanticsNodes().size)
+        assertEquals(1, compose.onAllNodesWithContentDescription("27 % verbraucht", substring = true).fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithContentDescription("73 % übrig", substring = true).fetchSemanticsNodes().size)
     }
 
     @Test
@@ -215,18 +212,16 @@ class GermanScreenRenderTest {
 
         assertShown("5\u2011Std.-Limit")
         assertShown("5h limit", expected = false)
-        // The spoken sentence of the row leads with the same translated label.
-        // The row's sentence leads with the label; the lead card's names the account first and has
-        // its own test below.
-        val startsWithLabel = SemanticsMatcher("description starts with the label") { node ->
-            node.config.getOrNull(SemanticsProperties.ContentDescription)?.any { it.startsWith("5\u2011Std.-Limit, ") } == true
+        // The headline sentence contains the same translated label.
+        val startsWithLabel = SemanticsMatcher("description contains the label") { node ->
+            node.config.getOrNull(SemanticsProperties.ContentDescription)?.any { "5\u2011Std.-Limit, " in it } == true
         }
         val spoken = compose.onAllNodes(startsWithLabel).fetchSemanticsNodes()
         assertEquals("one row speaks the translated label", 1, spoken.size)
     }
 
     @Test
-    fun `the renewal line names the long window in German like its row does`() {
+    fun `the overview row names the long window in German`() {
         val first = usage.snapshot!!.windows.first()
         val withWeekly = usage.copy(
             snapshot = usage.snapshot!!.copy(
@@ -256,8 +251,8 @@ class GermanScreenRenderTest {
             )
         }
 
-        assertShown("W\u00F6chentlich erneuert sich in 3 T.")
-        assertShown("Weekly erneuert sich", expected = false, substring = true)
+        assertShown("W\u00F6chentlich")
+        assertShown("Weekly", expected = false, substring = true)
     }
 
     @Test
@@ -283,21 +278,20 @@ class GermanScreenRenderTest {
     }
 
     @Test
-    fun `the overview lead names its window in German and no text node keeps the English label`() {
+    fun `the overview row names its window in German and no text node keeps the English label`() {
         renderOverview(PercentDisplay.LEFT)
 
-        // The lead line is "account · window"; the row below it carries the same label on its own.
-        assertShown("${usage.account.label} \u00B7 5\u2011Std.-Limit")
+        assertShown("5\u2011Std.-Limit")
         assertShown("5h limit", expected = false, substring = true)
     }
 
     @Test
-    fun `the overview lead speaks the window label in German`() {
+    fun `the overview row speaks the window label in German`() {
         renderOverview(PercentDisplay.LEFT)
 
-        val spoken = compose.onAllNodesWithContentDescription("${usage.account.label}, 5\u2011Std.-Limit, 73 %", substring = true)
+        val spoken = compose.onAllNodesWithContentDescription("5\u2011Std.-Limit, 73 % übrig", substring = true)
             .fetchSemanticsNodes()
-        assertEquals("the lead card speaks the translated label", 1, spoken.size)
+        assertEquals("the row speaks the translated label", 1, spoken.size)
         val english = compose.onAllNodesWithContentDescription("5h limit", substring = true).fetchSemanticsNodes()
         assertEquals("no spoken sentence keeps the English label", 0, english.size)
     }

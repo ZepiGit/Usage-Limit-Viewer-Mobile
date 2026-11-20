@@ -13,7 +13,12 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.feature.UsageUiState
-import com.usagelimits.feature.accounts.AccountsScreen
+import com.usagelimits.feature.overview.OverviewFilter
+import com.usagelimits.feature.overview.OverviewScreen
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
@@ -28,22 +33,24 @@ import org.robolectric.annotation.GraphicsMode
 import kotlin.math.roundToInt
 
 /**
- * A filter that empties the Accounts list (#81, noted in #26): the cards leave first, then
- * "No accounts match this filter." arrives. The old cards must never show through the sentence.
+ * A filter that empties the Overview list (#81, noted in #26; the Accounts screen's case, retargeted
+ * when Overview took its filters): the account rows leave first, then "No accounts match this
+ * filter." arrives. The old rows must never show through the sentence.
  *
- * Two pixels inside the empty box tell the two layers apart. Both are plain card surface before
- * the filter; afterwards one is lit by the sentence and the other is bare ground. While the
- * cards fade, the two stay equal; they may only differ once the cards are gone.
+ * Three pixels inside the no-match line's text box tell the layers apart. The line sits on card
+ * surface where the first row was: B is plain surface before and after, C carried the row's
+ * content (its logo or title) and settles to plain surface, S was plain row surface and settles
+ * to a glyph of the sentence. In any frame the row still shows where C differs from B, and the
+ * sentence shows where S differs from B; the two must never be true together.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w393dp-h700dp-xhdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-class AccountsFilterMotionTest {
+class OverviewFilterMotionTest {
 
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
 
-    private val ground = UsageColors.Ground.argb
     private val surface = UsageColors.Surface.argb
     private val radioButton = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)
 
@@ -55,11 +62,13 @@ class AccountsFilterMotionTest {
         compose.setContent {
             UsageLimitsTheme {
                 CompositionLocalProvider(LocalMotionEnabled provides motion) {
-                    AccountsScreen(
+                    var filter by remember { mutableStateOf(OverviewFilter.ALL) }
+                    OverviewScreen(
                         state = UsageUiState(accounts = listOf(
                             demoAccount("one", ProviderId.CODEX), demoAccount("two", ProviderId.CLAUDE),
                         )),
-                        nowMs = MOTION_NOW, onAccountClick = {}, onAddAccount = {},
+                        nowMs = MOTION_NOW, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                        onPercentDisplayChange = {}, filter = filter, onFilterChange = { filter = it },
                     )
                 }
             }
@@ -81,50 +90,55 @@ class AccountsFilterMotionTest {
         ))
     }
 
-    /** A pixel of the sentence and a bare pixel beside it, both plain card surface before the filter. */
-    private fun probes(run: Run): Pair<Pair<Int, Int>, Pair<Int, Int>> {
+    private data class Probes(val sentence: Pair<Int, Int>, val content: Pair<Int, Int>, val plain: Pair<Int, Int>)
+
+    private fun Bitmap.at(p: Pair<Int, Int>) = at(p.first, p.second)
+
+    /** S, C and B as the class comment describes them, all inside the sentence's box. */
+    private fun probes(run: Run): Probes {
         val (left, top, right, bottom) = run.box
         var sentence: Pair<Int, Int>? = null
-        var bare: Pair<Int, Int>? = null
+        var content: Pair<Int, Int>? = null
+        var plain: Pair<Int, Int>? = null
         for (y in top until bottom) for (x in left until right) {
-            if (run.before.at(x, y) != surface) continue
+            val before = run.before.at(x, y)
             val after = run.settled.at(x, y)
             // The brightest glyph pixel gives the widest margin over anti-aliased edges.
-            if (after != ground && (sentence == null || brightness(after) > brightness(run.settled.at(sentence.first, sentence.second)))) {
-                sentence = x to y
-            }
-            if (after == ground && bare == null) bare = x to y
+            if (before == surface && after != surface &&
+                (sentence == null || brightness(after) > brightness(run.settled.at(sentence)))) sentence = x to y
+            if (before != surface && after == surface && (content == null ||
+                    brightness(before) > brightness(run.before.at(content)))) content = x to y
+            if (before == surface && after == surface && plain == null) plain = x to y
         }
-        return checkNotNull(sentence) { "no sentence pixel over plain card surface" } to
-            checkNotNull(bare) { "no bare pixel over plain card surface" }
+        return Probes(checkNotNull(sentence) { "no sentence pixel over plain row surface" },
+            checkNotNull(content) { "no row content under the sentence's box" },
+            checkNotNull(plain) { "no plain surface in the sentence's box" })
     }
 
     private fun brightness(argb: Int) = (argb shr 16 and 0xFF) + (argb shr 8 and 0xFF) + (argb and 0xFF)
 
     @Test
     fun `the empty sentence waits until the old cards are gone`() {
-        val run = emptyTheList(motion = true, name = "accounts-filter-empties")
-        val (sentence, bare) = probes(run)
+        val run = emptyTheList(motion = true, name = "overview-filter-empties")
+        val (sentence, content, plain) = probes(run)
+        fun Bitmap.rowShows() = at(content) != at(plain)
+        fun Bitmap.sentenceShows() = at(sentence) != at(plain)
 
-        val overlapping = run.frames.withIndex().filter { (_, frame) ->
-            val card = frame.at(bare.first, bare.second)
-            card != ground && frame.at(sentence.first, sentence.second) != card
-        }.map { it.index }
-        assertEquals("frames drawing the sentence over a card that is still fading", emptyList<Int>(), overlapping)
+        val overlapping = run.frames.withIndex().filter { (_, frame) -> frame.rowShows() && frame.sentenceShows() }.map { it.index }
+        assertEquals("frames drawing the sentence over a row that is still fading", emptyList<Int>(), overlapping)
 
         // Both halves were really observed mid-way, so the sequence above is not vacuous.
-        assertTrue("the cards fade out over several frames", run.frames.count {
-            it.at(bare.first, bare.second).let { c -> c != ground && c != surface }
+        assertTrue("the row fades out over several frames", run.frames.count {
+            it.rowShows() && it.at(content) != run.before.at(content)
         } >= 2)
         assertTrue("the sentence fades in over several frames", run.frames.count {
-            val c = it.at(sentence.first, sentence.second)
-            it.at(bare.first, bare.second) == ground && c != ground && c != run.settled.at(sentence.first, sentence.second)
+            it.sentenceShows() && it.at(sentence) != run.settled.at(sentence)
         } >= 2)
     }
 
     @Test
     fun `with motion off the list is in its final state on the next frame`() {
-        val run = emptyTheList(motion = false, name = "accounts-filter-empties-reduced")
+        val run = emptyTheList(motion = false, name = "overview-filter-empties-reduced")
 
         assertTrue("the first frame after the filter is already the settled one", run.frames.first().sameAs(run.settled))
     }
