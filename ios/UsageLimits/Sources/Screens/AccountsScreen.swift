@@ -1,105 +1,52 @@
 import SwiftUI
 import UsageLimitsKit
 
-/// Every connected subscription, the way in to add another, and the one action that changes
-/// anything at a provider.
-struct AccountsScreen: View {
-
+struct AccountDetailScreen: View {
     @EnvironmentObject private var store: UsageStore
-    @State private var isAdding = false
-    @State private var providerFilter: ProviderID?
-    @State private var attentionOnly = false
-    /// Whether a change of the cards shown is one a person made on a settled list (a filter, an
-    /// account added or removed) and so moves. Not armed until the first content is on screen,
-    /// and disarmed while a widget or a link jumps to an account: those are cuts.
-    @State private var listMotionArmed = false
 
-    private var filteredAccounts: [AccountUsage] {
-        store.accounts.filter { usage in
-            (providerFilter == nil || usage.account.provider == providerFilter) &&
-                (!attentionOnly || usage.snapshot?.connectionStatus == .reconnectRequired)
-        }
-    }
-
-    private func option(_ title: String, selected: Bool, action: @escaping () -> Void) -> SegmentOption {
-        SegmentOption(id: title, title: title, selected: selected, action: action)
-    }
-
-    private var filterOptions: [SegmentOption] {
-        var options = [
-            option(String(localized: "All"), selected: providerFilter == nil && !attentionOnly) { providerFilter = nil; attentionOnly = false },
-            option(String(localized: "Needs attention"), selected: attentionOnly) { providerFilter = nil; attentionOnly.toggle() },
-        ]
-        for provider in ProviderID.allCases where store.accounts.contains(where: { $0.account.provider == provider }) {
-            options.append(option(provider.displayName, selected: providerFilter == provider) {
-                attentionOnly = false
-                providerFilter = providerFilter == provider ? nil : provider
-            })
-        }
-        return options
-    }
+    let accountID: String
+    var unavailable = false
+    /// Called once this account has been disconnected, so whoever presented the detail closes
+    /// it rather than leaving it open on an account that is no longer there.
+    var onDisconnected: @MainActor () -> Void = {}
 
     var body: some View {
-        // Filtered once per evaluation: the cards and the motion's value are the same list.
-        let visible = filteredAccounts
-        return NavigationStack {
-            ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    SegmentedRow(options: filterOptions)
-                    // Driven from `store.accounts` rather than the glance model, because this
-                    // screen is the one place that needs more than the reduced view: the reset
-                    // credits a card can spend do not travel in a glance.
-                    if !store.hasLoaded {
-                        AccountSkeletonCard()
-                        AccountSkeletonCard()
-                    } else if store.accounts.isEmpty {
-                        // An item like the cards, so the first account arriving and the last one
-                        // leaving fade through with it instead of being drawn over it.
-                        EmptyStateCard().listItemMotion(armed: listMotionArmed)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                if !unavailable, let usage = store.accounts.first(where: { $0.account.id == accountID }) {
+                    AccountSummaryCard(usage: usage, now: store.now, onDisconnected: onDisconnected)
+                        .id(usage.account.id)
+                } else if !store.hasLoaded {
+                    AccountSkeletonCard()
+                } else if store.registerUnreadable {
+                    // Not "no longer on this device": the list is empty because the register
+                    // could not be read, and the account may well still be in it. The pull this
+                    // offers is the screen's own refresh, which reads the register again.
+                    UsageCard {
+                        Text("Can't read accounts")
+                            .usageFont(.section)
+                            .foregroundStyle(UsageColors.ink)
+                            .accessibilityIdentifier("account-register-unreadable")
+                        Text("The accounts stored on this device could not be read. Pull down to try again.")
+                            .usageFont(.body)
+                            .foregroundStyle(UsageColors.muted)
                     }
-                    ForEach(visible, id: \.account.id) { usage in
-                        AccountSummaryCard(usage: usage, now: store.now).id(usage.account.id)
-                            .listItemMotion(armed: listMotionArmed)
+                } else {
+                    UsageCard {
+                        Text("Account unavailable")
+                            .usageFont(.section)
+                            .foregroundStyle(UsageColors.ink)
+                        Text("This account is no longer on this device.")
+                            .usageFont(.body)
+                            .foregroundStyle(UsageColors.muted)
                     }
-
-                    AddAccountButton { isAdding = true }
                 }
-                // Keyed on the cards that are shown, not on the accounts that exist, so a filter
-                // change fades through like an account arriving or leaving: the cards that go
-                // fade out first, then the rest (and the add button) move while the new arrive.
-                .listMotion(value: visible.map { $0.account.id }, armed: listMotionArmed)
-                .padding(16)
-                .readableWidth()
             }
-            .accessibilityIdentifier("accounts-scroll")
-            .background(UsageColors.ground)
-            .navigationTitle("Accounts")
-            .navigationBarTitleDisplayMode(.inline)
-            .marketingDemoLabel()
-            .refreshable { await store.refresh() }
-            .sheet(isPresented: $isAdding) { AddAccountSheet() }
-            .armingListMotion($listMotionArmed, loaded: store.hasLoaded)
-            .task(id: store.focusedAccountID) {
-                guard let id = store.focusedAccountID else { return }
-                // Disarmed in the same turn that resets the filters, so the update that brings
-                // the target's card back sees both: the card is there at once, not after a
-                // fade-through that would delay the very thing the tap asked for.
-                listMotionArmed = false
-                providerFilter = nil; attentionOnly = false
-                await Task.yield()
-                proxy.scrollTo(id, anchor: .center)
-                store.focusedAccountID = nil
-            }
-            // Armed again once the jump is over. From here and not from the task: this runs
-            // after an update that has seen the focus cleared, which is no earlier than the one
-            // that drew the unfiltered list, whereas a line after the scroll could still land in
-            // that same update and animate it. Not before the first content: that is still a cut.
-            .onChange(of: store.focusedAccountID) { focused in
-                if focused == nil, store.hasLoaded { listMotionArmed = true }
-            }
-            }
+            .padding(16)
+            .readableWidth()
         }
+        .background(UsageColors.ground)
+        .refreshable { await store.refresh() }
     }
 }
 
@@ -112,6 +59,7 @@ private struct AccountSummaryCard: View {
 
     let usage: AccountUsage
     let now: Date
+    let onDisconnected: @MainActor () -> Void
 
     private var snapshot: UsageSnapshot? { usage.snapshot }
 
@@ -131,8 +79,6 @@ private struct AccountSummaryCard: View {
                     Text(usage.account.label)
                         .usageFont(.section)
                         .foregroundStyle(UsageColors.ink)
-                        // For UI tests: the label is also a filter's title, so only the id says
-                        // that this is the account's card.
                         .accessibilityIdentifier("account-title-\(usage.account.id)")
                     // Through the shared `planLabel`, so "claude_max_20x" reads as "Claude Max
                     // 20×" here exactly as it does on Android, rather than as the raw value
@@ -155,19 +101,10 @@ private struct AccountSummaryCard: View {
                 StatusMark(
                     severity: agedSeverity,
                     label: snapshot?.connectionStatus == .reconnectRequired ? String(localized: "Reconnect") : nil)
-                // Disconnecting has been possible in the container, and tested there, since
-                // before anything on screen could ask for it — so a user could connect an
-                // account and then had no way at all to disconnect it. Deleting the app was
-                // the only route, and keychain items outlive that, so it was not even a good
-                // one. A menu rather than a swipe: these cards are not a plain list, and an
-                // action this consequential should not be discoverable only by accident.
                 Menu {
                     if snapshot?.connectionStatus == .reconnectRequired {
                         Button("Reconnect account") { reconnecting = true }
                     }
-                    // Muting lives in this menu rather than as a switch on the card, because
-                    // it is a per-account preference and not a per-account fact: a row of
-                    // toggles down the list would compete with the numbers the screen is for.
                     Button(
                         notificationsEnabled
                             ? String(localized: "Mute notifications") : String(localized: "Unmute notifications")
@@ -192,14 +129,20 @@ private struct AccountSummaryCard: View {
             // deletes what THIS DEVICE stores; it does not revoke the grant at the provider,
             // and saying otherwise would leave someone believing they had cut off access they
             // had not.
-            .sheet(isPresented: $reconnecting) { AddAccountSheet() }
-        .confirmationDialog(
+            .sheet(isPresented: $reconnecting) {
+                AddAccountSheet(initialProvider: usage.account.provider)
+            }
+            .confirmationDialog(
                 "Disconnect \(usage.account.label)?",
                 isPresented: $isConfirmingRemove,
                 titleVisibility: .visible
             ) {
                 Button("Disconnect", role: .destructive) {
-                    Task { await store.removeAccount(accountID: usage.account.id) }
+                    // A removal that failed leaves the detail open on the account, under the
+                    // alert that says why, so it can be tried again.
+                    Task {
+                        if await store.removeAccount(accountID: usage.account.id) { onDisconnected() }
+                    }
                 }
                 .disabled(store.isRemoving)
                 Button("Cancel", role: .cancel) {}
@@ -207,7 +150,8 @@ private struct AccountSummaryCard: View {
                 Text("This removes the account from Usage Limits and deletes the sign-in stored on this device. It does not revoke access at the provider — do that in your account settings there.")
             }
 
-            if let message = snapshot?.statusMessage {
+            if let message = snapshot?.statusMessage ?? (snapshot?.connectionStatus == .reconnectRequired
+                ? NotificationEvaluator.signInExpiredMessage : nil) {
                 // The failure is shown on the account it belongs to, beside the numbers it
                 // could not update — the one place a user can act on it. A sign-in that has
                 // expired is answered from the menu, not by trying again.
@@ -220,6 +164,14 @@ private struct AccountSummaryCard: View {
             }
 
             ForEach(snapshot?.windows ?? [], id: \.id) { window in
+                let aged = ReadingValidity.aged(agedSeverity)
+                let validity: ReadingValidity = aged != .current ? aged
+                    : (window.resetDue(fetchedAt: snapshot?.fetchedAt, at: now) ? .resetDue : .current)
+                if let group = window.group, group != window.label {
+                    Text(verbatim: group)
+                        .usageFont(.small)
+                        .foregroundStyle(UsageColors.faint)
+                }
                 WindowRow(
                     row: GlanceRow(
                         label: window.label,
@@ -229,10 +181,9 @@ private struct AccountSummaryCard: View {
                         severity: window.severity, scope: window.scope, segments: window.segments,
                         sourceWindowID: window.id),
                     now: now,
-                    // The account's aged verdict outranks a row's own: a stale or failed account
-                    // keeps its last numbers, but they stop looking fresh.
-                    severity: agedSeverity == .stale || agedSeverity == .error ? agedSeverity : nil,
-                    validity: ReadingValidity.aged(agedSeverity),
+                    severity: validity == .error ? .error
+                        : (validity == .stale || validity == .resetDue ? .stale : nil),
+                    validity: validity,
                     mode: store.settings.percentDisplay)
             }
 
@@ -257,7 +208,7 @@ private struct AccountSummaryCard: View {
                     .usageFont(.body)
                     .foregroundStyle(UsageColors.muted)
                 Spacer()
-                if snapshot.spendableResetCredits > 0 {
+                if snapshot.spendableResetCredits(at: now) > 0 {
                     Button("Reset limit") { isConfirmingRedeem = true }
                         .buttonStyle(OutlineButtonStyle())
                 } else {
@@ -288,21 +239,3 @@ private struct AccountSummaryCard: View {
     }
 }
 
-/// "+ Add account" as the secondary button it is, with the sentence that says what it does.
-private struct AddAccountButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(action: action) { Text("+ Add account") }
-                .buttonStyle(OutlineButtonStyle(fullWidth: true))
-            // Sign-in happens in the user's own browser, on the provider's own page. Stated
-            // here because the alternative — an embedded web view — is what credential-harvesting
-            // apps do, and a user has no way to tell one from the other inside the app.
-            Text("Opens the provider's normal sign-in page in your browser.")
-                .usageFont(.small)
-                .foregroundStyle(UsageColors.muted)
-        }
-        .padding(.top, 8)
-    }
-}

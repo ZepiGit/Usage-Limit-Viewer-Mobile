@@ -17,7 +17,7 @@ enum MarketingDemo {
     // A fixed clock keeps relative and absolute reset labels consistent across every capture.
     static let now = Date(timeIntervalSince1970: 1_789_206_060) // 2026-09-12 09:41 UTC
 
-    static let accounts: [AccountUsage] = [
+    static let accounts: [AccountUsage] = ProcessInfo.processInfo.arguments.contains("-overview-empty-demo") ? [] : [
         account(.codex, plan: "Plus", windows: [
             window("5-hour", used: 28, duration: 18_000, resetIn: 8_100),
             window("Weekly", used: 56, duration: 604_800, resetIn: 273_600)
@@ -44,13 +44,16 @@ enum MarketingDemo {
         _ provider: ProviderID, plan: String, windows: [UsageWindow]
     ) -> AccountUsage {
         let id = "demo-\(provider.rawValue)"
+        let expired = provider == .codex && ProcessInfo.processInfo.arguments.contains("-overview-expired-demo")
         return AccountUsage(
             account: ProviderAccount(
                 id: id, provider: provider, externalAccountID: id, email: nil,
                 displayName: provider.displayName, plan: plan,
                 credentialReference: "", createdAt: now, lastSuccessfulSync: now),
             snapshot: UsageSnapshot(
-                accountID: id, fetchedAt: now, status: .ok, windows: windows))
+                accountID: id, fetchedAt: now, status: expired ? .failed : .ok, windows: windows,
+                errorMessage: expired ? NotificationEvaluator.signInExpiredMessage : nil,
+                connectionStatus: expired ? .reconnectRequired : .connected))
     }
 
     private static func window(

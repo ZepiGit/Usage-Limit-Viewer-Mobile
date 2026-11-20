@@ -10,16 +10,21 @@ final class MarketingScreenshotTests: XCTestCase {
 
     func testCaptureIPhoneScreens() {
         let app = launchDemo()
-        let claude = app.staticTexts["Claude"].firstMatch
-        let codex = app.staticTexts["OpenAI Codex"].firstMatch
+        let claude = app.buttons["overview-account-demo-claude"]
+        let codex = app.buttons["overview-account-demo-codex"]
         XCTAssertTrue(claude.waitForExistence(timeout: 10))
         XCTAssertTrue(codex.waitForExistence(timeout: 10))
-        XCTAssertTrue(claude.isHittable && codex.isHittable)
         XCTAssertLessThan(claude.frame.minY, codex.frame.minY)
         XCTAssertFalse(app.navigationBars["Overview"].buttons["Reorder"].exists)
         capture("iphone-overview", in: app)
-        capture("iphone-overview-order", in: app)
-        for screen in ["Accounts", "Resets", "Settings"] {
+        reach(codex, in: app)
+        codex.tap()
+        XCTAssertTrue(app.navigationBars["Account details"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["account-title-demo-codex"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.tabBars.buttons["Overview"].isHittable)
+        app.buttons["overview-close-detail"].tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        for screen in ["Resets", "Settings"] {
             let matches = app.buttons.matching(identifier: screen)
             let tab = matches.allElementsBoundByIndex.first { $0.isHittable } ?? matches.firstMatch
             XCTAssertTrue(tab.waitForExistence(timeout: 10))
@@ -28,23 +33,53 @@ final class MarketingScreenshotTests: XCTestCase {
             capture("iphone-\(screen.lowercased())", in: app)
         }
         verifyCustomLayout(in: app)
+
+        XCUIApplication().terminate()
+        let dials = launchDemo()
+        selectDials(in: dials, captureSettings: true)
+        captureDials("iphone-overview-dials", in: dials)
+        dials.terminate()
+        let expired = launchDemo(["-overview-expired-demo", "-reduce-motion"])
+        let expiredCodex = expired.buttons["overview-account-demo-codex"]
+        let expiredClaude = expired.buttons["overview-account-demo-claude"]
+        XCTAssertTrue(expiredCodex.waitForExistence(timeout: 10))
+        XCTAssertTrue(expiredClaude.waitForExistence(timeout: 10))
+        XCTAssertTrue(expiredCodex.isHittable)
+        XCTAssertLessThan(expiredCodex.frame.minY, expiredClaude.frame.minY)
+        XCTAssertTrue(expiredCodex.label.contains("Sign-in expired · showing last known data"))
+        capture("iphone-overview-order", in: expired)
+        expiredCodex.tap()
+        XCTAssertTrue(expired.navigationBars["Account details"].waitForExistence(timeout: 10))
+        XCTAssertTrue(expired.staticTexts["account-title-demo-codex"].waitForExistence(timeout: 10))
+        XCTAssertTrue(expired.staticTexts["Sign-in expired — reconnect this account"].exists)
+        capture("iphone-overview-detail", in: expired, requiresDemoLabel: false)
+        expired.terminate()
+
+        let empty = launchDemo(["-overview-empty-demo"])
+        XCTAssertTrue(empty.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
+        XCTAssertFalse(empty.buttons["overview-account-demo-codex"].exists)
+        capture("iphone-overview-empty", in: empty)
     }
 
     func testCaptureIPadOverview() {
         let app = launchDemo()
         capture("ipad-overview", in: app)
+        selectDials(in: app, captureSettings: false)
+        captureDials("ipad-overview-dials", in: app)
     }
 
-    private func launchDemo() -> XCUIApplication {
+    private func launchDemo(_ arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += [
             "-ui-testing", "-marketing-demo",
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"
-        ]
+        ] + arguments
         app.launch()
         XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["5/5 connected"].waitForExistence(timeout: 10))
+        if !arguments.contains("-overview-empty-demo") {
+            XCTAssertTrue(app.buttons["overview-account-demo-codex"].waitForExistence(timeout: 10))
+        }
         XCTAssertTrue(app.staticTexts["marketing-demo-label"].firstMatch.exists)
         XCTAssertEqual(app.alerts.count, 0)
         return app
@@ -58,6 +93,56 @@ final class MarketingScreenshotTests: XCTestCase {
         XCTAssertTrue(element.exists && element.isHittable)
     }
 
+    private func selectDials(in app: XCUIApplication, captureSettings: Bool) {
+        let settings = app.buttons.matching(identifier: "Settings")
+        let tab = settings.allElementsBoundByIndex.first { $0.isHittable } ?? settings.firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 10))
+        tab.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+
+        let display = app.segmentedControls["settings-percent-display"]
+        reach(display, in: app)
+        display.buttons["Used"].tap()
+        XCTAssertTrue(display.buttons["Used"].isSelected)
+        let displayPreview = app.otherElements["settings-display-preview"]
+        XCTAssertTrue(displayPreview.waitForExistence(timeout: 10))
+        XCTAssertTrue(displayPreview.staticTexts["82%"].waitForExistence(timeout: 10))
+        XCTAssertTrue(displayPreview.staticTexts["used"].exists)
+
+        let listPreview = app.otherElements["settings-preview-list"]
+        reach(listPreview, in: app)
+        let layout = app.segmentedControls["settings-overview-layout"]
+        reach(layout, in: app)
+        XCTAssertTrue(layout.buttons["List"].isSelected)
+        layout.buttons["Dials"].tap()
+        XCTAssertTrue(layout.buttons["Dials"].isSelected)
+        let dialsPreview = app.descendants(matching: .any)["settings-preview-dials"].firstMatch
+        XCTAssertTrue(dialsPreview.waitForExistence(timeout: 10))
+        if captureSettings {
+            let claude = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
+            for _ in 0..<5 where !claude.isHittable || claude.frame.minY < app.navigationBars["Settings"].frame.maxY {
+                let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.35))
+                let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.47))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            }
+            XCTAssertTrue(claude.isHittable && layout.isHittable)
+            capture("iphone-settings-layout", in: app)
+        }
+
+        let overview = app.buttons.matching(identifier: "Overview")
+        let overviewTab = overview.allElementsBoundByIndex.first { $0.isHittable } ?? overview.firstMatch
+        overviewTab.tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.buttons["overview-display-mode"].value as? String, "Used")
+    }
+
+    private func captureDials(_ name: String, in app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["overview-dial-demo-claude"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["overview-dial-demo-codex"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["overview-account-demo-claude"].exists)
+        capture(name, in: app)
+    }
+
     private func verifyCustomLayout(in app: XCUIApplication) {
         let layouts = app.buttons["Widget layouts"]
         reach(layouts, in: app); layouts.tap()
@@ -68,9 +153,18 @@ final class MarketingScreenshotTests: XCTestCase {
         name.typeText("QA layout")
         app.buttons["Show OpenAI Codex"].tap()
         app.buttons["Show Claude"].tap()
-        let handles = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Reorder")).allElementsBoundByIndex.filter { $0.isHittable }
-        XCTAssertGreaterThanOrEqual(handles.count, 2)
-        handles[1].press(forDuration: 0.3, thenDragTo: handles[0])
+        let codex = app.buttons["Reorder Show OpenAI Codex"]
+        let claude = app.buttons["Reorder Show Claude"]
+        XCTAssertTrue(codex.isHittable && claude.isHittable)
+        // Drop in the upper part of the target row. Its midpoint can resolve to the slot
+        // below it, leaving the order unchanged.
+        claude.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.3, thenDragTo: codex.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)))
+        let reordered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.buttons["Show Claude"].frame.minY < app.buttons["Show OpenAI Codex"].frame.minY
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [reordered], timeout: 10), .completed,
+            "the drag must place Claude above Codex before saving")
         capture("iphone-custom-layout", in: app, requiresDemoLabel: false)
         app.buttons["Save"].tap()
         XCTAssertTrue(app.navigationBars["Widget layouts"].waitForExistence(timeout: 10))

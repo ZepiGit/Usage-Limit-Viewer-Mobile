@@ -46,6 +46,7 @@ final class PreferencesAndLedgerTests: XCTestCase {
         settings.showRenewalTime = true
         settings.accountsManuallyOrdered = true
         settings.percentDisplay = .used
+        settings.overviewLayout = .dials
         settings.notifications.mutedAccountIDs = ["acct-1", "acct-2"]
 
         let returned = try await store.save(settings)
@@ -58,7 +59,17 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertTrue(reopened.showRenewalTime)
         XCTAssertTrue(reopened.accountsManuallyOrdered)
         XCTAssertEqual(reopened.percentDisplay, .used)
+        XCTAssertEqual(reopened.overviewLayout, .dials)
         XCTAssertEqual(reopened.notifications.mutedAccountIDs, ["acct-1", "acct-2"])
+    }
+
+    func testSavedLayoutKeepsItsStableJSONValue() throws {
+        let settings = try JSONDecoder().decode(AppSettings.self,
+            from: Data(#"{"overviewLayout":"dials","showRenewalTime":true}"#.utf8))
+        let encoded = try JSONEncoder().encode(settings.normalised())
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(saved["overviewLayout"] as? String, "dials")
+        XCTAssertTrue(settings.showRenewalTime)
     }
 
     func testPinnedAccountPreferencesSurviveNormalisationAndAReopen() async throws {
@@ -102,7 +113,20 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertFalse(settings.showRenewalTime)
         XCTAssertFalse(settings.accountsManuallyOrdered)
         XCTAssertEqual(settings.percentDisplay, .left)
+        XCTAssertEqual(settings.overviewLayout, .list)
         XCTAssertTrue(settings.notifications.mutedAccountIDs.isEmpty)
+    }
+
+    func testAnUnknownOverviewLayoutPreservesOtherStoredChoices() async throws {
+        let json = #"{"overviewLayout":"tiles","showSubscriptionTier":false,"showRenewalTime":true,"percentDisplay":"used"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(settings.overviewLayout, .list)
+        XCTAssertFalse(settings.showSubscriptionTier)
+        XCTAssertTrue(settings.showRenewalTime)
+        XCTAssertEqual(settings.percentDisplay, .used)
     }
 
     /// One unknown enum name must not fail the whole decode: the file holds every other

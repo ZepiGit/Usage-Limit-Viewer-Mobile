@@ -71,8 +71,8 @@ and the [device checklist](../docs/release.md#device-checklist).
 `MotionUITests` launches the Debug app with synthetic accounts. `-motion-log` reports the
 real modifiers' decisions; `-reduce-motion` overrides the preference, and
 `-motion-delayed-demo` with `-marketing-demo` exercises the first-load decision. These hooks
-are absent from Release. The tests also check filter selection, the deep-link destination,
-and the lead's accessible label. They do not observe the applied animation or rendered frames.
+are absent from Release. The tests drive the loading gate, filter selection, display-mode changes
+and account deep links. They do not observe the applied animation or rendered frames.
 
 Kit tests cover the selected source window ID and the unchanged widget export. No iOS motion
 has been visually verified. Device checks include same-label window replacement (first frame
@@ -84,10 +84,10 @@ alerts and refresh controls retain system motion.
 
 Run the manual **Marketing screenshots** workflow to capture the actual SwiftUI app on an
 iPhone and an iPad simulator. The `ios-marketing-screenshots` artifact includes `CAPTURE.txt`
-with the source commit and simulator models. The phone captures Overview, Accounts, Resets,
-Settings, and the custom layout before and after restoration; the iPad captures Overview.
-`iphone-overview-order.png` captures Overview after asserting that Claude appears above Codex
-(out of their stored order) and that there is no Reorder control.
+with the source commit and simulator models. The phone captures Overview, account detail,
+empty Overview, Resets, Settings, and the custom layout before and after restoration; the iPad
+captures Overview. `iphone-overview-order.png` uses a separate fixture: Codex has an expired
+sign-in and appears ahead of Claude despite having more quota left.
 
 The separate `UsageLimitsScreenshots` test scheme launches a Debug build with
 `-marketing-demo`. This uses five synthetic accounts in memory, a fixed clock and a visible
