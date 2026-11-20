@@ -36,7 +36,9 @@ jobs:
       - uses: actions/checkout@v7
       # Shims catch missing declarations; real Apple SDK validation runs on macOS.
       - name: The app and widget type-check against framework shims
-        run: ./ios/Tools/typecheck-app.sh
+        run: |
+          flock /tmp/ulv-gradle.lock ./ios/Tools/typecheck-app.sh
+          flock /tmp/ulv-gradle.lock ./ios/Tools/typecheck-app.sh -D DEBUG
       - name: Test
         working-directory: ios/UsageLimitsKit
         run: swift test --parallel
@@ -256,7 +258,18 @@ jobs:
             -parallel-testing-enabled NO \
             -test-timeouts-enabled YES \
             -maximum-test-execution-time-allowance 300 \
+            -only-testing:UsageLimitsUITests/AppLaunchUITests/testHiddenCreditsStayManageableAndChoicesSurviveRelaunch \
+            -only-testing:UsageLimitsUITests/AppLaunchUITests/testCreditsExperimentAnimated \
+            -only-testing:UsageLimitsUITests/AppLaunchUITests/testCreditsExperimentStoredStill \
+            -only-testing:UsageLimitsUITests/AppLaunchUITests/testCreditsExperimentReduceMotion \
+            -only-testing:UsageLimitsUITests/AppLaunchUITests/testCreditsExperimentWithoutClaude \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
+
+      - name: Collect Settings trace from simulator logs
+        if: ${{ !cancelled() && steps.simulator.outcome == 'success' }}
+        run: |
+          xcrun simctl spawn '${{ steps.simulator.outputs.udid }}' log show \
+            --last 45m --style compact --predicate 'subsystem == "com.usagelimits.app" AND category == "SettingsTrace"'
 
       # Run simulators sequentially to avoid launchd conflicts; retry once on a fresh iPad.
       - name: Run adaptive UI checks on an iPad
@@ -294,7 +307,7 @@ jobs:
           exit 1
 
       - name: Upload the test results
-        if: failure()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: ios-ui-test-results

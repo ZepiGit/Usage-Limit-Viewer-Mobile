@@ -239,7 +239,12 @@ struct SettingsScreen: View {
 
     private var overviewPreview: some View {
         let settings = store.settings
+        #if DEBUG
+        let sample = UsageLimitsApp.isUITesting && ProcessInfo.processInfo.arguments.contains("-settings-preview-no-claude")
+            ? SettingsUsagePreview.projectionWithoutClaude : SettingsUsagePreview.projection
+        #else
         let sample = SettingsUsagePreview.projection
+        #endif
         return previewPanel(settings.overviewLayout == .list ? "settings-preview-list" : "settings-preview-dials") {
             OverviewBlocks(showCredits: settings.overviewShowCredits, showFirst: settings.overviewShowFirst) {
                 if settings.overviewLayout == .list {
@@ -337,6 +342,11 @@ private enum SettingsUsagePreview {
     static let codex = account(.codex, plan: "Plus", used: (28, 56))
     static let snapshot = GlanceModel.build([claude, codex], now: now, scope: .allAccounts)
     static let projection = snapshot.overview(filter: .all, at: now, in: calendar.timeZone)
+    #if DEBUG
+    static let projectionWithoutClaude = GlanceModel.build(
+        [account(.antigravity, plan: "Pro", used: (82, 39)), codex], now: now, scope: .allAccounts)
+        .overview(filter: .all, at: now, in: calendar.timeZone)
+    #endif
     static let credits = OverviewCreditSamples.entries(at: now)
 
     private static func account(_ provider: ProviderID, plan: String, used: (Double, Double)) -> AccountUsage {

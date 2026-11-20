@@ -651,6 +651,13 @@ private enum CreditRegisterFixture {
                   "balances":[{"currency":"USD","amount":"3.18"}]}}]
                 """
             try? Data(register.utf8).write(to: directory.appendingPathComponent(CreditRepository.fileName))
+            if arguments.contains("-fixture-credits-hidden-settings") {
+                let settings = AppSettings(overviewCreditLayout: .compact, overviewShowFirst: .creditAccounts,
+                    overviewShowCredits: false, animateClaudeCodeIcon: !arguments.contains("-fixture-credits-still-claude"))
+                if let data = try? JSONEncoder().encode(settings) {
+                    try? data.write(to: directory.appendingPathComponent("settings.json"), options: .atomic)
+                }
+            }
         }
         return UsageLimitsContainer(directory: directory, credentials: InMemoryCredentialStore())
     }

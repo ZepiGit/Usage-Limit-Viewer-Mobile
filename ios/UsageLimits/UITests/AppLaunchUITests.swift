@@ -560,6 +560,76 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertLessThan(compact.frame.minY, dial.frame.minY)
     }
 
+    func testCreditsExperimentAnimated() {
+        exerciseCreditsRelaunch("animated")
+    }
+
+    func testCreditsExperimentStoredStill() {
+        exerciseCreditsRelaunch("stored-still", seed: ["-fixture-credits-still-claude"])
+    }
+
+    func testCreditsExperimentReduceMotion() {
+        exerciseCreditsRelaunch("reduce-motion", relaunch: ["-reduce-motion"])
+    }
+
+    func testCreditsExperimentWithoutClaude() {
+        exerciseCreditsRelaunch("without-claude", relaunch: ["-settings-preview-no-claude"])
+    }
+
+    private func exerciseCreditsRelaunch(_ variant: String, seed: [String] = [], relaunch: [String] = []) {
+        let fixture = "-fixture-credits"
+        let attempts = 4
+        var passed = 0
+        var missed = 0
+        var invalid = 0
+        for attempt in 1...attempts {
+            let setup = launch([fixture, "-fixture-credits-reset", "-fixture-credits-hidden-settings"] + seed)
+            setup.terminate()
+
+            let app = launch([fixture] + relaunch)
+            defer { app.terminate() }
+            let identifier = "settings-overview-show-credits"
+            let toggle = app.switches[identifier]
+            var evidence: String
+            if app.staticTexts["No accounts yet"].waitForExistence(timeout: 10) {
+                tabButton("Settings", in: app).tap()
+                let bottomTabs = bottomTabBarFrame(in: app)
+                if scrollTo(toggle, in: app, towardStart: false, clearOfBottomTabs: bottomTabs),
+                   toggle.value as? String == "0" {
+                    let frame = toggle.frame
+                    let offset = CGVector(dx: 0.9, dy: 0.5)
+                    let coordinate = toggle.coordinate(withNormalizedOffset: offset)
+                    let point = CGPoint(x: frame.minX + offset.dx * frame.width,
+                                        y: frame.minY + offset.dy * frame.height)
+                    let start = ProcessInfo.processInfo.systemUptime
+                    coordinate.tap()
+                    let end = ProcessInfo.processInfo.systemUptime
+                    let changed = XCTNSPredicateExpectation(
+                        predicate: NSPredicate(format: "value == %@", "1"), object: toggle)
+                    let isOn = XCTWaiter.wait(for: [changed], timeout: 10) == .completed
+                    if isOn { passed += 1 } else { missed += 1 }
+                    evidence = "on=\(isOn) tapUptime=\(start)–\(end) point=\(point) frame=\(frame) tabs=\(bottomTabs)"
+                    if !isOn { evidence += "\ncontrol: \(toggle.debugDescription)" }
+                } else {
+                    invalid += 1
+                    evidence = "invalid: Show credits not reachable or did not start off; \(toggle.debugDescription)"
+                }
+            } else {
+                invalid += 1
+                evidence = "invalid: restored Overview did not finish loading"
+            }
+            let label = "[credits-experiment] \(variant) attempt=\(attempt) \(evidence)"
+            print(label)
+            let trace = XCTAttachment(string: label + "\n" + settingsTrace(in: app))
+            trace.name = "Credits experiment \(variant) \(attempt) trace"
+            trace.lifetime = .keepAlways
+            add(trace)
+        }
+        let summary = "[credits-experiment] \(variant) passed=\(passed)/\(attempts) missed=\(missed) invalid=\(invalid)"
+        print(summary)
+        XCTAssertEqual(passed, attempts, summary)
+    }
+
     func testHiddenCreditsStayManageableAndChoicesSurviveRelaunch() {
         let fixture = "-fixture-credits"
         var app = launch([fixture, "-fixture-credits-reset"])
