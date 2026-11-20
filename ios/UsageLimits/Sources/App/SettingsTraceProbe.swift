@@ -28,6 +28,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
                   SettingsTrace.isEnabled,
                   ProcessInfo.processInfo.arguments.contains("-settings-touch-trace") else { return }
             window.addGestureRecognizer(touchObserver)
+            SettingsTrace.record("touch observer attached windowBounds=\(window.bounds)")
         }
 
         override var accessibilityValue: String? {

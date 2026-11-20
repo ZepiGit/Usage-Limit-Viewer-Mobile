@@ -12,6 +12,8 @@ import XCTest
 /// the real launch path.
 final class AppLaunchUITests: XCTestCase {
 
+    private let diagnosticLaunchArguments = ["-ui-testing", "-settings-trace", "-settings-touch-trace"]
+
     override func setUp() {
         super.setUp()
         // A failing assertion should stop the test at the point of failure rather than carrying
@@ -77,7 +79,10 @@ final class AppLaunchUITests: XCTestCase {
         let app = XCUIApplication()
         // Read by the app to skip the notification-permission prompt, which is a system alert
         // that would otherwise sit over the UI and fail every query behind it.
-        app.launchArguments += ["-ui-testing", "-settings-trace", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"] + arguments
+        app.launchArguments += diagnosticLaunchArguments + [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"
+        ] + arguments
         app.launch()
         waitForOrientation(app, landscape: false)
         return app
@@ -105,15 +110,23 @@ final class AppLaunchUITests: XCTestCase {
         return frame.midY > app.frame.midY ? frame : .null
     }
 
+    private func tapUptime(_ tap: () -> Void) -> String {
+        let started = ProcessInfo.processInfo.systemUptime
+        tap()
+        return "\(started)–\(ProcessInfo.processInfo.systemUptime)"
+    }
+
     private func reportControlFailure(_ message: String, control: XCUIElement, in app: XCUIApplication,
-                                      tapFrame: CGRect, bottomTabs: CGRect, tapPoint: CGPoint? = nil) {
+                                      tapFrame: CGRect, bottomTabs: CGRect, tapPoint: CGPoint? = nil,
+                                      tapUptime: String? = nil) {
         attachSettingsTrace(in: app)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = message
         screenshot.lifetime = .keepAlways
         add(screenshot)
         let point = tapPoint.map { ", tap point: \($0)" } ?? ""
-        XCTFail("\(message); tap frame: \(tapFrame)\(point), bottom tabs: \(bottomTabs), app state: \(app.state), "
+        let uptime = tapUptime.map { "; tap uptime: \($0)" } ?? ""
+        XCTFail("\(message)\(uptime); tap frame: \(tapFrame)\(point), bottom tabs: \(bottomTabs), app state: \(app.state), "
             + "Settings visible: \(app.navigationBars["Settings"].exists), control: \(control.debugDescription)")
     }
 
@@ -145,11 +158,12 @@ final class AppLaunchUITests: XCTestCase {
             return
         }
         let tapFrame = segment.frame
-        segment.tap()
+        let uptime = tapUptime { segment.tap() }
         let onSettings = app.navigationBars["Settings"].exists
         if !onSettings || !segment.exists || !segment.isSelected {
             reportControlFailure("\(option) should be selected in \(identifier) without leaving Settings",
-                                 control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs)
+                                 control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapUptime: uptime)
         }
     }
 
@@ -176,13 +190,12 @@ final class AppLaunchUITests: XCTestCase {
         let point = CGPoint(x: tapFrame.minX + tapFrame.width * offset.dx,
                             y: tapFrame.minY + tapFrame.height * offset.dy)
         let coordinate = toggle.coordinate(withNormalizedOffset: offset)
-        let tapStarted = ProcessInfo.processInfo.systemUptime
-        coordinate.tap()
-        let tapReturned = ProcessInfo.processInfo.systemUptime
+        let uptime = tapUptime { coordinate.tap() }
         let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
         if XCTWaiter.wait(for: [changed], timeout: 10) != .completed {
-            reportControlFailure("\(identifier) did not turn \(enabled ? "on" : "off"); tap uptime: \(tapStarted)–\(tapReturned)",
-                                 control: toggle, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs, tapPoint: point)
+            reportControlFailure("\(identifier) did not turn \(enabled ? "on" : "off")",
+                                 control: toggle, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapPoint: point, tapUptime: uptime)
         }
     }
 
@@ -467,8 +480,8 @@ final class AppLaunchUITests: XCTestCase {
 
     func testAccessibilityTextReflowsDialsIntoOneColumn() {
         let app = XCUIApplication()
-        app.launchArguments += [
-            "-ui-testing", "-marketing-demo", "-overview-expired-demo",
+        app.launchArguments += diagnosticLaunchArguments + [
+            "-marketing-demo", "-overview-expired-demo",
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"
         ]
@@ -562,8 +575,7 @@ final class AppLaunchUITests: XCTestCase {
 
     func testHiddenCreditsStayManageableAndChoicesSurviveRelaunch() {
         let fixture = "-fixture-credits"
-        let touchTrace = "-settings-touch-trace"
-        var app = launch([fixture, "-fixture-credits-reset", touchTrace])
+        var app = launch([fixture, "-fixture-credits-reset"])
         defer { app.terminate() }
         tabButton("Settings", in: app).tap()
         selectSegment("Compact", in: "settings-overview-credit-layout", app: app, towardStart: false)
@@ -591,7 +603,7 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["$3.18"].exists)
         app.terminate()
 
-        app = launch([fixture, touchTrace])
+        app = launch([fixture])
         XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["overview-credits-heading"].exists)
         XCTAssertFalse(app.buttons["overview-credits-compact"].exists)
@@ -624,8 +636,8 @@ final class AppLaunchUITests: XCTestCase {
 
     func testGermanCompactCreditsReflowsAtLargestTextSize() {
         let app = XCUIApplication()
-        app.launchArguments += [
-            "-ui-testing", "-marketing-demo", "-overview-credits-demo", "-overview-compact-credits-demo", "-reduce-motion",
+        app.launchArguments += diagnosticLaunchArguments + [
+            "-marketing-demo", "-overview-credits-demo", "-overview-compact-credits-demo", "-reduce-motion",
             "-AppleLanguages", "(de)", "-AppleLocale", "de_DE",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"
         ]
@@ -653,22 +665,24 @@ final class AppLaunchUITests: XCTestCase {
             return
         }
         let menuFrame = control.frame
-        control.tap()
+        let openedAt = tapUptime { control.tap() }
         let choice = app.buttons.matching(identifier: option).firstMatch
         guard choice.waitForExistence(timeout: 10) else {
             reportControlFailure("Missing menu option \(option) in \(identifier)",
-                                 control: control, in: app, tapFrame: menuFrame, bottomTabs: bottomTabs)
+                                 control: control, in: app, tapFrame: menuFrame, bottomTabs: bottomTabs,
+                                 tapUptime: openedAt)
             return
         }
         let tapFrame = choice.frame
-        choice.tap()
+        let selectedAt = tapUptime { choice.tap() }
         let selection = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label CONTAINS %@", option),
             object: control
         )
         if XCTWaiter.wait(for: [selection], timeout: 10) != .completed {
             reportControlFailure("\(identifier) did not select \(option)",
-                                 control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs)
+                                 control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapUptime: selectedAt)
         }
     }
 
@@ -768,7 +782,10 @@ final class AppLaunchUITests: XCTestCase {
 
     func testLandscapeAndLargeTextKeepTheProviderPickerReachable() {
         let app = XCUIApplication()
-        app.launchArguments += ["-ui-testing", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
+        app.launchArguments += diagnosticLaunchArguments + [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"
+        ]
         app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
         waitForOrientation(app, landscape: true)
