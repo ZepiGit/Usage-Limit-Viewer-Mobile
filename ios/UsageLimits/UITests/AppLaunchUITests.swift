@@ -165,9 +165,13 @@ final class AppLaunchUITests: XCTestCase {
         }
         expectDecision("claude:provider:provider:asleep animated")
 
-        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        // XCUI exposes the whole Form row. Tap inside the trailing switch, not at the row edge.
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let turnedOff = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "0"), object: toggle)
+        XCTAssertEqual(XCTWaiter.wait(for: [turnedOff], timeout: 10), .completed,
+                       "The tap must turn off \(toggle.label); observed \(toggle.debugDescription)")
         expectDecision("claude:provider:provider:asleep still")
-        XCTAssertEqual(toggle.value as? String, "0")
         let list = app.descendants(matching: .any)["settings-preview-list"].firstMatch
         XCTAssertTrue(scrollTo(list, in: app, towardStart: false))
         expectDecision("claude:preview-list:preview-claude:tired still")
