@@ -64,6 +64,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
+import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.feature.credits.AddCreditScreen
 import com.usagelimits.feature.credits.AddCreditViewModel
@@ -419,8 +420,9 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     // An account detail opened from the list, and the way back to it, keep the filter.
     var overviewFilter by rememberSaveable { mutableStateOf(OverviewFilter.ALL) }
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-    LaunchedEffect(currentRoute) {
-        if (currentRoute != Destination.Overview.route && TABS.any { it.destination.route == currentRoute }) {
+    val dials = state.settings.overviewLayout == OverviewLayout.DIALS
+    LaunchedEffect(currentRoute, dials) {
+        if (dials || (currentRoute != Destination.Overview.route && TABS.any { it.destination.route == currentRoute })) {
             overviewFilter = OverviewFilter.ALL
         }
     }
@@ -467,7 +469,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     onNotifyResetApproaching = viewModel::setNotifyResetApproaching,
                     onNotifyCreditExpiring = viewModel::setNotifyCreditExpiring,
                     onShowTier = viewModel::setShowSubscriptionTier,
-                    onShowRenewal = viewModel::setShowRenewalTime,
+                    onOverviewLayoutChange = viewModel::setOverviewLayout,
                     onPercentDisplayChange = viewModel::setPercentDisplay,
                 )
             }

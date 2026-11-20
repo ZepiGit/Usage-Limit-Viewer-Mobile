@@ -47,7 +47,7 @@ data class ProviderAccount(
 ) {
     /** `m***@gmail.com` — what the UI shows instead of the full address. */
     val maskedEmail: String?
-        get() = email?.let(::maskEmail)
+        get() = email?.takeUnless { it.isBlank() }?.let(::maskEmail)
 
     /** Falls back through the identifiers a provider may or may not supply. */
     val label: String
@@ -97,8 +97,8 @@ fun planLabel(raw: String?): String? {
 internal fun maskEmail(email: String): String {
     val at = email.indexOf('@')
     if (at <= 0) return email
-    val local = email.substring(0, at)
+    val initialEnd = email.offsetByCodePoints(0, 1)
     val domain = email.substring(at)
-    // The at <= 0 guard ensures the local part is nonempty, including one-character names.
-    return "${local.first()}***$domain"
+    // Ein Initial außerhalb der BMP darf nicht auf eine einzelne UTF-16-Hälfte verkürzt werden.
+    return "${email.substring(0, initialEnd)}***$domain"
 }

@@ -76,6 +76,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.usagelimits.R
@@ -92,6 +93,8 @@ import com.usagelimits.core.model.presentation
 import com.usagelimits.core.model.readingValidity
 import com.usagelimits.core.model.title
 import com.usagelimits.core.notifications.NotificationEvaluator
+import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.ui.AppIcons
@@ -130,8 +133,7 @@ private val BlockGap = 12.dp
 private val CardRadius = 8.dp
 
 /**
- * Overview: the header with its display chip, the filter chips, every account in one List card in
- * the automatic order, and the Credits block below it.
+ * Overview: a shared header and rank, a filterable List or unfiltered Dials, then Credits.
  *
  * The ranking, the filters and the header come from [overviewAt] at [nowMs] in [zone], so the
  * screen and the shared vectors cannot disagree. With no accounts the screen is C1: the fixed
@@ -161,75 +163,125 @@ fun OverviewScreen(
     SideEffect { if (state.loaded) contentShown = true }
     val listMotion = if (contentShown) UsageMotion.current else UsageMotion.Reduced
 
-    val projection = state.accounts.overviewAt(filter, nowMs, zone, state.staleAfterMs)
+    val dials = state.settings.overviewLayout == OverviewLayout.DIALS
+    val projection = state.accounts.overviewAt(if (dials) OverviewFilter.ALL else filter, nowMs, zone, state.staleAfterMs)
     val hasAccounts = state.loaded && state.accounts.isNotEmpty()
-    // Every row's window lines, so the card's columns come from all of them at once.
-    val lines = projection.entries.associate { entry ->
-        entry.usage.account.localId to key(entry.usage.account.localId) { windowLines(entry, state, nowMs, zone) }
-    }
-    val columns = rememberGridColumns(lines.values)
+    val lines = if (dials) emptyMap() else listWindowLines(projection.entries, state, nowMs, zone)
+    val columns = if (dials) null else rememberGridColumns(lines.values)
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier
-            .fillMaxSize()
-            .background(UsageColors.Ground),
-        contentPadding = PaddingValues(16.dp),
-    ) {
-        item(key = "header") {
-            OverviewHeader(state, projection, nowMs, zone, showModeChip = hasAccounts,
-                onRefresh = onRefresh, onPercentDisplayChange = onPercentDisplayChange)
-        }
+    BoxWithConstraints(modifier.fillMaxSize().background(UsageColors.Ground)) {
+        val dialColumns = dialColumnCount(maxWidth - 32.dp, LocalDensity.current.fontScale)
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+        ) {
+            item(key = "header") {
+                OverviewHeader(state, projection, nowMs, zone, showModeChip = hasAccounts,
+                    onRefresh = onRefresh, onPercentDisplayChange = onPercentDisplayChange)
+            }
 
-        // Until the first emission `accounts` is empty only because nothing has arrived, so the
-        // final layout is drawn in grey rather than flashing the empty state.
-        if (!state.loaded) {
-            item(key = "loading") { ListSkeleton(Modifier.padding(top = BlockGap)) }
-            return@LazyColumn
-        }
+            // Until the first emission `accounts` is empty only because nothing has arrived, so the
+            // final layout is drawn in grey rather than flashing the empty state.
+            if (!state.loaded) {
+                item(key = "loading") { ListSkeleton(Modifier.padding(top = BlockGap)) }
+                return@LazyColumn
+            }
 
-        if (state.accounts.isEmpty()) {
-            item(key = "empty") { EmptyOverview(onAddAccount, onAddCredit, itemMotion(listMotion).padding(top = BlockGap)) }
-        } else {
-            item(key = "filters") {
-                FilterChips(filter, projection.attentionCount, onFilterChange, itemMotion(listMotion).padding(top = 4.dp))
+            if (state.accounts.isEmpty()) {
+                item(key = "empty") { EmptyOverview(onAddAccount, onAddCredit, itemMotion(listMotion).padding(top = BlockGap)) }
+            } else if (dials) {
+                overviewDials(projection.entries, state.settings, nowMs, zone, state.staleAfterMs, dialColumns,
+                    listMotion, onAccountClick, onAddAccount)
+            } else {
+                item(key = "filters") {
+                    FilterChips(filter, projection.attentionCount, onFilterChange, itemMotion(listMotion).padding(top = 4.dp))
+                }
+                accountList(projection.entries, state, nowMs, lines, checkNotNull(columns), listMotion, onRefresh, onAccountClick)
+                item(key = "caption") {
+                    Text(stringResource(R.string.overview_headline_caption), itemMotion(listMotion).padding(top = BlockGap),
+                        style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
+                }
+                item(key = "add-account") {
+                    OutlineButton(stringResource(R.string.overview_add_account), onAddAccount,
+                        itemMotion(listMotion).padding(top = BlockGap).fillMaxWidth(),
+                        leading = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp)) })
+                }
             }
-            accountList(projection.entries, state, nowMs, lines, columns, listMotion, onRefresh, onAccountClick)
-            item(key = "caption") {
-                Text(stringResource(R.string.overview_headline_caption), itemMotion(listMotion).padding(top = BlockGap),
-                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
-            }
-            item(key = "add-account") {
-                OutlineButton(stringResource(R.string.overview_add_account), onAddAccount,
-                    itemMotion(listMotion).padding(top = BlockGap).fillMaxWidth(),
-                    leading = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp)) })
-            }
-        }
 
-        // Prepaid balances sit below the usage accounts: a different kind of number (money left,
-        // no windows, no reset), so they are not mixed into the ranked list above.
-        item(key = "credits-header") {
-            SectionHeader(title = stringResource(R.string.overview_section_credits), modifier = itemMotion(listMotion))
-        }
-        if (state.credits.isEmpty()) {
-            item(key = "credits-empty") {
-                EmptyBox(stringResource(R.string.overview_no_credits), itemMotion(listMotion).padding(top = 8.dp))
+            // Prepaid balances sit below the usage accounts: a different kind of number (money left,
+            // no windows, no reset), so they are not mixed into the ranked list above.
+            item(key = "credits-header") {
+                SectionHeader(title = stringResource(R.string.overview_section_credits), modifier = itemMotion(listMotion))
             }
-        }
-        items(items = state.credits, key = { "credit-${it.id}" }) { entry ->
-            com.usagelimits.feature.credits.CreditCard(
-                entry = entry, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
-                modifier = itemMotion(listMotion).padding(top = 8.dp),
-                onClick = { onCreditClick(entry.id) },
-                onRetry = onRefresh,
-            )
-        }
-        item(key = "add-credit") {
-            AddButton(stringResource(R.string.overview_add_credit), stringResource(R.string.overview_add_credit_hint),
-                onAddCredit, itemMotion(listMotion).padding(top = 8.dp))
+            if (state.credits.isEmpty()) {
+                item(key = "credits-empty") {
+                    EmptyBox(stringResource(R.string.overview_no_credits), itemMotion(listMotion).padding(top = 8.dp))
+                }
+            }
+            items(items = state.credits, key = { "credit-${it.id}" }) { entry ->
+                com.usagelimits.feature.credits.CreditCard(
+                    entry = entry, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
+                    modifier = itemMotion(listMotion).padding(top = 8.dp),
+                    onClick = { onCreditClick(entry.id) },
+                    onRetry = onRefresh,
+                )
+            }
+            item(key = "add-credit") {
+                AddButton(stringResource(R.string.overview_add_credit), stringResource(R.string.overview_add_credit_hint),
+                    onAddCredit, itemMotion(listMotion).padding(top = 8.dp))
+            }
+            if (dials && hasAccounts) {
+                item(key = "dials-caption") {
+                    Text(stringResource(R.string.overview_dials_caption), itemMotion(listMotion).padding(top = BlockGap),
+                        style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
+                }
+            }
         }
     }
 }
+
+private fun dialColumnCount(width: Dp, fontScale: Float): Int =
+    if (width >= 280.dp && fontScale < 1.4f) 2 else 1
+
+@Composable
+internal fun OverviewLayoutPreview(accounts: List<AccountUsage>, settings: AppSettings, nowMs: Long, zone: ZoneId) {
+    val state = UsageUiState(accounts = accounts, settings = settings)
+    val entries = accounts.overviewAt(OverviewFilter.ALL, nowMs, zone, state.staleAfterMs).entries
+    if (settings.overviewLayout == OverviewLayout.DIALS) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columns = dialColumnCount(maxWidth, LocalDensity.current.fontScale)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (row in entries.chunked(columns)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (entry in row) {
+                            key(entry.usage.account.localId) {
+                                OverviewDialTile(entry, settings.percentDisplay, nowMs, zone, state.staleAfterMs,
+                                    Modifier.weight(1f), compact = true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        val lines = listWindowLines(entries, state, nowMs, zone)
+        val columns = rememberGridColumns(lines.values, compact = true)
+        for ((index, entry) in entries.withIndex()) {
+            if (index > 0) RuleDivider()
+            key(entry.usage.account.localId) {
+                OverviewAccountRow(entry, state, nowMs, lines.getValue(entry.usage.account.localId), columns,
+                    MaterialTheme.shapes.medium, compact = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun listWindowLines(entries: List<OverviewEntry>, state: UsageUiState, nowMs: Long, zone: ZoneId) =
+    entries.associate { entry ->
+        entry.usage.account.localId to key(entry.usage.account.localId) { windowLines(entry, state, nowMs, zone) }
+    }
 
 /**
  * The List card. Each row is its own lazy item, so a row that moves in the rank takes the list's
@@ -267,7 +319,7 @@ private fun LazyListScope.accountList(
         Column(itemMotion(listMotion).padding(top = if (first) BlockGap else 0.dp)) {
             if (!first) Box(Modifier.fillMaxWidth().background(UsageColors.Surface).padding(start = 16.dp, end = 12.dp)) { RuleDivider() }
             val id = entry.usage.account.localId
-            OverviewAccountRow(entry, state, nowMs, lines[id].orEmpty(), columns, shape, onRefresh) { onAccountClick(id) }
+            OverviewAccountRow(entry, state, nowMs, lines.getValue(id), columns, shape, onRefresh) { onAccountClick(id) }
         }
     }
 }
@@ -473,8 +525,9 @@ private fun OverviewAccountRow(
     lines: List<WindowLine>,
     columns: GridColumns,
     shape: Shape,
-    onRetry: () -> Unit,
-    onClick: () -> Unit,
+    onRetry: (() -> Unit)? = null,
+    compact: Boolean = false,
+    onClick: (() -> Unit)? = null,
 ) {
     val usage = entry.usage
     val snapshot = usage.snapshot
@@ -486,35 +539,41 @@ private fun OverviewAccountRow(
         Modifier
             .fillMaxWidth()
             // The whole row takes the press; its highlight is drawn inside the card's shape.
-            .clickable(interaction, indication = null, onClick = onClick)
+            .then(if (onClick == null) Modifier else Modifier.clickable(interaction, indication = null, onClick = onClick))
             .clip(shape)
             .background(UsageColors.Surface)
-            .indication(interaction, ripple())
-            .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .then(if (onClick == null) Modifier else Modifier.indication(interaction, ripple()))
+            .padding(start = if (compact) 8.dp else 16.dp, end = if (compact) 8.dp else 12.dp,
+                top = if (compact) 8.dp else 14.dp, bottom = if (compact) 8.dp else 14.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 28.dp)) {
-            ProviderLogo(usage.account.provider, Modifier.size(28.dp))
-            Spacer(Modifier.width(10.dp))
+        val logoSize = if (compact) 20.dp else 28.dp
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = logoSize)) {
+            ProviderLogo(usage.account.provider, Modifier.size(logoSize))
+            Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
             // Title and mark take the free width, so the chevron ends every row at the same x.
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     usage.account.title(state.settings.showSubscriptionTier),
                     Modifier.weight(1f, fill = false),
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
-                    color = UsageColors.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = if (compact) 13.sp else 15.sp, lineHeight = if (compact) 18.sp else 20.sp),
+                    color = UsageColors.Ink, maxLines = if (compact) 2 else 1, overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.width(8.dp))
-                AccountMark(usage, expired)
+                AccountMark(usage, expired, if (compact) 7.dp else 8.dp)
             }
-            Icon(AppIcons.ChevronRight, contentDescription = null, tint = UsageColors.Faint, modifier = Modifier.size(20.dp))
+            if (onClick != null) {
+                Icon(AppIcons.ChevronRight, contentDescription = null, tint = UsageColors.Faint, modifier = Modifier.size(20.dp))
+            }
         }
-        Column(Modifier.padding(start = 38.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            // Which account this is: two of one provider share a title. The age of the reading is
-            // in the account's detail, not here (owner, package 016).
-            Text(usage.account.maskedEmail ?: usage.account.label,
-                style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.padding(start = if (compact) 28.dp else 38.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (!compact) {
+                // The age of the reading belongs in detail, not on the List row (package 016).
+                Text(usage.account.maskedEmail ?: usage.account.label,
+                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             if (windows.isEmpty()) {
                 Text(snapshot?.errorMessage?.let { storedMessageText(it) } ?: stringResource(R.string.overview_no_usage_data),
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
@@ -554,7 +613,7 @@ private fun OverviewAccountRow(
                 Text("${stringResource(R.string.reset_credits_title)} · ${stringResource(R.string.reset_credits_available_count, credits)}",
                     style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
             }
-            if (snapshot?.status == SnapshotStatus.FAILED && !expired) {
+            if (snapshot?.status == SnapshotStatus.FAILED && !expired && onRetry != null) {
                 TextAction(stringResource(R.string.action_retry), onRetry, color = UsageColors.Muted)
             }
         }
@@ -567,7 +626,7 @@ private fun OverviewAccountRow(
  * scoped pool running dry reads as limited, not as the whole account exhausted. It speaks its state.
  */
 @Composable
-private fun AccountMark(usage: AccountUsage, expired: Boolean) {
+private fun AccountMark(usage: AccountUsage, expired: Boolean, size: Dp) {
     val snapshot = usage.snapshot
     val raw = snapshot?.windows.orEmpty().map { it.severity }.filter { it != Severity.UNKNOWN }.maxOrNull() ?: Severity.UNKNOWN
     val mark = when {
@@ -581,7 +640,7 @@ private fun AccountMark(usage: AccountUsage, expired: Boolean) {
     val label = if (expired) stringResource(R.string.status_reconnect) else stringResource(SeverityPalette.labelRes(mark))
     val color = SeverityPalette.accent(mark)
     Box(
-        Modifier.size(8.dp).semantics { contentDescription = label }
+        Modifier.size(size).semantics { contentDescription = label }
             .then(if (mark == Severity.MEDIUM) Modifier.border(1.5.dp, color, CircleShape) else Modifier.clip(CircleShape).background(color)),
     )
 }
@@ -669,23 +728,34 @@ private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, 
  * The widths, in px, of the widest label, figure and stamp across every row of the card. Each
  * row's grid takes at least these, so bars start and figures end in one column card-wide.
  */
-private class GridColumns(val label: Int, val figure: Int, val stamp: Int)
+private class GridColumns(
+    val label: Int, val figure: Int, val stamp: Int, val compact: Boolean,
+    val labelStyle: TextStyle, val figureStyle: TextStyle,
+) {
+    val gap = if (compact) 8.dp else 10.dp
+}
 
 @Composable
-private fun rememberGridColumns(lines: Collection<List<WindowLine>>): GridColumns {
+private fun rememberGridColumns(lines: Collection<List<WindowLine>>, compact: Boolean = false): GridColumns {
     val measurer = rememberTextMeasurer()
-    // Measured in the emphasised weight, the wider of the two a label can take.
-    val labelStyle = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
     val stampStyle = MaterialTheme.typography.bodySmall
+    val labelStyle = if (compact) stampStyle.copy(fontSize = 11.sp, lineHeight = 14.sp) else stampStyle
+    val figureStyle = if (compact) GridFigureStyle.copy(fontSize = 11.sp, lineHeight = 14.sp) else GridFigureStyle
     fun widest(texts: List<String>, style: TextStyle) =
         texts.maxOfOrNull { measurer.measure(it, style, maxLines = 1, softWrap = false).size.width } ?: 0
     val all = lines.flatten()
-    return GridColumns(
-        label = widest(all.map { it.label }, labelStyle),
-        // Both sides' figures, so a mode flip does not widen the column or switch the layout.
-        figure = widest(all.flatMap { listOf(it.figure, it.otherFigure) }, GridFigureStyle),
-        stamp = widest(all.mapNotNull { it.stamp }, stampStyle),
-    )
+    val density = LocalDensity.current
+    return with(density) {
+        GridColumns(
+            label = maxOf((if (compact) 50.dp else 58.dp).roundToPx(),
+                widest(all.map { it.label }, labelStyle.copy(fontWeight = FontWeight.Medium))),
+            // Both sides' figures fit, so a mode flip cannot change the columns.
+            figure = maxOf((if (compact) 34.dp else 42.dp).roundToPx(),
+                widest(all.flatMap { listOf(it.figure, it.otherFigure) }, figureStyle)),
+            stamp = if (compact) 0 else maxOf(66.dp.roundToPx(), widest(all.mapNotNull { it.stamp }, stampStyle)),
+            compact = compact, labelStyle = labelStyle, figureStyle = figureStyle,
+        )
+    }
 }
 
 @Composable
@@ -714,14 +784,14 @@ private fun WindowLines(lines: List<WindowLine>, columns: GridColumns) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val density = LocalDensity.current
         val fits = with(density) {
-            val gap = 10.dp.roundToPx()
-            maxOf(58.dp.roundToPx(), columns.label) + 24.dp.roundToPx() + maxOf(42.dp.roundToPx(), columns.figure) +
-                maxOf(66.dp.roundToPx(), columns.stamp) + 3 * gap <= constraints.maxWidth
+            val gaps = if (columns.compact) 2 else 3
+            columns.label + 24.dp.roundToPx() + columns.figure + columns.stamp +
+                gaps * columns.gap.roundToPx() <= constraints.maxWidth
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             for (line in lines) {
                 key(line.id) {
-                    if (fits) GridLine(line, columns) else StackedLine(line)
+                    if (fits) GridLine(line, columns) else StackedLine(line, columns)
                     if (line.legends.isNotEmpty()) {
                         SegmentLegend(line.window, line.legends, Modifier.clearAndSetSemantics {}, current = line.current)
                     }
@@ -734,9 +804,9 @@ private fun WindowLines(lines: List<WindowLine>, columns: GridColumns) {
 
 /** The label: it carries the whole line for a screen reader; the other cells are silent. */
 @Composable
-private fun LineLabel(line: WindowLine, modifier: Modifier = Modifier, maxLines: Int = 1) {
+private fun LineLabel(line: WindowLine, columns: GridColumns, modifier: Modifier = Modifier, maxLines: Int = 1) {
     Text(line.label, modifier.semantics(mergeDescendants = true) { contentDescription = line.spoken },
-        style = MaterialTheme.typography.bodySmall,
+        style = columns.labelStyle,
         fontWeight = if (line.emphasised) FontWeight.Medium else FontWeight.Normal,
         color = if (line.emphasised) UsageColors.Ink else UsageColors.Faint,
         maxLines = maxLines, overflow = TextOverflow.Ellipsis)
@@ -748,8 +818,9 @@ private fun LineLabel(line: WindowLine, modifier: Modifier = Modifier, maxLines:
  * breakdown is not drawn here; it stays as the legend under the line (the detail draws its bar).
  */
 @Composable
-private fun LineBar(line: WindowLine, modifier: Modifier = Modifier) {
-    UsageBar(line.presentation, modifier.clearAndSetSemantics {}.alpha(if (line.emphasised) 1f else 0.4f), height = 4.dp)
+private fun LineBar(line: WindowLine, columns: GridColumns, modifier: Modifier = Modifier) {
+    UsageBar(line.presentation, modifier.clearAndSetSemantics {}.alpha(if (line.emphasised) 1f else 0.4f),
+        height = if (columns.compact) 3.dp else 4.dp)
 }
 
 /**
@@ -776,9 +847,9 @@ internal fun figureFade(hasMeasurement: Boolean, blocked: Boolean): FigureFade =
 }
 
 @Composable
-private fun LineFigure(line: WindowLine) {
+private fun LineFigure(line: WindowLine, columns: GridColumns) {
     key(figureFade(line.window.remainingPercent != null, line.presentation.exhausted)) {
-        FadingFigure(line.figure, line.figureColor, GridFigureStyle, SilentCell)
+        FadingFigure(line.figure, line.figureColor, columns.figureStyle, SilentCell)
     }
 }
 
@@ -799,52 +870,46 @@ private fun LineStamp(line: WindowLine, modifier: Modifier = Modifier, align: Te
 @Composable
 private fun GridLine(line: WindowLine, columns: GridColumns) {
     Layout(content = {
-        LineLabel(line)
-        LineBar(line)
-        LineFigure(line)
-        LineStamp(line)
+        LineLabel(line, columns)
+        LineBar(line, columns)
+        LineFigure(line, columns)
+        if (!columns.compact) LineStamp(line)
     }) { measurables, constraints ->
-        val gap = 10.dp.roundToPx()
+        val gap = columns.gap.roundToPx()
         val width = constraints.maxWidth
-        val figureW = maxOf(42.dp.roundToPx(), columns.figure)
-        val stampW = maxOf(66.dp.roundToPx(), columns.stamp)
-        val labelW = maxOf(58.dp.roundToPx(), columns.label)
-        val barW = (width - labelW - figureW - stampW - 3 * gap).coerceAtLeast(0)
-        val cells = listOf(
-            measurables[0].measure(Constraints.fixedWidth(labelW)),
-            measurables[1].measure(Constraints.fixedWidth(barW)),
-            // As wide as its text, not the column: placed with its end at the column's end.
-            // Stretched to the column, a fading figure would sit at its start.
-            measurables[2].measure(Constraints(maxWidth = figureW)),
-            measurables[3].measure(Constraints.fixedWidth(stampW)),
-        )
-        val h = cells.maxOf { it.height }
+        val gaps = if (columns.compact) 2 else 3
+        val barWidth = width - columns.label - columns.figure - columns.stamp - gaps * gap
+        val label = measurables[0].measure(Constraints.fixedWidth(columns.label))
+        val bar = measurables[1].measure(Constraints.fixedWidth(barWidth))
+        // A figure measures its text, not the column; then its right edge can stay fixed.
+        val figure = measurables[2].measure(Constraints(maxWidth = columns.figure))
+        val stamp = measurables.getOrNull(3)?.measure(Constraints.fixedWidth(columns.stamp))
+        val h = maxOf(label.height, bar.height, figure.height, stamp?.height ?: 0)
         layout(width, h) {
-            var x = 0
-            cells.forEachIndexed { column, cell ->
-                val cellX = if (column == 2) x + figureW - cell.width else x
-                cell.placeRelative(cellX, (h - cell.height) / 2)
-                x += when (column) { 0 -> labelW; 1 -> barW; 2 -> figureW; else -> stampW } + gap
-            }
+            label.placeRelative(0, (h - label.height) / 2)
+            bar.placeRelative(columns.label + gap, (h - bar.height) / 2)
+            figure.placeRelative(columns.label + barWidth + 2 * gap + columns.figure - figure.width,
+                (h - figure.height) / 2)
+            stamp?.placeRelative(width - columns.stamp, (h - stamp.height) / 2)
         }
     }
 }
 
 /** One window stacked, when the columns do not fit: label and figure, the bar, then the stamp. */
 @Composable
-private fun StackedLine(line: WindowLine) {
+private fun StackedLine(line: WindowLine, columns: GridColumns) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            LineLabel(line, Modifier.weight(1f), maxLines = 2)
-            LineFigure(line)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(columns.gap), verticalAlignment = Alignment.CenterVertically) {
+            LineLabel(line, columns, Modifier.weight(1f), maxLines = 2)
+            LineFigure(line, columns)
         }
-        LineBar(line, Modifier.fillMaxWidth())
-        if (line.stamp != null) LineStamp(line, Modifier.fillMaxWidth(), align = TextAlign.Start)
+        LineBar(line, columns, Modifier.fillMaxWidth())
+        if (!columns.compact && line.stamp != null) LineStamp(line, Modifier.fillMaxWidth(), align = TextAlign.Start)
     }
 }
 
 @Composable
-private fun windowLabel(window: UsageWindow): String {
+internal fun windowLabel(window: UsageWindow): String {
     val appLabel = windowLabelRes(window.label, window.category, window.scope)
     return when {
         window.scope != UsageScope.GLOBAL -> window.label
