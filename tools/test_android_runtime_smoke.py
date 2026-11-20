@@ -539,6 +539,52 @@ class ThreeTabsTest(unittest.TestCase):
         self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Resets", "Settings"), runtime_smoke.DEBUG_PACKAGE))
 
 
+class SeedListTest(unittest.TestCase):
+    """#88 01b: the seeded debug build is granted notifications before its first launch.
+
+    Run 1 on CI (44670254725) stopped here: Android's notification prompt covered the List.
+    The fake device shows that prompt until the debug package has been granted the permission.
+    """
+
+    class Device(FakeDevice):
+        def __init__(self):
+            super().__init__()
+            self.granted = False
+            self.token = None
+
+        def answer(self, command):
+            if command[:3] == ("shell", "pm", "grant") and command[3] == runtime_smoke.DEBUG_PACKAGE:
+                self.granted = True
+                return b""
+            if command[:2] == ("shell", "am") and command[2] == "broadcast":
+                self.token = command[command.index("token") + 1]
+                return b"Broadcast completed"
+            if command[:3] == ("exec-out", "run-as", runtime_smoke.DEBUG_PACKAGE):
+                aliases = [f"evidence-{n}" for n in range(6)]
+                return json.dumps({"token": self.token, "success": True, "accounts": aliases,
+                                   "overview": aliases}).encode()
+            if command[:2] == ("install", "-r"):
+                return b"Success"
+            return super().answer(command)
+
+        def hierarchy(self):
+            if self.screen is not None and not self.granted:
+                return (b'<hierarchy><node package="com.android.permissioncontroller" '
+                        b'text="Allow Usage Limits to send you notifications?" bounds="[88,683][631,796]"/></hierarchy>')
+            return super().hierarchy()
+
+    def test_the_seeded_list_is_reached_with_notifications_granted(self):
+        device = self.Device()
+        with TemporaryDirectory() as directory, patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device):
+            state = Smoke(Path(directory), "test-device").seed_list("seeded", Path("app-debug.apk"))
+        self.assertTrue(device.granted)
+        self.assertEqual(6, len(state["overview"]))
+        grant = next(i for i, call in enumerate(device.calls) if call[0][:3] == ("shell", "pm", "grant"))
+        start = next(i for i, call in enumerate(device.calls) if call[0][:3] == ("shell", "am", "start"))
+        self.assertLess(grant, start, "granted before the first launch")
+
+
 class MotionCaptureTest(unittest.TestCase):
     """#81: the slow-motion frame capture is evidence: it fails nothing, except a scale it changed and left unknown."""
 

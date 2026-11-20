@@ -1214,6 +1214,9 @@ class Smoke:
         is read back by token; the release app is not touched. Returns the receiver's completion.
         """
         self.text(name + "-install.txt", self.adb("install", "-r", str(apk), timeout=180))
+        # As for the release app above: granted before the first launch, or Android's prompt
+        # covers the List on API 33 and later.
+        self.adb("shell", "pm", "grant", DEBUG_PACKAGE, "android.permission.POST_NOTIFICATIONS")
         token = uuid.uuid4().hex
         self.text(name + "-broadcast.txt", self.adb("shell", "am", "broadcast", "-f", "0x20", "-n", DEBUG_RECEIVER,
                                                      "--es", "command", "seed", "--es", "token", token, timeout=120))
