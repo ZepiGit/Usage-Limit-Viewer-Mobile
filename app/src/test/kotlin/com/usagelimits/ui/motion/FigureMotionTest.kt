@@ -167,15 +167,17 @@ class FigureMotionTest {
      * memory together. The regions span the old and the new text box; the new boxes are known
      * only after the flip, so they are measured once on a throwaway flip first, in the same layout.
      */
-    private fun phasesDuringFlip(name: String): Pair<String, String> {
-        val chipBefore = text("% left").single().boundsInWindow.toRegion(margin = 0)
-        val figureBefore = rowText("60%").single().boundsInWindow.toRegion(margin = 0)
-        // The settled boxes of the new pair, then back to LEFT, all with the clock held.
-        compose.change { mode = PercentDisplay.USED }
+    private fun phasesDuringFlip(name: String, fromFigure: String = "60%", toFigure: String = "40%"): Pair<String, String> {
+        val fromMode = mode
+        val toMode = if (fromMode == PercentDisplay.LEFT) PercentDisplay.USED else PercentDisplay.LEFT
+        val chipBefore = text(if (fromMode == PercentDisplay.LEFT) "% left" else "% used").single().boundsInWindow.toRegion(margin = 0)
+        val figureBefore = rowText(fromFigure).single().boundsInWindow.toRegion(margin = 0)
+        // The settled boxes of the new pair, then back, all with the clock held.
+        compose.change { mode = toMode }
         compose.mainClock.advanceTimeBy(1_000)
-        val chip = chipBefore.union(text("% used").single().boundsInWindow.toRegion(margin = 0))
-        val figure = figureBefore.union(rowText("40%").single().boundsInWindow.toRegion(margin = 0))
-        compose.change { mode = PercentDisplay.LEFT }
+        val chip = chipBefore.union(text(if (toMode == PercentDisplay.USED) "% used" else "% left").single().boundsInWindow.toRegion(margin = 0))
+        val figure = figureBefore.union(rowText(toFigure).single().boundsInWindow.toRegion(margin = 0))
+        compose.change { mode = fromMode }
         compose.mainClock.advanceTimeBy(1_000)
 
         return FrameRecorder(compose).use { recorder ->
@@ -188,7 +190,7 @@ class FigureMotionTest {
                 }
 
             val before = regionsOf(recorder.frame(), 0)
-            compose.change { mode = PercentDisplay.USED }
+            compose.change { mode = toMode }
             val frames = List(24) { index ->
                 compose.mainClock.advanceTimeByFrame()
                 regionsOf(recorder.frame(), index + 1)
@@ -225,6 +227,22 @@ class FigureMotionTest {
         setAnimatorScale(1f)
         setOverview(motion = null)
         assertChipAndFiguresSwitchTogether(phasesDuringFlip("row-and-chip-flip-system-on"))
+    }
+
+    /**
+     * A window the provider calls exhausted without a reported figure reads "—" under "% left" and
+     * "100%" under "% used". Both directions: no frame shows the new figure legibly while the chip
+     * still shows its old word, so the row never reads like 100 % left.
+     */
+    @Test
+    fun `a blocked window without a reported figure changes with the chip in both directions`() {
+        accounts = listOf(demoAccount("one", ProviderId.CODEX, usedPercent = null).let { usage ->
+            usage.copy(snapshot = usage.snapshot!!.copy(windows = listOf(
+                usage.snapshot.windows.single().copy(exhausted = true))))
+        })
+        setOverview(motion = true)
+        assertChipAndFiguresSwitchTogether(phasesDuringFlip("blocked-no-figure-to-used", "—", "100%"))
+        assertChipAndFiguresSwitchTogether(phasesDuringFlip("blocked-no-figure-to-left", "100%", "—"))
     }
 
     @Test

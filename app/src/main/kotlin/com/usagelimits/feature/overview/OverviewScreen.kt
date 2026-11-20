@@ -754,12 +754,15 @@ private fun LineBar(line: WindowLine, modifier: Modifier = Modifier) {
 
 /**
  * The figure: hidden from a screen reader (the label speaks the line) but still drawn as text, and
- * it fades through like every other figure. A dash that becomes a figure (or back) is a new
- * reading, not a changed one: keyed apart, it replaces the old one at once.
+ * it fades through like every other figure. A pure mode change fades with the chip, including a
+ * blocked window whose figure is "—" in one mode and "100%" in the other: keyed on the reading,
+ * the node survives the flip. A new reading that gains or loses its figure is a different node and
+ * replaces the old one at once.
  */
 @Composable
 private fun LineFigure(line: WindowLine) {
-    key(line.presentation.hasFigure) {
+    val reading = line.presentation.hasFigure || line.window.exhausted
+    key(reading) {
         FadingFigure(line.figure, line.figureColor, GridFigureStyle, SilentCell)
     }
 }
