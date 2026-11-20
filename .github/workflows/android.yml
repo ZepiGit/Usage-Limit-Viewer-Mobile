@@ -285,6 +285,11 @@ jobs:
         with:
           name: apk-verification
           path: runtime/verification
+      # This run's debug build: the smoke installs it beside the release app for the seeded List.
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-debug
+          path: runtime/debug
 
       - name: Download the published upgrade baseline
         env:
@@ -323,7 +328,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Upgrade and navigate the release APK
-        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-*.apk --apk runtime/apk/app-release.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-*.apk --apk runtime/apk/app-release.apk --debug-apk runtime/debug/app-debug.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
 
       - name: Upload runtime evidence
         if: always()

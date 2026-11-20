@@ -417,13 +417,16 @@ class FakeDevice:
     Every call is recorded with the timeout it was given and when it started. It costs `seconds(command)`
     of the fake clock; one that costs more than its timeout raises TimeoutExpired once the timeout has
     passed, with its effect on the device already applied, which is what a late adb answer looks like.
-    The screen is the empty-account app as far as the capture walks it: two tabs, the Accounts filter
-    and the Add account screen.
+    The screen is the seeded debug build as far as the capture walks it: Overview with its filter chips
+    and one account row, the Resets tab, and the row's account detail.
     """
 
     STILL = png_bytes(2, 2, 4, [GROUND * 2, GROUND * 2])
-    BOXES = {"Overview": (0, 1400, 180, 1560), "Accounts": (180, 1400, 360, 1560), "Add account": (40, 600, 680, 700),
-             "All": (40, 200, 200, 260), "Needs attention": (200, 200, 400, 260)}
+    PACKAGE = runtime_smoke.DEBUG_PACKAGE
+    ROW = "OpenAI Codex (synthetic)"
+    BOXES = {"Overview": (0, 1400, 180, 1560), "Resets": (180, 1400, 360, 1560), "Settings": (360, 1400, 540, 1560),
+             "All": (40, 200, 200, 260), "Needs attention": (200, 200, 400, 260), ROW: (40, 400, 680, 520),
+             "Limits": (40, 300, 680, 360)}
     SCALE = ("shell", "settings", "put", "global", "animator_duration_scale")
 
     def __init__(self):
@@ -467,7 +470,7 @@ class FakeDevice:
         elif command[:3] == ("shell", "settings", "get"):
             return self.scale.encode()
         elif "resolve-activity" in command:
-            return b"priority=0\ncom.usagelimits/.UsageLimitsActivity"
+            return f"priority=0\n{self.PACKAGE}/com.usagelimits.UsageLimitsActivity".encode()
         elif command[:3] == ("shell", "am", "force-stop"):
             self.screen = None
         elif command[:3] == ("shell", "am", "start"):
@@ -480,32 +483,60 @@ class FakeDevice:
                           and self.BOXES[label][1] <= y < self.BOXES[label][3]), None)
             if label in ("All", "Needs attention"):
                 self.filter = label
+            elif label == self.ROW:
+                self.screen = "Detail"
             elif label:
                 self.screen = label
         return b""
 
     def visible(self):
-        return {"Overview": ("Overview", "Accounts", "Add account"),
-                "Accounts": ("Overview", "Accounts", "All", "Needs attention")}.get(self.screen, ())
+        tabs = ("Overview", "Resets", "Settings")
+        return {"Overview": tabs + ("All", "Needs attention", self.ROW),
+                "Resets": tabs, "Detail": ("Limits",)}.get(self.screen, ())
 
     def hierarchy(self):
         def node(label):
-            chosen = str(label in (self.screen, self.filter)).lower()
-            state = (f'checkable="true" checked="{chosen}"' if label in ("All", "Needs attention")
-                     else f'selected="{chosen}"')
             box = "[{},{}][{},{}]".format(*self.BOXES[label])
-            return (f'<node package="com.usagelimits" enabled="true" clickable="{str(chosen == "false").lower()}" '
-                    f'{state} bounds="{box}"><node package="com.usagelimits" text="{label}" bounds="{box}"/></node>')
+            if label == "Limits":
+                return f'<node package="{self.PACKAGE}" text="Limits" bounds="{box}"/>'
+            if label == self.ROW:
+                state = 'clickable="true"'
+            else:
+                chosen = str(label in (self.screen, self.filter)).lower()
+                state = (f'checkable="true" checked="{chosen}" clickable="{str(chosen == "false").lower()}"'
+                         if label in ("All", "Needs attention")
+                         else f'selected="{chosen}" clickable="{str(chosen == "false").lower()}"')
+            return (f'<node package="{self.PACKAGE}" enabled="true" {state} bounds="{box}">'
+                    f'<node package="{self.PACKAGE}" text="{label}" bounds="{box}"/></node>')
 
         nodes = "".join(node(label) for label in self.visible())
-        if self.screen == "Add account":
-            nodes = ('<node package="com.usagelimits" text="You can connect several accounts per provider." '
-                     'bounds="[40,300][680,360]"/>')
         return f"<hierarchy>{nodes}</hierarchy>".encode()
 
     def restores(self):
         """The index of every call that asked for the scale to go back to 0."""
         return [index for index, call in enumerate(self.calls) if call[0] == self.SCALE + ("0.0",)]
+
+
+class ThreeTabsTest(unittest.TestCase):
+    """#88 01b: the bar has Overview, Resets and Settings, and an Accounts item is a failure, not an extra."""
+
+    @staticmethod
+    def bar(*labels):
+        items = "".join(
+            f'<node package="com.usagelimits" enabled="true" clickable="true" selected="false" '
+            f'bounds="[{index * 100},1400][{index * 100 + 100},1560]"><node package="com.usagelimits" text="{label}" '
+            f'bounds="[{index * 100},1400][{index * 100 + 100},1560]"/></node>' for index, label in enumerate(labels))
+        return ET.fromstring(f"<hierarchy>{items}</hierarchy>")
+
+    def test_the_three_tabs_pass(self):
+        self.assertTrue(runtime_smoke.three_tabs(self.bar("Overview", "Resets", "Settings")))
+
+    def test_a_missing_tab_or_a_leftover_accounts_tab_fails(self):
+        self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Resets")))
+        self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Accounts", "Resets", "Settings")))
+
+    def test_another_package_with_the_same_labels_is_not_this_app(self):
+        self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Resets", "Settings"), runtime_smoke.DEBUG_PACKAGE))
 
 
 class MotionCaptureTest(unittest.TestCase):
@@ -528,7 +559,7 @@ class MotionCaptureTest(unittest.TestCase):
             if args[:3] == ("shell", "settings", "get"):
                 return state["scale"]
             if "resolve-activity" in args:
-                return "priority=0\ncom.usagelimits/.UsageLimitsActivity"
+                return f"priority=0\n{runtime_smoke.DEBUG_PACKAGE}/com.usagelimits.UsageLimitsActivity"
             return ""
         return state, adb
 
@@ -545,7 +576,7 @@ class MotionCaptureTest(unittest.TestCase):
                 text = smoke.text
                 smoke.text = lambda name, value: write(name, value) if name == "motion.json" else text(name, value)
             try:
-                outcome = smoke.capture_motion("motion")
+                outcome = smoke.capture_motion("motion", runtime_smoke.DEBUG_PACKAGE)
             except BaseException as error:
                 outcome = error
             report, summary = Path(directory) / "motion.json", Path(directory) / "summary.md"
@@ -578,7 +609,7 @@ class MotionCaptureTest(unittest.TestCase):
             smoke = Smoke(Path(directory), "test-device")
             with patch.object(smoke, "adb", side_effect=adb), \
                     patch.object(smoke, "wait_for", side_effect=AssertionError("UI did not reach motion-launched")):
-                self.assertEqual("capture failed", smoke.capture_motion("motion"))
+                self.assertEqual("capture failed", smoke.capture_motion("motion", runtime_smoke.DEBUG_PACKAGE))
             report = json.loads((Path(directory) / "motion.json").read_text())
         self.assertEqual([str(runtime_smoke.MOTION_SCALE), "0.0"], state["puts"])
         self.assertEqual("0.0", report["animatorScaleRestored"])
@@ -594,7 +625,7 @@ class MotionCaptureTest(unittest.TestCase):
             with patch.object(smoke, "adb", side_effect=adb), \
                     patch.object(smoke, "wait_for", side_effect=AssertionError("UI did not reach motion-launched")):
                 with self.assertRaisesRegex(AssertionError, "not turned off again"):
-                    smoke.capture_motion("motion")
+                    smoke.capture_motion("motion", runtime_smoke.DEBUG_PACKAGE)
 
     def test_a_deadline_shortens_a_call_and_never_lengthens_it(self):
         device = FakeDevice()
@@ -690,7 +721,7 @@ class MotionCaptureTest(unittest.TestCase):
             ("screenshots crawl", lambda command: 40 if command[:2] == ("exec-out", "screencap") else 0.25,
              None, "launch frames", ["launch"], 3),
             ("a tap hangs late in the budget", lambda command: float("inf") if command[:3] == ("shell", "input", "tap")
-             else 35 if slow_start(command) else 0.25, None, "tap Accounts tab", ["launch"], 24),
+             else 35 if slow_start(command) else 0.25, None, "tap Resets tab", ["launch"], 24),
             ("the back key hangs late in the budget", lambda command: float("inf") if command[-1] == "BACK"
              else 35 if slow_start(command) else 0.25, None, "pop trigger", ["launch", "tab", "segment", "push"], 24),
         ):
