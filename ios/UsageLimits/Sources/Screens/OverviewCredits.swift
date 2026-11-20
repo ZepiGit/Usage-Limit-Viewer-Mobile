@@ -15,6 +15,8 @@ struct OverviewBlocks<Usage: View, Credits: View>: View {
     }
 }
 
+enum OverviewCreditRoute: Hashable { case manage }
+
 struct OverviewCredits: View {
     @Environment(\.locale) private var locale
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -62,7 +64,7 @@ struct OverviewCredits: View {
                         CreditCard(entry: entry, now: now, staleAfter: staleAfter, preview: preview)
                     }
                     if !preview {
-                        NavigationLink("Manage credit accounts") { CreditsScreen() }
+                        NavigationLink("Manage credit accounts", value: OverviewCreditRoute.manage)
                             .buttonStyle(TextActionStyle())
                             .accessibilityIdentifier("overview-manage-credit-accounts")
                     }

@@ -68,6 +68,7 @@ struct OverviewScreen: View {
             .background(UsageColors.ground)
             .navigationTitle("Overview")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: OverviewCreditRoute.self) { _ in CreditsScreen() }
             .marketingDemoLabel()
             .refreshable { await store.refresh() }
             .sheet(isPresented: $isAdding) { AddAccountSheet() }
