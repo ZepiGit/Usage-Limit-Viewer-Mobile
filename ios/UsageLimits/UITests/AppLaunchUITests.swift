@@ -259,7 +259,8 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(scrollTo(add, in: app))
         add.tap()
         XCTAssertTrue(app.navigationBars["Add account"].waitForExistence(timeout: 10))
-        XCTAssertTrue(scrollTo(app.staticTexts["OpenAI Codex"], in: app))
+        let picker = app.scrollViews["provider-picker-scroll"]
+        XCTAssertTrue(scrollTo(picker.staticTexts["OpenAI Codex"], in: app))
         app.buttons["Cancel"].tap()
         XCTAssertTrue(scrollTo(app.staticTexts["Each dial shows the account’s headline. Tap one for every window and its resets."], in: app))
 
