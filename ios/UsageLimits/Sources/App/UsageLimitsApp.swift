@@ -28,10 +28,14 @@ struct UsageLimitsApp: App {
 
     /// Whether the process was started by the UI test bundle.
     ///
-    /// One flag, read in one place. It suppresses a system permission prompt and nothing else —
-    /// it must never change what the app computes or displays, or the tests would be checking a
-    /// different app from the one that ships.
-    static var isUITesting: Bool {
+    /// One flag, read in one place. On its own it suppresses a system permission prompt and
+    /// nothing else — it must never change what the app computes or displays, or the tests
+    /// would be checking a different app from the one that ships. A debug build's test
+    /// fixtures ask for it as well as for their own flag, so none applies without it.
+    ///
+    /// `nonisolated`, because it reads the process arguments and nothing of this type, and the
+    /// shared container is built outside the main actor.
+    nonisolated static var isUITesting: Bool {
         ProcessInfo.processInfo.arguments.contains("-ui-testing")
     }
 
@@ -53,7 +57,11 @@ struct UsageLimitsApp: App {
             RootView(tab: $tab, openAccount: openAccount)
                 .fullScreenCover(item: $detail) { route in
                     NavigationStack {
-                        AccountDetailScreen(accountID: route.id, unavailable: route.unavailable)
+                        AccountDetailScreen(
+                            accountID: route.id, unavailable: route.unavailable,
+                            // Only the detail that asked closes. A removal can finish after the
+                            // user has gone on to another account, and must not close that one.
+                            onDisconnected: { if detail?.id == route.id { detail = nil } })
                             .navigationTitle("Account details")
                             .navigationBarTitleDisplayMode(.inline)
                             .toolbar {
@@ -133,7 +141,10 @@ struct UsageLimitsApp: App {
         case .account(let id):
             detail = DetailRoute(id: id, unavailable: false)
         case .unavailable(let id):
-            detail = DetailRoute(id: id, unavailable: true)
+            // An empty list from a register that could not be read does not say the account is
+            // gone. The detail then follows the store instead of being pinned to "unavailable":
+            // the storage wording now, and the account itself once a later read finds it.
+            detail = DetailRoute(id: id, unavailable: !store.registerUnreadable)
         }
     }
 }

@@ -1,0 +1,94 @@
+{
+  "description": "In Dials, an account whose provider occurs once uses the provider name alone. Among accounts of one provider, use a present, unique masked email as the secondary identity; otherwise use the account's one-based position among all accounts of that provider ordered by creation time, then by ID compared as Unicode scalars (not UTF-16 or locale collation). Accounts shown by email still count toward positions. Reading rank does not affect identity. Expected results are hand-written; no localized strings are compared.",
+  "schema": "vectors: array of { name: string; accounts: array of { id: string; provider: string; createdAt: epoch milliseconds; maskedEmail: string or null }; ranks: array of nonempty arrays of ids, each listing all accounts in presentation order; expected: array of { id: string; kind: providerOnly | email | number; email: string or null; number: integer or null } }. Every key is present. Every account occurs exactly once in each rank list and in expected. The same expected identities apply to every rank list. Masked emails are already masked; null means absent.",
+  "vectors": [
+    {
+      "name": "one account per provider does not show a secondary identity",
+      "accounts": [
+        {"id":"a","provider":"claude","createdAt":1700000001000,"maskedEmail":"a***@example.test"},
+        {"id":"b","provider":"codex","createdAt":1700000002000,"maskedEmail":"a***@example.test"}
+      ],
+      "ranks": [["b","a"]],
+      "expected": [
+        {"id":"a","kind":"providerOnly","email":null,"number":null},
+        {"id":"b","kind":"providerOnly","email":null,"number":null}
+      ]
+    },
+    {
+      "name": "two different masked emails identify the two accounts",
+      "accounts": [
+        {"id":"a","provider":"codex","createdAt":1700000001000,"maskedEmail":"a***@example.test"},
+        {"id":"b","provider":"codex","createdAt":1700000002000,"maskedEmail":"b***@example.test"}
+      ],
+      "ranks": [["a","b"]],
+      "expected": [
+        {"id":"a","kind":"email","email":"a***@example.test","number":null},
+        {"id":"b","kind":"email","email":"b***@example.test","number":null}
+      ]
+    },
+    {
+      "name": "identical masked emails use account numbers",
+      "accounts": [
+        {"id":"a","provider":"claude","createdAt":1700000002000,"maskedEmail":"a***@example.test"},
+        {"id":"b","provider":"claude","createdAt":1700000001000,"maskedEmail":"a***@example.test"}
+      ],
+      "ranks": [["a","b"]],
+      "expected": [
+        {"id":"a","kind":"number","email":null,"number":2},
+        {"id":"b","kind":"number","email":null,"number":1}
+      ]
+    },
+    {
+      "name": "two missing emails also use account numbers",
+      "accounts": [
+        {"id":"a","provider":"codex","createdAt":1700000001000,"maskedEmail":null},
+        {"id":"b","provider":"codex","createdAt":1700000002000,"maskedEmail":null}
+      ],
+      "ranks": [["a","b"]],
+      "expected": [
+        {"id":"a","kind":"number","email":null,"number":1},
+        {"id":"b","kind":"number","email":null,"number":2}
+      ]
+    },
+    {
+      "name": "numbered accounts count email-labelled siblings but not other providers",
+      "accounts": [
+        {"id":"a","provider":"claude","createdAt":1700000001000,"maskedEmail":"a***@example.test"},
+        {"id":"b","provider":"claude","createdAt":1700000002000,"maskedEmail":null},
+        {"id":"c","provider":"codex","createdAt":1700000000500,"maskedEmail":"a***@example.test"},
+        {"id":"d","provider":"codex","createdAt":1700000003000,"maskedEmail":null}
+      ],
+      "ranks": [["d","b","a","c"]],
+      "expected": [
+        {"id":"a","kind":"email","email":"a***@example.test","number":null},
+        {"id":"b","kind":"number","email":null,"number":2},
+        {"id":"c","kind":"email","email":"a***@example.test","number":null},
+        {"id":"d","kind":"number","email":null,"number":2}
+      ]
+    },
+    {
+      "name": "a rank swap leaves account numbers attached to the same ids",
+      "accounts": [
+        {"id":"older","provider":"codex","createdAt":1700000001000,"maskedEmail":null},
+        {"id":"newer","provider":"codex","createdAt":1700000002000,"maskedEmail":null}
+      ],
+      "ranks": [["older","newer"],["newer","older"]],
+      "expected": [
+        {"id":"older","kind":"number","email":null,"number":1},
+        {"id":"newer","kind":"number","email":null,"number":2}
+      ]
+    },
+    {
+      "name": "equal creation times compare Unicode scalars rather than UTF-16 code units",
+      "accounts": [
+        {"id":"\ud800\udc00","provider":"claude","createdAt":1700000001000,"maskedEmail":null},
+        {"id":"\ue000","provider":"claude","createdAt":1700000001000,"maskedEmail":null}
+      ],
+      "ranks": [["\ud800\udc00","\ue000"]],
+      "expected": [
+        {"id":"\ud800\udc00","kind":"number","email":null,"number":2},
+        {"id":"\ue000","kind":"number","email":null,"number":1}
+      ]
+    }
+  ]
+}

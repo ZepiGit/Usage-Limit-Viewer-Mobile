@@ -130,6 +130,11 @@ public actor UsageLimitsContainer {
         await repository.usage()
     }
 
+    /// The usage, or the reason the account register could not be read.
+    public func checkedUsage() async throws -> [AccountUsage] {
+        try await repository.checkedUsage()
+    }
+
     // MARK: - Signing in
 
     /// Asks a provider for a code to show the user.

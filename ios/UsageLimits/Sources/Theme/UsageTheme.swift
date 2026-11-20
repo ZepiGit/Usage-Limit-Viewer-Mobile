@@ -190,6 +190,7 @@ enum UsageFont {
     case title, lead, widgetLead, money, widgetMoney, rowMoney
     case section, body, bodyStrong, figure, figureLarge, ringFigure
     case small, smallStrong, micro, compactFigure, accountTitle, emptyTitle
+    case dialFigure, previewTitle, previewFigure, displayPreviewFigure, previewWindow
 
     fileprivate var spec: (size: CGFloat, weight: Font.Weight, design: Font.Design, style: Font.TextStyle) {
         switch self {
@@ -211,6 +212,11 @@ enum UsageFont {
         case .small: return (12, .regular, .default, .caption)
         case .smallStrong: return (12, .medium, .default, .caption)
         case .micro: return (11, .medium, .default, .caption2)
+        case .dialFigure: return (22, .medium, .monospaced, .title2)
+        case .previewTitle: return (13, .medium, .default, .subheadline)
+        case .previewFigure: return (11, .medium, .monospaced, .caption2)
+        case .displayPreviewFigure: return (18, .medium, .monospaced, .title3)
+        case .previewWindow: return (11, .regular, .default, .caption2)
         }
     }
 }

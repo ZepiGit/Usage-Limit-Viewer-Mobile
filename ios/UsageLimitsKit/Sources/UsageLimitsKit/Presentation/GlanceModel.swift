@@ -354,8 +354,7 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
             if left.reconnect != right.reconnect { return left.reconnect }
             if left.remaining != right.remaining { return left.remaining < right.remaining }
             if left.createdAt != right.createdAt { return left.createdAt < right.createdAt }
-            return accounts[left.index].id.unicodeScalars
-                .lexicographicallyPrecedes(accounts[right.index].id.unicodeScalars)
+            return overviewAccountIDPrecedes(accounts[left.index].id, accounts[right.index].id)
         }
         return ranked.map { accounts[$0.index] }
     }
@@ -686,4 +685,8 @@ public enum GlanceModel {
             severity: window.severity,
             scope: window.scope, segments: window.segments, sourceWindowID: window.id)
     }
+}
+
+func overviewAccountIDPrecedes(_ left: String, _ right: String) -> Bool {
+    left.unicodeScalars.lexicographicallyPrecedes(right.unicodeScalars)
 }
