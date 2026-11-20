@@ -26,16 +26,27 @@ final class AppLaunchUITests: XCTestCase {
     }
 
     /// Search both ways: a lazy Form may not expose an offscreen target's frame at all.
-    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication, towardStart: Bool? = nil) -> Bool {
+    private func scrollTo(
+        _ element: XCUIElement, in app: XCUIApplication, towardStart: Bool? = nil,
+        clearOfBottomTabs tabBarFrame: CGRect = .null
+    ) -> Bool {
+        func overlapsTabs() -> Bool {
+            !tabBarFrame.isNull && element.frame.intersects(tabBarFrame)
+        }
+        func canTap() -> Bool {
+            element.exists && element.isHittable && !overlapsTabs()
+        }
         let exists = element.exists
-        if exists && element.isHittable { return true }
+        if canTap() { return true }
         let identifiers = ["provider-icons-list", "provider-picker-scroll", "settings-form", "overview-scroll"]
         let container = identifiers.lazy.map { app.descendants(matching: .any)[$0].firstMatch }
             .first { $0.exists && $0.isHittable } ?? app
         let bounds = container.frame
         let frame = bounds.intersection(app.frame)
         let firstUp: Bool
-        if let towardStart {
+        if exists && overlapsTabs() {
+            firstUp = false
+        } else if let towardStart {
             firstUp = towardStart
         } else if exists, !element.frame.isEmpty {
             firstUp = element.frame.midY < frame.midY
@@ -56,10 +67,10 @@ final class AppLaunchUITests: XCTestCase {
             let (start, end) = towardStart ? (top, bottom) : (bottom, top)
             for _ in 0..<12 {
                 start.press(forDuration: 0.05, thenDragTo: end)
-                if element.exists && element.isHittable { return true }
+                if canTap() { return true }
             }
         }
-        return element.waitForExistence(timeout: 2) && element.isHittable
+        return element.waitForExistence(timeout: 2) && canTap()
     }
 
     private func launch(_ arguments: [String] = []) -> XCUIApplication {
@@ -87,11 +98,18 @@ final class AppLaunchUITests: XCTestCase {
     }
 
     private func selectSegment(_ option: String, in identifier: String, app: XCUIApplication, towardStart: Bool? = nil) {
+        // iOS can report a Form control under the floating tab bar as hittable.
+        let tabBar = app.tabBars.firstMatch
+        let tabFrame = tabBar.exists ? tabBar.frame : .null
+        let bottomTabs = !tabFrame.isNull && tabFrame.midY > app.frame.midY ? tabFrame : .null
         let control = app.segmentedControls[identifier]
-        XCTAssertTrue(scrollTo(control, in: app, towardStart: towardStart), "could not reach \(identifier)")
+        XCTAssertTrue(scrollTo(control, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs),
+                      "could not reach \(identifier) clear of the tab bar at \(bottomTabs)")
         let segment = control.buttons[option]
-        XCTAssertTrue(scrollTo(segment, in: app, towardStart: towardStart))
+        XCTAssertTrue(scrollTo(segment, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs),
+                      "could not reach \(option) in \(identifier) clear of the tab bar at \(bottomTabs)")
         segment.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].exists, "Tapping \(option) must not leave Settings")
         XCTAssertTrue(segment.isSelected, "\(option) should be selected in \(identifier)")
     }
 
