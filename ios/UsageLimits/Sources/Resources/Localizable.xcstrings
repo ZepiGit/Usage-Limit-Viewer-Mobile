@@ -910,17 +910,6 @@
         }
       }
     },
-    "Below this the balance reads Low, below twice it Moderate. Ignored when the provider reports a total: the share left decides." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darunter gilt das Guthaben als niedrig, unter dem Doppelten als mäßig. Wird ignoriert, wenn der Anbieter einen Gesamtwert meldet: Dann entscheidet der verbleibende Anteil."
-          }
-        }
-      }
-    },
     "Can't read accounts" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1166,6 +1155,81 @@
           }
         }
       }
+    },
+    "Collapse" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Einklappen" } } }
+    },
+    "Compact" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Kompakt" } } }
+    },
+    "Compact Credits uses this threshold. For the balance status, a reported total takes precedence." : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Die kompakte Guthabenansicht nutzt diese Schwelle. Für den Guthabenstatus hat ein gemeldeter Gesamtbetrag Vorrang." } } }
+    },
+    "Credit accounts" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Guthabenkonten" } } }
+    },
+    "Credits · %lld balances" : {
+      "comment" : "Compact overview row. The count is the number of tracked credit accounts, not the number of currencies or amounts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : { "stringUnit" : { "state" : "translated", "value" : "Guthaben · %lld Konto" } },
+              "other" : { "stringUnit" : { "state" : "translated", "value" : "Guthaben · %lld Konten" } }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : { "stringUnit" : { "state" : "translated", "value" : "Credits · %lld balance" } },
+              "other" : { "stringUnit" : { "state" : "translated", "value" : "Credits · %lld balances" } }
+            }
+          }
+        }
+      }
+    },
+    "Expands the credit balances" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Klappt die Guthabenliste aus" } } }
+    },
+    "Hide prepaid balances from Overview without removing them." : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Blendet Guthaben in der Übersicht aus, ohne sie zu entfernen." } } }
+    },
+    "Low balance: %@" : {
+      "comment" : "VoiceOver value for the under-threshold credit account and its localized amount.",
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Niedriges Guthaben: %@" } } }
+    },
+    "Normal" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Normal" } } }
+    },
+    "Normal lists the balances. Compact shows a count and the balance furthest below its threshold." : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Normal listet die Guthaben auf. Kompakt zeigt die Anzahl der Konten und das Guthaben, das im Verhältnis zu seiner Schwelle am niedrigsten ist." } } }
+    },
+    "Show credits" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Guthaben anzeigen" } } }
+    },
+    "Show first" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Zuerst anzeigen" } } }
+    },
+    "Usage providers" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Nutzungskonten" } } }
+    },
+    "Which block sits at the top of Overview." : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Welcher Bereich in der Übersicht ganz oben steht." } } }
     },
     "Credits" : {
       "extractionState" : "manual",
@@ -1707,7 +1771,7 @@
         }
       }
     },
-    "Manage credits" : {
+    "Manage credit accounts" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {

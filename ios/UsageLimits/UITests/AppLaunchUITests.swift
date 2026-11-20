@@ -357,6 +357,149 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(scrollTo(app.buttons["overview-add-account"], in: app))
     }
 
+    func testCreditsUsesBothLayoutsAndCollapsesOnReturn() {
+        let app = launch(["-marketing-demo", "-overview-credits-demo", "-reduce-motion"])
+        defer { app.terminate() }
+        let row = app.buttons["overview-account-demo-claude"]
+        let compact = app.buttons["overview-credits-compact"]
+        let collapse = app.buttons["overview-credits-collapse"]
+        let heading = app.staticTexts["overview-credits-heading"]
+        XCTAssertTrue(scrollTo(heading, in: app), "Normal must offer the full Credits block")
+        XCTAssertLessThan(row.frame.minY, heading.frame.minY)
+
+        tabButton("Settings", in: app).tap()
+        selectSegment("Compact", in: "settings-overview-credit-layout", app: app)
+        let preview = app.descendants(matching: .any)["settings-credits-compact"].firstMatch
+        XCTAssertTrue(scrollTo(preview, in: app), "the live preview must switch to Compact")
+        let claude = app.staticTexts["Claude Pro"].firstMatch
+        XCTAssertLessThan(claude.frame.minY, preview.frame.minY)
+        selectMenuOption("Credit accounts", in: "settings-overview-show-first", app: app)
+        XCTAssertTrue(scrollTo(preview, in: app))
+        XCTAssertLessThan(preview.frame.minY, claude.frame.minY)
+
+        tabButton("Overview", in: app).tap()
+        XCTAssertTrue(scrollTo(compact, in: app))
+        XCTAssertLessThan(compact.frame.minY, row.frame.minY)
+        XCTAssertEqual(compact.label, "Credits · 3 balances")
+        XCTAssertTrue((compact.value as? String)?.contains("DeepSeek $3.18") == true)
+        XCTAssertFalse(heading.exists)
+        compact.tap()
+        XCTAssertTrue(scrollTo(collapse, in: app))
+        XCTAssertTrue(heading.exists)
+        XCTAssertTrue(app.staticTexts["$3.18"].exists)
+        collapse.tap()
+        XCTAssertTrue(scrollTo(compact, in: app))
+        compact.tap()
+        XCTAssertTrue(scrollTo(collapse, in: app))
+        tabButton("Resets", in: app).tap()
+        tabButton("Overview", in: app).tap()
+        XCTAssertTrue(scrollTo(compact, in: app))
+        XCTAssertFalse(collapse.exists)
+
+        tabButton("Settings", in: app).tap()
+        selectSegment("Dials", in: "settings-overview-layout", app: app)
+        tabButton("Overview", in: app).tap()
+        XCTAssertTrue(scrollTo(compact, in: app))
+        let dial = app.buttons["overview-dial-demo-claude"]
+        XCTAssertTrue(dial.exists)
+        XCTAssertLessThan(compact.frame.minY, dial.frame.minY)
+    }
+
+    func testHiddenCreditsStayManageableAndChoicesSurviveRelaunch() {
+        let fixture = "-fixture-credits"
+        var app = launch([fixture, "-fixture-credits-reset"])
+        defer { app.terminate() }
+        tabButton("Settings", in: app).tap()
+        selectSegment("Compact", in: "settings-overview-credit-layout", app: app)
+        selectMenuOption("Credit accounts", in: "settings-overview-show-first", app: app)
+        let toggle = app.switches["settings-overview-show-credits"]
+        XCTAssertTrue(scrollTo(toggle, in: app))
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        XCTAssertEqual(toggle.value as? String, "0")
+        XCTAssertFalse(app.segmentedControls["settings-overview-credit-layout"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["settings-overview-show-first"].firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["settings-credits-compact"].firstMatch.exists)
+        XCTAssertTrue(scrollTo(app.descendants(matching: .any)["settings-overview-credits-saved"].firstMatch, in: app))
+
+        let manage = app.buttons["settings-manage-credit-accounts"]
+        XCTAssertTrue(scrollTo(manage, in: app))
+        manage.tap()
+        XCTAssertTrue(app.navigationBars["Credits"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["DeepSeek"].exists)
+        app.buttons["More"].tap()
+        app.buttons["Edit"].tap()
+        let name = app.textFields["Name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        name.tap()
+        name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "DeepSeek".count) + "Tracked credits")
+        app.buttons["Save"].tap()
+        XCTAssertTrue(app.staticTexts["Tracked credits"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["$3.18"].exists)
+        app.terminate()
+
+        app = launch([fixture])
+        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["overview-credits-heading"].exists)
+        XCTAssertFalse(app.buttons["overview-credits-compact"].exists)
+        tabButton("Settings", in: app).tap()
+        let restored = app.switches["settings-overview-show-credits"]
+        XCTAssertTrue(scrollTo(restored, in: app))
+        XCTAssertEqual(restored.value as? String, "0")
+        restored.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        let layout = app.segmentedControls["settings-overview-credit-layout"]
+        XCTAssertTrue(scrollTo(layout, in: app))
+        XCTAssertTrue(layout.buttons["Compact"].isSelected)
+        let order = app.descendants(matching: .any)["settings-overview-show-first"].firstMatch
+        XCTAssertTrue(scrollTo(order, in: app))
+        XCTAssertTrue(order.label.contains("Credit accounts") || (order.value as? String) == "Credit accounts")
+        tabButton("Overview", in: app).tap()
+        XCTAssertTrue(scrollTo(app.buttons["overview-credits-compact"], in: app))
+        XCTAssertFalse(app.staticTexts["No prepaid balances tracked."].exists)
+    }
+
+    func testCompactCreditsWithoutBalancesUsesTheNormalEmptyState() {
+        let app = launch(["-marketing-demo", "-overview-empty-demo", "-reduce-motion"])
+        defer { app.terminate() }
+        tabButton("Settings", in: app).tap()
+        selectSegment("Compact", in: "settings-overview-credit-layout", app: app)
+        tabButton("Overview", in: app).tap()
+        XCTAssertTrue(scrollTo(app.staticTexts["No prepaid balances tracked."], in: app))
+        XCTAssertTrue(app.staticTexts["overview-credits-heading"].exists)
+        XCTAssertTrue(app.buttons["overview-credits-add"].exists)
+        XCTAssertFalse(app.buttons["overview-credits-compact"].exists)
+    }
+
+    func testGermanCompactCreditsReflowsAtLargestTextSize() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-ui-testing", "-marketing-demo", "-overview-credits-demo", "-overview-compact-credits-demo", "-reduce-motion",
+            "-AppleLanguages", "(de)", "-AppleLocale", "de_DE",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"
+        ]
+        app.launch()
+        defer { app.terminate() }
+        let compact = app.buttons["overview-credits-compact"]
+        XCTAssertTrue(scrollTo(compact, in: app))
+        XCTAssertEqual(compact.label, "Guthaben · 3 Konten")
+        XCTAssertTrue((compact.value as? String)?.contains("3,18") == true)
+        XCTAssertGreaterThan(compact.frame.height, 88, "the German count and balance need separate lines")
+        compact.tap()
+        let collapse = app.buttons["overview-credits-collapse"]
+        XCTAssertTrue(scrollTo(collapse, in: app))
+        XCTAssertEqual(collapse.label, "Einklappen")
+        collapse.tap()
+        XCTAssertTrue(scrollTo(compact, in: app))
+    }
+
+    private func selectMenuOption(_ option: String, in identifier: String, app: XCUIApplication) {
+        let control = app.descendants(matching: .any)[identifier].firstMatch
+        XCTAssertTrue(scrollTo(control, in: app), "could not reach \(identifier)")
+        control.tap()
+        let choice = app.buttons.matching(identifier: option).firstMatch
+        XCTAssertTrue(choice.waitForExistence(timeout: 10), "missing menu option \(option)")
+        choice.tap()
+    }
+
     func testDisconnectClosesDetailAfterRemovingRealStoredAccount() {
         let app = launch(["-fixture-register"])
         let row = app.buttons["overview-account-codex:fixture"]
@@ -382,7 +525,13 @@ final class AppLaunchUITests: XCTestCase {
             throw XCTSkip("XCUIDevice.system.open requires iOS 16.4")
         }
         let app = launch(["-fixture-register-unreadable"])
-        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
+        defer { app.terminate() }
+        let overviewError = app.staticTexts["overview-register-unreadable"]
+        XCTAssertTrue(overviewError.waitForExistence(timeout: 10))
+        XCTAssertEqual(overviewError.label, "Can't read accounts")
+        XCTAssertTrue(app.staticTexts["The accounts stored on this device could not be read. Pull down to try again."].exists)
+        XCTAssertFalse(app.staticTexts["No accounts yet"].exists)
+        XCTAssertFalse(app.staticTexts["Nothing to monitor yet"].exists)
         XCUIDevice.shared.system.open(URL(string: "usagelimits://account/codex:fixture")!)
         let confirm = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Open"]
         if confirm.waitForExistence(timeout: 3) { confirm.tap() }
@@ -394,6 +543,12 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["This account is no longer on this device."].exists)
         app.buttons["overview-close-detail"].tap()
         XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        let recover = app.buttons["overview-recover-register-fixture"]
+        XCTAssertTrue(recover.waitForExistence(timeout: 10))
+        recover.tap()
+        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10),
+                      "a successful load must clear the register error without a refresh")
+        XCTAssertFalse(overviewError.exists)
     }
 
     func testOverviewOpensAddCredit() {

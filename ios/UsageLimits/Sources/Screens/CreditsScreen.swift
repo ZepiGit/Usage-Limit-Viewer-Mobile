@@ -67,6 +67,7 @@ struct CreditCard: View {
     let entry: CreditEntry
     let now: Date
     let staleAfter: TimeInterval
+    var preview = false
     var onEdit: (() -> Void)?
     var onRemove: (() -> Void)?
 
@@ -89,16 +90,16 @@ struct CreditCard: View {
     }
 
     var body: some View {
-        UsageCard {
-            HStack(spacing: 10) {
+        UsageCard(padding: preview ? 8 : 16, spacing: preview ? 6 : 12) {
+            HStack(spacing: preview ? 8 : 10) {
                 ProviderMark(assetName: entry.account.provider.iconAssetName)
-                    .frame(width: 30, height: 30)
+                    .frame(width: preview ? 16 : 30, height: preview ? 16 : 30)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: entry.account.label)
-                        .usageFont(.section)
+                        .usageFont(preview ? .smallStrong : .section)
                         .foregroundStyle(UsageColors.ink)
-                    if !subline.isEmpty {
+                    if !preview && !subline.isEmpty {
                         Text(verbatim: subline)
                             .usageFont(.small)
                             .foregroundStyle(UsageColors.faint)
@@ -127,7 +128,7 @@ struct CreditCard: View {
                     .foregroundStyle(UsageColors.muted)
             }
             ForEach(Array(glance.balances.enumerated()), id: \.offset) { _, balance in
-                BalanceRow(balance: balance, severity: severity)
+                BalanceRow(balance: balance, severity: severity, preview: preview)
             }
 
             if let error = entry.snapshot?.error {
@@ -140,11 +141,18 @@ struct CreditCard: View {
 }
 
 private struct BalanceRow: View {
+    @Environment(\.locale) private var locale
+
     let balance: CreditBalance
     /// The account's aged severity: stale data must not keep its last colour.
     let severity: Severity
+    let preview: Bool
 
-    private var amount: String { CreditFormat.string(balance.amount, currency: balance.currency) }
+    private var amount: String { money(balance.amount) }
+
+    private func money(_ amount: Decimal) -> String {
+        CreditFormat.string(amount, currency: balance.currency, locale: locale)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -158,28 +166,30 @@ private struct BalanceRow: View {
             } else {
                 // Money is always ink — status lives on the card's mark — and a real zero
                 // prints as itself.
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(verbatim: amount)
-                        .usageFont(.money)
-                        .foregroundStyle(UsageColors.ink)
-                    if let total = balance.total {
-                        Text(verbatim: String(localized: "of \(CreditFormat.string(total, currency: balance.currency))"))
-                            .usageFont(.body)
-                            .foregroundStyle(UsageColors.muted)
-                    }
-                    Spacer(minLength: 8)
-                    if let label = balance.label {
-                        Text(verbatim: DisplayText.creditBalanceLabel(label))
-                            .usageFont(.small)
-                            .foregroundStyle(UsageColors.muted)
-                    }
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) { figures }
+                        .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 4) { figures }
                 }
                 if let percent = balance.remainingPercent, let total = balance.total {
                     // Money, not a quota window: the percentage toggle does not apply here.
                     UsageBar(remainingPercent: percent, severity: severity)
-                        .accessibilityLabel("\(amount) of \(CreditFormat.string(total, currency: balance.currency)) left")
+                        .accessibilityLabel("\(amount) of \(money(total)) left")
                 }
             }
+        }
+    }
+
+    @ViewBuilder private var figures: some View {
+        Text(verbatim: amount)
+            .usageFont(preview ? .rowMoney : .money)
+            .foregroundStyle(UsageColors.ink)
+        if let total = balance.total {
+            Text("of \(money(total))").usageFont(.body).foregroundStyle(UsageColors.muted)
+        }
+        if let label = balance.label {
+            Text(verbatim: DisplayText.creditBalanceLabel(label))
+                .usageFont(.small).foregroundStyle(UsageColors.muted)
         }
     }
 }
@@ -386,7 +396,7 @@ struct EditCreditSheet: View {
                     TextField("Low balance below (empty for the default)", text: $threshold)
                         .ledgerField()
                         .keyboardType(.decimalPad)
-                    Text("Below this the balance reads Low, below twice it Moderate. Ignored when the provider reports a total: the share left decides.")
+                    Text("Compact Credits uses this threshold. For the balance status, a reported total takes precedence.")
                         .usageFont(.small)
                         .foregroundStyle(UsageColors.faint)
                     if let failure {

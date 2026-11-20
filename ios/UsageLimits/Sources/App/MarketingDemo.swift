@@ -40,6 +40,14 @@ enum MarketingDemo {
         ])
     ]
 
+    static let credits: [CreditEntry] =
+        UsageLimitsApp.isUITesting && ProcessInfo.processInfo.arguments.contains("-overview-credits-demo")
+        ? OverviewCreditSamples.entries(at: now) : []
+
+    static var startsWithCompactCredits: Bool {
+        UsageLimitsApp.isUITesting && ProcessInfo.processInfo.arguments.contains("-overview-compact-credits-demo")
+    }
+
     private static func account(
         _ provider: ProviderID, plan: String, windows: [UsageWindow]
     ) -> AccountUsage {

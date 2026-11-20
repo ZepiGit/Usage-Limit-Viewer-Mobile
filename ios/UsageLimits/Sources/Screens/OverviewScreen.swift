@@ -8,6 +8,7 @@ struct OverviewScreen: View {
     @State private var listMotionArmed = false
     @State private var isAdding = false
     @State private var isAddingCredit = false
+    @State private var creditsExpanded = false
 
     let isSelected: Bool
     let openAccount: (String) -> Void
@@ -20,23 +21,39 @@ struct OverviewScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     header(projection.header, attentionCount: projection.attentionCount)
-                    if !store.hasLoaded {
-                        loading
-                    } else if glance.accounts.isEmpty {
-                        empty
-                    } else if layout == .list {
-                        filters(attentionCount: projection.attentionCount)
-                        accountList(projection.accounts, staleAfter: glance.staleAfter)
-                        Text("The brighter line is the account’s headline.")
-                            .usageFont(.small)
-                            .foregroundStyle(UsageColors.faint)
-                        addAccount.buttonStyle(OutlineButtonStyle(fullWidth: true))
-                    } else {
-                        OverviewDials(entries: projection.accounts, now: store.now, staleAfter: glance.staleAfter,
-                            mode: store.settings.percentDisplay, calendar: store.presentationCalendar,
-                            openAccount: openAccount, addAccount: { isAdding = true })
+                    OverviewBlocks(showCredits: store.hasLoaded && store.settings.overviewShowCredits,
+                                   showFirst: store.settings.overviewShowFirst) {
+                        if !store.hasLoaded {
+                            loading
+                        } else if store.registerUnreadable {
+                            UnreadableAccountRegister(identifier: "overview-register-unreadable")
+                            #if DEBUG
+                            if store.hasUnreadableRegisterFixture && !store.isRefreshing {
+                                Button { Task { await store.recoverUnreadableRegisterFixture() } } label: {
+                                    Text(verbatim: "Repair test register and load")
+                                }
+                                .accessibilityIdentifier("overview-recover-register-fixture")
+                            }
+                            #endif
+                        } else if glance.accounts.isEmpty {
+                            empty
+                        } else if layout == .list {
+                            filters(attentionCount: projection.attentionCount)
+                            accountList(projection.accounts, staleAfter: glance.staleAfter)
+                            Text("The brighter line is the account’s headline.")
+                                .usageFont(.small)
+                                .foregroundStyle(UsageColors.faint)
+                            addAccount.buttonStyle(OutlineButtonStyle(fullWidth: true))
+                        } else {
+                            OverviewDials(entries: projection.accounts, now: store.now, staleAfter: glance.staleAfter,
+                                mode: store.settings.percentDisplay, calendar: store.presentationCalendar,
+                                openAccount: openAccount, addAccount: { isAdding = true })
+                        }
+                    } credits: {
+                        OverviewCredits(entries: store.credits, now: store.now, staleAfter: glance.staleAfter,
+                            layout: store.settings.overviewCreditLayout, expanded: creditsExpanded,
+                            setExpanded: setCreditsExpanded, add: { isAddingCredit = true })
                     }
-                    if store.hasLoaded { credits }
                     if layout == .dials && store.hasLoaded && !glance.accounts.isEmpty {
                         Text("Each dial shows the account’s headline. Tap one for every window and its resets.")
                             .usageFont(.small)
@@ -57,7 +74,14 @@ struct OverviewScreen: View {
             .sheet(isPresented: $isAddingCredit) { AddCreditSheet() }
             .armingListMotion($listMotionArmed, loaded: store.hasLoaded)
             .onChange(of: isSelected) { selected in
-                if !selected { filter = .all }
+                if !selected {
+                    filter = .all
+                    creditsExpanded = false
+                }
+            }
+            .onDisappear { creditsExpanded = false }
+            .onChange(of: store.credits.isEmpty) { empty in
+                if empty { creditsExpanded = false }
             }
             .onChange(of: layout) { chosen in
                 if chosen == .dials { filter = .all }
@@ -73,7 +97,7 @@ struct OverviewScreen: View {
             }
             if !store.hasLoaded {
                 Text("Loading usage").usageFont(.small).foregroundStyle(UsageColors.faint)
-            } else if store.accounts.isEmpty {
+            } else if store.accounts.isEmpty && !store.registerUnreadable {
                 Text("No accounts yet").usageFont(.small).foregroundStyle(UsageColors.faint)
             } else if let subtitle = headerSubtitle(header, attentionCount: attentionCount) {
                 Text(verbatim: subtitle).usageFont(.small).foregroundStyle(UsageColors.faint)
@@ -237,27 +261,9 @@ struct OverviewScreen: View {
             .accessibilityIdentifier("overview-add-account")
     }
 
-    private var credits: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                SectionTitle(text: String(localized: "Credits"))
-                Spacer()
-                Button { isAddingCredit = true } label: { Label("Add", systemImage: "plus") }
-                    .buttonStyle(TextActionStyle())
-            }
-            if store.credits.isEmpty {
-                DashedBox {
-                    Text("No prepaid balances tracked.").usageFont(.body).foregroundStyle(UsageColors.muted)
-                }
-            } else {
-                ForEach(store.credits) { entry in
-                    CreditCard(entry: entry, now: store.now, staleAfter: store.settings.staleAfter)
-                }
-                NavigationLink(String(localized: "Manage credits")) { CreditsScreen() }
-                    .usageFont(.bodyStrong)
-                    .foregroundStyle(UsageColors.ink)
-                    .frame(minHeight: 44)
-            }
+    private func setCreditsExpanded(_ expanded: Bool) {
+        withAnimation(Motion.contentSwap.animation(reduceMotion: reduceMotion)) {
+            creditsExpanded = expanded
         }
     }
 

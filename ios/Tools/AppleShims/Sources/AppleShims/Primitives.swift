@@ -618,6 +618,7 @@ public struct EnvironmentValues {
     public var dismiss = DismissAction()
     public var openURL = OpenURLAction()
     public var dynamicTypeSize: DynamicTypeSize = .large
+    public var locale: Locale = .current
     public var colorScheme: ColorScheme = .dark
     public var scenePhase: ScenePhase = .active
     public var widgetFamily: WidgetFamilyPlaceholder = .systemSmall
