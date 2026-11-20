@@ -165,6 +165,8 @@ final class AppLaunchUITests: XCTestCase {
             reportControlFailure("\(option) should be selected in \(identifier) without leaving Settings",
                                  control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
                                  tapUptime: uptime)
+        } else {
+            print("[settings-press] acknowledged uptime=\(uptime) control=\(identifier) selected=\(option)")
         }
     }
 
@@ -197,6 +199,8 @@ final class AppLaunchUITests: XCTestCase {
             reportControlFailure("\(identifier) did not turn \(enabled ? "on" : "off")",
                                  control: toggle, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
                                  tapPoint: point, tapUptime: uptime)
+        } else {
+            print("[settings-press] acknowledged uptime=\(uptime) control=\(identifier) value=\(expected)")
         }
     }
 
@@ -726,6 +730,7 @@ final class AppLaunchUITests: XCTestCase {
                                  tapUptime: openedAt)
             return
         }
+        print("[settings-press] acknowledged uptime=\(openedAt) control=\(identifier) opened=true")
         let tapFrame = choice.frame
         let selectedAt = pressUptime { choice.press(forDuration: $0) }
         let selection = XCTNSPredicateExpectation(
@@ -736,6 +741,8 @@ final class AppLaunchUITests: XCTestCase {
             reportControlFailure("\(identifier) did not select \(option)",
                                  control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
                                  tapUptime: selectedAt)
+        } else {
+            print("[settings-press] acknowledged uptime=\(selectedAt) control=\(identifier) selected=\(option)")
         }
     }
 

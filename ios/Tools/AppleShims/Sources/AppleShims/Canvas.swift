@@ -35,9 +35,14 @@ public struct GraphicsContext {
     public func draw(_ text: ResolvedText, at point: CGPoint, anchor: UnitPoint = .center) {}
 }
 
+public enum ColorRenderingMode {
+    case nonLinear, linear, extendedLinear
+}
+
 public struct Canvas: View {
-    public init(opaque: Bool = false, rendersAsynchronously: Bool = false,
-                renderer: @escaping (inout GraphicsContext, CGSize) -> Void) {}
+    nonisolated public init(opaque: Bool = false, colorMode: ColorRenderingMode = .nonLinear,
+                            rendersAsynchronously: Bool = false,
+                            renderer: @escaping (inout GraphicsContext, CGSize) -> Void) {}
     public var body: some View { ShimLeaf() }
 }
 

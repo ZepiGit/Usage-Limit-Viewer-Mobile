@@ -148,7 +148,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Measure Settings preview display callback gaps
-        if: ${{ inputs.measure_settings_gaps == true }}
+        # A pushed candidate can opt in without spending another full native batch.
+        if: ${{ inputs.measure_settings_gaps == true || contains(github.event.head_commit.message, '[measure settings gaps]') }}
         working-directory: ios/UsageLimits
         run: |
           set -euo pipefail
@@ -181,7 +182,9 @@ jobs:
     name: iOS app (real SDK)
     needs: kit-linux
     runs-on: macos-latest
-    timeout-minutes: 45
+    # Debug and Release builds, 27 iPhone tests and adaptive iPad checks reached 45:07
+    # before GitHub cancelled run 44792508707, after XCTest had passed both iPad cases.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - name: Show toolchain
@@ -291,7 +294,7 @@ jobs:
         if: ${{ !cancelled() && steps.simulator.outcome == 'success' }}
         run: |
           xcrun simctl spawn '${{ steps.simulator.outputs.udid }}' log show \
-            --last 45m --style compact --predicate 'subsystem == "com.usagelimits.app" AND category == "SettingsTrace"'
+            --last 60m --style compact --predicate 'subsystem == "com.usagelimits.app" AND category == "SettingsTrace"'
 
       # Run simulators sequentially to avoid launchd conflicts; retry once on a fresh iPad.
       - name: Run adaptive UI checks on an iPad

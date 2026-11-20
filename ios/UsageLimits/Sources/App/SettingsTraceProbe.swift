@@ -23,19 +23,19 @@ struct SettingsTraceProbe: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            let tracesTouches = ProcessInfo.processInfo.arguments.contains("-settings-touch-trace")
             if window == nil {
                 gapSampler?.stop()
                 gapSampler = nil
-            } else if gapSampler == nil, SettingsTrace.isEnabled, let variant = SettingsTrace.gapVariant {
+            } else if gapSampler == nil, SettingsTrace.isEnabled,
+                      let variant = SettingsTrace.gapVariant ?? (tracesTouches ? "native-controls" : nil) {
                 gapSampler = GapSampler(variant: variant)
                 gapSampler?.start()
             }
             if touchObserver.view !== window {
                 touchObserver.view?.removeGestureRecognizer(touchObserver)
             }
-            guard let window, touchObserver.view == nil,
-                  SettingsTrace.isEnabled,
-                  ProcessInfo.processInfo.arguments.contains("-settings-touch-trace") else { return }
+            guard let window, touchObserver.view == nil, SettingsTrace.isEnabled, tracesTouches else { return }
             window.addGestureRecognizer(touchObserver)
             SettingsTrace.record("touch observer attached windowBounds=\(window.bounds)")
         }
@@ -144,7 +144,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
             SettingsTrace.record(
                 "touch id=\(id) phase=\(phase) touchTime=\(touch.timestamp) eventTime=\(event.timestamp) "
                     + "windowPoint=\(point) windowBounds=\(window.bounds) taps=\(touch.tapCount) "
-                    + "type=\(touch.type.rawValue)")
+                    + "type=\(touch.type.rawValue) activeFigures=\(SettingsTrace.activeFigures)")
             SettingsTrace.record(
                 "touch id=\(id) phase=\(phase) deliveredHierarchy=\(hierarchy(touch.view, window: window))")
         }

@@ -27,6 +27,7 @@ enum SettingsTrace {
     private static var bodyCount = 0
     private static var figureCount = 0
     private static var settingsFigureCount = 0
+    private(set) static var activeFigures = 0
     private static var previousBodyCount = 0
     private static var previousFigureCount = 0
     private static var previousSettingsFigureCount = 0
@@ -34,6 +35,11 @@ enum SettingsTrace {
     static func settingsBody() {
         guard isEnabled else { return }
         bodyCount += 1
+    }
+
+    static func figureActivityChanged(to active: Bool) {
+        guard isEnabled else { return }
+        activeFigures += active ? 1 : -1
     }
 
     static func figureFrame(_ subject: String?) {

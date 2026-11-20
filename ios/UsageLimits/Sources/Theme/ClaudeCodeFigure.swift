@@ -60,7 +60,7 @@ struct ClaudeCodeFigure: View {
                     #endif
                     ClaudeCodeCanvas(mood: mood, size: size, ink: ink,
                                      elapsed: clock.elapsed(at: ProcessInfo.processInfo.systemUptime),
-                                     amplitude: amplitude, still: false)
+                                     amplitude: amplitude, still: false, rendersAsynchronously: true)
                 }
             } else {
                 ClaudeCodeCanvas(mood: mood, size: size, ink: ink,
@@ -76,6 +76,9 @@ struct ClaudeCodeFigure: View {
             let wasActive = clock.isActive
             appeared = false
             clock.setActive(false, at: ProcessInfo.processInfo.systemUptime)
+            #if DEBUG
+            if wasActive { SettingsTrace.figureActivityChanged(to: false) }
+            #endif
             if wasActive { note("paused") }
         }
         .onChange(of: gate) { apply($0) }
@@ -86,7 +89,11 @@ struct ClaudeCodeFigure: View {
     }
 
     private func apply(_ gate: Gate) {
-        clock.setActive(appeared && gate.active, at: ProcessInfo.processInfo.systemUptime)
+        let active = appeared && gate.active
+        #if DEBUG
+        if active != clock.isActive { SettingsTrace.figureActivityChanged(to: active) }
+        #endif
+        clock.setActive(active, at: ProcessInfo.processInfo.systemUptime)
         note(gate.still ? "still" : clock.isActive ? "animated" : "paused")
     }
 
