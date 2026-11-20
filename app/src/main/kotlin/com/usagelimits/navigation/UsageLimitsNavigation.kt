@@ -344,8 +344,9 @@ internal fun NavigationShell(
  * The app shell: Overview, Resets and Settings, plus the pushed routes (account and credit detail,
  * add account, add credit).
  *
- * One [ScreenClock] supplies the instant and zone every screen computes for, so every relative
- * time, rank and filter on screen agrees with the others.
+ * One [ScreenClock] supplies the instant the shell passes to Overview, Resets and the account
+ * detail, and the instant and zone Overview ranks, filters and heads its list for. Resets keeps
+ * its own zone, and Settings reads the clock itself for its diagnostics.
  */
 @Composable
 fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeClass,
