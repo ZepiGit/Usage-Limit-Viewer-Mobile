@@ -137,18 +137,23 @@ class FigureMotionTest {
     }
 
     /**
-     * Where one part of the screen stands on each frame of a flip: 'o' while it still looks like
-     * the frame before the flip, 'n' once it looks like the settled frame, '-' in between (the
-     * fade-through's dim middle). "Looks like" is within a quarter of the whole change, measured in
-     * the union of the old and new text boxes, so a box that resizes does not read as both.
+     * Where one part of the screen stands on each frame of a flip, measured in the union of the old
+     * and new text boxes (so a box that resizes does not read as both):
+     * - 'o' / 'n': it looks like the frame before / the settled frame (within a quarter of the change);
+     * - 'p' / 'q': it is still nearer the old / already nearer the new content, though fading;
+     * - '-': exactly between, the dim middle of the fade-through.
      */
     private fun phases(before: Bitmap, frames: List<Bitmap>, settled: Bitmap, region: Region): String {
         val whole = distance(before, settled, region)
         check(whole > 0) { "the part does not change in this flip" }
         return frames.joinToString("") { frame ->
+            val toOld = distance(frame, before, region)
+            val toNew = distance(frame, settled, region)
             when {
-                distance(frame, before, region) * 4 < whole -> "o"
-                distance(frame, settled, region) * 4 < whole -> "n"
+                toOld * 4 < whole -> "o"
+                toNew * 4 < whole -> "n"
+                toOld < toNew -> "p"
+                toNew < toOld -> "q"
                 else -> "-"
             }
         }
@@ -197,7 +202,14 @@ class FigureMotionTest {
 
     private fun assertChipAndFiguresSwitchTogether(phases: Pair<String, String>) {
         val (chip, figure) = phases
-        val wrong = chip.indices.filter { (chip[it] == 'n' && figure[it] == 'o') || (chip[it] == 'o' && figure[it] == 'n') }
+        // A part that already shows its new text legibly ('n') beside one that still shows its old
+        // text legibly or more of it than of the new ('o', 'p') is a mixed pair, and so is the reverse.
+        fun old(c: Char) = c == 'o' || c == 'p'
+        fun new(c: Char) = c == 'n' || c == 'q'
+        val wrong = chip.indices.filter {
+            (chip[it] == 'n' && old(figure[it])) || (figure[it] == 'n' && old(chip[it])) ||
+                (chip[it] == 'o' && new(figure[it])) || (figure[it] == 'o' && new(chip[it]))
+        }
         assertEquals("frames where the chip and the figure stand on opposite sides of the switch\nchip   $chip\nfigure $figure",
             emptyList<Int>(), wrong)
         // Both halves were seen, so the check is not vacuous.
