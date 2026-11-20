@@ -295,24 +295,27 @@ def launch_window_state(text):
                and all(token in body for token in ("mHasSurface=true", "isReadyForDisplay()=true",
                    "mDrawState=HAS_DRAWN", "isOnScreen=true", "isVisible=true"))]
     own = [(owner, body, phase) for owner, body, phase in visible if phase is not None]
+    owners = {phase: owner for owner, body, phase in own if "mObscured=false" in body}
     phase, owner = None, None
-    if len(own) == 1:
-        candidate, body, candidate_phase = own[0]
-        if top == [candidate] and nav == [candidate] and "mObscured=false" in body:
+    if len(own) == len(owners) and len(own) == 1:
+        candidate_phase, candidate = next(iter(owners.items()))
+        if top == [candidate] and nav == [candidate]:
             phase, owner = candidate_phase, candidate
+    handoff = len(own) == 2 and len(owners) == 2 and top == nav and len(top) == 1 and top[0] in owners.values()
     status_icons = {"LIGHT_STATUS_BARS" in value.split() for value in status}
     known = len(policies) == 1 and len(appearances) <= 1 and len(status_icons) == 1
-    return {"phase": phase, "owner": owner, "appearanceKnown": known,
+    return {"phase": phase, "owner": owner, "handoff": handoff,
+            "systemWindow": owners.get("system") if phase == "system" or handoff else None,
+            "appWindow": owners.get("app") if phase == "app" or handoff else None, "appearanceKnown": known,
             "statusDarkIcons": next(iter(status_icons)) if known else None,
             "navigationDarkIcons": "LIGHT_NAVIGATION_BARS" in appearances[0].split() if known and appearances else False if known else None}
 
 
 def theme_launch_frame(data, ground, before, after, dark_icons):
-    """A screenshot bracketed by the same proven window/appearance state, not a later UI dump.
+    """Require the same drawn window and matching bar policy on both sides of a screenshot.
 
-    Ground is sampled over the content, excluding system bars and the central 192dp artwork.
-    The separate centre predicate requires visible art for the app overlay and none for the
-    system starting window. Settled Overview text/cards outside the centre reject an overlay.
+    The bare ground and the first app artwork can both be visible during Shell's radial reveal.
+    The centre separates the bare splash from the overlay; settled UI outside it rejects both.
     """
     width, channels, rows = png_frame(data, 100000)
     height = len(rows)
@@ -331,16 +334,21 @@ def theme_launch_frame(data, ground, before, after, dark_icons):
                 ground_count += fits
     states = [launch_window_state(value) for value in (before, after)]
     stable = states[0] == states[1] and states[0]["phase"] is not None
-    bars = stable and all(state["appearanceKnown"] and state["statusDarkIcons"] == dark_icons
-                          and state["navigationDarkIcons"] == dark_icons for state in states)
+    def same_surface(key):
+        return states[0][key] is not None and states[0][key] == states[1][key]
+    # At least one side must still be exclusive for the bare system phase. At full reveal the
+    # system owns a transparent splash; the centred cut-out can only expose our drawn app window.
+    system = same_surface("systemWindow") and any(state["phase"] == "system" for state in states)
+    app = same_surface("appWindow")
+    bars = all(state["appearanceKnown"] and state["statusDarkIcons"] == dark_icons
+               and state["navigationDarkIcons"] == dark_icons for state in states)
     fraction = ground_count / content_count if content_count else 0
     ground_fits = fraction >= 0.995
     return {"groundFraction": fraction, "groundPixels": ground_count, "sampledPixels": content_count,
             "artworkPixels": artwork, "centrePixels": centre_count, "centreBounds": centre,
             "before": states[0], "after": states[1], "stableWindow": stable, "barsCorrect": bars,
-            "systemEvidence": bars and states[0]["phase"] == "system" and ground_fits and artwork == 0,
-            "appEvidence": bars and states[0]["phase"] == "app" and ground_fits
-                           and artwork >= max(8, centre_count // 200)}
+            "systemEvidence": bars and system and ground_fits and artwork == 0,
+            "appEvidence": bars and app and ground_fits and artwork >= max(8, centre_count // 200)}
 
 
 def matches(root, label, package=PACKAGE):
@@ -1579,7 +1587,7 @@ class Smoke:
         report = {"result": "failed", "expectedGround": "#%02X%02X%02X" % ground,
                   "expectedIcons": {bar: "dark" if dark_icons else "light" for bar in ("status", "navigation")},
                   "frames": [], "systemFrames": [], "appFrames": [],
-                  "scope": "Visible system starting window with bare ground, then app-owned overlay artwork; same window and applied status/navigation appearance before and after each accepted screenshot."}
+                  "scope": "Bare system starting window, then app-owned overlay artwork; the same drawn surface and WindowManager bar appearance bracket each accepted screenshot, including the Shell handoff."}
         start = None
         previous = None
         failure = None

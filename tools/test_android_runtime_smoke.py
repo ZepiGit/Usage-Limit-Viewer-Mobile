@@ -1060,13 +1060,23 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
         dump = "WINDOW MANAGER LAST ANR (dumpsys window lastanr)\n" + history + live
         self.assertEqual(runtime_smoke.launch_window_state(live), runtime_smoke.launch_window_state(dump))
 
-    def test_handoff_with_two_drawn_windows_is_not_an_exclusive_phase(self):
+    def test_handoff_matches_the_system_ground_then_the_drawn_app_overlay(self):
         splash, app = self.window(), self.window("app")
         app_window = app[app.index("  Window #0 "):app.index("  mCurrentFocus=")]
         overlap = splash.replace("  mCurrentFocus=", app_window.replace("Window #0", "Window #1") + "  mCurrentFocus=")
-        for primary in (overlap, overlap.replace("mTopFullscreenOpaqueWindowState=Window{abc u0 Splash Screen com.usagelimits}",
-            "mTopFullscreenOpaqueWindowState=Window{abc u0 com.usagelimits/com.usagelimits.UsageLimitsActivity}")):
-            self.assertIsNone(runtime_smoke.launch_window_state(primary)["phase"])
+        ground = (243, 240, 232)
+        bare, icon = self.pixels(ground), self.pixels(ground, artwork=True)
+        self.assertIsNone(runtime_smoke.launch_window_state(overlap)["phase"])
+        self.assertTrue(runtime_smoke.theme_launch_frame(bare, ground, splash, overlap, True)["systemEvidence"])
+        self.assertFalse(runtime_smoke.theme_launch_frame(icon, ground, splash, overlap, True)["systemEvidence"])
+        self.assertTrue(runtime_smoke.theme_launch_frame(icon, ground, overlap, overlap, True)["appEvidence"])
+        self.assertTrue(runtime_smoke.theme_launch_frame(icon, ground, overlap, app, True)["appEvidence"])
+        self.assertFalse(runtime_smoke.theme_launch_frame(icon, ground, overlap,
+            app.replace("Window{abc u0", "Window{def u0"), True)["appEvidence"])
+        self.assertFalse(runtime_smoke.theme_launch_frame(icon, ground, overlap,
+            overlap.replace("mLastAppearance=LIGHT_NAVIGATION_BARS", "mLastAppearance=OPAQUE_NAVIGATION_BARS"), True)["appEvidence"])
+        self.assertFalse(runtime_smoke.theme_launch_frame(icon, ground, overlap,
+            overlap.replace("ty=BASE_APPLICATION", "ty=APPLICATION_OVERLAY"), True)["appEvidence"])
 
     def test_wrong_ground_missing_artwork_settled_ui_or_wrong_phase_cannot_pass(self):
         cases = [
