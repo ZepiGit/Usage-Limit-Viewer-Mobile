@@ -1003,6 +1003,251 @@ class MotionCaptureTest(unittest.TestCase):
         self.assertEqual([("launch", 2)], [(sequence["name"], len(sequence["frames"])) for sequence in report["sequences"]])
 
 
+class ThemeLaunchTest(unittest.TestCase):
+    """09a: neither a settled matching frame nor one correctly styled bar proves a themed launch."""
+
+    @staticmethod
+    def window(phase="system", dark=True, navigation_dark=None):
+        navigation_dark = dark if navigation_dark is None else navigation_dark
+        title = "Splash Screen com.usagelimits" if phase == "system" else "com.usagelimits/com.usagelimits.UsageLimitsActivity"
+        owner = "Window{abc u0 " + title + "}"
+        return f"""  DisplayPolicy
+    mTopFullscreenOpaqueWindowState={owner}
+    mNavBarColorWindowCandidate={owner}
+    mLastAppearance={'LIGHT_NAVIGATION_BARS' if navigation_dark else 'OPAQUE_NAVIGATION_BARS'}
+    mLastStatusBarAppearanceRegions=
+      AppearanceRegion{{{'LIGHT_STATUS_BARS' if dark else ''} bounds=[0,0][100,200]}}
+  Window #0 {owner}:
+    mAttrs={{ty={'APPLICATION_STARTING' if phase == 'system' else 'BASE_APPLICATION'}}}
+    mViewVisibility=0x0 mHaveFrame=true mObscured=false
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    mDrawState=HAS_DRAWN
+    isOnScreen=true
+    isVisible=true
+  mCurrentFocus={owner}
+"""
+
+    @staticmethod
+    def pixels(ground=(243, 240, 232), artwork=False, settled=False):
+        def pixel(x, y):
+            if artwork and 44 <= x < 56 and 85 <= y < 115:
+                return bytes((100, 80, 30, 255))
+            if settled and 10 <= x < 90 and 140 <= y < 160:
+                return bytes((100, 80, 30, 255))
+            return bytes((*ground, 255))
+        return png_bytes(100, 200, 4, [b"".join(pixel(x, y) for x in range(100)) for y in range(200)])
+
+    def test_system_and_app_frames_measure_distinct_evidence_and_both_bars(self):
+        for ground, dark in (((243, 240, 232), True), ((0, 0, 0), False)):
+            with self.subTest(ground=ground):
+                for phase in ("system", "app"):
+                    window = self.window(phase, dark)
+                    measured = runtime_smoke.theme_launch_frame(
+                        self.pixels(ground, artwork=phase == "app"), ground, window, window, dark)
+                    self.assertTrue(measured[phase + "Evidence"], measured)
+                    self.assertTrue(measured["barsCorrect"])
+                    self.assertEqual(dark, measured["before"]["statusDarkIcons"])
+                    self.assertEqual(dark, measured["before"]["navigationDarkIcons"])
+
+    def test_wrong_ground_missing_artwork_settled_ui_or_wrong_phase_cannot_pass(self):
+        cases = [
+            (self.pixels((15, 15, 14)), self.window(), self.window(), "systemEvidence"),
+            (self.pixels(), self.window("app"), self.window("app"), "systemEvidence"),
+            (self.pixels(artwork=True), self.window(), self.window(), "systemEvidence"),
+            (self.pixels(), self.window("app"), self.window("app"), "appEvidence"),
+            (self.pixels(artwork=True, settled=True), self.window("app"), self.window("app"), "appEvidence"),
+            (self.pixels(artwork=True), self.window(), self.window("app"), "appEvidence"),
+        ]
+        for pixels, before, after, key in cases:
+            with self.subTest(key=key, before=before):
+                result = runtime_smoke.theme_launch_frame(pixels, (243, 240, 232), before, after, True)
+                self.assertFalse(result[key], result)
+                self.assertIn("groundFraction", result)
+                self.assertIn("artworkPixels", result)
+
+    def test_mixed_status_regions_are_unknown_not_light_icons_and_combined_flags_parse(self):
+        dark = self.window().replace("LIGHT_NAVIGATION_BARS", "OPAQUE_NAVIGATION_BARS LIGHT_NAVIGATION_BARS")
+        dark = dark.replace("LIGHT_STATUS_BARS bounds", "OPAQUE_STATUS_BARS LIGHT_STATUS_BARS bounds")
+        self.assertTrue(runtime_smoke.theme_launch_frame(self.pixels(), (243, 240, 232), dark, dark, True)["systemEvidence"])
+        mixed = self.window(dark=False).replace("bounds=[0,0][100,200]}",
+            "bounds=[0,0][50,200]}\n      AppearanceRegion{LIGHT_STATUS_BARS bounds=[50,0][100,200]}")
+        self.assertIsNone(runtime_smoke.launch_window_state(mixed)["statusDarkIcons"])
+        self.assertFalse(runtime_smoke.theme_launch_frame(self.pixels((0, 0, 0)), (0, 0, 0), mixed, mixed, False)["systemEvidence"])
+
+    def test_each_bar_and_unproven_foreground_fail_independently(self):
+        for window in (self.window(dark=False, navigation_dark=True),
+                       self.window(dark=True, navigation_dark=False),
+                       self.window().replace("mHasSurface=true", "mHasSurface=false"),
+                       self.window().replace("mObscured=false", "mObscured=true"),
+                       self.window().replace("mLastStatusBarAppearanceRegions=", "missingRegions="),
+                       self.window().replace("com.usagelimits", "com.example.foreign")):
+            with self.subTest(window=window):
+                result = runtime_smoke.theme_launch_frame(self.pixels(), (243, 240, 232), window, window, True)
+                self.assertFalse(result["systemEvidence"], result)
+
+
+class ThemeLaunchCaptureTest(unittest.TestCase):
+    def capture(self, transform=lambda phase, data, window: (data, window), fail_start=False):
+        events, frame_number = [], 0
+        clock = FakeDevice()
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            def phase():
+                return "system" if frame_number < 3 else "app"
+            def adb(*args, **kwargs):
+                nonlocal frame_number
+                clock.now += 0.25
+                events.append(args)
+                if args[:2] == ("exec-out", "screencap"):
+                    frame_number += 1
+                    data = ThemeLaunchTest.pixels(artwork=phase() == "app")
+                    return transform(phase(), data, ThemeLaunchTest.window(phase()))[0]
+                if args == ("shell", "dumpsys", "window"):
+                    return transform(phase(), b"", ThemeLaunchTest.window(phase()))[1]
+                return ""
+            class Start:
+                returncode = 1 if fail_start else 0
+                def communicate(self, timeout):
+                    events.append(("joined",))
+                    return b"Starting: Intent", b"failed" if fail_start else b""
+                def kill(self):
+                    events.append(("killed",))
+            def popen(*args, **kwargs):
+                events.append(("start", args[0]))
+                return Start()
+            with patch.object(smoke, "adb", side_effect=adb), \
+                    patch.object(runtime_smoke.subprocess, "Popen", side_effect=popen), \
+                    patch.object(runtime_smoke, "time", clock):
+                try:
+                    result = smoke.capture_theme_launch("theme", "com.usagelimits/.Alias", (243, 240, 232), True)
+                except Exception as error:
+                    result = error
+            report = json.loads((Path(directory) / "theme.json").read_text())
+            self.assertTrue(all((Path(directory) / item["file"]).exists() for item in report["frames"]))
+            return result, report, events
+
+    def test_sampling_is_armed_before_async_start_and_both_phases_are_mandatory(self):
+        result, report, events = self.capture()
+        self.assertEqual("passed", report["result"], result)
+        self.assertEqual("passed", result)
+        self.assertEqual(("shell", "dumpsys", "window"), events[0])
+        self.assertEqual("start", events[1][0])
+        self.assertNotIn("-W", events[1][1])
+        self.assertEqual(("exec-out", "screencap", "-p"), events[2])
+        self.assertLess(events.index(events[2]), events.index(("joined",)))
+        self.assertTrue(report["systemFrames"])
+        self.assertTrue(report["appFrames"])
+        self.assertEqual({"status": "dark", "navigation": "dark"}, report["expectedIcons"])
+        self.assertTrue(all("measurement" in sample for sample in report["frames"]))
+
+    def test_wrong_theme_missing_phases_either_wrong_bar_and_failed_start_fail_with_measurements(self):
+        cases = {
+            "wrong theme": lambda phase, data, window: (ThemeLaunchTest.pixels((15, 15, 14), artwork=phase == "app"), window),
+            "only settled app": lambda phase, data, window: (ThemeLaunchTest.pixels(settled=True), ThemeLaunchTest.window("app")),
+            "no app artwork": lambda phase, data, window: (ThemeLaunchTest.pixels(), window),
+            "no system window": lambda phase, data, window: (data, ThemeLaunchTest.window("app")),
+            "wrong status": lambda phase, data, window: (data, ThemeLaunchTest.window(phase, dark=False, navigation_dark=True)),
+            "wrong navigation": lambda phase, data, window: (data, ThemeLaunchTest.window(phase, dark=True, navigation_dark=False)),
+        }
+        for label, transform in cases.items():
+            with self.subTest(label=label):
+                result, report, events = self.capture(transform)
+                self.assertIsInstance(result, AssertionError)
+                self.assertEqual("failed", report["result"])
+                self.assertRegex(report["error"], "Missing themed|Wrong themed launch frame")
+                self.assertTrue(report["frames"])
+                self.assertTrue(all("measurement" in sample for sample in report["frames"]))
+                self.assertIn(("joined",), events)
+        seen = []
+        def flash(phase, data, window):
+            if data:
+                seen.append(phase)
+                if len(seen) == 1:
+                    data = ThemeLaunchTest.pixels((0, 0, 0))
+            return data, window
+        result, report, _ = self.capture(flash)
+        self.assertIsInstance(result, AssertionError)
+        self.assertIn("Wrong themed launch frame", report["error"])
+        self.assertTrue(report["systemFrames"], "A later fitting system frame must not excuse the wrong first frame")
+        result, report, _ = self.capture(fail_start=True)
+        self.assertIsInstance(result, AssertionError)
+        self.assertIn("Launch command failed", report["error"])
+        self.assertTrue(report["frames"])
+
+
+class ThemeSelectionTest(unittest.TestCase):
+    @staticmethod
+    def picker(label, selected):
+        return ET.fromstring(f'<hierarchy><node package="com.usagelimits" enabled="true" clickable="true" '
+            f'selected="{str(selected).lower()}" bounds="[20,200][180,300]">'
+            f'<node package="com.usagelimits" text="{label}"/></node></hierarchy>')
+
+    def test_exact_ui_labels_select_wait_stop_capture_and_reach_existing_setting_for_both_themes(self):
+        events, current = [], {"label": None, "selected": False}
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            def navigate(tab, marker, name):
+                events.append(("navigate", tab, marker))
+                if not name.endswith("-relaunch-settings"):
+                    current.update(label="Light paper" if current["label"] is None else "Pure black", selected=False)
+            def tap(node, **kwargs):
+                current["selected"] = True
+                events.append(("tap", current["label"]))
+            def wait(name, predicate, **kwargs):
+                root = (OverviewReadyTest.overview("Nothing to monitor yet") if name.endswith("-overview")
+                        else self.picker(current["label"], current["selected"]))
+                self.assertTrue(predicate(root))
+                events.append(("selected", current["label"]))
+                return root
+            def adb(*args, **kwargs):
+                events.append(args)
+                if "resolve-activity" in args:
+                    return "com.usagelimits/.ExistingAlias"
+                if args == ("shell", "dumpsys", "window"):
+                    return ThemeLaunchTest.window("app", dark=current["label"] == "Light paper")
+                if args[:3] == ("shell", "settings", "get"):
+                    return "10"
+                return ""
+            def capture(name, activity, ground, dark):
+                events.append(("capture", current["label"], activity, ground, dark))
+                return "passed"
+            with patch.object(smoke, "navigate", side_effect=navigate), \
+                    patch.object(smoke, "dump", side_effect=lambda *a: self.picker(current["label"], current["selected"])), \
+                    patch.object(smoke, "tap", side_effect=tap), patch.object(smoke, "wait_for", side_effect=wait), \
+                    patch.object(smoke, "adb", side_effect=adb), patch.object(smoke, "capture_theme_launch", side_effect=capture), \
+                    patch.object(smoke, "setting_is_disabled", side_effect=lambda *a: events.append(("setting", current["label"]))), \
+                    patch.object(smoke, "capture"), patch.object(smoke, "restore_animations", return_value=True):
+                self.assertEqual(["appearance-light-paper.json", "appearance-pure-black.json"], smoke.verify_theme_launches())
+        captures = [event for event in events if event[0] == "capture"]
+        self.assertEqual([
+            ("capture", "Light paper", "com.usagelimits/.ExistingAlias", (243, 240, 232), True),
+            ("capture", "Pure black", "com.usagelimits/.ExistingAlias", (0, 0, 0), False),
+        ], captures)
+        for label in ("Light paper", "Pure black"):
+            tap = events.index(("tap", label))
+            selected = events.index(("selected", label))
+            captured = next(i for i, event in enumerate(events) if event[:2] == ("capture", label))
+            stopped = next(i for i in range(selected, captured) if events[i] == ("shell", "am", "force-stop", "com.usagelimits"))
+            bars = next(i for i in range(selected, stopped) if events[i] == ("shell", "dumpsys", "window"))
+            self.assertLess(tap, selected)
+            self.assertLess(selected, bars)
+            self.assertLess(bars, stopped)
+            self.assertLess(captured, events.index(("setting", label)))
+
+    def test_wrong_case_label_or_bar_style_stops_before_force_stop(self):
+        for label, window, message in (("Light Paper", ThemeLaunchTest.window("app"), "Missing exact theme UI label"),
+                                       ("Light paper", ThemeLaunchTest.window("app", dark=False), "did not apply both bar styles")):
+            with self.subTest(label=label), TemporaryDirectory() as directory:
+                smoke = Smoke(Path(directory), "test-device")
+                tree = self.picker(label, False)
+                with patch.object(smoke, "navigate"), patch.object(smoke, "dump", return_value=tree), \
+                        patch.object(smoke, "tap"), patch.object(smoke, "wait_for"), \
+                        patch.object(smoke, "adb", return_value=window) as adb, patch.object(runtime_smoke.time, "sleep"):
+                    with self.assertRaisesRegex(AssertionError, message):
+                        smoke.verify_theme_launches()
+                self.assertFalse(any(call.args[:3] == ("shell", "am", "force-stop") for call in adb.call_args_list))
+
+
 class PngTest(unittest.TestCase):
     def test_written_frames_decode_unchanged_and_crops_scale_by_nearest_neighbour(self):
         width, channels, rows = frame(rounded(0))

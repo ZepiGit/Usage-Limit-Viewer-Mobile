@@ -264,6 +264,74 @@ def motion_sequence(name, says, samples):
             "framesDiffer": distinct > 1}
 
 
+def launch_window_state(text):
+    """Applied bar appearance and the visible fullscreen owner, from Android's window dump.
+
+    AOSP services/core/java/com/android/server/wm/{DisplayPolicy,WindowState}.java and
+    core/java/com/android/internal/view/AppearanceRegion.java define these dumps. LIGHT_*
+    means dark foreground icons. A missing policy/region is unknown, never dark.
+    """
+    policies = re.findall(r"(?m)^([ \t]*)DisplayPolicy\s*$", text)
+    regions = re.findall(r"(?m)^\s*mLastStatusBarAppearanceRegions=\n((?:[ \t]+AppearanceRegion\{[^\n]*\}\n?)+)", text)
+    status = re.findall(r"AppearanceRegion\{(.*?) bounds=", regions[0]) if len(regions) == 1 else []
+    appearances = re.findall(r"(?m)^\s*mLastAppearance=(.*)$", text)
+    top = re.findall(r"(?m)^\s*mTopFullscreenOpaqueWindowState=(Window\{[^\n]+\})$", text)
+    nav = re.findall(r"(?m)^\s*mNavBarColorWindowCandidate=(Window\{[^\n]+\})$", text)
+    windows = re.findall(r"(?ms)^\s*Window #\d+ (Window\{[^\n]+\}):\n(.*?)(?=^\s*Window #\d+ |\Z)", text)
+    visible = [(owner, body) for owner, body in windows if all(token in body for token in (
+        "mHasSurface=true", "isReadyForDisplay()=true", "mObscured=false",
+        "mDrawState=HAS_DRAWN", "isOnScreen=true", "isVisible=true"))]
+    chosen = [(owner, body) for owner, body in visible if top == [owner] and nav == [owner]]
+    phase, owner = None, None
+    if len(chosen) == 1:
+        owner, body = chosen[0]
+        if re.search(r" u\d+ Splash Screen " + re.escape(PACKAGE) + r"\}", owner) and "ty=APPLICATION_STARTING" in body:
+            phase = "system"
+        elif re.search(r" u\d+ " + re.escape(PACKAGE) + r"/[^\s}]+\}", owner) and "ty=BASE_APPLICATION" in body:
+            phase = "app"
+    status_icons = {"LIGHT_STATUS_BARS" in value.split() for value in status}
+    known = len(policies) == 1 and len(appearances) <= 1 and len(status_icons) == 1
+    return {"phase": phase, "owner": owner, "appearanceKnown": known,
+            "statusDarkIcons": next(iter(status_icons)) if known else None,
+            "navigationDarkIcons": "LIGHT_NAVIGATION_BARS" in appearances[0].split() if known and appearances else False if known else None}
+
+
+def theme_launch_frame(data, ground, before, after, dark_icons):
+    """A screenshot bracketed by the same proven window/appearance state, not a later UI dump.
+
+    Ground is sampled over the content, excluding system bars and the central 192dp artwork.
+    The separate centre predicate requires visible art for the app overlay and none for the
+    system starting window. Settled Overview text/cards outside the centre reject an overlay.
+    """
+    width, channels, rows = png_frame(data, 100000)
+    height = len(rows)
+    x1, x2, y1, y2 = width // 20, width * 19 // 20, height // 10, height * 9 // 10
+    centre = (width // 4, height // 3, width * 3 // 4, height * 2 // 3)
+    ground_count = content_count = artwork = centre_count = 0
+    for y in range(y1, y2):
+        for x in range(x1, x2):
+            pixel = rows[y][x * channels:x * channels + 3]
+            fits = max(abs(pixel[i] - ground[i]) for i in range(3)) <= 3
+            if centre[0] <= x < centre[2] and centre[1] <= y < centre[3]:
+                centre_count += 1
+                artwork += not fits
+            else:
+                content_count += 1
+                ground_count += fits
+    states = [launch_window_state(value) for value in (before, after)]
+    stable = states[0] == states[1] and states[0]["phase"] is not None
+    bars = stable and all(state["appearanceKnown"] and state["statusDarkIcons"] == dark_icons
+                          and state["navigationDarkIcons"] == dark_icons for state in states)
+    fraction = ground_count / content_count if content_count else 0
+    ground_fits = fraction >= 0.995
+    return {"groundFraction": fraction, "groundPixels": ground_count, "sampledPixels": content_count,
+            "artworkPixels": artwork, "centrePixels": centre_count, "centreBounds": centre,
+            "before": states[0], "after": states[1], "stableWindow": stable, "barsCorrect": bars,
+            "systemEvidence": bars and states[0]["phase"] == "system" and ground_fits and artwork == 0,
+            "appEvidence": bars and states[0]["phase"] == "app" and ground_fits
+                           and artwork >= max(8, centre_count // 200)}
+
+
 def matches(root, label, package=PACKAGE):
     """Nodes of `package` whose text or description is `label`, or any of the labels in a tuple."""
     labels = label if isinstance(label, tuple) else (label,)
@@ -1419,7 +1487,7 @@ class Smoke:
         raise AssertionError(f"No accepted press frame (capture start/end s after the {hold_ms} ms hold began, "
                              f"reason): {timings}; see {name}-ripple.json")
 
-    def burst(self, name, seconds, samples, deadline=None):
+    def burst(self, name, seconds, samples, deadline=None, observe=None):
         """Screenshots taken back to back for `seconds`, each with when it started and ended.
 
         They are appended to `samples` as they are written, so the frames taken before a failure,
@@ -1434,6 +1502,139 @@ class Smoke:
             samples.append({"file": filename + ".png", "startSeconds": round(begin, 3),
                             "endSeconds": round(time.monotonic() - started, 3),
                             "sha256": hashlib.sha256(data).hexdigest()})
+            if observe is not None:
+                observe(samples[-1], data)
+
+    def verify_theme_launches(self):
+        """09a: Settings UI selection, stopped release launch, then the existing bounded tier search."""
+        reports = []
+        scale_touched = False
+        restore = {}
+        try:
+            for label, ground, dark_icons in [("Light paper", (243, 240, 232), True), ("Pure black", (0, 0, 0), False)]:
+                name = "appearance-" + label.lower().replace(" ", "-")
+                self.navigate("Settings", "Appearance", name + "-settings")
+                root = self.dump(name + "-picker")
+                target = navigation_target(root, label)
+                assert target is not None, f"Missing exact theme UI label: {label}"
+                if not self.selected(target):
+                    self.tap(target)
+                self.wait_for(name + "-selected", lambda root: (
+                    (tile := navigation_target(root, label)) is not None and self.selected(tile)))
+                # Wait for the live themed root/bars before stopping: the tap alone is not persistence evidence.
+                style = {"label": label, "attempts": []}
+                for attempt in range(12):
+                    window = self.adb("shell", "dumpsys", "window")
+                    self.text(f"{name}-selected-window-{attempt}.txt", window)
+                    state = launch_window_state(window)
+                    style["attempts"].append(state)
+                    self.text(name + "-selection.json", json.dumps(style, indent=2))
+                    if state["phase"] == "app" and state["appearanceKnown"] and (
+                        state["statusDarkIcons"] == dark_icons and state["navigationDarkIcons"] == dark_icons
+                    ):
+                        break
+                    time.sleep(1)
+                else:
+                    raise AssertionError(f"Selected {label} did not apply both bar styles; see {name}-selection.json")
+                activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
+                assert activity.startswith(PACKAGE + "/"), activity
+                scale_touched = True
+                self.adb("shell", "settings", "put", "global", "animator_duration_scale", str(MOTION_SCALE))
+                read_back = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
+                assert scale_is(read_back, MOTION_SCALE), f"Theme launch animator scale read {read_back!r}"
+                self.adb("shell", "am", "force-stop", PACKAGE)
+                self.capture_theme_launch(name, activity, ground, dark_icons)
+                reports.append(name + ".json")
+                self.wait_for(name + "-overview", lambda root: overview_ready(root, "current"))
+                self.navigate("Settings", "Appearance", name + "-relaunch-settings")
+                self.wait_for(name + "-persisted", lambda root: (
+                    (tile := navigation_target(root, label)) is not None and self.selected(tile)))
+                self.setting_is_disabled(name + "-tier")
+                self.capture(name + "-tier")
+        finally:
+            if scale_touched:
+                restored = self.restore_animations(restore)
+                self.text("appearance-animations.json", json.dumps(restore, indent=2))
+                assert restored, "Theme launch animations were not turned off again; see appearance-animations.json"
+        return reports
+
+    def capture_theme_launch(self, name, activity, ground, dark_icons):
+        """Mandatory release evidence, sampled while am start runs, never after start -W settles.
+
+        One window probe per frame brackets adjacent screenshots. Keep pixel analysis out of the
+        burst so Python cannot consume the short system-starting interval between captures.
+        """
+        deadline = time.monotonic() + 90
+        report = {"result": "failed", "expectedGround": "#%02X%02X%02X" % ground,
+                  "expectedIcons": {bar: "dark" if dark_icons else "light" for bar in ("status", "navigation")},
+                  "frames": [], "systemFrames": [], "appFrames": [],
+                  "scope": "Visible system starting window with bare ground, then app-owned overlay artwork; same window and applied status/navigation appearance before and after each accepted screenshot."}
+        start = None
+        previous = None
+        failure = None
+        try:
+            previous = name + "-window-before.txt"
+            self.text(previous, self.adb("shell", "dumpsys", "window", deadline=deadline))
+            start = subprocess.Popen(["adb", "-s", self.serial, "shell", "am", "start", "--splashscreen-show-icon",
+                                      "-n", activity, "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            def observe(sample, data):
+                nonlocal previous
+                after = sample["file"].removesuffix(".png") + "-window.txt"
+                self.text(after, self.adb("shell", "dumpsys", "window", deadline=deadline))
+                sample.update({"windowBefore": previous, "windowAfter": after})
+                previous = after
+            self.burst(name, 9, report["frames"], deadline=deadline, observe=observe)
+        except BaseException as error:
+            failure = error
+        finally:
+            if start is not None:
+                try:
+                    output, error = start.communicate(timeout=max(0.1, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    start.kill()
+                    output, error = start.communicate(timeout=10)
+                    if failure is None:
+                        failure = AssertionError("Launch command did not finish within the capture deadline")
+                self.text(name + "-launch.txt", output.decode(errors="replace") + "\n" + error.decode(errors="replace"))
+                if start.returncode != 0 and failure is None:
+                    failure = AssertionError(f"Launch command failed ({start.returncode}); see {name}-launch.txt")
+            try:
+                for sample in report["frames"]:
+                    if "windowAfter" not in sample:
+                        continue
+                    measured = theme_launch_frame((self.directory / sample["file"]).read_bytes(), ground,
+                        (self.directory / sample["windowBefore"]).read_text(),
+                        (self.directory / sample["windowAfter"]).read_text(), dark_icons)
+                    sample["measurement"] = measured
+                    for phase in ("system", "app"):
+                        if measured[phase + "Evidence"]:
+                            report[phase + "Frames"].append(sample["file"])
+            except Exception as error:
+                if failure is None:
+                    failure = error
+            invalid = [sample["file"] for sample in report["frames"] if "measurement" in sample
+                       and sample["measurement"]["stableWindow"] and (
+                           not sample["measurement"]["barsCorrect"]
+                           or sample["measurement"]["groundFraction"] < 0.5
+                           or (sample["measurement"]["before"]["phase"] == "system"
+                               and not sample["measurement"]["systemEvidence"]))]
+            report["wrongFrames"] = invalid
+            if invalid and failure is None:
+                failure = AssertionError(f"Wrong themed launch frame(s): {invalid}; see {name}.json")
+            if failure is None:
+                system_indices = [i for i, sample in enumerate(report["frames"]) if sample["file"] in report["systemFrames"]]
+                app_indices = [i for i, sample in enumerate(report["frames"]) if sample["file"] in report["appFrames"]]
+                if not system_indices or not app_indices or min(system_indices) >= max(app_indices):
+                    failure = AssertionError(f"Missing themed system-starting or later app-overlay evidence; see {name}.json")
+            if failure is not None:
+                report["error"] = f"{type(failure).__name__}: {failure}"
+            else:
+                report["result"] = "passed"
+            self.text(name + ".json", json.dumps(report, indent=2))
+        if failure is not None:
+            raise failure
+        return report["result"]
 
     def restore_animations(self, report):
         """Put the animator scale back to 0 and read it back; returns whether a read-back said 0.
@@ -1760,6 +1961,7 @@ def main():
             smoke.navigate(tab, marker, "current-" + tab.lower())
         smoke.setting_is_disabled("current-persisted")
         smoke.capture("current-persisted")
+        theme_launches = smoke.verify_theme_launches()
         smoke.adb("shell", "am", "force-stop", PACKAGE)
         smoke.launch("current-relaunch")
         smoke.navigate("Overview", EMPTY_OVERVIEW, "current-relaunch-overview")
@@ -1781,7 +1983,7 @@ def main():
     assert diagnostics_complete, "Could not collect the runtime diagnostics"
     smoke.assert_no_app_failures()
     smoke.text("result.json", json.dumps({"result": "passed", "commit": os.environ["GITHUB_SHA"],
-        "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": list(TABS),
+        "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": list(TABS), "themeLaunches": theme_launches,
         "widgets": placed_widgets, **seeded,
         "scope": "Empty-account release smoke with four launcher widgets"
                  + (", then this run's debug build with synthetic accounts for the List and its filter chips"
