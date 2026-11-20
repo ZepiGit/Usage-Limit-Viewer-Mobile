@@ -27,7 +27,7 @@ final class AppLaunchUITests: XCTestCase {
 
     /// Swipes until the element materialises, or gives up rather than swiping for ever.
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
-        let identifiers = ["provider-icons-list", "provider-picker-scroll", "settings-form", "accounts-scroll"]
+        let identifiers = ["provider-icons-list", "provider-picker-scroll", "settings-form", "overview-scroll"]
         let container = identifiers.map { app.descendants(matching: .any)[$0].firstMatch }
             .first { $0.exists && $0.isHittable } ?? app
         for _ in 0..<12 {
@@ -46,11 +46,11 @@ final class AppLaunchUITests: XCTestCase {
         return element.waitForExistence(timeout: 2) && element.isHittable
     }
 
-    private func launch() -> XCUIApplication {
+    private func launch(_ arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         // Read by the app to skip the notification-permission prompt, which is a system alert
         // that would otherwise sit over the UI and fail every query behind it.
-        app.launchArguments += ["-ui-testing", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"]
+        app.launchArguments += ["-ui-testing", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"] + arguments
         app.launch()
         waitForOrientation(app, landscape: false)
         return app
@@ -102,25 +102,28 @@ final class AppLaunchUITests: XCTestCase {
         defaultIcon.tap()
     }
 
-    func testAllFourDestinationsExist() {
+    func testAllThreeDestinationsExist() {
         // The shell from the reference design. If navigation failed to build, the tab bar is the
         // first thing missing, and every other query would fail for a reason that reads as
         // unrelated.
         let app = launch()
 
-        for tab in ["Overview", "Accounts", "Resets", "Settings"] {
+        for tab in ["Overview", "Resets", "Settings"] {
             XCTAssertTrue(
                 tabButton(tab, in: app).waitForExistence(timeout: 10),
                 "the \(tab) tab should be reachable")
         }
+        XCTAssertFalse(app.tabBars.buttons["Accounts"].exists)
     }
 
     func testEachScreenOpensWithNoAccountsConnected() {
         // The state every user sees first, on a fresh install with nothing signed in — and the
         // one most likely to divide by a count of zero or unwrap an empty list.
         let app = launch()
+        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(scrollTo(app.buttons["overview-add-account"], in: app))
 
-        for tab in ["Accounts", "Resets", "Settings", "Overview"] {
+        for tab in ["Resets", "Settings", "Overview"] {
             let button = tabButton(tab, in: app)
             XCTAssertTrue(button.waitForExistence(timeout: 10), "\(tab) should exist")
             button.tap()
@@ -130,45 +133,66 @@ final class AppLaunchUITests: XCTestCase {
         }
     }
 
+    func testOverviewFiltersShowMatchingAccounts() {
+        let app = launch(["-marketing-demo", "-overview-expired-demo"])
+        let codex = app.buttons["overview-account-demo-codex"]
+        let claude = app.buttons["overview-account-demo-claude"]
+        XCTAssertTrue(codex.waitForExistence(timeout: 10))
+        XCTAssertTrue(claude.waitForExistence(timeout: 10))
+        let attention = app.buttons["overview-filter-needsAttention"]
+        attention.tap()
+        XCTAssertEqual(attention.value as? String, "Selected")
+        XCTAssertTrue(codex.waitForExistence(timeout: 10))
+        let removed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: claude)
+        XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 10), .completed)
+        let resets = app.buttons["overview-filter-resetsToday"]
+        resets.tap()
+        XCTAssertEqual(resets.value as? String, "Selected")
+        XCTAssertTrue(claude.waitForExistence(timeout: 10))
+        let all = app.buttons["overview-filter-all"]
+        all.tap()
+        XCTAssertEqual(all.value as? String, "Selected")
+        XCTAssertTrue(codex.waitForExistence(timeout: 10))
+        XCTAssertTrue(claude.waitForExistence(timeout: 10))
+    }
+
+    func testOverviewOpensAddCredit() {
+        let app = launch()
+        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(scrollTo(app.buttons["overview-add-account"], in: app))
+        let add = app.buttons["overview-add-credit"]
+        XCTAssertTrue(scrollTo(add, in: app))
+        add.tap()
+        XCTAssertTrue(app.navigationBars["Add credit balance"].waitForExistence(timeout: 10))
+    }
+
     func testTheSettingsScreenOffersTheDisplaySwitches() {
-        // Two preferences that decide what the overview prints, and the only part of this
-        // feature a simulator can check: the drag handle needs two accounts to appear and the
-        // widget gallery is out of an XCUITest's reach, but a switch that failed to build is
-        // visible here.
+        // The tier switch stays. Reset stamps are now always available in Overview.
         let app = launch()
 
         let settings = tabButton("Settings", in: app)
         XCTAssertTrue(settings.waitForExistence(timeout: 10))
         settings.tap()
 
-        for label in ["Show subscription tier", "Show renewal time"] {
-            // Scrolled to rather than merely waited for. A Form is a lazy list, so a row below
-            // the fold is absent from the hierarchy rather than present and off-screen — and
-            // the Display section sits under six notification switches, which is below the fold
-            // on the phone this runs on.
-            XCTAssertTrue(scrollTo(app.switches[label], in: app), "\(label) should be offered")
-        }
+        XCTAssertTrue(scrollTo(app.switches["Show subscription tier"], in: app))
+        XCTAssertTrue(scrollTo(app.segmentedControls.firstMatch, in: app))
+        XCTAssertFalse(app.switches["Show renewal time"].exists)
     }
 
     func testTheAddAccountSheetOffersEveryProvider() {
-        // All seven can be signed into: three by device code, four by a loopback redirect the app
-        // receives itself, and Kimi also has a key the user can paste. The sheet must open and offer
-        // each of them rather than dead-end.
+        // Overview must still reach every provider's sign-in path.
         let app = launch()
+        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
 
-        let accounts = tabButton("Accounts", in: app)
-        XCTAssertTrue(accounts.waitForExistence(timeout: 10))
-        accounts.tap()
-
-        let add = app.buttons["+ Add account"]
-        XCTAssertTrue(add.waitForExistence(timeout: 10), "the add-account button should be there")
+        let add = app.buttons["overview-add-account"]
+        XCTAssertTrue(scrollTo(add, in: app), "the add-account button should be there")
         add.tap()
 
         XCTAssertTrue(
             app.navigationBars["Add account"].waitForExistence(timeout: 10),
             "the add-account sheet should open")
 
-        for provider in ["OpenAI Codex", "Claude", "Antigravity", "Grok", "Kimi", "Devin", "Meta Muse"] {
+        for provider in ["OpenAI Codex", "Claude", "Antigravity", "Grok", "Kimi", "Devin", "Meta Muse", "Z.ai GLM", "OpenCode Go"] {
             XCTAssertTrue(
                 scrollTo(app.staticTexts[provider], in: app),
                 "\(provider) should be offered")
@@ -177,15 +201,13 @@ final class AppLaunchUITests: XCTestCase {
 
     func testLandscapeAndLargeTextKeepTheProviderPickerReachable() {
         let app = XCUIApplication()
-        app.launchArguments += ["-ui-testing", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
+        app.launchArguments += ["-ui-testing", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
         app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
         waitForOrientation(app, landscape: true)
         defer { XCUIDevice.shared.orientation = .portrait }
-        let accounts = tabButton("Accounts", in: app)
-        XCTAssertTrue(accounts.waitForExistence(timeout: 10))
-        accounts.tap()
-        let add = app.buttons["+ Add account"]
+        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
+        let add = app.buttons["overview-add-account"]
         XCTAssertTrue(scrollTo(add, in: app))
         add.tap()
         XCTAssertTrue(app.navigationBars["Add account"].waitForExistence(timeout: 10))

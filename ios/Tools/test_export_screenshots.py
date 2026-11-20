@@ -14,7 +14,7 @@ class ScreenshotExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             records = []
-            names = ["iphone-custom-layout", "iphone-custom-layout-restored", "iphone-overview", "iphone-overview-order"]
+            names = ["iphone-custom-layout", "iphone-custom-layout-restored", "iphone-overview", "iphone-overview-order", "iphone-overview-detail", "iphone-overview-empty"]
             for index, name in enumerate(names):
                 filename = f"attachment-{index}.png"
                 (root / filename).write_bytes(name.encode())
@@ -23,6 +23,17 @@ class ScreenshotExportTests(unittest.TestCase):
             screenshots.export(root, root / "output", names)
             for name in names:
                 self.assertEqual((root / "output" / f"{name}.png").read_bytes(), name.encode())
+
+    def test_a_missing_overview_does_not_use_detail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "detail.png").write_bytes(b"detail")
+            (root / "manifest.json").write_text(json.dumps([{
+                "suggestedHumanReadableName": "iphone-overview-detail_0_UUID.png",
+                "exportedFileName": "detail.png",
+            }]))
+            with self.assertRaisesRegex(ValueError, "found 0"):
+                screenshots.export(root, root / "output", ["iphone-overview"])
 
     def test_a_missing_capture_does_not_use_a_longer_name(self):
         with tempfile.TemporaryDirectory() as directory:

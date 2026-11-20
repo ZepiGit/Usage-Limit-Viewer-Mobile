@@ -53,10 +53,6 @@ struct SettingsScreen: View {
                     Toggle(
                         "Show subscription tier",
                         isOn: $store.settings.showSubscriptionTier)
-                    Toggle("Show renewal time", isOn: $store.settings.showRenewalTime)
-                    Text("The renewal line names when the longest allowance comes back. It is shown on the overview only — a widget has room for the number you are about to run out of, not a second date competing with it.")
-                        .usageFont(.small)
-                        .foregroundStyle(UsageColors.muted)
                     // A segmented picker draws only its options, so its title has to be written
                     // out; the Picker keeps its own label for VoiceOver, and this copy is hidden
                     // so the control is not announced twice.

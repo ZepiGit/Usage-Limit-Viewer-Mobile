@@ -241,11 +241,6 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         candidates.headline(fetchedAt: fetchedAt, at: date)
     }
 
-    public func nextResettingRow(at date: Date) -> GlanceRow? {
-        candidates.filter { ($0.remainingPercent != nil || $0.severity == .exhausted) && ($0.resetAt ?? .distantPast) > date }
-            .min { $0.resetAt! < $1.resetAt! }
-    }
-
     /// The tightest number this block actually shows. Used only for ordering.
     func tightestRemaining(at date: Date) -> Double {
         representative(at: date).map { headlineRank($0) } ?? .greatestFiniteMagnitude
@@ -363,21 +358,6 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
                 .lexicographicallyPrecedes(accounts[right.index].id.unicodeScalars)
         }
         return ranked.map { accounts[$0.index] }
-    }
-
-    public func nextResettingAccount(at date: Date) -> GlanceAccount? {
-        let candidates = accounts.filter { $0.representative(at: date) != nil }
-        let trusted = candidates.filter {
-            let row = $0.nextResettingRow(at: date) ?? $0.representative(at: date)
-            let severity = $0.displaySeverity(of: row, at: date, staleAfter: staleAfter)
-            return severity != .stale && severity != .error
-        }
-        let pool = trusted.isEmpty ? candidates : trusted
-        let upcoming = pool.filter { $0.nextResettingRow(at: date) != nil }
-        if !upcoming.isEmpty {
-            return upcoming.min { $0.nextResettingRow(at: date)!.resetAt! < $1.nextResettingRow(at: date)!.resetAt! }
-        }
-        return pool.min { $0.tightestRemaining(at: date) < $1.tightestRemaining(at: date) }
     }
 
     /// The same snapshot carrying `credits`.

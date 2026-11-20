@@ -153,6 +153,9 @@ extension View {
         @ViewBuilder content: () -> any View) -> Self { self }
     public func sheet<Item: Identifiable>(item: Binding<Item?>, onDismiss: (() -> Void)? = nil,
         @ViewBuilder content: (Item) -> any View) -> Self { self }
+    public func fullScreenCover<Item: Identifiable>(item: Binding<Item?>,
+        @ViewBuilder content: @escaping (Item) -> any View) -> Self { self }
+    public func onReceive<P>(_ publisher: P, perform: @escaping (Notification) -> Void) -> Self { self }
     public func alert(_ title: Any, isPresented: Binding<Bool>,
                       @ViewBuilder actions: () -> any View) -> Self { self }
     public func alert(_ title: Any, isPresented: Binding<Bool>,
