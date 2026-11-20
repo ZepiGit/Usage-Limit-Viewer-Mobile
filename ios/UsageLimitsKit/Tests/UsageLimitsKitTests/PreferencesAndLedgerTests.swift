@@ -72,6 +72,106 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertTrue(settings.showRenewalTime)
     }
 
+    private func assertCreditChoices(
+        _ settings: AppSettings, layout: String, first: String, visible: Bool,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let data = try JSONEncoder().encode(settings)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any], file: file, line: line)
+        XCTAssertEqual(json["overviewCreditLayout"] as? String, layout, file: file, line: line)
+        XCTAssertEqual(json["overviewShowFirst"] as? String, first, file: file, line: line)
+        XCTAssertEqual(json["overviewShowCredits"] as? Bool, visible, file: file, line: line)
+    }
+
+    func testCreditChoicesKeepTheirStableJSONValuesThroughNormalisationAndAReopen() async throws {
+        for (layout, first, visible) in [("compact", "creditAccounts", false), ("normal", "usageProviders", true)] {
+            let json = """
+                {"overviewCreditLayout":"\(layout)","overviewShowFirst":"\(first)","overviewShowCredits":\(visible),
+                 "overviewLayout":"dials","percentDisplay":"used","syncIntervalMinutes":180,
+                 "showSubscriptionTier":false,"showRenewalTime":true,"accountsManuallyOrdered":true,
+                 "statusIconsEnabled":true,"pinnedAccountKeys":["b","a"],
+                 "notifications":{"notifyOnExhausted":false,"mutedAccountIDs":["acct-1"]}}
+                """
+            let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+            let stored = try await SettingsStore(directory: directory).save(settings)
+            let reopened = await SettingsStore(directory: directory).settings()
+
+            try assertCreditChoices(settings, layout: layout, first: first, visible: visible)
+            try assertCreditChoices(stored, layout: layout, first: first, visible: visible)
+            try assertCreditChoices(reopened, layout: layout, first: first, visible: visible)
+            XCTAssertEqual(reopened, stored)
+            XCTAssertEqual(reopened.overviewLayout, .dials)
+            XCTAssertEqual(reopened.percentDisplay, .used)
+            XCTAssertEqual(reopened.syncIntervalMinutes, 180)
+            XCTAssertFalse(reopened.showSubscriptionTier)
+            XCTAssertTrue(reopened.showRenewalTime)
+            XCTAssertTrue(reopened.accountsManuallyOrdered)
+            XCTAssertTrue(reopened.statusIconsEnabled)
+            XCTAssertEqual(reopened.pinnedAccountKeys, ["b", "a"])
+            XCTAssertFalse(reopened.notifications.notifyOnExhausted)
+            XCTAssertEqual(reopened.notifications.mutedAccountIDs, ["acct-1"])
+        }
+    }
+
+    func testNewAndOldSettingsUseNormalVisibleCreditsAfterUsageProviders() async throws {
+        try assertCreditChoices(AppSettings(), layout: "normal", first: "usageProviders", visible: true)
+        try Data(#"{"overviewLayout":"dials","percentDisplay":"used","showRenewalTime":true}"#.utf8)
+            .write(to: directory.appendingPathComponent("settings.json"))
+
+        let old = await SettingsStore(directory: directory).settings()
+
+        try assertCreditChoices(old, layout: "normal", first: "usageProviders", visible: true)
+        XCTAssertEqual(old.overviewLayout, .dials)
+        XCTAssertEqual(old.percentDisplay, .used)
+        XCTAssertTrue(old.showRenewalTime)
+    }
+
+    func testEachAbsentCreditChoiceDefaultsWithoutResettingItsNeighbours() async throws {
+        for (json, layout, first, visible) in [
+            (#"{"overviewShowFirst":"creditAccounts","overviewShowCredits":false,"overviewLayout":"dials"}"#,
+             "normal", "creditAccounts", false),
+            (#"{"overviewCreditLayout":"compact","overviewShowCredits":false,"overviewLayout":"dials"}"#,
+             "compact", "usageProviders", false),
+            (#"{"overviewCreditLayout":"compact","overviewShowFirst":"creditAccounts","overviewLayout":"dials"}"#,
+             "compact", "creditAccounts", true),
+        ] {
+            try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+            let settings = await SettingsStore(directory: directory).settings()
+            try assertCreditChoices(settings, layout: layout, first: first, visible: visible)
+            XCTAssertEqual(settings.overviewLayout, .dials)
+        }
+    }
+
+    func testAnUnknownCreditLayoutKeepsTheOtherCreditChoices() async throws {
+        let json = #"{"overviewCreditLayout":"tiles","overviewShowFirst":"creditAccounts","overviewShowCredits":false,"percentDisplay":"used"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        try assertCreditChoices(settings, layout: "normal", first: "creditAccounts", visible: false)
+        XCTAssertEqual(settings.percentDisplay, .used)
+    }
+
+    func testAnUnknownFirstBlockKeepsTheOtherCreditChoices() async throws {
+        let json = #"{"overviewCreditLayout":"compact","overviewShowFirst":"alphabetical","overviewShowCredits":false,"percentDisplay":"used"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        try assertCreditChoices(settings, layout: "compact", first: "usageProviders", visible: false)
+        XCTAssertEqual(settings.percentDisplay, .used)
+    }
+
+    func testAnUnknownCreditsVisibilityKeepsTheOtherCreditChoices() async throws {
+        let json = #"{"overviewCreditLayout":"compact","overviewShowFirst":"creditAccounts","overviewShowCredits":"unknown","percentDisplay":"used"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        try assertCreditChoices(settings, layout: "compact", first: "creditAccounts", visible: true)
+        XCTAssertEqual(settings.percentDisplay, .used)
+    }
+
     func testPinnedAccountPreferencesSurviveNormalisationAndAReopen() async throws {
         let store = SettingsStore(directory: directory)
         var settings = AppSettings(statusIconsEnabled: true, pinnedAccountKeys: ["b", "a"])

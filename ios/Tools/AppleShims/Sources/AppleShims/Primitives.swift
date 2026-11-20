@@ -476,6 +476,7 @@ extension App {
 
 public struct NavigationLink: View {
     public init(_ title: String, @ViewBuilder destination: () -> any View) {}
+    public init<Value: Hashable>(_ title: String, value: Value?) {}
     public var body: some View { ShimLeaf() }
 }
 
@@ -618,6 +619,7 @@ public struct EnvironmentValues {
     public var dismiss = DismissAction()
     public var openURL = OpenURLAction()
     public var dynamicTypeSize: DynamicTypeSize = .large
+    public var locale: Locale = .current
     public var colorScheme: ColorScheme = .dark
     public var scenePhase: ScenePhase = .active
     public var widgetFamily: WidgetFamilyPlaceholder = .systemSmall
