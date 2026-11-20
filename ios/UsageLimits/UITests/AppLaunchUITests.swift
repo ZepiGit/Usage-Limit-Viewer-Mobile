@@ -108,9 +108,17 @@ final class AppLaunchUITests: XCTestCase {
         let segment = control.buttons[option]
         XCTAssertTrue(scrollTo(segment, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs),
                       "could not reach \(option) in \(identifier) clear of the tab bar at \(bottomTabs)")
+        let tapFrame = segment.frame
         segment.tap()
-        XCTAssertTrue(app.navigationBars["Settings"].exists, "Tapping \(option) must not leave Settings")
-        XCTAssertTrue(segment.isSelected, "\(option) should be selected in \(identifier)")
+        let onSettings = app.navigationBars["Settings"].exists
+        if !onSettings || !segment.exists || !segment.isSelected {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Settings after tapping \(option) in \(identifier)"
+            add(screenshot)
+            XCTFail("\(option) should be selected in \(identifier) without leaving Settings; "
+                + "tap frame: \(tapFrame), bottom tabs: \(bottomTabs), app state: \(app.state), "
+                + "Settings visible: \(onSettings), selection: \(control.debugDescription)")
+        }
     }
 
     private func setTier(_ enabled: Bool, in app: XCUIApplication) {
