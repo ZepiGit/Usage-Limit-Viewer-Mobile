@@ -386,13 +386,19 @@ class FigureMotionTest {
         setCard(motion = true)
         assertEquals(1, rowText("—").size)
 
-        compose.change { accounts = listOf(blocked(40.0)) }
+        fun firstFrame(used: Double?): List<String> {
+            compose.change { accounts = listOf(blocked(used)) }
+            compose.mainClock.advanceTimeByFrame()
+            return listOf("—", "60%").filter { rowText(it).isNotEmpty() }
+        }
+        val gained = firstFrame(40.0)
+        // Settle also with the old key, so the reverse reading starts with just the figure.
         compose.mainClock.advanceTimeBy(1_000)
-        assertEquals("the first figure replaces the dash", listOf("60%"), listOf("—", "60%").filter { rowText(it).isNotEmpty() })
+        assertEquals(1, rowText("60%").size)
+        val lost = firstFrame(null)
 
-        compose.change { accounts = listOf(blocked(null)) }
-        compose.mainClock.advanceTimeBy(1_000)
-        assertEquals("a lost figure is the dash at once", listOf("—"), listOf("—", "60%").filter { rowText(it).isNotEmpty() })
+        assertEquals("first frame when the blocked window gains and loses a figure",
+            listOf(listOf("60%"), listOf("—")), listOf(gained, lost))
     }
 
     @Test
@@ -402,8 +408,7 @@ class FigureMotionTest {
         assertEquals(1, rowText("—").size)
 
         compose.change { accounts = listOf(demoAccount("one", ProviderId.CODEX, 40.0)) }
-        // The dash leaves over the fade's exit and is gone once that has passed.
-        compose.mainClock.advanceTimeBy(80)
+        compose.mainClock.advanceTimeByFrame()
 
         assertEquals(listOf("60%"), listOf("—", "60%").filter { rowText(it).isNotEmpty() })
     }

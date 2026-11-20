@@ -46,7 +46,6 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -778,12 +777,7 @@ internal fun figureFade(hasMeasurement: Boolean, blocked: Boolean): FigureFade =
 
 @Composable
 private fun LineFigure(line: WindowLine) {
-    // The fade's identity is the reading. A blocked window's "—" and "100%" are one state, so they
-    // fade with the chip; a reading that gains or loses its figure changes state and is cut in.
-    // The reading, not the token: a blocked window's "100%" in Used mode is the verdict, not a
-    // measurement, so a mode flip stays in one key and fades, while a reading that gains or loses
-    // its figure changes key and is replaced.
-    key(figureFade(line.window.usedPercent != null, line.presentation.exhausted)) {
+    key(figureFade(line.window.remainingPercent != null, line.presentation.exhausted)) {
         FadingFigure(line.figure, line.figureColor, GridFigureStyle, SilentCell)
     }
 }
