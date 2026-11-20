@@ -193,14 +193,7 @@ class LaunchOverlayTest {
             return try { attributes.getResourceId(0, 0) } finally { attributes.recycle() }
         }
 
-        val appTheme = theme(UsageLimitsActivity::class.java)
-        assertEquals(R.style.Theme_UsageLimits_App, appTheme)
-        val ground = context.obtainStyledAttributes(appTheme, intArrayOf(android.R.attr.windowBackground))
-        try {
-            assertEquals("the manifest starting window is Pure black", android.graphics.Color.BLACK, ground.getColor(0, 0))
-        } finally {
-            ground.recycle()
-        }
+        assertEquals(AppTheme.PURE_BLACK.splashStyle, theme(UsageLimitsActivity::class.java))
         assertEquals("the app activity's splash screen has no icon", android.R.color.transparent, splashIcon(R.style.Theme_UsageLimits_App))
         assertEquals(R.style.Theme_UsageLimits, theme(WidgetConfigActivity::class.java))
         assertTrue("the widget configuration screen keeps the system's splash icon", splashIcon(R.style.Theme_UsageLimits) == 0)
