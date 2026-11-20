@@ -362,13 +362,21 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     val route = (request as? ExternalRequest.OpenAccount)?.let {
         AccountRoute.resolve(it.accountId, state.accounts.map { usage -> usage.account.localId }.takeIf { state.loaded })
     }
-    LaunchedEffect(request, route) {
+    // The graph exists once the NavHost inside the scaffold has composed: on a cold start the
+    // request waits for the host's first back stack entry before it navigates or is confirmed.
+    val hostReady = navController.currentBackStackEntryAsState().value != null
+    LaunchedEffect(request, route, hostReady) {
+        if (!hostReady) return@LaunchedEffect
         when (request) {
             null -> return@LaunchedEffect
-            is ExternalRequest.OpenOverview -> navController.navigate(Destination.Overview.route) {
-                popUpTo(navController.graph.findStartDestination().id)
-                launchSingleTop = true
-            }
+            is ExternalRequest.OpenOverview ->
+                // A cold launch already shows Overview; a warm one may be on a detail or a tab.
+                if (navController.currentDestination?.route != Destination.Overview.route) {
+                    navController.navigate(Destination.Overview.route) {
+                        popUpTo(navController.graph.findStartDestination().id)
+                        launchSingleTop = true
+                    }
+                }
             is ExternalRequest.OpenAccount -> {
                 val accountId = when (val target = route ?: return@LaunchedEffect) {
                     is AccountRoute.Detail -> target.accountId

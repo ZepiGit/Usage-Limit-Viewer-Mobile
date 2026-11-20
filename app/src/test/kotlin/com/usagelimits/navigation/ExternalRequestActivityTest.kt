@@ -186,7 +186,10 @@ class ExternalRequestActivityTest {
         assertFalse("restoration replayed the handled link", shown("Remove account"))
     }
 
-    @Test fun `a task restored from its stored intent alone does not open the handled link again`() {
+    // Simulated: a new activity started from the intent the activity holds after handling, which
+    // handled() has rewritten. Whether the system restores a task from that intent or from the one
+    // it recorded at launch is not shown here; that needs a device.
+    @Test fun `a new activity from the activity's rewritten intent does not open the handled link again`() {
         gate.complete(Unit)
         val alpha = runBlocking { account("Alpha") }
         val controller = start(link(alpha))
@@ -194,12 +197,37 @@ class ExternalRequestActivityTest {
         back(controller)
         waitFor("onOverview() && !shown('Remove account')") { onOverview() && !shown("Remove account") }
 
-        // Android can bring the task back from the intent it keeps for it, without saved state.
-        val stored = Intent(controller.get().intent)
+        val rewritten = Intent(controller.get().intent)
         controller.pause().stop().destroy()
-        start(stored)
+        start(rewritten)
         waitFor("onOverview()") { onOverview() }
-        assertFalse("the stored intent replayed the handled link", shown("Remove account"))
+        assertFalse("the rewritten intent replayed the handled link", shown("Remove account"))
+    }
+
+    @Test fun `a launch from Recents with the original link intent opens nothing`() {
+        gate.complete(Unit)
+        val alpha = runBlocking { account("Alpha") }
+        // Recents replays the task's first intent with the history flag; the activity ignores it.
+        start(link(alpha).addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY))
+        waitFor("onOverview()") { onOverview() }
+        assertFalse("Recents replayed the link", shown("Remove account"))
+    }
+
+    @Test fun `a cold alert or whole-widget launch shows Overview`() {
+        gate.complete(Unit)
+        runBlocking { account("Alpha") }
+        start(ExternalRequest.openOverview(app))
+        waitFor("onOverview()") { onOverview() }
+        assertFalse(shown("Remove account"))
+    }
+
+    @Test fun `a cold link with the store already read opens the account's detail`() {
+        gate.complete(Unit)
+        val alpha = runBlocking { account("Alpha") }
+        // The store's first answer can be ready before the NavHost has composed its graph.
+        runBlocking { container.repository.accountUsageOnce() }
+        start(link(alpha))
+        waitFor("onDetailOf('Alpha')") { onDetailOf("Alpha") }
     }
 
     @Test fun `the same link tapped again is a new request`() {

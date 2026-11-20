@@ -105,8 +105,10 @@ class UsageLimitsActivity : ComponentActivity() {
     }
 
     /**
-     * The shell handled [request]. A newer one that arrived meanwhile stays pending. The stored
-     * intent loses its request too, so a process restored from it does not open it again.
+     * The shell handled [request]. A newer one that arrived meanwhile stays pending. The activity's
+     * own intent loses the request too, so anything that later reads getIntent() does not see it
+     * again. The intent the system recorded for the task is not changed by this; a launch from
+     * Recents carries the history flag and is ignored by [ExternalRequest.from].
      */
     private fun handled(request: ExternalRequest) {
         if (pending.value !== request) return
