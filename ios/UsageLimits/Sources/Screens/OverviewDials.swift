@@ -16,13 +16,14 @@ struct OverviewDials: View {
     var addAccount: (() -> Void)? = nil
 
     var body: some View {
+        let identities = OverviewProjection.sameProviderIdentities(in: entries)
         if dynamicTypeSize >= .accessibility1 {
-            singleColumn
+            singleColumn(identities)
         } else if preview {
             ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 8) { cells }
+                HStack(alignment: .top, spacing: 8) { cells(identities) }
                     .frame(minWidth: columnWidth * 2 + 8)
-                singleColumn
+                singleColumn(identities)
             }
         } else {
             ViewThatFits(in: .horizontal) {
@@ -30,48 +31,25 @@ struct OverviewDials: View {
                     GridItem(.flexible(minimum: columnWidth), spacing: 10),
                     GridItem(.flexible(minimum: columnWidth), spacing: 10)
                 ], spacing: 10) {
-                    cells
+                    cells(identities)
                 }
                 .frame(minWidth: columnWidth * 2 + 10)
-                singleColumn
+                singleColumn(identities)
             }
         }
     }
 
     private var columnWidth: Double { preview ? previewColumnWidth : appColumnWidth }
 
-    private var dialIdentities: [String: String] {
-        let providers = Dictionary(grouping: entries, by: { $0.account.providerID })
-        var result: [String: String] = [:]
-        for group in providers.values where group.count > 1 {
-            let byAlias = Dictionary(grouping: group, by: { $0.account.subtitle })
-            // Ranking changes with quota. Number only ambiguous accounts, in a stable order.
-            let ordered = group.sorted {
-                let lhs = $0.account.createdAt ?? .distantPast
-                let rhs = $1.account.createdAt ?? .distantPast
-                return lhs == rhs ? $0.id < $1.id : lhs < rhs
-            }
-            for (index, entry) in ordered.enumerated() {
-                if let alias = entry.account.subtitle, byAlias[alias]?.count == 1 {
-                    result[entry.id] = alias
-                } else {
-                    result[entry.id] = String(localized: "Account \(index + 1)")
-                }
-            }
-        }
-        return result
+    private func singleColumn(_ identities: [String: SameProviderIdentity]) -> some View {
+        VStack(spacing: 10) { cells(identities) }
     }
 
-    private var singleColumn: some View {
-        VStack(spacing: 10) { cells }
-    }
-
-    @ViewBuilder private var cells: some View {
-        let identities = dialIdentities
+    @ViewBuilder private func cells(_ identities: [String: SameProviderIdentity]) -> some View {
         ForEach(entries) { entry in
             OverviewDialTile(entry: entry, now: now, staleAfter: staleAfter,
-                mode: mode, calendar: calendar, preview: preview, identity: identities[entry.id],
-                openAccount: openAccount)
+                mode: mode, calendar: calendar, preview: preview,
+                identity: identities[entry.id] ?? .providerOnly, openAccount: openAccount)
         }
         if !preview, let addAccount {
             Button(action: addAccount) {
@@ -100,8 +78,16 @@ private struct OverviewDialTile: View {
     let mode: PercentDisplay
     let calendar: Calendar
     let preview: Bool
-    let identity: String?
+    let identity: SameProviderIdentity
     let openAccount: ((String) -> Void)?
+
+    private var identityLabel: String? {
+        switch identity {
+        case .providerOnly: return nil
+        case .email(let email): return email
+        case .number(let number): return String(localized: "Account \(number)")
+        }
+    }
 
     private var account: GlanceAccount { entry.account }
     private var expired: Bool { account.connectionStatus == .reconnectRequired }
@@ -120,17 +106,17 @@ private struct OverviewDialTile: View {
         } ?? .absent(mode)
         let severity = account.displaySeverity(of: row, at: now, staleAfter: staleAfter)
         let value = spoken(presentation, row: row, validity: validity)
+        let identity = identityLabel
         let label = identity.map { String(localized: "\(name) · \($0)") } ?? name
+        let tile = content(presentation, row: row, validity: validity, severity: severity, identity: identity)
         if let openAccount {
-            Button { openAccount(entry.id) } label: {
-                content(presentation, row: row, validity: validity, severity: severity)
-            }
-            .buttonStyle(OverviewDialButtonStyle())
-            .accessibilityLabel(label)
-            .accessibilityValue(value)
-            .accessibilityIdentifier("overview-dial-\(entry.id)")
+            Button { openAccount(entry.id) } label: { tile }
+                .buttonStyle(OverviewDialButtonStyle())
+                .accessibilityLabel(label)
+                .accessibilityValue(value)
+                .accessibilityIdentifier("overview-dial-\(entry.id)")
         } else {
-            content(presentation, row: row, validity: validity, severity: severity)
+            tile
                 .background(UsageColors.surface, in: RoundedRectangle(cornerRadius: 16))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(label)
@@ -140,7 +126,7 @@ private struct OverviewDialTile: View {
     }
 
     private func content(_ presentation: WindowPresentation, row: GlanceRow?,
-                         validity: ReadingValidity, severity: Severity) -> some View {
+                         validity: ReadingValidity, severity: Severity, identity: String?) -> some View {
         VStack(spacing: 10) {
             ZStack {
                 ring(presentation, row: row)
@@ -194,11 +180,12 @@ private struct OverviewDialTile: View {
     }
 
     private func arcColor(_ presentation: WindowPresentation, row: GlanceRow?) -> Color {
-        guard presentation.fill != nil, presentation.fillState != .noFill else { return .clear }
+        guard presentation.fill != nil, let fill = SeverityPalette.fill(presentation.fillState) else { return .clear }
         if expired { return UsageColors.faint }
-        if presentation.fillState == .stale { return UsageColors.muted }
-        if row?.severity == .low || row?.severity == .exhausted { return UsageColors.warning }
-        return UsageColors.data
+        if presentation.fillState == .data, row?.severity == .low || row?.severity == .exhausted {
+            return UsageColors.warning
+        }
+        return fill
     }
 
     private func figure(_ presentation: WindowPresentation, severity: Severity) -> some View {

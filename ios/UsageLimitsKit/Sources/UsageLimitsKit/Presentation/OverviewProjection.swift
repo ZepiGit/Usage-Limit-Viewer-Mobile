@@ -13,6 +13,12 @@ public struct OverviewHeader: Sendable, Equatable {
     public let resetAt: Date?
 }
 
+public enum SameProviderIdentity: Equatable, Sendable {
+    case providerOnly
+    case email(String)
+    case number(Int)
+}
+
 public struct OverviewProjection: Sendable {
     public struct Entry: Identifiable, Sendable {
         public let account: GlanceAccount
@@ -23,6 +29,35 @@ public struct OverviewProjection: Sendable {
     public let accounts: [Entry]
     public let attentionCount: Int
     public let header: OverviewHeader
+
+    /// Secondary identities within the unfiltered account set, independent of its quota rank.
+    public static func sameProviderIdentities(in entries: [Entry]) -> [String: SameProviderIdentity] {
+        var identities: [String: SameProviderIdentity] = [:]
+        identities.reserveCapacity(entries.count)
+        for group in Dictionary(grouping: entries, by: { $0.account.providerID }).values {
+            if group.count == 1 {
+                identities[group[0].id] = .providerOnly
+                continue
+            }
+            var emailCounts: [String: Int] = [:]
+            for entry in group {
+                if let email = entry.account.subtitle { emailCounts[email, default: 0] += 1 }
+            }
+            let ordered = group.sorted {
+                let lhs = $0.account.createdAt ?? .distantPast
+                let rhs = $1.account.createdAt ?? .distantPast
+                return lhs == rhs ? overviewAccountIDPrecedes($0.id, $1.id) : lhs < rhs
+            }
+            for (index, entry) in ordered.enumerated() {
+                if let email = entry.account.subtitle, emailCounts[email] == 1 {
+                    identities[entry.id] = .email(email)
+                } else {
+                    identities[entry.id] = .number(index + 1)
+                }
+            }
+        }
+        return identities
+    }
 }
 
 public extension GlanceSnapshot {

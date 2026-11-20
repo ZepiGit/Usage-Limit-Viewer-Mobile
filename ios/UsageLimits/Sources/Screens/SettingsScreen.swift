@@ -252,9 +252,9 @@ private enum SettingsUsagePreview {
         let account = ProviderAccount(id: id, provider: provider, externalAccountID: id, email: nil,
             displayName: nil, plan: plan, credentialReference: "", createdAt: now, lastSuccessfulSync: now)
         let windows = [
-            UsageWindow(id: "short", label: "5-hour", category: .fiveHour, usedPercent: used.0,
+            UsageWindow(id: "short", label: "5h limit", category: .fiveHour, usedPercent: used.0,
                 periodSeconds: 18_000, resetAt: now.addingTimeInterval(2_520), exhausted: false),
-            UsageWindow(id: "week", label: "weekly", category: .weekly, usedPercent: used.1,
+            UsageWindow(id: "week", label: "Weekly", category: .weekly, usedPercent: used.1,
                 periodSeconds: 604_800, resetAt: now.addingTimeInterval(273_600), exhausted: false)
         ]
         return AccountUsage(account: account, snapshot: UsageSnapshot(accountID: id, fetchedAt: now,

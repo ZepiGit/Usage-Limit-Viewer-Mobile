@@ -25,23 +25,29 @@ final class AppLaunchUITests: XCTestCase {
         super.tearDown()
     }
 
-    /// Swipes until the element materialises, or gives up rather than swiping for ever.
+    /// Search both ways: a lazy Form may not expose an offscreen target's frame at all.
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        if element.exists && element.isHittable { return true }
         let identifiers = ["provider-icons-list", "provider-picker-scroll", "settings-form", "overview-scroll"]
-        let container = identifiers.map { app.descendants(matching: .any)[$0].firstMatch }
+        let container = identifiers.lazy.map { app.descendants(matching: .any)[$0].firstMatch }
             .first { $0.exists && $0.isHittable } ?? app
-        for _ in 0..<12 {
-            if element.isHittable { return true }
-            let frame = container.frame.intersection(app.frame)
-            let reverse = element.exists && element.frame.maxY < frame.minY + 60
-            // The failed movie shows a drag over Claude activating the card. Use the
-            // visible gutter before the first card, inside the landscape safe area.
-            let firstButton = container.buttons.firstMatch
-            let gutterX = firstButton.exists ? max(frame.minX + 4, firstButton.frame.minX - 8) : frame.minX + 16
-            let x = (gutterX - container.frame.minX) / container.frame.width
-            let start = container.coordinate(withNormalizedOffset: CGVector(dx: x, dy: reverse ? 0.3 : 0.75))
-            let end = container.coordinate(withNormalizedOffset: CGVector(dx: x, dy: reverse ? 0.75 : 0.3))
-            start.press(forDuration: 0.05, thenDragTo: end)
+        let bounds = container.frame
+        let frame = bounds.intersection(app.frame)
+        let firstUp = element.exists && element.frame.maxY < frame.minY + 60
+        // Stay in the visible gutter so a slow drag doesn't activate a card.
+        let firstButton = container.buttons.firstMatch
+        let gutterX = firstButton.exists ? max(frame.minX + 4, firstButton.frame.minX - 8) : frame.minX + 16
+        let x = (gutterX - bounds.minX) / bounds.width
+        let high = (frame.minY + 0.30 * frame.height - bounds.minY) / bounds.height
+        let low = (frame.minY + 0.75 * frame.height - bounds.minY) / bounds.height
+        let top = container.coordinate(withNormalizedOffset: CGVector(dx: x, dy: high))
+        let bottom = container.coordinate(withNormalizedOffset: CGVector(dx: x, dy: low))
+        for towardStart in [firstUp, !firstUp] {
+            let (start, end) = towardStart ? (top, bottom) : (bottom, top)
+            for _ in 0..<12 {
+                start.press(forDuration: 0.05, thenDragTo: end)
+                if element.exists && element.isHittable { return true }
+            }
         }
         return element.waitForExistence(timeout: 2) && element.isHittable
     }
@@ -273,7 +279,9 @@ final class AppLaunchUITests: XCTestCase {
         tabButton("Settings", in: app).tap()
         selectSegment("List", in: "settings-overview-layout", app: app)
         tabButton("Overview", in: app).tap()
-        XCTAssertEqual(app.buttons["overview-filter-all"].value as? String, "Selected")
+        let all = app.buttons["overview-filter-all"]
+        XCTAssertTrue(scrollTo(all, in: app), "List must expose its All filter after returning from Dials")
+        XCTAssertEqual(all.value as? String, "Selected")
         XCTAssertTrue(scrollTo(codexRow, in: app))
         XCTAssertTrue(scrollTo(claudeRow, in: app))
     }
