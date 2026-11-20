@@ -142,10 +142,15 @@ final class UsageStore: ObservableObject {
             SettingsTrace.record("demo init delayedLoad=\(MarketingDemo.delaysLoad) compactCredits=\(MarketingDemo.startsWithCompactCredits)")
             now = MarketingDemo.now
             timeZone = TimeZone(secondsFromGMT: 0)!
-            if MarketingDemo.startsWithCompactCredits {
+            if MarketingDemo.startsWithCompactCredits || SettingsTrace.gapVariant == "still" {
                 var sampleSettings = settings
-                sampleSettings.overviewCreditLayout = .compact
-                sampleSettings.overviewShowFirst = .creditAccounts
+                if MarketingDemo.startsWithCompactCredits {
+                    sampleSettings.overviewCreditLayout = .compact
+                    sampleSettings.overviewShowFirst = .creditAccounts
+                }
+                if SettingsTrace.gapVariant == "still" {
+                    sampleSettings.animateClaudeCodeIcon = false
+                }
                 settingsTraceSource = "demo initialization"
                 applyLoaded(sampleSettings)
                 settingsTraceSource = "control edit"

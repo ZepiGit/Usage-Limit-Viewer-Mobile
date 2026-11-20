@@ -337,6 +337,58 @@ final class AppLaunchUITests: XCTestCase {
                       "Stall matrix invalid: the hook must consume all 40 switch touches; see Settings trace")
     }
 
+    func testMeasureSettingsPreviewMainThreadGaps() {
+        executionTimeAllowance = 280
+        for variant in ["animated", "still", "no-figure"] {
+            let app = launch([
+                "-marketing-demo", "-claude-mood-demo", "-motion-log", "-settings-gap-mode", variant
+            ])
+            defer { app.terminate() }
+            tabButton("Settings", in: app).tap()
+            XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+            let list = app.descendants(matching: .any)["settings-preview-list"].firstMatch
+            XCTAssertTrue(scrollTo(list, in: app, towardStart: false))
+            // Anchor the Claude heading, not the potentially taller-than-screen preview panel.
+            let claude = list.staticTexts.matching(
+                NSPredicate(format: "label == %@ OR label == %@", "Claude", "Claude Pro")).firstMatch
+            XCTAssertTrue(scrollTo(claude, in: app, towardStart: true,
+                                   clearOfBottomTabs: bottomTabBarFrame(in: app)))
+            if variant != "no-figure" {
+                let decision = "claude:preview-list:preview-claude:tired \(variant == "animated" ? "animated" : "still")"
+                let log = app.staticTexts["motion-log"]
+                let observed = XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "label CONTAINS %@", decision), object: log)
+                XCTAssertEqual(XCTWaiter.wait(for: [observed], timeout: 10), .completed,
+                               "\(variant) setup must expose the Claude list preview; \(log.label)")
+            }
+
+            // Let setup settle, then sleep only in the runner: AX queries would disturb the app.
+            Thread.sleep(forTimeInterval: 2)
+            let begin = ProcessInfo.processInfo.systemUptime
+            print("[settings-gap-window] variant=\(variant) begin=\(begin)")
+            Thread.sleep(forTimeInterval: 32)
+            let end = ProcessInfo.processInfo.systemUptime
+            print("[settings-gap-window] variant=\(variant) begin=\(begin) end=\(end)")
+
+            let trace = settingsTrace(in: app)
+            let attachment = XCTAttachment(string: trace)
+            attachment.name = "Settings gaps \(variant)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            // A bucket covers [second, second + 1); exclude both boundary-straddling bins.
+            let samples = trace.components(separatedBy: "\n").filter { line in
+                guard line.contains("gap bucket variant=\(variant) "),
+                      let field = line.split(separator: " ").first(where: { $0.hasPrefix("second=") }),
+                      let second = Double(field.dropFirst("second=".count)) else { return false }
+                return second >= begin && second + 1 <= end
+            }
+            XCTAssertFalse(samples.isEmpty, "\(variant) must record complete steady-state gap buckets")
+            for sample in samples {
+                print("[settings-gap-sample] \(sample)")
+            }
+        }
+    }
+
     func testAllThreeDestinationsExist() {
         // The shell from the reference design. If navigation failed to build, the tab bar is the
         // first thing missing, and every other query would fail for a reason that reads as

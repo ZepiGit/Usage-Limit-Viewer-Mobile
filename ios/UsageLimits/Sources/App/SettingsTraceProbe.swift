@@ -1,4 +1,5 @@
 #if DEBUG && !os(Linux)
+import QuartzCore
 import SwiftUI
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
@@ -18,9 +19,17 @@ struct SettingsTraceProbe: UIViewRepresentable {
 
     final class ProbeView: UIView {
         private let touchObserver = TouchObserver(target: nil, action: nil)
+        private var gapSampler: GapSampler?
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            if window == nil {
+                gapSampler?.stop()
+                gapSampler = nil
+            } else if gapSampler == nil, SettingsTrace.isEnabled, let variant = SettingsTrace.gapVariant {
+                gapSampler = GapSampler(variant: variant)
+                gapSampler?.start()
+            }
             if touchObserver.view !== window {
                 touchObserver.view?.removeGestureRecognizer(touchObserver)
             }
@@ -41,6 +50,45 @@ struct SettingsTraceProbe: UIViewRepresentable {
     }
 
     @MainActor
+    private final class GapSampler: NSObject {
+        let variant: String
+        private var link: CADisplayLink?
+        private var previous: TimeInterval?
+        private var bucket: Int?
+        private var maximumGap: TimeInterval = 0
+        private var callbacks = 0
+
+        init(variant: String) { self.variant = variant }
+
+        func start() {
+            let link = CADisplayLink(target: self, selector: #selector(callback))
+            link.add(to: .main, forMode: .common)
+            self.link = link
+        }
+
+        func stop() {
+            link?.invalidate()
+            link = nil
+        }
+
+        @objc private func callback() {
+            let now = ProcessInfo.processInfo.systemUptime
+            let second = Int(now)
+            if let bucket, bucket != second {
+                SettingsTrace.record("gap bucket variant=\(variant) second=\(bucket) "
+                    + "maxMs=\(maximumGap * 1000) callbacks=\(callbacks)")
+                maximumGap = 0
+                callbacks = 0
+            }
+            // Charge a gap crossing a bucket boundary to the second in which the callback arrives.
+            if let previous { maximumGap = max(maximumGap, now - previous) }
+            previous = now
+            bucket = second
+            callbacks += 1
+        }
+    }
+
+    @MainActor
     private final class TouchObserver: UIGestureRecognizer {
         private var nextTouchID = 0
         private var activeTouches: [ObjectIdentifier: Int] = [:]
@@ -50,7 +98,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
             guard arguments.contains("-ui-testing"),
                   let option = arguments.firstIndex(of: "-settings-stall-ms"),
                   option + 1 < arguments.count else { return [] }
-            return arguments[option + 1].split(separator: ",").compactMap(Int.init).filter { (0...120).contains($0) }
+            return arguments[option + 1].split(separator: ",").compactMap { Int($0) }.filter { (0...120).contains($0) }
         }()
 
         override init(target: Any?, action: Selector?) {

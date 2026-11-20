@@ -248,9 +248,10 @@ jobs:
 
       - name: Run the app on the simulator
         working-directory: ios/UsageLimits
+        id: stall-matrix
         run: |
-          set -o pipefail
-          # Bound test duration and keep one simulator with a fixed result bundle path.
+          set -euo pipefail
+          matrix="$RUNNER_TEMP/settings-stall-matrix.log"
           xcodebuild test \
             -scheme UsageLimits \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
@@ -259,6 +260,25 @@ jobs:
             -test-timeouts-enabled YES \
             -maximum-test-execution-time-allowance 300 \
             -only-testing:UsageLimitsUITests/AppLaunchUITests/testSettingsSwitchUnderInjectedMainThreadStall \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual | tee "$matrix"
+          if grep -Eq '\[stall-matrix\] summary stall_ms=0 gesture=tap attempts=4 changed=4 dropped=0' "$matrix" &&
+             grep -Eq '\[stall-matrix\] summary stall_ms=(30|60|90|120) gesture=tap attempts=4 changed=[0-3] dropped=[1-4]' "$matrix"; then
+            echo 'drops=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Measure real Settings display callback gaps
+        if: ${{ steps.stall-matrix.outputs.drops == 'true' }}
+        working-directory: ios/UsageLimits
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -scheme UsageLimits \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -resultBundlePath "$GITHUB_WORKSPACE/ios-settings-gaps.xcresult" \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -maximum-test-execution-time-allowance 300 \
+            -only-testing:UsageLimitsUITests/AppLaunchUITests/testMeasureSettingsPreviewMainThreadGaps \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
 
       - name: Collect Settings trace from simulator logs
@@ -309,5 +329,6 @@ jobs:
           name: ios-ui-test-results
           path: |
             ios-tests.xcresult
+            ios-settings-gaps.xcresult
             ios-ipad-tests-*.xcresult
           if-no-files-found: ignore

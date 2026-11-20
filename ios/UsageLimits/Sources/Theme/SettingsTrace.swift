@@ -12,6 +12,15 @@ enum SettingsTrace {
     static let isEnabled = ProcessInfo.processInfo.arguments.contains("-ui-testing")
         && ProcessInfo.processInfo.arguments.contains("-settings-trace")
 
+    nonisolated static let gapVariant: String? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("-ui-testing"),
+              let option = arguments.firstIndex(of: "-settings-gap-mode"),
+              option + 1 < arguments.count else { return nil }
+        let variant = arguments[option + 1]
+        return ["animated", "still", "no-figure"].contains(variant) ? variant : nil
+    }()
+
     private static let capacity = 128
     private static var lines: [String] = []
     private static var nextLine = 0

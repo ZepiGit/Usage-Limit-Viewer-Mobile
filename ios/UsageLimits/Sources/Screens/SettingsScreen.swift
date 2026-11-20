@@ -237,10 +237,11 @@ struct SettingsScreen: View {
         }
     }
 
+    @ViewBuilder
     private var overviewPreview: some View {
         let settings = store.settings
         let sample = SettingsUsagePreview.projection
-        return previewPanel(settings.overviewLayout == .list ? "settings-preview-list" : "settings-preview-dials") {
+        let preview = previewPanel(settings.overviewLayout == .list ? "settings-preview-list" : "settings-preview-dials") {
             OverviewBlocks(showCredits: settings.overviewShowCredits, showFirst: settings.overviewShowFirst) {
                 if settings.overviewLayout == .list {
                     ForEach(sample.accounts) { entry in
@@ -259,6 +260,16 @@ struct SettingsScreen: View {
                     staleAfter: SettingsUsagePreview.snapshot.staleAfter, layout: settings.overviewCreditLayout, preview: true)
             }
         }
+        #if DEBUG
+        if SettingsTrace.gapVariant == "no-figure" {
+            preview.environment(\.providerIconChoices,
+                settings.providerIcons.merging([ProviderID.claude.rawValue: "claude-color"]) { _, icon in icon })
+        } else {
+            preview
+        }
+        #else
+        preview
+        #endif
     }
 
     private func previewPanel<Content: View>(_ identifier: String, @ViewBuilder content: () -> Content) -> some View {
