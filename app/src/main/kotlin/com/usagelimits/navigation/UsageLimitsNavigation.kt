@@ -349,7 +349,9 @@ internal fun NavigationShell(
  */
 @Composable
 fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeClass,
-    request: ExternalRequest? = null, onRequestHandled: (ExternalRequest) -> Unit = {}) {
+    request: ExternalRequest? = null, onRequestHandled: (ExternalRequest) -> Unit = {},
+    /** The wall clock the screens read; a test passes its own. */
+    now: () -> Long = System::currentTimeMillis) {
     val navController = rememberNavController()
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val viewModel: UsageViewModel =
@@ -404,7 +406,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     // every countdown on screen froze at whatever the tab was composed with. The clock moves at the
     // next tick, at Overview's next boundary (a reset falling due, a reading turning stale, the
     // next local day) when that is sooner, on returning to the app and on a time or zone change.
-    val clock = rememberScreenClock { at, zone ->
+    val clock = rememberScreenClock(now) { at, zone ->
         val current = viewModel.state.value
         current.accounts.nextOverviewBoundary(at, zone, current.staleAfterMs)
     }

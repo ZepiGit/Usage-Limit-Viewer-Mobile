@@ -41,6 +41,8 @@ import com.usagelimits.ui.theme.UsageLimitsTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import kotlinx.coroutines.flow.first
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -118,12 +120,13 @@ class OverviewRoutingTest {
                 UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 100.0 - left, 604_800, now + 3_600_000, false))))
         }
 
-    private fun showShell() {
+    private fun showShell(now: () -> Long = System::currentTimeMillis) {
         compose.setContent {
             androidx.compose.runtime.CompositionLocalProvider(LocalViewModelStoreOwner provides owner, LocalMotionEnabled provides false) {
                 UsageLimitsTheme {
                     UsageLimitsNavigation(container, WindowSizeClass.calculateFromSize(DpSize(393.dp, 800.dp)),
-                        request = request, onRequestHandled = { handled -> if (request === handled) request = null })
+                        request = request, onRequestHandled = { handled -> if (request === handled) request = null },
+                        now = now)
                 }
             }
         }
@@ -187,6 +190,56 @@ class OverviewRoutingTest {
         }
         compose.waitDrained { shown("Needs attention") && !shown("Alpha") }
         assertEquals("back on Overview, not on an unavailable detail", false, shown("This account is no longer available."))
+    }
+
+    @Test fun `a shorter sync interval re-plans the clock to the new stale boundary, before the next tick`() {
+        // The wall clock is the compose main clock plus a base, so the test moves both together.
+        // The reading was fetched 44 min 50 s before the base. At the default 30-minute interval it
+        // turns stale after 60 minutes, so the clock plans the 30 s tick. 5 s in, the interval drops
+        // to 15 minutes: stale after 45, which is 5 s later. Only a re-plan wakes the clock then;
+        // without it the screen turns stale at the tick, 25 s later.
+        compose.mainClock.autoAdvance = false
+        val fetched = 1_800_000_000_000L
+        val base = fetched + 45 * 60_000L - 10_000L
+        val start = compose.mainClock.currentTime
+        val alpha = runBlocking {
+            container.settingsStore.setSyncInterval(30)
+            container.repository.upsertFromLogin(ProviderId.CODEX, "Alpha-${System.nanoTime()}", null, "Alpha", "Plus", emptyMap())
+                .also {
+                    container.repository.saveSnapshot(UsageSnapshot(it.localId, fetched, SnapshotStatus.OK, listOf(
+                        UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 40.0, 604_800, fetched + 7 * 86_400_000L, false))))
+                }
+        }
+        showShell { base + compose.mainClock.currentTime - start }
+
+        /** Lets results posted to the main looper land and draws one frame, until [condition] or 10 s of real time. */
+        fun settle(condition: () -> Boolean = { true }) {
+            val deadline = System.currentTimeMillis() + 10_000
+            do {
+                ShadowLooper.idleMainLooper()
+                compose.mainClock.advanceTimeByFrame()
+                if (condition()) return
+            } while (System.currentTimeMillis() < deadline)
+            throw AssertionError("not reached")
+        }
+        fun advance(ms: Long) {
+            compose.mainClock.advanceTimeBy(ms)
+            ShadowLooper.idleMainLooper()
+        }
+
+        settle { shown("Weekly") }
+        val loaded = compose.mainClock.currentTime - start
+        assertEquals("fresh under the 60-minute threshold", false, shown("Stale"))
+        advance(5_000 - loaded)
+
+        // Same accounts; only the threshold moves, to 5 s ahead.
+        runBlocking { container.settingsStore.setSyncInterval(15) }
+        settle { runBlocking { container.settingsStore.settings.first().syncIntervalMinutes } == 15 }
+        settle()
+        assertEquals("not stale before the new boundary", false, shown("Stale"))
+        advance(10_000 - (compose.mainClock.currentTime - start) + 200)
+        settle()
+        assertTrue("stale at the new boundary, not at the tick 25 s later", shown("Stale"))
     }
 
     @Test fun `choosing another tab and coming back restores All`() {

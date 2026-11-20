@@ -99,8 +99,11 @@ internal class ScreenClock(
  * Time, date and zone changes re-read it too.
  */
 @Composable
-internal fun rememberScreenClock(boundary: (nowMs: Long, zone: ZoneId) -> Long?): ScreenClock {
-    val clock = remember { ScreenClock() }
+internal fun rememberScreenClock(
+    now: () -> Long = System::currentTimeMillis,
+    boundary: (nowMs: Long, zone: ZoneId) -> Long?,
+): ScreenClock {
+    val clock = remember { ScreenClock(now = now) }
     val currentBoundary by rememberUpdatedState(boundary)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle, clock) { clock.runWhileStarted(lifecycle) { at, zone -> currentBoundary(at, zone) } }
