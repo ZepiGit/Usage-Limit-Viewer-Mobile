@@ -26,14 +26,14 @@ final class AppLaunchUITests: XCTestCase {
     }
 
     /// Search both ways: a lazy Form may not expose an offscreen target's frame at all.
-    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication, towardStart: Bool? = nil) -> Bool {
         if element.exists && element.isHittable { return true }
         let identifiers = ["provider-icons-list", "provider-picker-scroll", "settings-form", "overview-scroll"]
         let container = identifiers.lazy.map { app.descendants(matching: .any)[$0].firstMatch }
             .first { $0.exists && $0.isHittable } ?? app
         let bounds = container.frame
         let frame = bounds.intersection(app.frame)
-        let firstUp = element.exists && element.frame.maxY < frame.minY + 60
+        let firstUp = towardStart ?? (element.exists && element.frame.maxY < frame.minY + 60)
         // Stay in the visible gutter so a slow drag doesn't activate a card.
         let firstButton = container.buttons.firstMatch
         let gutterX = firstButton.exists ? max(frame.minX + 4, firstButton.frame.minX - 8) : frame.minX + 16
@@ -76,9 +76,9 @@ final class AppLaunchUITests: XCTestCase {
         return matches.allElementsBoundByIndex.first { $0.isHittable } ?? matches.firstMatch
     }
 
-    private func selectSegment(_ option: String, in identifier: String, app: XCUIApplication) {
+    private func selectSegment(_ option: String, in identifier: String, app: XCUIApplication, towardStart: Bool? = nil) {
         let control = app.segmentedControls[identifier]
-        XCTAssertTrue(scrollTo(control, in: app))
+        XCTAssertTrue(scrollTo(control, in: app, towardStart: towardStart), "could not reach \(identifier)")
         let segment = control.buttons[option]
         XCTAssertTrue(scrollTo(segment, in: app))
         segment.tap()
@@ -184,21 +184,7 @@ final class AppLaunchUITests: XCTestCase {
 
     func testDisplayAndOverviewPreviewsFollowNativeSettings() {
         let app = launch(["-marketing-demo", "-overview-expired-demo"])
-        let codexRow = app.buttons["overview-account-demo-codex"]
-        let claudeRow = app.buttons["overview-account-demo-claude"]
-        XCTAssertTrue(codexRow.waitForExistence(timeout: 10))
-        XCTAssertTrue(claudeRow.waitForExistence(timeout: 10))
-        codexRow.tap()
-        XCTAssertTrue(app.navigationBars["Account details"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["account-title-demo-codex"].waitForExistence(timeout: 10))
-        app.buttons["overview-close-detail"].tap()
-        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
-        let attention = app.buttons["overview-filter-needsAttention"]
-        attention.tap()
-        XCTAssertEqual(attention.value as? String, "Selected")
-        let filtered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: claudeRow)
-        XCTAssertEqual(XCTWaiter.wait(for: [filtered], timeout: 10), .completed)
-
+        defer { app.terminate() }
         tabButton("Settings", in: app).tap()
         selectSegment("Used", in: "settings-percent-display", app: app)
         let displayPreview = app.descendants(matching: .any)["settings-display-preview"].firstMatch
@@ -241,6 +227,29 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(scrollTo(previewClaude, in: app))
         XCTAssertEqual(previewClaude.label, "Claude")
         setTier(true, in: app)
+    }
+
+    func testDialsKeepAccountActionsAndReturnToUnfilteredList() {
+        let app = launch(["-marketing-demo", "-overview-expired-demo", "-reduce-motion"])
+        defer { app.terminate() }
+        let codexRow = app.buttons["overview-account-demo-codex"]
+        let claudeRow = app.buttons["overview-account-demo-claude"]
+        XCTAssertTrue(codexRow.waitForExistence(timeout: 10))
+        XCTAssertTrue(claudeRow.waitForExistence(timeout: 10))
+        codexRow.tap()
+        XCTAssertTrue(app.navigationBars["Account details"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["account-title-demo-codex"].waitForExistence(timeout: 10))
+        app.buttons["overview-close-detail"].tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        let attention = app.buttons["overview-filter-needsAttention"]
+        attention.tap()
+        XCTAssertEqual(attention.value as? String, "Selected")
+        let filtered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: claudeRow)
+        XCTAssertEqual(XCTWaiter.wait(for: [filtered], timeout: 10), .completed)
+
+        tabButton("Settings", in: app).tap()
+        selectSegment("Used", in: "settings-percent-display", app: app)
+        selectSegment("Dials", in: "settings-overview-layout", app: app)
         tabButton("Overview", in: app).tap()
         XCTAssertFalse(app.buttons["overview-filter-all"].exists)
         XCTAssertFalse(app.buttons["overview-filter-needsAttention"].exists)
@@ -271,7 +280,8 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(scrollTo(app.staticTexts["Each dial shows the account’s headline. Tap one for every window and its resets."], in: app))
 
         tabButton("Settings", in: app).tap()
-        selectSegment("Left", in: "settings-percent-display", app: app)
+        // Display is above the Layout picker reached before switching tabs.
+        selectSegment("Left", in: "settings-percent-display", app: app, towardStart: true)
         tabButton("Overview", in: app).tap()
         XCTAssertTrue(scrollTo(claude, in: app))
         XCTAssertEqual(claude.label, "Claude")
