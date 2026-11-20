@@ -102,7 +102,7 @@ class GermanScreenRenderTest {
         render {
             OverviewScreen(
                 state = UsageUiState(accounts = listOf(usage.copy(snapshot = snapshot)), settings = AppSettings()),
-                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onReorder = {},
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
                 onPercentDisplayChange = {},
             )
         }
@@ -137,7 +137,6 @@ class GermanScreenRenderTest {
             onRefresh = {},
             onAccountClick = {},
             onAddAccount = {},
-            onReorder = {},
             onPercentDisplayChange = {},
         )
     }
@@ -210,7 +209,6 @@ class GermanScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
                 onPercentDisplayChange = {},
             )
         }
@@ -254,7 +252,6 @@ class GermanScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
                 onPercentDisplayChange = {},
             )
         }
@@ -277,7 +274,6 @@ class GermanScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
                 onPercentDisplayChange = {},
             )
         }

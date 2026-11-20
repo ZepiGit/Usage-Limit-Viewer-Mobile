@@ -63,7 +63,7 @@ class ClickTargetTest {
         compose.setContent {
             UsageLimitsTheme {
                 OverviewScreen(state = UsageUiState(), nowMs = MOTION_NOW, onRefresh = { refreshes++ }, onAccountClick = {},
-                    onAddAccount = {}, onReorder = {}, onPercentDisplayChange = {})
+                    onAddAccount = {}, onPercentDisplayChange = {})
             }
         }
         val refresh = compose.onNode(hasContentDescription("Refresh usage") and button)

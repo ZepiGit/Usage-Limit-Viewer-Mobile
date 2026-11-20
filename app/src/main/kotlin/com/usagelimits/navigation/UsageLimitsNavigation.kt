@@ -402,7 +402,6 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     onRefresh = viewModel::refresh,
                     onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
                     onAddAccount = { navController.navigate(Destination.AddAccount.route) },
-                    onReorder = viewModel::reorderAccounts,
                     onPercentDisplayChange = viewModel::setPercentDisplay,
                     onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
                     onAddCredit = { navController.navigate(Destination.AddCredit.route) },

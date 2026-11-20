@@ -19,7 +19,10 @@ import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.sync.Publication
+import com.usagelimits.core.sync.resetTestWorkManager
 import com.usagelimits.providers.credits.CreditRegistry
 import com.usagelimits.providers.scriptedHttp
 import kotlinx.coroutines.CompletableDeferred
@@ -55,6 +58,8 @@ class UsagePublicationRoutingTest {
     private lateinit var container: AppContainer
     private lateinit var vm: UsageViewModel
     private var failSync = false
+    /** Percent left the provider reports, by external account id; absent reports no window. */
+    private val readings = mutableMapOf<String, Double>()
     private var syncEntered: CompletableDeferred<Unit>? = null
     private var continueSync: CompletableDeferred<Unit>? = null
     private val provider = object : UsageProvider {
@@ -70,7 +75,9 @@ class UsagePublicationRoutingTest {
             syncEntered?.complete(Unit)
             continueSync?.await()
             if (failSync) throw ProviderException.Offline()
-            return UsageResult(emptyList())
+            return UsageResult(listOfNotNull(readings[account.externalAccountId]?.let { left ->
+                UsageWindow("weekly", "Weekly", WindowCategory.WEEKLY, 100.0 - left, 604_800, null, exhausted = false)
+            }))
         }
     }
 
@@ -98,6 +105,7 @@ class UsagePublicationRoutingTest {
         runBlocking { vm.viewModelScope.coroutineContext[Job]!!.join() }
         WorkManager.getInstance(app).cancelAllWork().result.get()
         ShadowLooper.idleMainLooper()
+        resetTestWorkManager()
         Dispatchers.resetMain()
     }
 
@@ -134,6 +142,47 @@ class UsagePublicationRoutingTest {
         }
     }
 
+    /**
+     * Overview has no writer of its own any more (ADR 0004): a new reading reaches it through the
+     * one cache event, reranks it, and leaves the stored order the pins follow untouched.
+     */
+    @Test fun `a refresh that changes the rank publishes once and keeps the stored order`() = runBlocking {
+        val roomy = container.repository.upsertFromLogin(ProviderId.CODEX, "roomy", null, null, "Plus", emptyMap())
+        val tight = container.repository.upsertFromLogin(ProviderId.CODEX, "tight", null, null, "Plus", emptyMap())
+        for (account in listOf(roomy, tight)) {
+            container.credentialStore.save(account.credentialReference, OAuthCredentials("fixture", null, null, null))
+        }
+        readings += mapOf("roomy" to 80.0, "tight" to 60.0)
+        val observing = launch { vm.state.collect {} }
+        try {
+            withTimeout(5_000) {
+                vm.state.first { it.loaded && it.accounts.size == 2 }
+                vm.refresh()
+                assertEquals("cache moved", events.receive())
+                val first = vm.state.first { state -> !state.isRefreshing && state.accounts.all { it.snapshot != null } }
+                assertEquals(listOf(tight.localId, roomy.localId), first.overviewAccountsAt(RANKED_AT).map { it.account.localId })
+
+                readings["roomy"] = 5.0
+                vm.refresh()
+                assertEquals("cache moved", events.receive())
+                val second = vm.state.first { state -> !state.isRefreshing &&
+                    state.accounts.first { it.account.localId == roomy.localId }.snapshot?.windows?.single()?.remainingPercent == 5.0 }
+                assertEquals("the tighter reading leads Overview", listOf(roomy.localId, tight.localId),
+                    second.overviewAccountsAt(RANKED_AT).map { it.account.localId })
+                assertEquals("the stored order is untouched", listOf(roomy.localId, tight.localId),
+                    container.repository.accounts().map { it.localId })
+            }
+            assertEquals("A reading changes the order without a second publication", null, events.tryReceive().getOrNull())
+        } finally {
+            observing.cancelAndJoin()
+        }
+    }
+
+    private companion object {
+        /** The fixture windows have no reset, so the rank does not depend on the instant. */
+        const val RANKED_AT = 0L
+    }
+
     @Test fun `removing an account releases its pin and keeps the others in order`() = runBlocking {
         val kept = container.repository.upsertFromLogin(ProviderId.CODEX, "kept", null, null, "Plus", emptyMap())
         val removed = container.repository.upsertFromLogin(ProviderId.CODEX, "removed", null, null, "Plus", emptyMap())
@@ -153,7 +202,6 @@ class UsagePublicationRoutingTest {
         // The stateIn observer lives until the ViewModel is cleared; only join edit jobs.
         val backgroundJobs = vm.viewModelScope.coroutineContext[Job]!!.children.toSet()
         val changes: List<Pair<String, () -> Unit>> = listOf(
-            "reorder" to { vm.reorderAccounts(listOf(account.localId)) },
             "provider icon" to { vm.setProviderIcon(ProviderId.CODEX, "openai") },
             "display mode" to { vm.setPercentDisplay(PercentDisplay.USED) },
             "sync interval" to { vm.setSyncInterval(60) },

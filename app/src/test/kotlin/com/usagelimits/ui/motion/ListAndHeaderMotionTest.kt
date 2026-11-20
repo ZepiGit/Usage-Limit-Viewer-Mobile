@@ -39,7 +39,7 @@ class ListAndHeaderMotionTest {
             UsageLimitsTheme {
                 CompositionLocalProvider(LocalMotionEnabled provides motion) {
                     OverviewScreen(state = state, nowMs = MOTION_NOW, onRefresh = {}, onAccountClick = {},
-                        onAddAccount = {}, onReorder = {}, onPercentDisplayChange = {})
+                        onAddAccount = {}, onPercentDisplayChange = {})
                 }
             }
         }

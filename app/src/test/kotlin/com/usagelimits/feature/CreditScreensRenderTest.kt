@@ -63,7 +63,7 @@ class CreditScreensRenderTest {
         render {
             OverviewScreen(
                 state = UsageUiState(settings = AppSettings(), credits = listOf(entry(error = "Rate limited. Automatic refresh is paused. Refresh manually to try now."))),
-                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onReorder = {}, onPercentDisplayChange = {},
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
                 onCreditClick = {}, onAddCredit = {},
             )
         }

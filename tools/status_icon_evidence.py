@@ -127,6 +127,60 @@ def assert_snapshot(records, expected_accounts, baseline=None, events=""):
             "ranking": status}
 
 
+def posted_order(records, local_ids):
+    """Pinned accounts by the `when` the app stamped on them, newest first: the order it posted.
+
+    The app gives each account one real clock reading, later for an account earlier in its
+    order, on summary and child alike. This is what the app asked for, not what SystemUI drew.
+    """
+    aliases = {local: alias for alias, local in local_ids.items()}
+    stamps = {}
+    for record in records:
+        if record["package"] != PACKAGE or record["channel"] != STATUS_CHANNEL:
+            continue
+        alias = aliases.get(record["tag"].removeprefix("status-icon:"))
+        assert alias, "Status record for an unknown account: " + record["key"]
+        # API 30 dumps `when=<ms>`; API 36/37 dump `when=<ms>/<ms>` (observed in run 44577120237),
+        # the first being the notification's own `when`.
+        stamp = int(str(record["when"]).split("/", 1)[0])
+        assert stamps.setdefault(alias, stamp) == stamp, "Summary and child of " + alias + " carry different times"
+    assert len(set(stamps.values())) == len(stamps), "Two pinned accounts carry the same time: " + str(stamps)
+    return sorted(stamps, key=stamps.get, reverse=True)
+
+
+def assert_order_split(state, records, pins_in):
+    """ADR 0004: Overview and All accounts rank by headline; pinned icons keep the stored order.
+
+    `overview` and `allAccounts` are the driver's reading of the two automatic-order seams,
+    `accounts` the stored order and `pinOrder` the order the publisher posts pins in.
+    """
+    for name in ("overview", "allAccounts", "pinOrder"):
+        assert isinstance(state.get(name), list), "Receiver result missing " + name
+    assert state["accounts"] == ACCOUNTS, "Stored order moved: " + str(state["accounts"])
+    assert sorted(state["overview"]) == sorted(ACCOUNTS), "Overview lost or gained accounts: " + str(state["overview"])
+    assert state["allAccounts"] == state["overview"], f"All accounts {state['allAccounts']} disagrees with Overview {state['overview']}"
+    assert state["overview"] != state["accounts"], "Automatic order equals the stored order; the scenario cannot tell them apart"
+    assert state["pinOrder"] == pins_in, f"Pins left the stored order: {state['pinOrder']}"
+    posted = posted_order(records, state["localIds"])
+    assert posted == pins_in, f"Posted icon order {posted} is not the stored order {pins_in}"
+    return {"overview": state["overview"], "allAccounts": state["allAccounts"], "pins": state["pins"],
+            "pinOrder": state["pinOrder"], "posted": posted}
+
+
+def assert_account_titles(records, local_id, title):
+    """Both records of one pinned account carry `title`: proof the app posted that reading.
+
+    Stable keys and the `when` order cannot tell a fresh post from records left over from the
+    previous reading; the title the app built from the new reading can.
+    """
+    pair = [record for record in records if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL
+            and record["tag"] == "status-icon:" + local_id]
+    assert sorted(record["summary"] for record in pair) == [False, True], "Expected one summary and one child for " + local_id
+    titles = {("summary" if record["summary"] else "child"): record["title"] for record in pair}
+    assert titles == {"summary": title, "child": title}, f"Expected {title!r} on summary and child of {local_id}; got {titles}"
+    return titles
+
+
 def parse_alert_events(events):
     """AOSP event: notification key, buzz, beep, blink, optional politeness/mute reason."""
     observations = []
@@ -163,16 +217,16 @@ def parse_swipe_events(before, after, keys):
     return result
 
 
-def dump_section(text, heading, *, end_heading=None, indent_fallback=None):
+def dump_section(text, heading, *, end_heading=None):
+    """The lines under `heading`: up to `end_heading` when given, which must then follow exactly once."""
     matches = list(re.finditer(r"(?m)^([ \t]*)" + heading + r"[ \t]*$", text))
     assert len(matches) == 1, "Missing/ambiguous dump section: " + heading
     match = matches[0]
     section = text[match.end():]
     if end_heading is not None:
-        end = re.search(r"(?m)^[ \t]*" + re.escape(end_heading) + r"[ \t]*$", section)
-        if end is not None:
-            return section[:end.start()].rstrip("\n")
-        assert match[0].strip() == indent_fallback, "Missing dump section boundary: " + end_heading
+        ends = list(re.finditer(r"(?m)^[ \t]*" + re.escape(end_heading) + r"[ \t]*$", section))
+        assert len(ends) == 1, "Missing/ambiguous dump section boundary: " + end_heading
+        return section[:ends[0].start()].rstrip("\n")
     indent = len(match[1].expandtabs(4))
     lines = []
     for line in section.splitlines():
@@ -185,12 +239,17 @@ def dump_section(text, heading, *, end_heading=None, indent_fallback=None):
     return "\n".join(lines)
 
 
-def assert_no_heads_up(systemui, records):
+# The section SystemUI dumps right after the heads-up manager's, per image. Each image can
+# outdent the heading or a field independently of its siblings (API 30 wrote `mUser=0` two
+# columns out in run 44586152463), so the section ends at this heading, never at an indent.
+HEADS_UP_END = {30: "StatusBarTouchableRegionManager state:",
+                36: "ShadeTouchableRegionManager state:", 37: "ShadeTouchableRegionManager state:"}
+
+
+def assert_no_heads_up(systemui, records, api):
     """Only the manager's active entries are authoritative; other sections repeat keys."""
-    # API36/37 can outdent the heading or a field independently of the sibling.
-    section = dump_section(systemui, r"HeadsUpManager(?:Phone)? state:",
-                           end_heading="ShadeTouchableRegionManager state:",
-                           indent_fallback="HeadsUpManagerPhone state:")
+    assert api in HEADS_UP_END, "Unsupported evidence API: " + str(api)
+    section = dump_section(systemui, r"HeadsUpManager(?:Phone)? state:", end_heading=HEADS_UP_END[api])
     keys = {record["key"] for record in records if record["package"] == PACKAGE and record["channel"] == STATUS_CHANNEL}
     assert not any(key in section for key in keys), "Status record in active heads-up manager entry"
     known = (r"mTouchAcceptanceDelay=\d+", r"mSnoozeLengthMs=\d+", r"now=\d+", r"mUser=\d+",
@@ -590,9 +649,9 @@ class Evidence:
                 self._assert_first_post_collection(name, entry["ranking"])
             finally:
                 self._save_early_timing(name, self.early)
-        entry["headsUp"] = assert_no_heads_up(presentation["systemui"], records)
+        entry["headsUp"] = assert_no_heads_up(presentation["systemui"], records, self.report["api"])
         entry["visibleIcons"] = assert_visible_icons(presentation["systemui"], records)
-        if name in ("03-enabled", "05-reordered"):
+        if name in ("03-enabled", "05-reranked"):
             entry["providerHeaders"] = assert_provider_headers(entry["ranking"], shade, self.state["localIds"])
         if name == "14-same-provider":
             entry["duplicateRows"] = assert_duplicate_rows(records, shade, self.state["localIds"])
@@ -600,7 +659,7 @@ class Evidence:
             entry["shadeSection"] = assert_alerting_section(presentation["systemui"], records, self.report["api"], shade)
         if self.early is not None:
             entry["early"] = {"samples": self.early["samples"], "commandStarted": self.early["commandStarted"],
-                              "headsUp": assert_no_heads_up(self.early["systemui"], records),
+                              "headsUp": assert_no_heads_up(self.early["systemui"], records, self.report["api"]),
                               "alertEvents": parse_alert_events(self.early["events"])}
             assert not re.search(r"Application (?:Not Responding|not responding|Error):", self.early["window"]), "System error during early frames"
             self.early = None
@@ -785,7 +844,7 @@ class Evidence:
             result.update(label="Emulator non-secure swipe keyguard only; normal PRIVATE notification policy, no AOD/secure-phone claim",
                           keyguardShowing=True, secure=False, originalDisabled=disabled, temporarySwipeEnabled=changed,
                           accessibility=[{field: node.get(field) for field in ("text", "content-desc", "resource-id", "bounds", "focused", "accessibility-focused")} for node in lock_xml.iter("node") if node.get("package") == "com.android.systemui" and (node.get("text") or node.get("content-desc"))],
-                          headsUp=assert_no_heads_up(policy["systemui"], records))
+                          headsUp=assert_no_heads_up(policy["systemui"], records, self.report["api"]))
             if name == "14-same-provider-lockscreen":
                 result["duplicateRows"] = assert_duplicate_rows(records, lock_xml, self.state["localIds"], require_names=False)
             self.report.setdefault("lockscreens", {})[name] = result
@@ -907,13 +966,20 @@ class Evidence:
         self.lockscreen(full)
         self.transition("update", "04-updated")
         full = self.capture("04-updated", "full six; Claude42 ->87 through repository/cacheMoved", ACCOUNTS[:3], baseline=full)
-        self.transition("reorder", "05-reordered")
-        assert self.state["accounts"] == [ACCOUNTS[2], ACCOUNTS[0], ACCOUNTS[1], *ACCOUNTS[3:]], "Repository reorder did not complete"
-        full = self.capture("05-reordered", "full six; repository/presentationChanged order Antigravity,Claude,Codex,XAI,Kimi,Devin", ACCOUNTS[:3], baseline=full)
+        before = assert_order_split(self.state, full, pins_in=ACCOUNTS[:3])
+        before["antigravityTitles"] = assert_account_titles(full, self.state["localIds"][ACCOUNTS[2]], "100% left")
+        self.transition("rerank", "05-reranked")
+        full = self.capture("05-reranked", "full six; synthetic Antigravity reading 100 -> 2 through repository/cacheMoved over the seeded legacy stored order", ACCOUNTS[:3], baseline=full)
+        after = assert_order_split(self.state, full, pins_in=ACCOUNTS[:3])
+        after["antigravityTitles"] = assert_account_titles(full, self.state["localIds"][ACCOUNTS[2]], "2% left")
+        assert self.state["pins"] == before["pins"], "The reading changed the stored pins"
+        assert before["overview"][-1] == ACCOUNTS[2] and after["overview"][:2] == [ACCOUNTS[3], ACCOUNTS[2]], (
+            f"The reading did not move Antigravity up the automatic order: {before['overview']} -> {after['overview']}")
+        self.report["orderSplit"] = {"before": before, "after": after}
         self.command("states")
         self.capture("06-states", "full six; original pinned accounts become exhausted/stale/error through repository/cacheMoved", ACCOUNTS[:3])
         self.command("reset-readings")
-        full = self.capture("07-restored", "full six state-glyph records; reset-readings via repository/cacheMoved retains reordered accounts and pins", ACCOUNTS[:3])
+        full = self.capture("07-restored", "full six state-glyph records; reset-readings via repository/cacheMoved retains the stored order and pins", ACCOUNTS[:3])
         self.swipe_claude(full)
         remaining = swipe_accounts(self.report["api"])
         self.capture("08-swiped", "full six initial readings; real swipe of observed Claude group (API30 ongoing remains; API36/37 absent)", remaining)
@@ -941,6 +1007,14 @@ class Evidence:
         for entry in self.report["scenarios"]:
             lines.append("| " + " | ".join(str(value).replace("|", "\\|") for value in (entry["name"], entry["startingState"], entry.get("statusCount", "?"), entry.get("alertCount", "?"), entry.get("systemCount", "?"), entry["result"])) + " |")
         lines += ["", "## Untouched platform defaults", "", json.dumps({key: self.report.get(key) for key in ("defaultBefore", "defaultAfter", "defaultFlagsUnchanged")}, sort_keys=True), "", "03-enabled-default retains the API37 hideSilentStatusBar=true/showSilentStatusIcons=false default while the DEFAULT channel remains eligible for status-bar icons. 03-enabled is the same unchanged-policy normal capture; there is no Settings navigation.", "", "## Emulator lock screen", "", json.dumps(self.report.get("lockscreens", {}), sort_keys=True)]
+        if split := self.report.get("orderSplit"):
+            lines += ["", "## Automatic order and pinned order (ADR 0004)", "",
+                      "Asserted from the driver's projections and the `when` the app stamped on each pinned account; "
+                      "visible icon and shade order remain observations below. The stored order was seeded with the "
+                      "repository writer as fixture set-up; the change between the two rows is a synthetic reading."]
+            for label, state in (("Before the reading", split["before"]), ("After the reading", split["after"])):
+                lines.append(f"- {label}: Overview {', '.join(state['overview'])}; All accounts {', '.join(state['allAccounts'])}; "
+                             f"pins posted {', '.join(state['posted'])}")
         if swipe := self.report.get("swipe"):
             lines += ["", "## Real Claude row swipe", "",
                       f"- Layout samples: {len(swipe['layoutSamples'])}; diagnostics: `swipe-layout-*.xml`."]
@@ -972,12 +1046,12 @@ class Evidence:
                 fields = [{key: node[key] for key in ("text", "content-desc")} for node in row["shadeNodes"]]
                 shade = json.dumps(fields, ensure_ascii=False) if fields else "not exposed in a recognized shade XML header; inspect PNG"
                 lines.append(f"- {entry['name']}, {row['title']}: summary and child sub-text `{row['subText']}`; shade XML: {shade}")
-        lines += ["", "## Evidence limits", "", "Visible-icon metadata describes only the SystemUI status-bar model. Unsupported images require human pixel inspection; records, shelf and AOD entries never substitute for visible icons. Icon and shade order are observations, not assertions. Standard-template sub-text always names the provider and adds the account label only for same-provider pins. Both duplicate account names must be present in shade XML; lock-screen visibility is report-only. Contracted shade rows may omit header nodes from XML; raw XML and PNGs are retained for inspection. XML shows exposed text and descriptions, not actual TalkBack speech. Early pre-enable/update/reorder frames target 0.25, 0.5, 1 and 2 seconds with actual timings; finite frames and manager snapshots cannot prove that no transient peek ever occurred. No physical-phone, audible-output, OEM or always-on-display claim.", "", "## Ranking observations"]
+        lines += ["", "## Evidence limits", "", "Visible-icon metadata describes only the SystemUI status-bar model. Unsupported images require human pixel inspection; records, shelf and AOD entries never substitute for visible icons. Icon and shade order are observations, not assertions. Standard-template sub-text always names the provider and adds the account label only for same-provider pins. Both duplicate account names must be present in shade XML; lock-screen visibility is report-only. Contracted shade rows may omit header nodes from XML; raw XML and PNGs are retained for inspection. XML shows exposed text and descriptions, not actual TalkBack speech. Early pre-enable/update/rerank frames target 0.25, 0.5, 1 and 2 seconds with actual timings; finite frames and manager snapshots cannot prove that no transient peek ever occurred. No physical-phone, audible-output, OEM or always-on-display claim.", "", "## Ranking observations"]
         for entry in self.report["scenarios"]:
             if "accountDumpOrder" in entry:
                 aliases = {local: alias for alias, local in entry["driver"]["localIds"].items()}
                 lines += ["", "Dump account order (not visible icon order), " + entry["name"] + ": " + ", ".join(aliases.get(local, local) for local in entry["accountDumpOrder"]), ""]
-                if entry["name"] in ("03-enabled", "05-reordered"):
+                if entry["name"] in ("03-enabled", "05-reranked"):
                     account_order = [alias for alias in entry["driver"].get("accounts", []) if alias in entry["expectedAccounts"]]
                     if account_order:
                         lines.append("- App account order: " + ", ".join(account_order))

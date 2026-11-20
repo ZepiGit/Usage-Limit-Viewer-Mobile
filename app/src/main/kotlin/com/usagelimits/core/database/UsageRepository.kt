@@ -10,6 +10,7 @@ import com.usagelimits.core.model.UsageSegment
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.model.inOverviewOrder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -29,6 +30,10 @@ data class AccountUsage(
                 it.windows.isNotEmpty() || it.resetCredits.isNotEmpty() || it.resetCreditCount != null
         }?.fetchedAt
 }
+
+/** Overview's automatic order (ADR 0004); see [com.usagelimits.core.model.inOverviewOrder]. */
+fun List<AccountUsage>.inOverviewOrder(nowMs: Long): List<AccountUsage> =
+    inOverviewOrder(nowMs, AccountUsage::account, AccountUsage::snapshot)
 
 /**
  * Runs a block with the database's write serialisation held for its whole duration.
@@ -67,6 +72,8 @@ class UsageRepository(
     private val snapshotDao: UsageSnapshotDao,
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val transactions: TransactionRunner = DirectTransactionRunner,
+    /** When a new account counts as added; Overview breaks ties by it (ADR 0004). */
+    private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
 
     // Persisted shapes. Kept separate from the domain models so a UI-facing change (adding a
@@ -162,7 +169,7 @@ class UsageRepository(
             // Reference stays stable across re-auth so the stored credential is replaced,
             // not orphaned alongside a new one.
             credentialReference = existing?.credentialReference ?: "${provider.id}_$localId",
-            createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+            createdAt = existing?.createdAt ?: nowMs(),
             lastSuccessfulSync = existing?.lastSuccessfulSync,
             attributesJson = json.encodeToString(
                 StoredAttributes.serializer(),

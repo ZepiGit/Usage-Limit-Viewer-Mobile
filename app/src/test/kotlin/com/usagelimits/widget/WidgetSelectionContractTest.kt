@@ -63,8 +63,11 @@ class WidgetSelectionContractTest {
 
     @Test fun `all accounts matches overview and custom is an exact ordered subset`() {
         val accounts = listOf(account("c", 0.0, null), account("a", 100.0, null), account("b", 20.0, null))
-        assertEquals(listOf("c", "a", "b"), UsageUiState(accounts).orderedAccounts().map { it.account.localId })
-        assertEquals(listOf("c", "a", "b"), WidgetDataBuilder.build(accounts, now, WidgetScope.ALL_ACCOUNTS, null, null).accounts.map { it.accountId })
+        // Stored order c, a, b; both rank a (exhausted), b (80 left), c (100 left).
+        assertEquals(listOf("a", "b", "c"), UsageUiState(accounts).overviewAccountsAt(now).map { it.account.localId })
+        assertEquals(listOf("a", "b", "c"), WidgetDataBuilder.build(accounts, now, WidgetScope.ALL_ACCOUNTS, null, null).accounts.map { it.accountId })
+        assertEquals("Provider scope keeps the stored order", listOf("c", "a", "b"),
+            WidgetDataBuilder.build(accounts, now, WidgetScope.PROVIDER, null, ProviderId.CODEX.id).accounts.map { it.accountId })
         assertEquals(listOf("b", "c"), WidgetDataBuilder.build(accounts, now, WidgetScope.CUSTOM, null, null,
             customAccountIds = listOf("b", "deleted", "b", "c")).accounts.map { it.accountId })
         assertTrue(WidgetDataBuilder.build(accounts, now, WidgetScope.CUSTOM, null, null).accounts.isEmpty())

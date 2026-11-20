@@ -123,7 +123,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {},
+                onPercentDisplayChange = {},
             )
         }
 
@@ -163,7 +163,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {},
+                onPercentDisplayChange = {},
             )
         }
 
@@ -180,7 +180,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {},
+                onPercentDisplayChange = {},
             )
         }
 
@@ -196,7 +196,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {},
+                onPercentDisplayChange = {},
             )
         }
 
@@ -216,7 +216,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {},
+                onPercentDisplayChange = {},
             )
         }
 

@@ -11,7 +11,7 @@ from android_runtime_smoke import png_bytes
 from check_status_icon_release import verify
 from status_icon_evidence import (
     Evidence, SystemDialog, SystemUIBootANR,
-    assert_snapshot, parse_notifications, swipe_accounts, systemui_anr,
+    ACCOUNTS, HEADS_UP_END, assert_order_split, assert_snapshot, parse_notifications, posted_order, swipe_accounts, systemui_anr,
 )
 
 
@@ -122,12 +122,75 @@ class NotificationEvidenceTest(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "keys"):
             assert_snapshot(parse_notifications(dump(PAIR.replace("|10123", "|10124"))), ["uuid-claude"], baseline=baseline)
 
-    def test_reorder_records_observations_without_asserting_sort_order(self):
+    def test_rank_change_records_dump_order_without_asserting_it(self):
         codex = PAIR.replace("uuid-claude", "uuid-codex").replace("Claude", "Codex")
         before = parse_notifications(dump(PAIR + codex))
         after = parse_notifications(dump(codex + PAIR))
         report = assert_snapshot(after, ["uuid-claude", "uuid-codex"], baseline=before)
         self.assertEqual(["uuid-codex", "uuid-claude"], report["accountDumpOrder"])
+
+    def _pins(self, stamps):
+        """Three pinned pairs whose summary and child carry the given `when` per alias."""
+        body = ""
+        for alias, stamp in stamps.items():
+            pair = PAIR.replace("uuid-claude", "uuid-" + alias.removeprefix("evidence-"))
+            body += pair.replace("when=1794880000001", f"when={stamp}").replace("when=1794880000002", f"when={stamp}")
+        return parse_notifications(dump(body))
+
+    def _split_state(self, overview, all_accounts=None, pin_order=None):
+        return {"accounts": ACCOUNTS, "pins": [ACCOUNTS[1], ACCOUNTS[2], ACCOUNTS[0]],
+                "pinOrder": ACCOUNTS[:3] if pin_order is None else pin_order,
+                "overview": overview, "allAccounts": overview if all_accounts is None else all_accounts,
+                "localIds": {alias: "uuid-" + alias.removeprefix("evidence-") for alias in ACCOUNTS}}
+
+    def test_order_split_reads_the_posted_order_from_the_apps_times(self):
+        records = self._pins({ACCOUNTS[2]: 100, ACCOUNTS[0]: 300, ACCOUNTS[1]: 200})
+        self.assertEqual(ACCOUNTS[:3], posted_order(records, self._split_state(ACCOUNTS)["localIds"]))
+        # API 36/37 write the app's `when` first, then a second time (run 44577120237, API 36 dump).
+        api36 = self._pins({ACCOUNTS[2]: "1795109475022/1795109475022", ACCOUNTS[0]: "1795109475040/1795109475040",
+                            ACCOUNTS[1]: "1795109475033/1795109475033"})
+        self.assertEqual(ACCOUNTS[:3], posted_order(api36, self._split_state(ACCOUNTS)["localIds"]))
+        with self.assertRaisesRegex(AssertionError, "same time"):
+            posted_order(self._pins({ACCOUNTS[0]: 300, ACCOUNTS[1]: 300, ACCOUNTS[2]: 100}), self._split_state(ACCOUNTS)["localIds"])
+
+    def test_order_split_accepts_a_rank_that_differs_from_stored_pins(self):
+        ranked = [ACCOUNTS[3], ACCOUNTS[2], ACCOUNTS[1], ACCOUNTS[4], ACCOUNTS[0], ACCOUNTS[5]]
+        records = self._pins({ACCOUNTS[0]: 300, ACCOUNTS[1]: 200, ACCOUNTS[2]: 100})
+        result = assert_order_split(self._split_state(ranked), records, pins_in=ACCOUNTS[:3])
+        self.assertEqual(ACCOUNTS[:3], result["posted"])
+        self.assertEqual(ranked, result["overview"])
+
+    def test_rerank_needs_the_new_reading_on_summary_and_child(self):
+        import status_icon_evidence as subject
+        def titled(summary, child):
+            pair = PAIR.replace("uuid-claude", "uuid-gemini")
+            first, second = pair.split("    NotificationRecord(0x124")
+            return parse_notifications(dump(first.replace("android.title=String (Claude)", f"android.title=String ({summary})")
+                                             + "    NotificationRecord(0x124"
+                                             + second.replace("android.title=String (Claude)", f"android.title=String ({child})")))
+        self.assertEqual({"summary": "2% left", "child": "2% left"},
+                         subject.assert_account_titles(titled("2% left", "2% left"), "uuid-gemini", "2% left"))
+        # Records the reading never reached: the previous post stays, keys and times unchanged.
+        for summary, child in (("100% left", "100% left"), ("2% left", "100% left"), ("100% left", "2% left")):
+            with self.subTest(summary=summary, child=child), self.assertRaisesRegex(AssertionError, "Expected '2% left'"):
+                subject.assert_account_titles(titled(summary, child), "uuid-gemini", "2% left")
+        with self.assertRaisesRegex(AssertionError, "one summary and one child"):
+            subject.assert_account_titles(titled("2% left", "2% left"), "uuid-claude", "2% left")
+
+    def test_order_split_rejects_each_broken_contract(self):
+        ranked = [ACCOUNTS[3], ACCOUNTS[2], ACCOUNTS[1], ACCOUNTS[4], ACCOUNTS[0], ACCOUNTS[5]]
+        good = self._pins({ACCOUNTS[0]: 300, ACCOUNTS[1]: 200, ACCOUNTS[2]: 100})
+        cases = (
+            ("All accounts", self._split_state(ranked, all_accounts=ACCOUNTS), good),
+            ("cannot tell them apart", self._split_state(ACCOUNTS), good),
+            ("Pins left the stored order", self._split_state(ranked, pin_order=[ACCOUNTS[2], ACCOUNTS[0], ACCOUNTS[1]]), good),
+            ("Posted icon order", self._split_state(ranked), self._pins({ACCOUNTS[2]: 300, ACCOUNTS[0]: 200, ACCOUNTS[1]: 100})),
+            ("Stored order moved", {**self._split_state(ranked), "accounts": list(reversed(ACCOUNTS))}, good),
+            ("missing overview", {key: value for key, value in self._split_state(ranked).items() if key != "overview"}, good),
+        )
+        for message, state, records in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(AssertionError, message):
+                assert_order_split(state, records, pins_in=ACCOUNTS[:3])
 
     def test_unknown_dump_shape_fails_instead_of_passing_empty_state(self):
         with self.assertRaisesRegex(AssertionError, "Notification List"):
@@ -181,12 +244,48 @@ class DefaultEvidenceParserTest(unittest.TestCase):
         key = records[0]["key"]
         sibling = "    StatusBarTouchableRegionManager state:"
         empty = "    HeadsUpManagerPhone state:\n      mTouchAcceptanceDelay=700\n      mSnoozeLengthMs=60000\n      now=123\n      mUser=0\n      snoozed packages: 0\n      mBarState=0\n      mTouchableRegion=SkRegion()\n" + sibling + "\n      key=" + key
-        subject.assert_no_heads_up(empty, records)
+        subject.assert_no_heads_up(empty, records, 30)
         for active in ("      HeadsUpEntry\n        mEntry=" + key + "\n", "      mAlertEntries={" + key + "=entry}\n"):
             with self.subTest(active=active), self.assertRaisesRegex(AssertionError, "heads.up|Heads.up"):
-                subject.assert_no_heads_up(empty.replace(sibling, active + sibling), records)
-        with self.assertRaisesRegex(AssertionError, "Missing dump section boundary"):
-            subject.assert_no_heads_up(empty.replace("HeadsUpManagerPhone state:", "HeadsUpManager state:"), records)
+                subject.assert_no_heads_up(empty.replace(sibling, active + sibling), records, 30)
+        for broken in (empty.replace(sibling, "    OtherManager state:"), empty.replace(sibling, sibling + "\n" + sibling)):
+            with self.subTest(broken=broken), self.assertRaisesRegex(AssertionError, "Missing/ambiguous dump section boundary"):
+                subject.assert_no_heads_up(broken, records, 30)
+        with self.assertRaisesRegex(AssertionError, "Missing/ambiguous dump section boundary"):
+            subject.assert_no_heads_up(empty, records, 36)
+
+    # Run 44586152463, attempt 1, API 30: artifact status-icons-api30-343bd88f8a39568d29dd5f1a8de7dc968bc9d103
+    # (14562185143), 03-enabled-systemui.txt lines 477-486, verbatim. SystemUI outdented `mUser`.
+    API30_OUTDENTED = ("    HeadsUpManagerPhone state:\n"
+                       "      mTouchAcceptanceDelay=700\n"
+                       "      mSnoozeLengthMs=60000\n"
+                       "      now=101938\n"
+                       "  mUser=0\n"
+                       "      snoozed packages: 0\n"
+                       "      mBarState=0\n"
+                       "      mTouchableRegion=SkRegion()\n"
+                       "    StatusBarTouchableRegionManager state:\n"
+                       "      mTouchableRegion=SkRegion((0,0,720,42))\n")
+
+    def test_api30_heads_up_section_ends_at_the_status_bar_region_manager_despite_an_outdent(self):
+        import status_icon_evidence as subject
+        records = parse_notifications(dump())
+        report = subject.assert_no_heads_up(self.API30_OUTDENTED, records, 30)
+        self.assertIn("mUser=0", report["managerSection"])
+        self.assertIn("mTouchableRegion=SkRegion()", report["managerSection"])
+        self.assertNotIn("(0,0,720,42)", report["managerSection"])
+
+    def test_api30_outdented_active_entry_before_the_boundary_still_fails(self):
+        import status_icon_evidence as subject
+        records = parse_notifications(dump())
+        boundary = "    StatusBarTouchableRegionManager state:\n"
+        for entry, error in (
+            ("  mAlertEntries={" + records[1]["key"] + "=entry}\n", "Status record in active heads-up manager entry"),
+            ("  HeadsUpEntry\n", "Unrecognized heads-up active section"),
+            ("  mHasPinnedNotification=true\n", "Unrecognized heads-up active section"),
+        ):
+            with self.subTest(entry=entry), self.assertRaisesRegex(AssertionError, error):
+                subject.assert_no_heads_up(self.API30_OUTDENTED.replace(boundary, entry + boundary), records, 30)
 
     def test_heads_up_uses_shade_touchable_region_manager_bound_despite_outdents(self):
         import status_icon_evidence as subject
@@ -212,7 +311,7 @@ class DefaultEvidenceParserTest(unittest.TestCase):
         outdented_field = "    " + manager.replace("      snoozed packages: 0", "  snoozed packages: 0")
         for api, dump_section in ((36, manager), (37, outdented_field)):
             with self.subTest(api=api):
-                report = subject.assert_no_heads_up(flags + dump_section + later, records)
+                report = subject.assert_no_heads_up(flags + dump_section + later, records, api)
                 self.assertEqual([], report["activeStatusKeys"])
                 self.assertEqual(["false"], report["presentationFlags"])
 
@@ -223,9 +322,9 @@ class DefaultEvidenceParserTest(unittest.TestCase):
             ("  ShadeTouchableRegionManager state: unknown\n", "Unrecognized heads-up active section"),
         ):
             with self.subTest(entry=entry), self.assertRaisesRegex(AssertionError, error):
-                subject.assert_no_heads_up(flags + outdented_field + entry + later, records)
+                subject.assert_no_heads_up(flags + outdented_field + entry + later, records, 37)
         with self.assertRaisesRegex(AssertionError, "Active heads-up presentation flag"):
-            subject.assert_no_heads_up(flags.replace("false", "true") + manager + later, records)
+            subject.assert_no_heads_up(flags.replace("false", "true") + manager + later, records, 36)
 
     def test_shade_requires_every_account_child_in_alerting(self):
         import status_icon_evidence as subject
@@ -278,7 +377,7 @@ class DefaultEvidenceParserTest(unittest.TestCase):
             subject.assert_visible_icons(two, three)
 
 
-    def test_initial_and_reordered_captures_require_provider_headers_without_assuming_visible_order(self):
+    def test_initial_and_reranked_captures_require_provider_headers_without_assuming_visible_order(self):
         expected = ["evidence-claude", "evidence-codex", "evidence-gemini"]
         accounts = [("claude", "42% left", "Claude"), ("codex", "5% left", "OpenAI Codex"),
                     ("gemini", "100% left", "Antigravity")]
@@ -307,7 +406,7 @@ class DefaultEvidenceParserTest(unittest.TestCase):
             </node>
           </node>
         </hierarchy>'''
-        for name in ("03-enabled", "05-reordered"):
+        for name in ("03-enabled", "05-reranked"):
             for notification, xml, failure in (
                 (posted.replace("android.subText=String (OpenAI Codex)", "android.subText=String (OpenAI Codex (synthetic))", 1), shade, "sub-text"),
                 (posted.replace("android.subText=String (Claude)", "missingSubText=Claude", 1), shade, "sub-text"),
@@ -354,7 +453,7 @@ class DefaultEvidenceParserTest(unittest.TestCase):
             subject.assert_duplicate_rows(records, ET.fromstring('<hierarchy/>'), local_ids)
         self.assertFalse(subject.assert_duplicate_rows(records, ET.fromstring('<hierarchy/>'), local_ids, require_names=False)["namesExposed"])
 
-    def test_same_provider_completion_preserves_current_reordered_accounts(self):
+    def test_same_provider_completion_preserves_current_stored_accounts(self):
         import json
         import status_icon_evidence as subject
         original = {alias: "uuid-" + alias for alias in subject.ACCOUNTS}
@@ -582,7 +681,7 @@ class TransitionEvidenceTest(unittest.TestCase):
         posted = "".join(PAIR.replace("uuid-claude", local_ids[alias]) for alias in accounts[:3])
         keys = [f"0|com.usagelimits.debug|2002|status-icon:{local_ids[alias]}|10123" for alias in accounts[:3]]
         manager = ("HeadsUpManager state:\n  mTouchAcceptanceDelay=700\n  mSnoozeLengthMs=60000\n"
-                   "  now=123\n  mUser=0\n  snoozed packages: 0\n    ShadeTouchableRegionManager state:\n")
+                   "  now=123\n  mUser=0\n  snoozed packages: 0\n    {boundary}\n")
         later = "    ShadeListBuilder shade notifications:\n" + "".join(
             f"      [{index}] {key} (parent=<root>) rank={index} section=6:5:Alerting\n"
             for index, key in enumerate(keys)
@@ -617,11 +716,11 @@ class TransitionEvidenceTest(unittest.TestCase):
                                                "accounts": accounts, "pins": accounts[:3], "localIds": local_ids,
                                                "completedElapsedRealtimeMs": 100000})
                         if args[:3] == ("shell", "sh", "-c") and "/proc/uptime" in args[3]:
-                            return "systemuiDumpStartedUptime=101.25\n" + manager + collection + later
+                            return "systemuiDumpStartedUptime=101.25\n" + manager.format(boundary=HEADS_UP_END[api]) + collection + later
                         if args == ("shell", "dumpsys", "notification", "--noredact"):
                             return dump(posted)
                         if args[-1] == "com.android.systemui/.SystemUIService":
-                            return manager + later
+                            return manager.format(boundary=HEADS_UP_END[api]) + later
                         if args == ("shell", "cmd", "statusbar", "expand-notifications"):
                             self.shade_expanded = True
                         if args == ("exec-out", "cat", "/sdcard/status-icon-evidence.xml"):

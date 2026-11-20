@@ -113,7 +113,6 @@ class PercentDisplaySurfacesTest {
                     onRefresh = {},
                     onAccountClick = {},
                     onAddAccount = {},
-                    onReorder = {},
                     onPercentDisplayChange = onChange,
                 )
             }
@@ -262,7 +261,6 @@ class PercentDisplaySurfacesTest {
                     onRefresh = {},
                     onAccountClick = {},
                     onAddAccount = {},
-                    onReorder = {},
                     onPercentDisplayChange = {},
                 )
             }
