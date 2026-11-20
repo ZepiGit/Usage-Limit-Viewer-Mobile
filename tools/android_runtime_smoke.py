@@ -1526,12 +1526,12 @@ class Smoke:
                 name = "appearance-" + label.lower().replace(" ", "-")
                 self.navigate("Settings", "Appearance", name + "-settings")
                 root = self.dump(name + "-picker")
-                target = navigation_target(root, label)
+                target = self.control(root, PACKAGE, label=label)
                 assert target is not None, f"Missing exact theme UI label: {label}"
                 if not self.selected(target):
                     self.tap(target)
                 self.wait_for(name + "-selected", lambda root: (
-                    (tile := navigation_target(root, label)) is not None and self.selected(tile)))
+                    (tile := self.control(root, PACKAGE, label=label)) is not None and self.selected(tile)))
                 # Wait for the live themed root/bars before stopping: the tap alone is not persistence evidence.
                 style = {"label": label, "attempts": []}
                 for attempt in range(12):
@@ -1559,7 +1559,7 @@ class Smoke:
                 self.wait_for(name + "-overview", lambda root: overview_ready(root, "current"))
                 self.navigate("Settings", "Appearance", name + "-relaunch-settings")
                 self.wait_for(name + "-persisted", lambda root: (
-                    (tile := navigation_target(root, label)) is not None and self.selected(tile)))
+                    (tile := self.control(root, PACKAGE, label=label)) is not None and self.selected(tile)))
                 self.setting_is_disabled(name + "-tier")
                 self.capture(name + "-tier")
         finally:

@@ -1197,8 +1197,9 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
 class ThemeSelectionTest(unittest.TestCase):
     @staticmethod
     def picker(label, selected):
-        return ET.fromstring(f'<hierarchy><node package="com.usagelimits" enabled="true" clickable="true" '
-            f'selected="{str(selected).lower()}" bounds="[20,200][180,300]">'
+        # UIAutomator reports a selected Compose radio as checked but not clickable/selected.
+        return ET.fromstring(f'<hierarchy><node package="com.usagelimits" enabled="true" checkable="true" '
+            f'clickable="{str(not selected).lower()}" checked="{str(selected).lower()}" selected="false" bounds="[20,200][180,300]">'
             f'<node package="com.usagelimits" text="{label}"/></node></hierarchy>')
 
     def test_exact_ui_labels_select_wait_stop_capture_and_reach_existing_setting_for_both_themes(self):
