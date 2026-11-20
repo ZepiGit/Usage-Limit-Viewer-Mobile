@@ -72,7 +72,7 @@ struct ClaudeCodeCanvas: View {
                               design: particle.kind == .sleep ? .monospaced : .default))
                 .foregroundColor(particle.kind == .sleep ? Self.sleepInk : ink)
             let resolved = effect.resolve(text)
-            let measured = resolved.measure(in: CGSize(width: .infinity, height: .infinity))
+            let measured = resolved.measure(in: CGSize(width: CGFloat.infinity, height: CGFloat.infinity))
             position(particle, width: measured.width, height: measured.height, in: &effect)
             effect.draw(resolved, at: CGPoint(x: 0, y: 0), anchor: .topLeading)
         case .sweat:
