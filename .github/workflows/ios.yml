@@ -258,6 +258,7 @@ jobs:
             -parallel-testing-enabled NO \
             -test-timeouts-enabled YES \
             -maximum-test-execution-time-allowance 300 \
+            -only-testing:UsageLimitsUITests/AppLaunchUITests/testSettingsSwitchUnderInjectedMainThreadStall \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
 
       - name: Collect Settings trace from simulator logs

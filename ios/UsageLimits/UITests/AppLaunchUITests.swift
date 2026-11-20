@@ -272,6 +272,71 @@ final class AppLaunchUITests: XCTestCase {
         expectDecision("claude:dial:demo-claude-exhausted:asleep still")
     }
 
+    func testSettingsSwitchUnderInjectedMainThreadStall() {
+        let durations = [0, 30, 60, 90, 120]
+        var attempts: [(stallIndex: Int, press: Bool)] = []
+        for repetition in 0..<4 {
+            for offset in durations.indices {
+                let stallIndex = (offset + repetition) % durations.count
+                for press in repetition.isMultiple(of: 2) ? [false, true] : [true, false] {
+                    attempts.append((stallIndex: stallIndex, press: press))
+                }
+            }
+        }
+        let stalls = attempts.map { String(durations[$0.stallIndex]) }.joined(separator: ",")
+        let app = launch(["-marketing-demo", "-reduce-motion", "-settings-stall-ms", stalls])
+        defer { app.terminate() }
+        tabButton("Settings", in: app).tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        let toggle = app.switches["Limit exhausted"]
+        let bottomTabs = bottomTabBarFrame(in: app)
+        guard scrollTo(toggle, in: app, towardStart: false, clearOfBottomTabs: bottomTabs) else {
+            reportControlFailure("Could not reach Limit exhausted clear of the tab bar",
+                                 control: toggle, in: app, tapFrame: .null, bottomTabs: bottomTabs)
+            return
+        }
+        guard let initial = toggle.value as? String, initial == "0" || initial == "1" else {
+            attachSettingsTrace(in: app)
+            XCTFail("Stall matrix invalid: initial switch AX value must be 0 or 1")
+            return
+        }
+        var before = initial
+        var changes = Array(repeating: [0, 0], count: durations.count)
+        let coordinate = toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        for (index, attempt) in attempts.enumerated() {
+            let gesture = attempt.press ? "press" : "tap"
+            let uptime = tapUptime {
+                if attempt.press {
+                    coordinate.press(forDuration: 0.12)
+                } else {
+                    coordinate.tap()
+                }
+            }
+            // XCUI returns after idle; a dropped tap must not start a change-expectation timeout.
+            guard let after = toggle.value as? String, after == "0" || after == "1" else {
+                attachSettingsTrace(in: app)
+                XCTFail("Stall matrix invalid: switch AX value after attempt \(index + 1) must be 0 or 1")
+                return
+            }
+            let changed = before != after
+            if changed { changes[attempt.stallIndex][attempt.press ? 1 : 0] += 1 }
+            print("[stall-matrix] attempt=\(index + 1) stall_ms=\(durations[attempt.stallIndex]) "
+                + "gesture=\(gesture) before=\(before) after=\(after) changed=\(changed) uptime=\(uptime)")
+            before = after
+        }
+        for stallIndex in durations.indices {
+            for (gestureIndex, gesture) in ["tap", "press"].enumerated() {
+                let changed = changes[stallIndex][gestureIndex]
+                print("[stall-matrix] summary stall_ms=\(durations[stallIndex]) gesture=\(gesture) "
+                    + "attempts=4 changed=\(changed) dropped=\(4 - changed)")
+            }
+        }
+        let trace = settingsTrace(in: app)
+        attachSettingsTrace(in: app)
+        XCTAssertTrue(trace.contains("stall attempt=40 "),
+                      "Stall matrix invalid: the hook must consume all 40 switch touches; see Settings trace")
+    }
+
     func testAllThreeDestinationsExist() {
         // The shell from the reference design. If navigation failed to build, the tab bar is the
         // first thing missing, and every other query would fail for a reason that reads as
