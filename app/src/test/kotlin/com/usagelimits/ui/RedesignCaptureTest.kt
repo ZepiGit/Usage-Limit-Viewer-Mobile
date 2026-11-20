@@ -178,6 +178,11 @@ class RedesignCaptureTest {
             OverviewScreen(state = UsageUiState(), nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {},
                 onAddAccount = {}, onPercentDisplayChange = {})
         },
+        // Loading: before the store's first answer, in every language the captures run in.
+        "overview-loading" to {
+            OverviewScreen(state = UsageUiState(loaded = false), nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {},
+                onAddAccount = {}, onPercentDisplayChange = {})
+        },
         // C2: the account detail of an expired sign-in.
         "account-detail-expired" to {
             AccountDetailScreen(usage = expiredCodex, nowMs = NOW, staleAfterMs = state.staleAfterMs,
