@@ -327,6 +327,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # The runner treats --debug-apk as optional because the release workflow has no debug build.
+      # Here it is required: without it the seeded List steps would be skipped, not checked.
+      - name: Require this run's debug build for the seeded List
+        run: test -s runtime/debug/app-debug.apk || { echo '::error::runtime/debug/app-debug.apk is missing; the seeded List steps need it.' >&2; exit 1; }
+
       - name: Upgrade and navigate the release APK
         run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-*.apk --apk runtime/apk/app-release.apk --debug-apk runtime/debug/app-debug.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
 

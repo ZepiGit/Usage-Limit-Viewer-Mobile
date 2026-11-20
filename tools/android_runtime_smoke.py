@@ -2,8 +2,11 @@
 """Upgrade and navigate the actual release APK on an empty API 37 CI emulator.
 
 Uses only adb and the Python standard library. No credentials or provider calls; the release app
-stays empty. The List is checked in this run's debug build, with synthetic accounts from its
-debug-only evidence receiver, installed beside the release app and removed afterwards.
+stays empty. With --debug-apk (Android CI), the List is then checked in this run's debug build, with
+synthetic accounts from its debug-only evidence receiver, installed beside the release app after
+every release check and left installed until the emulator is discarded. That lane shows the List,
+a chip's press highlight and a row opening its account; it does not observe the debug build's later
+exits or crashes, which the final failure check reads for the release package only.
 https://developer.android.com/tools/adb documents install -r, am start and screencap.
 All touch coordinates come from the device's current UIAutomator hierarchy.
 """
@@ -30,10 +33,12 @@ PACKAGE = "com.usagelimits"
 DEBUG_PACKAGE = PACKAGE + ".debug"
 DEBUG_RECEIVER = DEBUG_PACKAGE + "/com.usagelimits.evidence.StatusIconEvidenceReceiver"
 SETTING = "Show subscription tier"
-# What an empty Overview says once it is ready: C1 in this build; the upgrade baseline still has
-# the four-tab app, whose Overview counted its accounts.
+# What an empty Overview says once it is ready. This build is held to C1. The upgrade baseline is
+# the newest published release, so it may be one from before the redesign (whose Overview counted
+# its accounts) or one after it; either known empty state counts for it, inside its own package
+# and with Overview selected.
 EMPTY_OVERVIEW = "Nothing to monitor yet"
-PREVIOUS_EMPTY_OVERVIEW = "0 accounts monitored"
+BASELINE_EMPTY_OVERVIEW = ("0 accounts monitored", EMPTY_OVERVIEW)
 TABS = ("Overview", "Resets", "Settings")
 # The animator scale while motion frames are captured: slow enough for `screencap`, which takes
 # a few hundred milliseconds a frame on the software-rendered emulator.
@@ -260,8 +265,10 @@ def motion_sequence(name, says, samples):
 
 
 def matches(root, label, package=PACKAGE):
+    """Nodes of `package` whose text or description is `label`, or any of the labels in a tuple."""
+    labels = label if isinstance(label, tuple) else (label,)
     return [node for node in root.iter("node") if node.get("package") == package
-            and label in (node.get("text"), node.get("content-desc"))]
+            and (node.get("text") in labels or node.get("content-desc") in labels)]
 
 
 def navigation_target(root, label, package=PACKAGE):
@@ -285,10 +292,36 @@ def selected_tab(root, label, package=PACKAGE):
     return target is not None and target.get("selected") == "true"
 
 
+def overview_ready(root, phase):
+    """The empty Overview is shown, selected, in this app's package: the readiness marker of `phase`.
+
+    `previous` is the published baseline and may show either known empty state; `current` is this
+    build, held to C1 alone.
+    """
+    marker = BASELINE_EMPTY_OVERVIEW if phase == "previous" else EMPTY_OVERVIEW
+    return selected_tab(root, "Overview") and bool(matches(root, marker))
+
+
+def bar_items(root, package=PACKAGE):
+    """The labels of the navigation bar's items, left to right.
+
+    The bar is the parent of the Overview item: every child of it is one item (selected or
+    clickable, enabled), whatever its label, so an extra or renamed item is counted too.
+    """
+    overview = navigation_target(root, "Overview", package)
+    if overview is None:
+        return []
+    parents = {child: parent for parent in root.iter() for child in parent}
+    bar = parents.get(overview)
+    items = [child for child in bar if child.get("package") == package and child.get("enabled") == "true"
+             and (child.get("clickable") == "true" or child.get("selected") == "true")] if bar is not None else []
+    return [" ".join(node.get("text") for node in item.iter("node") if node.get("text")) for item in
+            sorted(items, key=lambda item: bounds(item)[0])]
+
+
 def three_tabs(root, package=PACKAGE):
-    """Overview, Resets and Settings are the bar's items, and Accounts is not one of them (#88 01b)."""
-    return all(navigation_target(root, tab, package) is not None for tab in TABS) and \
-        navigation_target(root, "Accounts", package) is None
+    """The bar has exactly Overview, Resets and Settings, in that order, and nothing else (#88 01b)."""
+    return bar_items(root, package) == list(TABS)
 
 
 def focused_widget(root, launcher, label):
@@ -1103,9 +1136,10 @@ class Smoke:
                 return []
 
         # The empty Overview's readiness marker of the build being measured.
-        ready = PREVIOUS_EMPTY_OVERVIEW if phase == "previous" else EMPTY_OVERVIEW
+        ready = BASELINE_EMPTY_OVERVIEW if phase == "previous" else EMPTY_OVERVIEW
         self.launch(phase + "-performance-prepare")
         self.navigate("Overview", ready, phase + "-performance-prepare-overview")
+        assert overview_ready(self.dump(phase + "-performance-ready"), phase), "Empty Overview is not ready"
         for index in range(4):
             name = f"{phase}-performance-{index}"
             before_stop = pids()
@@ -1133,8 +1167,7 @@ class Smoke:
             total = re.search(r"^TotalTime: (\d+)$", launch, re.M)
             assert total, "Performance launch did not report TotalTime"
             wait = re.search(r"^WaitTime: (\d+)$", launch, re.M)
-            root = self.wait_for(name + "-overview", lambda root: selected_tab(root, "Overview")
-                                 and bool(matches(root, ready)))
+            root = self.wait_for(name + "-overview", lambda root: overview_ready(root, phase))
             self.assert_no_system_error(root)
             ready_at = time.monotonic()
             observed_pids = pids()
@@ -1242,20 +1275,47 @@ class Smoke:
         self.capture(name + "-list")
         return state
 
+    def seeded_steps(self, debug_apk):
+        """The debug-build steps when Android CI passes its debug APK, and their record for result.json.
+
+        Without one (the release workflow) nothing is installed beside the release app and the result
+        says the steps were skipped, so a missing seeded check is never mistaken for a passed one.
+        """
+        if debug_apk is None:
+            return {"seededList": "skipped: no --debug-apk"}
+        seeded = self.seed_list("seeded", debug_apk)
+        self.verify_chip_press("chip", DEBUG_PACKAGE)
+        row = self.open_seeded_row("seeded-row", DEBUG_PACKAGE)
+        # The order the debug receiver computed is driver evidence; the rows on screen, top to
+        # bottom, are what the UI showed (as many as fit). Both are recorded, neither is asserted.
+        return {"seededList": "passed", "seededOverviewByDriver": seeded["overview"],
+                "seededRowsShownByUi": row["shownOnScreen"], "seededRowTapped": row["tapped"],
+                "chipPress": "chip-ripple.json", "motionFrames": {"report": "motion.json"}}
+
     def open_seeded_row(self, name, package):
-        """A tap on a List row opens that account's detail without the bar, and Back returns to the List."""
+        """A tap on a List row opens that row's account without the bar, and Back returns to the List.
+
+        The second row is tapped, not the first, so a tap that always opened the top account would
+        fail. A row is identified by its identity line ("Kimi (synthetic) · Updated …"); the detail
+        must show the same account label ("Kimi (synthetic)") under its title. Returns the labels of
+        the rows on screen, top to bottom, as the UI showed them.
+        """
         root = self.dump(name + "-before")
-        titles = [node for node in root.iter("node") if node.get("package") == package
-                  and "(synthetic)" in (node.get("text") or "")]
-        row = self.control(root, package, label=titles[0].get("text")) if titles else None
-        assert row is not None, "No pressable List row"
+        lines = sorted((node for node in root.iter("node") if node.get("package") == package
+                        and "(synthetic) · " in (node.get("text") or "")), key=lambda node: bounds(node)[1])
+        shown = [node.get("text").split(" · ", 1)[0] for node in lines]
+        assert len(shown) >= 2, f"Fewer than two seeded rows on screen: {shown}"
+        chosen = shown[1]
+        row = self.control(root, package, label=lines[1].get("text"))
+        assert row is not None, f"The row of {chosen} is not pressable"
         self.tap(row)
         self.wait_for(name + "-detail", lambda root: navigation_target(root, "Overview", package) is None
-                      and bool(matches(root, "Remove account", package) or matches(root, "Limits", package)))
+                      and bool(matches(root, "Limits", package)) and bool(matches(root, chosen, package)))
         self.capture(name + "-detail")
         self.adb("shell", "input", "keyevent", "BACK")
         self.wait_for(name + "-back", lambda root: selected_tab(root, "Overview", package)
                       and self.control(root, package, label="All") is not None)
+        return {"tapped": chosen, "shownOnScreen": shown}
 
     def verify_chip_press(self, name, package):
         """#26 on the seeded List (#88 01b): a held filter chip lights its rounded 32dp pill, not its 48dp target.
@@ -1620,15 +1680,20 @@ def apk_metadata(aapt, path):
     return {"package": match[1], "versionCode": int(match[2]), "versionName": match[3], "sha256": digest(path)}
 
 
-def main():
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--previous-apk", type=Path, required=True)
     parser.add_argument("--apk", type=Path, required=True)
-    parser.add_argument("--debug-apk", type=Path, required=True,
-                        help="This run's debug build, installed beside the release app for the seeded List")
+    parser.add_argument("--debug-apk", type=Path,
+                        help="This run's debug build, installed beside the release app for the seeded List. Android CI "
+                             "passes it; the release workflow does not, and then the seeded steps are skipped.")
     parser.add_argument("--apk-sha256-file", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = argument_parser().parse_args()
     tools = Path(os.environ["ANDROID_HOME"]) / "build-tools"
     aapt = sorted(tools.glob("*/aapt"), key=lambda path: tuple(int(n) for n in re.findall(r"\d+", path.parent.name)))[-1]
     old = apk_metadata(aapt, args.previous_apk)
@@ -1704,9 +1769,7 @@ def main():
         smoke.verify_widget_lifecycle(placed_widgets)
         # Last, so the release app's empty state, upgrade and widget host checks above never see it:
         # this run's debug build with synthetic accounts, for the List and its filter chips.
-        seeded = smoke.seed_list("seeded", args.debug_apk)
-        smoke.verify_chip_press("chip", DEBUG_PACKAGE)
-        smoke.open_seeded_row("seeded-row", DEBUG_PACKAGE)
+        seeded = smoke.seeded_steps(args.debug_apk)
     except Exception:
         try:
             smoke.capture("failure")
@@ -1719,15 +1782,20 @@ def main():
     smoke.assert_no_app_failures()
     smoke.text("result.json", json.dumps({"result": "passed", "commit": os.environ["GITHUB_SHA"],
         "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": list(TABS),
-        "widgets": placed_widgets, "seededOverview": seeded["overview"], "chipPress": "chip-ripple.json",
-        "motionFrames": {"report": "motion.json"},
-        "scope": "Empty-account release smoke with four launcher widgets, then this run's debug build with synthetic "
-                 "accounts for the List and its filter chips; provider-authenticated quotas were not tested."}, indent=2))
-    print("Release APK upgrade, persisted setting, three tabs, seeded List chip press highlight, four widgets, Mini Rings move/resize, night mode, process loss, launcher restart, reboot and offline/online checks passed; startup observations recorded.")
-    # Optional evidence, last: everything mandatory has passed and is on record above. It runs on
-    # the seeded debug build, which has a List, filter chips and rows to push; the emulator is
-    # discarded with the job, so the debug build is not uninstalled.
-    smoke.capture_motion("motion", DEBUG_PACKAGE)
+        "widgets": placed_widgets, **seeded,
+        "scope": "Empty-account release smoke with four launcher widgets"
+                 + (", then this run's debug build with synthetic accounts for the List and its filter chips"
+                    if args.debug_apk else "; the seeded List steps were skipped (no --debug-apk)")
+                 + "; provider-authenticated quotas were not tested."}, indent=2))
+    print("Release APK upgrade, persisted setting, three tabs, four widgets, Mini Rings move/resize, night mode, process loss, "
+          "launcher restart, reboot and offline/online checks passed; startup observations recorded. "
+          + ("Seeded List chip press highlight and row tap passed." if args.debug_apk
+             else "Seeded List steps skipped: no --debug-apk."))
+    # Optional evidence, last: everything mandatory has passed and is on record above. It needs the
+    # seeded debug build, which has a List, filter chips and rows to push; the emulator is discarded
+    # with the job, so the debug build is not uninstalled.
+    if args.debug_apk:
+        smoke.capture_motion("motion", DEBUG_PACKAGE)
 
 
 if __name__ == "__main__":

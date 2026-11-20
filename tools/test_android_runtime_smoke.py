@@ -417,16 +417,20 @@ class FakeDevice:
     Every call is recorded with the timeout it was given and when it started. It costs `seconds(command)`
     of the fake clock; one that costs more than its timeout raises TimeoutExpired once the timeout has
     passed, with its effect on the device already applied, which is what a late adb answer looks like.
-    The screen is the seeded debug build as far as the capture walks it: Overview with its filter chips
-    and one account row, the Resets tab, and the row's account detail.
+    The screen is the seeded debug build as far as the smoke walks it, shaped like the API 37 dump:
+    one bar node holding the three tab items, Overview with its filter chips and two account rows
+    (title, then the identity line "<label> · Updated …"), the Resets tab, and the tapped row's
+    detail, which repeats that row's account label under its title.
     """
 
     STILL = png_bytes(2, 2, 4, [GROUND * 2, GROUND * 2])
     PACKAGE = runtime_smoke.DEBUG_PACKAGE
-    ROW = "OpenAI Codex (synthetic)"
+    TABS = ("Overview", "Resets", "Settings")
+    ROWS = ("Grok (synthetic)", "Kimi (synthetic)")
+    ROW = ROWS[0]
     BOXES = {"Overview": (0, 1400, 180, 1560), "Resets": (180, 1400, 360, 1560), "Settings": (360, 1400, 540, 1560),
-             "All": (40, 200, 200, 260), "Needs attention": (200, 200, 400, 260), ROW: (40, 400, 680, 520),
-             "Limits": (40, 300, 680, 360)}
+             "All": (40, 200, 200, 260), "Needs attention": (200, 200, 400, 260),
+             ROWS[0]: (40, 400, 680, 520), ROWS[1]: (40, 540, 680, 660), "Limits": (40, 300, 680, 360)}
     SCALE = ("shell", "settings", "put", "global", "animator_duration_scale")
 
     def __init__(self):
@@ -436,6 +440,7 @@ class FakeDevice:
         self.frames = 0
         self.screen = None
         self.filter = "All"
+        self.opened = None
         self.seconds = lambda command: 0.25
         # A test's hook: raise to fail a command, or return bytes to answer it without its effect.
         self.before = lambda command: None
@@ -483,34 +488,46 @@ class FakeDevice:
                           and self.BOXES[label][1] <= y < self.BOXES[label][3]), None)
             if label in ("All", "Needs attention"):
                 self.filter = label
-            elif label == self.ROW:
-                self.screen = "Detail"
+            elif label in self.ROWS:
+                self.screen, self.opened = "Detail", label
             elif label:
                 self.screen = label
         return b""
 
     def visible(self):
-        tabs = ("Overview", "Resets", "Settings")
-        return {"Overview": tabs + ("All", "Needs attention", self.ROW),
-                "Resets": tabs, "Detail": ("Limits",)}.get(self.screen, ())
+        return {"Overview": self.TABS + ("All", "Needs attention") + self.ROWS,
+                "Resets": self.TABS, "Detail": ("Limits",)}.get(self.screen, ())
 
     def hierarchy(self):
-        def node(label):
-            box = "[{},{}][{},{}]".format(*self.BOXES[label])
-            if label == "Limits":
-                return f'<node package="{self.PACKAGE}" text="Limits" bounds="{box}"/>'
-            if label == self.ROW:
-                state = 'clickable="true"'
-            else:
-                chosen = str(label in (self.screen, self.filter)).lower()
-                state = (f'checkable="true" checked="{chosen}" clickable="{str(chosen == "false").lower()}"'
-                         if label in ("All", "Needs attention")
-                         else f'selected="{chosen}" clickable="{str(chosen == "false").lower()}"')
-            return (f'<node package="{self.PACKAGE}" enabled="true" {state} bounds="{box}">'
-                    f'<node package="{self.PACKAGE}" text="{label}" bounds="{box}"/></node>')
+        pkg = self.PACKAGE
 
-        nodes = "".join(node(label) for label in self.visible())
-        return f"<hierarchy>{nodes}</hierarchy>".encode()
+        def box(label):
+            return "[{},{}][{},{}]".format(*self.BOXES[label])
+
+        def node(label):
+            if label == "Limits":
+                # The detail: its account's title and label, then its sections.
+                title = self.opened.split(" (", 1)[0]
+                return (f'<node package="{pkg}" text="{title}" bounds="[109,172][199,221]"/>'
+                        f'<node package="{pkg}" text="{self.opened}" bounds="[109,221][278,250]"/>'
+                        f'<node package="{pkg}" text="Limits" bounds="{box(label)}"/>')
+            if label in self.ROWS:
+                title = label.split(" (", 1)[0]
+                return (f'<node package="{pkg}" enabled="true" clickable="true" bounds="{box(label)}">'
+                        f'<node package="{pkg}" text="{title}" bounds="{box(label)}"/>'
+                        f'<node package="{pkg}" text="{label} · Updated just now" bounds="{box(label)}"/></node>')
+            chosen = str(label in (self.screen, self.filter)).lower()
+            state = (f'checkable="true" checked="{chosen}" clickable="{str(chosen == "false").lower()}"'
+                     if label in ("All", "Needs attention")
+                     else f'selected="{chosen}" clickable="{str(chosen == "false").lower()}"')
+            return (f'<node package="{pkg}" enabled="true" {state} bounds="{box(label)}">'
+                    f'<node package="{pkg}" text="{label}" bounds="{box(label)}"/></node>')
+
+        shown = self.visible()
+        tabs = "".join(node(label) for label in shown if label in self.TABS)
+        bar = f'<node package="{pkg}" enabled="true" bounds="[0,1400][540,1560]">{tabs}</node>' if tabs else ""
+        rest = "".join(node(label) for label in shown if label not in self.TABS)
+        return f"<hierarchy>{rest}{bar}</hierarchy>".encode()
 
     def restores(self):
         """The index of every call that asked for the scale to go back to 0."""
@@ -526,7 +543,9 @@ class ThreeTabsTest(unittest.TestCase):
             f'<node package="com.usagelimits" enabled="true" clickable="true" selected="false" '
             f'bounds="[{index * 100},1400][{index * 100 + 100},1560]"><node package="com.usagelimits" text="{label}" '
             f'bounds="[{index * 100},1400][{index * 100 + 100},1560]"/></node>' for index, label in enumerate(labels))
-        return ET.fromstring(f"<hierarchy>{items}</hierarchy>")
+        # As in the API 37 dump: one bar node whose children are the items.
+        return ET.fromstring(f'<hierarchy><node package="com.usagelimits" enabled="true" '
+                             f'bounds="[0,1400][720,1560]">{items}</node></hierarchy>')
 
     def test_the_three_tabs_pass(self):
         self.assertTrue(runtime_smoke.three_tabs(self.bar("Overview", "Resets", "Settings")))
@@ -537,6 +556,122 @@ class ThreeTabsTest(unittest.TestCase):
 
     def test_another_package_with_the_same_labels_is_not_this_app(self):
         self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Resets", "Settings"), runtime_smoke.DEBUG_PACKAGE))
+
+    def test_an_extra_item_under_another_name_fails(self):
+        self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Resets", "Settings", "People")))
+        self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Dials", "Resets", "Settings")))
+
+    def test_the_real_api_37_bar_passes(self):
+        """The bar exactly as run 44675626408 dumped it (current-three-tabs.xml), trimmed to the bar."""
+        root = ET.fromstring(
+            '<hierarchy><node package="com.usagelimits" enabled="true" bounds="[0,1336][720,1476]">'
+            '<node package="com.usagelimits" enabled="true" clickable="false" selected="true" focusable="true" bounds="[0,1336][230,1476]">'
+            '<node package="com.usagelimits" bounds="[72,1392][157,1476]"><node package="com.usagelimits" text="Overview" bounds="[72,1422][157,1446]"/></node></node>'
+            '<node package="com.usagelimits" enabled="true" clickable="true" selected="false" focusable="true" bounds="[244,1336][475,1476]">'
+            '<node package="com.usagelimits" bounds="[317,1392][401,1476]"><node package="com.usagelimits" text="Resets" bounds="[327,1422][391,1446]"/></node></node>'
+            '<node package="com.usagelimits" enabled="true" clickable="true" selected="false" focusable="true" bounds="[489,1336][720,1476]">'
+            '<node package="com.usagelimits" bounds="[562,1392][646,1476]"><node package="com.usagelimits" text="Settings" bounds="[565,1422][643,1446]"/></node></node>'
+            '</node></hierarchy>')
+        self.assertEqual(["Overview", "Resets", "Settings"], runtime_smoke.bar_items(root))
+        self.assertTrue(runtime_smoke.three_tabs(root))
+
+
+class SeededRowTest(unittest.TestCase):
+    """#88 01b review, item 3: the second row is tapped, and its own account must open."""
+
+    def run_row(self, device):
+        with TemporaryDirectory() as directory, patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device):
+            device.screen = "Overview"
+            return Smoke(Path(directory), "test-device").open_seeded_row("row", runtime_smoke.DEBUG_PACKAGE)
+
+    def test_the_second_row_opens_its_own_account(self):
+        device = FakeDevice()
+        result = self.run_row(device)
+        self.assertEqual({"tapped": "Kimi (synthetic)", "shownOnScreen": ["Grok (synthetic)", "Kimi (synthetic)"]}, result)
+        self.assertEqual("Kimi (synthetic)", device.opened)
+
+    def test_a_tap_that_opens_the_first_account_instead_fails(self):
+        class WrongRow(FakeDevice):
+            def answer(self, command):
+                answer = super().answer(command)
+                if self.screen == "Detail":
+                    self.opened = self.ROWS[0]
+                return answer
+        with self.assertRaisesRegex(AssertionError, "UI did not reach row-detail"):
+            self.run_row(WrongRow())
+
+
+class OverviewReadyTest(unittest.TestCase):
+    """#88 01b review, item 2: the baseline may be either release; this build is held to C1."""
+
+    @staticmethod
+    def overview(marker, package="com.usagelimits", selected="true"):
+        return ET.fromstring(
+            f'<hierarchy><node package="{package}" enabled="true" clickable="false" selected="{selected}" '
+            f'bounds="[0,1400][180,1560]"><node package="{package}" text="Overview" bounds="[0,1400][180,1560]"/></node>'
+            f'<node package="{package}" text="{marker}" bounds="[40,300][680,360]"/></hierarchy>')
+
+    def test_a_baseline_from_before_the_redesign_is_ready_on_its_count(self):
+        self.assertTrue(runtime_smoke.overview_ready(self.overview("0 accounts monitored"), "previous"))
+
+    def test_a_baseline_from_after_the_redesign_is_ready_on_c1(self):
+        self.assertTrue(runtime_smoke.overview_ready(self.overview("Nothing to monitor yet"), "previous"))
+
+    def test_this_build_is_ready_on_c1_only(self):
+        self.assertTrue(runtime_smoke.overview_ready(self.overview("Nothing to monitor yet"), "current"))
+        self.assertFalse(runtime_smoke.overview_ready(self.overview("0 accounts monitored"), "current"))
+
+    def test_a_marker_outside_the_package_or_the_selected_tab_does_not_count(self):
+        for root in (self.overview("Nothing to monitor yet", package="com.usagelimits.debug"),
+                     self.overview("0 accounts monitored", selected="false")):
+            self.assertFalse(runtime_smoke.overview_ready(root, "previous"))
+
+
+class InvocationTest(unittest.TestCase):
+    """#88 01b review, item 1: both workflows' invocations of the runner parse, and only Android CI seeds.
+
+    The command lines are read from the workflow files, so a workflow that changes its call is
+    tested as it is.
+    """
+
+    WORKFLOWS = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+
+    def invocation(self, workflow):
+        text = (self.WORKFLOWS / workflow).read_text()
+        line = next(line for line in text.splitlines() if "bash tools/run_android_runtime.sh" in line)
+        return line.split("bash tools/run_android_runtime.sh", 1)[1].split()
+
+    def test_the_release_workflow_runs_without_a_debug_build(self):
+        args = runtime_smoke.argument_parser().parse_args(self.invocation("release.yml"))
+        self.assertIsNone(args.debug_apk)
+
+    def test_android_ci_passes_its_debug_build(self):
+        args = runtime_smoke.argument_parser().parse_args(self.invocation("android.yml"))
+        self.assertEqual(Path("runtime/debug/app-debug.apk"), args.debug_apk)
+
+    def test_android_ci_refuses_to_run_without_the_debug_build(self):
+        text = (self.WORKFLOWS / "android.yml").read_text()
+        guard = text.index("test -s runtime/debug/app-debug.apk")
+        self.assertLess(guard, text.index("bash tools/run_android_runtime.sh"), "the guard runs before the smoke")
+
+    def test_without_a_debug_build_the_seeded_steps_are_skipped_and_said_to_be(self):
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "adb", side_effect=AssertionError("nothing may be installed or sent")):
+                self.assertEqual({"seededList": "skipped: no --debug-apk"}, smoke.seeded_steps(None))
+
+    def test_with_a_debug_build_every_seeded_step_runs(self):
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            calls = []
+            with patch.object(smoke, "seed_list", side_effect=lambda *a: calls.append("seed") or {"overview": ["a"]}), \
+                    patch.object(smoke, "verify_chip_press", side_effect=lambda *a: calls.append("chip")), \
+                    patch.object(smoke, "open_seeded_row",
+                                 side_effect=lambda *a: calls.append("row") or {"tapped": "b", "shownOnScreen": ["a", "b"]}):
+                record = smoke.seeded_steps(Path("app-debug.apk"))
+        self.assertEqual(["seed", "chip", "row"], calls)
+        self.assertEqual("passed", record["seededList"])
 
 
 class SeedListTest(unittest.TestCase):
