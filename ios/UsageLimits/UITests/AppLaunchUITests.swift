@@ -484,11 +484,13 @@ final class AppLaunchUITests: XCTestCase {
         let layout = app.segmentedControls["settings-overview-credit-layout"]
         XCTAssertTrue(scrollTo(layout, in: app, towardStart: true))
         XCTAssertTrue(layout.buttons["Compact"].isSelected)
-        let order = app.descendants(matching: .any)["settings-overview-show-first"].firstMatch
-        XCTAssertTrue(scrollTo(order, in: app, towardStart: false))
-        XCTAssertTrue(order.label.contains("Credit accounts") || (order.value as? String) == "Credit accounts")
         tabButton("Overview", in: app).tap()
-        XCTAssertTrue(scrollTo(app.buttons["overview-credits-compact"], in: app))
+        let compact = app.buttons["overview-credits-compact"]
+        XCTAssertTrue(scrollTo(compact, in: app))
+        let usageEmpty = app.staticTexts["Nothing to monitor yet"]
+        XCTAssertTrue(usageEmpty.exists)
+        XCTAssertLessThan(compact.frame.minY, usageEmpty.frame.minY,
+                          "Credit accounts must still be first after relaunch")
         XCTAssertFalse(app.staticTexts["No prepaid balances tracked."].exists)
     }
 
