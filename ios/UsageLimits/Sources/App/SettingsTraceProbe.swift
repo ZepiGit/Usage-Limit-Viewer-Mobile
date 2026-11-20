@@ -92,14 +92,6 @@ struct SettingsTraceProbe: UIViewRepresentable {
     private final class TouchObserver: UIGestureRecognizer {
         private var nextTouchID = 0
         private var activeTouches: [ObjectIdentifier: Int] = [:]
-        private var nextStall = 0
-        private let stallDurations: [Int] = {
-            let arguments = ProcessInfo.processInfo.arguments
-            guard arguments.contains("-ui-testing"),
-                  let option = arguments.firstIndex(of: "-settings-stall-ms"),
-                  option + 1 < arguments.count else { return [] }
-            return arguments[option + 1].split(separator: ",").compactMap { Int($0) }.filter { (0...120).contains($0) }
-        }()
 
         override init(target: Any?, action: Selector?) {
             super.init(target: target, action: action)
@@ -120,23 +112,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
                 nextTouchID += 1
                 activeTouches[ObjectIdentifier(touch)] = nextTouchID
                 record(touch, phase: "began", event: event)
-                stallIfArmed(touch)
             }
-        }
-
-        private func stallIfArmed(_ touch: UITouch) {
-            guard nextStall < stallDurations.count else { return }
-            var target = touch.view
-            while let current = target, !(current is UISwitch) { target = current.superview }
-            guard target is UISwitch, let id = activeTouches[ObjectIdentifier(touch)] else { return }
-            let milliseconds = stallDurations[nextStall]
-            nextStall += 1
-            let start = ProcessInfo.processInfo.systemUptime
-            // Block before the window recognizer returns the down event to the native control.
-            if milliseconds > 0 { Thread.sleep(forTimeInterval: Double(milliseconds) / 1000) }
-            let end = ProcessInfo.processInfo.systemUptime
-            SettingsTrace.record("stall attempt=\(nextStall) touchID=\(id) requestedMs=\(milliseconds) "
-                + "started=\(start) ended=\(end) actualMs=\((end - start) * 1000)")
         }
 
         override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {

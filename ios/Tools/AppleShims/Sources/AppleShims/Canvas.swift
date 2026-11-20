@@ -48,7 +48,9 @@ public struct AnimationTimelineSchedule: TimelineSchedule {
 }
 
 extension TimelineSchedule where Self == AnimationTimelineSchedule {
-    public static var animation: AnimationTimelineSchedule { AnimationTimelineSchedule() }
+    public static func animation(minimumInterval: Double? = nil, paused: Bool = false) -> AnimationTimelineSchedule {
+        AnimationTimelineSchedule(minimumInterval: minimumInterval, paused: paused)
+    }
 }
 
 public struct TimelineView<Schedule: TimelineSchedule, Content: View>: View {

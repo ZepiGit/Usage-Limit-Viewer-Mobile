@@ -54,7 +54,7 @@ struct ClaudeCodeFigure: View {
     var body: some View {
         Group {
             if appeared && gate.active {
-                TimelineView(.animation) { _ in
+                TimelineView(.animation(minimumInterval: 1.0 / 30)) { _ in
                     #if DEBUG
                     let _ = SettingsTrace.figureFrame(diagnosticID)
                     #endif
