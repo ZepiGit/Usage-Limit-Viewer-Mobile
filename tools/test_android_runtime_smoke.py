@@ -1011,13 +1011,18 @@ class ThemeLaunchTest(unittest.TestCase):
         navigation_dark = dark if navigation_dark is None else navigation_dark
         title = "Splash Screen com.usagelimits" if phase == "system" else "com.usagelimits/com.usagelimits.UsageLimitsActivity"
         owner = "Window{abc u0 " + title + "}"
-        return f"""  DisplayPolicy
+        return f"""WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)
+  Display: mDisplayId=0 (organized)
+  DisplayPolicy
     mTopFullscreenOpaqueWindowState={owner}
     mNavBarColorWindowCandidate={owner}
     mLastAppearance={'LIGHT_NAVIGATION_BARS' if navigation_dark else 'OPAQUE_NAVIGATION_BARS'}
     mLastStatusBarAppearanceRegions=
       AppearanceRegion{{{'LIGHT_STATUS_BARS' if dark else ''} bounds=[0,0][100,200]}}
+WINDOW MANAGER TOKENS (dumpsys window tokens)
+WINDOW MANAGER WINDOWS (dumpsys window windows)
   Window #0 {owner}:
+    mDisplayId=0
     mAttrs={{ty={'APPLICATION_STARTING' if phase == 'system' else 'BASE_APPLICATION'}}}
     mViewVisibility=0x0 mHaveFrame=true mObscured=false
     mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
@@ -1048,6 +1053,12 @@ class ThemeLaunchTest(unittest.TestCase):
                     self.assertTrue(measured["barsCorrect"])
                     self.assertEqual(dark, measured["before"]["statusDarkIcons"])
                     self.assertEqual(dark, measured["before"]["navigationDarkIcons"])
+
+    def test_historical_anr_does_not_replace_or_duplicate_live_windows(self):
+        live = self.window()
+        history = live.split("WINDOW MANAGER WINDOWS (dumpsys window windows)\n", 1)[1]
+        dump = "WINDOW MANAGER LAST ANR (dumpsys window lastanr)\n" + history + live
+        self.assertEqual(runtime_smoke.launch_window_state(live), runtime_smoke.launch_window_state(dump))
 
     def test_wrong_ground_missing_artwork_settled_ui_or_wrong_phase_cannot_pass(self):
         cases = [
@@ -1102,7 +1113,7 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
                     frame_number += 1
                     data = ThemeLaunchTest.pixels(artwork=phase() == "app")
                     return transform(phase(), data, ThemeLaunchTest.window(phase()))[0]
-                if args == ("shell", "dumpsys", "window"):
+                if args == ("shell", "dumpsys", "window", "-a"):
                     return transform(phase(), b"", ThemeLaunchTest.window(phase()))[1]
                 return ""
             class Start:
@@ -1130,7 +1141,7 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
         result, report, events = self.capture()
         self.assertEqual("passed", report["result"], result)
         self.assertEqual("passed", result)
-        self.assertEqual(("shell", "dumpsys", "window"), events[0])
+        self.assertEqual(("shell", "dumpsys", "window", "-a"), events[0])
         self.assertEqual("start", events[1][0])
         self.assertNotIn("-W", events[1][1])
         self.assertEqual(("exec-out", "screencap", "-p"), events[2])
@@ -1203,7 +1214,7 @@ class ThemeSelectionTest(unittest.TestCase):
                 events.append(args)
                 if "resolve-activity" in args:
                     return "com.usagelimits/.ExistingAlias"
-                if args == ("shell", "dumpsys", "window"):
+                if args == ("shell", "dumpsys", "window", "-a"):
                     return ThemeLaunchTest.window("app", dark=current["label"] == "Light paper")
                 if args[:3] == ("shell", "settings", "get"):
                     return "10"
@@ -1228,7 +1239,7 @@ class ThemeSelectionTest(unittest.TestCase):
             selected = events.index(("selected", label))
             captured = next(i for i, event in enumerate(events) if event[:2] == ("capture", label))
             stopped = next(i for i in range(selected, captured) if events[i] == ("shell", "am", "force-stop", "com.usagelimits"))
-            bars = next(i for i in range(selected, stopped) if events[i] == ("shell", "dumpsys", "window"))
+            bars = next(i for i in range(selected, stopped) if events[i] == ("shell", "dumpsys", "window", "-a"))
             self.assertLess(tap, selected)
             self.assertLess(selected, bars)
             self.assertLess(bars, stopped)

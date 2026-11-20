@@ -271,16 +271,21 @@ def launch_window_state(text):
     core/java/com/android/internal/view/AppearanceRegion.java define these dumps. LIGHT_*
     means dark foreground icons. A missing policy/region is unknown, never dark.
     """
-    policies = re.findall(r"(?m)^([ \t]*)DisplayPolicy\s*$", text)
-    regions = re.findall(r"(?m)^\s*mLastStatusBarAppearanceRegions=\n((?:[ \t]+AppearanceRegion\{[^\n]*\}\n?)+)", text)
+    # A verbose dump also contains historical ANR windows and their policy state.
+    displays = text.partition("WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)\n")[2].partition("\nWINDOW MANAGER ")[0]
+    primary = re.search(r"(?ms)^ +Display: mDisplayId=0\b[^\n]*\n(.*?)(?=^ +Display: mDisplayId=|\Z)", displays)
+    policy = primary[1] if primary else ""
+    policies = re.findall(r"(?m)^ +DisplayPolicy *$", policy)
+    regions = re.findall(r"(?m)^\s*mLastStatusBarAppearanceRegions=\n((?:[ \t]+AppearanceRegion\{[^\n]*\}\n?)+)", policy)
     status = re.findall(r"AppearanceRegion\{(.*?) bounds=", regions[0]) if len(regions) == 1 else []
-    appearances = re.findall(r"(?m)^\s*mLastAppearance=(.*)$", text)
-    top = re.findall(r"(?m)^\s*mTopFullscreenOpaqueWindowState=(Window\{[^\n]+\})$", text)
-    nav = re.findall(r"(?m)^\s*mNavBarColorWindowCandidate=(Window\{[^\n]+\})$", text)
-    windows = re.findall(r"(?ms)^\s*Window #\d+ (Window\{[^\n]+\}):\n(.*?)(?=^\s*Window #\d+ |\Z)", text)
-    visible = [(owner, body) for owner, body in windows if all(token in body for token in (
-        "mHasSurface=true", "isReadyForDisplay()=true", "mObscured=false",
-        "mDrawState=HAS_DRAWN", "isOnScreen=true", "isVisible=true"))]
+    appearances = re.findall(r"(?m)^\s*mLastAppearance=(.*)$", policy)
+    top = re.findall(r"(?m)^\s*mTopFullscreenOpaqueWindowState=(Window\{[^\n]+\})$", policy)
+    nav = re.findall(r"(?m)^\s*mNavBarColorWindowCandidate=(Window\{[^\n]+\})$", policy)
+    live = text.partition("WINDOW MANAGER WINDOWS (dumpsys window windows)\n")[2].partition("\nWINDOW MANAGER ")[0]
+    windows = re.findall(r"(?m)^  Window #\d+ (Window\{[^\n]+\}):\n((?:^ {4}[^\n]*\n?)*)", live)
+    visible = [(owner, body) for owner, body in windows if re.search(r"(?m)^    mDisplayId=0\b", body)
+               and all(token in body for token in ("mHasSurface=true", "isReadyForDisplay()=true",
+                   "mObscured=false", "mDrawState=HAS_DRAWN", "isOnScreen=true", "isVisible=true"))]
     chosen = [(owner, body) for owner, body in visible if top == [owner] and nav == [owner]]
     phase, owner = None, None
     if len(chosen) == 1:
@@ -1524,7 +1529,7 @@ class Smoke:
                 # Wait for the live themed root/bars before stopping: the tap alone is not persistence evidence.
                 style = {"label": label, "attempts": []}
                 for attempt in range(12):
-                    window = self.adb("shell", "dumpsys", "window")
+                    window = self.adb("shell", "dumpsys", "window", "-a")
                     self.text(f"{name}-selected-window-{attempt}.txt", window)
                     state = launch_window_state(window)
                     style["attempts"].append(state)
@@ -1574,14 +1579,14 @@ class Smoke:
         failure = None
         try:
             previous = name + "-window-before.txt"
-            self.text(previous, self.adb("shell", "dumpsys", "window", deadline=deadline))
+            self.text(previous, self.adb("shell", "dumpsys", "window", "-a", deadline=deadline))
             start = subprocess.Popen(["adb", "-s", self.serial, "shell", "am", "start", "--splashscreen-show-icon",
                                       "-n", activity, "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER"],
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             def observe(sample, data):
                 nonlocal previous
                 after = sample["file"].removesuffix(".png") + "-window.txt"
-                self.text(after, self.adb("shell", "dumpsys", "window", deadline=deadline))
+                self.text(after, self.adb("shell", "dumpsys", "window", "-a", deadline=deadline))
                 sample.update({"windowBefore": previous, "windowAfter": after})
                 previous = after
             self.burst(name, 9, report["frames"], deadline=deadline, observe=observe)
