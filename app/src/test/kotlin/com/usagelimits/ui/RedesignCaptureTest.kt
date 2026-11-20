@@ -11,9 +11,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.hasScrollToNodeAction
-import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.glance.ExperimentalGlanceApi
@@ -253,8 +254,10 @@ class RedesignCaptureTest {
             current.value = { androidx.compose.runtime.key(name) { content() } }
             compose.waitForIdle()
             if (name.startsWith("settings-")) {
-                val display = compose.activity.getString(com.usagelimits.R.string.settings_section_display)
-                compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(display))
+                compose.onNode(hasScrollToNodeAction()).performScrollToKey("display-heading")
+                for (label in listOf(com.usagelimits.R.string.settings_section_display, com.usagelimits.R.string.settings_show_tier_title)) {
+                    compose.onNodeWithText(compose.activity.getString(label)).assertIsDisplayed()
+                }
             }
             // Not onRoot().captureToImage(): under Robolectric 4.16 + compose ui-test 1.7.6 its
             // forceRedraw never sees a frame and times out (tried sdk 34 and 28). Drawing the

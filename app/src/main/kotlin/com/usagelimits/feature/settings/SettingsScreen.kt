@@ -122,7 +122,7 @@ fun SettingsScreen(
             }
         }
 
-        item { SectionHeader(stringResource(R.string.settings_section_display)) }
+        item(key = "display-heading") { SectionHeader(stringResource(R.string.settings_section_display)) }
         item { DisplaySettings(settings.percentDisplay, onPercentDisplayChange) }
         item { SectionHeader(stringResource(R.string.settings_section_overview)) }
         item { OverviewSettings(settings, onOverviewLayoutChange, onShowTier) }
