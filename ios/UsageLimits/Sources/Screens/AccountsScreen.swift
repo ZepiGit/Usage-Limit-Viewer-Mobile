@@ -82,7 +82,12 @@ private struct AccountSummaryCard: View {
     var body: some View {
         UsageCard {
             HStack {
-                ProviderBadge(provider: usage.account.provider)
+                ClaudeProviderBadge(provider: usage.account.provider,
+                    mood: ClaudeCodeMood.steady(for: snapshot?.headline(at: now)),
+                    size: 36, staticSize: 32, figureSlotSize: 34, amplitude: 0.8)
+                #if DEBUG
+                .environment(\.claudeAnimationDiagnosticID, "detail:\(usage.account.id)")
+                #endif
                 VStack(alignment: .leading, spacing: 2) {
                     Text(usage.account.label)
                         .usageFont(.section)

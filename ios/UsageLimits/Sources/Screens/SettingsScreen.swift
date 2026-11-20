@@ -48,7 +48,11 @@ struct SettingsScreen: View {
                 .listRowBackground(UsageColors.surface)
 
                 Section {
-                    NavigationLink("Provider icons") { ProviderIconsScreen() }
+                    providerIconsLink
+                    if ClaudeProviderBadge.isClaudeCode(claudeIconChoice) {
+                        Toggle("Animate Claude Code icon", isOn: $store.settings.animateClaudeCodeIcon)
+                            .accessibilityIdentifier("settings-animate-claude-code-icon")
+                    }
                     NavigationLink("App icon") { AppIconScreen() }
                     NavigationLink("Widget layouts") { WidgetPresetsScreen() }
                 }
@@ -157,6 +161,34 @@ struct SettingsScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
         }
+    }
+
+    private var claudeIconChoice: ProviderIconChoice {
+        ProviderIconCatalog.selected(for: .claude, id: store.settings.providerIcons[ProviderID.claude.rawValue])
+    }
+
+    private var providerIconsLink: some View {
+        let mood: ClaudeCodeMood = if ClaudeProviderBadge.isClaudeCode(claudeIconChoice) {
+            store.glance.overviewOrderedAccounts(at: store.now)
+                .first { $0.providerID == ProviderID.claude.rawValue }?.claudeCodeMood(at: store.now) ?? .idle
+        } else {
+            .idle
+        }
+        return NavigationLink { ProviderIconsScreen() } label: {
+            HStack(spacing: 16) {
+                ClaudeProviderBadge(provider: .claude, mood: mood,
+                    size: 28, staticSize: 30, figureSlotSize: 30)
+                #if DEBUG
+                .environment(\.claudeAnimationDiagnosticID, "provider:provider")
+                #endif
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Provider icons")
+                    Text(verbatim: DisplayText.providerIconLabel(claudeIconChoice.label))
+                        .usageFont(.small).foregroundStyle(UsageColors.muted)
+                }
+            }
+        }
+        .accessibilityIdentifier("settings-provider-icons")
     }
 
     private var creditLayoutControl: some View {

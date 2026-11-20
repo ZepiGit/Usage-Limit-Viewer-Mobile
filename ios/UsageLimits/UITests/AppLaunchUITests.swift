@@ -114,11 +114,13 @@ final class AppLaunchUITests: XCTestCase {
 
     func testProviderIconSelectionPersists() {
         var app = launch()
+        defer { app.terminate() }
         tabButton("Settings", in: app).tap()
-        XCTAssertTrue(scrollTo(app.buttons["Provider icons"], in: app, towardStart: false))
-        app.buttons["Provider icons"].tap()
+        let providerIcons = app.buttons["settings-provider-icons"]
+        XCTAssertTrue(scrollTo(providerIcons, in: app, towardStart: false))
+        providerIcons.tap()
         let alternative = app.buttons["Claude · Color"]
-        XCTAssertTrue(scrollTo(alternative, in: app))
+        XCTAssertTrue(scrollTo(alternative, in: app, towardStart: false))
         alternative.tap()
         XCTAssertEqual(alternative.value as? String, "Selected")
         let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -128,14 +130,54 @@ final class AppLaunchUITests: XCTestCase {
         app.terminate()
         app = launch()
         tabButton("Settings", in: app).tap()
-        XCTAssertTrue(scrollTo(app.buttons["Provider icons"], in: app, towardStart: false))
-        app.buttons["Provider icons"].tap()
+        let restoredProviderIcons = app.buttons["settings-provider-icons"]
+        XCTAssertTrue(scrollTo(restoredProviderIcons, in: app, towardStart: false))
+        restoredProviderIcons.tap()
         let restored = app.buttons["Claude · Color"]
-        XCTAssertTrue(scrollTo(restored, in: app))
+        XCTAssertTrue(scrollTo(restored, in: app, towardStart: false))
         XCTAssertEqual(restored.value as? String, "Selected")
+        let picker = app.navigationBars["Provider icons"]
+        picker.buttons.firstMatch.tap()
+        XCTAssertTrue(scrollTo(restoredProviderIcons, in: app, towardStart: false))
+        let animation = app.switches["settings-animate-claude-code-icon"]
+        XCTAssertFalse(animation.exists)
+        restoredProviderIcons.tap()
         let defaultIcon = app.buttons["Claude Code · Color"]
-        XCTAssertTrue(scrollTo(defaultIcon, in: app))
+        XCTAssertTrue(scrollTo(defaultIcon, in: app, towardStart: true))
         defaultIcon.tap()
+        XCTAssertEqual(defaultIcon.value as? String, "Selected")
+        picker.buttons.firstMatch.tap()
+        XCTAssertTrue(scrollTo(animation, in: app, towardStart: false))
+    }
+
+    func testClaudeAnimationSwitchAndSettingsSamples() {
+        let app = launch(["-marketing-demo", "-claude-mood-demo", "-motion-log"])
+        defer { app.terminate() }
+        tabButton("Settings", in: app).tap()
+        let toggle = app.switches["settings-animate-claude-code-icon"]
+        XCTAssertTrue(scrollTo(toggle, in: app, towardStart: false))
+        XCTAssertEqual(toggle.value as? String, "1")
+        let log = app.staticTexts["motion-log"]
+        func expectDecision(_ decision: String) {
+            let observed = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label CONTAINS %@", decision), object: log)
+            XCTAssertEqual(XCTWaiter.wait(for: [observed], timeout: 10), .completed, "\(decision); \(log.label)")
+        }
+        expectDecision("claude:provider:provider:asleep animated")
+
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        expectDecision("claude:provider:provider:asleep still")
+        XCTAssertEqual(toggle.value as? String, "0")
+        let list = app.descendants(matching: .any)["settings-preview-list"].firstMatch
+        XCTAssertTrue(scrollTo(list, in: app, towardStart: false))
+        expectDecision("claude:preview-list:preview-claude:tired still")
+        selectSegment("Dials", in: "settings-overview-layout", app: app, towardStart: false)
+        let dial = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
+        XCTAssertTrue(scrollTo(dial, in: app, towardStart: true))
+        expectDecision("claude:preview-dial:preview-claude:tired still")
+        tabButton("Overview", in: app).tap()
+        XCTAssertTrue(app.buttons["overview-dial-demo-claude-exhausted"].waitForExistence(timeout: 10))
+        expectDecision("claude:dial:demo-claude-exhausted:asleep still")
     }
 
     func testAllThreeDestinationsExist() {

@@ -54,7 +54,7 @@ struct UsageLimitsApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(tab: $tab, openAccount: openAccount)
+            RootView(tab: $tab, claudeAnimationVisible: detail == nil, openAccount: openAccount)
                 .fullScreenCover(item: $detail) { route in
                     NavigationStack {
                         AccountDetailScreen(
@@ -73,10 +73,18 @@ struct UsageLimitsApp: App {
                     }
                     .environmentObject(store)
                     .environment(\.providerIconChoices, store.settings.providerIcons)
+                    .environment(\.claudeAnimationVisible, true)
+                    #if DEBUG
+                    .motionLogOverlay()
+                    #endif
                     .modifier(StoreErrorAlert(store: store))
                 }
                 .environmentObject(store)
                 .environment(\.providerIconChoices, store.settings.providerIcons)
+                #if DEBUG
+                .environment(\.reduceMotionOverride,
+                    ProcessInfo.processInfo.arguments.contains("-reduce-motion") ? true : nil)
+                #endif
                 .modifier(StoreErrorAlert(store: store, enabled: detail == nil))
                 .onOpenURL { url in
                     apply(router.open(url, loadedAccountIDs: loadedAccountIDs))
@@ -169,32 +177,41 @@ struct RootView: View {
     enum Tab: Hashable { case overview, resets, settings }
 
     @Binding var tab: Tab
+    var claudeAnimationVisible = true
     let openAccount: (String) -> Void
 
     var body: some View {
         TabView(selection: $tab) {
             OverviewScreen(isSelected: tab == .overview, openAccount: openAccount)
+                .environment(\.claudeAnimationVisible, claudeAnimationVisible && tab == .overview)
                 .tabItem { Label("Overview", systemImage: "gauge.with.dots.needle.33percent") }
                 .tag(Tab.overview)
             ResetsScreen()
+                .environment(\.claudeAnimationVisible, claudeAnimationVisible && tab == .resets)
                 .tabItem { Label("Resets", systemImage: "clock.arrow.circlepath") }
                 .tag(Tab.resets)
             SettingsScreen()
+                .environment(\.claudeAnimationVisible, claudeAnimationVisible && tab == .settings)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(Tab.settings)
         }
         .tint(UsageColors.ink)
         #if DEBUG
-        .overlay(alignment: .top) {
-            if MotionLog.isEnabled { MotionLogOverlay() }
-        }
-        .environment(\.reduceMotionOverride,
-            ProcessInfo.processInfo.arguments.contains("-reduce-motion") ? true : nil)
+        .motionLogOverlay(visible: claudeAnimationVisible)
+        .claudeStillSheet()
         #endif
     }
 }
 
 #if DEBUG
+private extension View {
+    func motionLogOverlay(visible: Bool = true) -> some View {
+        overlay(alignment: .top) {
+            if visible && MotionLog.isEnabled { MotionLogOverlay() }
+        }
+    }
+}
+
 /// Observed separately so publishing a note never re-evaluates the screens being logged.
 private struct MotionLogOverlay: View {
     @ObservedObject private var log = MotionLog.shared

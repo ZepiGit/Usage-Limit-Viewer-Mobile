@@ -63,6 +63,41 @@ final class PreferencesAndLedgerTests: XCTestCase {
         XCTAssertEqual(reopened.notifications.mutedAccountIDs, ["acct-1", "acct-2"])
     }
 
+    func testClaudeCodeAnimationOffSurvivesDecodingAndAReopen() async throws {
+        struct StoredAnimation: Decodable {
+            let animateClaudeCodeIcon: Bool?
+        }
+
+        let json = #"{"animateClaudeCodeIcon":false,"providerIcons":{"claude":"custom"},"overviewLayout":"dials","percentDisplay":"used"}"#
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+        let stored = try await SettingsStore(directory: directory).save(settings)
+        let reopened = await SettingsStore(directory: directory).settings()
+
+        for state in [settings, stored, reopened] {
+            let data = try JSONEncoder().encode(state)
+            XCTAssertEqual(try JSONDecoder().decode(StoredAnimation.self, from: data).animateClaudeCodeIcon, false)
+            XCTAssertEqual(state.providerIcons, ["claude": "custom"])
+            XCTAssertEqual(state.overviewLayout, .dials)
+            XCTAssertEqual(state.percentDisplay, .used)
+        }
+    }
+
+    func testClaudeCodeAnimationDefaultsToOnWithoutResettingOtherChoices() async throws {
+        XCTAssertTrue(AppSettings().animateClaudeCodeIcon)
+        for animation in ["", #", "animateClaudeCodeIcon":null"#, #", "animateClaudeCodeIcon":"unknown""#, #", "animateClaudeCodeIcon":true"#] {
+            let json = #"{"overviewLayout":"dials","percentDisplay":"used"\#(animation)}"#
+            let data = Data(json.utf8)
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+            XCTAssertTrue(decoded.animateClaudeCodeIcon, json)
+
+            try data.write(to: directory.appendingPathComponent("settings.json"))
+            let reopened = await SettingsStore(directory: directory).settings()
+            XCTAssertEqual(reopened, decoded, json)
+            XCTAssertEqual(reopened.overviewLayout, .dials, json)
+            XCTAssertEqual(reopened.percentDisplay, .used, json)
+        }
+    }
+
     func testSavedLayoutKeepsItsStableJSONValue() throws {
         let settings = try JSONDecoder().decode(AppSettings.self,
             from: Data(#"{"overviewLayout":"dials","showRenewalTime":true}"#.utf8))

@@ -3,6 +3,7 @@ import UsageLimitsKit
 
 struct OverviewScreen: View {
     @EnvironmentObject private var store: UsageStore
+    @Environment(\.claudeAnimationVisible) private var claudeAnimationVisible
     @ReducesMotion private var reduceMotion
     @State private var filter = OverviewFilter.all
     @State private var listMotionArmed = false
@@ -65,6 +66,7 @@ struct OverviewScreen: View {
                 .readableWidth()
             }
             .accessibilityIdentifier("overview-scroll")
+            .environment(\.claudeAnimationVisible, claudeAnimationVisible && !isAdding && !isAddingCredit)
             .background(UsageColors.ground)
             .navigationTitle("Overview")
             .navigationBarTitleDisplayMode(.inline)
@@ -290,12 +292,19 @@ struct OverviewAccountContent: View {
         showSubscriptionTier ? account.title : provider?.displayName ?? account.title
     }
     private var provider: ProviderID? { account.providerID.flatMap(ProviderID.init(rawValue:)) }
+    private var claudeMood: ClaudeCodeMood {
+        guard provider == .claude, let id = entry.headlineWindowID else { return .idle }
+        return ClaudeCodeMood.steady(for: account.candidates.first { $0.sourceWindowID == id })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: preview ? 5 : 8) {
             HStack(spacing: preview ? 8 : 10) {
                 if let provider {
-                    ProviderBadge(provider: provider, size: preview ? 20 : 28).accessibilityHidden(true)
+                    ClaudeProviderBadge(provider: provider, mood: claudeMood, size: preview ? 20 : 28)
+                    #if DEBUG
+                    .environment(\.claudeAnimationDiagnosticID, "\(preview ? "preview-list" : "list"):\(entry.id)")
+                    #endif
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: title).usageFont(preview ? .previewTitle : .accountTitle).foregroundStyle(UsageColors.ink)

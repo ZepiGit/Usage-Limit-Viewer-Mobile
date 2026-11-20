@@ -20,6 +20,7 @@ class ScreenshotExportTests(unittest.TestCase):
                 "iphone-overview-detail", "iphone-overview-empty",
                 "iphone-settings", "iphone-settings-layout", "iphone-settings-credits",
                 "iphone-credits-compact", "iphone-credits-expanded",
+                "iphone-claude-mood", "iphone-claude-resets-still", "iphone-claude-still-sheet",
                 "ipad-overview", "ipad-overview-dials",
             ]
             for index, name in enumerate(names):

@@ -833,6 +833,17 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Animate Claude Code icon" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude-Code-Symbol animieren"
+          }
+        }
+      }
+    },
     "App icon" : {
       "extractionState" : "manual",
       "localizations" : {

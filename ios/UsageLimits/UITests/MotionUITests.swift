@@ -139,6 +139,50 @@ final class MotionUITests: XCTestCase {
         XCTAssertEqual(app.buttons["overview-filter-all"].value as? String, "Selected")
     }
 
+    func testClaudeMoodsPauseWhenCoveredOrDeselected() {
+        let app = launch(["-claude-mood-demo"])
+        defer { app.terminate() }
+        waitFor("claude:list:demo-claude-exhausted:asleep animated", after: 0, in: app)
+        waitFor("claude:list:demo-claude:tired animated", after: 0, in: app)
+
+        let beforeDetail = checkpoint(app)
+        app.buttons["overview-account-demo-claude-exhausted"].tap()
+        XCTAssertTrue(app.navigationBars["Account details"].waitForExistence(timeout: 10))
+        waitFor("claude:list:demo-claude-exhausted:asleep paused", after: beforeDetail, in: app)
+        waitFor("claude:detail:demo-claude-exhausted:asleep animated", after: beforeDetail, in: app)
+        let beforeClose = checkpoint(app)
+        app.buttons["overview-close-detail"].tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        waitFor("claude:list:demo-claude-exhausted:asleep animated", after: beforeClose, in: app)
+
+        let beforeResets = checkpoint(app)
+        tab("Resets", in: app)
+        waitFor("claude:list:demo-claude-exhausted:asleep paused", after: beforeResets, in: app)
+        waitFor("claude:reset:demo-claude-exhausted:hooray animated", after: beforeResets, in: app)
+        let beforeReturn = checkpoint(app)
+        tab("Overview", in: app)
+        waitFor("claude:reset:demo-claude-exhausted:hooray paused", after: beforeReturn, in: app)
+        waitFor("claude:list:demo-claude-exhausted:asleep animated", after: beforeReturn, in: app)
+
+        let beforeHome = checkpoint(app)
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10))
+        app.activate()
+        waitFor("claude:list:demo-claude-exhausted:asleep paused", after: beforeHome, in: app)
+        waitFor("claude:list:demo-claude-exhausted:asleep animated", after: beforeHome, in: app)
+    }
+
+    func testReduceMotionUsesTheSameMoodsAsStills() {
+        let app = launch(["-claude-mood-demo", "-reduce-motion"])
+        defer { app.terminate() }
+        waitFor("claude:list:demo-claude-exhausted:asleep still", after: 0, in: app)
+        waitFor("claude:list:demo-claude:tired still", after: 0, in: app)
+        let beforeResets = checkpoint(app)
+        tab("Resets", in: app)
+        waitFor("claude:reset:demo-claude-exhausted:hooray still", after: beforeResets, in: app)
+        XCTAssertFalse(entries(app).contains { $0.event.hasPrefix("claude:") && $0.event.hasSuffix(" animated") })
+    }
+
     func testDelayedFirstContentLogsNoListAnimation() {
         let app = launch(["-motion-delayed-demo", "-overview-expired-demo"])
         XCTAssertTrue(app.staticTexts["Loading usage"].waitForExistence(timeout: 10))
