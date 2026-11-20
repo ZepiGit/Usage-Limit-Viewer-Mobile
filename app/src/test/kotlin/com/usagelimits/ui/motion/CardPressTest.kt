@@ -82,7 +82,7 @@ class CardPressTest {
         compose.setContent {
             UsageLimitsTheme {
                 OverviewScreen(state = UsageUiState(), nowMs = MOTION_NOW, onRefresh = {}, onAccountClick = {},
-                    onAddAccount = {}, onReorder = {}, onPercentDisplayChange = {})
+                    onAddAccount = {}, onPercentDisplayChange = {})
             }
         }
         compose.waitForIdle()

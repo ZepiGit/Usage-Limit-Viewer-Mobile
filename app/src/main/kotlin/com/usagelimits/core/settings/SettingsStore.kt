@@ -35,8 +35,8 @@ data class AppSettings(
     val notifyOnResetCreditExpiring: Boolean = true,
     val resetCreditExpiryLeadMinutes: Int = DEFAULT_CREDIT_LEAD_MINUTES,
     /**
-     * Records whether the user has dragged an account to change the order.
-     * The overview uses the stored order regardless of this flag.
+     * Whether the user dragged an account in a build that still allowed it. Kept as stored and
+     * no longer written; no view reads it (ADR 0004).
      */
     val accountsManuallyOrdered: Boolean = false,
     /** Show the plan tier — Plus, Pro, Max — beside the provider name. */
@@ -167,14 +167,6 @@ class SettingsStore(context: Context) {
 
     suspend fun setResetCreditExpiryLeadMinutes(minutes: Int) = edit {
         it[Keys.CREDIT_LEAD_MINUTES] = minutes.coerceIn(60, 7 * 24 * 60)
-    }
-
-    /**
-     * Records a user drag; the flag does not control account ordering.
-     * It is set on reorder and is not cleared automatically.
-     */
-    suspend fun setAccountsManuallyOrdered(ordered: Boolean) = edit {
-        it[Keys.ACCOUNTS_MANUAL_ORDER] = ordered
     }
 
     suspend fun setShowSubscriptionTier(show: Boolean) = edit { it[Keys.SHOW_TIER] = show }

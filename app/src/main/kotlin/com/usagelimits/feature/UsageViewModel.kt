@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.database.inOverviewOrder
 import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.CreditEntry
@@ -85,8 +86,11 @@ data class UsageUiState(
      */
     val staleAfterMs: Long get() = Severity.staleAfterMs(settings.syncIntervalMinutes)
 
-    /** Accounts retain repository order: sort position, then creation time. New accounts join the end. */
-    fun orderedAccounts(): List<AccountUsage> = accounts
+    /**
+     * The accounts in Overview's automatic order at [nowMs], the one All accounts widgets use too
+     * (ADR 0004). [accounts] keeps the stored order for pins and the other consumers.
+     */
+    fun overviewAccountsAt(nowMs: Long): List<AccountUsage> = accounts.inOverviewOrder(nowMs)
 
     fun healthyCountAt(): Int =
         accounts.count { it.snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.CONNECTED }
@@ -175,26 +179,6 @@ class UsageViewModel(
 
     /** Account id whose reset credit is currently being spent, for a per-card spinner. */
     val resetCreditInFlight: StateFlow<String?> = _resetCreditInFlight.asStateFlow()
-
-    private val reorderMutex = kotlinx.coroutines.sync.Mutex()
-
-    /** Persists the dragged order and records the drag; the flag does not control ordering. */
-    fun reorderAccounts(idsInOrder: List<String>) {
-        viewModelScope.launch {
-            reorderMutex.lock()
-            try {
-                container.repository.reorderAccounts(idsInOrder.distinct())
-                container.settingsStore.setAccountsManuallyOrdered(true)
-                container.publication.presentationChanged()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                transientMessage.value = appContext.getString(R.string.message_order_save_failed)
-            } finally {
-                reorderMutex.unlock()
-            }
-        }
-    }
 
     fun setProviderIcon(provider: ProviderId, iconId: String) {
         viewModelScope.launch {

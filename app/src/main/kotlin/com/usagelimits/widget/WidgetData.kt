@@ -2,6 +2,7 @@ package com.usagelimits.widget
 
 import com.usagelimits.core.model.title
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.database.inOverviewOrder
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ReadingValidity
@@ -184,7 +185,10 @@ object WidgetDataBuilder {
             WidgetScope.ACCOUNT -> all.filter { it.account.localId == accountId }
             WidgetScope.PROVIDER -> all.filter { it.account.provider.id == providerId }
             WidgetScope.CUSTOM -> customAccountIds.distinct().mapNotNull { id -> all.firstOrNull { it.account.localId == id } }
-            WidgetScope.ALL_ACCOUNTS, WidgetScope.MOST_CRITICAL, WidgetScope.CLOSEST_RESETS -> all
+            // Overview's automatic order at render time, before the layout trims to its slots.
+            // Every other scope keeps the stored order or its saved ids (ADR 0004).
+            WidgetScope.ALL_ACCOUNTS -> all.inOverviewOrder(nowMs)
+            WidgetScope.MOST_CRITICAL, WidgetScope.CLOSEST_RESETS -> all
         }
 
         if (selected.isEmpty()) {

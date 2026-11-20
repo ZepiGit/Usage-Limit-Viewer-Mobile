@@ -13,7 +13,7 @@ Open your launcher's widget picker, choose Usage Limits and place a widget. Resi
 | Account Rings | Scrollable rings with provider icons, account labels and resets |
 | Mini Rings | A compact grid of rings and icons; capacity depends on placement size |
 
-At placement, choose closest resets, most critical, all accounts, one account, one provider, or a custom account list and order. The first three include every account with different ordering. Closest resets is the default. Use the launcher's reconfigure control to change an existing widget. Saving applies the selection; canceling keeps its current configuration.
+At placement, choose closest resets, most critical, all accounts, one account, one provider, or a custom account list and order. The first three include every account with different ordering: all accounts uses Overview's order (sign-in expired first, then the least room left in each account's headline; [ADR 0004](adr/0004-automatic-overview-order-and-stored-order.md)), while one provider keeps the stored account order and a custom list keeps its own. Closest resets is the default. Use the launcher's reconfigure control to change an existing widget. Saving applies the selection; canceling keeps its current configuration.
 
 Each usage widget has its own background color, opacity and text tone. Automatic text tone follows the selected panel color, including at zero opacity; it does not sample wallpaper. Choose light or dark text explicitly when needed on a transparent panel. Provider artwork follows the app's saved icon choices.
 

@@ -1,5 +1,4 @@
 package com.usagelimits.feature.overview
-import sh.calvin.reorderable.ReorderableItem
 
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.WindowPresentation
@@ -37,7 +36,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -62,7 +60,6 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.Severity
@@ -89,7 +86,6 @@ import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.SkeletonBar
 import com.usagelimits.ui.components.Spinner
 import com.usagelimits.ui.components.StatusMark
-import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.components.UsageWindowRow
@@ -113,7 +109,6 @@ fun OverviewScreen(
     onRefresh: () -> Unit,
     onAccountClick: (String) -> Unit,
     onAddAccount: () -> Unit,
-    onReorder: (List<String>) -> Unit,
     onPercentDisplayChange: (PercentDisplay) -> Unit,
     modifier: Modifier = Modifier,
     onCreditClick: (String) -> Unit = {},
@@ -127,24 +122,8 @@ fun OverviewScreen(
     SideEffect { if (state.loaded) contentShown = true }
     val listMotion = if (contentShown) UsageMotion.current else UsageMotion.Reduced
 
-    var reordering by remember { mutableStateOf(false) }
-    var dragging by remember { mutableStateOf(false) }
-    var liveOrder by remember { mutableStateOf<List<AccountUsage>?>(null) }
-    val shown = liveOrder?.mapNotNull { pending -> state.accounts.firstOrNull { it.account.localId == pending.account.localId } }
-        ?: state.orderedAccounts()
-    val currentShown by androidx.compose.runtime.rememberUpdatedState(shown)
-    val reorderState = sh.calvin.reorderable.rememberReorderableLazyListState(listState) { from, to ->
-        val order = currentShown.toMutableList()
-        val start = order.indexOfFirst { it.account.localId == from.key }
-        val end = order.indexOfFirst { it.account.localId == to.key }
-        if (start >= 0 && end >= 0 && start != end) { order.add(end, order.removeAt(start)); liveOrder = order }
-    }
-    val orderSaveFailed = stringResource(R.string.message_order_save_failed)
-    LaunchedEffect(state.accounts, dragging, state.message) {
-        val pending = liveOrder ?: return@LaunchedEffect
-        if (!dragging && (state.orderedAccounts().map { it.account.localId } == pending.map { it.account.localId } ||
-                state.message == orderSaveFailed)) liveOrder = null
-    }
+    // Ranked at the screen's clock, so a reading or a reset falling due reorders the list without a sync.
+    val shown = state.overviewAccountsAt(nowMs)
 
     LazyColumn(
         state = listState,
@@ -172,15 +151,7 @@ fun OverviewScreen(
         }
 
         item(key = "accounts-header") {
-            SectionHeader(
-                title = stringResource(R.string.overview_section_accounts),
-                modifier = itemMotion(listMotion),
-                trailing = {
-                    if (state.accounts.isNotEmpty()) {
-                        TextAction(stringResource(if (reordering) R.string.action_done else R.string.overview_reorder), { reordering = !reordering }, color = UsageColors.Muted)
-                    }
-                },
-            )
+            SectionHeader(title = stringResource(R.string.overview_section_accounts), modifier = itemMotion(listMotion))
         }
 
         if (state.accounts.isEmpty()) {
@@ -188,26 +159,12 @@ fun OverviewScreen(
         }
 
         items(items = shown, key = { it.account.localId }) { usage ->
-            // Under a dragging finger the neighbours move at once: a move that waits reads as lag.
-            ReorderableItem(reorderState, key = usage.account.localId,
-                animateItemModifier = itemMotion(listMotion, sequenced = !dragging)) { isDragging ->
-                AccountCard(usage = usage, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
-                    percentDisplay = state.settings.percentDisplay,
-                    showTier = state.settings.showSubscriptionTier, showRenewal = state.settings.showRenewalTime,
-                    modifier = Modifier.zIndex(if (isDragging) 1f else 0f),
-                    onRetry = onRefresh,
-                    dragHandle = if (!reordering) null else {
-                        {
-                            Box(Modifier.size(44.dp).draggableHandle(
-                                onDragStarted = { dragging = true; liveOrder = currentShown },
-                                onDragStopped = { dragging = false; liveOrder?.let { onReorder(it.map { item -> item.account.localId }) } },
-                            ), contentAlignment = Alignment.Center) {
-                                Icon(AppIcons.DragHandle, stringResource(R.string.overview_move_account, usage.account.label), tint = UsageColors.Muted)
-                            }
-                        }
-                    },
-                ) { if (!reordering) onAccountClick(usage.account.localId) }
-            }
+            AccountCard(usage = usage, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
+                percentDisplay = state.settings.percentDisplay,
+                showTier = state.settings.showSubscriptionTier, showRenewal = state.settings.showRenewalTime,
+                modifier = itemMotion(listMotion),
+                onRetry = onRefresh,
+            ) { onAccountClick(usage.account.localId) }
         }
 
         item(key = "add-account") {
@@ -470,7 +427,6 @@ fun AccountCard(
     // Before `onClick`, so the trailing-lambda call sites keep binding their lambda to the
     // click and not to this.
     modifier: Modifier = Modifier,
-    dragHandle: (@Composable () -> Unit)? = null,
     /** Shown beside a failure inside the card; null hides the Retry. */
     onRetry: (() -> Unit)? = null,
     onClick: () -> Unit,
@@ -510,17 +466,15 @@ fun AccountCard(
                     }
                 }
             }
-            if (dragHandle != null) dragHandle() else {
-                StatusMark(severity, label = if (snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) stringResource(R.string.status_reconnect) else null)
-                // Its own 24dp slot, so figures do not jump when a row has no chevron.
-                Box(Modifier.width(24.dp), contentAlignment = Alignment.CenterEnd) {
-                    Icon(
-                        imageVector = AppIcons.ChevronRight,
-                        contentDescription = null,
-                        tint = UsageColors.Faint,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
+            StatusMark(severity, label = if (snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) stringResource(R.string.status_reconnect) else null)
+            // Its own 24dp slot, so figures do not jump when a row has no chevron.
+            Box(Modifier.width(24.dp), contentAlignment = Alignment.CenterEnd) {
+                Icon(
+                    imageVector = AppIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = UsageColors.Faint,
+                    modifier = Modifier.size(16.dp),
+                )
             }
         }
 

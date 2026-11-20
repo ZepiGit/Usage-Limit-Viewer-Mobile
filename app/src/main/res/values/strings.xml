@@ -162,9 +162,7 @@
 
     <!-- Overview screen and account cards (feature/overview/OverviewScreen.kt). -->
     <string name="overview_section_accounts">Accounts</string>
-    <string name="overview_reorder">Reorder</string>
     <string name="overview_no_accounts">No accounts yet. Add one to start tracking usage.</string>
-    <string name="overview_move_account">Move %1$s</string>
     <string name="overview_add_account">Add account</string>
     <string name="overview_add_account_hint">Monitor another AI subscription</string>
     <string name="overview_section_credits">Credits</string>
@@ -306,7 +304,6 @@
     <string name="credit_of_total">of %1$s</string>
 
     <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
-    <string name="message_order_save_failed">Could not save account order. Try again.</string>
     <string name="message_icon_save_failed">Could not save the icon choice. Try again.</string>
     <string name="message_pin_refused_full" tools:ignore="PluralsCandidate">Could not pin the account: %1$d are pinned already. Unpin one first.</string>
     <string name="message_pin_refused_gone">Could not pin the account: it has been removed.</string>
