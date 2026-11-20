@@ -1068,7 +1068,16 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
         bare, icon = self.pixels(ground), self.pixels(ground, artwork=True)
         self.assertIsNone(runtime_smoke.launch_window_state(overlap)["phase"])
         self.assertTrue(runtime_smoke.theme_launch_frame(bare, ground, splash, overlap, True)["systemEvidence"])
+        self.assertTrue(runtime_smoke.theme_launch_frame(bare, ground, overlap, overlap, True)["systemEvidence"])
+        self.assertFalse(runtime_smoke.theme_launch_frame(bare, ground, overlap, app, True)["systemEvidence"])
+        app_policy = overlap.replace(
+            splash[splash.index("    mTopFullscreen"):splash.index("    mLastAppearance")],
+            app[app.index("    mTopFullscreen"):app.index("    mLastAppearance")],
+        )
+        self.assertFalse(runtime_smoke.theme_launch_frame(bare, ground, app_policy, app_policy, True)["systemEvidence"])
         self.assertFalse(runtime_smoke.theme_launch_frame(icon, ground, splash, overlap, True)["systemEvidence"])
+        self.assertFalse(runtime_smoke.theme_launch_frame(self.pixels((15, 15, 14)), ground,
+            overlap, overlap, True)["systemEvidence"])
         self.assertTrue(runtime_smoke.theme_launch_frame(icon, ground, overlap, overlap, True)["appEvidence"])
         self.assertTrue(runtime_smoke.theme_launch_frame(icon, ground, overlap, app, True)["appEvidence"])
         self.assertFalse(runtime_smoke.theme_launch_frame(icon, ground, overlap,

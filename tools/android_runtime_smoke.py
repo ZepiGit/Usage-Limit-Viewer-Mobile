@@ -305,7 +305,7 @@ def launch_window_state(text):
     status_icons = {"LIGHT_STATUS_BARS" in value.split() for value in status}
     known = len(policies) == 1 and len(appearances) <= 1 and len(status_icons) == 1
     return {"phase": phase, "owner": owner, "handoff": handoff,
-            "systemWindow": owners.get("system") if phase == "system" or handoff else None,
+            "systemWindow": owners.get("system") if phase == "system" or (handoff and top == [owners["system"]]) else None,
             "appWindow": owners.get("app") if phase == "app" or handoff else None, "appearanceKnown": known,
             "statusDarkIcons": next(iter(status_icons)) if known else None,
             "navigationDarkIcons": "LIGHT_NAVIGATION_BARS" in appearances[0].split() if known and appearances else False if known else None}
@@ -336,9 +336,8 @@ def theme_launch_frame(data, ground, before, after, dark_icons):
     stable = states[0] == states[1] and states[0]["phase"] is not None
     def same_surface(key):
         return states[0][key] is not None and states[0][key] == states[1][key]
-    # At least one side must still be exclusive for the bare system phase. At full reveal the
-    # system owns a transparent splash; the centred cut-out can only expose our drawn app window.
-    system = same_surface("systemWindow") and any(state["phase"] == "system" for state in states)
+    # Shell can keep the starting surface in front after the app has drawn its first buffer.
+    system = same_surface("systemWindow")
     app = same_surface("appWindow")
     bars = all(state["appearanceKnown"] and state["statusDarkIcons"] == dark_icons
                and state["navigationDarkIcons"] == dark_icons for state in states)
