@@ -1,5 +1,9 @@
 import Foundation
 
+public enum OverviewLayout: String, Codable, Sendable {
+    case list, dials
+}
+
 /// Everything the user can change.
 ///
 /// One type rather than several stores so a single value can be persisted, passed to the
@@ -18,12 +22,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
     /// Show the plan tier — Plus, Pro, Max — beside the provider name.
     public var showSubscriptionTier: Bool
 
-    /// Show when the long allowance renews, on the overview only.
-    ///
-    /// Off by default, and deliberately not in the widgets: the widget's job is the number you
-    /// are about to run out of, and a second date competing with the next reset is the kind of
-    /// detail that makes a glanceable tile unglanceable.
+    /// Retained for saved settings compatibility. Both Overview layouts always show reset stamps.
     public var showRenewalTime: Bool
+    public var overviewLayout: OverviewLayout
     public var providerIcons: [String: String]
 
     /// Whether quota figures count down what is left or up what has been used.
@@ -43,6 +44,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         accountsManuallyOrdered: Bool = false,
         showSubscriptionTier: Bool = true,
         showRenewalTime: Bool = false,
+        overviewLayout: OverviewLayout = .list,
         providerIcons: [String: String] = [:],
         percentDisplay: PercentDisplay = .left,
         statusIconsEnabled: Bool = false,
@@ -53,6 +55,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         self.accountsManuallyOrdered = accountsManuallyOrdered
         self.showSubscriptionTier = showSubscriptionTier
         self.showRenewalTime = showRenewalTime
+        self.overviewLayout = overviewLayout
         self.providerIcons = providerIcons
         self.percentDisplay = percentDisplay
         self.statusIconsEnabled = statusIconsEnabled
@@ -76,6 +79,8 @@ public struct AppSettings: Sendable, Equatable, Codable {
                 Bool.self, forKey: .showSubscriptionTier) ?? true,
             showRenewalTime: try container.decodeIfPresent(
                 Bool.self, forKey: .showRenewalTime) ?? false,
+            overviewLayout: (try? container.decode(String.self, forKey: .overviewLayout))
+                .flatMap(OverviewLayout.init(rawValue:)) ?? .list,
             providerIcons: try container.decodeIfPresent([String: String].self, forKey: .providerIcons) ?? [:],
             // Decoded through the raw String, so an unknown stored name reads as the default
             // instead of failing the whole decode and resetting every preference.

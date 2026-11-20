@@ -86,7 +86,22 @@ public actor AccountRepository {
 
     public func usage() -> [AccountUsage] {
         ensureLoaded()
-        return ordered().map { AccountUsage(account: $0.account, snapshot: $0.snapshot) }
+        return orderedUsage()
+    }
+
+    /// `usage()` for a caller that must tell a register it could not read from an empty one.
+    ///
+    /// `usage()` answers both with an empty list, which suits a caller that draws whatever is
+    /// there. A screen that concludes "this account is gone" from that list needs the
+    /// difference. A missing file is an empty register and does not throw; the read is tried
+    /// again on every call until it succeeds.
+    public func checkedUsage() throws -> [AccountUsage] {
+        try requireLoaded()
+        return orderedUsage()
+    }
+
+    private func orderedUsage() -> [AccountUsage] {
+        ordered().map { AccountUsage(account: $0.account, snapshot: $0.snapshot) }
     }
 
     func automaticSyncNotBefore(accountID: String) -> TimeInterval? {
