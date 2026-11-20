@@ -1060,6 +1060,14 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
         dump = "WINDOW MANAGER LAST ANR (dumpsys window lastanr)\n" + history + live
         self.assertEqual(runtime_smoke.launch_window_state(live), runtime_smoke.launch_window_state(dump))
 
+    def test_handoff_with_two_drawn_windows_is_not_an_exclusive_phase(self):
+        splash, app = self.window(), self.window("app")
+        app_window = app[app.index("  Window #0 "):app.index("  mCurrentFocus=")]
+        overlap = splash.replace("  mCurrentFocus=", app_window.replace("Window #0", "Window #1") + "  mCurrentFocus=")
+        for primary in (overlap, overlap.replace("mTopFullscreenOpaqueWindowState=Window{abc u0 Splash Screen com.usagelimits}",
+            "mTopFullscreenOpaqueWindowState=Window{abc u0 com.usagelimits/com.usagelimits.UsageLimitsActivity}")):
+            self.assertIsNone(runtime_smoke.launch_window_state(primary)["phase"])
+
     def test_wrong_ground_missing_artwork_settled_ui_or_wrong_phase_cannot_pass(self):
         cases = [
             (self.pixels((15, 15, 14)), self.window(), self.window(), "systemEvidence"),

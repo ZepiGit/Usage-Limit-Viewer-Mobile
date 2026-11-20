@@ -283,17 +283,23 @@ def launch_window_state(text):
     nav = re.findall(r"(?m)^\s*mNavBarColorWindowCandidate=(Window\{[^\n]+\})$", policy)
     live = text.partition("WINDOW MANAGER WINDOWS (dumpsys window windows)\n")[2].partition("\nWINDOW MANAGER ")[0]
     windows = re.findall(r"(?m)^  Window #\d+ (Window\{[^\n]+\}):\n((?:^ {4}[^\n]*\n?)*)", live)
-    visible = [(owner, body) for owner, body in windows if re.search(r"(?m)^    mDisplayId=0\b", body)
+    def role(owner, body):
+        if owner.endswith(f" Splash Screen {PACKAGE}}}") and "ty=APPLICATION_STARTING" in body:
+            return "system"
+        if re.search(r" u\d+ " + re.escape(PACKAGE) + r"/[^\s}]+\}", owner) and "ty=BASE_APPLICATION" in body:
+            return "app"
+        return None
+    # Shell's exit animation can expose app artwork before removing the starting surface.
+    visible = [(owner, body, role(owner, body)) for owner, body in windows
+               if re.search(r"(?m)^    mDisplayId=0\b", body)
                and all(token in body for token in ("mHasSurface=true", "isReadyForDisplay()=true",
-                   "mObscured=false", "mDrawState=HAS_DRAWN", "isOnScreen=true", "isVisible=true"))]
-    chosen = [(owner, body) for owner, body in visible if top == [owner] and nav == [owner]]
+                   "mDrawState=HAS_DRAWN", "isOnScreen=true", "isVisible=true"))]
+    own = [(owner, body, phase) for owner, body, phase in visible if phase is not None]
     phase, owner = None, None
-    if len(chosen) == 1:
-        owner, body = chosen[0]
-        if re.search(r" u\d+ Splash Screen " + re.escape(PACKAGE) + r"\}", owner) and "ty=APPLICATION_STARTING" in body:
-            phase = "system"
-        elif re.search(r" u\d+ " + re.escape(PACKAGE) + r"/[^\s}]+\}", owner) and "ty=BASE_APPLICATION" in body:
-            phase = "app"
+    if len(own) == 1:
+        candidate, body, candidate_phase = own[0]
+        if top == [candidate] and nav == [candidate] and "mObscured=false" in body:
+            phase, owner = candidate_phase, candidate
     status_icons = {"LIGHT_STATUS_BARS" in value.split() for value in status}
     known = len(policies) == 1 and len(appearances) <= 1 and len(status_icons) == 1
     return {"phase": phase, "owner": owner, "appearanceKnown": known,
