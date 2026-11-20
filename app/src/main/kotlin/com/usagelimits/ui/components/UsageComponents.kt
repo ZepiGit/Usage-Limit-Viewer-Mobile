@@ -292,14 +292,19 @@ fun SegmentedUsageBar(window: UsageWindow, modifier: Modifier = Modifier, height
     })
 }
 
-/** One line per segment of [window]: its colour and [legends] ("Grok 4 usage: 30%"), in order. */
+/**
+ * One line per segment of [window]: its colour and [legends] ("Grok 4 usage: 30%"), in order.
+ * A reading that is not [current] (expired, failed, old or past its reset) shows its legend in
+ * faint ink, without the segment colours, as the rest of its figures.
+ */
 @Composable
-fun SegmentLegend(window: UsageWindow, legends: List<String>, modifier: Modifier = Modifier) {
+fun SegmentLegend(window: UsageWindow, legends: List<String>, modifier: Modifier = Modifier, current: Boolean = true) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         window.segments.forEachIndexed { index, _ ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Dot(SegmentColors[index % SegmentColors.size], size = 6.dp)
-                Text(legends[index], style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+                Dot(if (current) SegmentColors[index % SegmentColors.size] else UsageColors.Faint, size = 6.dp)
+                Text(legends[index], style = MaterialTheme.typography.bodySmall,
+                    color = if (current) UsageColors.Muted else UsageColors.Faint)
             }
         }
     }

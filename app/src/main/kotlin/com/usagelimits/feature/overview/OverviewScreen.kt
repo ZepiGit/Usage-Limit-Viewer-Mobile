@@ -108,7 +108,6 @@ import com.usagelimits.ui.components.FadingLabel
 import com.usagelimits.ui.components.segmentLegends
 import com.usagelimits.ui.components.ConflictingAvailabilityNote
 import com.usagelimits.ui.components.SegmentLegend
-import com.usagelimits.ui.components.SegmentedUsageBar
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.BoxWithConstraints
 import com.usagelimits.ui.components.UsageBar
@@ -511,10 +510,9 @@ private fun OverviewAccountRow(
             Icon(AppIcons.ChevronRight, contentDescription = null, tint = UsageColors.Faint, modifier = Modifier.size(20.dp))
         }
         Column(Modifier.padding(start = 38.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            // Which account this is (two of one provider share a title) and how old its reading is,
-            // as the Accounts card said it; the hand-off's row has the title line only.
-            Text((usage.account.maskedEmail ?: usage.account.label) + " · " +
-                    Countdown.freshnessLabel(usage.measurementAt, nowMs, rememberCountdownTexts()),
+            // Which account this is: two of one provider share a title. The age of the reading is
+            // in the account's detail, not here (owner, package 016).
+            Text(usage.account.maskedEmail ?: usage.account.label,
                 style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (windows.isEmpty()) {
@@ -600,6 +598,10 @@ private class WindowLine(
     val spoken: String,
     /** The reported breakdown, one legend per segment; empty when the provider gives none. */
     val legends: List<String>,
+    /** The reading is current: not expired, failed, old or past its reset. */
+    val current: Boolean,
+    /** The figure in the other display mode, so the column fits both and a flip keeps the layout. */
+    val otherFigure: String,
 ) {
     val id: String get() = window.id
     val group: String? get() = window.group
@@ -636,6 +638,8 @@ private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, 
         val severity = if (validity == ReadingValidity.CURRENT) window.severity else Severity.STALE
         val p = window.presentation(validity, state.settings.percentDisplay)
         val figure = percentFigureText(p.token)
+        val other = if (state.settings.percentDisplay == PercentDisplay.LEFT) PercentDisplay.USED else PercentDisplay.LEFT
+        val otherFigure = percentFigureText(window.presentation(validity, other).token)
         val label = windowLabel(window)
         val headline = window.id == entry.headlineWindowId
         val stamp = if (validity == ReadingValidity.RESET_DUE) texts.resetDue()
@@ -649,7 +653,8 @@ private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, 
             staleWord.takeIf { validity == ReadingValidity.STALE && !expired },
         ) + legends + listOfNotNull(conflictNote.takeIf { window.hasConflictingAvailability })).joinToString(", ")
         WindowLine(
-            window = window, label = label, figure = figure, legends = legends,
+            window = window, label = label, figure = figure, legends = legends, otherFigure = otherFigure,
+            current = validity == ReadingValidity.CURRENT && !expired,
             figureColor = when {
                 !p.hasFigure || expired -> UsageColors.Faint
                 !headline -> UsageColors.Muted
@@ -677,7 +682,8 @@ private fun rememberGridColumns(lines: Collection<List<WindowLine>>): GridColumn
     val all = lines.flatten()
     return GridColumns(
         label = widest(all.map { it.label }, labelStyle),
-        figure = widest(all.map { it.figure }, GridFigureStyle),
+        // Both sides' figures, so a mode flip does not widen the column or switch the layout.
+        figure = widest(all.flatMap { listOf(it.figure, it.otherFigure) }, GridFigureStyle),
         stamp = widest(all.mapNotNull { it.stamp }, stampStyle),
     )
 }
@@ -716,7 +722,9 @@ private fun WindowLines(lines: List<WindowLine>, columns: GridColumns) {
             for (line in lines) {
                 key(line.id) {
                     if (fits) GridLine(line, columns) else StackedLine(line)
-                    if (line.legends.isNotEmpty()) SegmentLegend(line.window, line.legends, Modifier.clearAndSetSemantics {})
+                    if (line.legends.isNotEmpty()) {
+                        SegmentLegend(line.window, line.legends, Modifier.clearAndSetSemantics {}, current = line.current)
+                    }
                     if (line.window.hasConflictingAvailability) ConflictingAvailabilityNote(Modifier.clearAndSetSemantics {})
                 }
             }
@@ -734,12 +742,14 @@ private fun LineLabel(line: WindowLine, modifier: Modifier = Modifier, maxLines:
         maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 }
 
-/** The bar: off the headline it recedes, its fill at 40 % over the track; a breakdown draws its segments. */
+/**
+ * The quota bar, always from the window's presentation: it follows the display mode and the
+ * reading's validity. Off the headline it recedes, its fill at 40 % over the track. A reported
+ * breakdown is not drawn here; it stays as the legend under the line (the detail draws its bar).
+ */
 @Composable
 private fun LineBar(line: WindowLine, modifier: Modifier = Modifier) {
-    val bar = modifier.clearAndSetSemantics {}.alpha(if (line.emphasised) 1f else 0.4f)
-    if (line.window.segments.isEmpty()) UsageBar(line.presentation, bar, height = 4.dp)
-    else SegmentedUsageBar(line.window, bar, height = 4.dp)
+    UsageBar(line.presentation, modifier.clearAndSetSemantics {}.alpha(if (line.emphasised) 1f else 0.4f), height = 4.dp)
 }
 
 /**
