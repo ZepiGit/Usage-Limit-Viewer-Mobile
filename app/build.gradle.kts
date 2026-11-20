@@ -135,9 +135,17 @@ ksp {
 // Robolectric's native font zip filesystem is process-wide on Windows, while
 // Android sandboxes are not. A fresh worker avoids sharing that native state.
 tasks.withType<Test>().configureEach {
+    // Measured on b575d1b, in a 512 MiB heap: 183 full collections, the live set 277 MiB after the
+    // first and 505 MiB after the last. One possible cause is the framework's sandbox cache; no heap
+    // dump was taken. 1 GiB is the owner's upper limit, the same on CI and on a workstation. If this
+    // fills up, the next step is fewer sandbox configurations, not more heap.
+    maxHeapSize = "1g"
     if (System.getProperty("os.name").startsWith("Windows")) forkEvery = 1
     // RedesignCaptureTest writes PNGs only when -PcaptureDir=<abs path> is given.
     providers.gradleProperty("captureDir").orNull?.let { systemProperty("capture.dir", it) }
+    // Off by default. -PtestGcLog=<abs path> writes the test worker's GC log there, with the heap
+    // after each collection, to measure the live set across the suite. It changes no heap size.
+    providers.gradleProperty("testGcLog").orNull?.let { jvmArgs("-Xlog:gc*,gc+heap=debug:file=$it:uptime,tags") }
     // The cross-platform vectors are read from outside the module; without this a changed
     // vector file would leave the test task up to date, or served from the build cache.
     inputs.dir(rootProject.file("shared/test-vectors")).withPathSensitivity(PathSensitivity.RELATIVE)

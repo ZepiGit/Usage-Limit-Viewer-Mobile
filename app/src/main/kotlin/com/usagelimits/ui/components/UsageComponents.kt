@@ -235,13 +235,7 @@ fun UsageWindowRow(
     }
     val reset = Countdown.resetLabel(window.resetAt, nowMs, rememberCountdownTexts())
     // A segment is a usage breakdown: its figure is always the used share, and says so in both modes.
-    val segmentLegends = window.segments.map {
-        stringResource(
-            R.string.usage_segment_legend,
-            it.label,
-            percentFigureText(percentToken(it.usedPercent, exhausted = false, mode = PercentDisplay.LEFT)),
-        )
-    }
+    val segmentLegends = segmentLegends(window)
     Column(modifier.fillMaxWidth().semantics(mergeDescendants = true) {
         contentDescription = "$label, $percent $spokenClause" +
             (reset?.let { ", $it" } ?: "") +
@@ -263,41 +257,74 @@ fun UsageWindowRow(
         if (window.segments.isEmpty()) {
             UsageBar(p, Modifier.fillMaxWidth())
         } else {
-            Box(Modifier.fillMaxWidth().height(6.dp).clip(BarShape).drawBehind {
-                drawRect(UsageColors.Rule)
-                var offset = 0.0
-                val total = (window.usedPercent ?: window.segments.sumOf { it.usedPercent }).coerceIn(0.0, 100.0)
-                window.segments.forEachIndexed { index, segment ->
-                    val end = (offset + segment.usedPercent).coerceIn(offset, total)
-                    drawRect(SegmentColors[index % SegmentColors.size],
-                        topLeft = Offset(size.width * (offset / 100).toFloat(), 0f),
-                        size = Size(size.width * ((end - offset) / 100).toFloat(), size.height))
-                    offset = end
-                }
-                if (total - offset >= 0.5) {
-                    drawRect(UsageColors.Faint,
-                        topLeft = Offset(size.width * (offset / 100).toFloat(), 0f),
-                        size = Size(size.width * ((total - offset) / 100).toFloat(), size.height))
-                }
-            })
+            SegmentedUsageBar(window, Modifier.fillMaxWidth())
             Text(stringResource(R.string.usage_breakdown), style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
-            window.segments.forEachIndexed { index, segment ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Dot(SegmentColors[index % SegmentColors.size], size = 6.dp)
-                    Text(segmentLegends[index],
-                        style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
-                }
-            }
+            SegmentLegend(window, segmentLegends)
         }
-        if (window.hasConflictingAvailability) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Dot(UsageColors.Warning, size = 6.dp)
-                Text(stringResource(R.string.usage_conflicting_availability),
-                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
-            }
-        }
+        if (window.hasConflictingAvailability) ConflictingAvailabilityNote()
         if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
     }
+}
+
+/**
+ * A window's reported breakdown as one bar: each segment's used share in its own colour, then the
+ * rest of the used total that no segment names, on the track. Segments count what is used in both
+ * display modes, as the provider reports them.
+ */
+@Composable
+fun SegmentedUsageBar(window: UsageWindow, modifier: Modifier = Modifier, height: Dp = 6.dp) {
+    Box(modifier.height(height).clip(BarShape).drawBehind {
+        drawRect(UsageColors.Rule)
+        var offset = 0.0
+        val total = (window.usedPercent ?: window.segments.sumOf { it.usedPercent }).coerceIn(0.0, 100.0)
+        window.segments.forEachIndexed { index, segment ->
+            val end = (offset + segment.usedPercent).coerceIn(offset, total)
+            drawRect(SegmentColors[index % SegmentColors.size],
+                topLeft = Offset(size.width * (offset / 100).toFloat(), 0f),
+                size = Size(size.width * ((end - offset) / 100).toFloat(), size.height))
+            offset = end
+        }
+        if (total - offset >= 0.5) {
+            drawRect(UsageColors.Faint,
+                topLeft = Offset(size.width * (offset / 100).toFloat(), 0f),
+                size = Size(size.width * ((total - offset) / 100).toFloat(), size.height))
+        }
+    })
+}
+
+/**
+ * One line per segment of [window]: its colour and [legends] ("Grok 4 usage: 30%"), in order.
+ * A reading that is not [current] (expired, failed, old or past its reset) shows its legend in
+ * faint ink, without the segment colours, as the rest of its figures.
+ */
+@Composable
+fun SegmentLegend(window: UsageWindow, legends: List<String>, modifier: Modifier = Modifier, current: Boolean = true) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        window.segments.forEachIndexed { index, _ ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Dot(if (current) SegmentColors[index % SegmentColors.size] else UsageColors.Faint, size = 6.dp)
+                Text(legends[index], style = MaterialTheme.typography.bodySmall,
+                    color = if (current) UsageColors.Muted else UsageColors.Faint)
+            }
+        }
+    }
+}
+
+/** The provider calls a limit blocked although it reports some of it left. */
+@Composable
+fun ConflictingAvailabilityNote(modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Dot(UsageColors.Warning, size = 6.dp)
+        Text(stringResource(R.string.usage_conflicting_availability),
+            style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+    }
+}
+
+/** The spoken and shown legend of each segment of [window]: what each part used. */
+@Composable
+fun segmentLegends(window: UsageWindow): List<String> = window.segments.map {
+    stringResource(R.string.usage_segment_legend, it.label,
+        percentFigureText(percentToken(it.usedPercent, exhausted = false, mode = PercentDisplay.LEFT)))
 }
 
 /**
@@ -379,6 +406,32 @@ fun FigureWithSide(
 }
 
 /**
+ * A figure alone ("60%"), for a row whose side is named once for the whole screen.
+ *
+ * It fades through when the figure changes (a mode flip, a refresh) and changes colour in place,
+ * as [FigureWithSide] does. The caller keys it by window, so another window in the same slot
+ * starts from its own figure.
+ */
+@Composable
+fun FadingFigure(figure: String, color: Color, style: TextStyle, modifier: Modifier = Modifier) {
+    FadeThrough(FigureReading(figure, "", color), modifier, Alignment.CenterEnd, contentKey = FigureReading::words) { reading ->
+        Text(reading.figure, style = style, color = reading.color, maxLines = 1)
+    }
+}
+
+/**
+ * A short label that changes in step with the figures it names ("% left" to "% used"): it fades
+ * through on the same timing as [FadingFigure], so the old word stays while the old figures leave
+ * and the new word arrives with the new figures. With motion off both change on the same frame.
+ */
+@Composable
+fun FadingLabel(text: String, style: TextStyle, color: Color, modifier: Modifier = Modifier) {
+    FadeThrough(text, modifier, Alignment.Center, contentKey = { it }) { shown ->
+        Text(shown, style = style, color = color, maxLines = 1)
+    }
+}
+
+/**
  * One card per group: a tone step on the ground, no border, radius 8.
  *
  * A card that can be pressed takes [onClick] here rather than a `clickable` on [modifier]. The
@@ -417,20 +470,13 @@ fun RuleDivider(modifier: Modifier = Modifier) {
 fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,
-    trailing: (@Composable () -> Unit)? = null,
 ) {
-    Row(
+    Text(
+        text = title,
         modifier = modifier.fillMaxWidth().padding(top = 24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = UsageColors.Ink,
-        )
-        trailing?.invoke()
-    }
+        style = MaterialTheme.typography.titleMedium,
+        color = UsageColors.Ink,
+    )
 }
 
 /** The page title row: 24/500 title, a one-line stamp under it, one bare action at the right edge. */

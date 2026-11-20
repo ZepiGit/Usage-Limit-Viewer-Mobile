@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Upgrade and navigate the actual release APK on an empty API 37 CI emulator.
 
-Uses only adb and the Python standard library. No accounts, credentials or provider calls.
+Uses only adb and the Python standard library. No credentials or provider calls; the release app
+stays empty. With --debug-apk (Android CI), the List is then checked in this run's debug build, with
+synthetic accounts from its debug-only evidence receiver, installed beside the release app after
+every release check and left installed until the emulator is discarded. That lane shows the List,
+a chip's press highlight and a row opening its account; it does not observe the debug build's later
+exits or crashes, which the final failure check reads for the release package only.
 https://developer.android.com/tools/adb documents install -r, am start and screencap.
 All touch coordinates come from the device's current UIAutomator hierarchy.
 """
@@ -18,12 +23,23 @@ import statistics
 import struct
 import subprocess
 import time
+import uuid
 import xml.etree.ElementTree as ET
 import zlib
 
 
 PACKAGE = "com.usagelimits"
+# This run's debug build: its own package beside the release app, used only for the seeded List.
+DEBUG_PACKAGE = PACKAGE + ".debug"
+DEBUG_RECEIVER = DEBUG_PACKAGE + "/com.usagelimits.evidence.StatusIconEvidenceReceiver"
 SETTING = "Show subscription tier"
+# What an empty Overview says once it is ready. This build is held to C1. The upgrade baseline is
+# the newest published release, so it may be one from before the redesign (whose Overview counted
+# its accounts) or one after it; either known empty state counts for it, inside its own package
+# and with Overview selected.
+EMPTY_OVERVIEW = "Nothing to monitor yet"
+BASELINE_EMPTY_OVERVIEW = ("0 accounts monitored", EMPTY_OVERVIEW)
+TABS = ("Overview", "Resets", "Settings")
 # The animator scale while motion frames are captured: slow enough for `screencap`, which takes
 # a few hundred milliseconds a frame on the software-rendered emulator.
 MOTION_SCALE = 10
@@ -248,15 +264,17 @@ def motion_sequence(name, says, samples):
             "framesDiffer": distinct > 1}
 
 
-def matches(root, label):
-    return [node for node in root.iter("node") if node.get("package") == PACKAGE
-            and label in (node.get("text"), node.get("content-desc"))]
+def matches(root, label, package=PACKAGE):
+    """Nodes of `package` whose text or description is `label`, or any of the labels in a tuple."""
+    labels = label if isinstance(label, tuple) else (label,)
+    return [node for node in root.iter("node") if node.get("package") == package
+            and (node.get("text") in labels or node.get("content-desc") in labels)]
 
 
-def navigation_target(root, label):
+def navigation_target(root, label, package=PACKAGE):
     parents = {child: parent for parent in root.iter() for child in parent}
     candidates = {}
-    for node in matches(root, label):
+    for node in matches(root, label, package):
         while node is not None:
             box = bounds(node)
             if box and node.get("enabled") == "true" and (
@@ -269,9 +287,41 @@ def navigation_target(root, label):
     return max(candidates.values(), key=lambda node: bounds(node)[3], default=None)
 
 
-def selected_tab(root, label):
-    target = navigation_target(root, label)
+def selected_tab(root, label, package=PACKAGE):
+    target = navigation_target(root, label, package)
     return target is not None and target.get("selected") == "true"
+
+
+def overview_ready(root, phase):
+    """The empty Overview is shown, selected, in this app's package: the readiness marker of `phase`.
+
+    `previous` is the published baseline and may show either known empty state; `current` is this
+    build, held to C1 alone.
+    """
+    marker = BASELINE_EMPTY_OVERVIEW if phase == "previous" else EMPTY_OVERVIEW
+    return selected_tab(root, "Overview") and bool(matches(root, marker))
+
+
+def bar_items(root, package=PACKAGE):
+    """The labels of the navigation bar's items, left to right.
+
+    The bar is the parent of the Overview item: every child of it is one item (selected or
+    clickable, enabled), whatever its label, so an extra or renamed item is counted too.
+    """
+    overview = navigation_target(root, "Overview", package)
+    if overview is None:
+        return []
+    parents = {child: parent for parent in root.iter() for child in parent}
+    bar = parents.get(overview)
+    items = [child for child in bar if child.get("package") == package and child.get("enabled") == "true"
+             and (child.get("clickable") == "true" or child.get("selected") == "true")] if bar is not None else []
+    return [" ".join(node.get("text") for node in item.iter("node") if node.get("text")) for item in
+            sorted(items, key=lambda item: bounds(item)[0])]
+
+
+def three_tabs(root, package=PACKAGE):
+    """The bar has exactly Overview, Resets and Settings, in that order, and nothing else (#88 01b)."""
+    return bar_items(root, package) == list(TABS)
 
 
 def focused_widget(root, launcher, label):
@@ -1085,8 +1135,11 @@ class Smoke:
                     raise
                 return []
 
+        # The empty Overview's readiness marker of the build being measured.
+        ready = BASELINE_EMPTY_OVERVIEW if phase == "previous" else EMPTY_OVERVIEW
         self.launch(phase + "-performance-prepare")
-        self.navigate("Overview", "0 accounts monitored", phase + "-performance-prepare-overview")
+        self.navigate("Overview", ready, phase + "-performance-prepare-overview")
+        assert overview_ready(self.dump(phase + "-performance-ready"), phase), "Empty Overview is not ready"
         for index in range(4):
             name = f"{phase}-performance-{index}"
             before_stop = pids()
@@ -1114,8 +1167,7 @@ class Smoke:
             total = re.search(r"^TotalTime: (\d+)$", launch, re.M)
             assert total, "Performance launch did not report TotalTime"
             wait = re.search(r"^WaitTime: (\d+)$", launch, re.M)
-            root = self.wait_for(name + "-overview", lambda root: selected_tab(root, "Overview")
-                                 and bool(matches(root, "0 accounts monitored")))
+            root = self.wait_for(name + "-overview", lambda root: overview_ready(root, phase))
             self.assert_no_system_error(root)
             ready_at = time.monotonic()
             observed_pids = pids()
@@ -1162,40 +1214,119 @@ class Smoke:
         x1, y1, x2, y2 = bounds(node)
         self.adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2), deadline=deadline)
 
-    def launch(self, name):
-        activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
-        assert activity.startswith(PACKAGE + "/"), activity
+    def launch(self, name, package=PACKAGE):
+        activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", package).splitlines()[-1]
+        assert activity.startswith(package + "/"), activity
         self.text(name + "-launch.txt", self.adb("shell", "am", "start", "-W", "-n", activity))
-        self.wait_for(name, lambda root: navigation_target(root, "Overview") is not None)
+        self.wait_for(name, lambda root: navigation_target(root, "Overview", package) is not None)
 
-    def navigate(self, tab, marker, name):
+    def navigate(self, tab, marker, name, package=PACKAGE):
         root = self.dump(name + "-before")
-        target = navigation_target(root, tab)
+        target = navigation_target(root, tab, package)
         assert target is not None, f"No enabled {tab} navigation item"
         if target.get("selected") != "true":
             assert target.get("clickable") == "true", f"Unselected {tab} tab is not clickable"
             self.tap(target)
-        self.wait_for(name + "-selected", lambda root: selected_tab(root, tab))
+        self.wait_for(name + "-selected", lambda root: selected_tab(root, tab, package))
         # A restored Settings destination can retain the previous scroll position.
         if tab == "Settings":
             for attempt in range(9):
                 root = self.dump(f"{name}-top-{attempt}")
-                if matches(root, marker):
+                if matches(root, marker, package):
                     break
                 self.scroll(root, up=False)
-        self.wait_for(name, lambda root: selected_tab(root, tab) and bool(matches(root, marker)))
+        self.wait_for(name, lambda root: selected_tab(root, tab, package) and bool(matches(root, marker, package)))
         self.capture(name)
-        assert self.adb("shell", "pidof", PACKAGE), "App process exited after navigation"
+        assert self.adb("shell", "pidof", package), "App process exited after navigation"
 
-    def verify_segment_press(self, name):
-        """#26: a held filter segment lights its rounded 32dp pill, not its 48dp touch target or the row frame.
+    def seed_list(self, name, apk):
+        """Installs this run's debug build beside the release app and gives it the synthetic accounts.
 
-        Compares a frame during a held press with the frame at rest, only around the Accounts filter row so the
-        status-bar clock cannot interfere. A frame counts only if its capture ended well before the hold could
-        release and the still-selected segment is unchanged; other attempts are retried. Releasing on the same
-        point selects the held segment, so every attempt restores the default filter for the later tab checks.
+        The accounts come from the debug-only evidence receiver's `seed` command, the same fixture the
+        status-icon lane uses: six providers, one exhausted, one stale, one failed. Its completion file
+        is read back by token; the release app is not touched. Returns the receiver's completion.
         """
-        held, default = "Needs attention", "All"
+        self.text(name + "-install.txt", self.adb("install", "-r", str(apk), timeout=180))
+        # As for the release app above: granted before the first launch, or Android's prompt
+        # covers the List on API 33 and later.
+        self.adb("shell", "pm", "grant", DEBUG_PACKAGE, "android.permission.POST_NOTIFICATIONS")
+        token = uuid.uuid4().hex
+        self.text(name + "-broadcast.txt", self.adb("shell", "am", "broadcast", "-f", "0x20", "-n", DEBUG_RECEIVER,
+                                                     "--es", "command", "seed", "--es", "token", token, timeout=120))
+        state = None
+        for _ in range(90):
+            try:
+                state = json.loads(self.adb("exec-out", "run-as", DEBUG_PACKAGE, "cat", "files/status-icon-evidence.json",
+                                            timeout=8))
+            except (subprocess.SubprocessError, json.JSONDecodeError):
+                state = None
+            if state is not None and state.get("token") == token:
+                break
+            time.sleep(1)
+        assert state is not None and state.get("token") == token, "The debug build did not confirm the seed"
+        self.text(name + "-seed.json", json.dumps(state, indent=2))
+        assert state.get("success") is True, "Seed failed: " + str(state.get("error"))
+        assert len(state.get("accounts", [])) == 6 and len(state.get("overview", [])) == 6, "Seed did not add six accounts"
+        self.launch(name + "-start", DEBUG_PACKAGE)
+        self.wait_for(name + "-list", lambda root: three_tabs(root, DEBUG_PACKAGE)
+                      and self.control(root, DEBUG_PACKAGE, label="All") is not None
+                      and any("(synthetic)" in (node.get("text") or "") for node in root.iter("node")
+                              if node.get("package") == DEBUG_PACKAGE))
+        self.capture(name + "-list")
+        return state
+
+    def seeded_steps(self, debug_apk):
+        """The debug-build steps when Android CI passes its debug APK, and their record for result.json.
+
+        Without one (the release workflow) nothing is installed beside the release app and the result
+        says the steps were skipped, so a missing seeded check is never mistaken for a passed one.
+        """
+        if debug_apk is None:
+            return {"seededList": "skipped: no --debug-apk"}
+        seeded = self.seed_list("seeded", debug_apk)
+        self.verify_chip_press("chip", DEBUG_PACKAGE)
+        row = self.open_seeded_row("seeded-row", DEBUG_PACKAGE)
+        # The order the debug receiver computed is driver evidence; the rows on screen, top to
+        # bottom, are what the UI showed (as many as fit). Both are recorded, neither is asserted.
+        return {"seededList": "passed", "seededOverviewByDriver": seeded["overview"],
+                "seededRowsShownByUi": row["shownOnScreen"], "seededRowTapped": row["tapped"],
+                "chipPress": "chip-ripple.json", "motionFrames": {"report": "motion.json"}}
+
+    def open_seeded_row(self, name, package):
+        """A tap on a List row opens that row's account without the bar, and Back returns to the List.
+
+        The second row is tapped, not the first, so a tap that always opened the top account would
+        fail. A row is identified by its identity line, the account label ("Kimi (synthetic)"); the
+        detail must show the same label under its title. Returns the labels of the rows on screen,
+        top to bottom, as the UI showed them.
+        """
+        root = self.dump(name + "-before")
+        lines = sorted((node for node in root.iter("node") if node.get("package") == package
+                        and (node.get("text") or "").endswith(" (synthetic)")), key=lambda node: bounds(node)[1])
+        shown = [node.get("text") for node in lines]
+        assert len(shown) >= 2, f"Fewer than two seeded rows on screen: {shown}"
+        chosen = shown[1]
+        row = self.control(root, package, label=lines[1].get("text"))
+        assert row is not None, f"The row of {chosen} is not pressable"
+        self.tap(row)
+        self.wait_for(name + "-detail", lambda root: navigation_target(root, "Overview", package) is None
+                      and bool(matches(root, "Limits", package)) and bool(matches(root, chosen, package)))
+        self.capture(name + "-detail")
+        self.adb("shell", "input", "keyevent", "BACK")
+        self.wait_for(name + "-back", lambda root: selected_tab(root, "Overview", package)
+                      and self.control(root, package, label="All") is not None)
+        return {"tapped": chosen, "shownOnScreen": shown}
+
+    def verify_chip_press(self, name, package):
+        """#26 on the seeded List (#88 01b): a held filter chip lights its rounded 32dp pill, not its 48dp target.
+
+        Compares a frame during a held press with the frame at rest, only around Overview's filter row so the
+        status-bar clock cannot interfere. A frame counts only if its capture ended well before the hold could
+        release and the still-selected chip is unchanged; other attempts are retried. Releasing on the same
+        point selects the held chip, so every attempt restores the default filter. The held chip is "Resets
+        today", the one without a count, so its label is the whole of its text.
+        """
+        held, default = "Resets today", "All"
         density = self.adb("shell", "wm", "density")
         densities = dict(re.findall(r"^(Physical|Override) density: (\d+)$", density, re.M))
         assert "Physical" in densities, f"Unrecognized density report: {density}"
@@ -1204,22 +1335,24 @@ class Smoke:
         def dp(value):
             return round(value * px)
 
-        radius, hold_ms, margin_ms = 6 * px, 4000, 500
+        # The chip's shape is the app's medium one, radius 8dp; the target adds 8dp above and below.
+        radius, hold_ms, margin_ms = 8 * px, 4000, 500
         report = {"result": "incomplete", "held": held, "restored": default, "pxPerDp": px, "attempts": [],
-                  "scope": "Accounts filter row with no accounts; the pill is the touch target inset by 8dp vertically."}
+                  "scope": "Overview filter row of the seeded List (debug build, synthetic accounts); the pill is "
+                           "the touch target inset by 8dp vertically."}
 
         def record():
             self.text(name + "-ripple.json", json.dumps(report, indent=2))
 
-        self.navigate("Accounts", "0 of 0 shown", name + "-accounts")
+        self.navigate("Overview", default, name + "-overview", package)
         # Capture delays after the hold starts; an emulator frame can lag the press.
         for attempt, delay in enumerate([0.7, 1.0, 1.4]):
             root = self.capture(f"{name}-rest-{attempt}")
-            target, original = self.control(root, PACKAGE, label=held), self.control(root, PACKAGE, label=default)
-            assert target is not None and original is not None, "Missing the Accounts filter segments"
-            assert self.selected(original) and not self.selected(target), "The Accounts filter is not at its default"
+            target, original = self.control(root, package, label=held), self.control(root, package, label=default)
+            assert target is not None and original is not None, "Missing the Overview filter chips"
+            assert self.selected(original) and not self.selected(target), "The Overview filter is not at its default"
             node, other = bounds(target), bounds(original)
-            assert (node[1], node[3]) == (other[1], other[3]), "The filter segments are not in one row"
+            assert (node[1], node[3]) == (other[1], other[3]), "The filter chips are not in one row"
             rest = (self.directory / f"{name}-rest-{attempt}.png").read_bytes()
 
             x, y = str((node[0] + node[2]) // 2), str((node[1] + node[3]) // 2)
@@ -1237,11 +1370,11 @@ class Smoke:
             finally:
                 _, error = hold.communicate(timeout=30)
             assert hold.returncode == 0, f"Held press failed: {error.decode().strip()}"
-            released = self.control(self.capture(f"{name}-released-{attempt}"), PACKAGE, label=held)
+            released = self.control(self.capture(f"{name}-released-{attempt}"), package, label=held)
             self.tap(original)
             self.wait_for(f"{name}-restored-{attempt}", lambda root: (
-                (restored := self.control(root, PACKAGE, label=default)) is not None and self.selected(restored)
-                and (other_node := self.control(root, PACKAGE, label=held)) is not None
+                (restored := self.control(root, package, label=default)) is not None and self.selected(restored)
+                and (other_node := self.control(root, package, label=held)) is not None
                 and not self.selected(other_node)))
 
             row = (min(node[0], other[0]) - dp(2), node[1], max(node[2], other[2]) + dp(2), node[3])
@@ -1265,7 +1398,7 @@ class Smoke:
             if measured["captureEndSeconds"] > measured["latestCaptureEndSeconds"]:
                 measured["rejected"] = "capture ended too close to the release"
             elif measured["changedInIdlePill"]:
-                measured["rejected"] = "the selected segment changed, so the frame follows a release"
+                measured["rejected"] = "the selected chip changed, so the frame follows a release"
             elif measured["changedInPill"] == 0:
                 measured["rejected"] = "no visible press"
             report["attempts"].append(measured)
@@ -1328,7 +1461,7 @@ class Smoke:
                 return True
         return False
 
-    def capture_motion(self, name):
+    def capture_motion(self, name, package=PACKAGE):
         """#81: frame sequences of the app's main motions, slowed down so a screenshot can catch them.
 
         The rest of the smoke runs with animations off. Here the animator scale is MOTION_SCALE, so a
@@ -1348,10 +1481,11 @@ class Smoke:
         scale it changed and cannot confirm as 0 again fails the job: an emulator left in an unknown
         state is not a passed run.
         """
-        report = {"result": "incomplete", "animatorScale": MOTION_SCALE, "sequences": [],
-                  "scope": "Empty-account build: cold start, tab switch, segment selection, push and pop. "
-                           "Motions that need accounts (bars, figures, list items) are covered by the "
-                           "Robolectric frame tests under com.usagelimits.ui.motion. framesDiffer only "
+        report = {"result": "incomplete", "animatorScale": MOTION_SCALE, "sequences": [], "package": package,
+                  "scope": "This run's debug build with the seeded synthetic accounts: cold start, tab switch, "
+                           "filter chip selection, push to an account's detail and pop. Bars, figures and list "
+                           "reordering are covered by the Robolectric frame tests under "
+                           "com.usagelimits.ui.motion. framesDiffer only "
                            "says that two screenshots of the whole screen differ in some byte, which a "
                            "status-bar clock tick also causes; it does not measure motion."}
         deadline = time.monotonic() + MOTION_BUDGET_SECONDS
@@ -1387,8 +1521,8 @@ class Smoke:
             self.tap(node, deadline=deadline)
 
         try:
-            activity = adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
-            assert activity.startswith(PACKAGE + "/"), activity
+            activity = adb("shell", "cmd", "package", "resolve-activity", "--brief", package).splitlines()[-1]
+            assert activity.startswith(package + "/"), activity
             at("set animator scale")
             # Before the command, not after it: Android can apply a value that adb reports as failed.
             scale_touched = True
@@ -1399,37 +1533,42 @@ class Smoke:
                 # Frames taken at another scale would not show what the sequences say they show.
                 raise CaptureSkipped(f"animator scale read back as {read_back!r}, not {MOTION_SCALE}")
             at("stop the app")
-            adb("shell", "am", "force-stop", PACKAGE)
+            adb("shell", "am", "force-stop", package)
             sequence("launch", "Process start: a bare ground, the launch overlay's icon rising once, then the overlay dissolving over Overview.",
                      9, lambda: adb("shell", "am", "start", "-n", activity))
-            root = wait("launched", lambda root: navigation_target(root, "Overview") is not None)
+            root = wait("launched", lambda root: navigation_target(root, "Overview", package) is not None
+                        and self.control(root, package, label="Needs attention") is not None)
 
-            sequence("tab", "Overview to Accounts: two peers fade through in place.", 3,
-                     lambda: tap(navigation_target(root, "Accounts"), "Accounts tab"))
-            root = wait("accounts", lambda root: selected_tab(root, "Accounts")
-                        and self.control(root, PACKAGE, label="Needs attention") is not None)
+            sequence("tab", "Overview to Resets: two peers fade through in place.", 3,
+                     lambda: tap(navigation_target(root, "Resets", package), "Resets tab"))
+            root = wait("resets", lambda root: selected_tab(root, "Resets", package))
+            tap(navigation_target(root, "Overview", package), "Overview tab")
+            root = wait("overview", lambda root: selected_tab(root, "Overview", package)
+                        and self.control(root, package, label="Needs attention") is not None)
 
-            sequence("segment", "Accounts filter: the selected pill fades from All to Needs attention.", 2.5,
-                     lambda: tap(self.control(root, PACKAGE, label="Needs attention"), "Needs attention segment"))
+            sequence("segment", "Overview filter: the selected chip fades from All to Needs attention, and the "
+                     "rows that do not match leave.", 2.5,
+                     lambda: tap(self.control(root, package, label="Needs attention"), "Needs attention chip"))
             root = wait("segment-selected", lambda root: (
-                (held := self.control(root, PACKAGE, label="Needs attention")) is not None and self.selected(held)))
-            tap(self.control(root, PACKAGE, label="All"), "All segment")
+                (held := self.control(root, package, label="Needs attention")) is not None and self.selected(held)))
+            tap(self.control(root, package, label="All"), "All chip")
             root = wait("segment-restored", lambda root: (
-                (default := self.control(root, PACKAGE, label="All")) is not None and self.selected(default)))
+                (default := self.control(root, package, label="All")) is not None and self.selected(default)))
 
-            tap(navigation_target(root, "Overview"), "Overview tab")
-            root = wait("overview", lambda root: selected_tab(root, "Overview")
-                        and self.control(root, PACKAGE, label="Add account") is not None)
+            def first_row(root):
+                titles = [node for node in root.iter("node") if node.get("package") == package
+                          and "(synthetic)" in (node.get("text") or "")]
+                return self.control(root, package, label=titles[0].get("text")) if titles else None
 
-            sequence("push", "Overview to Add account: the old screen leaves, the new one arrives shifted "
+            sequence("push", "Overview to an account's detail: the old screen leaves, the new one arrives shifted "
                      "from the end side, and the bottom bar leaves with the old screen.", 4,
-                     lambda: tap(self.control(root, PACKAGE, label="Add account"), "Add account button"))
-            wait("pushed", lambda root: navigation_target(root, "Overview") is None
-                 and bool(matches(root, "You can connect several accounts per provider.")))
+                     lambda: tap(first_row(root), "List row"))
+            wait("pushed", lambda root: navigation_target(root, "Overview", package) is None
+                 and bool(matches(root, "Limits", package)))
 
             sequence("pop", "Back to Overview: the reverse shift, and the bottom bar returns.", 4,
                      lambda: adb("shell", "input", "keyevent", "BACK"))
-            wait("popped", lambda root: selected_tab(root, "Overview"))
+            wait("popped", lambda root: selected_tab(root, "Overview", package))
             report["result"] = "captured"
         except CaptureSkipped as skipped:
             report["result"] = "skipped"
@@ -1541,13 +1680,20 @@ def apk_metadata(aapt, path):
     return {"package": match[1], "versionCode": int(match[2]), "versionName": match[3], "sha256": digest(path)}
 
 
-def main():
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--previous-apk", type=Path, required=True)
     parser.add_argument("--apk", type=Path, required=True)
+    parser.add_argument("--debug-apk", type=Path,
+                        help="This run's debug build, installed beside the release app for the seeded List. Android CI "
+                             "passes it; the release workflow does not, and then the seeded steps are skipped.")
     parser.add_argument("--apk-sha256-file", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = argument_parser().parse_args()
     tools = Path(os.environ["ANDROID_HOME"]) / "build-tools"
     aapt = sorted(tools.glob("*/aapt"), key=lambda path: tuple(int(n) for n in re.findall(r"\d+", path.parent.name)))[-1]
     old = apk_metadata(aapt, args.previous_apk)
@@ -1609,19 +1755,21 @@ def main():
         assert digest(installed_apk) == new["sha256"], "Installed APK differs from CI artifact"
         installed_apk.unlink()
         smoke.launch("current-start")
-        smoke.verify_segment_press("segment")
-        for tab, marker in [("Overview", "0 accounts monitored"), ("Accounts", "0 of 0 shown"),
-                            ("Resets", "No upcoming resets"), ("Settings", "Provider icons")]:
+        smoke.wait_for("current-three-tabs", three_tabs)
+        for tab, marker in [("Overview", EMPTY_OVERVIEW), ("Resets", "No upcoming resets"), ("Settings", "Provider icons")]:
             smoke.navigate(tab, marker, "current-" + tab.lower())
         smoke.setting_is_disabled("current-persisted")
         smoke.capture("current-persisted")
         smoke.adb("shell", "am", "force-stop", PACKAGE)
         smoke.launch("current-relaunch")
-        smoke.navigate("Overview", "0 accounts monitored", "current-relaunch-overview")
+        smoke.navigate("Overview", EMPTY_OVERVIEW, "current-relaunch-overview")
         smoke.verify_widgets_after_upgrade(placed_widgets)
         smoke.performance_observations("current", new, placed_widgets)
         smoke.verify_widget_move_resize(placed_widgets)
         smoke.verify_widget_lifecycle(placed_widgets)
+        # Last, so the release app's empty state, upgrade and widget host checks above never see it:
+        # this run's debug build with synthetic accounts, for the List and its filter chips.
+        seeded = smoke.seeded_steps(args.debug_apk)
     except Exception:
         try:
             smoke.capture("failure")
@@ -1633,13 +1781,21 @@ def main():
     assert diagnostics_complete, "Could not collect the runtime diagnostics"
     smoke.assert_no_app_failures()
     smoke.text("result.json", json.dumps({"result": "passed", "commit": os.environ["GITHUB_SHA"],
-        "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": ["Overview", "Accounts", "Resets", "Settings"],
-        "widgets": placed_widgets, "segmentPress": "segment-ripple.json",
-        "motionFrames": {"report": "motion.json"},
-        "scope": "Empty-account release smoke with four launcher widgets; provider-authenticated quotas were not tested."}, indent=2))
-    print("Release APK upgrade, persisted setting, four tabs, segment press highlight, four widgets, Mini Rings move/resize, night mode, process loss, launcher restart, reboot and offline/online checks passed; startup observations recorded.")
-    # Optional evidence, last: everything mandatory has passed and is on record above.
-    smoke.capture_motion("motion")
+        "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": list(TABS),
+        "widgets": placed_widgets, **seeded,
+        "scope": "Empty-account release smoke with four launcher widgets"
+                 + (", then this run's debug build with synthetic accounts for the List and its filter chips"
+                    if args.debug_apk else "; the seeded List steps were skipped (no --debug-apk)")
+                 + "; provider-authenticated quotas were not tested."}, indent=2))
+    print("Release APK upgrade, persisted setting, three tabs, four widgets, Mini Rings move/resize, night mode, process loss, "
+          "launcher restart, reboot and offline/online checks passed; startup observations recorded. "
+          + ("Seeded List chip press highlight and row tap passed." if args.debug_apk
+             else "Seeded List steps skipped: no --debug-apk."))
+    # Optional evidence, last: everything mandatory has passed and is on record above. It needs the
+    # seeded debug build, which has a List, filter chips and rows to push; the emulator is discarded
+    # with the job, so the debug build is not uninstalled.
+    if args.debug_apk:
+        smoke.capture_motion("motion", DEBUG_PACKAGE)
 
 
 if __name__ == "__main__":

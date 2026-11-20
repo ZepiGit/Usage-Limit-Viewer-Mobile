@@ -125,32 +125,33 @@ class PercentDisplaySurfacesTest {
 
     private fun text(value: String) = compose.onAllNodesWithText(value).fetchSemanticsNodes()
 
-    /** The lead strip's merged node, found by the label its tap action carries. */
+    /** The display chip's node, found by the label its tap action carries. */
     private fun flipTo(label: String) = SemanticsMatcher("tap action \"$label\"") {
         it.config.getOrNull(SemanticsActions.OnClick)?.label == label
     }
 
+    /** The chip is one focus stop: what it shows is its state, read out with its action. */
+    private fun chipSays(shown: String) = compose.onAllNodes(
+        SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, shown)).fetchSemanticsNodes().isNotEmpty()
+
     // MARK: - Overview in each mode
 
     @Test
-    fun `LEFT mode keeps the historical wording and adds the visible left word`() {
+    fun `LEFT mode speaks what is left on the row and the chip names the side`() {
         overview(PercentDisplay.LEFT)
 
-        assertTrue("lead strip speaks 60% left", spoken("60% left").isNotEmpty())
-        assertTrue("the row keeps its historical 'remaining' sentence", spoken("5h limit, 60% remaining").isNotEmpty())
-        assertTrue("a visible 'left' word names the figure", text("left").isNotEmpty())
-        assertTrue("no 'used' word in LEFT mode", text("used").isEmpty())
+        assertTrue("the row speaks the remaining sentence", spoken("5h limit, 60% remaining").isNotEmpty())
+        assertTrue("the chip says the figures count what is left", chipSays("% left"))
+        assertTrue("no USED wording in LEFT mode", !chipSays("% used") && spoken("40% used").isEmpty())
     }
 
     @Test
-    fun `USED mode swaps the percent clause and the visible word`() {
+    fun `USED mode swaps the spoken clause and the chip`() {
         overview(PercentDisplay.USED)
 
-        assertTrue("lead strip speaks 40% used", spoken("40% used").isNotEmpty())
         assertTrue("the row speaks 40% used", spoken("5h limit, 40% used").isNotEmpty())
-        assertTrue("a visible 'used' word names the figure", text("used").isNotEmpty())
-        assertTrue("no 'left' word in USED mode", text("left").isEmpty())
-        assertTrue("no LEFT clause survives in USED", spoken("60% left").isEmpty() && spoken("60% remaining").isEmpty())
+        assertTrue("the chip says the figures count what is used", chipSays("% used"))
+        assertTrue("no LEFT clause survives in USED", spoken("60% remaining").isEmpty() && !chipSays("% left"))
     }
 
     @Test
@@ -165,35 +166,33 @@ class PercentDisplaySurfacesTest {
     fun `the same blocked window in LEFT mode still reports its remainder`() {
         overview(PercentDisplay.LEFT, used = 85.0, exhausted = true)
         assertTrue(spoken("5h limit, 15% remaining").isNotEmpty())
-        assertTrue(spoken("15% left").isNotEmpty())
     }
 
-    // MARK: - R3: tap to switch
+    // MARK: - R3: tap to switch, now on the header chip
 
     @Test
-    fun `the lead strip is one focus stop holding its description, the flip action and the button role`() {
+    fun `the display chip is one focus stop with the flip action, the button role and its state`() {
         overview(PercentDisplay.LEFT)
 
-        val lead = compose.onNode(hasContentDescription("60% left", substring = true)).fetchSemanticsNode()
-
-        assertEquals("Show percentage used", lead.config.getOrNull(SemanticsActions.OnClick)?.label)
-        assertEquals(Role.Button, lead.config.getOrNull(SemanticsProperties.Role))
         compose.onAllNodes(flipTo("Show percentage used")).assertCountEquals(1)
+        val chip = compose.onNode(flipTo("Show percentage used")).fetchSemanticsNode()
+        assertEquals(Role.Button, chip.config.getOrNull(SemanticsProperties.Role))
+        assertEquals("% left", chip.config.getOrNull(SemanticsProperties.StateDescription))
+        assertEquals(listOf("Show percentage used"), chip.config.getOrNull(SemanticsProperties.ContentDescription))
     }
 
     @Test
-    fun `invoking the lead strip action asks for USED from LEFT, with a label that names it`() {
+    fun `invoking the chip asks for USED from LEFT, with a label that names it`() {
         var chosen: PercentDisplay? = null
         overview(PercentDisplay.LEFT) { chosen = it }
 
-        compose.onAllNodes(flipTo("Show percentage used")).assertCountEquals(1)
         compose.onNode(flipTo("Show percentage used")).performSemanticsAction(SemanticsActions.OnClick)
 
         assertEquals(PercentDisplay.USED, chosen)
     }
 
     @Test
-    fun `invoking the lead strip action asks for LEFT from USED, with a label that names it`() {
+    fun `invoking the chip asks for LEFT from USED, with a label that names it`() {
         var chosen: PercentDisplay? = null
         overview(PercentDisplay.USED) { chosen = it }
 
@@ -204,46 +203,36 @@ class PercentDisplaySurfacesTest {
     }
 
     @Test
-    fun `a finger on the lead figure flips the mode`() {
+    fun `a finger on the chip flips the mode`() {
         var chosen: PercentDisplay? = null
         overview(PercentDisplay.LEFT) { chosen = it }
 
-        compose.onNode(
-            hasText("60%") and hasAnyAncestor(hasContentDescription("60% left", substring = true)),
-            useUnmergedTree = true,
-        ).performTouchInput { click() }
+        compose.onNode(flipTo("Show percentage used")).performTouchInput { click() }
 
         assertEquals(PercentDisplay.USED, chosen)
     }
 
     @OptIn(ExperimentalTestApi::class)
     @Test
-    fun `enter on the focused lead strip flips the mode`() {
+    fun `enter on the focused chip flips the mode`() {
         var chosen: PercentDisplay? = null
         overview(PercentDisplay.LEFT) { chosen = it }
 
-        val lead = compose.onNode(hasContentDescription("60% left", substring = true))
-        lead.requestFocus()
-        lead.performKeyInput { pressKey(Key.Enter) }
+        val chip = compose.onNode(flipTo("Show percentage used"))
+        chip.requestFocus()
+        chip.performKeyInput { pressKey(Key.Enter) }
 
         assertEquals(PercentDisplay.USED, chosen)
     }
 
     // MARK: - R3: what a screen reader reaches during a flip
 
-    /** Nodes showing the LEFT figure ("60%") and the USED figure ("40%") a moment after the mode flips. */
-    private data class FigureNodes(val old: Int, val new: Int)
-
     /**
-     * What the accessibility tree holds [advanceMs] after the mode flips, in the lead strip and
-     * in the row apart. Whatever the screen does meanwhile, the tree describes the current state
-     * only: the old figure is out of it at once, with animations on or off.
-     *
-     * That the old pair is still DRAWN while it fades, and that it is not when animations are
-     * off, is a matter of pixels and is pinned in FigureMotionTest for the lead and for a row,
-     * through the same system setting; a node's existence says nothing about what is visible.
+     * Rows speaking the LEFT figure ("60% remaining") and the USED one ("40% used") [advanceMs]
+     * after the mode flips. Whatever the screen draws meanwhile, the tree describes the current
+     * state only: the old figure is out of it at once, with animations on or off.
      */
-    private fun figureNodesAfterFlip(animationScale: Float, advanceMs: Long): Pair<FigureNodes, FigureNodes> {
+    private fun spokenAfterFlip(animationScale: Float, advanceMs: Long): Pair<Int, Int> {
         val resolver = ApplicationProvider.getApplicationContext<Context>().contentResolver
         Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, animationScale)
         var mode by mutableStateOf(PercentDisplay.LEFT)
@@ -253,24 +242,13 @@ class PercentDisplaySurfacesTest {
                 // The state is rebuilt inside composition so the flip is actually observed;
                 // a screen holding a snapshot of the old mode would never change.
                 OverviewScreen(
-                    state = UsageUiState(
-                        accounts = listOf(usage()),
-                        settings = AppSettings(percentDisplay = mode),
-                    ),
-                    nowMs = now,
-                    onRefresh = {},
-                    onAccountClick = {},
-                    onAddAccount = {},
-                    onPercentDisplayChange = {},
+                    state = UsageUiState(accounts = listOf(usage()), settings = AppSettings(percentDisplay = mode)),
+                    nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
                 )
             }
         }
         compose.mainClock.advanceTimeBy(1_000)
-        val lead = flipTo("Show percentage used") or flipTo("Show percentage left")
-        // The merged tree, which is what a screen reader walks: the lead is one node, the row another.
-        fun inLead(value: String) = compose.onAllNodes(hasText(value) and lead).fetchSemanticsNodes().size
-        fun inRow(value: String) = compose.onAllNodes(hasText(value) and !lead).fetchSemanticsNodes().size
-        assertEquals("the lead and the row start on the LEFT figure", listOf(1, 1, 0, 0), listOf(inLead("60%"), inRow("60%"), inLead("40%"), inRow("40%")))
+        assertEquals("the row starts on the LEFT figure", 1 to 0, spoken("60% remaining").size to spoken("40% used").size)
         compose.runOnUiThread {
             mode = PercentDisplay.USED
             // With the clock held back no frame or looper turn delivers the write to the
@@ -278,28 +256,22 @@ class PercentDisplaySurfacesTest {
             Snapshot.sendApplyNotifications()
         }
         compose.mainClock.advanceTimeBy(advanceMs)
-        return FigureNodes(inLead("60%"), inLead("40%")) to FigureNodes(inRow("60%"), inRow("40%"))
+        return spoken("60% remaining").size to spoken("40% used").size
     }
 
     @Test
-    fun `with animations on a screen reader reaches the new figure at once, in the lead and in the row`() {
-        val (lead, row) = figureNodesAfterFlip(animationScale = 1f, advanceMs = 32)
-        assertEquals("the lead mid-fade", FigureNodes(old = 0, new = 1), lead)
-        assertEquals("the row mid-fade", FigureNodes(old = 0, new = 1), row)
+    fun `with animations on a screen reader reaches the new figure at once`() {
+        assertEquals("old, new mid-fade", 0 to 1, spokenAfterFlip(animationScale = 1f, advanceMs = 32))
     }
 
     @Test
     fun `with animations on the old figure is gone once the fade has finished`() {
-        val (lead, row) = figureNodesAfterFlip(animationScale = 1f, advanceMs = 1_000)
-        assertEquals(FigureNodes(old = 0, new = 1), lead)
-        assertEquals(FigureNodes(old = 0, new = 1), row)
+        assertEquals(0 to 1, spokenAfterFlip(animationScale = 1f, advanceMs = 1_000))
     }
 
     @Test
     fun `with animations off the figure changes at once`() {
-        val (lead, row) = figureNodesAfterFlip(animationScale = 0f, advanceMs = 32)
-        assertEquals(FigureNodes(old = 0, new = 1), lead)
-        assertEquals(FigureNodes(old = 0, new = 1), row)
+        assertEquals(0 to 1, spokenAfterFlip(animationScale = 0f, advanceMs = 32))
     }
 
     // MARK: - Account detail

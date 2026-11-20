@@ -417,13 +417,20 @@ class FakeDevice:
     Every call is recorded with the timeout it was given and when it started. It costs `seconds(command)`
     of the fake clock; one that costs more than its timeout raises TimeoutExpired once the timeout has
     passed, with its effect on the device already applied, which is what a late adb answer looks like.
-    The screen is the empty-account app as far as the capture walks it: two tabs, the Accounts filter
-    and the Add account screen.
+    The screen is the seeded debug build as far as the smoke walks it, shaped like the API 37 dump:
+    one bar node holding the three tab items, Overview with its filter chips and two account rows
+    (title, then the identity line "<label>"), the Resets tab, and the tapped row's
+    detail, which repeats that row's account label under its title.
     """
 
     STILL = png_bytes(2, 2, 4, [GROUND * 2, GROUND * 2])
-    BOXES = {"Overview": (0, 1400, 180, 1560), "Accounts": (180, 1400, 360, 1560), "Add account": (40, 600, 680, 700),
-             "All": (40, 200, 200, 260), "Needs attention": (200, 200, 400, 260)}
+    PACKAGE = runtime_smoke.DEBUG_PACKAGE
+    TABS = ("Overview", "Resets", "Settings")
+    ROWS = ("Grok (synthetic)", "Kimi (synthetic)")
+    ROW = ROWS[0]
+    BOXES = {"Overview": (0, 1400, 180, 1560), "Resets": (180, 1400, 360, 1560), "Settings": (360, 1400, 540, 1560),
+             "All": (40, 200, 200, 260), "Needs attention": (200, 200, 400, 260),
+             ROWS[0]: (40, 400, 680, 520), ROWS[1]: (40, 540, 680, 660), "Limits": (40, 300, 680, 360)}
     SCALE = ("shell", "settings", "put", "global", "animator_duration_scale")
 
     def __init__(self):
@@ -433,6 +440,7 @@ class FakeDevice:
         self.frames = 0
         self.screen = None
         self.filter = "All"
+        self.opened = None
         self.seconds = lambda command: 0.25
         # A test's hook: raise to fail a command, or return bytes to answer it without its effect.
         self.before = lambda command: None
@@ -467,7 +475,7 @@ class FakeDevice:
         elif command[:3] == ("shell", "settings", "get"):
             return self.scale.encode()
         elif "resolve-activity" in command:
-            return b"priority=0\ncom.usagelimits/.UsageLimitsActivity"
+            return f"priority=0\n{self.PACKAGE}/com.usagelimits.UsageLimitsActivity".encode()
         elif command[:3] == ("shell", "am", "force-stop"):
             self.screen = None
         elif command[:3] == ("shell", "am", "start"):
@@ -480,32 +488,236 @@ class FakeDevice:
                           and self.BOXES[label][1] <= y < self.BOXES[label][3]), None)
             if label in ("All", "Needs attention"):
                 self.filter = label
+            elif label in self.ROWS:
+                self.screen, self.opened = "Detail", label
             elif label:
                 self.screen = label
         return b""
 
     def visible(self):
-        return {"Overview": ("Overview", "Accounts", "Add account"),
-                "Accounts": ("Overview", "Accounts", "All", "Needs attention")}.get(self.screen, ())
+        return {"Overview": self.TABS + ("All", "Needs attention") + self.ROWS,
+                "Resets": self.TABS, "Detail": ("Limits",)}.get(self.screen, ())
 
     def hierarchy(self):
-        def node(label):
-            chosen = str(label in (self.screen, self.filter)).lower()
-            state = (f'checkable="true" checked="{chosen}"' if label in ("All", "Needs attention")
-                     else f'selected="{chosen}"')
-            box = "[{},{}][{},{}]".format(*self.BOXES[label])
-            return (f'<node package="com.usagelimits" enabled="true" clickable="{str(chosen == "false").lower()}" '
-                    f'{state} bounds="{box}"><node package="com.usagelimits" text="{label}" bounds="{box}"/></node>')
+        pkg = self.PACKAGE
 
-        nodes = "".join(node(label) for label in self.visible())
-        if self.screen == "Add account":
-            nodes = ('<node package="com.usagelimits" text="You can connect several accounts per provider." '
-                     'bounds="[40,300][680,360]"/>')
-        return f"<hierarchy>{nodes}</hierarchy>".encode()
+        def box(label):
+            return "[{},{}][{},{}]".format(*self.BOXES[label])
+
+        def node(label):
+            if label == "Limits":
+                # The detail: its account's title and label, then its sections.
+                title = self.opened.split(" (", 1)[0]
+                return (f'<node package="{pkg}" text="{title}" bounds="[109,172][199,221]"/>'
+                        f'<node package="{pkg}" text="{self.opened}" bounds="[109,221][278,250]"/>'
+                        f'<node package="{pkg}" text="Limits" bounds="{box(label)}"/>')
+            if label in self.ROWS:
+                title = label.split(" (", 1)[0]
+                return (f'<node package="{pkg}" enabled="true" clickable="true" bounds="{box(label)}">'
+                        f'<node package="{pkg}" text="{title}" bounds="{box(label)}"/>'
+                        f'<node package="{pkg}" text="{label}" bounds="{box(label)}"/></node>')
+            chosen = str(label in (self.screen, self.filter)).lower()
+            state = (f'checkable="true" checked="{chosen}" clickable="{str(chosen == "false").lower()}"'
+                     if label in ("All", "Needs attention")
+                     else f'selected="{chosen}" clickable="{str(chosen == "false").lower()}"')
+            return (f'<node package="{pkg}" enabled="true" {state} bounds="{box(label)}">'
+                    f'<node package="{pkg}" text="{label}" bounds="{box(label)}"/></node>')
+
+        shown = self.visible()
+        tabs = "".join(node(label) for label in shown if label in self.TABS)
+        bar = f'<node package="{pkg}" enabled="true" bounds="[0,1400][540,1560]">{tabs}</node>' if tabs else ""
+        rest = "".join(node(label) for label in shown if label not in self.TABS)
+        return f"<hierarchy>{rest}{bar}</hierarchy>".encode()
 
     def restores(self):
         """The index of every call that asked for the scale to go back to 0."""
         return [index for index, call in enumerate(self.calls) if call[0] == self.SCALE + ("0.0",)]
+
+
+class ThreeTabsTest(unittest.TestCase):
+    """#88 01b: the bar has Overview, Resets and Settings, and an Accounts item is a failure, not an extra."""
+
+    @staticmethod
+    def bar(*labels):
+        items = "".join(
+            f'<node package="com.usagelimits" enabled="true" clickable="true" selected="false" '
+            f'bounds="[{index * 100},1400][{index * 100 + 100},1560]"><node package="com.usagelimits" text="{label}" '
+            f'bounds="[{index * 100},1400][{index * 100 + 100},1560]"/></node>' for index, label in enumerate(labels))
+        # As in the API 37 dump: one bar node whose children are the items.
+        return ET.fromstring(f'<hierarchy><node package="com.usagelimits" enabled="true" '
+                             f'bounds="[0,1400][720,1560]">{items}</node></hierarchy>')
+
+    def test_the_three_tabs_pass(self):
+        self.assertTrue(runtime_smoke.three_tabs(self.bar("Overview", "Resets", "Settings")))
+
+    def test_a_missing_tab_or_a_leftover_accounts_tab_fails(self):
+        self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Resets")))
+        self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Accounts", "Resets", "Settings")))
+
+    def test_another_package_with_the_same_labels_is_not_this_app(self):
+        self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Resets", "Settings"), runtime_smoke.DEBUG_PACKAGE))
+
+    def test_an_extra_item_under_another_name_fails(self):
+        self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Resets", "Settings", "People")))
+        self.assertFalse(runtime_smoke.three_tabs(self.bar("Overview", "Dials", "Resets", "Settings")))
+
+    def test_the_real_api_37_bar_passes(self):
+        """The bar exactly as run 44675626408 dumped it (current-three-tabs.xml), trimmed to the bar."""
+        root = ET.fromstring(
+            '<hierarchy><node package="com.usagelimits" enabled="true" bounds="[0,1336][720,1476]">'
+            '<node package="com.usagelimits" enabled="true" clickable="false" selected="true" focusable="true" bounds="[0,1336][230,1476]">'
+            '<node package="com.usagelimits" bounds="[72,1392][157,1476]"><node package="com.usagelimits" text="Overview" bounds="[72,1422][157,1446]"/></node></node>'
+            '<node package="com.usagelimits" enabled="true" clickable="true" selected="false" focusable="true" bounds="[244,1336][475,1476]">'
+            '<node package="com.usagelimits" bounds="[317,1392][401,1476]"><node package="com.usagelimits" text="Resets" bounds="[327,1422][391,1446]"/></node></node>'
+            '<node package="com.usagelimits" enabled="true" clickable="true" selected="false" focusable="true" bounds="[489,1336][720,1476]">'
+            '<node package="com.usagelimits" bounds="[562,1392][646,1476]"><node package="com.usagelimits" text="Settings" bounds="[565,1422][643,1446]"/></node></node>'
+            '</node></hierarchy>')
+        self.assertEqual(["Overview", "Resets", "Settings"], runtime_smoke.bar_items(root))
+        self.assertTrue(runtime_smoke.three_tabs(root))
+
+
+class SeededRowTest(unittest.TestCase):
+    """#88 01b review, item 3: the second row is tapped, and its own account must open."""
+
+    def run_row(self, device):
+        with TemporaryDirectory() as directory, patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device):
+            device.screen = "Overview"
+            return Smoke(Path(directory), "test-device").open_seeded_row("row", runtime_smoke.DEBUG_PACKAGE)
+
+    def test_the_second_row_opens_its_own_account(self):
+        device = FakeDevice()
+        result = self.run_row(device)
+        self.assertEqual({"tapped": "Kimi (synthetic)", "shownOnScreen": ["Grok (synthetic)", "Kimi (synthetic)"]}, result)
+        self.assertEqual("Kimi (synthetic)", device.opened)
+
+    def test_a_tap_that_opens_the_first_account_instead_fails(self):
+        class WrongRow(FakeDevice):
+            def answer(self, command):
+                answer = super().answer(command)
+                if self.screen == "Detail":
+                    self.opened = self.ROWS[0]
+                return answer
+        with self.assertRaisesRegex(AssertionError, "UI did not reach row-detail"):
+            self.run_row(WrongRow())
+
+
+class OverviewReadyTest(unittest.TestCase):
+    """#88 01b review, item 2: the baseline may be either release; this build is held to C1."""
+
+    @staticmethod
+    def overview(marker, package="com.usagelimits", selected="true"):
+        return ET.fromstring(
+            f'<hierarchy><node package="{package}" enabled="true" clickable="false" selected="{selected}" '
+            f'bounds="[0,1400][180,1560]"><node package="{package}" text="Overview" bounds="[0,1400][180,1560]"/></node>'
+            f'<node package="{package}" text="{marker}" bounds="[40,300][680,360]"/></hierarchy>')
+
+    def test_a_baseline_from_before_the_redesign_is_ready_on_its_count(self):
+        self.assertTrue(runtime_smoke.overview_ready(self.overview("0 accounts monitored"), "previous"))
+
+    def test_a_baseline_from_after_the_redesign_is_ready_on_c1(self):
+        self.assertTrue(runtime_smoke.overview_ready(self.overview("Nothing to monitor yet"), "previous"))
+
+    def test_this_build_is_ready_on_c1_only(self):
+        self.assertTrue(runtime_smoke.overview_ready(self.overview("Nothing to monitor yet"), "current"))
+        self.assertFalse(runtime_smoke.overview_ready(self.overview("0 accounts monitored"), "current"))
+
+    def test_a_marker_outside_the_package_or_the_selected_tab_does_not_count(self):
+        for root in (self.overview("Nothing to monitor yet", package="com.usagelimits.debug"),
+                     self.overview("0 accounts monitored", selected="false")):
+            self.assertFalse(runtime_smoke.overview_ready(root, "previous"))
+
+
+class InvocationTest(unittest.TestCase):
+    """#88 01b review, item 1: both workflows' invocations of the runner parse, and only Android CI seeds.
+
+    The command lines are read from the workflow files, so a workflow that changes its call is
+    tested as it is.
+    """
+
+    WORKFLOWS = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+
+    def invocation(self, workflow):
+        text = (self.WORKFLOWS / workflow).read_text()
+        line = next(line for line in text.splitlines() if "bash tools/run_android_runtime.sh" in line)
+        return line.split("bash tools/run_android_runtime.sh", 1)[1].split()
+
+    def test_the_release_workflow_runs_without_a_debug_build(self):
+        args = runtime_smoke.argument_parser().parse_args(self.invocation("release.yml"))
+        self.assertIsNone(args.debug_apk)
+
+    def test_android_ci_passes_its_debug_build(self):
+        args = runtime_smoke.argument_parser().parse_args(self.invocation("android.yml"))
+        self.assertEqual(Path("runtime/debug/app-debug.apk"), args.debug_apk)
+
+    def test_android_ci_refuses_to_run_without_the_debug_build(self):
+        text = (self.WORKFLOWS / "android.yml").read_text()
+        guard = text.index("test -s runtime/debug/app-debug.apk")
+        self.assertLess(guard, text.index("bash tools/run_android_runtime.sh"), "the guard runs before the smoke")
+
+    def test_without_a_debug_build_the_seeded_steps_are_skipped_and_said_to_be(self):
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "adb", side_effect=AssertionError("nothing may be installed or sent")):
+                self.assertEqual({"seededList": "skipped: no --debug-apk"}, smoke.seeded_steps(None))
+
+    def test_with_a_debug_build_every_seeded_step_runs(self):
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            calls = []
+            with patch.object(smoke, "seed_list", side_effect=lambda *a: calls.append("seed") or {"overview": ["a"]}), \
+                    patch.object(smoke, "verify_chip_press", side_effect=lambda *a: calls.append("chip")), \
+                    patch.object(smoke, "open_seeded_row",
+                                 side_effect=lambda *a: calls.append("row") or {"tapped": "b", "shownOnScreen": ["a", "b"]}):
+                record = smoke.seeded_steps(Path("app-debug.apk"))
+        self.assertEqual(["seed", "chip", "row"], calls)
+        self.assertEqual("passed", record["seededList"])
+
+
+class SeedListTest(unittest.TestCase):
+    """#88 01b: the seeded debug build is granted notifications before its first launch.
+
+    Run 1 on CI (44670254725) stopped here: Android's notification prompt covered the List.
+    The fake device shows that prompt until the debug package has been granted the permission.
+    """
+
+    class Device(FakeDevice):
+        def __init__(self):
+            super().__init__()
+            self.granted = False
+            self.token = None
+
+        def answer(self, command):
+            if command[:3] == ("shell", "pm", "grant") and command[3] == runtime_smoke.DEBUG_PACKAGE:
+                self.granted = True
+                return b""
+            if command[:2] == ("shell", "am") and command[2] == "broadcast":
+                self.token = command[command.index("token") + 1]
+                return b"Broadcast completed"
+            if command[:3] == ("exec-out", "run-as", runtime_smoke.DEBUG_PACKAGE):
+                aliases = [f"evidence-{n}" for n in range(6)]
+                return json.dumps({"token": self.token, "success": True, "accounts": aliases,
+                                   "overview": aliases}).encode()
+            if command[:2] == ("install", "-r"):
+                return b"Success"
+            return super().answer(command)
+
+        def hierarchy(self):
+            if self.screen is not None and not self.granted:
+                return (b'<hierarchy><node package="com.android.permissioncontroller" '
+                        b'text="Allow Usage Limits to send you notifications?" bounds="[88,683][631,796]"/></hierarchy>')
+            return super().hierarchy()
+
+    def test_the_seeded_list_is_reached_with_notifications_granted(self):
+        device = self.Device()
+        with TemporaryDirectory() as directory, patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device):
+            state = Smoke(Path(directory), "test-device").seed_list("seeded", Path("app-debug.apk"))
+        self.assertTrue(device.granted)
+        self.assertEqual(6, len(state["overview"]))
+        grant = next(i for i, call in enumerate(device.calls) if call[0][:3] == ("shell", "pm", "grant"))
+        start = next(i for i, call in enumerate(device.calls) if call[0][:3] == ("shell", "am", "start"))
+        self.assertLess(grant, start, "granted before the first launch")
 
 
 class MotionCaptureTest(unittest.TestCase):
@@ -528,7 +740,7 @@ class MotionCaptureTest(unittest.TestCase):
             if args[:3] == ("shell", "settings", "get"):
                 return state["scale"]
             if "resolve-activity" in args:
-                return "priority=0\ncom.usagelimits/.UsageLimitsActivity"
+                return f"priority=0\n{runtime_smoke.DEBUG_PACKAGE}/com.usagelimits.UsageLimitsActivity"
             return ""
         return state, adb
 
@@ -545,7 +757,7 @@ class MotionCaptureTest(unittest.TestCase):
                 text = smoke.text
                 smoke.text = lambda name, value: write(name, value) if name == "motion.json" else text(name, value)
             try:
-                outcome = smoke.capture_motion("motion")
+                outcome = smoke.capture_motion("motion", runtime_smoke.DEBUG_PACKAGE)
             except BaseException as error:
                 outcome = error
             report, summary = Path(directory) / "motion.json", Path(directory) / "summary.md"
@@ -578,7 +790,7 @@ class MotionCaptureTest(unittest.TestCase):
             smoke = Smoke(Path(directory), "test-device")
             with patch.object(smoke, "adb", side_effect=adb), \
                     patch.object(smoke, "wait_for", side_effect=AssertionError("UI did not reach motion-launched")):
-                self.assertEqual("capture failed", smoke.capture_motion("motion"))
+                self.assertEqual("capture failed", smoke.capture_motion("motion", runtime_smoke.DEBUG_PACKAGE))
             report = json.loads((Path(directory) / "motion.json").read_text())
         self.assertEqual([str(runtime_smoke.MOTION_SCALE), "0.0"], state["puts"])
         self.assertEqual("0.0", report["animatorScaleRestored"])
@@ -594,7 +806,7 @@ class MotionCaptureTest(unittest.TestCase):
             with patch.object(smoke, "adb", side_effect=adb), \
                     patch.object(smoke, "wait_for", side_effect=AssertionError("UI did not reach motion-launched")):
                 with self.assertRaisesRegex(AssertionError, "not turned off again"):
-                    smoke.capture_motion("motion")
+                    smoke.capture_motion("motion", runtime_smoke.DEBUG_PACKAGE)
 
     def test_a_deadline_shortens_a_call_and_never_lengthens_it(self):
         device = FakeDevice()
@@ -690,7 +902,7 @@ class MotionCaptureTest(unittest.TestCase):
             ("screenshots crawl", lambda command: 40 if command[:2] == ("exec-out", "screencap") else 0.25,
              None, "launch frames", ["launch"], 3),
             ("a tap hangs late in the budget", lambda command: float("inf") if command[:3] == ("shell", "input", "tap")
-             else 35 if slow_start(command) else 0.25, None, "tap Accounts tab", ["launch"], 24),
+             else 35 if slow_start(command) else 0.25, None, "tap Resets tab", ["launch"], 24),
             ("the back key hangs late in the budget", lambda command: float("inf") if command[-1] == "BACK"
              else 35 if slow_start(command) else 0.25, None, "pop trigger", ["launch", "tab", "segment", "push"], 24),
         ):

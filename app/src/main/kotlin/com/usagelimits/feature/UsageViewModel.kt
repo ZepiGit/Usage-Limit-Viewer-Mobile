@@ -55,9 +55,6 @@ data class UpcomingReset(
     val severity: Severity,
 )
 
-/** The overview lead: [window] of [usage], [stale] when its data is old, failed or past its reset. */
-data class Lead(val usage: AccountUsage, val window: UsageWindow, val stale: Boolean)
-
 /** Everything the screens render. */
 data class UsageUiState(
     val accounts: List<AccountUsage> = emptyList(),
@@ -92,9 +89,6 @@ data class UsageUiState(
      */
     fun overviewAccountsAt(nowMs: Long): List<AccountUsage> = accounts.inOverviewOrder(nowMs)
 
-    fun healthyCountAt(): Int =
-        accounts.count { it.snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.CONNECTED }
-
     /** Newest data wins for the "last updated" line — it describes the screen as a whole. */
     val lastUpdated: Long?
         get() = accounts.mapNotNull { it.measurementAt }.maxOrNull()
@@ -102,27 +96,6 @@ data class UsageUiState(
     fun overallSeverityAt(nowMs: Long): Severity =
         accounts.mapNotNull { it.snapshot?.severityAt(nowMs, staleAfterMs) }.maxOrNull()
             ?: Severity.STALE
-
-    /**
-     * Trusted readings outrank cached ones so a failed account cannot displace live data.
-     * Without any future reset, retain the tightest-window fallback rather than leave a blank.
-     */
-    fun leadAt(nowMs: Long): Lead? {
-        val candidates = accounts.mapNotNull { usage ->
-            val snapshot = usage.snapshot ?: return@mapNotNull null
-            val next = snapshot.windows.filter { (it.remainingPercent != null || it.exhausted) && (it.resetAt ?: Long.MIN_VALUE) > nowMs }
-                .minByOrNull { it.resetAt!! }
-            val window = next ?: snapshot.headlineAt(nowMs) ?: return@mapNotNull null
-            val trusted = snapshot.severityAt(nowMs, staleAfterMs) !in setOf(Severity.STALE, Severity.ERROR)
-            // A reset-due headline means every window has reset since the fetch: nothing current to lead with.
-            Lead(usage, window, stale = !trusted || window.resetElapsedAt(snapshot.fetchedAt, nowMs))
-        }
-        val pool = candidates.filterNot { it.stale }.ifEmpty { candidates }
-        val upcoming = pool.filter { (it.window.remainingPercent != null || it.window.exhausted) && (it.window.resetAt ?: Long.MIN_VALUE) > nowMs }
-        if (upcoming.isNotEmpty()) return upcoming.minByOrNull { it.window.resetAt!! }
-        return pool
-            .minByOrNull { if (it.window.exhausted) -1.0 else it.window.remainingPercent ?: Double.MAX_VALUE }
-    }
 
     /** Chronological reset timeline; past events are dropped by the screen. */
     fun upcomingResets(nowMs: Long): List<UpcomingReset> =

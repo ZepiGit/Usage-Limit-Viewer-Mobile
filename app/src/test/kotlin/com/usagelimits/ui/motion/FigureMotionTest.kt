@@ -10,13 +10,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.hasAnyAncestor
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
@@ -25,7 +23,6 @@ import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.feature.UsageUiState
-import com.usagelimits.feature.overview.AccountCard
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.ui.components.FigureWithSide
 import com.usagelimits.ui.theme.LocalMotionEnabled
@@ -41,9 +38,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * A figure and the word that says which side it counts are one unit (#81): "60% left" leaves as a
- * whole, then "40% used" arrives. No frame shows a figure beside the other side's word, or one
- * window's figure under another window's name.
+ * A row's figure fades through on a mode flip or refresh, without carrying another window's value,
+ * and the header chip's word changes in step with it (#88 01b review, item 9): no frame shows the
+ * old figure under the new word or the new figure under the old word.
  *
  * Native graphics, because the pixel checks need real glyphs, and the legacy mode measures every
  * character as one pixel wide.
@@ -62,30 +59,9 @@ class FigureMotionTest {
 
     private fun text(value: String) = compose.onAllNodesWithText(value, useUnmergedTree = true).fetchSemanticsNodes()
 
-    /** The lead strip, found by the label its tap action carries in either mode. */
-    private val lead = SemanticsMatcher("the lead strip") {
-        it.config.getOrNull(SemanticsActions.OnClick)?.label in setOf("Show percentage used", "Show percentage left")
-    }
+    private fun rowText(value: String): List<SemanticsNode> = text(value)
 
-    private fun leadText(value: String) =
-        compose.onAllNodes(hasText(value) and hasAnyAncestor(lead), useUnmergedTree = true).fetchSemanticsNodes()
-
-    private fun rowText(value: String): List<SemanticsNode> {
-        val inLead = leadText(value).map { it.id }.toSet()
-        return text(value).filter { it.id !in inLead }
-    }
-
-    private fun setCard(motion: Boolean) {
-        compose.mainClock.autoAdvance = false
-        compose.setContent {
-            UsageLimitsTheme {
-                CompositionLocalProvider(LocalMotionEnabled provides motion) {
-                    AccountCard(accounts.single(), MOTION_NOW, 3_600_000, mode) {}
-                }
-            }
-        }
-        compose.mainClock.advanceTimeBy(1_000)
-    }
+    private fun setCard(motion: Boolean) = setOverview(motion)
 
     /** [motion] null leaves the decision to the theme, which reads the system's animator duration scale. */
     private fun setOverview(motion: Boolean?) {
@@ -113,93 +89,206 @@ class FigureMotionTest {
 
     private data class Flip(val before: Bitmap, val frames: List<Bitmap>, val settled: Bitmap, val region: Region)
 
-    /** Flips LEFT to USED and steps 20 frames; [unit] finds the figure and its word in the given mode. */
-    private fun flip(name: String, unit: (figure: String, word: String) -> List<SemanticsNode>): Flip =
+    /** Flips LEFT to USED and steps 20 frames; [unit] finds the figure in the given mode. */
+    private fun flip(name: String, unit: (figure: String) -> List<SemanticsNode>): Flip =
         FrameRecorder(compose).use { recorder ->
             val before = recorder.frame()
-            val from = region(unit("60%", "left"))
+            val from = region(unit("60%"))
             compose.change { mode = PercentDisplay.USED }
             val frames = recorder.next(20)
             compose.mainClock.advanceTimeBy(1_000)
             val settled = recorder.frame()
             (listOf(before) + frames + settled).saveSequence(name)
-            Flip(before, frames, settled, from.union(region(unit("40%", "used"))))
+            Flip(before, frames, settled, from.union(region(unit("40%"))))
         }
 
     /**
-     * Every frame of the flip shows the old pair or the new pair, never a mix. A frame's ink that
-     * lies outside what the old pair covers AND outside what the new pair covers is a mix: the
-     * old figure beside the new word, or two figures on top of each other.
+     * Every frame of the flip shows the old figure or the new figure, never both. Ink outside
+     * both settled figures indicates that the figures overlap.
      */
     private fun assertFadesThroughAsOneUnit(flip: Flip) {
         val (before, frames, settled, region) = flip
         val mixed = frames.withIndex().filter { (_, frame) ->
             frame.inkOutside(before, region, surface) > 0 && frame.inkOutside(settled, region, surface) > 0
         }.map { it.index }
-        assertEquals("frames that are neither the old pair nor the new pair", emptyList<Int>(), mixed)
+        assertEquals("frames that are neither the old figure nor the new figure", emptyList<Int>(), mixed)
 
-        // Both halves were seen, so the check above is not vacuous: the old pair, visibly fading...
+        // Both halves were seen, so the check above is not vacuous: the old figure, visibly fading...
         val leaving = frames.takeWhile { it.inkOutside(before, region, surface) == 0 }
-        assertTrue("the old pair is still there for several frames (${leaving.size})", leaving.size >= 3)
+        assertTrue("the old figure is still there for several frames (${leaving.size})", leaving.size >= 3)
         assertTrue("and it fades: fewer and fainter pixels than at rest",
             leaving.drop(1).any { !it.sameAs(before, region.left, region.top, region.right, region.bottom) })
-        // ...then the new pair, fading in until it is the settled picture.
+        // ...then the new figure, fading in until it is the settled picture.
         val arriving = frames.drop(leaving.size)
-        assertTrue("the new pair fades in over several frames",
+        assertTrue("the new figure fades in over several frames",
             arriving.count { it.ink(region, surface) > 0 && !it.sameAs(settled, region.left, region.top, region.right, region.bottom) } >= 3)
         assertTrue("the flip ends on the settled picture", frames.last().sameAs(settled))
     }
 
+    /** The summed per-channel difference of two frames inside [region]. */
+    private fun distance(a: Bitmap, b: Bitmap, region: Region): Long {
+        var sum = 0L
+        for (y in region.top until region.bottom) for (x in region.left until region.right) {
+            val p = a.getPixel(x, y)
+            val q = b.getPixel(x, y)
+            for (shift in intArrayOf(16, 8, 0)) sum += kotlin.math.abs((p shr shift and 0xFF) - (q shr shift and 0xFF))
+        }
+        return sum
+    }
+
+    /**
+     * Where one part of the screen stands on each frame of a flip, measured in the union of the old
+     * and new text boxes (so a box that resizes does not read as both):
+     * - 'o' / 'n': it looks like the frame before / the settled frame (within a quarter of the change);
+     * - 'p' / 'q': it is still nearer the old / already nearer the new content, though fading;
+     * - '-': exactly between, the dim middle of the fade-through.
+     */
+    private fun phases(before: Bitmap, frames: List<Bitmap>, settled: Bitmap, region: Region): String {
+        val whole = distance(before, settled, region)
+        check(whole > 0) { "the part does not change in this flip" }
+        return frames.joinToString("") { frame ->
+            val toOld = distance(frame, before, region)
+            val toNew = distance(frame, settled, region)
+            when {
+                toOld * 4 < whole -> "o"
+                toNew * 4 < whole -> "n"
+                toOld < toNew -> "p"
+                toNew < toOld -> "q"
+                else -> "-"
+            }
+        }
+    }
+
+    /**
+     * The chip's and the row figure's phases over a LEFT to USED flip.
+     *
+     * Only the two regions are kept per frame: each full frame is exported (when a capture
+     * directory is given) and released at once, so the 24 frames of the transition never sit in
+     * memory together. The regions span the old and the new text box; the new boxes are known
+     * only after the flip, so they are measured once on a throwaway flip first, in the same layout.
+     */
+    private fun phasesDuringFlip(name: String, fromFigure: String = "60%", toFigure: String = "40%"): Pair<String, String> {
+        val fromMode = mode
+        val toMode = if (fromMode == PercentDisplay.LEFT) PercentDisplay.USED else PercentDisplay.LEFT
+        val chipBefore = text(if (fromMode == PercentDisplay.LEFT) "% left" else "% used").single().boundsInWindow.toRegion(margin = 0)
+        val figureBefore = rowText(fromFigure).single().boundsInWindow.toRegion(margin = 0)
+        // The settled boxes of the new pair, then back, all with the clock held.
+        compose.change { mode = toMode }
+        compose.mainClock.advanceTimeBy(1_000)
+        val chip = chipBefore.union(text(if (toMode == PercentDisplay.USED) "% used" else "% left").single().boundsInWindow.toRegion(margin = 0))
+        val figure = figureBefore.union(rowText(toFigure).single().boundsInWindow.toRegion(margin = 0))
+        compose.change { mode = fromMode }
+        compose.mainClock.advanceTimeBy(1_000)
+
+        return FrameRecorder(compose).use { recorder ->
+            fun regionsOf(frame: Bitmap, index: Int): Pair<Bitmap, Bitmap> =
+                try {
+                    frame.saveFrame(name, index)
+                    frame.crop(chip) to frame.crop(figure)
+                } finally {
+                    frame.recycle()
+                }
+
+            val before = regionsOf(recorder.frame(), 0)
+            compose.change { mode = toMode }
+            val frames = List(24) { index ->
+                compose.mainClock.advanceTimeByFrame()
+                regionsOf(recorder.frame(), index + 1)
+            }
+            compose.mainClock.advanceTimeBy(1_000)
+            val settled = regionsOf(recorder.frame(), 25)
+            phases(before.first, frames.map { it.first }, settled.first, chip.atOrigin()) to
+                phases(before.second, frames.map { it.second }, settled.second, figure.atOrigin())
+        }
+    }
+
+    private fun assertChipAndFiguresSwitchTogether(phases: Pair<String, String>) {
+        val (chip, figure) = phases
+        // A part that already shows its new text legibly ('n') beside one that still shows its old
+        // text legibly or more of it than of the new ('o', 'p') is a mixed pair, and so is the reverse.
+        fun old(c: Char) = c == 'o' || c == 'p'
+        fun new(c: Char) = c == 'n' || c == 'q'
+        val wrong = chip.indices.filter {
+            (chip[it] == 'n' && old(figure[it])) || (figure[it] == 'n' && old(chip[it])) ||
+                (chip[it] == 'o' && new(figure[it])) || (figure[it] == 'o' && new(chip[it]))
+        }
+        assertEquals("frames where the chip and the figure stand on opposite sides of the switch\nchip   $chip\nfigure $figure",
+            emptyList<Int>(), wrong)
+        // Both halves were seen, so the check is not vacuous.
+        assertTrue("the old pair is seen mid-flip:\nchip   $chip\nfigure $figure", chip.indices.any { chip[it] == 'o' && figure[it] == 'o' })
+        assertTrue("the new pair is seen mid-flip:\nchip   $chip\nfigure $figure", chip.indices.any { chip[it] == 'n' && figure[it] == 'n' })
+    }
+
     // MARK: - Mode flip
 
+    // Through the real switch: the system setting the theme observes, not a composition local.
     @Test
-    fun `on a mode flip a row's figure leaves with its own word before the new pair arrives`() {
-        setCard(motion = true)
-        assertFadesThroughAsOneUnit(flip("row-mode-flip") { figure, word -> text(figure) + text(word) })
+    fun `with the system's animations on the chip and the figures change at the same point`() {
+        setAnimatorScale(1f)
+        setOverview(motion = null)
+        assertChipAndFiguresSwitchTogether(phasesDuringFlip("row-and-chip-flip-system-on"))
     }
 
+    /**
+     * A window the provider calls exhausted without a reported figure reads "—" under "% left" and
+     * "100%" under "% used". Both directions: no frame shows the new figure legibly while the chip
+     * still shows its old word, so the row never reads like 100 % left.
+     */
     @Test
-    fun `on a mode flip the lead's figure leaves with its own word before the new pair arrives`() {
+    fun `a blocked window without a reported figure changes with the chip in both directions`() {
+        accounts = listOf(demoAccount("one", ProviderId.CODEX, usedPercent = null).let { usage ->
+            usage.copy(snapshot = usage.snapshot!!.copy(windows = listOf(
+                usage.snapshot.windows.single().copy(exhausted = true))))
+        })
         setOverview(motion = true)
-        assertFadesThroughAsOneUnit(flip("lead-mode-flip") { figure, word -> leadText(figure) + leadText(word) })
+        assertChipAndFiguresSwitchTogether(phasesDuringFlip("blocked-no-figure-to-used", "—", "100%"))
+        assertChipAndFiguresSwitchTogether(phasesDuringFlip("blocked-no-figure-to-left", "100%", "—"))
     }
 
     @Test
-    fun `during a flip a screen reader reaches the current pair only and the description is the current one`() {
+    fun `on a mode flip a row's figure leaves before the new figure arrives`() {
+        setCard(motion = true)
+        assertFadesThroughAsOneUnit(flip("row-mode-flip") { figure -> rowText(figure) })
+    }
+
+    @Test
+    fun `during a flip a screen reader reaches only the current row description and no figure text`() {
         setCard(motion = true)
         compose.change { mode = PercentDisplay.USED }
 
         repeat(16) { frame ->
             compose.mainClock.advanceTimeByFrame()
-            // The merged tree, which is what a screen reader walks: the pair that is leaving is
-            // still drawn (and still in the unmerged tree), but it is no longer part of the row.
-            val reachable = listOf("60%", "left", "40%", "used").filter { compose.onAllNodesWithText(it).fetchSemanticsNodes().isNotEmpty() }
-            assertEquals("frame $frame: figure and word a screen reader reaches", listOf("40%", "used"), reachable)
-            assertEquals("frame $frame: the row's spoken sentence", 1,
-                compose.onAllNodes(SemanticsMatcher("says 40% used") { node ->
-                    node.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.ContentDescription)
-                        ?.any { "40% used" in it } == true
-                }).fetchSemanticsNodes().size)
+            for ((description, expected) in listOf("60% remaining" to 0, "40% used" to 1)) {
+                assertEquals("frame $frame: row description $description", expected,
+                    compose.onAllNodes(SemanticsMatcher("says $description") { node ->
+                        node.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.ContentDescription)
+                            ?.any { description in it } == true
+                    }).fetchSemanticsNodes().size)
+            }
+            // The merged tree, which is what a screen reader walks, without the nodes it skips: the
+            // leaving and the arriving figure are not a second, separate figure there, nor part of
+            // the pressable row's text; the line's sentence says it once.
+            assertEquals("frame $frame: figure texts a screen reader reaches", emptyList<String>(),
+                listOf("60%", "40%").filter { figure ->
+                    compose.onAllNodes(hasText(figure, substring = true) and
+                        !SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.HideFromAccessibility))
+                        .fetchSemanticsNodes().isNotEmpty()
+                })
+            assertEquals("frame $frame: the chip states the new side only", 1,
+                compose.onAllNodes(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "% used"))
+                    .fetchSemanticsNodes().size)
         }
     }
 
-    // The two below go through the real switch: the system setting the theme observes, not a
-    // composition local set by the test.
+    // The system-off test goes through the setting the theme observes, not a test composition local.
     @Test
-    fun `with the system's animations on the lead fades through`() {
-        setAnimatorScale(1f)
-        setOverview(motion = null)
-        assertFadesThroughAsOneUnit(flip("lead-mode-flip-system-on") { figure, word -> leadText(figure) + leadText(word) })
-    }
-
-    @Test
-    fun `with the system's animations off a row and the lead show the new pair on the next frame`() {
+    fun `with the system's animations off a row shows the new figure on the next frame`() {
         setAnimatorScale(0f)
         assertMotionOffShowsTheNewPairAtOnce(motion = null)
     }
 
     @Test
-    fun `with motion off a row and the lead show the new pair on the next frame`() = assertMotionOffShowsTheNewPairAtOnce(motion = false)
+    fun `with motion off a row shows the new figure on the next frame`() = assertMotionOffShowsTheNewPairAtOnce(motion = false)
 
     private fun assertMotionOffShowsTheNewPairAtOnce(motion: Boolean?) {
         setOverview(motion)
@@ -210,8 +299,8 @@ class FigureMotionTest {
             compose.mainClock.advanceTimeBy(1_000)
 
             assertTrue("the first frame after the flip is the settled one", first.sameAs(recorder.frame()))
-            assertEquals(0, text("60%").size + text("left").size)
-            assertEquals(2, leadText("40%").size + rowText("40%").size)
+            assertEquals(0, rowText("60%").size)
+            assertEquals(1, rowText("40%").size)
         }
     }
 
@@ -283,40 +372,39 @@ class FigureMotionTest {
         }
     }
 
+    /**
+     * A window that stays blocked and gains its first figure (or loses it) is a new reading: in
+     * Left the dash is replaced at once, not faded out while the chip's word stays.
+     */
     @Test
-    fun `a lead that changes to another account shows that account's figure and bar at once`() {
-        // The lead is the account whose window resets next: account one, in an hour.
-        accounts = listOf(demoAccount("one", ProviderId.CODEX, 40.0), demoAccount("two", ProviderId.CLAUDE, 10.0, resetInMs = 7_200_000))
-        setOverview(motion = true)
-        assertEquals("account one leads with 60% left", 1, leadText("60%").size)
-        val leadBounds = compose.onAllNodes(lead).fetchSemanticsNodes().single().boundsInWindow.toRegion(0)
-
-        FrameRecorder(compose).use { recorder ->
-            recorder.frame()
-            // Account two now resets sooner, at 5% left, and takes the lead; account one keeps its reading.
-            compose.change {
-                accounts = listOf(demoAccount("one", ProviderId.CODEX, 40.0), demoAccount("two", ProviderId.CLAUDE, 95.0, resetInMs = 1_800_000))
-            }
-            val first = recorder.next(1).single()
-            val inLead = listOf("60%", "5%").filter { leadText(it).isNotEmpty() }
-            compose.mainClock.advanceTimeBy(1_000)
-            val settled = recorder.frame()
-
-            assertEquals("account one's figure does not linger under account two's name", listOf("5%"), inLead)
-            assertTrue("the lead strip is settled on the first frame",
-                first.sameAs(settled, leadBounds.left, leadBounds.top, leadBounds.right, leadBounds.bottom))
+    fun `a blocked window that gains or loses its figure replaces the dash at once`() {
+        fun blocked(used: Double?) = demoAccount("one", ProviderId.CODEX, used).let { usage ->
+            usage.copy(snapshot = usage.snapshot!!.copy(windows = listOf(
+                usage.snapshot.windows.single().copy(exhausted = true))))
         }
+        accounts = listOf(blocked(null))
+        setCard(motion = true)
+        assertEquals(1, rowText("—").size)
+
+        compose.change { accounts = listOf(blocked(40.0)) }
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals("the first figure replaces the dash", listOf("60%"), listOf("—", "60%").filter { rowText(it).isNotEmpty() })
+
+        compose.change { accounts = listOf(blocked(null)) }
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals("a lost figure is the dash at once", listOf("—"), listOf("—", "60%").filter { rowText(it).isNotEmpty() })
     }
 
     @Test
     fun `a reading that becomes known replaces the dash at once`() {
         accounts = listOf(demoAccount("one", ProviderId.CODEX, null))
         setCard(motion = true)
-        assertEquals("an unknown reading has no side word", 0, text("left").size)
+        assertEquals(1, rowText("—").size)
 
         compose.change { accounts = listOf(demoAccount("one", ProviderId.CODEX, 40.0)) }
-        compose.mainClock.advanceTimeByFrame()
+        // The dash leaves over the fade's exit and is gone once that has passed.
+        compose.mainClock.advanceTimeBy(80)
 
-        assertEquals(listOf("60%", "left"), listOf("—", "60%", "left").filter { text(it).isNotEmpty() })
+        assertEquals(listOf("60%"), listOf("—", "60%").filter { rowText(it).isNotEmpty() })
     }
 }

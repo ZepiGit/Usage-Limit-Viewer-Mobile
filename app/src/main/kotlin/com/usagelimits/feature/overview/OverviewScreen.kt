@@ -1,20 +1,19 @@
 package com.usagelimits.feature.overview
 
-import com.usagelimits.core.model.PercentDisplay
-import com.usagelimits.core.model.WindowPresentation
-import com.usagelimits.core.model.presentation
-import com.usagelimits.core.model.readingValidity
-import com.usagelimits.core.model.title
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,85 +21,123 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.ConnectionStatus
+import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageScope
+import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.model.presentation
+import com.usagelimits.core.model.readingValidity
+import com.usagelimits.core.model.title
+import com.usagelimits.core.notifications.NotificationEvaluator
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UsageUiState
-import com.usagelimits.feature.settings.AppIcon
-import com.usagelimits.feature.settings.AppIconTile
 import com.usagelimits.ui.AppIcons
+import com.usagelimits.ui.ProviderLogo
+import com.usagelimits.ui.components.EmptyBox
+import com.usagelimits.ui.components.OutlineButton
+import com.usagelimits.ui.components.RuleDivider
+import com.usagelimits.ui.components.SectionHeader
+import com.usagelimits.ui.components.SkeletonBar
+import com.usagelimits.ui.components.Spinner
+import com.usagelimits.ui.components.TextAction
+import com.usagelimits.ui.components.FadingFigure
+import com.usagelimits.ui.components.FadingLabel
+import com.usagelimits.ui.components.segmentLegends
+import com.usagelimits.ui.components.ConflictingAvailabilityNote
+import com.usagelimits.ui.components.SegmentLegend
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.BoxWithConstraints
+import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.percentFlipLabelRes
-import com.usagelimits.ui.percentSideWordRes
+import com.usagelimits.ui.percentSpokenClauseRes
 import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.ui.text.windowLabelRes
-import com.usagelimits.ui.components.Dot
-import com.usagelimits.ui.components.EmptyBox
-import com.usagelimits.ui.components.ErrorBlock
-import com.usagelimits.ui.components.FigureWithSide
-import com.usagelimits.ui.components.OutlineButton
-import com.usagelimits.ui.components.RuleDivider
-import com.usagelimits.ui.components.ScreenTitle
-import com.usagelimits.ui.components.SectionHeader
-import com.usagelimits.ui.components.SkeletonBar
-import com.usagelimits.ui.components.Spinner
-import com.usagelimits.ui.components.StatusMark
-import com.usagelimits.ui.components.UsageBar
-import com.usagelimits.ui.components.UsageCard
-import com.usagelimits.ui.components.UsageWindowRow
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageMotion
 import com.usagelimits.ui.theme.UsageType
 import com.usagelimits.ui.theme.itemMotion
+import java.time.ZoneId
+import java.util.Locale
+
+/** The gap between Overview's blocks; the List rows inside one card touch. */
+private val BlockGap = 12.dp
+private val CardRadius = 8.dp
 
 /**
- * The landing screen: a lead strip answering "what runs out first, and when does anything come
- * back", then one card per account.
+ * Overview: the header with its display chip, the filter chips, every account in one List card in
+ * the automatic order, and the Credits block below it.
  *
- * Ordered worst-first so the account that needs attention is the one already on screen —
- * scrolling to find a problem defeats the point of a glanceable app.
+ * The ranking, the filters and the header come from [overviewAt] at [nowMs] in [zone], so the
+ * screen and the shared vectors cannot disagree. With no accounts the screen is C1: the fixed
+ * brand mark and both add paths, no chips. Until the store has answered it is a skeleton, and a
+ * filter that matches nothing says so inside the card; the three are never confused.
  */
 @Composable
 fun OverviewScreen(
@@ -111,6 +148,9 @@ fun OverviewScreen(
     onAddAccount: () -> Unit,
     onPercentDisplayChange: (PercentDisplay) -> Unit,
     modifier: Modifier = Modifier,
+    zone: ZoneId = ZoneId.systemDefault(),
+    filter: OverviewFilter = OverviewFilter.ALL,
+    onFilterChange: (OverviewFilter) -> Unit = {},
     onCreditClick: (String) -> Unit = {},
     onAddCredit: () -> Unit = {},
 ) {
@@ -122,54 +162,49 @@ fun OverviewScreen(
     SideEffect { if (state.loaded) contentShown = true }
     val listMotion = if (contentShown) UsageMotion.current else UsageMotion.Reduced
 
-    // Ranked at the screen's clock, so a reading or a reset falling due reorders the list without a sync.
-    val shown = state.overviewAccountsAt(nowMs)
+    val projection = state.accounts.overviewAt(filter, nowMs, zone, state.staleAfterMs)
+    val hasAccounts = state.loaded && state.accounts.isNotEmpty()
+    // Every row's window lines, so the card's columns come from all of them at once.
+    val lines = projection.entries.associate { entry ->
+        entry.usage.account.localId to key(entry.usage.account.localId) { windowLines(entry, state, nowMs, zone) }
+    }
+    val columns = rememberGridColumns(lines.values)
 
     LazyColumn(
         state = listState,
         modifier = modifier
             .fillMaxSize()
             .background(UsageColors.Ground),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(16.dp),
     ) {
-        item(key = "header") { OverviewHeader(state, nowMs, onRefresh) }
+        item(key = "header") {
+            OverviewHeader(state, projection, nowMs, zone, showModeChip = hasAccounts,
+                onRefresh = onRefresh, onPercentDisplayChange = onPercentDisplayChange)
+        }
 
         // Until the first emission `accounts` is empty only because nothing has arrived, so the
-        // final layout is drawn in grey rather than flashing "no accounts".
+        // final layout is drawn in grey rather than flashing the empty state.
         if (!state.loaded) {
-            item { LeadSkeleton() }
-            items(2) { AccountSkeleton() }
+            item(key = "loading") { ListSkeleton(Modifier.padding(top = BlockGap)) }
             return@LazyColumn
         }
 
-        // From here down every item has a stable key and the list's item motion, so when an
-        // account or a balance arrives or leaves, its neighbours glide to their new places
-        // instead of jumping while the card fades.
-        if (state.accounts.isNotEmpty()) {
-            item(key = "lead") { Box(itemMotion(listMotion)) { LeadStrip(state, nowMs, onPercentDisplayChange) } }
-        }
-
-        item(key = "accounts-header") {
-            SectionHeader(title = stringResource(R.string.overview_section_accounts), modifier = itemMotion(listMotion))
-        }
-
         if (state.accounts.isEmpty()) {
-            item(key = "accounts-empty") { EmptyBox(stringResource(R.string.overview_no_accounts), itemMotion(listMotion)) }
-        }
-
-        items(items = shown, key = { it.account.localId }) { usage ->
-            AccountCard(usage = usage, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
-                percentDisplay = state.settings.percentDisplay,
-                showTier = state.settings.showSubscriptionTier, showRenewal = state.settings.showRenewalTime,
-                modifier = itemMotion(listMotion),
-                onRetry = onRefresh,
-            ) { onAccountClick(usage.account.localId) }
-        }
-
-        item(key = "add-account") {
-            AddButton(stringResource(R.string.overview_add_account), stringResource(R.string.overview_add_account_hint),
-                onAddAccount, itemMotion(listMotion))
+            item(key = "empty") { EmptyOverview(onAddAccount, onAddCredit, itemMotion(listMotion).padding(top = BlockGap)) }
+        } else {
+            item(key = "filters") {
+                FilterChips(filter, projection.attentionCount, onFilterChange, itemMotion(listMotion).padding(top = 4.dp))
+            }
+            accountList(projection.entries, state, nowMs, lines, columns, listMotion, onRefresh, onAccountClick)
+            item(key = "caption") {
+                Text(stringResource(R.string.overview_headline_caption), itemMotion(listMotion).padding(top = BlockGap),
+                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
+            }
+            item(key = "add-account") {
+                OutlineButton(stringResource(R.string.overview_add_account), onAddAccount,
+                    itemMotion(listMotion).padding(top = BlockGap).fillMaxWidth(),
+                    leading = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp)) })
+            }
         }
 
         // Prepaid balances sit below the usage accounts: a different kind of number (money left,
@@ -178,19 +213,62 @@ fun OverviewScreen(
             SectionHeader(title = stringResource(R.string.overview_section_credits), modifier = itemMotion(listMotion))
         }
         if (state.credits.isEmpty()) {
-            item(key = "credits-empty") { EmptyBox(stringResource(R.string.overview_no_credits), itemMotion(listMotion)) }
+            item(key = "credits-empty") {
+                EmptyBox(stringResource(R.string.overview_no_credits), itemMotion(listMotion).padding(top = 8.dp))
+            }
         }
         items(items = state.credits, key = { "credit-${it.id}" }) { entry ->
             com.usagelimits.feature.credits.CreditCard(
                 entry = entry, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
-                modifier = itemMotion(listMotion),
+                modifier = itemMotion(listMotion).padding(top = 8.dp),
                 onClick = { onCreditClick(entry.id) },
                 onRetry = onRefresh,
             )
         }
         item(key = "add-credit") {
             AddButton(stringResource(R.string.overview_add_credit), stringResource(R.string.overview_add_credit_hint),
-                onAddCredit, itemMotion(listMotion))
+                onAddCredit, itemMotion(listMotion).padding(top = 8.dp))
+        }
+    }
+}
+
+/**
+ * The List card. Each row is its own lazy item, so a row that moves in the rank takes the list's
+ * item motion; together they draw one card: the first rounds the top, the last the bottom.
+ */
+private fun LazyListScope.accountList(
+    entries: List<OverviewEntry>,
+    state: UsageUiState,
+    nowMs: Long,
+    lines: Map<String, List<WindowLine>>,
+    columns: GridColumns,
+    listMotion: UsageMotion,
+    onRefresh: () -> Unit,
+    onAccountClick: (String) -> Unit,
+) {
+    if (entries.isEmpty()) {
+        item(key = "no-match") {
+            Box(
+                itemMotion(listMotion).padding(top = BlockGap).fillMaxWidth().heightIn(min = 56.dp)
+                    .clip(MaterialTheme.shapes.medium).background(UsageColors.Surface).padding(horizontal = 16.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(stringResource(R.string.overview_no_match), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
+            }
+        }
+        return
+    }
+    itemsIndexed(entries, key = { _, entry -> entry.usage.account.localId }) { index, entry ->
+        val first = index == 0
+        val last = index == entries.lastIndex
+        val shape = RoundedCornerShape(
+            topStart = if (first) CardRadius else 0.dp, topEnd = if (first) CardRadius else 0.dp,
+            bottomStart = if (last) CardRadius else 0.dp, bottomEnd = if (last) CardRadius else 0.dp,
+        )
+        Column(itemMotion(listMotion).padding(top = if (first) BlockGap else 0.dp)) {
+            if (!first) Box(Modifier.fillMaxWidth().background(UsageColors.Surface).padding(start = 16.dp, end = 12.dp)) { RuleDivider() }
+            val id = entry.usage.account.localId
+            OverviewAccountRow(entry, state, nowMs, lines[id].orEmpty(), columns, shape, onRefresh) { onAccountClick(id) }
         }
     }
 }
@@ -206,355 +284,641 @@ fun AddButton(label: String, hint: String, onClick: () -> Unit, modifier: Modifi
 }
 
 @Composable
-private fun OverviewHeader(state: UsageUiState, nowMs: Long, onRefresh: () -> Unit) {
-    val count = pluralStringResource(R.plurals.overview_accounts_monitored, state.accountCount, state.accountCount)
-    val countdownTexts = rememberCountdownTexts()
-    ScreenTitle(
-        title = stringResource(R.string.app_name),
-        // The stamp swaps text, not layout, while a refresh is in flight.
-        stamp = when {
-            state.isRefreshing -> stringResource(R.string.overview_refreshing)
-            state.accounts.isEmpty() -> count
-            else -> "$count · ${Countdown.freshnessLabel(state.lastUpdated, nowMs, countdownTexts)}"
-        },
-        action = {
-            val interaction = remember { MutableInteractionSource() }
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    // The 48dp square takes the press, corners included; the highlight alone is
-                    // round, as an icon action's is.
-                    .clickable(interaction, indication = null, enabled = !state.isRefreshing, role = Role.Button, onClick = onRefresh)
-                    .clip(CircleShape)
-                    .indication(interaction, ripple()),
-                contentAlignment = Alignment.Center,
-            ) {
-                // The icon gives way to the spinner in the same slot, and back, rather than cutting.
-                Crossfade(state.isRefreshing, animationSpec = UsageMotion.current.stateChange(), label = "refresh") { refreshing ->
-                    if (refreshing) {
-                        Spinner()
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = stringResource(R.string.overview_refresh_usage),
-                            tint = UsageColors.Muted,
-                            modifier = Modifier.size(20.dp),
-                        )
+private fun OverviewHeader(
+    state: UsageUiState,
+    projection: OverviewProjection,
+    nowMs: Long,
+    zone: ZoneId,
+    showModeChip: Boolean,
+    onRefresh: () -> Unit,
+    onPercentDisplayChange: (PercentDisplay) -> Unit,
+) {
+    val subtitle = when {
+        state.isRefreshing -> stringResource(R.string.overview_refreshing)
+        !state.loaded -> stringResource(R.string.overview_loading_usage)
+        state.accounts.isEmpty() -> stringResource(R.string.overview_no_accounts_yet)
+        else -> headerSubtitle(projection, nowMs, zone)
+    }
+    // The actions wrap under the title when a large font leaves no room beside it.
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f).widthIn(min = 160.dp).align(Alignment.CenterVertically)) {
+            Text(stringResource(R.string.app_name), Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineLarge, color = UsageColors.Ink)
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
+        }
+        Row(Modifier.align(Alignment.CenterVertically), verticalAlignment = Alignment.CenterVertically) {
+            if (showModeChip) ModeChip(state.settings.percentDisplay, onPercentDisplayChange)
+            RefreshAction(state.isRefreshing, onRefresh)
+        }
+    }
+}
+
+/**
+ * The header's words: the claim (attention or room), then the next reset; either may be missing,
+ * and with neither there is no subtitle. The reset uses the app's absolute stamp, in [zone].
+ */
+@Composable
+private fun headerSubtitle(projection: OverviewProjection, nowMs: Long, zone: ZoneId): String? {
+    val header = projection.header
+    val claim = when (header.kind) {
+        OverviewHeaderKind.ATTENTION ->
+            pluralStringResource(R.plurals.overview_need_attention, projection.attentionCount, projection.attentionCount)
+        OverviewHeaderKind.ROOM -> stringResource(R.string.overview_all_have_room)
+        OverviewHeaderKind.RESET_ONLY, OverviewHeaderKind.NONE -> null
+    }
+    val texts = rememberCountdownTexts()
+    val stamp = header.resetAt?.let { Countdown.absoluteResetStamp(it, nowMs, zone, currentLocale(), texts) }
+    return when {
+        claim != null && stamp != null -> stringResource(R.string.overview_claim_next_reset, claim, stamp)
+        stamp != null -> stringResource(R.string.overview_next_reset, stamp)
+        else -> claim
+    }
+}
+
+@Composable
+private fun currentLocale(): Locale = LocalConfiguration.current.locales[0]
+
+/**
+ * The display chip: what the figures count now ("% left"). One focus stop whose label says what a
+ * tap switches to; touch, keyboard and screen reader reach the same action. It writes the one
+ * stored choice Settings writes too.
+ */
+@Composable
+private fun ModeChip(mode: PercentDisplay, onPercentDisplayChange: (PercentDisplay) -> Unit) {
+    val flipTo = if (mode == PercentDisplay.USED) PercentDisplay.LEFT else PercentDisplay.USED
+    val flipLabel = stringResource(percentFlipLabelRes(mode))
+    val shown = stringResource(if (mode == PercentDisplay.USED) R.string.overview_mode_used else R.string.overview_mode_left)
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        Modifier
+            .heightIn(min = 48.dp)
+            .clickable(interaction, indication = null, role = Role.Button) { onPercentDisplayChange(flipTo) }
+            .clearAndSetSemantics {
+                contentDescription = flipLabel
+                stateDescription = shown
+                role = Role.Button
+                onClick(label = flipLabel) { onPercentDisplayChange(flipTo); true }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier.heightIn(min = 32.dp).clip(MaterialTheme.shapes.small)
+                .border(BorderStroke(1.dp, UsageColors.Control), MaterialTheme.shapes.small)
+                .indication(interaction, ripple())
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            // In step with the figures: the old side's word leaves with the old figures.
+            FadingLabel(shown, MaterialTheme.typography.labelMedium, UsageColors.Muted)
+        }
+    }
+}
+
+@Composable
+private fun RefreshAction(refreshing: Boolean, onRefresh: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            // The 48dp square takes the press, corners included; the highlight alone is round,
+            // as an icon action's is.
+            .clickable(interaction, indication = null, enabled = !refreshing, role = Role.Button, onClick = onRefresh)
+            .clip(CircleShape)
+            .indication(interaction, ripple()),
+        contentAlignment = Alignment.Center,
+    ) {
+        // The icon gives way to the spinner in the same slot, and back, rather than cutting.
+        Crossfade(refreshing, animationSpec = UsageMotion.current.stateChange(), label = "refresh") { busy ->
+            if (busy) {
+                Spinner()
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = stringResource(R.string.overview_refresh_usage),
+                    tint = UsageColors.Muted,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
+}
+
+/** All · Needs attention · n · Resets today: single select, wrapping on narrow widths. */
+@Composable
+private fun FilterChips(selected: OverviewFilter, attentionCount: Int, onSelect: (OverviewFilter) -> Unit, modifier: Modifier) {
+    FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (option in OverviewFilter.entries) {
+            val label = when (option) {
+                OverviewFilter.ALL -> stringResource(R.string.overview_filter_all)
+                OverviewFilter.NEEDS_ATTENTION -> stringResource(R.string.overview_filter_attention)
+                OverviewFilter.RESETS_TODAY -> stringResource(R.string.overview_filter_resets_today)
+            }
+            FilterChip(label, count = attentionCount.takeIf { option == OverviewFilter.NEEDS_ATTENTION && it > 0 },
+                selected = selected == option) { onSelect(option) }
+        }
+    }
+}
+
+@Composable
+private fun FilterChip(label: String, count: Int?, selected: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val motion = UsageMotion.current
+    // Read only while drawing: the fill fades without recomposing the chip.
+    val selection by animateFloatAsState(if (selected) 1f else 0f, motion.stateChange(), label = "chip")
+    val shape = MaterialTheme.shapes.medium
+    Box(
+        Modifier
+            .selectable(selected, interactionSource = interaction, indication = null, role = Role.RadioButton, onClick = onClick)
+            // 8dp above and below keep a 48dp target around the 32dp chip.
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            Modifier.heightIn(min = 32.dp).clip(shape)
+                .drawChipFill { if (motion.enabled) selection else if (selected) 1f else 0f }
+                .border(1.dp, if (selected) UsageColors.Muted else UsageColors.Rule, shape)
+                .indication(interaction, ripple())
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val style = if (selected) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodyMedium
+            val color = if (selected) UsageColors.Ink else UsageColors.Muted
+            Text(label, style = style, color = color)
+            if (count != null) Text(count.toString(), style = style.copy(fontFeatureSettings = "tnum"), color = color)
+        }
+    }
+}
+
+private fun Modifier.drawChipFill(alpha: () -> Float) =
+    this.then(Modifier.drawBehind { drawRect(UsageColors.Raised, alpha = alpha()) })
+
+/** Whether a row's figures are greyed (an old or failed reading) and whether its sign-in expired. */
+private fun rowState(entry: OverviewEntry, state: UsageUiState, nowMs: Long): Pair<Boolean, Boolean> {
+    val snapshot = entry.usage.snapshot
+    val severity = snapshot?.severityAt(nowMs, state.staleAfterMs) ?: Severity.STALE
+    return (severity == Severity.STALE || severity == Severity.ERROR) to
+        (snapshot?.connectionStatus == ConnectionStatus.RECONNECT_REQUIRED)
+}
+
+/**
+ * One account in the List card: logo, title, mark and chevron, then one line per window, the
+ * headline emphasised. An expired sign-in keeps its last figures in faint and says so; a failed,
+ * partial or paused reading keeps its stored message; an old or failed account greys its figures.
+ */
+@Composable
+private fun OverviewAccountRow(
+    entry: OverviewEntry,
+    state: UsageUiState,
+    nowMs: Long,
+    lines: List<WindowLine>,
+    columns: GridColumns,
+    shape: Shape,
+    onRetry: () -> Unit,
+    onClick: () -> Unit,
+) {
+    val usage = entry.usage
+    val snapshot = usage.snapshot
+    val (_, expired) = rowState(entry, state, nowMs)
+    val severity = snapshot?.severityAt(nowMs, state.staleAfterMs) ?: Severity.STALE
+    val windows = snapshot?.windows.orEmpty()
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            // The whole row takes the press; its highlight is drawn inside the card's shape.
+            .clickable(interaction, indication = null, onClick = onClick)
+            .clip(shape)
+            .background(UsageColors.Surface)
+            .indication(interaction, ripple())
+            .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 28.dp)) {
+            ProviderLogo(usage.account.provider, Modifier.size(28.dp))
+            Spacer(Modifier.width(10.dp))
+            // Title and mark take the free width, so the chevron ends every row at the same x.
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    usage.account.title(state.settings.showSubscriptionTier),
+                    Modifier.weight(1f, fill = false),
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
+                    color = UsageColors.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.width(8.dp))
+                AccountMark(usage, expired)
+            }
+            Icon(AppIcons.ChevronRight, contentDescription = null, tint = UsageColors.Faint, modifier = Modifier.size(20.dp))
+        }
+        Column(Modifier.padding(start = 38.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Which account this is: two of one provider share a title. The age of the reading is
+            // in the account's detail, not here (owner, package 016).
+            Text(usage.account.maskedEmail ?: usage.account.label,
+                style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (windows.isEmpty()) {
+                Text(snapshot?.errorMessage?.let { storedMessageText(it) } ?: stringResource(R.string.overview_no_usage_data),
+                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+            } else {
+                WindowGrid(lines, columns)
+            }
+            if (expired) {
+                Text(stringResource(R.string.overview_sign_in_expired),
+                    style = MaterialTheme.typography.bodySmall, color = UsageColors.NegativeText)
+            }
+            // A failed, partial or paused reading keeps the message it was stored with, worded by
+            // its status; the expired line above already says what the sign-in message would.
+            val message = snapshot?.errorMessage
+                ?.takeIf { windows.isNotEmpty() && !(expired && it == NotificationEvaluator.SIGN_IN_EXPIRED_MESSAGE) }
+                ?.let { stored ->
+                    val text = storedMessageText(stored)
+                    when (snapshot.status) {
+                        SnapshotStatus.OK -> text
+                        SnapshotStatus.PARTIAL -> stringResource(R.string.error_partial_update, text)
+                        SnapshotStatus.FAILED -> stringResource(R.string.error_showing_last_known, text)
                     }
                 }
+            if (message != null) {
+                Text(message, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
             }
-        },
+            if (!snapshot?.restrictedWindows.isNullOrEmpty()) {
+                Text(stringResource(R.string.restricted_windows, snapshot!!.restrictedWindows.joinToString { it.label }),
+                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+            }
+            // Lack of fresh data is not an expired sign-in: an old or unreadable account says which.
+            // A stored message already says why; the bare word would repeat it.
+            if (!expired && message == null && windows.isNotEmpty() && severity in setOf(Severity.STALE, Severity.ERROR, Severity.UNKNOWN)) {
+                Text(stringResource(SeverityPalette.labelRes(severity)), style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+            }
+            val credits = snapshot?.heldResetCredits ?: 0
+            if (credits > 0) {
+                Text("${stringResource(R.string.reset_credits_title)} · ${stringResource(R.string.reset_credits_available_count, credits)}",
+                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
+            }
+            if (snapshot?.status == SnapshotStatus.FAILED && !expired) {
+                TextAction(stringResource(R.string.action_retry), onRetry, color = UsageColors.Muted)
+            }
+        }
+    }
+}
+
+/**
+ * The 8dp account mark: the worst raw window, an expired sign-in overriding it. Above 50% left no
+ * mark; above 20 a hollow amber ring; above 0 filled amber; exhausted or expired filled red. A
+ * scoped pool running dry reads as limited, not as the whole account exhausted. It speaks its state.
+ */
+@Composable
+private fun AccountMark(usage: AccountUsage, expired: Boolean) {
+    val snapshot = usage.snapshot
+    val raw = snapshot?.windows.orEmpty().map { it.severity }.filter { it != Severity.UNKNOWN }.maxOrNull() ?: Severity.UNKNOWN
+    val mark = when {
+        expired -> Severity.ERROR
+        // The scope rule, not the snapshot's overall verdict, which a failed read overrides: a
+        // retained exhausted model window beside an open global one is limited, not exhausted.
+        raw == Severity.EXHAUSTED && snapshot?.quotaSeverity == Severity.LIMITED -> Severity.LIMITED
+        else -> raw
+    }
+    if (mark == Severity.HEALTHY || mark == Severity.UNKNOWN) return
+    val label = if (expired) stringResource(R.string.status_reconnect) else stringResource(SeverityPalette.labelRes(mark))
+    val color = SeverityPalette.accent(mark)
+    Box(
+        Modifier.size(8.dp).semantics { contentDescription = label }
+            .then(if (mark == Severity.MEDIUM) Modifier.border(1.5.dp, color, CircleShape) else Modifier.clip(CircleShape).background(color)),
     )
 }
 
-/**
- * Keep the account, remaining quota and countdown together so the next reset is unambiguous.
- */
-@Composable
-private fun LeadStrip(state: UsageUiState, nowMs: Long, onPercentDisplayChange: (PercentDisplay) -> Unit) {
-    val lead = state.leadAt(nowMs)
-    val window = lead?.window
-    val mode = state.settings.percentDisplay
-    val context = LocalContext.current
-    val appIcon = remember(context) { AppIcon.current(context) }
-    // The view model already marks a lead whose window has reset as stale, so no fetch time is needed.
-    val p = if (lead == null) WindowPresentation.absent(mode)
-        else lead.window.presentation(lead.window.readingValidity(stale = lead.stale, fetchedAt = null, nowMs = nowMs), mode)
-    val percent = percentFigureText(p.token)
-    // The word beside the figure says which side it counts, and so does the spoken sentence.
-    val side = stringResource(percentSideWordRes(mode))
-    // The figure flips the one global setting; the label names where it goes.
-    val flipTo = if (mode == PercentDisplay.USED) PercentDisplay.LEFT else PercentDisplay.USED
-    val flipLabel = stringResource(percentFlipLabelRes(mode))
-    // A stale lead says how old it is instead of promising a reset the cache cannot vouch for.
-    val countdownTexts = rememberCountdownTexts()
-    val reset = if (lead?.stale == true) Countdown.freshnessLabel(lead.usage.snapshot?.fetchedAt, nowMs, countdownTexts)
-        else Countdown.resetLabel(window?.resetAt, nowMs, countdownTexts)
-    // The window row below names it in the user's language, so the lead does too; a label the
-    // provider reported is shown as it came.
-    val windowLabel = window?.let { w ->
-        windowLabelRes(w.label, w.category, w.scope)?.let { stringResource(it) } ?: w.label
-    }
-
-    UsageCard {
-        Column(
-            Modifier.semantics(mergeDescendants = true) {
-                contentDescription = listOfNotNull(
-                    lead?.let { "${it.usage.account.label}, $windowLabel, $percent $side" }, reset,
-                ).joinToString(", ")
-                if (lead != null) {
-                    role = Role.Button
-                    onClick(label = flipLabel) {
-                        onPercentDisplayChange(flipTo)
-                        true
-                    }
-                }
-            }
-                // A keyboard or D-pad reaches the same action: the figure's tap is pointer-only.
-                .onKeyEvent { event ->
-                    val confirm = event.key == Key.Enter || event.key == Key.NumPadEnter || event.key == Key.DirectionCenter
-                    if (lead != null && confirm && event.type == KeyEventType.KeyUp) {
-                        onPercentDisplayChange(flipTo); true
-                    } else false
-                }
-                .focusable(enabled = lead != null),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            if (lead != null) {
-                val worst = lead.window
-                val severity = if (lead.stale) Severity.STALE else worst.severity
-                Text("${lead.usage.account.label} · $windowLabel",
-                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted, maxLines = 1)
-                // Keyed on whose reading this is: a lead that passes to another account or window
-                // shows that one's figure and bar at once, not the old one's fading out under the
-                // new name or a bar gliding from the other window's value.
-                key(lead.usage.account.localId, worst.id) {
-                    // The accessibility action lives on the card's merged node above, so a screen reader
-                    // finds one button. `clickable` would add a second focus stop of its own; this tap
-                    // is the finger's route to the same action and creates no semantics node.
-                    FigureWithSide(
-                        percent, side, SeverityPalette.figureColor(severity),
-                        MaterialTheme.typography.headlineMedium, MaterialTheme.typography.bodyMedium, spacing = 8.dp,
-                        modifier = Modifier.pointerInput(flipTo, onPercentDisplayChange) { detectTapGestures { onPercentDisplayChange(flipTo) } },
-                        sideModifier = Modifier.padding(bottom = 4.dp),
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    UsageBar(p, Modifier.fillMaxWidth())
-                }
-                if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
-            } else {
-                Text("—", style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        RuleDivider()
-        Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            LeadStat(stringResource(R.string.overview_connected_accounts), "${state.healthyCountAt()}/${state.accountCount}", UsageColors.Ink, Modifier.weight(1f))
-            AppIconTile(appIcon, size = 40.dp)
-        }
-    }
-}
-
-@Composable
-private fun LeadStat(label: String, value: String, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
-    Column(modifier.semantics(mergeDescendants = true) {}, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted, maxLines = 1)
-        Text(value, style = UsageType.FigureLarge, color = color)
-    }
-}
-
-/** The lead strip at its real size, in grey. */
-@Composable
-private fun LeadSkeleton() {
-    val loading = stringResource(R.string.overview_loading_usage)
-    UsageCard(Modifier.semantics { contentDescription = loading }) {
-        SkeletonBar(12.dp, 0.3f)
-        Spacer(Modifier.height(8.dp))
-        SkeletonBar(30.dp, 0.2f)
-        Spacer(Modifier.height(10.dp))
-        UsageBar(null, Severity.UNKNOWN, Modifier.fillMaxWidth())
-        Spacer(Modifier.height(12.dp))
-        RuleDivider()
-        Spacer(Modifier.height(12.dp))
-        SkeletonBar(16.dp, 0.4f)
-    }
-}
-
-/** An account card at its real size, in grey. */
-@Composable
-private fun AccountSkeleton() {
-    UsageCard {
-        SkeletonBar(16.dp, 0.4f)
-        Spacer(Modifier.height(6.dp))
-        SkeletonBar(12.dp, 0.6f)
-        repeat(3) {
-            Spacer(Modifier.height(16.dp))
-            SkeletonBar(14.dp, 0.3f)
-            Spacer(Modifier.height(6.dp))
-            UsageBar(null, Severity.UNKNOWN, Modifier.fillMaxWidth())
-        }
-    }
-}
-
-/**
- * When the account's LONG allowance comes back, as opposed to its next reset.
- *
- * The next reset is nearly always the short rolling window — five hours on Codex — and it is
- * already on the card. What is not on the card is the date the weekly or monthly allowance
- * starts over, which is the one people plan around.
- *
- * The provider does not state a subscription renewal date anywhere in the usage payload, so
- * this is derived: the longest-period window's own reset. That makes it exactly "when the big
- * bucket refills" and nothing more — it is not a billing date and does not claim to be.
- *
- * Null when there is only one window, since then the renewal IS the next reset and printing it
- * twice under different names is worse than leaving it out.
- */
-@Composable
-private fun renewalLabel(usage: AccountUsage, nowMs: Long): String? {
-    val windows = usage.snapshot?.windows.orEmpty()
-    if (windows.size < 2) return null
-    // `periodSeconds` is nullable — a provider that does not state a window's duration
-    // sorts below every window that does, rather than being treated as the longest.
-    val longest = windows.maxByOrNull { it.periodSeconds ?: -1L } ?: return null
-    val soonest = windows.mapNotNull { it.resetAt }.filter { it > nowMs }.minOrNull()
-    val renewsAt = longest.resetAt?.takeIf { it > nowMs } ?: return null
-    if (renewsAt == soonest) return null
-    // The same words the row of this window shows: the app's own names are translated, a label
-    // the provider reported is data.
-    val label = windowLabelRes(longest.label, longest.category, longest.scope)
-        ?.let { stringResource(it) } ?: longest.label
-    return stringResource(R.string.overview_renews, label, Countdown.format(renewsAt - nowMs, rememberCountdownTexts()))
-}
-
-/**
- * One account: identity, status, and its quota rows.
- *
- * Windows are grouped when the provider supplies a group (Antigravity quota groups, Codex code
- * review), so a shared bucket is shown once with its members named rather than repeated per
- * model.
- */
-@Composable
-fun AccountCard(
-    usage: AccountUsage,
-    nowMs: Long,
-    staleAfterMs: Long,
-    // Required, never defaulted: a defaulted mode would leave a caller silently in LEFT.
-    percentDisplay: PercentDisplay,
-    showTier: Boolean = true,
-    showRenewal: Boolean = false,
-    // Before `onClick`, so the trailing-lambda call sites keep binding their lambda to the
-    // click and not to this.
-    modifier: Modifier = Modifier,
-    /** Shown beside a failure inside the card; null hides the Retry. */
-    onRetry: (() -> Unit)? = null,
-    onClick: () -> Unit,
+/** What one window line shows, worked out once so the grid can size its columns from every line. */
+private class WindowLine(
+    val window: UsageWindow,
+    val label: String,
+    val figure: String,
+    val figureColor: androidx.compose.ui.graphics.Color,
+    val stamp: String?,
+    val presentation: com.usagelimits.core.model.WindowPresentation,
+    val emphasised: Boolean,
+    val spoken: String,
+    /** The reported breakdown, one legend per segment; empty when the provider gives none. */
+    val legends: List<String>,
+    /** The reading is current: not expired, failed, old or past its reset. */
+    val current: Boolean,
+    /** The figure in the other display mode, so the column fits both and a flip keeps the layout. */
+    val otherFigure: String,
 ) {
-    val snapshot = usage.snapshot
-    val countdownTexts = rememberCountdownTexts()
-    val severity = snapshot?.severityAt(nowMs, staleAfterMs) ?: Severity.STALE
-    // A card that is old or failed keeps its figures, in grey.
-    val stale = severity == Severity.STALE || severity == Severity.ERROR
+    val id: String get() = window.id
+    val group: String? get() = window.group
+}
 
-    UsageCard(modifier = modifier, onClick = onClick) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 44.dp)) {
-            com.usagelimits.ui.ProviderBadge(provider = usage.account.provider, size = 34.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = usage.account.title(showTier),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = UsageColors.Ink,
-                    maxLines = 1,
-                )
-                Text(
-                    text = (usage.account.maskedEmail ?: usage.account.label) + " · " +
-                        Countdown.freshnessLabel(usage.measurementAt, nowMs, countdownTexts),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = UsageColors.Faint,
-                    maxLines = 1,
-                )
-                if (showRenewal) {
-                    renewalLabel(usage, nowMs)?.let { renewal ->
-                        Text(
-                            text = renewal,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = UsageColors.Faint,
-                            maxLines = 1,
-                        )
+/**
+ * Every window of one account as grid lines: label | flexible 4dp bar | figure | reset stamp.
+ *
+ * The columns are shared by every line of every row in the card ([GridColumns]): the label column
+ * is as wide as the widest label (58dp at least), the figure column as the widest figure (42dp at
+ * least) and the stamp column as the widest stamp (66dp at least), and the bar takes what is left,
+ * 24dp at least. So within the card every bar starts and every figure ends at the same place,
+ * whether a stamp reads "14:05" or "Thu 02:49". When that does not fit the width, the windows
+ * stack instead of cutting a column (see [WindowLines]).
+ */
+/** The figure cell's type: mono 13sp, as the hand-off's grid. */
+private val GridFigureStyle = UsageType.Figure.copy(fontSize = 13.sp, lineHeight = 18.sp)
+
+/** The window lines of one row, worked out once, so the card can size its columns from every row. */
+@Composable
+private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, zone: ZoneId): List<WindowLine> {
+    val snapshot = entry.usage.snapshot ?: return emptyList()
+    val (stale, expired) = rowState(entry, state, nowMs)
+    val texts = rememberCountdownTexts()
+    val locale = currentLocale()
+    val spokenSide = stringResource(percentSpokenClauseRes(state.settings.percentDisplay))
+    val staleWord = stringResource(SeverityPalette.labelRes(Severity.STALE))
+    val conflictNote = stringResource(R.string.usage_conflicting_availability)
+    return snapshot.windows.map { window ->
+        val validity = when {
+            stale || expired -> ReadingValidity.STALE
+            else -> window.readingValidity(stale = false, fetchedAt = snapshot.fetchedAt, nowMs = nowMs)
+        }
+        val severity = if (validity == ReadingValidity.CURRENT) window.severity else Severity.STALE
+        val p = window.presentation(validity, state.settings.percentDisplay)
+        val figure = percentFigureText(p.token)
+        val other = if (state.settings.percentDisplay == PercentDisplay.LEFT) PercentDisplay.USED else PercentDisplay.LEFT
+        val otherFigure = percentFigureText(window.presentation(validity, other).token)
+        val label = windowLabel(window)
+        val headline = window.id == entry.headlineWindowId
+        val stamp = if (validity == ReadingValidity.RESET_DUE) texts.resetDue()
+            else window.resetAt?.let { Countdown.absoluteResetStamp(it, nowMs, zone, locale, texts) }
+        // A pool's windows can share a label ("Weekly" in two pools), so the pool is spoken with it.
+        val reading = listOfNotNull(window.group, "$label, $figure $spokenSide").joinToString(", ")
+        val legends = segmentLegends(window)
+        val spoken = (listOfNotNull(
+            if (headline) stringResource(R.string.overview_headline_spoken, reading) else reading,
+            stamp,
+            staleWord.takeIf { validity == ReadingValidity.STALE && !expired },
+        ) + legends + listOfNotNull(conflictNote.takeIf { window.hasConflictingAvailability })).joinToString(", ")
+        WindowLine(
+            window = window, label = label, figure = figure, legends = legends, otherFigure = otherFigure,
+            current = validity == ReadingValidity.CURRENT && !expired,
+            figureColor = when {
+                !p.hasFigure || expired -> UsageColors.Faint
+                !headline -> UsageColors.Muted
+                else -> SeverityPalette.figureColor(severity)
+            },
+            stamp = stamp, presentation = p, emphasised = headline && !expired, spoken = spoken,
+        )
+    }
+}
+
+/**
+ * The widths, in px, of the widest label, figure and stamp across every row of the card. Each
+ * row's grid takes at least these, so bars start and figures end in one column card-wide.
+ */
+private class GridColumns(val label: Int, val figure: Int, val stamp: Int)
+
+@Composable
+private fun rememberGridColumns(lines: Collection<List<WindowLine>>): GridColumns {
+    val measurer = rememberTextMeasurer()
+    // Measured in the emphasised weight, the wider of the two a label can take.
+    val labelStyle = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
+    val stampStyle = MaterialTheme.typography.bodySmall
+    fun widest(texts: List<String>, style: TextStyle) =
+        texts.maxOfOrNull { measurer.measure(it, style, maxLines = 1, softWrap = false).size.width } ?: 0
+    val all = lines.flatten()
+    return GridColumns(
+        label = widest(all.map { it.label }, labelStyle),
+        // Both sides' figures, so a mode flip does not widen the column or switch the layout.
+        figure = widest(all.flatMap { listOf(it.figure, it.otherFigure) }, GridFigureStyle),
+        stamp = widest(all.mapNotNull { it.stamp }, stampStyle),
+    )
+}
+
+@Composable
+private fun WindowGrid(lines: List<WindowLine>, columns: GridColumns) {
+    // Ungrouped windows first, as the account's own limits; then each pool under its name, so two
+    // pools whose windows share a label ("Weekly") do not look alike.
+    val groups = lines.groupBy { it.group }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        groups[null]?.let { WindowLines(it, columns) }
+        for ((group, pool) in groups) {
+            if (group == null) continue
+            Text(group, Modifier.padding(top = 2.dp), style = MaterialTheme.typography.labelMedium, color = UsageColors.Muted,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            WindowLines(pool, columns)
+        }
+    }
+}
+
+/**
+ * Window lines in the card's shared columns, each followed by its breakdown and a blocked-limit
+ * note when it has them. When the four columns do not fit (a narrow window, a large font) every
+ * window stacks instead: label and figure on one line, the bar, then the stamp, all readable.
+ */
+@Composable
+private fun WindowLines(lines: List<WindowLine>, columns: GridColumns) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val density = LocalDensity.current
+        val fits = with(density) {
+            val gap = 10.dp.roundToPx()
+            maxOf(58.dp.roundToPx(), columns.label) + 24.dp.roundToPx() + maxOf(42.dp.roundToPx(), columns.figure) +
+                maxOf(66.dp.roundToPx(), columns.stamp) + 3 * gap <= constraints.maxWidth
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (line in lines) {
+                key(line.id) {
+                    if (fits) GridLine(line, columns) else StackedLine(line)
+                    if (line.legends.isNotEmpty()) {
+                        SegmentLegend(line.window, line.legends, Modifier.clearAndSetSemantics {}, current = line.current)
                     }
-                }
-            }
-            StatusMark(severity, label = if (snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED) stringResource(R.string.status_reconnect) else null)
-            // Its own 24dp slot, so figures do not jump when a row has no chevron.
-            Box(Modifier.width(24.dp), contentAlignment = Alignment.CenterEnd) {
-                Icon(
-                    imageVector = AppIcons.ChevronRight,
-                    contentDescription = null,
-                    tint = UsageColors.Faint,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-
-        if (!snapshot?.restrictedWindows.isNullOrEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Dot(UsageColors.Warning, size = 6.dp)
-                Text(
-                    text = stringResource(R.string.restricted_windows, snapshot!!.restrictedWindows.joinToString { it.label }),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = UsageColors.Muted,
-                )
-            }
-        }
-
-        val windows = snapshot?.windows.orEmpty()
-        Spacer(Modifier.height(12.dp))
-        if (windows.isEmpty()) {
-            Text(
-                text = snapshot?.errorMessage?.let { storedMessageText(it) } ?: stringResource(R.string.overview_no_usage_data),
-                style = MaterialTheme.typography.bodyMedium,
-                color = UsageColors.Muted,
-            )
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Ungrouped windows first — they are the account's headline limits.
-                // Each row is the window it shows, not its place in the list: another window that
-                // takes the slot starts from its own reading, without the old one's figure or bar.
-                windows.filter { it.group == null }.take(4).forEach { window ->
-                    key(window.id) { UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale) }
-                }
-
-                val groups = windows.filter { it.group != null }.groupBy { it.group!! }
-                groups.forEach { (group, groupWindows) ->
-                    Text(
-                        text = group,
-                        modifier = Modifier.padding(top = 4.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = UsageColors.Muted,
-                    )
-                    groupWindows.forEach { window ->
-                        key(window.id) { UsageWindowRow(window, nowMs, percentDisplay, fetchedAt = snapshot?.fetchedAt, stale = stale) }
-                    }
+                    if (line.window.hasConflictingAvailability) ConflictingAvailabilityNote(Modifier.clearAndSetSemantics {})
                 }
             }
         }
+    }
+}
 
-        // The summary line reports what the user holds; whether any of it can be spent right
-        // now is a detail-screen concern, where the button lives.
-        val creditCount = snapshot?.heldResetCredits ?: 0
-        if (creditCount > 0) {
-            Spacer(Modifier.height(12.dp))
-            RuleDivider()
-            Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = stringResource(R.string.reset_credits_title),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = UsageColors.Muted,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = stringResource(R.string.reset_credits_available_count, creditCount),
-                    style = UsageType.Figure,
-                    color = UsageColors.Ink,
-                )
+/** The label: it carries the whole line for a screen reader; the other cells are silent. */
+@Composable
+private fun LineLabel(line: WindowLine, modifier: Modifier = Modifier, maxLines: Int = 1) {
+    Text(line.label, modifier.semantics(mergeDescendants = true) { contentDescription = line.spoken },
+        style = MaterialTheme.typography.bodySmall,
+        fontWeight = if (line.emphasised) FontWeight.Medium else FontWeight.Normal,
+        color = if (line.emphasised) UsageColors.Ink else UsageColors.Faint,
+        maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+}
+
+/**
+ * The quota bar, always from the window's presentation: it follows the display mode and the
+ * reading's validity. Off the headline it recedes, its fill at 40 % over the track. A reported
+ * breakdown is not drawn here; it stays as the legend under the line (the detail draws its bar).
+ */
+@Composable
+private fun LineBar(line: WindowLine, modifier: Modifier = Modifier) {
+    UsageBar(line.presentation, modifier.clearAndSetSemantics {}.alpha(if (line.emphasised) 1f else 0.4f), height = 4.dp)
+}
+
+/**
+ * The figure: hidden from a screen reader (the label speaks the line) but still drawn as text, and
+ * it fades through like every other figure. A pure mode change fades with the chip, including a
+ * blocked window whose figure is "—" in one mode and "100%" in the other: keyed on the reading,
+ * the node survives the flip. A new reading that gains or loses its figure is a different node and
+ * replaces the old one at once.
+ *
+ * What the figure's fade is keyed on, from the reading and not from the display mode:
+ * - [FigureFade.MEASURED]: the window has a figure, whether or not it is blocked;
+ * - [FigureFade.BLOCKED]: blocked and without a measurement, so one mode shows "—" and the other "100%";
+ * - [FigureFade.UNKNOWN]: neither.
+ *
+ * A pure mode change stays in one state and fades with the chip. A reading that gains or loses its
+ * figure changes state, blocked or not, and the figure is replaced at once.
+ */
+internal enum class FigureFade { MEASURED, BLOCKED, UNKNOWN }
+
+internal fun figureFade(hasMeasurement: Boolean, blocked: Boolean): FigureFade = when {
+    hasMeasurement -> FigureFade.MEASURED
+    blocked -> FigureFade.BLOCKED
+    else -> FigureFade.UNKNOWN
+}
+
+@Composable
+private fun LineFigure(line: WindowLine) {
+    // The fade's identity is the reading. A blocked window's "—" and "100%" are one state, so they
+    // fade with the chip; a reading that gains or loses its figure changes state and is cut in.
+    // The reading, not the token: a blocked window's "100%" in Used mode is the verdict, not a
+    // measurement, so a mode flip stays in one key and fades, while a reading that gains or loses
+    // its figure changes key and is replaced.
+    key(figureFade(line.window.usedPercent != null, line.presentation.exhausted)) {
+        FadingFigure(line.figure, line.figureColor, GridFigureStyle, SilentCell)
+    }
+}
+
+/**
+ * A cell a screen reader does not reach, because the label's line already says it: its text
+ * stays in its own node, hidden, and is not merged into the pressable row's description.
+ */
+private val SilentCell = Modifier.semantics(mergeDescendants = true) { hideFromAccessibility() }
+
+/** The reset stamp: drawn as text, silent, as the label's line speaks it. */
+@Composable
+private fun LineStamp(line: WindowLine, modifier: Modifier = Modifier, align: TextAlign = TextAlign.End) {
+    Text(line.stamp ?: "", modifier.then(SilentCell), style = MaterialTheme.typography.bodySmall,
+        color = UsageColors.Faint, textAlign = align, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+/** One window as the hand-off's grid line: label | bar | figure | stamp, in the card's columns. */
+@Composable
+private fun GridLine(line: WindowLine, columns: GridColumns) {
+    Layout(content = {
+        LineLabel(line)
+        LineBar(line)
+        LineFigure(line)
+        LineStamp(line)
+    }) { measurables, constraints ->
+        val gap = 10.dp.roundToPx()
+        val width = constraints.maxWidth
+        val figureW = maxOf(42.dp.roundToPx(), columns.figure)
+        val stampW = maxOf(66.dp.roundToPx(), columns.stamp)
+        val labelW = maxOf(58.dp.roundToPx(), columns.label)
+        val barW = (width - labelW - figureW - stampW - 3 * gap).coerceAtLeast(0)
+        val cells = listOf(
+            measurables[0].measure(Constraints.fixedWidth(labelW)),
+            measurables[1].measure(Constraints.fixedWidth(barW)),
+            // As wide as its text, not the column: placed with its end at the column's end.
+            // Stretched to the column, a fading figure would sit at its start.
+            measurables[2].measure(Constraints(maxWidth = figureW)),
+            measurables[3].measure(Constraints.fixedWidth(stampW)),
+        )
+        val h = cells.maxOf { it.height }
+        layout(width, h) {
+            var x = 0
+            cells.forEachIndexed { column, cell ->
+                val cellX = if (column == 2) x + figureW - cell.width else x
+                cell.placeRelative(cellX, (h - cell.height) / 2)
+                x += when (column) { 0 -> labelW; 1 -> barW; 2 -> figureW; else -> stampW } + gap
             }
         }
+    }
+}
 
-        if (snapshot?.errorMessage != null && windows.isNotEmpty()) {
-            val message = storedMessageText(snapshot.errorMessage)
-            ErrorBlock(
-                message = when (snapshot.status) {
-                    SnapshotStatus.OK -> message
-                    SnapshotStatus.PARTIAL -> stringResource(R.string.error_partial_update, message)
-                    SnapshotStatus.FAILED -> stringResource(R.string.error_showing_last_known, message)
-                },
-                modifier = Modifier.padding(top = 12.dp),
-                dot = if (snapshot.status == SnapshotStatus.FAILED) UsageColors.Negative else UsageColors.Warning,
-                onRetry = onRetry,
-            )
+/** One window stacked, when the columns do not fit: label and figure, the bar, then the stamp. */
+@Composable
+private fun StackedLine(line: WindowLine) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            LineLabel(line, Modifier.weight(1f), maxLines = 2)
+            LineFigure(line)
+        }
+        LineBar(line, Modifier.fillMaxWidth())
+        if (line.stamp != null) LineStamp(line, Modifier.fillMaxWidth(), align = TextAlign.Start)
+    }
+}
+
+@Composable
+private fun windowLabel(window: UsageWindow): String {
+    val appLabel = windowLabelRes(window.label, window.category, window.scope)
+    return when {
+        window.scope != UsageScope.GLOBAL -> window.label
+        appLabel != null -> stringResource(appLabel)
+        window.group != null && window.category == WindowCategory.FIVE_HOUR -> stringResource(R.string.window_label_five_hour)
+        window.group != null && window.category == WindowCategory.WEEKLY -> stringResource(R.string.window_label_weekly)
+        window.group != null && window.category == WindowCategory.MONTHLY -> stringResource(R.string.window_label_monthly)
+        else -> window.label
+    }
+}
+
+/**
+ * C1: no accounts yet. The fixed default brand mark, never the alternate launcher icon a person
+ * chose, then both ways to start. No chips: there is nothing to filter or count.
+ */
+@Composable
+private fun EmptyOverview(onAddAccount: () -> Unit, onAddCredit: () -> Unit, modifier: Modifier) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // The 192dp transparent foreground in a 128dp slot: its safe-zone margin overlaps the edges.
+        Box(Modifier.fillMaxWidth().height(128.dp), contentAlignment = Alignment.Center) {
+            Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null,
+                modifier = Modifier.requiredSize(192.dp))
+        }
+        Text(stringResource(R.string.overview_empty_title), Modifier.padding(top = 4.dp).semantics { heading() },
+            style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp, lineHeight = 26.sp), color = UsageColors.Ink)
+        Text(stringResource(R.string.overview_empty_body), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
+        Button(
+            onClick = onAddAccount,
+            shape = MaterialTheme.shapes.small,
+            colors = ButtonDefaults.buttonColors(containerColor = UsageColors.Ink, contentColor = UsageColors.OnInk),
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.overview_add_account), style = MaterialTheme.typography.labelLarge)
+        }
+        OutlinedButton(
+            onClick = onAddCredit,
+            shape = MaterialTheme.shapes.small,
+            border = BorderStroke(1.dp, UsageColors.Control),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = UsageColors.Ink),
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+        ) {
+            Text(stringResource(R.string.overview_track_credit), style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+/** The List card at its real size, in grey, while the store has not answered. */
+@Composable
+private fun ListSkeleton(modifier: Modifier = Modifier) {
+    val loading = stringResource(R.string.overview_loading_usage)
+    Column(
+        modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(UsageColors.Surface)
+            .semantics { contentDescription = loading }
+            .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        repeat(2) { index ->
+            if (index > 0) RuleDivider(Modifier.padding(vertical = 4.dp))
+            SkeletonBar(16.dp, 0.4f)
+            repeat(2) {
+                Row(Modifier.padding(start = 38.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SkeletonBar(12.dp, 0.15f)
+                    UsageBar(null, Severity.UNKNOWN, Modifier.weight(1f), height = 4.dp)
+                }
+            }
         }
     }
 }

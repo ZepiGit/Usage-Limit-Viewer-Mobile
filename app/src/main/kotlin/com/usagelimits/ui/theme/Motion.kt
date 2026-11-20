@@ -123,14 +123,11 @@ class UsageMotion private constructor(val enabled: Boolean) {
 /**
  * A lazy list item in the list's fade-through: items that leave fade out first, then the rest
  * moves, and new items fade in as the move ends.
- *
- * [sequenced] false starts the move at once: under a finger dragging a card, a neighbour that
- * waits reads as lag.
  */
-fun LazyItemScope.itemMotion(motion: UsageMotion, sequenced: Boolean = true): Modifier =
+fun LazyItemScope.itemMotion(motion: UsageMotion): Modifier =
     if (!motion.enabled) Modifier else Modifier.animateItem(
         fadeInSpec = motion.enterAfterMove(),
-        placementSpec = if (sequenced) motion.moveAfterExit() else motion.move(),
+        placementSpec = motion.moveAfterExit(),
         fadeOutSpec = motion.exit(),
     )
 

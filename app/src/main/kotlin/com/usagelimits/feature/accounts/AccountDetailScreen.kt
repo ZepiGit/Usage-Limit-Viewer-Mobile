@@ -71,6 +71,10 @@ fun AccountDetailScreen(
     onNotificationsChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     onReconnect: () -> Unit = {},
+    /** False until the account store's first answer: a missing [usage] then means not yet read. */
+    loaded: Boolean = true,
+    /** Back to Overview from a detail that has no account to show. */
+    onBack: () -> Unit = {},
 ) {
     if (usage == null) {
         Column(
@@ -78,12 +82,19 @@ fun AccountDetailScreen(
                 .fillMaxSize()
                 .background(UsageColors.Ground)
                 .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = stringResource(R.string.account_unavailable),
-                style = MaterialTheme.typography.bodyLarge,
-                color = UsageColors.Muted,
-            )
+            if (loaded) {
+                Text(
+                    text = stringResource(R.string.account_unavailable),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = UsageColors.Muted,
+                )
+                OutlineButton(stringResource(R.string.account_back_to_overview), onBack)
+            } else {
+                // A cold link waits here for the first read rather than calling the account gone.
+                Spinner()
+            }
         }
         return
     }

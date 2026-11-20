@@ -19,13 +19,19 @@ import com.usagelimits.core.notifications.shouldAskNotificationPermission
 import com.usagelimits.feature.settings.AppIcon
 import com.usagelimits.core.oauth.SignInKeepAliveService
 import com.usagelimits.core.sync.SyncWorker
+import com.usagelimits.navigation.ExternalRequest
 import com.usagelimits.navigation.UsageLimitsNavigation
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class UsageLimitsActivity : ComponentActivity() {
-    private val requestedAccount = androidx.compose.runtime.mutableStateOf<String?>(null)
+    /**
+     * What the latest entry from outside asked for, until the shell has handled it. A new
+     * [ExternalRequest] instance per entry: the shell keys its handling by identity, so the same
+     * account asked for twice is handled twice.
+     */
+    private val pending = androidx.compose.runtime.mutableStateOf<ExternalRequest?>(null)
 
     /** Lets activity-level tests await the decision, including the path that does not ask. */
     @androidx.annotation.VisibleForTesting
@@ -38,7 +44,10 @@ class UsageLimitsActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedAccount.value = intent?.getStringExtra("accountId")
+        // A recreated activity continues the request it had not handled yet, and only that: the
+        // intent it was started with was handled before, and is not read again. Its first start
+        // reads the intent.
+        pending.value = if (savedInstanceState != null) ExternalRequest.readFrom(savedInstanceState) else ExternalRequest.from(intent)
         // The app keeps its dark palette even when Android uses a light theme.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
@@ -67,7 +76,7 @@ class UsageLimitsActivity : ComponentActivity() {
             // split-screen or resizing a freeform window re-lays-out the shell immediately.
             val windowSizeClass = calculateWindowSizeClass(this)
             UsageLimitsTheme(providerIcons = container.settingsStore.settings.collectAsState(initial = com.usagelimits.core.settings.AppSettings()).value.providerIcons) {
-                UsageLimitsNavigation(container, windowSizeClass, requestedAccount.value) { requestedAccount.value = null }
+                UsageLimitsNavigation(container, windowSizeClass, pending.value, ::handled)
             }
         }
     }
@@ -86,6 +95,27 @@ class UsageLimitsActivity : ComponentActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        requestedAccount.value = intent.getStringExtra("accountId")
+        // A new tap is a new request, also for the account asked for last time.
+        ExternalRequest.from(intent)?.let { pending.value = it }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pending.value?.writeTo(outState)
+    }
+
+    /**
+     * The shell handled [request]. A newer one that arrived meanwhile stays pending. The activity's
+     * own intent loses the request too, so anything that later reads getIntent() does not see it
+     * again. The intent the system recorded for the task is not changed by this; a launch from
+     * Recents carries the history flag and is ignored by [ExternalRequest.from].
+     */
+    private fun handled(request: ExternalRequest) {
+        if (pending.value !== request) return
+        pending.value = null
+        intent = android.content.Intent(intent).apply {
+            removeExtra(ExternalRequest.EXTRA_ACCOUNT_ID)
+            if (action == ExternalRequest.ACTION_OPEN_OVERVIEW) action = null
+        }
     }
 }

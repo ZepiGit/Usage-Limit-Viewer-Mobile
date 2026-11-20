@@ -20,6 +20,8 @@ class StringResourcesCompletenessTest {
     private class Catalog(
         val strings: Map<String, String>,
         val plurals: Map<String, Map<String, String>>,
+        /** Strings marked `formatted="false"`: shown as written, never passed to a formatter. */
+        val literal: Set<String>,
     )
 
     private fun load(path: String): Catalog {
@@ -29,12 +31,16 @@ class StringResourcesCompletenessTest {
             .parse(file).documentElement
         val strings = linkedMapOf<String, String>()
         val plurals = linkedMapOf<String, Map<String, String>>()
+        val literal = mutableSetOf<String>()
         val children = root.childNodes
         for (i in 0 until children.length) {
             val node = children.item(i) as? Element ?: continue
             if (node.getAttribute("translatable") == "false") continue
             when (node.tagName) {
-                "string" -> strings[node.getAttribute("name")] = node.textContent
+                "string" -> {
+                    strings[node.getAttribute("name")] = node.textContent
+                    if (node.getAttribute("formatted") == "false") literal += node.getAttribute("name")
+                }
                 "plurals" -> {
                     val items = linkedMapOf<String, String>()
                     val itemNodes = node.getElementsByTagName("item")
@@ -46,7 +52,7 @@ class StringResourcesCompletenessTest {
                 }
             }
         }
-        return Catalog(strings, plurals)
+        return Catalog(strings, plurals, literal)
     }
 
     private val english = load("src/main/res/values/strings.xml")
@@ -69,8 +75,11 @@ class StringResourcesCompletenessTest {
 
     @Test
     fun `every string keeps its format specifiers in German`() {
+        // A literal "%" in an unformatted string ("% left") is text, not a specifier; it has to be
+        // marked unformatted in both languages, so the German one cannot become a format string.
+        assertEquals(english.literal.sorted(), german.literal.sorted())
         val drifted = english.strings.filter { (name, text) ->
-            specifiers(text) != specifiers(german.strings[name].orEmpty())
+            name !in english.literal && specifiers(text) != specifiers(german.strings[name].orEmpty())
         }.keys
         assertTrue("specifiers differ for $drifted", drifted.isEmpty())
     }
