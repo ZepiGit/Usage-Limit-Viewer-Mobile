@@ -258,11 +258,6 @@ jobs:
             -parallel-testing-enabled NO \
             -test-timeouts-enabled YES \
             -maximum-test-execution-time-allowance 300 \
-            -only-testing:UsageLimitsUITests/AppLaunchUITests/testHiddenCreditsStayManageableAndChoicesSurviveRelaunch \
-            -only-testing:UsageLimitsUITests/AppLaunchUITests/testCreditsExperimentAnimated \
-            -only-testing:UsageLimitsUITests/AppLaunchUITests/testCreditsExperimentStoredStill \
-            -only-testing:UsageLimitsUITests/AppLaunchUITests/testCreditsExperimentReduceMotion \
-            -only-testing:UsageLimitsUITests/AppLaunchUITests/testCreditsExperimentWithoutClaude \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
 
       - name: Collect Settings trace from simulator logs
@@ -307,7 +302,7 @@ jobs:
           exit 1
 
       - name: Upload the test results
-        if: ${{ !cancelled() }}
+        if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: ios-ui-test-results
