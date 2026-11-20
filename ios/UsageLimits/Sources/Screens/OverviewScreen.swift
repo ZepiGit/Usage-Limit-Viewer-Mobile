@@ -14,7 +14,8 @@ struct OverviewScreen: View {
 
     var body: some View {
         let glance = store.glance
-        let projection = glance.overview(filter: filter, at: store.now, in: store.timeZone)
+        let layout = store.settings.overviewLayout
+        let projection = glance.overview(filter: layout == .list ? filter : .all, at: store.now, in: store.timeZone)
         return NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -23,15 +24,24 @@ struct OverviewScreen: View {
                         loading
                     } else if glance.accounts.isEmpty {
                         empty
-                    } else {
+                    } else if layout == .list {
                         filters(attentionCount: projection.attentionCount)
                         accountList(projection.accounts, staleAfter: glance.staleAfter)
                         Text("The brighter line is the account’s headline.")
                             .usageFont(.small)
                             .foregroundStyle(UsageColors.faint)
                         addAccount.buttonStyle(OutlineButtonStyle(fullWidth: true))
+                    } else {
+                        OverviewDials(entries: projection.accounts, now: store.now, staleAfter: glance.staleAfter,
+                            mode: store.settings.percentDisplay, calendar: store.presentationCalendar,
+                            openAccount: openAccount, addAccount: { isAdding = true })
                     }
                     if store.hasLoaded { credits }
+                    if layout == .dials && store.hasLoaded && !glance.accounts.isEmpty {
+                        Text("Each dial shows the account’s headline. Tap one for every window and its resets.")
+                            .usageFont(.small)
+                            .foregroundStyle(UsageColors.faint)
+                    }
                 }
                 .listMotion(value: projection.accounts.map(\.id), armed: listMotionArmed && isSelected)
                 .padding(16)
@@ -48,6 +58,9 @@ struct OverviewScreen: View {
             .armingListMotion($listMotionArmed, loaded: store.hasLoaded)
             .onChange(of: isSelected) { selected in
                 if !selected { filter = .all }
+            }
+            .onChange(of: layout) { chosen in
+                if chosen == .dials { filter = .all }
             }
         }
     }
@@ -176,8 +189,14 @@ struct OverviewScreen: View {
             }
             ForEach(rows) { row in
                 if row.id != rows.first?.id { LedgerDivider() }
-                OverviewAccountRow(entry: row, staleAfter: staleAfter) { openAccount(row.id) }
-                    .listItemMotion(armed: listMotionArmed && isSelected)
+                Button { openAccount(row.id) } label: {
+                    OverviewAccountContent(entry: row, staleAfter: staleAfter, now: store.now,
+                        mode: store.settings.percentDisplay, calendar: store.presentationCalendar,
+                        showSubscriptionTier: store.settings.showSubscriptionTier)
+                }
+                .buttonStyle(OverviewRowButtonStyle())
+                .accessibilityIdentifier("overview-account-\(row.id)")
+                .listItemMotion(armed: listMotionArmed && isSelected)
             }
         }
     }
@@ -249,67 +268,70 @@ struct OverviewScreen: View {
     }
 }
 
-private struct OverviewAccountRow: View {
-    @EnvironmentObject private var store: UsageStore
+struct OverviewAccountContent: View {
     let entry: OverviewProjection.Entry
     let staleAfter: TimeInterval
-    let open: () -> Void
+    let now: Date
+    let mode: PercentDisplay
+    let calendar: Calendar
+    let showSubscriptionTier: Bool
+    var preview = false
 
     private var account: GlanceAccount { entry.account }
     private var expired: Bool { account.connectionStatus == .reconnectRequired }
     private var title: String {
-        store.settings.showSubscriptionTier ? account.title : provider?.displayName ?? account.title
+        showSubscriptionTier ? account.title : provider?.displayName ?? account.title
     }
     private var provider: ProviderID? { account.providerID.flatMap(ProviderID.init(rawValue:)) }
 
     var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 10) {
-                    if let provider { ProviderBadge(provider: provider, size: 28).accessibilityHidden(true) }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: title).usageFont(.accountTitle).foregroundStyle(UsageColors.ink)
-                        if let identity = account.subtitle {
-                            Text(verbatim: identity).usageFont(.small).foregroundStyle(UsageColors.muted)
-                        }
+        VStack(alignment: .leading, spacing: preview ? 5 : 8) {
+            HStack(spacing: preview ? 8 : 10) {
+                if let provider {
+                    ProviderBadge(provider: provider, size: preview ? 20 : 28).accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: title).usageFont(preview ? .previewTitle : .accountTitle).foregroundStyle(UsageColors.ink)
+                    if let identity = account.subtitle {
+                        Text(verbatim: identity).usageFont(.small).foregroundStyle(UsageColors.muted)
                     }
-                    Spacer(minLength: 0)
-                    mark
+                }
+                if !preview { Spacer(minLength: 0) }
+                mark
+                if !preview {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 16)).foregroundStyle(UsageColors.faint)
                         .accessibilityHidden(true)
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(account.candidates, id: \.sourceWindowID) { row in
-                        WindowRow(row: row, now: store.now,
-                            severity: expired ? .stale : account.displaySeverity(of: row, at: store.now, staleAfter: staleAfter),
-                            validity: account.readingValidity(of: row, at: store.now, staleAfter: staleAfter),
-                            mode: store.settings.percentDisplay, compact: true,
-                            headline: row.sourceWindowID == entry.headlineWindowID,
-                            expired: expired, calendar: store.presentationCalendar)
-                    }
-                    if expired {
-                        Text("Sign-in expired · showing last known data")
-                            .usageFont(.small).foregroundStyle(UsageColors.negativeText)
-                    }
-                    if let message = account.statusMessage, !expired || message != NotificationEvaluator.signInExpiredMessage {
-                        Text(verbatim: DisplayText.stored(message)).usageFont(.small).foregroundStyle(UsageColors.muted)
-                    }
-                    if !expired && [.stale, .error, .unknown].contains(account.severity) {
-                        Text(verbatim: SeverityPalette.label(account.severity))
-                            .usageFont(.small).foregroundStyle(UsageColors.muted)
-                    }
-                }
-                .padding(.leading, 38)
             }
-            .padding(.leading, 16)
-            .padding(.trailing, 12)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: preview ? 5 : 6) {
+                ForEach(account.candidates, id: \.sourceWindowID) { row in
+                    WindowRow(row: row, now: now,
+                        severity: expired ? .stale : account.displaySeverity(of: row, at: now, staleAfter: staleAfter),
+                        validity: account.readingValidity(of: row, at: now, staleAfter: staleAfter),
+                        mode: mode, compact: true,
+                        headline: row.sourceWindowID == entry.headlineWindowID,
+                        expired: expired, calendar: calendar, preview: preview)
+                }
+                if expired {
+                    Text("Sign-in expired · showing last known data")
+                        .usageFont(.small).foregroundStyle(UsageColors.negativeText)
+                }
+                if let message = account.statusMessage, !expired || message != NotificationEvaluator.signInExpiredMessage {
+                    Text(verbatim: DisplayText.stored(message)).usageFont(.small).foregroundStyle(UsageColors.muted)
+                }
+                if !expired && [.stale, .error, .unknown].contains(account.severity) {
+                    Text(verbatim: SeverityPalette.label(account.severity))
+                        .usageFont(.small).foregroundStyle(UsageColors.muted)
+                }
+            }
+            .padding(.leading, preview ? 28 : 38)
         }
-        .buttonStyle(OverviewRowButtonStyle())
-        .accessibilityIdentifier("overview-account-\(account.id)")
+        .padding(.leading, preview ? 0 : 16)
+        .padding(.trailing, preview ? 0 : 12)
+        .padding(.vertical, preview ? 4 : 14)
+        .frame(maxWidth: .infinity, minHeight: preview ? nil : 44, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder private var mark: some View {
@@ -354,6 +376,13 @@ struct WindowRow: View {
     var headline = false
     var expired = false
     var calendar = Calendar.current
+    var preview = false
+    var displayPreviewTitle: String? = nil
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .caption) private var compactNameWidth: CGFloat = 58
+    @ScaledMetric(relativeTo: .subheadline) private var compactFigureWidth: CGFloat = 42
+    @ScaledMetric(relativeTo: .caption) private var stampWidth: CGFloat = 104
 
     private var shown: Severity { severity ?? row.severity }
     /// Built from the raw row — an aged `severity` replaces it for the figure's colour only.
@@ -372,58 +401,91 @@ struct WindowRow: View {
     private var sideWord: String { PercentText.sideWord(mode) }
 
     var body: some View {
-        if compact {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    name.frame(minWidth: 58, alignment: .leading)
-                        .fixedSize(horizontal: true, vertical: false)
-                    bar.frame(minWidth: 24)
-                    figure.frame(minWidth: 42, alignment: .trailing)
-                        .fixedSize(horizontal: true, vertical: false)
-                    resetStamp.frame(minWidth: 66, alignment: .trailing)
-                        .fixedSize(horizontal: true, vertical: false)
+        if let displayPreviewTitle {
+            VStack(alignment: .leading, spacing: 6) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        displayTitle(displayPreviewTitle).fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 0)
+                        figure.fixedSize(horizontal: true, vertical: false)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        displayTitle(displayPreviewTitle)
+                        figure
+                    }
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    name
-                    figure
-                    bar
-                    resetStamp
+                UsageBar(presentation: presentation).accessibilityHidden(true)
+            }
+        } else if compact {
+            let stamp = preview ? nil : resetStampText
+            Group {
+                if typeSize >= .xxxLarge {
+                    stacked(stamp: stamp)
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            name.frame(width: preview ? 50 : compactNameWidth, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                            bar.frame(minWidth: 24)
+                            figure.frame(width: preview ? 34 : compactFigureWidth, alignment: .trailing)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if !preview {
+                                Text(verbatim: stamp ?? "")
+                                    .usageFont(.small)
+                                    .foregroundStyle(UsageColors.faint)
+                                    .multilineTextAlignment(.trailing)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(width: stampWidth, alignment: .trailing)
+                            }
+                        }
+                        stacked(stamp: stamp)
+                    }
                 }
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(compactAccessibilityLabel)
+            .accessibilityLabel(compactAccessibilityLabel(stamp: stamp))
         } else {
             detail
         }
     }
 
+    private func stacked(stamp: String?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            name
+            figure
+            bar
+            if let stamp {
+                Text(verbatim: stamp).usageFont(.small).foregroundStyle(UsageColors.faint)
+            }
+        }
+    }
+
+    private func displayTitle(_ title: String) -> some View {
+        Text(verbatim: title).usageFont(.previewTitle).foregroundStyle(UsageColors.muted)
+    }
+
     private var name: some View {
         Text(verbatim: rowLabel)
-            .usageFont(headline ? .smallStrong : .small)
+            .usageFont(preview ? (headline ? .micro : .previewWindow) : (headline ? .smallStrong : .small))
             .foregroundStyle(headline && !expired ? UsageColors.ink : UsageColors.faint)
     }
 
     private var bar: some View {
-        UsageBar(presentation: presentation, height: 4,
+        UsageBar(presentation: presentation, height: preview ? 3 : 4,
             emphasis: headline && !expired ? 1 : 0.4)
             .subject(row.sourceWindowID)
             .accessibilityHidden(true)
     }
 
-    @ViewBuilder private var resetStamp: some View {
-        if validity == .resetDue {
-            Text("Reset due").usageFont(.small).foregroundStyle(UsageColors.faint)
-        } else if let resetAt = row.resetAt {
-            Text(verbatim: Countdown.absolute(resetAt, now: now, calendar: calendar))
-                .usageFont(.small).foregroundStyle(UsageColors.faint)
-        }
+    private var resetStampText: String? {
+        if validity == .resetDue { return String(localized: "Reset due") }
+        return row.resetAt.map { Countdown.absolute($0, now: now, calendar: calendar) }
     }
 
-    private var compactAccessibilityLabel: Text {
+    private func compactAccessibilityLabel(stamp: String?) -> Text {
         let reading = String(localized: "\(rowLabel): \(PercentText.spoken(figureText, mode))")
         var parts = [headline ? String(localized: "Headline: \(reading)") : reading]
-        if validity == .resetDue { parts.append(String(localized: "Reset due")) }
-        else if let resetAt = row.resetAt { parts.append(Countdown.absolute(resetAt, now: now, calendar: calendar)) }
+        if let stamp { parts.append(stamp) }
         if validity == .stale || validity == .error { parts.append(SeverityPalette.label(shown)) }
         return Text(verbatim: parts.joined(separator: ", "))
     }
@@ -485,10 +547,17 @@ struct WindowRow: View {
         }
     }
 
+    private var figureFont: UsageFont {
+        if !presentation.hasFigure { return .small }
+        if displayPreviewTitle != nil { return .displayPreviewFigure }
+        if preview { return .previewFigure }
+        return compact ? .compactFigure : .figure
+    }
+
     private var figure: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(figureText)
-                .usageFont(!presentation.hasFigure ? .small : compact ? .compactFigure : .figure)
+                .usageFont(figureFont)
                 .foregroundStyle(!presentation.hasFigure || expired ? UsageColors.faint
                     : compact && !headline ? UsageColors.muted : SeverityPalette.figureColor(shown))
             if presentation.hasFigure && !compact {

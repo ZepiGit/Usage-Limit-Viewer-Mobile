@@ -17,6 +17,10 @@ final class UsageStore: ObservableObject {
     /// Prepaid balances, kept apart from the usage accounts: no windows, no resets.
     @Published private(set) var credits: [CreditEntry] = []
     private var settingsWrite: Task<Void, Never>?
+    #if DEBUG
+    /// Lets UI tests terminate only after the normal settings save has finished.
+    @Published private(set) var uiTestSavedOverviewLayout: OverviewLayout?
+    #endif
 
     /// Writable, because the settings screen binds straight to it.
     ///
@@ -34,8 +38,11 @@ final class UsageStore: ObservableObject {
                 guard let container, let value = self?.settings else { return }
                 // Reflect the persisted value, which may clamp the sync interval, only if no newer
                 // edit has landed. An out-of-order save acknowledgement must not revert later edits.
-                if let stored = try? await container.save(settings: value), self?.settings == value {
-                    self?.applyLoaded(stored)
+                if let stored = try? await container.save(settings: value) {
+                    if self?.settings == value { self?.applyLoaded(stored) }
+                    #if DEBUG
+                    if UsageLimitsApp.isUITesting { self?.uiTestSavedOverviewLayout = stored.overviewLayout }
+                    #endif
                 }
                 BackgroundRefresh.schedule(after: value.syncIntervalMinutes)
             }
@@ -55,6 +62,13 @@ final class UsageStore: ObservableObject {
     /// asked yet", not "no accounts", and the screens draw a skeleton instead of an empty state.
     @Published private(set) var hasLoaded = false
     @Published private(set) var lastError: String?
+    /// Whether the account register is on this device and could not be read.
+    ///
+    /// Apart from `lastError`, because it is a state and not a report: the empty account list
+    /// that comes with it does not mean the accounts are gone, the screen that would otherwise
+    /// say so words it itself, and a later read that succeeds ends it without anyone
+    /// dismissing anything.
+    @Published private(set) var registerUnreadable = false
 
     @Published private(set) var now = Date()
     private(set) var timeZone = TimeZone.current
@@ -186,7 +200,17 @@ final class UsageStore: ObservableObject {
         applyLoaded(await container.settings())
 
         credits = await container.credits()
-        let cached = await container.usage()
+        // The checked read, because a link opened on a cold launch is resolved against this
+        // list: read as empty, an unreadable register would send it to "this account is no
+        // longer on this device". No alert is raised for it. The detail says what happened
+        // where the link landed, and an alert over that would say it twice.
+        let cached: [AccountUsage]
+        do {
+            cached = try await container.checkedUsage()
+        } catch {
+            cached = []
+            registerUnreadable = true
+        }
         // A refresh that started while this was reading has newer accounts than the cache does,
         // and its result must not be overwritten by one that merely finished later.
         if !isRefreshing {
@@ -256,6 +280,15 @@ final class UsageStore: ObservableObject {
             lastError = error.localizedDescription
         }
 
+        // The repository reads the register again on every call until one succeeds, so a pass
+        // is where an unreadable register comes back, for instance once the device is unlocked.
+        // The accounts are taken from the read that proved it, so the state never clears over a
+        // list that an earlier, failed read left empty.
+        if registerUnreadable, let recovered = try? await container.checkedUsage() {
+            accounts = recovered
+            registerUnreadable = false
+        }
+
         // The container publishes the widget snapshot itself as part of a refresh, so the app
         // does not write the same file a second time from a second process-shared path.
 
@@ -298,16 +331,19 @@ final class UsageStore: ObservableObject {
     /// that could not be removed has to stay on screen saying so, so the user can try again.
     /// This removes what is stored HERE; it is not an OAuth revocation at the provider, and the
     /// confirmation text says so rather than promising something this app cannot do.
+    ///
+    /// Returns whether the account was removed, so the detail that asked can close instead of
+    /// staying open on an account that is no longer there.
     @Published private(set) var isRemoving = false
 
-    func removeAccount(accountID: String) async {
-        guard let container, !isRemoving else { return }
+    func removeAccount(accountID: String) async -> Bool {
+        guard let container, !isRemoving else { return false }
         isRemoving = true
         defer { isRemoving = false }
         let previous = settingsWrite
-        let removal = Task { @MainActor [weak self] in
+        let removal = Task { @MainActor [weak self] () -> Bool in
             await previous?.value
-            guard let self else { return }
+            guard let self else { return false }
             let pinKey = self.accounts.first { $0.account.id == accountID }?.account.pinKey
             do {
                 try await container.remove(id: accountID)
@@ -316,13 +352,16 @@ final class UsageStore: ObservableObject {
                 self.applyLoaded(updated)
                 self.accounts = await container.usage()
                 self.lastError = nil
+                return true
             } catch {
                 // Keep the account visible when removal fails.
                 self.lastError = error.localizedDescription
+                return false
             }
         }
-        settingsWrite = removal
-        await removal.value
+        // The queue of settings writes waits for the removal, not for its answer.
+        settingsWrite = Task { _ = await removal.value }
+        return await removal.value
     }
 
     // MARK: - Credits
@@ -384,6 +423,7 @@ final class UsageStore: ObservableObject {
         #if DEBUG
         // Screenshot launches must never open the keychain, cached accounts or saved settings.
         if MarketingDemo.isEnabled { return nil }
+        if let fixture = RegisterFixture.container() { return fixture }
         #endif
         guard let directory = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupID) else { return nil }
@@ -391,3 +431,43 @@ final class UsageStore: ObservableObject {
             directory: directory, credentials: KeychainCredentialStore())
     }()
 }
+
+#if DEBUG
+/// A register file of the UI tests' own, read and written by the container the app ships.
+///
+/// Disconnect and an unreadable register are storage behaviour, so the tests that follow them
+/// to the screen run the real `UsageLimitsContainer` rather than a store that pretends: over a
+/// directory in the app's temporary folder, with credentials held in memory. Nothing here opens
+/// the app group or the keychain. No credential is stored for the account, so its sync stops
+/// at `credentialsAbsent` before there is a request to send, and the row reads as failed.
+/// Only under `-ui-testing`, so a debug build started by hand cannot end up here.
+private enum RegisterFixture {
+    /// One connected account, `codex:fixture`, labelled "Codex".
+    private static let seeded = "-fixture-register"
+    /// A register that is present and does not decode.
+    private static let unreadable = "-fixture-register-unreadable"
+
+    static func container() -> UsageLimitsContainer? {
+        let arguments = ProcessInfo.processInfo.arguments
+        let isUnreadable = arguments.contains(unreadable)
+        guard UsageLimitsApp.isUITesting, isUnreadable || arguments.contains(seeded) else { return nil }
+
+        // One fixed place, emptied on every launch: each test starts from the register written
+        // below, whatever the test before it removed, and no directory is left behind per run.
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("register-fixture")
+        try? FileManager.default.removeItem(at: directory)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // Written as the file the repository reads, before anything reads it. The row is the
+        // oldest shape the register has had, which the Kit's tests keep loadable.
+        let register = isUnreadable ? "not json" : """
+            [{"account": {"id": "codex:fixture", "provider": "codex", "externalAccountID": "fixture",
+              "displayName": "Codex", "credentialReference": "codex:fixture",
+              "createdAt": "2026-09-01T00:00:00Z"}}]
+            """
+        try? Data(register.utf8).write(to: directory.appendingPathComponent(AccountRepository.fileName))
+
+        return UsageLimitsContainer(directory: directory, credentials: InMemoryCredentialStore())
+    }
+}
+#endif

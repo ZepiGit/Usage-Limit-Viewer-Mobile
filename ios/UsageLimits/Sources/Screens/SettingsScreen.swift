@@ -46,26 +46,47 @@ struct SettingsScreen: View {
                 }
                 .listRowBackground(UsageColors.surface)
 
-                Section(header: LedgerHeader(String(localized: "Display"))) {
+                Section {
                     NavigationLink("Provider icons") { ProviderIconsScreen() }
                     NavigationLink("App icon") { AppIconScreen() }
                     NavigationLink("Widget layouts") { WidgetPresetsScreen() }
-                    Toggle(
-                        "Show subscription tier",
-                        isOn: $store.settings.showSubscriptionTier)
-                    // A segmented picker draws only its options, so its title has to be written
-                    // out; the Picker keeps its own label for VoiceOver, and this copy is hidden
-                    // so the control is not announced twice.
-                    Text("Show percentages as")
-                        .accessibilityHidden(true)
-                    Picker("Show percentages as", selection: $store.settings.percentDisplay) {
-                        Text("Left").tag(PercentDisplay.left)
-                        Text("Used").tag(PercentDisplay.used)
+                }
+                .listRowBackground(UsageColors.surface)
+
+                Section(header: LedgerHeader(String(localized: "Display"))) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Show percentages as").accessibilityHidden(true)
+                        Text("What is left, or what you have used. Applies to the whole app and to every widget.")
+                            .usageFont(.small).foregroundStyle(UsageColors.muted)
+                        Picker("Show percentages as", selection: $store.settings.percentDisplay) {
+                            Text("Left").tag(PercentDisplay.left)
+                            Text("Used").tag(PercentDisplay.used)
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityIdentifier("settings-percent-display")
                     }
-                    .pickerStyle(.segmented)
-                    Text("Whether figures count down what is left or up what you have used.")
-                        .usageFont(.small)
-                        .foregroundStyle(UsageColors.muted)
+                    displayPreview
+                }
+                .listRowBackground(UsageColors.surface)
+
+                Section(header: LedgerHeader(String(localized: "Overview"))) {
+                    overviewPreview
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Layout").accessibilityHidden(true)
+                        Text("List shows every window per account. Dials show one ring per account, like the ring widgets.")
+                            .usageFont(.small)
+                            .foregroundStyle(UsageColors.muted)
+                            #if DEBUG
+                            .accessibilityIdentifier(layoutHelpIdentifier)
+                            #endif
+                        Picker("Layout", selection: $store.settings.overviewLayout) {
+                            Text("List").tag(OverviewLayout.list)
+                            Text("Dials").tag(OverviewLayout.dials)
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityIdentifier("settings-overview-layout")
+                    }
+                    Toggle("Show subscription tier", isOn: $store.settings.showSubscriptionTier)
                 }
                 .listRowBackground(UsageColors.surface)
 
@@ -111,6 +132,56 @@ struct SettingsScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
         }
+    }
+
+    #if DEBUG
+    private var layoutHelpIdentifier: String {
+        UsageLimitsApp.isUITesting && store.uiTestSavedOverviewLayout == store.settings.overviewLayout
+            ? "settings-overview-layout-saved" : "settings-overview-layout-help"
+    }
+    #endif
+
+    private var displayPreview: some View {
+        let account = SettingsUsagePreview.snapshot.accounts[0]
+        let row = account.candidates[0]
+        let window = DisplayText.windowLabel(row.label, category: row.category, scope: row.scope)
+        return previewPanel("settings-display-preview") {
+            WindowRow(row: row, now: SettingsUsagePreview.now, validity: .current,
+                mode: store.settings.percentDisplay, displayPreviewTitle: String(localized: "\(account.title) · \(window)"))
+        }
+    }
+
+    private var overviewPreview: some View {
+        let settings = store.settings
+        let sample = SettingsUsagePreview.projection
+        return previewPanel(settings.overviewLayout == .list ? "settings-preview-list" : "settings-preview-dials") {
+            if settings.overviewLayout == .list {
+                ForEach(sample.accounts) { entry in
+                    if entry.id != sample.accounts.first?.id { LedgerDivider(inset: 0) }
+                    OverviewAccountContent(entry: entry, staleAfter: SettingsUsagePreview.snapshot.staleAfter,
+                        now: SettingsUsagePreview.now, mode: settings.percentDisplay, calendar: SettingsUsagePreview.calendar,
+                        showSubscriptionTier: settings.showSubscriptionTier, preview: true)
+                }
+            } else {
+                OverviewDials(entries: sample.accounts, now: SettingsUsagePreview.now,
+                    staleAfter: SettingsUsagePreview.snapshot.staleAfter, mode: settings.percentDisplay,
+                    calendar: SettingsUsagePreview.calendar, preview: true)
+            }
+        }
+    }
+
+    private func previewPanel<Content: View>(_ identifier: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: String(localized: "Preview").localizedUppercase)
+                .usageFont(.micro).tracking(0.66).foregroundStyle(UsageColors.faint)
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(UsageColors.ground, in: RoundedRectangle(cornerRadius: UsageRadius.card))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(identifier)
     }
 
     /// The pinned accounts that count, as keys: only pins for an account that exists now, at
@@ -159,5 +230,34 @@ struct SettingsScreen: View {
         let minutes = Int(store.settings.staleAfter / 60)
         let text = minutes < 120 ? String(localized: "\(minutes) minutes") : String(localized: "\(minutes / 60) hours")
         return String(localized: "Numbers older than \(text) are marked stale.")
+    }
+}
+
+// These are examples, never the current user's account data. The same projection that renders
+// Overview ranks them and selects the dial headline.
+private enum SettingsUsagePreview {
+    static let now = Date(timeIntervalSince1970: 1_789_206_060)
+    static let calendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }()
+    static let claude = account(.claude, plan: "Pro", used: (82, 39))
+    static let codex = account(.codex, plan: "Plus", used: (28, 56))
+    static let snapshot = GlanceModel.build([claude, codex], now: now, scope: .allAccounts)
+    static let projection = snapshot.overview(filter: .all, at: now, in: calendar.timeZone)
+
+    private static func account(_ provider: ProviderID, plan: String, used: (Double, Double)) -> AccountUsage {
+        let id = "preview-\(provider.rawValue)"
+        let account = ProviderAccount(id: id, provider: provider, externalAccountID: id, email: nil,
+            displayName: nil, plan: plan, credentialReference: "", createdAt: now, lastSuccessfulSync: now)
+        let windows = [
+            UsageWindow(id: "short", label: "5-hour", category: .fiveHour, usedPercent: used.0,
+                periodSeconds: 18_000, resetAt: now.addingTimeInterval(2_520), exhausted: false),
+            UsageWindow(id: "week", label: "weekly", category: .weekly, usedPercent: used.1,
+                periodSeconds: 604_800, resetAt: now.addingTimeInterval(273_600), exhausted: false)
+        ]
+        return AccountUsage(account: account, snapshot: UsageSnapshot(accountID: id, fetchedAt: now,
+            status: .ok, windows: windows, connectionStatus: .connected))
     }
 }

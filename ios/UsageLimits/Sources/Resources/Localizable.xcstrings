@@ -620,6 +620,17 @@
         }
       }
     },
+    "Account %lld" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto %lld"
+          }
+        }
+      }
+    },
     "Account details" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -906,6 +917,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Darunter gilt das Guthaben als niedrig, unter dem Doppelten als mäßig. Wird ignoriert, wenn der Anbieter einen Gesamtwert meldet: Dann entscheidet der verbleibende Anteil."
+          }
+        }
+      }
+    },
+    "Can't read accounts" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konten nicht lesbar"
           }
         }
       }
@@ -1237,6 +1259,17 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Dials" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ringe"
+          }
+        }
+      }
+    },
     "Disconnect" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1277,6 +1310,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anzeige"
+          }
+        }
+      }
+    },
+    "Each dial shows the account’s headline. Tap one for every window and its resets." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jeder Ring zeigt das maßgebliche Zeitfenster des Kontos. Tippe darauf, um alle Zeitfenster und ihre Rücksetzzeiten zu sehen."
           }
         }
       }
@@ -1509,6 +1553,17 @@
         }
       }
     },
+    "Layout" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Layout"
+          }
+        }
+      }
+    },
     "Layout name" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1626,6 +1681,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Warnschwelle für niedriges Guthaben (optional)"
+          }
+        }
+      }
+    },
+    "List" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liste"
+          }
+        }
+      }
+    },
+    "List shows every window per account. Dials show one ring per account, like the ring widgets." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Liste zeigt alle Zeitfenster eines Kontos. Die Ringansicht zeigt wie die Ring-Widgets einen Ring pro Konto."
           }
         }
       }
@@ -2874,6 +2951,17 @@
         }
       }
     },
+    "The accounts stored on this device could not be read. Pull down to try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die auf diesem Gerät gespeicherten Konten konnten nicht gelesen werden. Ziehe nach unten, um es erneut zu versuchen."
+          }
+        }
+      }
+    },
     "The account does not name a provider." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3413,13 +3501,13 @@
         }
       }
     },
-    "Whether figures count down what is left or up what you have used." : {
+    "What is left, or what you have used. Applies to the whole app and to every widget." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ob die Zahlen herunterzählen, was übrig ist, oder hochzählen, was du verbraucht hast."
+            "value" : "Zeigt, was übrig ist oder was du verbraucht hast. Gilt für die ganze App und alle Widgets."
           }
         }
       }

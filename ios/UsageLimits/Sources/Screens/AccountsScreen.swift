@@ -6,14 +6,31 @@ struct AccountDetailScreen: View {
 
     let accountID: String
     var unavailable = false
+    /// Called once this account has been disconnected, so whoever presented the detail closes
+    /// it rather than leaving it open on an account that is no longer there.
+    var onDisconnected: @MainActor () -> Void = {}
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 if !unavailable, let usage = store.accounts.first(where: { $0.account.id == accountID }) {
-                    AccountSummaryCard(usage: usage, now: store.now).id(usage.account.id)
+                    AccountSummaryCard(usage: usage, now: store.now, onDisconnected: onDisconnected)
+                        .id(usage.account.id)
                 } else if !store.hasLoaded {
                     AccountSkeletonCard()
+                } else if store.registerUnreadable {
+                    // Not "no longer on this device": the list is empty because the register
+                    // could not be read, and the account may well still be in it. The pull this
+                    // offers is the screen's own refresh, which reads the register again.
+                    UsageCard {
+                        Text("Can't read accounts")
+                            .usageFont(.section)
+                            .foregroundStyle(UsageColors.ink)
+                            .accessibilityIdentifier("account-register-unreadable")
+                        Text("The accounts stored on this device could not be read. Pull down to try again.")
+                            .usageFont(.body)
+                            .foregroundStyle(UsageColors.muted)
+                    }
                 } else {
                     UsageCard {
                         Text("Account unavailable")
@@ -42,6 +59,7 @@ private struct AccountSummaryCard: View {
 
     let usage: AccountUsage
     let now: Date
+    let onDisconnected: @MainActor () -> Void
 
     private var snapshot: UsageSnapshot? { usage.snapshot }
 
@@ -120,7 +138,11 @@ private struct AccountSummaryCard: View {
                 titleVisibility: .visible
             ) {
                 Button("Disconnect", role: .destructive) {
-                    Task { await store.removeAccount(accountID: usage.account.id) }
+                    // A removal that failed leaves the detail open on the account, under the
+                    // alert that says why, so it can be tried again.
+                    Task {
+                        if await store.removeAccount(accountID: usage.account.id) { onDisconnected() }
+                    }
                 }
                 .disabled(store.isRemoving)
                 Button("Cancel", role: .cancel) {}
