@@ -29,6 +29,9 @@ import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import com.usagelimits.feature.overview.OverviewFilter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -148,21 +151,66 @@ class ScreenRenderTest {
         compose.onNodeWithText("Error", useUnmergedTree = true).assertDoesNotExist()
     }
 
+    /** Which of the three account-less states is on screen, by their own words and actions. */
+    private fun accountlessState(): Map<String, Boolean> {
+        fun shown(text: String) = compose.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        fun spoken(text: String) = compose.onAllNodesWithContentDescription(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        return mapOf(
+            "C1 title" to shown("Nothing to monitor yet"),
+            "C1 track credit" to shown("Track a prepaid credit balance"),
+            "loading" to (shown("Loading usage") || spoken("Loading usage")),
+            "no match" to shown("No accounts match this filter."),
+            "filter chips" to shown("Needs attention"),
+            "mode chip" to spoken("Show percentage used"),
+        )
+    }
+
     @Test
-    fun `overview renders with no accounts at all`() {
-        // The state every user sees first, and the one most likely to divide by a count of zero.
+    fun `with no accounts Overview is C1, and both of its actions open their flows`() {
+        var addAccount = 0
+        var addCredit = 0
         render {
             OverviewScreen(
-                state = state(),
-                nowMs = now,
-                onRefresh = {},
-                onAccountClick = {},
-                onAddAccount = {},
-                onPercentDisplayChange = {},
+                state = state(), nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"),
+                onRefresh = {}, onAccountClick = {}, onAddAccount = { addAccount++ }, onPercentDisplayChange = {},
+                onAddCredit = { addCredit++ },
             )
         }
+        assertEquals(mapOf("C1 title" to true, "C1 track credit" to true, "loading" to false, "no match" to false,
+            "filter chips" to false, "mode chip" to false), accountlessState())
 
-        compose.waitForIdle()
+        compose.onNode(hasText("Add account") and hasClickAction()).performClick()
+        compose.onNode(hasText("Track a prepaid credit balance") and hasClickAction()).performClick()
+        assertEquals("each action opens its own flow, once", 1 to 1, addAccount to addCredit)
+    }
+
+    @Test
+    fun `before the store answers Overview is loading, not C1 and not a filter without matches`() {
+        render {
+            OverviewScreen(
+                state = UsageUiState(loaded = false), nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"),
+                onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+        assertEquals(mapOf("C1 title" to false, "C1 track credit" to false, "loading" to true, "no match" to false,
+            "filter chips" to false, "mode chip" to false), accountlessState())
+        assertEquals("no add action while loading", 0,
+            compose.onAllNodes(hasText("Add account") and hasClickAction()).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun `a filter without matches says so in the card and keeps the List's actions`() {
+        render {
+            OverviewScreen(
+                state = state(usage()), nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"),
+                filter = OverviewFilter.NEEDS_ATTENTION,
+                onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+        assertEquals(mapOf("C1 title" to false, "C1 track credit" to false, "loading" to false, "no match" to true,
+            "filter chips" to true, "mode chip" to true), accountlessState())
+        assertEquals("the List's Add account stays", 1,
+            compose.onAllNodes(hasText("Add account") and hasClickAction()).fetchSemanticsNodes().size)
     }
 
     @Test

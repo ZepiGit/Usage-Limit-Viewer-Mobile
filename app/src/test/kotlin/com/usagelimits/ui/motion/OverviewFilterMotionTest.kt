@@ -74,15 +74,16 @@ class OverviewFilterMotionTest {
             }
         }
         compose.mainClock.advanceTimeBy(1_000)
-        val recorder = FrameRecorder(compose)
-        val before = recorder.frame()
-        // The semantics action, not a touch: injected touch events advance the held clock.
-        compose.onNode(hasText("Needs attention") and radioButton).performSemanticsAction(SemanticsActions.OnClick)
-        compose.change {}
-        val frames = recorder.next(30)
-        compose.mainClock.advanceTimeBy(1_000)
-        val settled = recorder.frame()
-        recorder.close()
+        // Closed on every way out, also when the target search or a frame throws.
+        val (before, frames, settled) = FrameRecorder(compose).use { recorder ->
+            val before = recorder.frame()
+            // The semantics action, not a touch: injected touch events advance the held clock.
+            compose.onNode(hasText("Needs attention") and radioButton).performSemanticsAction(SemanticsActions.OnClick)
+            compose.change {}
+            val frames = recorder.next(30)
+            compose.mainClock.advanceTimeBy(1_000)
+            Triple(before, frames, recorder.frame())
+        }
         (listOf(before) + frames + settled).saveSequence(name)
         val bounds = compose.onNodeWithText("No accounts match this filter.").fetchSemanticsNode().boundsInWindow
         return Run(before, frames, settled, intArrayOf(

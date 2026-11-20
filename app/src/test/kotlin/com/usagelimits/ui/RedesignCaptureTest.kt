@@ -139,7 +139,7 @@ class RedesignCaptureTest {
     private val credits = listOf(
         credit("or", CreditProviderId.OPENROUTER, "OpenRouter team", "18.40", "50"),
         credit("ds", CreditProviderId.DEEPSEEK, "DeepSeek", "3.12", null),
-        credit("fal", CreditProviderId.FAL, "fal renders", "0.00", "25", error = "The key was rejected (HTTP 401)."),
+        credit("fal", CreditProviderId.FAL, "fal renders", "0.00", "25", error = "The key was rejected (HTTP 401). Check that it is the right kind of key."),
     )
 
     private val state = UsageUiState(accounts = listOf(claude, codex, kimi), settings = AppSettings(), credits = credits)
