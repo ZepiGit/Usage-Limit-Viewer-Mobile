@@ -115,6 +115,23 @@ class SettingsMappingTest {
     }
 
     @Test
+    fun `theme reads back stable names without resetting other choices`() {
+        val key = stringPreferencesKey("appearance_theme")
+        for ((name, theme) in mapOf(
+            "WARM_DARK" to AppTheme.WARM_DARK,
+            "PURE_BLACK" to AppTheme.PURE_BLACK,
+            "COOL_GRAPHITE" to AppTheme.COOL_GRAPHITE,
+            "LIGHT_PAPER" to AppTheme.LIGHT_PAPER,
+            "future_theme" to AppTheme.PURE_BLACK,
+        )) {
+            val settings = settingsFrom(key to name, stringPreferencesKey("percent_display") to "USED")
+            assertEquals(name, theme, settings.appTheme)
+            assertEquals(PercentDisplay.USED, settings.percentDisplay)
+        }
+        assertEquals(AppTheme.PURE_BLACK, settingsFrom().appTheme)
+    }
+
+    @Test
     fun `status icons are off with nothing pinned until someone turns them on`() {
         val settings = settingsFrom()
 

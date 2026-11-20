@@ -1,8 +1,8 @@
 package com.usagelimits.ui.theme
 
 import androidx.annotation.StringRes
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
@@ -10,9 +10,11 @@ import androidx.compose.material3.RippleConfiguration
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material.ripple.RippleAlpha
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -21,10 +23,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.usagelimits.R
 import com.usagelimits.core.model.FillState
-import com.usagelimits.core.model.PercentDisplay
-import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
-import com.usagelimits.core.model.fillState
+import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.ui.LocalProviderIcons
 
 /**
  * Maps a [Severity] onto the palette.
@@ -35,66 +36,19 @@ import com.usagelimits.core.model.fillState
 object SeverityPalette {
 
     /** The 8dp dot. */
-    fun accent(severity: Severity) = when (severity) {
-        Severity.HEALTHY -> UsageColors.Positive
-        Severity.MEDIUM, Severity.LOW, Severity.LIMITED -> UsageColors.Warning
-        Severity.EXHAUSTED, Severity.ERROR -> UsageColors.Negative
-        Severity.STALE, Severity.UNKNOWN -> UsageColors.StaleMark
-    }
+    @Composable
+    fun accent(severity: Severity) = LocalUsagePalette.current.accent(severity)
 
-    /**
-     * The colour of a row's remaining-percent figure.
-     *
-     * Ink until the window is nearly spent, amber at 20% or less, red only for a real zero, and
-     * faint when the figure is stale or unknown.
-     */
-    fun figureColor(severity: Severity) = when (severity) {
-        Severity.HEALTHY, Severity.MEDIUM -> UsageColors.Ink
-        Severity.LOW, Severity.LIMITED -> UsageColors.Warning
-        Severity.EXHAUSTED, Severity.ERROR -> UsageColors.NegativeText
-        Severity.STALE, Severity.UNKNOWN -> UsageColors.Faint
-    }
+    @Composable
+    fun figureColor(severity: Severity) = LocalUsagePalette.current.figureColor(severity)
 
-    /**
-     * Bar fill for a single window: the data hue at the true ratio, a grey when stale, and no
-     * fill at all (track only) when the figure is unknown, failed or exhausted. Severity
-     * decides over the percentage, so a blocker with a full-looking percentage stays empty.
-     *
-     * Kept as the LEFT reference: SeverityPaletteInkTest holds [barInkFor] in LEFT equal to it and
-     * StatusContrastTest pins its colours. No bar reads it; they take their ink from [barInkFor] or,
-     * for a window row, from the presentation's fill state through [fill].
-     */
-    fun barFill(severity: Severity): Color? = when (severity) {
-        Severity.STALE -> UsageColors.StaleMark
-        Severity.UNKNOWN, Severity.ERROR, Severity.EXHAUSTED -> null
-        else -> UsageColors.Data
-    }
+    @Composable
+    fun barInkFor(severity: Severity, fraction: Double?, mode: com.usagelimits.core.model.PercentDisplay): Color? =
+        LocalUsagePalette.current.barInkFor(severity, fraction, mode)
 
-    /**
-     * Bar fill ink for [severity] at the displayed [fraction], in [mode].
-     *
-     * LEFT keeps the historical rendering exactly: severity decides over the percentage, so a
-     * blocker with a full-looking percentage stays empty. USED flips what full means — an
-     * exhausted window there *is* full — so when the severity ink is nil but the displayed
-     * fraction is positive, the fill takes the data hue. Only raw-exhausted, non-stale windows
-     * reach that fallback: a stale reading keeps its grey ink, and unknown/error draw nothing in
-     * either mode. Figure colour stays on [figureColor], keyed on remaining in both modes.
-     *
-     * Decided by [fillState] for a current reading, so the in-app bars and the widget bars share
-     * one rule; [barFill] stays the LEFT reference it is pinned against.
-     */
-    fun barInkFor(severity: Severity, fraction: Double?, mode: PercentDisplay): Color? =
-        fill(fillState(ReadingValidity.CURRENT, severity, fraction, mode))
-
-    /**
-     * The ink for a [FillState], which the presentation module decides and this palette only colours.
-     * Glance widgets cannot read this theme, so [com.usagelimits.widget.WidgetStyle.fill] restates it.
-     */
-    fun fill(state: FillState): Color? = when (state) {
-        FillState.DATA -> UsageColors.Data
-        FillState.STALE -> UsageColors.StaleMark
-        FillState.NO_FILL -> null
-    }
+    /** Glance projects the same fill state through its own per-widget palette. */
+    @Composable
+    fun fill(state: FillState): Color? = LocalUsagePalette.current.fill(state)
 
     /**
      * The English reference [labelRes] is held equal to under `en` by PercentResourcesEnglishTest;
@@ -126,28 +80,29 @@ object SeverityPalette {
 
 }
 
-private val UsageColorScheme = darkColorScheme(
-    primary = UsageColors.Ink,
-    onPrimary = UsageColors.OnInk,
-    secondary = UsageColors.Muted,
-    onSecondary = UsageColors.OnInk,
-    secondaryContainer = UsageColors.Raised,
-    onSecondaryContainer = UsageColors.Ink,
-    background = UsageColors.Ground,
-    onBackground = UsageColors.Ink,
-    surface = UsageColors.Surface,
-    onSurface = UsageColors.Ink,
-    surfaceVariant = UsageColors.Raised,
-    onSurfaceVariant = UsageColors.Muted,
-    surfaceContainerLowest = UsageColors.Ground,
-    surfaceContainerLow = UsageColors.Surface,
-    surfaceContainer = UsageColors.Surface,
-    surfaceContainerHigh = UsageColors.Raised,
-    surfaceContainerHighest = UsageColors.Raised,
-    outline = UsageColors.Control,
-    outlineVariant = UsageColors.Rule,
-    error = UsageColors.NegativeText,
-)
+private fun UsagePalette.materialScheme(light: Boolean, ground: Color): ColorScheme =
+    (if (light) lightColorScheme() else darkColorScheme()).copy(
+        primary = Ink,
+        onPrimary = ground,
+        secondary = Muted,
+        onSecondary = ground,
+        secondaryContainer = Raised,
+        onSecondaryContainer = Ink,
+        background = ground,
+        onBackground = Ink,
+        surface = Surface,
+        onSurface = Ink,
+        surfaceVariant = Raised,
+        onSurfaceVariant = Muted,
+        surfaceContainerLowest = ground,
+        surfaceContainerLow = Surface,
+        surfaceContainer = Surface,
+        surfaceContainerHigh = Raised,
+        surfaceContainerHighest = Raised,
+        outline = Contour,
+        outlineVariant = Rule,
+        error = NegativeText,
+    )
 
 /** Card 8, control 6, dialog and sheet 12: nothing softer. */
 private val UsageShapes = Shapes(
@@ -186,28 +141,27 @@ object UsageType {
     val FigureLarge = text(16, 24, FontWeight.Medium, FontFamily.Monospace)
 }
 
-/**
- * The app is dark-only by design.
- *
- * [darkTheme] is accepted so a future light palette can be dropped in without touching call
- * sites, but the AMOLED palette is currently used in both cases — a half-finished light mode
- * would look worse than a deliberate dark one.
- */
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 fun UsageLimitsTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    appTheme: AppTheme = AppTheme.PURE_BLACK,
     providerIcons: Map<String, String> = emptyMap(),
     content: @Composable () -> Unit,
 ) {
+    val palette = appTheme.colors
+    val ground = palette.Ground
+    val scheme = remember(appTheme, ground) { palette.materialScheme(appTheme.isLight, ground) }
     CompositionLocalProvider(
+        LocalUsagePalette provides palette,
+        LocalAppTheme provides appTheme,
         LocalMotionEnabled provides rememberMotionEnabled(),
-        com.usagelimits.ui.LocalProviderIcons provides providerIcons,
-        // Pressed state: an ink ripple at 10%, not the stock tinted one.
-        LocalRippleConfiguration provides RippleConfiguration(UsageColors.Ink, RippleAlpha(0.1f, 0.1f, 0.1f, 0.1f)),
+        LocalProviderIcons provides providerIcons,
+        LocalRippleConfiguration provides remember(palette) {
+            RippleConfiguration(palette.Ink, RippleAlpha(0.1f, 0.1f, 0.1f, 0.1f))
+        },
     ) {
         MaterialTheme(
-            colorScheme = UsageColorScheme,
+            colorScheme = scheme,
             shapes = UsageShapes,
             typography = UsageTypography,
             content = content,

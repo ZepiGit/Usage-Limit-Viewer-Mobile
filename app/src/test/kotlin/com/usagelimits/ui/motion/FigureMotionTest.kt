@@ -22,12 +22,13 @@ import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.ui.components.FigureWithSide
 import com.usagelimits.ui.theme.LocalMotionEnabled
-import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import com.usagelimits.ui.theme.colors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -53,9 +54,10 @@ class FigureMotionTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
 
+    private val palette = AppTheme.PURE_BLACK.colors
     private var accounts by mutableStateOf(listOf(demoAccount("one", ProviderId.CODEX, 40.0)))
     private var mode by mutableStateOf(PercentDisplay.LEFT)
-    private val surface = UsageColors.Surface.argb
+    private val surface = palette.Surface.argb
 
     private fun text(value: String) = compose.onAllNodesWithText(value, useUnmergedTree = true).fetchSemanticsNodes()
 
@@ -322,7 +324,7 @@ class FigureMotionTest {
     @Test
     fun `a colour change updates the same figure without a fade`() {
         compose.mainClock.autoAdvance = false
-        var color by mutableStateOf(UsageColors.Ink)
+        var color by mutableStateOf(palette.Ink)
         compose.setContent {
             UsageLimitsTheme {
                 CompositionLocalProvider(LocalMotionEnabled provides true) {
@@ -334,7 +336,7 @@ class FigureMotionTest {
         val figure = text("60%").single().boundsInWindow.toRegion(margin = 0)
         FrameRecorder(compose).use { recorder ->
             val before = recorder.frame()
-            compose.change { color = UsageColors.Muted }
+            compose.change { color = palette.Muted }
             val frames = recorder.next(20)
             val settled = recorder.frame()
             fun Bitmap.matches(other: Bitmap) = sameAs(other, figure.left, figure.top, figure.right, figure.bottom)
@@ -348,7 +350,7 @@ class FigureMotionTest {
     /** How many pixels of the card's bar carry the fill colour. */
     private fun barFill(frame: Bitmap): Int {
         var count = 0
-        for (y in 0 until frame.height) for (x in 0 until frame.width) if (frame.at(x, y) == UsageColors.Data.argb) count++
+        for (y in 0 until frame.height) for (x in 0 until frame.width) if (frame.at(x, y) == palette.Data.argb) count++
         return count
     }
 

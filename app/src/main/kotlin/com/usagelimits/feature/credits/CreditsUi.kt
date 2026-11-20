@@ -1,7 +1,6 @@
 package com.usagelimits.feature.credits
 
 import androidx.annotation.DrawableRes
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +20,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -46,13 +44,19 @@ import com.usagelimits.ui.theme.UsageColors
 import java.math.BigDecimal
 
 @DrawableRes
-internal fun creditIcon(id: CreditProviderId): Int = when (id) {
+private fun creditIcon(id: CreditProviderId): Int = when (id) {
     CreditProviderId.OPENROUTER -> R.drawable.icon_credit_openrouter
     CreditProviderId.DEEPSEEK -> R.drawable.icon_credit_deepseek
     CreditProviderId.MOONSHOT -> R.drawable.icon_credit_moonshot
     CreditProviderId.XAI -> R.drawable.icon_credit_xai
     CreditProviderId.FAL -> R.drawable.icon_credit_fal
     CreditProviderId.NOVITA -> R.drawable.icon_credit_novita
+}
+
+@Composable
+internal fun CreditArtwork(provider: CreditProviderId) {
+    val whiteInk = provider == CreditProviderId.XAI || provider == CreditProviderId.MOONSHOT
+    com.usagelimits.ui.ProviderArtwork(creditIcon(provider), whiteInk, null, Modifier.size(30.dp))
 }
 
 /**
@@ -90,7 +94,7 @@ fun CreditCard(
 
     UsageCard(modifier = modifier, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 44.dp)) {
-            Image(painterResource(creditIcon(account.provider)), null, Modifier.size(30.dp))
+            CreditArtwork(account.provider)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(account.label, style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink, maxLines = 1)

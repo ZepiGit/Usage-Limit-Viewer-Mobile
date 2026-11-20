@@ -95,7 +95,11 @@ import kotlin.math.roundToInt
 
 private val BarRadius = 3.dp
 private val BarShape = RoundedCornerShape(BarRadius)
-private val SegmentColors = listOf(UsageColors.Data, UsageColors.Ink, UsageColors.Faint, UsageColors.Muted)
+@Composable
+private fun segmentColors(): List<Color> {
+    val palette = com.usagelimits.ui.theme.LocalUsagePalette.current
+    return remember(palette) { listOf(palette.Data, palette.Ink, palette.Faint, palette.Muted) }
+}
 
 /**
  * A quota bar for one presented window.
@@ -147,13 +151,14 @@ fun UsageBar(
 private fun QuotaBarTrack(target: Float, fill: Color?, modifier: Modifier, height: Dp) {
     val motion = UsageMotion.current
     val animated = animateFloatAsState(targetValue = target, animationSpec = motion.move(), label = "usageBar")
+    val track = UsageColors.Rule
 
     Box(
         modifier = modifier
             .height(height)
             .clip(BarShape)
             .drawBehind {
-                drawRect(UsageColors.Rule)
+                drawRect(track)
                 // A snapped animation still lands one frame late; with motion off the bar takes its value at once.
                 val fraction = if (motion.enabled) animated.value else target
                 if (fraction > 0f && fill != null) {
@@ -273,19 +278,22 @@ fun UsageWindowRow(
  */
 @Composable
 fun SegmentedUsageBar(window: UsageWindow, modifier: Modifier = Modifier, height: Dp = 6.dp) {
+    val colors = segmentColors()
+    val track = UsageColors.Rule
+    val other = UsageColors.Faint
     Box(modifier.height(height).clip(BarShape).drawBehind {
-        drawRect(UsageColors.Rule)
+        drawRect(track)
         var offset = 0.0
         val total = (window.usedPercent ?: window.segments.sumOf { it.usedPercent }).coerceIn(0.0, 100.0)
         window.segments.forEachIndexed { index, segment ->
             val end = (offset + segment.usedPercent).coerceIn(offset, total)
-            drawRect(SegmentColors[index % SegmentColors.size],
+            drawRect(colors[index % colors.size],
                 topLeft = Offset(size.width * (offset / 100).toFloat(), 0f),
                 size = Size(size.width * ((end - offset) / 100).toFloat(), size.height))
             offset = end
         }
         if (total - offset >= 0.5) {
-            drawRect(UsageColors.Faint,
+            drawRect(other,
                 topLeft = Offset(size.width * (offset / 100).toFloat(), 0f),
                 size = Size(size.width * ((total - offset) / 100).toFloat(), size.height))
         }
@@ -299,10 +307,11 @@ fun SegmentedUsageBar(window: UsageWindow, modifier: Modifier = Modifier, height
  */
 @Composable
 fun SegmentLegend(window: UsageWindow, legends: List<String>, modifier: Modifier = Modifier, current: Boolean = true) {
+    val colors = segmentColors()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         window.segments.forEachIndexed { index, _ ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Dot(if (current) SegmentColors[index % SegmentColors.size] else UsageColors.Faint, size = 6.dp)
+                Dot(if (current) colors[index % colors.size] else UsageColors.Faint, size = 6.dp)
                 Text(legends[index], style = MaterialTheme.typography.bodySmall,
                     color = if (current) UsageColors.Muted else UsageColors.Faint)
             }
@@ -630,6 +639,7 @@ fun Spinner(modifier: Modifier = Modifier, color: Color = UsageColors.Muted) {
  */
 @Composable
 fun SegmentedRow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val rule = UsageColors.Rule
     Row(
         modifier = modifier
             .horizontalScroll(rememberScrollState())
@@ -639,7 +649,7 @@ fun SegmentedRow(modifier: Modifier = Modifier, content: @Composable () -> Unit)
                 val h = size.height - 12.dp.toPx()
                 val stroke = 1.dp.toPx()
                 drawRoundRect(
-                    UsageColors.Rule,
+                    rule,
                     topLeft = Offset(stroke / 2, (size.height - h) / 2),
                     size = Size(size.width - stroke, h),
                     cornerRadius = CornerRadius(6.dp.toPx()),
@@ -657,6 +667,7 @@ fun Segment(label: String, selected: Boolean, onClick: () -> Unit) {
     val motion = UsageMotion.current
     // Read only while drawing: the pill fades without recomposing the segment.
     val selection = animateFloatAsState(if (selected) 1f else 0f, motion.stateChange(), label = "segment")
+    val raised = UsageColors.Raised
     Box(
         modifier = Modifier
             .widthIn(min = 48.dp)
@@ -676,7 +687,7 @@ fun Segment(label: String, selected: Boolean, onClick: () -> Unit) {
                 .heightIn(min = 32.dp)
                 .clip(MaterialTheme.shapes.small)
                 .drawBehind {
-                    drawRect(UsageColors.Raised, alpha = if (motion.enabled) selection.value else if (selected) 1f else 0f)
+                    drawRect(raised, alpha = if (motion.enabled) selection.value else if (selected) 1f else 0f)
                 }
                 .indication(interaction, ripple())
                 .padding(horizontal = 14.dp),
@@ -694,6 +705,7 @@ fun Segment(label: String, selected: Boolean, onClick: () -> Unit) {
 /** A sentence in a dashed 1px box: the empty state. */
 @Composable
 fun EmptyBox(text: String, modifier: Modifier = Modifier) {
+    val contour = UsageColors.Control
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -701,7 +713,7 @@ fun EmptyBox(text: String, modifier: Modifier = Modifier) {
             .drawBehind {
                 val stroke = 1.dp.toPx()
                 drawRoundRect(
-                    UsageColors.Control,
+                    contour,
                     topLeft = Offset(stroke / 2, stroke / 2),
                     size = Size(size.width - stroke, size.height - stroke),
                     cornerRadius = CornerRadius(8.dp.toPx()),

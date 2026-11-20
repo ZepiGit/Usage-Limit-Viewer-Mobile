@@ -67,6 +67,19 @@
 
     <!-- Settings screen (feature/settings/SettingsScreen.kt). Thresholds are passed in as formatted figures so the percent template stays the one place a sign is laid out. -->
     <string name="settings_title">Settings</string>
+
+    <!-- Appearance: app-only theme selection and its live preview. -->
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_appearance_preview">Preview</string>
+    <string name="settings_appearance_preview_account">Claude Pro</string>
+    <string name="settings_appearance_preview_values">%1$s · %2$s · %3$s</string>
+    <string name="settings_appearance_theme">Theme</string>
+    <string name="settings_appearance_theme_subtitle">Colours of the app. Widgets keep their own panel style.</string>
+    <string name="settings_appearance_warm_dark">Warm dark</string>
+    <string name="settings_appearance_pure_black">Pure black</string>
+    <string name="settings_appearance_cool_graphite">Cool graphite</string>
+    <string name="settings_appearance_light_paper">Light paper</string>
+
     <string name="settings_section_sync">Sync</string>
     <string name="settings_interval_title">Background refresh interval</string>
     <string name="settings_interval_subtitle">Android may refresh less often in Doze or battery saver.</string>

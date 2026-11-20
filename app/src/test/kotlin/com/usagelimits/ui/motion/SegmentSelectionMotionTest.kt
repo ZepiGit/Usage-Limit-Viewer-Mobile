@@ -9,17 +9,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
+import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.ui.components.Segment
 import com.usagelimits.ui.components.SegmentedRow
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import com.usagelimits.ui.theme.colors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -64,7 +67,7 @@ class SegmentSelectionMotionTest {
         val y = ((bounds.top + bounds.bottom) / 2).roundToInt()
         return FrameRecorder(compose).use { recorder ->
             val before = recorder.frame()
-            assertEquals("an unselected pill is bare ground", UsageColors.Ground.argb, before.at(x, y))
+            assertEquals("an unselected pill is bare ground", Color.Black.argb, before.at(x, y))
             compose.change { second = true }
             val frames = recorder.next(12)
             compose.mainClock.advanceTimeBy(1_000)
@@ -78,10 +81,10 @@ class SegmentSelectionMotionTest {
     fun `the selected pill fades in`() {
         val (colours, settled) = pillColours(motion = true, name = "segment-selection")
 
-        assertEquals(UsageColors.Raised.argb, settled)
+        assertEquals(AppTheme.PURE_BLACK.colors.Raised.argb, settled)
         assertTrue(
             "the pill passes through tones between ground and raised: ${colours.map(Integer::toHexString)}",
-            colours.filter { it != UsageColors.Ground.argb && it != settled }.distinct().size >= 2,
+            colours.filter { it != Color.Black.argb && it != settled }.distinct().size >= 2,
         )
     }
 
@@ -89,7 +92,7 @@ class SegmentSelectionMotionTest {
     fun `with motion off the pill is selected on the next frame`() {
         val (colours, settled) = pillColours(motion = false, name = "segment-selection-reduced")
 
-        assertEquals(UsageColors.Raised.argb, settled)
+        assertEquals(AppTheme.PURE_BLACK.colors.Raised.argb, settled)
         assertEquals(settled, colours.first())
     }
 }

@@ -12,6 +12,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.overview.OverviewFilter
 import com.usagelimits.feature.overview.OverviewScreen
@@ -20,8 +21,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.usagelimits.ui.theme.LocalMotionEnabled
-import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import com.usagelimits.ui.theme.colors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -51,7 +52,7 @@ class OverviewFilterMotionTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
 
-    private val surface = UsageColors.Surface.argb
+    private val surface = AppTheme.PURE_BLACK.colors.Surface.argb
     private val radioButton = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)
 
     private data class Run(val before: Bitmap, val frames: List<Bitmap>, val settled: Bitmap, val box: IntArray)

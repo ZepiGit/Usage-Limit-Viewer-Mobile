@@ -19,10 +19,12 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import com.usagelimits.ui.theme.colors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -48,6 +50,7 @@ class BarMotionTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
 
+    private val palette = AppTheme.PURE_BLACK.colors
     private var remaining by mutableStateOf(20.0)
     private var direction by mutableStateOf(LayoutDirection.Ltr)
     private var measures = 0
@@ -77,7 +80,7 @@ class BarMotionTest {
     private fun filled(frame: Bitmap): Int {
         val bounds = compose.onNodeWithTag("bar").fetchSemanticsNode().boundsInWindow
         val y = ((bounds.top + bounds.bottom) / 2).roundToInt()
-        return (bounds.left.roundToInt() until bounds.right.roundToInt()).count { frame.at(it, y) == UsageColors.Data.argb }
+        return (bounds.left.roundToInt() until bounds.right.roundToInt()).count { frame.at(it, y) == palette.Data.argb }
     }
 
     /** Where the fill sits in the bar's middle row: its first and last pixel, relative to the bar's own edges. */
@@ -88,7 +91,7 @@ class BarMotionTest {
         val y = ((bounds.top + bounds.bottom) / 2).roundToInt()
         val left = bounds.left.roundToInt()
         val right = bounds.right.roundToInt()
-        val filled = (left until right).filter { frame.at(it, y) == UsageColors.Data.argb }
+        val filled = (left until right).filter { frame.at(it, y) == palette.Data.argb }
         return Span(filled.first() - left, right - 1 - filled.last(), filled.size)
     }
 

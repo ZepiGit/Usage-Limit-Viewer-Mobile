@@ -2,10 +2,22 @@ package com.usagelimits.widget
 
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageSnapshot
+import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.settings.AppTheme
+import java.io.File
+import org.junit.Assert.assertTrue
+import org.robolectric.annotation.GraphicsMode
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
@@ -56,6 +68,95 @@ class WidgetConfigActivitySaveTest {
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(label))
         compose.onNodeWithText(label).performClick()
         compose.waitForIdle()
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `configuration keeps its warm preview when saved app themes change`() {
+        val settings = app.container.settingsStore
+        val original = runBlocking { settings.settings.first() }
+        val now = System.currentTimeMillis()
+        val account = runBlocking {
+            app.container.repository.upsertFromLogin(ProviderId.CODEX, "warm-preview",
+                "preview@example.invalid", "Preview fixture", "Plus", emptyMap()).also {
+                app.container.repository.saveSnapshot(UsageSnapshot(it.localId, now, SnapshotStatus.OK,
+                    windows = listOf(UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 40.0, 604_800, null, false))))
+            }
+        }
+        val config = WidgetConfigEntity(43, "CUSTOM", null, null, now,
+            customAccountIdsJson = "[\"${account.localId}\"]")
+        org.robolectric.Shadows.shadowOf(AppWidgetManager.getInstance(app)).addBoundWidget(config.appWidgetId,
+            android.appwidget.AppWidgetProviderInfo().apply {
+                provider = android.content.ComponentName(app, MiniRingsWidgetReceiver::class.java)
+            })
+        fun capture(scenario: ActivityScenario<WidgetConfigActivity>, name: String): Bitmap {
+            compose.waitForIdle()
+            var bitmap: Bitmap? = null
+            scenario.onActivity { activity ->
+                val root = activity.window.decorView
+                bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
+            }
+            return bitmap!!.also { image ->
+                System.getProperty("capture.dir")?.takeIf { it.isNotBlank() }?.let { path ->
+                    val directory = File(path).apply { mkdirs() }
+                    File(directory, "widget-config-$name.png").outputStream().use {
+                        image.compress(Bitmap.CompressFormat.PNG, 100, it)
+                    }
+                }
+            }
+        }
+        try {
+            runBlocking {
+                settings.setAppTheme(AppTheme.WARM_DARK)
+                settings.setPercentDisplay(PercentDisplay.LEFT)
+            }
+            openConfigFor(config).use { scenario ->
+                compose.waitDrained {
+                    compose.onAllNodesWithContentDescription("60% remaining", substring = true).fetchSemanticsNodes().isNotEmpty()
+                }
+                val baseline = capture(scenario, "warm-baseline")
+                try {
+                    assertEquals("configuration chrome keeps the pre-theme warm ground",
+                        0xFF0F0F0E.toInt(), baseline.getPixel(2, baseline.height / 2))
+                    val pixels = IntArray(baseline.width * baseline.height)
+                    baseline.getPixels(pixels, 0, baseline.width, 0, 0, baseline.width, baseline.height)
+                    for ((role, argb) in listOf(
+                        "warm ground and default widget panel" to 0xFF0F0F0E.toInt(),
+                        "warm card" to 0xFF1A1918.toInt(),
+                        "warm ink" to 0xFFF0EEE6.toInt(),
+                        "preview mat" to 0xFF3A3936.toInt(),
+                        "widget data arc" to 0xFFD97757.toInt(),
+                    )) {
+                        assertTrue("the pre-theme configuration keeps its known $role", pixels.any { it == argb })
+                    }
+                    for (theme in AppTheme.entries) {
+                        runBlocking { settings.setAppTheme(theme) }
+                        assertEquals(theme, runBlocking { settings.settings.first().appTheme })
+                        runBlocking { settings.setPercentDisplay(PercentDisplay.USED) }
+                        compose.waitDrained {
+                            compose.onAllNodesWithContentDescription("40% used", substring = true).fetchSemanticsNodes().isNotEmpty()
+                        }
+                        runBlocking { settings.setPercentDisplay(PercentDisplay.LEFT) }
+                        compose.waitDrained {
+                            compose.onAllNodesWithContentDescription("60% remaining", substring = true).fetchSemanticsNodes().isNotEmpty()
+                        }
+                        val changed = capture(scenario, theme.name.lowercase())
+                        try {
+                            assertTrue("$theme must not restyle the configuration or its preview", baseline.sameAs(changed))
+                        } finally {
+                            changed.recycle()
+                        }
+                    }
+                } finally {
+                    baseline.recycle()
+                }
+            }
+        } finally {
+            runBlocking {
+                settings.setAppTheme(original.appTheme)
+                settings.setPercentDisplay(original.percentDisplay)
+            }
+        }
     }
 
     @Test
