@@ -562,7 +562,8 @@ final class AppLaunchUITests: XCTestCase {
 
     func testHiddenCreditsStayManageableAndChoicesSurviveRelaunch() {
         let fixture = "-fixture-credits"
-        var app = launch([fixture, "-fixture-credits-reset"])
+        let touchTrace = "-settings-touch-trace"
+        var app = launch([fixture, "-fixture-credits-reset", touchTrace])
         defer { app.terminate() }
         tabButton("Settings", in: app).tap()
         selectSegment("Compact", in: "settings-overview-credit-layout", app: app, towardStart: false)
@@ -590,7 +591,7 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["$3.18"].exists)
         app.terminate()
 
-        app = launch([fixture])
+        app = launch([fixture, touchTrace])
         XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["overview-credits-heading"].exists)
         XCTAssertFalse(app.buttons["overview-credits-compact"].exists)
