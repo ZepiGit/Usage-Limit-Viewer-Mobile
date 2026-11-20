@@ -220,16 +220,13 @@ final class UsageStore: ObservableObject {
         // list: read as empty, an unreadable register would send it to "this account is no
         // longer on this device". No alert is raised for it. The detail says what happened
         // where the link landed, and an alert over that would say it twice.
-        // A refresh may own the account state by the time this read finishes. Install the
-        // numbers and the flag together only if this load still owns them.
+        // A refresh can own the account list while this read still tells us whether storage is readable.
         do {
             let cached = try await container.checkedUsage()
-            guard !isRefreshing else { return }
-            accounts = cached
+            if !isRefreshing { accounts = cached }
             registerUnreadable = false
         } catch {
-            guard !isRefreshing else { return }
-            accounts = []
+            if !isRefreshing { accounts = [] }
             registerUnreadable = true
         }
     }

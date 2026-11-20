@@ -61,6 +61,11 @@ struct OverviewCredits: View {
                     ForEach(entries) { entry in
                         CreditCard(entry: entry, now: now, staleAfter: staleAfter, preview: preview)
                     }
+                    if !preview {
+                        NavigationLink("Manage credit accounts") { CreditsScreen() }
+                            .buttonStyle(TextActionStyle())
+                            .accessibilityIdentifier("overview-manage-credit-accounts")
+                    }
                 }
             }
         }
@@ -90,7 +95,7 @@ struct OverviewCredits: View {
 
     private func compactRow(_ summary: OverviewCreditSummary) -> some View {
         HStack(alignment: .center, spacing: preview ? 8 : 12) {
-            Image(systemName: "wallet.pass")
+            Image(systemName: "creditcard")
                 .font(.system(size: preview ? 18 : 22))
                 .foregroundStyle(UsageColors.muted)
                 .accessibilityHidden(true)
