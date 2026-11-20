@@ -148,8 +148,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Measure Settings preview display callback gaps
-        # A pushed candidate can opt in without spending another full native batch.
-        if: ${{ inputs.measure_settings_gaps == true || contains(github.event.head_commit.message, '[measure settings gaps]') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.measure_settings_gaps == true }}
         working-directory: ios/UsageLimits
         run: |
           set -euo pipefail

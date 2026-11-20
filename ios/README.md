@@ -80,6 +80,11 @@ and VoiceOver), list and figure transitions, deep-link cuts, live Reduce Motion 
 real credit dialog's still busy mark (size and progress semantics). UIKit navigation, sheets,
 alerts and refresh controls retain system motion.
 
+On a physical iPhone with Reduce Motion off and the Claude Code figure visibly animating,
+quickly tap each Settings switch ten times. Check that each tap changes its switch exactly
+once, and watch the figure for a flash when it switches between still and live drawing.
+Simulator tests check the controls and motion decisions, not these on-device observations.
+
 ## Marketing screenshots
 
 Run the manual **Marketing screenshots** workflow to capture the actual SwiftUI app on an

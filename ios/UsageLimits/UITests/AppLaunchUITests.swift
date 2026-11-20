@@ -30,16 +30,18 @@ final class AppLaunchUITests: XCTestCase {
     /// Search both ways: a lazy Form may not expose an offscreen target's frame at all.
     private func scrollTo(
         _ element: XCUIElement, in app: XCUIApplication, towardStart: Bool? = nil,
-        clearOfBottomTabs tabBarFrame: CGRect = .null
+        clearOfBottomTabs tabBarFrame: CGRect = .null, requireHittable: Bool = true,
+        deadline: TimeInterval? = nil
     ) -> Bool {
         func overlapsTabs() -> Bool {
             !tabBarFrame.isNull && element.frame.intersects(tabBarFrame)
         }
-        func canTap() -> Bool {
-            element.exists && element.isHittable && !overlapsTabs()
+        func found() -> Bool {
+            element.exists && (!requireHittable || (element.isHittable && !overlapsTabs()))
         }
+        if found() { return true }
+        if let deadline, ProcessInfo.processInfo.systemUptime >= deadline { return false }
         let exists = element.exists
-        if canTap() { return true }
         let identifiers = ["provider-icons-list", "provider-picker-scroll", "settings-form", "overview-scroll"]
         let container = identifiers.lazy.map { app.descendants(matching: .any)[$0].firstMatch }
             .first { $0.exists && $0.isHittable } ?? app
@@ -65,14 +67,19 @@ final class AppLaunchUITests: XCTestCase {
         let low = (frame.minY + 0.75 * frame.height - bounds.minY) / bounds.height
         let top = container.coordinate(withNormalizedOffset: CGVector(dx: x, dy: high))
         let bottom = container.coordinate(withNormalizedOffset: CGVector(dx: x, dy: low))
+        let now = ProcessInfo.processInfo.systemUptime
+        let turnAround = deadline.map { now + ($0 - now) / 2 }
         for towardStart in [firstUp, !firstUp] {
             let (start, end) = towardStart ? (top, bottom) : (bottom, top)
+            let stop = towardStart == firstUp ? turnAround : deadline
             for _ in 0..<12 {
+                if let stop, ProcessInfo.processInfo.systemUptime >= stop { break }
                 start.press(forDuration: 0.05, thenDragTo: end)
-                if canTap() { return true }
+                if found() { return true }
             }
         }
-        return element.waitForExistence(timeout: 2) && canTap()
+        let remaining = deadline.map { $0 - ProcessInfo.processInfo.systemUptime } ?? 2
+        return remaining > 0 && element.waitForExistence(timeout: min(2, remaining)) && found()
     }
 
     private func launch(_ arguments: [String] = []) -> XCUIApplication {
@@ -127,8 +134,9 @@ final class AppLaunchUITests: XCTestCase {
         add(screenshot)
         let point = tapPoint.map { ", tap point: \($0)" } ?? ""
         let uptime = tapUptime.map { "; tap uptime: \($0)" } ?? ""
+        let description = control.exists ? control.debugDescription : "not exposed in accessibility"
         XCTFail("\(message)\(uptime); tap frame: \(tapFrame)\(point), bottom tabs: \(bottomTabs), app state: \(app.state), "
-            + "Settings visible: \(app.navigationBars["Settings"].exists), control: \(control.debugDescription)")
+            + "Settings visible: \(app.navigationBars["Settings"].exists), control: \(description)")
     }
 
     private func settingsTrace(in app: XCUIApplication) -> String {
@@ -142,6 +150,30 @@ final class AppLaunchUITests: XCTestCase {
         trace.name = "Settings trace"
         trace.lifetime = .keepAlways
         add(trace)
+    }
+
+    private func waitForSetting(_ control: XCUIElement, in app: XCUIApplication, towardStart: Bool? = nil,
+                                matches: @escaping () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + 10
+        while true {
+            if !control.exists {
+                guard scrollTo(control, in: app, towardStart: towardStart,
+                               requireHittable: false, deadline: deadline) else { return false }
+                if control.exists {
+                    print("[settings-press] found after scrolling control=\(control.identifier) frame=\(control.frame)")
+                }
+            }
+            if control.exists && matches() { return true }
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { return false }
+            // Wake the waiter when the Form drops the row; an absent row has no value to check.
+            let changedOrMoved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !control.exists || matches()
+            }, object: nil)
+            guard XCTWaiter.wait(for: [changedOrMoved], timeout: remaining) == .completed else {
+                return control.exists && matches()
+            }
+        }
     }
 
     private func selectSegment(_ option: String, in identifier: String, app: XCUIApplication, towardStart: Bool? = nil) {
@@ -160,9 +192,20 @@ final class AppLaunchUITests: XCTestCase {
         }
         let tapFrame = segment.frame
         let uptime = pressUptime { segment.press(forDuration: $0) }
-        let onSettings = app.navigationBars["Settings"].exists
-        if !onSettings || !segment.exists || !segment.isSelected {
-            reportControlFailure("\(option) should be selected in \(identifier) without leaving Settings",
+        guard app.navigationBars["Settings"].exists else {
+            reportControlFailure("Selecting \(option) in \(identifier) left Settings",
+                                 control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapUptime: uptime)
+            return
+        }
+        guard scrollTo(segment, in: app, requireHittable: false) else {
+            reportControlFailure("Could not find \(option) in \(identifier) after scrolling Settings",
+                                 control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapUptime: uptime)
+            return
+        }
+        if !segment.isSelected {
+            reportControlFailure("Found \(identifier), but \(option) is not selected",
                                  control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
                                  tapUptime: uptime)
         } else {
@@ -194,14 +237,19 @@ final class AppLaunchUITests: XCTestCase {
                             y: tapFrame.minY + tapFrame.height * offset.dy)
         let coordinate = toggle.coordinate(withNormalizedOffset: offset)
         let uptime = pressUptime { coordinate.press(forDuration: $0) }
-        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
-        if XCTWaiter.wait(for: [changed], timeout: 10) != .completed {
-            reportControlFailure("\(identifier) did not turn \(enabled ? "on" : "off")",
-                                 control: toggle, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+        // Enabling Credits inserts rows above this switch; disabling it removes them.
+        let towardStart = identifier == "settings-overview-show-credits" ? !enabled : nil
+        guard waitForSetting(toggle, in: app, towardStart: towardStart, matches: {
+            (toggle.value as? String) == expected
+        }) else {
+            let actual = toggle.exists ? (toggle.value as? String ?? "unreadable") : nil
+            let message = actual.map { "Found switch \(identifier), but its value is \($0) (expected \(expected))" }
+                ?? "Could not find switch \(identifier) after scrolling Settings"
+            reportControlFailure(message, control: toggle, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
                                  tapPoint: point, tapUptime: uptime)
-        } else {
-            print("[settings-press] acknowledged uptime=\(uptime) control=\(identifier) value=\(expected)")
+            return
         }
+        print("[settings-press] acknowledged uptime=\(uptime) control=\(identifier) value=\(expected)")
     }
 
     func testTheAppLaunches() {
@@ -733,17 +781,14 @@ final class AppLaunchUITests: XCTestCase {
         print("[settings-press] acknowledged uptime=\(openedAt) control=\(identifier) opened=true")
         let tapFrame = choice.frame
         let selectedAt = pressUptime { choice.press(forDuration: $0) }
-        let selection = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label CONTAINS %@", option),
-            object: control
-        )
-        if XCTWaiter.wait(for: [selection], timeout: 10) != .completed {
-            reportControlFailure("\(identifier) did not select \(option)",
-                                 control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+        guard waitForSetting(control, in: app, matches: { control.label.contains(option) }) else {
+            let message = control.exists ? "Found menu \(identifier), but it did not select \(option)"
+                : "Could not find menu \(identifier) after scrolling Settings"
+            reportControlFailure(message, control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
                                  tapUptime: selectedAt)
-        } else {
-            print("[settings-press] acknowledged uptime=\(selectedAt) control=\(identifier) selected=\(option)")
+            return
         }
+        print("[settings-press] acknowledged uptime=\(selectedAt) control=\(identifier) selected=\(option)")
     }
 
     func testDisconnectClosesDetailAfterRemovingRealStoredAccount() {
