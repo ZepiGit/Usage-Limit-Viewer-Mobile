@@ -199,6 +199,13 @@ struct RootView: View {
         #if DEBUG
         .motionLogOverlay(visible: claudeAnimationVisible)
         .claudeStillSheet()
+        #if !os(Linux)
+        .overlay(alignment: .topLeading) {
+            if SettingsTrace.isEnabled {
+                SettingsTraceProbe().frame(width: 1, height: 1).allowsHitTesting(false)
+            }
+        }
+        #endif
         #endif
     }
 }

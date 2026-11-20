@@ -77,7 +77,7 @@ final class AppLaunchUITests: XCTestCase {
         let app = XCUIApplication()
         // Read by the app to skip the notification-permission prompt, which is a system alert
         // that would otherwise sit over the UI and fail every query behind it.
-        app.launchArguments += ["-ui-testing", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"] + arguments
+        app.launchArguments += ["-ui-testing", "-settings-trace", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"] + arguments
         app.launch()
         waitForOrientation(app, landscape: false)
         return app
@@ -107,6 +107,7 @@ final class AppLaunchUITests: XCTestCase {
 
     private func reportControlFailure(_ message: String, control: XCUIElement, in app: XCUIApplication,
                                       tapFrame: CGRect, bottomTabs: CGRect, tapPoint: CGPoint? = nil) {
+        attachSettingsTrace(in: app)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = message
         screenshot.lifetime = .keepAlways
@@ -116,14 +117,33 @@ final class AppLaunchUITests: XCTestCase {
             + "Settings visible: \(app.navigationBars["Settings"].exists), control: \(control.debugDescription)")
     }
 
+    private func settingsTrace(in app: XCUIApplication) -> String {
+        let probe = app.descendants(matching: .any)["settings-trace"].firstMatch
+        return probe.exists ? (probe.value as? String ?? "Settings trace has no accessibility value")
+                            : "Settings trace probe not found"
+    }
+
+    private func attachSettingsTrace(in app: XCUIApplication) {
+        let trace = XCTAttachment(string: settingsTrace(in: app))
+        trace.name = "Settings trace"
+        trace.lifetime = .keepAlways
+        add(trace)
+    }
+
     private func selectSegment(_ option: String, in identifier: String, app: XCUIApplication, towardStart: Bool? = nil) {
         let bottomTabs = bottomTabBarFrame(in: app)
         let control = app.segmentedControls[identifier]
-        XCTAssertTrue(scrollTo(control, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs),
-                      "could not reach \(identifier) clear of the tab bar at \(bottomTabs)")
+        guard scrollTo(control, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs) else {
+            reportControlFailure("Could not reach \(identifier) clear of the tab bar",
+                                 control: control, in: app, tapFrame: .null, bottomTabs: bottomTabs)
+            return
+        }
         let segment = control.buttons[option]
-        XCTAssertTrue(scrollTo(segment, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs),
-                      "could not reach \(option) in \(identifier) clear of the tab bar at \(bottomTabs)")
+        guard scrollTo(segment, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs) else {
+            reportControlFailure("Could not reach \(option) in \(identifier) clear of the tab bar",
+                                 control: control, in: app, tapFrame: .null, bottomTabs: bottomTabs)
+            return
+        }
         let tapFrame = segment.frame
         segment.tap()
         let onSettings = app.navigationBars["Settings"].exists
@@ -155,10 +175,13 @@ final class AppLaunchUITests: XCTestCase {
         let offset = CGVector(dx: 0.9, dy: 0.5)
         let point = CGPoint(x: tapFrame.minX + tapFrame.width * offset.dx,
                             y: tapFrame.minY + tapFrame.height * offset.dy)
-        toggle.coordinate(withNormalizedOffset: offset).tap()
+        let coordinate = toggle.coordinate(withNormalizedOffset: offset)
+        let tapStarted = ProcessInfo.processInfo.systemUptime
+        coordinate.tap()
+        let tapReturned = ProcessInfo.processInfo.systemUptime
         let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
         if XCTWaiter.wait(for: [changed], timeout: 10) != .completed {
-            reportControlFailure("\(identifier) did not turn \(enabled ? "on" : "off")",
+            reportControlFailure("\(identifier) did not turn \(enabled ? "on" : "off"); tap uptime: \(tapStarted)–\(tapReturned)",
                                  control: toggle, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs, tapPoint: point)
         }
     }

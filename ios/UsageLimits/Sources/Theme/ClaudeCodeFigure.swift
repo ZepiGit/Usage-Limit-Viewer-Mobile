@@ -55,6 +55,9 @@ struct ClaudeCodeFigure: View {
         Group {
             if appeared && gate.active {
                 TimelineView(.animation) { _ in
+                    #if DEBUG
+                    let _ = SettingsTrace.figureFrame(diagnosticID)
+                    #endif
                     ClaudeCodeCanvas(mood: mood, size: size, ink: ink,
                                      elapsed: clock.elapsed(at: ProcessInfo.processInfo.systemUptime),
                                      amplitude: amplitude, still: false)

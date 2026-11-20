@@ -14,6 +14,9 @@ struct SettingsScreen: View {
     private let intervals = [5, 15, 30, 60, 180]
 
     var body: some View {
+        #if DEBUG
+        let _ = SettingsTrace.settingsBody()
+        #endif
         NavigationStack {
             Form {
                 Section(header: LedgerHeader(String(localized: "Refresh"))) {
