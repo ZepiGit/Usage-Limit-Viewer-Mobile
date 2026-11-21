@@ -433,7 +433,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     var overviewFilter by rememberSaveable { mutableStateOf(OverviewFilter.ALL) }
     val activeEntry by navController.currentBackStackEntryAsState()
     val routeState = activeEntry?.lifecycle?.currentStateFlow?.collectAsState()?.value
-    com.usagelimits.ui.HoorayPresentation(com.usagelimits.ui.LocalHoorayPlayback.current,
+    val hoorayLayout = com.usagelimits.ui.HoorayPresentation(com.usagelimits.ui.LocalHoorayPlayback.current,
         state.loaded && routeState == androidx.lifecycle.Lifecycle.State.RESUMED)
     val currentRoute = activeEntry?.destination?.route
     val dials = state.settings.overviewLayout == OverviewLayout.DIALS
@@ -443,7 +443,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         }
     }
 
-    Box(Modifier.fillMaxSize().background(UsageColors.Ground)) {
+    Box(Modifier.fillMaxSize().background(UsageColors.Ground).then(hoorayLayout)) {
         NavigationShell(
             navController, NavigationLayout.forWidth(windowSizeClass.widthSizeClass),
             snackbarHost = { SnackbarHost(snackbarHostState) },

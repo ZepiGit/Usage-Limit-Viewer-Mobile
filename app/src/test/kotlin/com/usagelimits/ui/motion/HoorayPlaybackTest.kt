@@ -45,8 +45,8 @@ class HoorayPlaybackTest {
             UsageLimitsTheme(providerIcons = mapOf(ProviderId.CLAUDE.id to icon)) {
                 CompositionLocalProvider(LocalHoorayPlayback provides playback, LocalMotionEnabled provides systemMotion,
                     LocalAnimateClaudeCodeIcon provides appMotion) {
-                    HoorayPresentation(playback, ready = ready)
-                    Row(Modifier.background(UsageColors.Surface).padding(40.dp), horizontalArrangement = Arrangement.spacedBy(70.dp)) {
+                    val hoorayLayout = HoorayPresentation(playback, ready = ready)
+                    Row(Modifier.background(UsageColors.Surface).padding(40.dp).then(hoorayLayout), horizontalArrangement = Arrangement.spacedBy(70.dp)) {
                         ProviderLogo(ProviderId.CLAUDE, Modifier.size(28.dp).testTag("first"), slot, ClaudeCodeMood.IDLE, "claude")
                         if (second) ProviderLogo(ProviderId.CLAUDE, Modifier.size(28.dp).testTag("second"), FigureSlot.LIST_ROW, ClaudeCodeMood.IDLE, "claude")
                         val size = with(LocalDensity.current) { 28.dp.toPx() }

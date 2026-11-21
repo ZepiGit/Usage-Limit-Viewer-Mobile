@@ -83,11 +83,17 @@ internal fun ClaudeCodeFigure(
     val eligible = accountId != null && slot != FigureSlot.RESETS &&
         slot != FigureSlot.LIST_PREVIEW && slot != FigureSlot.DIAL_PREVIEW
     val resumed = lifecycle.isAtLeast(Lifecycle.State.RESUMED)
+    val enrolled = remember(playback, accountId) { androidx.compose.ui.node.Ref<Boolean>().apply { value = false } }
+    fun enroll(shown: Boolean) {
+        if (playback == null || accountId == null) return
+        val next = eligible && resumed && shown
+        if (enrolled.value == next) return
+        if (next) playback.visible(accountId) else playback.hidden(accountId)
+        enrolled.value = next
+    }
     androidx.compose.runtime.DisposableEffect(playback, accountId, eligible, visible, resumed) {
-        if (playback != null && accountId != null && eligible && visible && resumed) {
-            playback.visible(accountId)
-            onDispose { playback.hidden(accountId) }
-        } else onDispose { }
+        enroll(visible)
+        onDispose { enroll(false) }
     }
     val presentationStart = if (eligible) playback?.startedAt(accountId) else null
     val shownMood = if (presentationStart != null && resumed) ClaudeCodeMood.HOORAY else mood
@@ -109,7 +115,10 @@ internal fun ClaudeCodeFigure(
             // Visible means some of its box lies inside every ancestor's bounds and the window: a row
             // scrolled out of its list's viewport counts as hidden (onVisibilityChanged in Compose UI
             // 1.12.1 checks the window alone and kept such a figure running).
-            .onGloballyPositioned { visible = !it.boundsInWindow().isEmpty }
+            .onGloballyPositioned {
+                visible = !it.boundsInWindow().isEmpty
+                enroll(visible)
+            }
             .drawBehind {
                 val origin = Offset((size.width - sizePx) / 2f, (size.height - sizePx) / 2f)
                 art.draw(this, fill, sleepInk, origin, clock.time, slot.amplitude)

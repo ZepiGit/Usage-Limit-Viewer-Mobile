@@ -6,9 +6,12 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
@@ -53,13 +56,13 @@ internal class HoorayPlayback {
 
 /** Unseen accounts and plain artwork lose this opening, rather than replaying on a later route. */
 @Composable
-internal fun HoorayPresentation(playback: HoorayPlayback?, ready: Boolean) {
+internal fun HoorayPresentation(playback: HoorayPlayback?, ready: Boolean): Modifier {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     val opening = playback?.opening
-    LaunchedEffect(playback, opening, ready, lifecycle) {
-        if (playback != null && ready && lifecycle.isAtLeast(Lifecycle.State.RESUMED)) {
-            // First lay out the ready screen, then sample its real visible slots once.
-            withFrameNanos { }
+    var positioned by remember(playback, opening, ready, lifecycle) { mutableStateOf(false) }
+    LaunchedEffect(playback, opening, ready, lifecycle, positioned) {
+        if (playback != null && ready && positioned && lifecycle.isAtLeast(Lifecycle.State.RESUMED)) {
+            // Placement has delivered visibility; its effects enroll before this frame timestamp.
             withFrameNanos { playback.startVisible(it) }
         }
     }
@@ -69,4 +72,5 @@ internal fun HoorayPresentation(playback: HoorayPlayback?, ready: Boolean) {
             while (playback.hasActive) withFrameNanos { playback.advance(it) }
         }
     }
+    return Modifier.onGloballyPositioned { positioned = true }
 }
