@@ -47,6 +47,7 @@ import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.face
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -77,6 +78,7 @@ internal fun AppearanceFonts(
     settings: AppSettings,
     onTextFontChange: (TextFont) -> Unit,
     onFigureFontChange: (FigureFont) -> Unit,
+    licenceReadDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FontPickerHeading(R.string.settings_text_font, R.string.settings_text_font_subtitle)
@@ -113,7 +115,7 @@ internal fun AppearanceFonts(
 
     var showLicences by rememberSaveable { mutableStateOf(false) }
     TextAction(stringResource(R.string.settings_font_licences), { showLicences = true }, Modifier.heightIn(min = 48.dp))
-    if (showLicences) FontLicences { showLicences = false }
+    if (showLicences) FontLicences(licenceReadDispatcher) { showLicences = false }
 }
 
 @Composable
@@ -141,10 +143,10 @@ private fun FontChoice(selected: Boolean, onClick: () -> Unit, modifier: Modifie
 }
 
 @Composable
-private fun FontLicences(onDismiss: () -> Unit) {
+private fun FontLicences(readDispatcher: CoroutineDispatcher, onDismiss: () -> Unit) {
     val resources = LocalResources.current
-    val notices by produceState<List<String>?>(null, resources) {
-        value = withContext(Dispatchers.IO) {
+    val notices by produceState<List<String>?>(null, resources, readDispatcher) {
+        value = withContext(readDispatcher) {
             fontNotices.map { (_, raw) -> resources.openRawResource(raw).bufferedReader().use { it.readText() } }
         }
     }

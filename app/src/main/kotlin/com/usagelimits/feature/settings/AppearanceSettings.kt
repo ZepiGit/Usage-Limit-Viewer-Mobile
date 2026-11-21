@@ -111,7 +111,7 @@ private fun AppearancePreview(settings: AppSettings) {
                 style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
                 color = UsageColors.Ink)
             FigureWithSide(percentFigureText(presentation.token), stringResource(percentSideWordRes(presentation.side)),
-                SeverityPalette.figureColor(Severity.LOW), UsageType.Figure.copy(fontSize = 18.sp, lineHeight = 22.sp),
+                SeverityPalette.figureColor(Severity.LOW), UsageType.PreviewFigure,
                 MaterialTheme.typography.bodySmall, spacing = 8.dp)
         }
         UsageBar(presentation, Modifier.fillMaxWidth())

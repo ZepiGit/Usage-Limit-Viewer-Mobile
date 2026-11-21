@@ -287,73 +287,97 @@ class RedesignCaptureTest {
             // Not onRoot().captureToImage(): under Robolectric 4.16 + compose ui-test 1.7.6 its
             // forceRedraw never sees a frame and times out (tried sdk 34 and 28). Drawing the
             // decor view in software is what the widget captures below do, and it works.
-            val root = compose.activity.window.decorView
-            Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).useOnce {
-                root.draw(Canvas(it))
-                it.save("screen-$name-$mode")
-            }
+            captureScreen(name, mode)
         }
     }
 
-    // A2 is not on this base. Keep the existing captures above and add the A1/A5 theme matrix.
+    private data class AppearanceScenario(
+        val settings: AppSettings,
+        val suffix: String,
+        val locale: Locale = Locale.US,
+        val fontScale: Float = 1f,
+        val checkFonts: Boolean = false,
+    )
+
+    // Font rows show a full 100% and an ordinary 12%; theme evidence keeps its original accounts.
+    private val fontDialAccounts = listOf(
+        claude.copy(snapshot = claude.snapshot!!.copy(windows = listOf(
+            window("5h", "5h limit", WindowCategory.FIVE_HOUR, 88.0, 18_000, 2 * HOUR + 12 * 60_000),
+        ))),
+        codex.copy(snapshot = codex.snapshot!!.copy(windows = listOf(
+            window("5h", "5h limit", WindowCategory.FIVE_HOUR, 0.0, 18_000, 5 * HOUR),
+        ))),
+    )
+
+    private fun appearanceScreens(scenario: AppearanceScenario): List<Pair<String, @Composable () -> Unit>> {
+        val appearanceState = state.copy(settings = scenario.settings)
+        return listOf(
+            "A1-overview" to {
+                OverviewScreen(state = appearanceState.copy(accounts = listOf(claude, expiredCodex, kimi)),
+                    nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                    onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
+            },
+            "A2-dials" to {
+                OverviewScreen(
+                    state = appearanceState.copy(
+                        accounts = if (scenario.checkFonts) fontDialAccounts else listOf(claude, expiredCodex, kimi),
+                        settings = scenario.settings.copy(overviewLayout = OverviewLayout.DIALS)),
+                    nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                    onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
+            },
+            "A5-settings" to {
+                SettingsScreen(state = appearanceState, onSyncIntervalChange = {}, onNotificationPermissionHandled = {},
+                    onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {}, onNotifyResetCredit = {},
+                    onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {},
+                    onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {}, onAppThemeChange = {})
+            },
+        )
+    }
+
+    // Scoped locals keep every row in the existing SDK 34 native-graphics sandbox.
     @Test
-    fun `A1 and A5 in every app theme and display mode`() {
-        val current = mutableStateOf<@Composable () -> Unit>({})
-        val theme = mutableStateOf(AppTheme.PURE_BLACK)
-        compose.setContent { UsageLimitsTheme(appTheme = theme.value) { current.value() } }
-        for (appTheme in AppTheme.entries) {
-            theme.value = appTheme
-            for (display in PercentDisplay.entries) {
-                val themedState = state.copy(settings = state.settings.copy(appTheme = appTheme, percentDisplay = display))
-                val screens = listOf<Pair<String, @Composable () -> Unit>>(
-                    "A1-overview" to {
-                        OverviewScreen(state = themedState.copy(accounts = listOf(claude, expiredCodex, kimi)),
-                            nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
-                            onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
-                    },
-                    "A2-dials" to {
-                        OverviewScreen(
-                            state = themedState.copy(accounts = listOf(claude, expiredCodex, kimi),
-                                settings = themedState.settings.copy(overviewLayout = OverviewLayout.DIALS)),
-                            nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
-                            onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
-                    },
-                    "A5-settings" to {
-                        SettingsScreen(state = themedState, onSyncIntervalChange = {}, onNotificationPermissionHandled = {},
-                            onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {}, onNotifyResetCredit = {},
-                            onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {},
-                            onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {}, onAppThemeChange = {})
-                    },
-                )
-                for ((name, content) in screens) {
-                    current.value = content
-                    compose.waitForIdle()
-                    val root = compose.activity.window.decorView
-                    Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).useOnce {
-                        root.draw(Canvas(it))
-                        it.save("screen-$name-${appTheme.name.lowercase()}-${display.name.lowercase()}")
+    fun `A1 A2 and A5 across themes display modes and font scenarios`() {
+        val scenarios = buildList {
+            for (appTheme in AppTheme.entries) {
+                for (display in PercentDisplay.entries) {
+                    add(AppearanceScenario(
+                        settings = state.settings.copy(appTheme = appTheme, percentDisplay = display),
+                        suffix = "${appTheme.name.lowercase()}-${display.name.lowercase()}",
+                    ))
+                }
+            }
+            for (language in listOf(Locale.US, Locale.GERMANY)) {
+                for ((textFont, figureFont) in listOf(
+                    TextFont.ROBOTO to FigureFont.ROBOTO_MONO,
+                    TextFont.FIGTREE to FigureFont.IBM_PLEX_MONO,
+                    TextFont.IBM_PLEX_SANS to FigureFont.JETBRAINS_MONO,
+                )) {
+                    for (fontScale in listOf(1f, 1.5f)) {
+                        add(AppearanceScenario(
+                            settings = state.settings.copy(appTheme = AppTheme.PURE_BLACK, percentDisplay = PercentDisplay.LEFT,
+                                textFont = textFont, figureFont = figureFont),
+                            suffix = "fonts-${textFont.name.lowercase()}-${figureFont.name.lowercase()}-${language.language}-" +
+                                if (fontScale == 1f) "default" else "large",
+                            locale = language,
+                            fontScale = fontScale,
+                            checkFonts = true,
+                        ))
                     }
                 }
             }
         }
-    }
-
-    // Scoped locals keep EN/DE and larger type in this SDK 34 native-graphics sandbox.
-    @Test
-    fun `A1 including Credits and A5 with default variable and static font pairs in EN DE and larger type`() {
+        val scenario = mutableStateOf(scenarios.first())
         val current = mutableStateOf<@Composable () -> Unit>({})
-        val fonts = mutableStateOf(TextFont.ROBOTO to FigureFont.ROBOTO_MONO)
-        val locale = mutableStateOf(Locale.US)
-        val scale = mutableStateOf(1f)
         val screen = mutableStateOf("A1-overview")
         compose.setContent {
+            val row = scenario.value
             val baseContext = LocalContext.current
             val baseConfiguration = LocalConfiguration.current
             val density = LocalDensity.current.density
-            val configuration = remember(baseConfiguration, locale.value, scale.value) {
+            val configuration = remember(baseConfiguration, row.locale, row.fontScale) {
                 Configuration(baseConfiguration).apply {
-                    setLocale(locale.value)
-                    fontScale = scale.value
+                    setLocale(row.locale)
+                    fontScale = row.fontScale
                 }
             }
             val context = remember(baseContext, configuration) {
@@ -363,71 +387,50 @@ class RedesignCaptureTest {
                 LocalContext provides context,
                 LocalConfiguration provides configuration,
                 LocalResources provides context.resources,
-                LocalDensity provides Density(density, fontScale = scale.value),
+                LocalDensity provides Density(density, fontScale = row.fontScale),
             ) {
-                UsageLimitsTheme(textFont = fonts.value.first, figureFont = fonts.value.second) {
+                UsageLimitsTheme(appTheme = row.settings.appTheme, textFont = row.settings.textFont, figureFont = row.settings.figureFont) {
                     CompositionLocalProvider(LocalMotionEnabled provides false) {
-                        key(fonts.value, locale.value, scale.value, screen.value) { current.value() }
+                        key(row, screen.value) { current.value() }
                     }
                 }
             }
         }
         val originalLocale = Locale.getDefault()
         try {
-            for (language in listOf(Locale.US, Locale.GERMANY)) {
-                Locale.setDefault(language)
-                for ((textFont, figureFont) in listOf(
-                    TextFont.ROBOTO to FigureFont.ROBOTO_MONO,
-                    TextFont.FIGTREE to FigureFont.IBM_PLEX_MONO,
-                    TextFont.IBM_PLEX_SANS to FigureFont.JETBRAINS_MONO,
-                )) {
-                    for (fontScale in listOf(1f, 1.5f)) {
-                        val fontState = state.copy(
-                            accounts = listOf(claude, expiredCodex, kimi),
-                            settings = state.settings.copy(textFont = textFont, figureFont = figureFont),
-                        )
-                        compose.runOnIdle {
-                            fonts.value = textFont to figureFont
-                            locale.value = language
-                            scale.value = fontScale
-                            screen.value = "A1-overview"
-                            current.value = {
-                                OverviewScreen(state = fontState, nowMs = NOW, zone = utc,
-                                    onRefresh = {}, onAccountClick = {}, onAddAccount = {},
-                                    onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
+            for (row in scenarios) {
+                Locale.setDefault(row.locale)
+                val resources = compose.activity.createConfigurationContext(Configuration(compose.activity.resources.configuration).apply {
+                    setLocale(row.locale)
+                }).resources
+                for ((name, content) in appearanceScreens(row)) {
+                    compose.runOnIdle {
+                        scenario.value = row
+                        screen.value = name
+                        current.value = content
+                    }
+                    compose.waitForIdle()
+                    captureScreen(name, row.suffix)
+                    if (!row.checkFonts) continue
+                    when (name) {
+                        "A1-overview" -> {
+                            if (row.fontScale == 1.5f) {
+                                for (token in listOf("100", "4")) {
+                                    assertTextFits(com.usagelimits.ui.text.percentFigure(token, resources))
+                                }
                             }
+                            // Larger text can put Credits below even the tall capture's fold.
+                            val amount = CreditFormat.string(BigDecimal("18.40"), "USD", row.locale)
+                            compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(amount))
+                            compose.waitForIdle()
+                            if (row.fontScale == 1.5f) assertTextFits(amount)
+                            captureScreen("A1-credits", row.suffix)
                         }
-                        compose.waitForIdle()
-                        val suffix = "fonts-${textFont.name.lowercase()}-${figureFont.name.lowercase()}-${language.language}-" +
-                            if (fontScale == 1f) "default" else "large"
-                        captureFontScreen("A1-overview", suffix)
-                        if (fontScale == 1.5f) {
-                            val resources = compose.activity.createConfigurationContext(Configuration(compose.activity.resources.configuration).apply {
-                                setLocale(language)
-                            }).resources
-                            for (token in listOf("100", "4")) {
+                        "A2-dials" -> {
+                            for (token in listOf("100", "12")) {
                                 assertTextFits(com.usagelimits.ui.text.percentFigure(token, resources))
                             }
                         }
-
-                        // Large text may put Credits below the tall capture's fold as well.
-                        val amount = CreditFormat.string(BigDecimal("18.40"), "USD", language)
-                        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(amount))
-                        compose.waitForIdle()
-                        if (fontScale == 1.5f) assertTextFits(amount)
-                        captureFontScreen("A1-credits", suffix)
-
-                        compose.runOnIdle {
-                            screen.value = "A5-settings"
-                            current.value = {
-                                SettingsScreen(state = fontState, onSyncIntervalChange = {}, onNotificationPermissionHandled = {},
-                                    onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {}, onNotifyResetCredit = {},
-                                    onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {},
-                                    onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {}, onAppThemeChange = {})
-                            }
-                        }
-                        compose.waitForIdle()
-                        captureFontScreen("A5-settings", suffix)
                     }
                 }
             }
@@ -436,7 +439,7 @@ class RedesignCaptureTest {
         }
     }
 
-    private fun captureFontScreen(name: String, suffix: String) {
+    private fun captureScreen(name: String, suffix: String) {
         val root = compose.activity.window.decorView
         Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).useOnce {
             root.draw(Canvas(it))

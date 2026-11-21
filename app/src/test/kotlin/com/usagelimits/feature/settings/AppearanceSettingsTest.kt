@@ -21,9 +21,6 @@ import androidx.compose.ui.test.hasAnySibling
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performScrollToIndex
-import androidx.compose.ui.test.ComposeTimeoutException
-import androidx.compose.ui.test.isDialog
-import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
@@ -34,11 +31,13 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
+import com.usagelimits.R
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.core.settings.TextFont
-import com.usagelimits.feature.waitDrained
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Assert.assertNotEquals
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import com.usagelimits.feature.UsageUiState
@@ -201,30 +200,38 @@ class AppearanceSettingsTest {
     }
 
     @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun `the font licence view shows every complete notice shipped in the app`() {
+        val readDispatcher = StandardTestDispatcher()
+        val notices = listOf(
+            "Roboto Flex" to R.raw.font_license_roboto_flex,
+            "IBM Plex Sans" to R.raw.font_license_ibm_plex_sans,
+            "Figtree" to R.raw.font_license_figtree,
+            "Roboto Mono" to R.raw.font_license_roboto_mono,
+            "JetBrains Mono" to R.raw.font_license_jetbrains_mono,
+            "IBM Plex Mono" to R.raw.font_license_ibm_plex_mono,
+        ).map { (family, raw) ->
+            family to compose.activity.resources.openRawResource(raw).bufferedReader().use { it.readText() }
+        }
         compose.setContent {
             UsageLimitsTheme {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    AppearanceSettings(AppSettings(), onAppThemeChange = {})
+                    AppearanceFonts(AppSettings(), onTextFontChange = {}, onFigureFontChange = {},
+                        licenceReadDispatcher = readDispatcher)
                 }
             }
         }
         compose.onNodeWithText("Font licences").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithText("Done").assertIsDisplayed()
         val documents = compose.onNode(hasScrollToIndexAction(), useUnmergedTree = true)
-        try {
-            compose.waitDrained { compose.onAllNodes(hasScrollToIndexAction(), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
-        } catch (error: ComposeTimeoutException) {
-            throw AssertionError(compose.onNode(isDialog(), useUnmergedTree = true).printToString(maxDepth = 4), error)
-        }
-        val families = listOf("Roboto Flex", "IBM Plex Sans", "Figtree", "Roboto Mono", "JetBrains Mono", "IBM Plex Mono")
-        for ((index, family) in families.withIndex()) {
+        documents.assertDoesNotExist()
+        compose.runOnIdle { readDispatcher.scheduler.runCurrent() }
+        for ((index, notice) in notices.withIndex()) {
+            val (family, fullText) = notice
             documents.performScrollToIndex(index)
             val heading = hasText(family) and SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)
             compose.onNode(heading, useUnmergedTree = true).assertIsDisplayed()
-            val contents = hasText("Copyright", substring = true) and hasText("SIL OPEN FONT LICENSE", substring = true) and
-                hasText("DISCLAIMER", substring = true)
-            compose.onNode(contents and hasAnySibling(heading), useUnmergedTree = true).assertIsDisplayed()
+            compose.onNode(hasText(fullText) and hasAnySibling(heading), useUnmergedTree = true).assertIsDisplayed()
         }
         compose.onNodeWithText("Done").performClick()
         compose.onNodeWithText("Done").assertDoesNotExist()

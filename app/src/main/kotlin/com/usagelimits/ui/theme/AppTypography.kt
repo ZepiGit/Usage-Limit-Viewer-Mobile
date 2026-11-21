@@ -58,6 +58,7 @@ internal class FigureFace(family: FontFamily) {
     val Regular = type(family, FontWeight.Normal, 14, 20)
     val Figure = type(family, Medium, 14, 20)
     val FigureLarge = type(family, Medium, 16, 24)
+    val PreviewFigure = type(family, Medium, 18, 22)
     val GridFigure = type(family, Medium, 13, 18)
     val Stamp = type(family, FontWeight.Normal, 12, 16)
     val Money = type(family, Bold, 20, 26)
@@ -86,6 +87,7 @@ object UsageType {
     val Regular: TextStyle @Composable get() = current.Regular
     val Figure: TextStyle @Composable get() = current.Figure
     val FigureLarge: TextStyle @Composable get() = current.FigureLarge
+    val PreviewFigure: TextStyle @Composable get() = current.PreviewFigure
     val GridFigure: TextStyle @Composable get() = current.GridFigure
     val Stamp: TextStyle @Composable get() = current.Stamp
     val Money: TextStyle @Composable get() = current.Money
