@@ -102,7 +102,8 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
                 statusMessage: failed ? NotificationEvaluator.signInExpiredMessage : nil)
             let snapshot = GlanceSnapshot(accounts: [retained], accountCount: 1, updatedAt: retained.fetchedAt,
                 nextResetAt: row.resetAt, overallSeverity: retained.severity, summaryLineShort: row,
-                summaryLineLong: nil, staleAfter: staleAfter)
+                summaryLineLong: nil, staleAfter: staleAfter, percentDisplay: .left,
+                statusIconsEnabled: false, pinnedAccountIDs: [])
             let entry = UsageEntry(date: now, snapshot: snapshot)
             try write(try render(UsageRingWidgetView(entry: entry), size: CGSize(width: 158, height: 158)),
                 name: failed ? "legacy-ring-failed-retained" : "legacy-ring-stale-reset-due", to: output)
@@ -217,7 +218,8 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
                         account("codex", remaining: 66), account("claude-stale", remaining: nil)]
         return GlanceSnapshot(accounts: accounts, accountCount: accounts.count, updatedAt: now,
             nextResetAt: now.addingTimeInterval(7200), overallSeverity: .low,
-            summaryLineShort: accounts[0].rows[0], summaryLineLong: nil, staleAfter: staleAfter, percentDisplay: mode)
+            summaryLineShort: accounts[0].rows[0], summaryLineLong: nil, staleAfter: staleAfter, percentDisplay: mode,
+            statusIconsEnabled: false, pinnedAccountIDs: [])
     }
 
     private func creditEntry() -> CreditsEntry {
@@ -240,7 +242,7 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
         let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height)
             .foregroundStyle(.white).background(background)
             .environment(\.colorScheme, .dark).environment(\.dynamicTypeSize, typeSize)
-            .environment(\.accessibilityReduceMotion, true))
+            .environment(\.reduceMotionOverride, true))
         renderer.scale = 3
         let image = try XCTUnwrap(renderer.uiImage)
         XCTAssertEqual(image.size.width, size.width, accuracy: 0.5)

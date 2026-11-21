@@ -24,7 +24,7 @@ extension Motion {
         return timing.delay > 0 ? animation.delay(timing.delay) : animation
     }
 
-    /// Derselbe Eintritt ohne Wartezeit, wenn der Austritt bereits abgeschlossen ist.
+    /// The same arrival without its delay when the exit has already completed.
     static func enterFromHidden(reduceMotion: Bool) -> Animation? {
         guard let timing = Motion.enterAfterExit.timing(reduceMotion: reduceMotion) else { return nil }
         return .easeInOut(duration: timing.duration)

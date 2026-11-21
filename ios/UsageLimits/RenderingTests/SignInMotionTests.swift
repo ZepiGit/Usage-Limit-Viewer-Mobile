@@ -22,7 +22,7 @@ final class SignInMotionTests: XCTestCase {
             AddAccountSheet(stage: $driver.stage, captureStep: capture)
                 .environmentObject(driver.store)
                 .environment(\.colorScheme, .dark)
-                .environment(\.accessibilityReduceMotion, reduced)
+                .environment(\.reduceMotionOverride, reduced)
         }
     }
 
