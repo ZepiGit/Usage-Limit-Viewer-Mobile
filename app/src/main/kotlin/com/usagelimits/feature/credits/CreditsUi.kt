@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -85,7 +86,9 @@ fun CreditCard(
 ) {
     val account = entry.account
     val snapshot = entry.snapshot
-    val countdownTexts = rememberCountdownTexts()
+    val freshness = if (compact) null else account.provider.displayName + " · " +
+        Countdown.freshnessLabel(snapshot?.takeIf { it.balances.isNotEmpty() }?.fetchedAt, nowMs, rememberCountdownTexts())
+    val largeText = LocalDensity.current.fontScale >= 1.4f
     val severity = CreditSeverity.of(entry, nowMs, staleAfterMs)
     val balances = CreditSeverity.worstFirst(entry)
 
@@ -96,11 +99,7 @@ fun CreditCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(account.label, style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.titleMedium,
                     color = UsageColors.Ink, maxLines = 1)
-                if (!compact) Text(
-                    account.provider.displayName + " · " +
-                        Countdown.freshnessLabel(snapshot?.takeIf { it.balances.isNotEmpty() }?.fetchedAt, nowMs, countdownTexts),
-                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint,
-                )
+                if (!largeText && freshness != null) CreditFreshness(freshness)
             }
             StatusMark(severity)
             if (onClick != null) {
@@ -109,6 +108,7 @@ fun CreditCard(
                 }
             }
         }
+        if (largeText && freshness != null) CreditFreshness(freshness)
         Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
         if (balances.isEmpty()) {
             if (snapshot?.error != null) {
@@ -129,6 +129,11 @@ fun CreditCard(
             }
         }
     }
+}
+
+@Composable
+private fun CreditFreshness(text: String) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
 }
 
 /** The amount in ink (never severity-coloured, a real zero included), its cap, and a data bar. */
