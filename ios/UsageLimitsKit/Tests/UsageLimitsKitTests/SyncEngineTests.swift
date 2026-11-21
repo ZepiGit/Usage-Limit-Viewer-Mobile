@@ -649,7 +649,7 @@ extension SyncEngineTests {
             return UsageResult()
         }
 
-        func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date) async {
+        func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date, accountInstanceID: String?) async {
             records += 1
             let record = records
             events.append("record \(record) started")
