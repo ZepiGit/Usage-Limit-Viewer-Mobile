@@ -1544,7 +1544,7 @@ class Smoke:
     def credit_selection(self, name, label, checked, package=DEBUG_PACKAGE, up=True):
         """Follow a selection moved out of view by the Settings preview or dependent controls.
 
-        Compact shrinks the preview and can move its selector above the viewport (up=False).
+        Compact and Hide credits shrink content above their selectors (up=False).
         Show credits adds controls above its switch and moves it below the viewport (up=True).
         A visible control with the old value is only waited for, never tapped again.
         """
@@ -1655,8 +1655,7 @@ class Smoke:
         self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-settings-hide")
         show = self.credit_control("credits-de-hide", "Guthaben anzeigen", up=True)
         self.tap(show)
-        self.wait_for("credits-de-hidden-settings", lambda root:
-            credit_checked(root, "Guthaben anzeigen", False, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-de-hidden-settings", "Guthaben anzeigen", False, up=False)
         self.credit_control("credits-de-manage-always", "Guthaben verwalten", up=True)
         self.adb("shell", "am", "force-stop", DEBUG_PACKAGE)
         self.launch("credits-de-relaunch", DEBUG_PACKAGE, tab="Übersicht")
@@ -1677,8 +1676,7 @@ class Smoke:
         self.navigate_credit("Übersicht", "Guthaben · 1 Konto", "credits-de-persisted-compact")
         self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-hide-again-settings")
         self.tap(self.credit_control("credits-de-hide-again", "Guthaben anzeigen", up=True))
-        self.wait_for("credits-de-hidden-again", lambda root:
-            credit_checked(root, "Guthaben anzeigen", False, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-de-hidden-again", "Guthaben anzeigen", False, up=False)
         manage = self.credit_control("credits-de-manage-always", "Guthaben verwalten", up=True)
         self.tap(manage)
         self.wait_for("credits-de-manage-from-settings", lambda root: bool(matches(root, "Guthaben verwalten", DEBUG_PACKAGE))
