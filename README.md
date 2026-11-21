@@ -33,6 +33,9 @@ Some details that make it pleasant to live with:
 - **Honest when it doesn't know.** If a refresh fails, you keep the last numbers you had,
   clearly marked as old, instead of a blank screen. If a limit has reset since the last
   refresh, it is shown as "reset due", not as still used up.
+- **One cheer after a confirmed reset (Android).** With either Claude Code icon selected,
+  a fresh reading that confirms a reset reserves one four-second Hooray for your next app
+  opening. It stays still when animations are off, and does not replay after interruption.
 - **List or Dials.** In Settings → Overview, choose List to see every usage window or Dials
   to see one headline ring per account. Tap a row or dial to see the full account.
 - **Left or used, your choice.** *Show percentages as* offers **Left** (the default) or

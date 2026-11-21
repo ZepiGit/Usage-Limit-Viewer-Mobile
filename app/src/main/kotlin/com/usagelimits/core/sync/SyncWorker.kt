@@ -260,7 +260,7 @@ class SyncWorker(
         }
 
         /** Opening the screen requests fresh readings, but is not an explicit refresh. */
-        internal fun syncOnResume(context: Context) = synchronized(triggerLock) {
+        internal fun syncOnOpen(context: Context) = synchronized(triggerLock) {
             val manager = WorkManager.getInstance(context)
             manager.cancelAllWorkByTag(AGED_TAG)
             enqueueOneShot(manager, onlyIfAged = false, manual = false)

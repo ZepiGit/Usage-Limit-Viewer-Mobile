@@ -30,6 +30,8 @@ data class AccountEntity(
     val attributesJson: String = "{}",
     /** Sort position in the account list, adjustable by the user. */
     val sortOrder: Int = 0,
+    /** Confirming reading's instant, coalesced until the next main-app opening claims it. */
+    val pendingResetConfirmationAt: Long? = null,
 )
 
 /**

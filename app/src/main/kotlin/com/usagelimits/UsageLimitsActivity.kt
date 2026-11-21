@@ -23,7 +23,6 @@ import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.ui.theme.colors
 import com.usagelimits.feature.settings.AppIcon
 import com.usagelimits.core.oauth.SignInKeepAliveService
-import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.navigation.ExternalRequest
 import com.usagelimits.navigation.UsageLimitsNavigation
 import com.usagelimits.ui.theme.UsageLimitsTheme
@@ -100,6 +99,7 @@ class UsageLimitsActivity : ComponentActivity() {
             ) {
                 androidx.compose.runtime.CompositionLocalProvider(
                     com.usagelimits.ui.LocalAnimateClaudeCodeIcon provides settings.animateClaudeCodeIcon,
+                    com.usagelimits.ui.LocalHoorayPlayback provides (application as UsageLimitsApp).hoorayPlayback,
                 ) {
                     UsageLimitsNavigation(container, windowSizeClass, pending.value, ::handled)
                 }
@@ -123,13 +123,14 @@ class UsageLimitsActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        SyncWorker.syncOnResume(this)
+    override fun onStart() {
+        super.onStart()
+        (application as UsageLimitsApp).mainOpening.activityStarted(main = true)
     }
 
     override fun onStop() {
         super.onStop()
+        if (!isChangingConfigurations) (application as UsageLimitsApp).mainOpening.interrupt()
         // Disabling the launcher alias mid sign-in can drop the task under the browser tab.
         if (!isChangingConfigurations && !SignInKeepAliveService.signingIn) AppIcon.applyPending(this)
     }

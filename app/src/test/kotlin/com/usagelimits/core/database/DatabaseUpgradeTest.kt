@@ -44,9 +44,9 @@ class DatabaseUpgradeTest {
             val table = entities.getJSONObject(i)
             val name = table.getString("tableName")
             db.execSQL(table.getString("createSql").replace("\${TABLE_NAME}", name))
-            val indices = table.getJSONArray("indices")
-            for (j in 0 until indices.length()) {
-                db.execSQL(indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", name))
+            val indices = table.optJSONArray("indices")
+            for (j in 0 until (indices?.length() ?: 0)) {
+                db.execSQL(indices!!.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", name))
             }
         }
         val setup = schema.getJSONArray("setupQueries")

@@ -48,6 +48,7 @@ fun ProviderIconSettings(
     claudeMood: ClaudeCodeMood = ClaudeCodeMood.IDLE,
     animateClaudeCode: Boolean = true,
     onAnimateClaudeCodeChange: (Boolean) -> Unit = {},
+    claudeAccountId: String? = null,
     onChoose: (ProviderId, String) -> Unit,
 ) {
     var editing by remember { mutableStateOf<ProviderId?>(null) }
@@ -60,7 +61,7 @@ fun ProviderIconSettings(
                 val figureFill = icon.claudeCodeFill()
                 Row(Modifier.fillMaxWidth().clickable { editing = provider }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (figureFill != null) {
-                        ClaudeCodeFigure(claudeMood, figureFill, FigureSlot.SETTINGS_ROW, Modifier.size(30.dp))
+                        ClaudeCodeFigure(claudeMood, figureFill, FigureSlot.SETTINGS_ROW, Modifier.size(30.dp), accountId = claudeAccountId)
                     } else {
                         ProviderArtwork(icon, null, Modifier.size(30.dp))
                     }
