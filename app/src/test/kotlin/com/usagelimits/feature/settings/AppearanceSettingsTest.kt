@@ -117,7 +117,7 @@ class AppearanceSettingsTest {
                 SettingsScreen(
                     state = UsageUiState(), onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
                     onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {},
-                    onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {},
+                    onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {},
                     onPercentDisplayChange = {}, onNotificationPermissionHandled = {}, onAppThemeChange = { chosen = it },
                 )
             }

@@ -233,7 +233,7 @@ class NotificationPermissionSettingsTest {
                     onNotifyResetApproaching = {},
                     onNotifyCreditExpiring = {},
                     onShowTier = {},
-                    onShowRenewal = {},
+                    onOverviewLayoutChange = {},
                     onPercentDisplayChange = {},
                 )
             }

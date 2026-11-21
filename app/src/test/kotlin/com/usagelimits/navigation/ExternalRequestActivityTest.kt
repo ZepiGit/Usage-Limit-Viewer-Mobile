@@ -8,6 +8,11 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
@@ -33,6 +38,7 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.FigureFont
 import com.usagelimits.core.settings.TextFont
+import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.sync.resetTestWorkManager
 import com.usagelimits.ui.theme.face
 import com.usagelimits.feature.UsageViewModel
@@ -108,23 +114,25 @@ class ExternalRequestActivityTest {
         try {
             // The activities end first: their view model's jobs are cancelled and run out on this
             // thread, so the looper is pumped until they have.
-            for (controller in controllers.asReversed()) {
-                val activity = controller.get()
-                if (activity.isDestroyed) continue
-                val jobs = viewModelJob(activity)
-                controller.pause().stop().destroy()
-                val deadline = System.currentTimeMillis() + 10_000
-                while (jobs?.isCompleted == false) {
-                    check(System.currentTimeMillis() < deadline) { "the view model's jobs did not end" }
-                    ShadowLooper.idleMainLooper()
-                    runBlocking { kotlinx.coroutines.yield() }
-                }
-            }
+            for (controller in controllers.asReversed()) stop(controller)
         } finally {
             ReflectionHelpers.setField(app, "container", original)
             WorkManager.getInstance(app).cancelAllWork().result.get()
             ShadowLooper.idleMainLooper()
             resetTestWorkManager()
+        }
+    }
+
+    private fun stop(controller: ActivityController<UsageLimitsActivity>) {
+        val activity = controller.get()
+        if (activity.isDestroyed) return
+        val jobs = listOfNotNull(viewModelJob(activity), activity.notificationPermissionCheck)
+        controller.pause().stop().destroy()
+        val deadline = System.currentTimeMillis() + 10_000
+        while (jobs.any { !it.isCompleted }) {
+            check(System.currentTimeMillis() < deadline) { "the activity's jobs did not end" }
+            ShadowLooper.idleMainLooper()
+            runBlocking { kotlinx.coroutines.yield() }
         }
     }
 
@@ -287,6 +295,32 @@ class ExternalRequestActivityTest {
         runBlocking { container.repository.accountUsageOnce() }
         start(link(alpha))
         waitFor("onDetailOf('Alpha')") { onDetailOf("Alpha") }
+    }
+
+    @Test fun `selecting Dials in Settings survives a fresh activity launch`() {
+        gate.complete(Unit)
+        runBlocking {
+            container.settingsStore.setOverviewLayout(OverviewLayout.LIST)
+            account("Alpha")
+        }
+        val first = start(launcher())
+        try {
+            waitFor("List filters") { shown("Needs attention") }
+            compose.onNode(hasText("Settings") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected))
+                .performClick()
+            waitFor("Settings tab") { onSettings() }
+            compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Dials"))
+            compose.onNode(hasText("Dials") and hasClickAction()).performSemanticsAction(SemanticsActions.OnClick) { it() }
+            waitFor("Dials selected") { compose.onAllNodes(hasText("Dials") and selected).fetchSemanticsNodes().isNotEmpty() }
+            stop(first)
+            start(launcher())
+            waitFor("Dials on the new Overview") { onOverview() && shown("Each dial shows the account’s headline. Tap one for every window and its resets.") }
+            assertFalse(shown("Needs attention"))
+            compose.onNode(hasContentDescription("OpenAI Codex", substring = true)).performClick()
+            waitFor("account detail from the dial") { onDetailOf("Alpha") }
+        } finally {
+            runBlocking { container.settingsStore.setOverviewLayout(OverviewLayout.LIST) }
+        }
     }
 
     @Test fun `the same link tapped again is a new request`() {

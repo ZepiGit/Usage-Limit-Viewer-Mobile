@@ -29,6 +29,8 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.glance.ExperimentalGlanceApi
@@ -56,6 +58,7 @@ import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.core.settings.FigureFont
 import com.usagelimits.core.settings.TextFont
+import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.accounts.AccountDetailScreen
@@ -241,7 +244,7 @@ class RedesignCaptureTest {
         "settings" to {
             SettingsScreen(state = state, onSyncIntervalChange = {}, onNotificationPermissionHandled = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
                 onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {},
-                onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {},
+                onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {},
                 onPercentDisplayChange = {})
         },
         "credit-detail" to {
@@ -250,12 +253,37 @@ class RedesignCaptureTest {
         },
     )
 
-    private fun captureAll(mode: String) {
+    private fun dialScreens(): List<Pair<String, @Composable () -> Unit>> = buildList {
+        for (mode in PercentDisplay.entries) {
+            val name = mode.name.lowercase()
+            val settings = AppSettings(percentDisplay = mode, overviewLayout = OverviewLayout.DIALS)
+            add("overview-dials-$name" to {
+                OverviewScreen(state.copy(accounts = listOf(claude, expiredCodex, kimi), settings = settings),
+                    nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {})
+            })
+            for (layout in OverviewLayout.entries) {
+                add("settings-${layout.name.lowercase()}-$name" to {
+                    SettingsScreen(state.copy(settings = settings.copy(overviewLayout = layout)), onSyncIntervalChange = {},
+                        onNotificationPermissionHandled = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {},
+                        onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {},
+                        onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {})
+                })
+            }
+        }
+    }
+
+    private fun captureAll(mode: String, cases: List<Pair<String, @Composable () -> Unit>> = screens() + dialScreens()) {
         val current = mutableStateOf<@Composable () -> Unit>({})
         compose.setContent { UsageLimitsTheme { current.value() } }
-        for ((name, content) in screens()) {
-            current.value = content
+        for ((name, content) in cases) {
+            current.value = { androidx.compose.runtime.key(name) { content() } }
             compose.waitForIdle()
+            if (name.startsWith("settings-")) {
+                compose.onNode(hasScrollToNodeAction()).performScrollToKey("display-heading")
+                for (label in listOf(com.usagelimits.R.string.settings_section_display, com.usagelimits.R.string.settings_show_tier_title)) {
+                    compose.onNodeWithText(compose.activity.getString(label)).assertIsDisplayed()
+                }
+            }
             // Not onRoot().captureToImage(): under Robolectric 4.16 + compose ui-test 1.7.6 its
             // forceRedraw never sees a frame and times out (tried sdk 34 and 28). Drawing the
             // decor view in software is what the widget captures below do, and it works.
@@ -283,11 +311,18 @@ class RedesignCaptureTest {
                             nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
                             onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
                     },
+                    "A2-dials" to {
+                        OverviewScreen(
+                            state = themedState.copy(accounts = listOf(claude, expiredCodex, kimi),
+                                settings = themedState.settings.copy(overviewLayout = OverviewLayout.DIALS)),
+                            nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                            onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
+                    },
                     "A5-settings" to {
                         SettingsScreen(state = themedState, onSyncIntervalChange = {}, onNotificationPermissionHandled = {},
                             onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {}, onNotifyResetCredit = {},
                             onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {},
-                            onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {}, onAppThemeChange = {})
+                            onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {}, onAppThemeChange = {})
                     },
                 )
                 for ((name, content) in screens) {
@@ -435,6 +470,12 @@ class RedesignCaptureTest {
     // A1, C1 and C2 in German: the same screens, the app's German words.
     @Config(qualifiers = "+de")
     @Test fun `screens german`() = captureAll("de")
+
+    @Config(fontScale = 1.6f)
+    @Test fun `dials and settings at larger text`() = captureAll("en-large", dialScreens())
+
+    @Config(qualifiers = "+de", fontScale = 1.6f)
+    @Test fun `dials and settings in German at larger text`() = captureAll("de-large", dialScreens())
 }
 
 /** The Glance widgets through a real host view, as WidgetAppearanceRenderingTest does it, at 2x. */

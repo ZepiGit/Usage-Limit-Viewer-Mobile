@@ -34,6 +34,7 @@ import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.core.settings.FigureFont
 import com.usagelimits.core.settings.TextFont
+import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.sync.BackgroundRestrictions
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UsageUiState
@@ -47,7 +48,6 @@ import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
-import com.usagelimits.ui.percentSideCaptionRes
 import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.theme.SeverityPalette
@@ -67,7 +67,7 @@ fun SettingsScreen(
     onNotifyResetApproaching: (Boolean) -> Unit,
     onNotifyCreditExpiring: (Boolean) -> Unit,
     onShowTier: (Boolean) -> Unit,
-    onShowRenewal: (Boolean) -> Unit,
+    onOverviewLayoutChange: (OverviewLayout) -> Unit,
     onPercentDisplayChange: (PercentDisplay) -> Unit,
     onNotificationPermissionHandled: () -> Unit,
     modifier: Modifier = Modifier,
@@ -131,45 +131,10 @@ fun SettingsScreen(
             }
         }
 
+        item(key = "display-heading") { SectionHeader(stringResource(R.string.settings_section_display)) }
+        item { DisplaySettings(settings.percentDisplay, onPercentDisplayChange) }
         item { SectionHeader(stringResource(R.string.settings_section_overview)) }
-        item {
-            UsageCard {
-                ToggleRow(
-                    title = stringResource(R.string.settings_show_tier_title),
-                    subtitle = stringResource(R.string.settings_show_tier_subtitle),
-                    checked = settings.showSubscriptionTier,
-                    onChange = onShowTier,
-                )
-                RuleDivider()
-                ToggleRow(
-                    title = stringResource(R.string.settings_show_renewal_title),
-                    subtitle = stringResource(R.string.settings_show_renewal_subtitle),
-                    checked = settings.showRenewalTime,
-                    onChange = onShowRenewal,
-                )
-                RuleDivider()
-                Text(
-                    text = stringResource(R.string.settings_percent_display_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = UsageColors.Ink,
-                )
-                Text(
-                    text = stringResource(R.string.settings_percent_display_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = UsageColors.Muted,
-                )
-                Spacer(Modifier.height(10.dp))
-                SegmentedRow {
-                    PercentDisplay.entries.forEach { mode ->
-                        Segment(
-                            label = stringResource(percentSideCaptionRes(mode)),
-                            selected = settings.percentDisplay == mode,
-                            onClick = { onPercentDisplayChange(mode) },
-                        )
-                    }
-                }
-            }
-        }
+        item { OverviewSettings(settings, onOverviewLayoutChange, onShowTier) }
 
         item { SectionHeader(stringResource(R.string.settings_section_notifications)) }
         item { NotificationPermissionSettings(permission) }

@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
+/** The stored names are independent of the labels in Settings. */
+enum class OverviewLayout { LIST, DIALS }
+
 /** User-configurable preferences. */
 data class AppSettings(
     val syncIntervalMinutes: Int = DEFAULT_SYNC_INTERVAL_MINUTES,
@@ -41,13 +44,7 @@ data class AppSettings(
     val accountsManuallyOrdered: Boolean = false,
     /** Show the plan tier — Plus, Pro, Max — beside the provider name. */
     val showSubscriptionTier: Boolean = true,
-    /**
-     * Show when the long allowance renews, on the overview only.
-     *
-     * Off by default, and deliberately not in the widgets: the widget's job is the number you
-     * are about to run out of, and a second date competing with the next reset is the kind of
-     * detail that makes a glanceable tile unglanceable.
-     */
+    /** Kept for existing installs; both Overview layouts now show reset stamps unconditionally. */
     val showRenewalTime: Boolean = false,
     /**
      * Accounts that should never notify, by local id.
@@ -74,6 +71,7 @@ data class AppSettings(
     val appTheme: AppTheme = AppTheme.PURE_BLACK,
     val textFont: TextFont = TextFont.ROBOTO,
     val figureFont: FigureFont = FigureFont.ROBOTO_MONO,
+    val overviewLayout: OverviewLayout = OverviewLayout.LIST,
 ) {
     companion object {
         const val DEFAULT_SYNC_INTERVAL_MINUTES = 30
@@ -174,7 +172,7 @@ class SettingsStore(context: Context) {
 
     suspend fun setShowSubscriptionTier(show: Boolean) = edit { it[Keys.SHOW_TIER] = show }
 
-    suspend fun setShowRenewalTime(show: Boolean) = edit { it[Keys.SHOW_RENEWAL] = show }
+    suspend fun setOverviewLayout(layout: OverviewLayout) = edit { it[Keys.OVERVIEW_LAYOUT] = layout.name }
 
     /**
      * Counts the figures down (LEFT) or up (USED). Widgets observe this like every other setting;
@@ -241,6 +239,9 @@ internal fun Preferences.toSettings() = AppSettings(
     appTheme = AppTheme.fromStored(this[Keys.APP_THEME]),
     textFont = this[Keys.TEXT_FONT].let { name -> TextFont.entries.firstOrNull { it.name == name } } ?: TextFont.ROBOTO,
     figureFont = this[Keys.FIGURE_FONT].let { name -> FigureFont.entries.firstOrNull { it.name == name } } ?: FigureFont.ROBOTO_MONO,
+    overviewLayout = this[Keys.OVERVIEW_LAYOUT]?.let { stored ->
+        OverviewLayout.entries.firstOrNull { it.name == stored }
+    } ?: OverviewLayout.LIST,
 )
 
 /**
@@ -277,6 +278,7 @@ private object Keys {
     val ACCOUNTS_MANUAL_ORDER = booleanPreferencesKey("accounts_manually_ordered")
     val SHOW_TIER = booleanPreferencesKey("show_subscription_tier")
     val SHOW_RENEWAL = booleanPreferencesKey("show_renewal_time")
+    val OVERVIEW_LAYOUT = stringPreferencesKey("overview_layout")
     val MUTED_ACCOUNTS = stringSetPreferencesKey("muted_account_ids")
     val PERCENT_DISPLAY = stringPreferencesKey("percent_display")
     val STATUS_ICONS_ENABLED = booleanPreferencesKey("status_icons_enabled")

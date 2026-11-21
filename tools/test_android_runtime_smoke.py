@@ -125,6 +125,35 @@ class SettingTest(unittest.TestCase):
                 self.assertEqual("true", target.get("checkable"))
                 self.assertEqual(checked, target.get("checked"))
 
+    def test_setting_reaches_the_checkable_parent_below_the_fold(self):
+        empty = ET.fromstring('''<hierarchy>
+          <node package="com.usagelimits" scrollable="true" bounds="[0,100][720,1500]"/>
+        </hierarchy>''')
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "dump", side_effect=[empty, empty, self.setting_tree("true")]) as dump, \
+                    patch.object(smoke, "adb") as adb:
+                target = smoke.setting("persisted")
+            self.assertEqual("true", target.get("checkable"))
+            self.assertEqual("true", target.get("checked"))
+            self.assertEqual([("persisted-0",), ("persisted-1",), ("persisted-2",)],
+                             [call.args for call in dump.call_args_list])
+            self.assertEqual([("shell", "input", "swipe", "360", "1150", "360", "450", "400")] * 2,
+                             [call.args for call in adb.call_args_list])
+
+    def test_setting_search_fails_after_the_bounded_number_of_views(self):
+        empty = ET.fromstring('''<hierarchy>
+          <node package="com.usagelimits" scrollable="true" bounds="[0,100][720,1500]"/>
+        </hierarchy>''')
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "dump", return_value=empty) as dump, \
+                    patch.object(smoke, "adb") as adb:
+                with self.assertRaisesRegex(AssertionError, "Could not reach Show subscription tier"):
+                    smoke.setting("persisted")
+            self.assertEqual(9, dump.call_count)
+            self.assertEqual(9, adb.call_count)
+
     def test_setting_is_disabled_waits_for_the_parent_not_the_unchecked_label_child(self):
         with TemporaryDirectory() as directory:
             smoke = Smoke(Path(directory), "test-device")

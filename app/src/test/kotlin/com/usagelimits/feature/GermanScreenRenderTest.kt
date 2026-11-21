@@ -125,7 +125,7 @@ class GermanScreenRenderTest {
             onNotifyResetApproaching = {},
             onNotifyCreditExpiring = {},
             onShowTier = {},
-            onShowRenewal = {},
+            onOverviewLayoutChange = {},
             onPercentDisplayChange = {},
         )
     }
@@ -147,6 +147,10 @@ class GermanScreenRenderTest {
 
         assertShown("Einstellungen")
         assertShown("Settings", expected = false)
+
+        scrollTo("Abo-Stufe anzeigen")
+        assertShown("Abo-Stufe anzeigen")
+        assertShown("Erneuerungszeit anzeigen", expected = false, substring = true)
 
         scrollTo("Prozente anzeigen als")
         assertShown("Prozente anzeigen als")

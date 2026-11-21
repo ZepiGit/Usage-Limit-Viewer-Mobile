@@ -154,6 +154,14 @@ class SettingsMappingTest {
     }
 
     @Test
+    fun `dials read back from their own key and unknown layouts fall back to List`() {
+        val key = stringPreferencesKey("overview_layout")
+        assertEquals(OverviewLayout.DIALS, settingsFrom(key to "DIALS").overviewLayout)
+        assertEquals(OverviewLayout.LIST, settingsFrom(key to "grid").overviewLayout)
+        assertEquals(OverviewLayout.LIST, settingsFrom().overviewLayout)
+    }
+
+    @Test
     fun `status icons are off with nothing pinned until someone turns them on`() {
         val settings = settingsFrom()
 

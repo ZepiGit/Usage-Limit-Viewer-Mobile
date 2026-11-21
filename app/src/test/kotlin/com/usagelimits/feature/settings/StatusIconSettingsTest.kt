@@ -66,7 +66,7 @@ class StatusIconSettingsTest {
                     state = UsageUiState(accounts = accounts, settings = settings, credits = credits),
                     onSyncIntervalChange = {}, onNotificationPermissionHandled = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
                     onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
-                    onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {},
+                    onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {},
                     onStatusIconsChange = { enabled = it },
                     onPinnedChange = { id, pin -> pinned = id to pin },
                 )
