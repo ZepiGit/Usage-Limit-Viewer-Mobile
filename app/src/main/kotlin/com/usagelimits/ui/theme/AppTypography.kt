@@ -5,6 +5,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.DeviceFontFamilyName
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontSynthesis
@@ -46,7 +47,10 @@ internal class TextFace(val family: FontFamily, val regular: FontWeight = Regula
 }
 
 private val textFaces = mapOf(
-    TextFont.ROBOTO to TextFace(FontFamily.SansSerif),
+    TextFont.ROBOTO to TextFace(FontFamily(listOf(VariableRegular, VariableMedium).map { weight ->
+        Font(DeviceFontFamilyName("sans-serif"), weight,
+            variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight)))
+    }), VariableRegular, VariableMedium),
     TextFont.ROBOTO_FLEX to TextFace(variableFamily(R.font.roboto_flex, VariableRegular, VariableMedium), VariableRegular, VariableMedium),
     TextFont.IBM_PLEX_SANS to TextFace(FontFamily(Font(R.font.ibm_plex_sans_regular, Regular), Font(R.font.ibm_plex_sans_medium, Medium))),
     TextFont.FIGTREE to TextFace(variableFamily(R.font.figtree, VariableRegular, VariableMedium), VariableRegular, VariableMedium),
