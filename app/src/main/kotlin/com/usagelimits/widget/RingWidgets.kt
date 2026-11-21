@@ -221,7 +221,8 @@ private fun RingMark(account: WidgetAccount, size: androidx.compose.ui.unit.Dp, 
         if (mini) {
             WidgetLogo(account, miniLogoSize(size, account.providerId))
         } else ringCentreFigure(resources, p)?.let {
-            val clearWidth = size * (1f - 2f * UsageRing.STROKE_FRACTION) - 2.dp
+            // Leave room for rounded text advances and for the arc above and below the centreline.
+            val clearWidth = size * (1f - 2f * UsageRing.STROKE_FRACTION) - 5.dp
             val figureStyle = widgetText(style.textPrimary, 12, FontWeight.Bold, mono = true)
             Text(it, style = figureStyle.copy(fontSize = fittedMonoSize(it, 12f, clearWidth, resources).sp), maxLines = 1)
         }
