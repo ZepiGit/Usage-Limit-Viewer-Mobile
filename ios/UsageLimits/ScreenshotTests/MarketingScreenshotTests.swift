@@ -99,9 +99,12 @@ final class MarketingScreenshotTests: XCTestCase {
         XCTAssertTrue(creditsFirst.waitForExistence(timeout: 10))
         XCTAssertTrue(creditsFirst.isHittable)
         creditsFirst.tap()
-        scrollToCreditControl(manage, in: app)
-        XCTAssertTrue(layout.isHittable && showFirst.isHittable && showCredits.isHittable && manage.isHittable)
+        scrollToCreditControl(showCredits, in: app)
+        XCTAssertTrue(showCredits.isHittable)
         XCTAssertEqual(showCredits.value as? String, "1")
+        capture("iphone-settings-credits-toggle", in: app)
+        scrollToCreditControl(manage, in: app)
+        XCTAssertTrue(layout.isHittable && showFirst.isHittable && manage.isHittable)
         capture("iphone-settings-credits", in: app)
 
         let overview = app.buttons.matching(identifier: "Overview")
@@ -244,24 +247,20 @@ final class MarketingScreenshotTests: XCTestCase {
         XCTAssertTrue(displayPreview.staticTexts["82%"].waitForExistence(timeout: 10))
         XCTAssertTrue(displayPreview.staticTexts["used"].exists)
 
-        let listPreview = app.otherElements["settings-preview-list"]
-        reach(listPreview, in: app)
         let layout = app.segmentedControls["settings-overview-layout"]
         reach(layout, in: app)
         XCTAssertTrue(layout.buttons["List"].isSelected)
         layout.buttons["Dials"].tap()
         XCTAssertTrue(layout.buttons["Dials"].isSelected)
         let dialsPreview = app.descendants(matching: .any)["settings-preview-dials"].firstMatch
-        XCTAssertTrue(dialsPreview.waitForExistence(timeout: 10))
         if captureSettings {
-            let claude = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
-            for _ in 0..<5 where !claude.isHittable || claude.frame.minY < app.navigationBars["Settings"].frame.maxY {
-                let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.35))
-                let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.47))
-                start.press(forDuration: 0.05, thenDragTo: end)
-            }
-            XCTAssertTrue(claude.isHittable && layout.isHittable)
+            XCTAssertTrue(layout.isHittable)
             capture("iphone-settings-layout", in: app)
+            let claude = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
+            scrollToCreditControl(claude, in: app)
+            XCTAssertTrue(dialsPreview.exists)
+            XCTAssertTrue(claude.isHittable)
+            capture("iphone-settings-layout-preview", in: app)
         }
 
         let overview = app.buttons.matching(identifier: "Overview")

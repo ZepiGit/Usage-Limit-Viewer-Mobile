@@ -121,8 +121,7 @@ enum SeverityPalette {
 /// Kit free of UI strings.
 enum PercentText {
 
-    /// The figure with its `%` sign, composed exactly as `UsageWindow.percentLabel` does for LEFT:
-    /// the unknown dash stays bare, never "—%".
+    /// The figure with its `%` sign; the unknown dash stays bare, never "—%".
     ///
     /// The sign comes from the catalog's one template, `"%@%%"`, so a language that sets a space
     /// before it ("73 %") changes it in one place.

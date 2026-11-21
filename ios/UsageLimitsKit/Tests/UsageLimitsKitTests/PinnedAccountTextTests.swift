@@ -13,6 +13,7 @@ final class PinnedAccountTextTests: XCTestCase {
             mode == .used ? "\(figure) verbraucht" : "\(figure) übrig"
         }
         func sideWord(_ mode: PercentDisplay) -> String { mode == .used ? "verbraucht" : "übrig" }
+        func account(number: Int) -> String { "Konto \(number)" }
     }
 
     private func entry(remaining: Double?, mode: PercentDisplay = .left,
@@ -61,6 +62,53 @@ final class PinnedAccountTextTests: XCTestCase {
             XCTAssertEqual(PinnedAccountText.spoken(entry: entry, texts: EnglishPinnedAccountTexts()), english)
             XCTAssertEqual(PinnedAccountText.spoken(entry: entry, texts: German()), german)
         }
+    }
+
+    func testPinnedCaptureSpeaksDistinctLabelsWithFullFiguresAndStaleSuffix() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func usage(_ id: String, label: String, used: Double) -> AccountUsage {
+            let account = ProviderAccount(id: id, provider: .claude, externalAccountID: id,
+                email: nil, displayName: label, plan: "Pro", credentialReference: "synthetic-\(id)",
+                createdAt: now, lastSuccessfulSync: now)
+            let window = UsageWindow(id: "weekly", label: "Weekly", category: .weekly,
+                usedPercent: used, periodSeconds: nil, resetAt: nil, exhausted: false)
+            return AccountUsage(account: account, snapshot: UsageSnapshot(accountID: id,
+                fetchedAt: now.addingTimeInterval(-7200), status: .ok, windows: [window]))
+        }
+        let snapshot = GlanceModel.build([usage("work", label: "Work", used: 99.6),
+                                          usage("personal", label: "Personal", used: 0.4)],
+            now: now, scope: .allAccounts, staleAfter: 3600, statusIconsEnabled: true,
+            pinnedAccountIDs: ["work", "personal"])
+        let entries = PinnedAccountsCapture.capture(snapshot: snapshot, at: now).accounts
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries.map { PinnedAccountText.spoken(entry: $0, texts: EnglishPinnedAccountTexts()) },
+            ["Claude Pro, Work, <1% remaining, Stale", "Claude Pro, Personal, >99% remaining, Stale"])
+        XCTAssertEqual(entries.map { PinnedAccountText.spoken(entry: $0, texts: German()) },
+            ["Claude Pro, Work, <1 % übrig, Veraltet", "Claude Pro, Personal, >99 % übrig, Veraltet"])
+        XCTAssertEqual(PinnedAccountText.inlineRow(entries, texts: EnglishPinnedAccountTexts())?.text, "<1% left · Stale")
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(GlanceSnapshot.self, from: encoded)
+        XCTAssertEqual(PinnedAccountsCapture.capture(snapshot: decoded, at: now),
+            PinnedAccountsCapture.capture(snapshot: snapshot, at: now))
+    }
+
+    func testCollidingPinnedLabelsKeepTheirLabelAndAddStableLocalizedNumbers() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let row = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 42,
+            resetAt: nil, severity: .healthy)
+        let accounts = ["second", "first"].enumerated().map { index, id in
+            GlanceAccount(id: id, title: "Claude Pro", subtitle: nil, rows: [row], severity: .healthy,
+                fetchedAt: now, providerID: "claude", createdAt: now.addingTimeInterval(index == 0 ? 1 : 0),
+                accountLabel: "Work")
+        }
+        let snapshot = GlanceSnapshot(accounts: accounts, accountCount: 2, updatedAt: now,
+            nextResetAt: nil, overallSeverity: .healthy, summaryLineShort: nil, summaryLineLong: nil,
+            percentDisplay: .used, statusIconsEnabled: true, pinnedAccountIDs: accounts.map(\.id))
+        let entries = PinnedAccountsCapture.capture(snapshot: snapshot, at: now).accounts
+        XCTAssertEqual(entries.map { PinnedAccountText.spoken(entry: $0, texts: EnglishPinnedAccountTexts()) },
+            ["Claude Pro, Work, Account 2, 58% used", "Claude Pro, Work, Account 1, 58% used"])
+        XCTAssertEqual(entries.map { PinnedAccountText.spoken(entry: $0, texts: German()) },
+            ["Claude Pro, Work, Konto 2, 58 % verbraucht", "Claude Pro, Work, Konto 1, 58 % verbraucht"])
     }
 
     private func spoken(_ entry: PinnedAccountEntry) -> String {

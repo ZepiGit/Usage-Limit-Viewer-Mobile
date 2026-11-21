@@ -101,7 +101,9 @@ struct OverviewScreen: View {
             if !store.hasLoaded {
                 Text("Loading usage").usageFont(.small).foregroundStyle(UsageColors.faint)
             } else if store.accounts.isEmpty && !store.registerUnreadable {
-                Text("No accounts yet").usageFont(.small).foregroundStyle(UsageColors.faint)
+                Text(verbatim: store.credits.isEmpty ? String(localized: "No accounts yet")
+                    : String(localized: "No usage accounts yet"))
+                    .usageFont(.small).foregroundStyle(UsageColors.faint)
             } else if let subtitle = headerSubtitle(header, attentionCount: attentionCount) {
                 Text(verbatim: subtitle).usageFont(.small).foregroundStyle(UsageColors.faint)
             }
@@ -247,15 +249,21 @@ struct OverviewScreen: View {
                 .resizable().scaledToFit().frame(width: 192, height: 192)
                 .frame(maxWidth: .infinity, minHeight: 128, maxHeight: 128)
                 .accessibilityHidden(true)
-            Text("Nothing to monitor yet").usageFont(.emptyTitle).foregroundStyle(UsageColors.ink)
+            Text(verbatim: store.credits.isEmpty ? String(localized: "Nothing to monitor yet")
+                : String(localized: "No usage accounts yet"))
+                .usageFont(.emptyTitle).foregroundStyle(UsageColors.ink)
+                .accessibilityIdentifier("overview-usage-empty-title")
             Text("Add an AI subscription to see its limits and resets here. Sign-in details stay on this device.")
                 .usageFont(.body).foregroundStyle(UsageColors.muted)
             addAccount.buttonStyle(InkButtonStyle(fullWidth: true))
-            Button { isAddingCredit = true } label: {
-                Label("Track a prepaid credit balance", systemImage: "plus")
+            if !store.settings.overviewShowCredits
+                || (store.settings.overviewCreditLayout == .compact && !store.credits.isEmpty && !creditsExpanded) {
+                Button { isAddingCredit = true } label: {
+                    Label("Track a prepaid credit balance", systemImage: "plus")
+                }
+                .buttonStyle(OutlineButtonStyle(fullWidth: true))
+                .accessibilityIdentifier("overview-add-credit")
             }
-            .buttonStyle(OutlineButtonStyle(fullWidth: true))
-            .accessibilityIdentifier("overview-add-credit")
         }
     }
 
@@ -353,7 +361,7 @@ struct OverviewAccountContent: View {
     @ViewBuilder private var mark: some View {
         let raw = account.candidates.map(\.severity).filter { $0 != .unknown }.max() ?? .unknown
         let severity: Severity = if expired { .error }
-            else if raw == .exhausted && account.baseSeverity == .limited { .limited }
+            else if raw == .exhausted && account.quotaSeverity == .limited { .limited }
             else { raw }
         if severity != .healthy {
             Circle()
@@ -361,6 +369,7 @@ struct OverviewAccountContent: View {
                 .overlay(Circle().stroke(SeverityPalette.accent(severity), lineWidth: severity == .medium ? 1.5 : 0))
                 .frame(width: 8, height: 8)
                 .accessibilityLabel(expired ? String(localized: "Reconnect") : SeverityPalette.label(severity))
+                .accessibilityIdentifier("overview-mark-\(account.id)")
         }
     }
 }

@@ -1951,6 +1951,17 @@
         }
       }
     },
+    "No usage accounts yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Nutzungskonten"
+          }
+        }
+      }
+    },
     "No accounts yet" : {
       "extractionState" : "manual",
       "localizations" : {

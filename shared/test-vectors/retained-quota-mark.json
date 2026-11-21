@@ -1,0 +1,16 @@
+{
+  "description": "A failed refresh retains the previous windows. The Overview List mark uses their quota scope verdict, not the failed reading's error validity. A scoped exhausted window with an available global window is Limited. Expected values are hand-written.",
+  "vectors": [
+    {
+      "name": "failed retained model exhaustion with global allowance",
+      "status": "failed",
+      "windows": [
+        {"id": "global", "scope": "global", "remainingPercent": 63, "exhausted": false},
+        {"id": "model", "scope": "model", "remainingPercent": 0, "exhausted": true}
+      ],
+      "expectedMark": "limited",
+      "expectedValidity": "error",
+      "expectedHeadline": "global"
+    }
+  ]
+}

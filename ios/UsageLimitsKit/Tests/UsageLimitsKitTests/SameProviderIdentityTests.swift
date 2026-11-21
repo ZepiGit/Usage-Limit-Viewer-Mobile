@@ -19,6 +19,25 @@ final class SameProviderIdentityTests: XCTestCase {
                 }
                 XCTAssertEqual(OverviewProjection.sameProviderIdentities(in: entries), expected,
                     "\(vector.name), rank: \(rank)")
+                // Pin each provider group so the three-pin cap does not trim a vector's siblings.
+                for group in Dictionary(grouping: entries, by: { $0.account.providerID }).values {
+                    let snapshot = GlanceSnapshot(accounts: group.map(\.account), accountCount: group.count,
+                        updatedAt: nil, nextResetAt: nil, overallSeverity: .unknown,
+                        summaryLineShort: nil, summaryLineLong: nil, percentDisplay: .left,
+                        statusIconsEnabled: true, pinnedAccountIDs: group.map(\.id))
+                    let capture = PinnedAccountsCapture.capture(snapshot: snapshot, at: .distantPast)
+                    for entry in capture.accounts {
+                        XCTAssertEqual(entry.identity, expected[entry.id], "pinned: \(vector.name), \(entry.id)")
+                        let spoken = PinnedAccountText.spoken(entry: entry, texts: EnglishPinnedAccountTexts())
+                        switch entry.identity {
+                        case .providerOnly: XCTAssertEqual(spoken, "\(entry.account.title), Unknown")
+                        case .email(let email): XCTAssertEqual(spoken, "\(entry.account.title), \(email), Unknown")
+                        case .number(let number):
+                            let label = entry.account.subtitle.map { ", \($0)" } ?? ""
+                            XCTAssertEqual(spoken, "\(entry.account.title)\(label), Account \(number), Unknown")
+                        }
+                    }
+                }
             }
         }
         XCTAssertEqual(OverviewProjection.sameProviderIdentities(in: []), [:])

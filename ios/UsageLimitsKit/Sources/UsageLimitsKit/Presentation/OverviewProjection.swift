@@ -31,7 +31,9 @@ public struct OverviewProjection: Sendable {
     public let header: OverviewHeader
 
     /// Secondary identities within the unfiltered account set, independent of its quota rank.
-    public static func sameProviderIdentities(in entries: [Entry]) -> [String: SameProviderIdentity] {
+    public static func sameProviderIdentities(
+        in entries: [Entry], label: (GlanceAccount) -> String? = { $0.subtitle }
+    ) -> [String: SameProviderIdentity] {
         var identities: [String: SameProviderIdentity] = [:]
         identities.reserveCapacity(entries.count)
         for group in Dictionary(grouping: entries, by: { $0.account.providerID }).values {
@@ -41,7 +43,7 @@ public struct OverviewProjection: Sendable {
             }
             var emailCounts: [String: Int] = [:]
             for entry in group {
-                if let email = entry.account.subtitle { emailCounts[email, default: 0] += 1 }
+                if let email = label(entry.account) { emailCounts[email, default: 0] += 1 }
             }
             let ordered = group.sorted {
                 let lhs = $0.account.createdAt ?? .distantPast
@@ -49,7 +51,7 @@ public struct OverviewProjection: Sendable {
                 return lhs == rhs ? overviewAccountIDPrecedes($0.id, $1.id) : lhs < rhs
             }
             for (index, entry) in ordered.enumerated() {
-                if let email = entry.account.subtitle, emailCounts[email] == 1 {
+                if let email = label(entry.account), emailCounts[email] == 1 {
                     identities[entry.id] = .email(email)
                 } else {
                     identities[entry.id] = .number(index + 1)

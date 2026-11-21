@@ -4,7 +4,16 @@ public struct PinnedAccountEntry: Sendable, Equatable, Identifiable {
     public let account: GlanceAccount
     public let presentation: WindowPresentation
     public let content: StatusIconContent
+    public let identity: SameProviderIdentity
     public var id: String { account.id }
+
+    public init(account: GlanceAccount, presentation: WindowPresentation, content: StatusIconContent,
+                identity: SameProviderIdentity = .providerOnly) {
+        self.account = account
+        self.presentation = presentation
+        self.content = content
+        self.identity = identity
+    }
 }
 
 /// Derived from one published snapshot, at the date WidgetKit will display the entry.
@@ -34,6 +43,9 @@ public struct PinnedAccountsCapture: Sendable, Equatable {
 
     public static func capture(snapshot: GlanceSnapshot, at date: Date) -> PinnedAccountsCapture {
         let selected = selectedSnapshot(snapshot, at: date)
+        let identities = OverviewProjection.sameProviderIdentities(in: selected.accounts.map {
+            OverviewProjection.Entry(account: $0, headlineWindowID: nil)
+        }, label: { $0.accountLabel ?? $0.subtitle })
         let entries = selected.accounts.map { account in
             let headline = account.representative(at: date)
             let presentation = account.presentation(of: headline, at: date,
@@ -41,7 +53,8 @@ public struct PinnedAccountsCapture: Sendable, Equatable {
             let content = StatusIconContent.of(headline: headline == nil ? nil : presentation,
                 validity: account.readingValidity(of: headline, at: date, staleAfter: snapshot.staleAfter),
                 needsReauthentication: account.connectionStatus == .reconnectRequired)
-            return PinnedAccountEntry(account: account, presentation: presentation, content: content)
+            return PinnedAccountEntry(account: account, presentation: presentation, content: content,
+                identity: identities[account.id] ?? .providerOnly)
         }
         return PinnedAccountsCapture(date: date, accounts: entries,
             outcome: entries.isEmpty ? .noAccounts : .ready)

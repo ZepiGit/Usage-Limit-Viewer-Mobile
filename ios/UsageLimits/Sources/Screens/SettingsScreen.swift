@@ -78,7 +78,6 @@ struct SettingsScreen: View {
                 .listRowBackground(UsageColors.surface)
 
                 Section(header: LedgerHeader(String(localized: "Overview"))) {
-                    overviewPreview
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Layout").accessibilityHidden(true)
                         Text("List shows every window per account. Dials show one ring per account, like the ring widgets.")
@@ -94,6 +93,15 @@ struct SettingsScreen: View {
                         .pickerStyle(.segmented)
                         .accessibilityIdentifier("settings-overview-layout")
                     }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Show credits", isOn: $store.settings.overviewShowCredits)
+                            .accessibilityIdentifier("settings-overview-show-credits")
+                        Text("Hide prepaid balances from Overview without removing them.")
+                            .usageFont(.small).foregroundStyle(UsageColors.muted)
+                            #if DEBUG
+                            .accessibilityIdentifier(creditHelpIdentifier)
+                            #endif
+                    }
                     if store.settings.overviewShowCredits {
                         creditLayoutControl
                         VStack(alignment: .leading, spacing: 4) {
@@ -107,18 +115,10 @@ struct SettingsScreen: View {
                                 .usageFont(.small).foregroundStyle(UsageColors.muted)
                         }
                     }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle("Show credits", isOn: $store.settings.overviewShowCredits)
-                            .accessibilityIdentifier("settings-overview-show-credits")
-                        Text("Hide prepaid balances from Overview without removing them.")
-                            .usageFont(.small).foregroundStyle(UsageColors.muted)
-                            #if DEBUG
-                            .accessibilityIdentifier(creditHelpIdentifier)
-                            #endif
-                    }
                     Toggle("Show subscription tier", isOn: $store.settings.showSubscriptionTier)
                     NavigationLink("Manage credit accounts") { CreditsScreen() }
                         .accessibilityIdentifier("settings-manage-credit-accounts")
+                    overviewPreview
                 }
                 .listRowBackground(UsageColors.surface)
 
@@ -155,6 +155,7 @@ struct SettingsScreen: View {
                 }
                 .listRowBackground(UsageColors.surface)
             }
+            .disabled(!store.settingsLoaded)
             .accessibilityIdentifier("settings-form")
             .readableWidth()
             .usageFont(.body)
