@@ -92,9 +92,11 @@ names (the owner's choice). Whether a real Lock Screen keeps that glyph is a rel
   requested order on the stored one, so a changed reading does not change the `when` order the
   app posts. Whether SystemUI draws that order stays an observation; ADR 0004 records the API 30
   frames where it did not.
-- A swiped-away icon normally returns with the next sync, or at once when the app's Settings
-  screen, which showed notifications or the status icon category blocked, sees them allowed again
-  (that counts like turning the feature on); a block it did not see waits for the next sync. Best
-  effort, as
-  [Status icons](../status-icons.md#swiping-an-icon-away) describes.
+- A swiped-away icon normally returns with the next sync. A shared main-window observer also
+  restores pins from the cache when a previously observed blocked notification state becomes
+  allowed; this works from Overview as well as Settings. An unknown initial allowed state and an
+  ordinary resume are not restoration edges. A block the app never observed waits for the next
+  sync. Updates recheck their active group immediately before posting, but Android offers no
+  atomic check-and-update, so a concurrent swipe can still race that last gap. These are
+  best-effort boundaries, as [Status icons](../status-icons.md#swiping-an-icon-away) describes.
 - On iOS the widget redraws on WidgetKit's schedule, so the Lock Screen can lag the app.

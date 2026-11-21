@@ -77,7 +77,7 @@ If the widget cannot read the app's data before the first unlock after a restart
 
 ## Swiping an icon away
 
-On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, makes the app post it again without waiting for a sync. So does allowing the app's notifications or the Status bar icons category again after they were switched off in Android, when the app's Settings screen showed the block and sees them allowed again: Android removed every icon then, and every pinned account's icon comes back at once, the swiped one too. Otherwise they come back with the next sync. An account you unpinned, or the feature switched off, while they were blocked stays that way. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
+On Android 14 and later you can swipe a status notification away while the phone is unlocked. It normally comes back with the next sync, as long as the account is still pinned and notifications are allowed. Changing a setting or pinning another account does not bring it back sooner. Turning the switch off and on, or unpinning and pinning the account again, makes the app post it again without waiting for a sync. The main app also remembers when it observes notifications or the Status bar icons category blocked. When any main-app screen next observes them allowed, it restores the pinned icons from the cache, including a previously swiped icon, without another sync. The permission dialog's result uses the same observer. An ordinary return with permission unchanged does not restore a dismissed icon. If the app never observed the block, an allowed state alone is not treated as a new grant; the next sync restores the icons. An account you unpinned, or the feature switched off, while they were blocked stays that way. To get rid of an icon for good, unpin the account. On Android 13 and earlier ongoing notifications cannot be swiped away.
 
 After the phone restarts, the icons normally return under the same conditions with the refresh that starts when you open the app, or with the next background refresh at your chosen interval if you leave it closed; Android may run it later.
 
@@ -85,7 +85,8 @@ This holds when a publication runs to its end. Around a crash or a permission ch
 
 - If the app is stopped between saving the list of accounts it means to show and posting them, the missing icons wait for the next sync.
 - If that saved list is lost, a later repaint can bring back an icon you swiped away before the next sync.
-- If the app's Settings screen did not see both the block and the allowing again, the next sync brings every pinned icon back, even if you opened the app in between. A repaint before that sync brings them back only if the app published while they were blocked; otherwise it shows nothing until the sync.
+- If no main-app screen observed the blocked state, allowing notifications again is not a recorded permission edge. The next sync restores the pinned icons.
+- During an ordinary repaint the app checks the active summary and child immediately before updating each record. Android has no atomic “update only if still showing” operation: a swipe between that final check and the post can still race an update. The app does not claim that this gap is eliminated.
 
 ## Limits
 
