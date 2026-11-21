@@ -33,6 +33,8 @@ PACKAGE = "com.usagelimits"
 DEBUG_PACKAGE = PACKAGE + ".debug"
 DEBUG_RECEIVER = DEBUG_PACKAGE + "/com.usagelimits.evidence.StatusIconEvidenceReceiver"
 SETTING = "Show subscription tier"
+# 05a: the switch under Claude's provider icon row, drawn only while a Claude Code icon is chosen.
+ANIMATE_CLAUDE = "Animate Claude Code icon"
 # What an empty Overview says once it is ready. This build is held to C1. The upgrade baseline is
 # the newest published release, so it may be one from before the redesign (whose Overview counted
 # its accounts) or one after it; either known empty state counts for it, inside its own package
@@ -1327,11 +1329,50 @@ class Smoke:
         seeded = self.seed_list("seeded", debug_apk)
         self.verify_chip_press("chip", DEBUG_PACKAGE)
         row = self.open_seeded_row("seeded-row", DEBUG_PACKAGE)
+        self.verify_figure_switch("figure", DEBUG_PACKAGE)
         # The order the debug receiver computed is driver evidence; the rows on screen, top to
         # bottom, are what the UI showed (as many as fit). Both are recorded, neither is asserted.
         return {"seededList": "passed", "seededOverviewByDriver": seeded["overview"],
                 "seededRowsShownByUi": row["shownOnScreen"], "seededRowTapped": row["tapped"],
-                "chipPress": "chip-ripple.json", "motionFrames": {"report": "motion.json"}}
+                "chipPress": "chip-ripple.json", "claudeFigureSwitch": "figure.json",
+                "motionFrames": {"report": "motion.json"}}
+
+    def verify_figure_switch(self, name, package):
+        """05a: a tap on the switch right below the moving Claude Code figure takes effect.
+
+        Claude's Settings row shows the figure, and the "Animate Claude Code icon" switch under it,
+        only while a Claude Code icon is chosen (the default), so finding the switch finds the
+        figure's row. The rest of the smoke runs with animations off; here the animator scale is 1,
+        so the figure moves while the switch is tapped. The switch must then read off; a second tap
+        turns it on again. From the moment it asks for scale 1, the step owes the device a scale of
+        0, read back, on every way out: a scale it cannot confirm as 0 fails the smoke.
+        """
+        report = {"animatorScale": 1}
+        try:
+            self.adb("shell", "settings", "put", "global", "animator_duration_scale", "1.0")
+            report["animatorScaleReadBack"] = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
+            assert scale_is(report["animatorScaleReadBack"], 1), \
+                f"animator scale read back as {report['animatorScaleReadBack']!r}, not 1"
+            self.navigate("Settings", ANIMATE_CLAUDE, name + "-settings", package)
+            for checked in ("false", "true"):
+                root = self.dump(f"{name}-before-{checked}")
+                switch = self.control(root, package, label=ANIMATE_CLAUDE)
+                assert switch is not None and switch.get("checkable") == "true", \
+                    f"No {ANIMATE_CLAUDE} switch: Claude's row does not show the Claude Code figure"
+                assert switch.get("checked") != checked, f"{ANIMATE_CLAUDE} already reads {checked}"
+                self.tap(switch)
+                self.wait_for(f"{name}-{checked}", lambda root: (
+                    (now := self.control(root, package, label=ANIMATE_CLAUDE)) is not None
+                    and now.get("checked") == checked))
+                report["switchReadAfterTap" if checked == "false" else "switchReadAfterSecondTap"] = checked
+                if checked == "false":
+                    self.capture(name + "-tapped")
+        finally:
+            restored = self.restore_animations(report)
+            self.text(name + ".json", json.dumps(report, indent=2))
+        assert restored, (f"Animations were not turned off again after {name}: the animator scale read "
+                          f"{report['animatorScaleRestored']!r} after {MOTION_RESTORE_ATTEMPTS} attempts.")
+        return report
 
     def seed_credit_only(self, name, apk, locale):
         """Replace only the throwaway debug app's usage fixture with one local synthetic credit account."""

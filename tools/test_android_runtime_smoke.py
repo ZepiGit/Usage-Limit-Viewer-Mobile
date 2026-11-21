@@ -697,10 +697,72 @@ class InvocationTest(unittest.TestCase):
             with patch.object(smoke, "seed_list", side_effect=lambda *a: calls.append("seed") or {"overview": ["a"]}), \
                     patch.object(smoke, "verify_chip_press", side_effect=lambda *a: calls.append("chip")), \
                     patch.object(smoke, "open_seeded_row",
-                                 side_effect=lambda *a: calls.append("row") or {"tapped": "b", "shownOnScreen": ["a", "b"]}):
+                                 side_effect=lambda *a: calls.append("row") or {"tapped": "b", "shownOnScreen": ["a", "b"]}), \
+                    patch.object(smoke, "verify_figure_switch", side_effect=lambda *a: calls.append("figure")):
                 record = smoke.seeded_steps(Path("app-debug.apk"))
-        self.assertEqual(["seed", "chip", "row"], calls)
+        self.assertEqual(["seed", "chip", "row", "figure"], calls)
         self.assertEqual("passed", record["seededList"])
+
+
+class FigureSwitchTest(unittest.TestCase):
+    """05a: the switch under the moving Claude Code figure takes a tap; animations end off on every way out."""
+
+    def run_step(self, tap_lands=True, switch_shown=True, scale_after_restore="0.0"):
+        """verify_figure_switch on a stand-in device; returns what it raised (or None), the scale puts and the report."""
+        state = {"scale": "0.0", "puts": [], "checked": "true", "taps": 0}
+
+        def adb(*args, **kwargs):
+            if args[:3] == ("shell", "settings", "put"):
+                state["puts"].append(args[-1])
+                state["scale"] = args[-1] if args[-1] != "0.0" else scale_after_restore
+            if args[:3] == ("shell", "settings", "get"):
+                return state["scale"]
+            return ""
+
+        def dump(*args, **kwargs):
+            switch = (f'<node package="{runtime_smoke.DEBUG_PACKAGE}" content-desc="{runtime_smoke.ANIMATE_CLAUDE}" '
+                      f'enabled="true" clickable="true" checkable="true" checked="{state["checked"]}" bounds="[600,300][700,360]"/>')
+            return ET.fromstring(f'<hierarchy>{switch if switch_shown else ""}</hierarchy>')
+
+        def tap(node, deadline=None):
+            state["taps"] += 1
+            if tap_lands:
+                state["checked"] = "false" if state["checked"] == "true" else "true"
+
+        with TemporaryDirectory() as directory, patch.object(runtime_smoke.time, "sleep", lambda seconds: None):
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "adb", side_effect=adb), patch.object(smoke, "dump", side_effect=dump), \
+                    patch.object(smoke, "tap", side_effect=tap), patch.object(smoke, "navigate"), \
+                    patch.object(smoke, "capture"):
+                try:
+                    smoke.verify_figure_switch("figure", runtime_smoke.DEBUG_PACKAGE)
+                    raised = None
+                except AssertionError as error:
+                    raised = error
+            report = json.loads((Path(directory) / "figure.json").read_text())
+        return raised, state, report
+
+    def test_a_tap_that_lands_turns_the_switch_off_then_on_and_animations_end_off(self):
+        raised, state, report = self.run_step()
+        self.assertIsNone(raised)
+        self.assertEqual((2, "true"), (state["taps"], state["checked"]))
+        self.assertEqual(["1.0", "0.0"], state["puts"])
+        self.assertEqual(("false", "true", "0.0"),
+                         (report["switchReadAfterTap"], report["switchReadAfterSecondTap"], report["animatorScaleRestored"]))
+
+    def test_a_lost_tap_fails_and_animations_still_end_off(self):
+        raised, state, report = self.run_step(tap_lands=False)
+        self.assertRegex(str(raised), "UI did not reach figure-false")
+        self.assertEqual(["1.0", "0.0"], state["puts"])
+        self.assertEqual("0.0", report["animatorScaleRestored"])
+
+    def test_no_switch_means_no_figure_and_fails(self):
+        raised, _, _ = self.run_step(switch_shown=False)
+        self.assertRegex(str(raised), "does not show the Claude Code figure")
+
+    def test_animations_left_on_fail_the_smoke(self):
+        raised, _, _ = self.run_step(scale_after_restore="1.0")
+        self.assertRegex(str(raised), "not turned off again")
 
 
 class CreditHierarchyTest(unittest.TestCase):
