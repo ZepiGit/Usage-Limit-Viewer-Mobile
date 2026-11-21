@@ -20,7 +20,8 @@ pre-theme configuration scene, including when Light paper is saved for the app. 
 still paints its panel, figures and bars or rings with the selected `WidgetStyle`; its mat
 remains `#3A3936`. App text and figure preferences do not enter the editor. Represented
 figures keep the editor's original system monospace style, not the app's `UsageType`.
-This is appearance protection, not the widget redesign planned for ticket 07.
+The widget redesign (ticket 07) changes the ring preview content and adds display-mode guidance to
+Text; neither change makes the editor follow the app's theme or fonts.
 
 ## Considered options
 

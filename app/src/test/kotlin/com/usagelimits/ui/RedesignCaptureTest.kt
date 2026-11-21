@@ -57,6 +57,7 @@ import androidx.glance.ExperimentalGlanceApi
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.runComposition
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.WorkManager
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.database.WidgetConfigEntity
@@ -96,6 +97,12 @@ import com.usagelimits.ui.theme.UsageType
 import com.usagelimits.widget.WidgetBackground
 import com.usagelimits.widget.WidgetStyle
 import com.usagelimits.widget.WidgetUpdater
+import com.usagelimits.widget.WidgetMetrics
+import com.usagelimits.core.sync.resetTestWorkManager
+import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import java.io.File
 import java.math.BigDecimal
 import kotlinx.coroutines.Dispatchers
@@ -114,12 +121,12 @@ import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
@@ -736,7 +743,25 @@ class RedesignWidgetCaptureTest {
         runBlocking { ApplicationProvider.getApplicationContext<UsageLimitsApp>().startupJob?.join() }
     }
 
-    @Test fun `widgets light and dark`() = runTest {
+    @After fun drain() {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        try {
+            WorkManager.getInstance(app).cancelAllWork().result.get()
+            ShadowLooper.idleMainLooper()
+        } finally {
+            resetTestWorkManager()
+        }
+    }
+
+    private data class PlacedScene(
+        val name: String,
+        val size: DpSize,
+        val singleAccount: Boolean = false,
+        val metrics: WidgetMetrics = WidgetMetrics(),
+        val fontScale: Float = 1f,
+    )
+
+    @Test fun `B1 B2 and B4 placed widgets across sizes panels languages and display modes`() = runTest(timeout = 10.minutes) {
         val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
         val repository = app.container.repository
         val now = System.currentTimeMillis()
@@ -763,56 +788,153 @@ class RedesignWidgetCaptureTest {
                 CreditSnapshot(id, listOf(CreditBalance("USD", BigDecimal(amount), total = BigDecimal(50))), fetchedAt = now),
             )
         }
-        val sizes = mapOf(
-            "CompactUsageWidget" to listOf(DpSize(420.dp, 130.dp), DpSize(180.dp, 150.dp)),
-            "DetailedUsageWidget" to listOf(DpSize(300.dp, 360.dp)),
-            "MinimalUsageWidget" to listOf(DpSize(260.dp, 240.dp)),
-            "MiniRingsWidget" to listOf(DpSize(62.dp, 180.dp)),
-            "CreditsWidget" to listOf(DpSize(110.dp, 110.dp), DpSize(250.dp, 110.dp), DpSize(250.dp, 250.dp)),
+        val placementMetrics = WidgetMetrics(70f, 131f, 132f, 66f)
+        val scenes = mapOf(
+            "CompactUsageWidget" to listOf(
+                PlacedScene("four-tiles", DpSize(420.dp, 130.dp)),
+                PlacedScene("summary", DpSize(280.dp, 130.dp)),
+                PlacedScene("focus", DpSize(180.dp, 150.dp)),
+            ),
+            "DetailedUsageWidget" to listOf(
+                PlacedScene("multi", DpSize(300.dp, 360.dp)),
+                PlacedScene("compact-single", DpSize(180.dp, 110.dp), singleAccount = true),
+                PlacedScene("resized-multi", DpSize(250.dp, 180.dp)),
+            ),
+            "MinimalUsageWidget" to listOf(
+                PlacedScene("small", DpSize(180.dp, 110.dp)),
+                PlacedScene("wide", DpSize(320.dp, 300.dp)),
+                PlacedScene("tall", DpSize(180.dp, 360.dp)),
+                PlacedScene("small-large-text", DpSize(180.dp, 110.dp), fontScale = 1.6f),
+            ),
+            "MiniRingsWidget" to listOf(
+                PlacedScene("minimum", DpSize(56.dp, 56.dp)),
+                PlacedScene("landscape", DpSize(256.dp, 58.dp), metrics = placementMetrics),
+                PlacedScene("portrait", DpSize(62.dp, 254.dp), metrics = placementMetrics),
+                PlacedScene("minimum-large-text", DpSize(56.dp, 56.dp), fontScale = 1.6f),
+            ),
+            "CreditsWidget" to listOf(
+                PlacedScene("small", DpSize(110.dp, 110.dp)),
+                PlacedScene("medium", DpSize(250.dp, 110.dp)),
+                PlacedScene("large", DpSize(250.dp, 250.dp)),
+            ),
         )
         val styles = mapOf(
             "charcoal" to WidgetStyle(),
-            "white" to WidgetStyle(WidgetBackground(0xFFFFFFFF.toInt(), 100)),
+            "transparent" to WidgetStyle(WidgetBackground(opacityPercent = 0)),
+            "navy" to WidgetStyle(WidgetBackground(0xFF16213A.toInt(), 100)),
         )
         val manager = AppWidgetManager.getInstance(app)
         val glanceManager = GlanceAppWidgetManager(app)
-        val density = app.resources.displayMetrics.density
+        val originalMode = app.container.settingsStore.settings.first().percentDisplay
+        val originalLocale = Locale.getDefault()
+        // The exhaustive evidence matrix is opt-in; ordinary runs keep each kind, both usage
+        // modes, real collection children, the 56dp Mini and all three responsive Credits sizes.
+        val languages = if (captureDir == null) listOf(Locale.US) else listOf(Locale.US, Locale.GERMANY)
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
-            for ((widgetIndex, placed) in WidgetUpdater.allWidgets.withIndex()) {
-                // Credits ignores the saved style, so one panel is enough for it.
-                val widgetStyles = if (placed.name == "CreditsWidget") styles.entries.take(1) else styles.entries
-                for ((styleIndex, entry) in widgetStyles.withIndex()) {
-                    val (styleName, style) = entry
-                    val config = WidgetConfigEntity(300 + widgetIndex * 10 + styleIndex, "CUSTOM", null, null, now,
-                        customAccountIdsJson = seeded.joinToString(",", "[", "]") { "\"$it\"" },
-                        backgroundArgb = style.background.argb, backgroundOpacity = style.background.clampedOpacity,
-                        textTone = style.textTone.name)
-                    shadowOf(manager).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
-                        provider = ComponentName(app, placed.receiver)
-                    })
-                    app.container.widgetConfigDao.upsert(config)
-                    for (night in listOf(false, true)) {
-                        RuntimeEnvironment.setQualifiers(if (night) "+night" else "+notnight")
-                        for ((sizeIndex, size) in sizes.getValue(placed.name).withIndex()) {
-                            placed.widget().runComposition(app, id = glanceManager.getGlanceIdBy(config.appWidgetId),
-                                sizes = listOf(size)).first { remote ->
-                                val host = AppWidgetHostView(app).apply { setAppWidget(config.appWidgetId, null) }
-                                val view = remote.apply(app, host)
-                                host.addView(view)
-                                remote.reapply(app, view)
-                                ShadowLooper.idleMainLooper()
-                                draw(view, (size.width.value * density).toInt(), (size.height.value * density).toInt())
-                                    .useOnce { it.save("widget-${placed.name}-$styleName-${if (night) "dark" else "light"}-$sizeIndex") }
-                                true
+            for (language in languages) {
+                Locale.setDefault(language)
+                for ((widgetIndex, placed) in WidgetUpdater.allWidgets.withIndex()) {
+                    val credits = placed.name == "CreditsWidget"
+                    // Credits has neither a saved style nor a percent mode: one default panel
+                    // and one mode cover it. Repeating Left/Used would produce identical images.
+                    val widgetStyles = if (credits || captureDir == null) styles.entries.take(1) else styles.entries
+                    val modes = if (credits) listOf(PercentDisplay.LEFT) else PercentDisplay.entries
+                    val widgetScenes = scenes.getValue(placed.name).let {
+                        if (captureDir == null && !credits) it.take(1) else it
+                    }
+                    for (mode in modes) {
+                        app.container.settingsStore.setPercentDisplay(mode)
+                        for ((styleIndex, entry) in widgetStyles.withIndex()) {
+                            val (styleName, style) = entry
+                            for (scene in widgetScenes) {
+                                val context = app.createConfigurationContext(Configuration(app.resources.configuration).apply {
+                                    setLocale(language)
+                                    fontScale = scene.fontScale
+                                })
+                                val density = context.resources.displayMetrics.density
+                                val selected = if (scene.singleAccount) seeded.take(1) else seeded
+                                val config = WidgetConfigEntity(300 + widgetIndex * 10 + styleIndex, "CUSTOM", null, null, now,
+                                    customAccountIdsJson = selected.joinToString(",", "[", "]") { "\"$it\"" },
+                                    backgroundArgb = style.background.argb, backgroundOpacity = style.background.clampedOpacity,
+                                    textTone = style.textTone.name, layoutMetricsJson = scene.metrics.toJson())
+                                shadowOf(manager).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
+                                    provider = ComponentName(app, placed.receiver)
+                                })
+                                app.container.widgetConfigDao.upsert(config)
+                                val side = if (credits) "balance" else mode.name.lowercase()
+                                val size = scene.size
+                                val name = "widget-${placed.name}-${scene.name}-${size.width.value.toInt()}x${size.height.value.toInt()}-" +
+                                    "$styleName-${language.language}-$side"
+                                // first cancels and joins runComposition's session and registration.
+                                // Draw while that session still owns its real collection adapter.
+                                coroutineScope {
+                                    placed.widget().runComposition(context, id = glanceManager.getGlanceIdBy(config.appWidgetId),
+                                        sizes = listOf(size)).first { remote ->
+                                        val host = AppWidgetHostView(context).apply { setAppWidget(config.appWidgetId, null) }
+                                        val view = remote.apply(context, host)
+                                        host.addView(view)
+                                        remote.reapply(context, view)
+                                        ShadowLooper.idleMainLooper()
+                                        draw(view, (size.width.value * density).toInt(), (size.height.value * density).toInt())
+                                            .useOnce { it.saveWidget(name, style.background.isTransparent) }
+                                        assertCollectionChildren(view, placed.name, name, selected.size)
+                                        true
+                                    }
+                                    assertTrue("$name leaves no running composition jobs", currentCoroutineContext().job.children.none())
+                                }
                             }
                         }
                     }
                 }
             }
         } finally {
-            RuntimeEnvironment.setQualifiers("+notnight")
-            Dispatchers.resetMain()
+            try {
+                app.container.settingsStore.setPercentDisplay(originalMode)
+            } finally {
+                Locale.setDefault(originalLocale)
+                Dispatchers.resetMain()
+            }
+        }
+    }
+
+    private fun assertCollectionChildren(view: View, widget: String, name: String, accountCount: Int) {
+        if (widget != "DetailedUsageWidget" && widget != "MinimalUsageWidget") return
+        val collections = adapterViews(view)
+        assertEquals("$name has its real account collection", 1, collections.size)
+        val collection = collections.single()
+        assertTrue("$name binds account rows", (collection.adapter?.count ?: 0) > 0)
+        if (widget == "DetailedUsageWidget") {
+            assertEquals("$name binds the selected accounts", accountCount, collection.adapter?.count)
+        }
+        assertTrue("$name lays out real collection children", collection.childCount > 0)
+        assertTrue("$name draws the first account, not only an empty panel",
+            textViews(collection).any { it.text.toString() == "Work" && it.width > 0 && it.height > 0 })
+    }
+
+    private fun adapterViews(view: View): List<AdapterView<*>> = buildList {
+        if (view is AdapterView<*>) add(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(adapterViews(view.getChildAt(index)))
+    }
+
+    private fun textViews(view: View): List<TextView> = buildList {
+        if (view is TextView) add(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(textViews(view.getChildAt(index)))
+    }
+
+    private fun Bitmap.saveWidget(name: String, transparent: Boolean) {
+        if (captureDir == null) return
+        if (!transparent) {
+            save(name)
+            return
+        }
+        for ((backdrop, color) in listOf("dark" to 0xFF242322.toInt(), "light" to 0xFFF3F0E8.toInt())) {
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).useOnce { frame ->
+                val canvas = Canvas(frame)
+                canvas.drawColor(color)
+                canvas.drawBitmap(this, 0f, 0f, null)
+                frame.save("$name-on-$backdrop")
+            }
         }
     }
 

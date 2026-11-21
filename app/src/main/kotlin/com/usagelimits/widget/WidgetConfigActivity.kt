@@ -36,10 +36,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -55,6 +57,8 @@ import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.WidgetScope
 import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.R
+import com.usagelimits.ui.LocalProviderIcons
+import com.usagelimits.ui.ProviderIconCatalog
 import com.usagelimits.ui.ProviderLogo
 import com.usagelimits.ui.components.ErrorBlock
 import com.usagelimits.ui.components.InkButton
@@ -67,7 +71,6 @@ import com.usagelimits.ui.components.Spinner
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
-import com.usagelimits.ui.percentSideCaptionRes
 import com.usagelimits.ui.percentSideWordRes
 import com.usagelimits.ui.text.percentFigure
 import com.usagelimits.ui.theme.UsageColors
@@ -392,6 +395,9 @@ private fun BackgroundSettings(
                 Segment(label, style.textTone == tone) { onTextTone(tone) }
             }
         }
+        Spacer(Modifier.height(8.dp))
+        Text(stringResource(R.string.widget_config_display_hint),
+            style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
     }
 }
 
@@ -409,25 +415,30 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
         ) {
             Text(stringResource(R.string.widget_config_preview_title, snapshot.accountCount), style = MaterialTheme.typography.labelMedium, color = style.textSecondary)
             if (snapshot.accounts.isEmpty()) Text(snapshot.emptyText(resources) ?: stringResource(R.string.widget_config_preview_empty), color = style.textSecondary)
-            else if (kind.contains("Rings")) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                // A ring alone does not say which side it counts; the placed widgets carry the same caption.
-                Text(stringResource(percentSideCaptionRes(mode)), style = MaterialTheme.typography.labelSmall, color = style.textSecondary)
+            else if (kind.contains("Rings")) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     snapshot.accounts.take(4).forEach { account ->
                         val p = ringLimit(account).presentation(null, mode)
-                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                        val ringSize = 48.dp
+                        Box(Modifier.size(ringSize), contentAlignment = Alignment.Center) {
                             Image(
                                 UsageRing.draw(
                                     160,
                                     p.fill?.times(100.0),
                                     ringAccent(account, style).toArgb(), style.trackArgb,
                                 ).asImageBitmap(),
-                                ringDescription(resources, account, mode), Modifier.fillMaxSize(),
+                                ringDescription(resources, account, p), Modifier.fillMaxSize(),
                             )
                             // The centre the placed widget draws: Mini Rings the provider mark,
                             // Account Rings the figure, through the same rule for a 100.
-                            if (kind == "Mini Rings") ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
-                            else ringCentreFigure(resources, p)?.let { Text(it, style = WidgetPreviewFigure, color = style.textPrimary) }
+                            if (kind == "Mini Rings") {
+                                ProviderId.fromId(account.providerId)?.let { provider ->
+                                    val choice = ProviderIconCatalog.selected(provider, LocalProviderIcons.current[provider.id])
+                                    Image(painterResource(choice.drawable), null,
+                                        Modifier.size(miniLogoSize(ringSize, account.providerId)),
+                                        colorFilter = widgetLogoTint(provider, style)?.let { ColorFilter.tint(it) })
+                                }
+                            } else ringCentreFigure(resources, p)?.let { Text(it, style = WidgetPreviewFigure, color = style.textPrimary) }
                         }
                     }
                 }

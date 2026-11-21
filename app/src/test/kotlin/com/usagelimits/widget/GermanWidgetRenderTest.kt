@@ -4,9 +4,12 @@ import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -42,9 +45,12 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowLooper
+import java.io.File
 import java.math.BigDecimal
 
 /**
@@ -56,7 +62,7 @@ import java.math.BigDecimal
  * English suite: a 5h window with 40 % used and a Weekly window with 63 % used, so the two modes
  * never print the same digits.
  *
- * Legacy graphics for the reason the English suite gives: this reads text, never pixels.
+ * Native graphics are enabled for the ring fit tests, which measure and capture rendered text.
  */
 @OptIn(ExperimentalGlanceApi::class, ExperimentalCoroutinesApi::class, ExperimentalGlanceRemoteViewsApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -69,6 +75,15 @@ class GermanWidgetRenderTest {
     }
 
     private val app get() = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+
+    @org.junit.After fun drain() {
+        try {
+            androidx.work.WorkManager.getInstance(app).cancelAllWork().result.get()
+            ShadowLooper.idleMainLooper()
+        } finally {
+            com.usagelimits.core.sync.resetTestWorkManager()
+        }
+    }
 
     private suspend fun seed(vararg windows: UsageWindow): String {
         val repository = app.container.repository
@@ -153,13 +168,13 @@ class GermanWidgetRenderTest {
         }
     }
 
-    @Test fun `account rings caption the mode in German and describe each ring in German`() = runTest {
+    @Test fun `account rings omit side captions and describe each ring in German`() = runTest {
         val id = seedFixture()
         inEachMode { mode ->
             inspect("MinimalUsageWidget", id, DpSize(180.dp, 240.dp)) { view ->
                 val text = textViews(view).map { it.text.toString() }
                 val descriptions = descriptions(view)
-                assertTrue("$mode: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
+                assertTrue("$mode: no side captions, got $text", "Verbraucht" !in text && "Übrig" !in text)
                 val centre = figures(mode).last()
                 assertTrue("$mode: centre figure $centre present, got $text", centre in text)
                 val spoken = "$centre ${if (mode == PercentDisplay.USED) "verbraucht" else "übrig"}"
@@ -168,6 +183,62 @@ class GermanWidgetRenderTest {
                     text.any { it.startsWith("Wöchentlich · ") })
             }
         }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun `account ring fits German 71 percent used at 1_6x`() = runTest {
+        assertGermanRingCentreFits(71.0, "71 %", 1.6f, "german-ring-71-used-1_6x")
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun `account ring fits German over 99 percent used at 1x`() = runTest {
+        assertGermanRingCentreFits(99.6, ">99 %", 1f, "german-ring-over-99-used-1x")
+    }
+
+    private suspend fun TestScope.assertGermanRingCentreFits(used: Double, figure: String, scale: Float, capture: String) {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val originalScale = app.resources.configuration.fontScale
+        try {
+            RuntimeEnvironment.setFontScale(scale)
+            app.container.settingsStore.setPercentDisplay(PercentDisplay.USED)
+            val id = seed(UsageWindow("week", "Weekly", WindowCategory.WEEKLY, used, 604_800, null, false))
+            inspect("MinimalUsageWidget", id, DpSize(180.dp, 110.dp)) { view ->
+                System.getProperty("capture.dir")?.takeIf { it.isNotBlank() }?.let { path ->
+                    val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                    try {
+                        view.draw(Canvas(bitmap))
+                        val directory = File(path).apply { mkdirs() }
+                        File(directory, "$capture.png").outputStream().use {
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                        }
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
+                val text = textViews(view).single { it.text.toString() == figure }
+                val ring = ringImages(view).single()
+                val layout = text.layout
+                val lineWidth = layout.getLineWidth(0)
+                val clearWidth = 0.78f * ring.measuredWidth
+                assertTrue("$figure at ${scale}x: ring must be measured", ring.measuredWidth > 0)
+                assertEquals("$figure at ${scale}x: centre is one line", 1, layout.lineCount)
+                assertEquals("$figure at ${scale}x: centre is not ellipsized", 0, layout.getEllipsisCount(0))
+                assertTrue("$figure at ${scale}x: laid-out text width $lineWidth px exceeds clear ring width $clearWidth px (ring ${ring.measuredWidth} px)",
+                    lineWidth <= clearWidth)
+            }
+        } finally {
+            RuntimeEnvironment.setFontScale(originalScale)
+            try {
+                app.container.settingsStore.setPercentDisplay(PercentDisplay.LEFT)
+            } finally {
+                Dispatchers.resetMain()
+            }
+        }
+    }
+
+    private fun ringImages(view: View): List<ImageView> = buildList {
+        if (view is ImageView && !view.contentDescription.isNullOrBlank()) add(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(ringImages(view.getChildAt(index)))
     }
 
     @Test fun `an exhausted ring without a percentage says its quota is unknown in German`() = runTest {
