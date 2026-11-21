@@ -17,6 +17,8 @@ At placement, choose closest resets, most critical, all accounts, one account, o
 
 Each usage widget has its own background color, opacity and text tone. Automatic text tone follows the selected panel color, including at zero opacity; it does not sample wallpaper. Choose light or dark text explicitly when needed on a transparent panel. Provider artwork follows the app's saved icon choices.
 
+Android placed Usage Bars, Account Rings and Mini Rings show a steady mood still when Claude Code · Color or Claude Code · Monochrome is selected. Each account uses its own headline's raw percentage left; provider-declared exhaustion shows Asleep even without a number. Used mode, reading age and the app's animation switch do not change the pose or create a reset celebration. Existing reading publications and scheduled presentation repaints rebuild the headline and still. The monochrome body uses the widget's text ink, and the eyes are transparent cut-outs. Configuration keeps fixed catalog artwork; other icon choices remain static. Usage Summary and Credits have no provider logo.
+
 The configuration preview and every usage widget follow the app's display mode. See [Percentages: left or used](#percentages-left-or-used).
 
 ## iOS setup
