@@ -10,6 +10,9 @@ import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performScrollToNode
@@ -72,6 +75,7 @@ import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.notifications.NotificationEvaluator
 import com.usagelimits.feature.overview.OverviewFilter
 import java.time.ZoneId
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -268,6 +272,12 @@ class RedesignCaptureTest {
                 scroll.performScrollToNode(hasText(showTier))
                 compose.onNodeWithText(showTier).assertIsDisplayed()
                 scroll.performScrollToKey("display-heading")
+            }
+            if (mode.endsWith("-large") && name.startsWith("overview-dials-")) {
+                val layout = mutableListOf<TextLayoutResult>()
+                compose.onNodeWithText("OpenRouter ·", substring = true, useUnmergedTree = true)
+                    .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
+                assertFalse("the large credit card clips its provider/age line", layout.single().hasVisualOverflow)
             }
             // Not onRoot().captureToImage(): under Robolectric 4.16 + compose ui-test 1.7.6 its
             // forceRedraw never sees a frame and times out (tried sdk 34 and 28). Drawing the

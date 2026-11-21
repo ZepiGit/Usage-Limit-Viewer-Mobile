@@ -2,22 +2,13 @@ package com.usagelimits.feature
 
 import android.content.Context
 import android.graphics.BitmapFactory
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
-import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.test.performSemanticsAction
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollAction
@@ -49,13 +40,11 @@ import com.usagelimits.core.settings.OverviewCreditLayout
 import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.feature.credits.AddCreditScreen
 import com.usagelimits.feature.credits.AddCreditState
-import com.usagelimits.feature.credits.CreditCard
 import com.usagelimits.feature.credits.CreditDetailScreen
 import com.usagelimits.feature.credits.creditIcon
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -207,22 +196,6 @@ class CreditScreensRenderTest {
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Add credit balance"))
         compose.onNode(hasText("Add credit balance")).assertExists()
         compose.onNode(hasText("No prepaid balances tracked.")).assertExists()
-    }
-
-    @Test fun `large credit identity text keeps the reading age visible`() {
-        val router = entry(provider = CreditProviderId.OPENROUTER, label = "OpenRouter team")
-        render {
-            val density = LocalDensity.current.density
-            CompositionLocalProvider(LocalDensity provides Density(density, fontScale = 1.6f)) {
-                Box(Modifier.width(220.dp)) {
-                    CreditCard(router, now, staleAfterMs = 3_600_000, onClick = {})
-                }
-            }
-        }
-        val layout = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithText("OpenRouter ·", substring = true, useUnmergedTree = true)
-            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layout) }
-        assertFalse("provider and reading age must fit, including when they wrap", layout.single().hasVisualOverflow)
     }
 
     @Test fun `the add screen lists every provider with Anthropic and OpenAI disabled`() {
