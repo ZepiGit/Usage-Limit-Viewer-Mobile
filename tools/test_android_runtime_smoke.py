@@ -968,26 +968,50 @@ class CreditHierarchyTest(unittest.TestCase):
                 self.assertIsNotNone(runtime_smoke.credit_checked(root, "Kompakt", False))
                 self.assertIsNotNone(runtime_smoke.credit_checked(root, "Normal", True))
 
+    RADIO_CALLERS = {
+        "credits-en-normal-layout": "credits-en-normal-selected",
+        "credits-en-compact-layout": "credits-en-compact-selected",
+        "credits-en-show-first": "credits-en-usage-first-selected",
+        "credits-en-credit-first": "credits-en-credit-first-selected",
+        "credits-en-restore-normal": "credits-en-normal-restored",
+        "credits-de-layout": "credits-de-normal-selected",
+        "credits-de-compact": "credits-de-compact-selected",
+        "credits-de-show-first": "credits-de-usage-first-selected",
+        "credits-de-credit-first": "credits-de-credit-first-selected",
+    }
+
     class SelectionDevice(FakeDevice):
         """CI radio geometry, 310px preview reflow and the observed 596px viewport swipe."""
 
-        def __init__(self, restore_top=102, failed=None, outcome="selected"):
+        def __init__(self, restore_top=102, failed=None, outcome="selected", preselected=False):
             super().__init__()
             self.restore_top, self.failed, self.outcome = restore_top, failed, outcome
+            self.preselected = preselected
             self.states = {}
             self.state = None
 
         def prepare(self, name, label):
             if label == "Normal":
-                other, top, delta, left, right = "Compact", self.restore_top, 310, 60, 189
+                other = "Kompakt" if name.startswith("credits-de-") else "Compact"
+                top = self.restore_top if name == "credits-en-restore-normal" else 407
+                delta, left, right, other_left, other_right = 310, 60, 189, 189, 337
             elif label in ("Compact", "Kompakt"):
                 other, top, delta, left, right = "Normal", 317, -310, 190, 336
+                other_left, other_right = 60, 190
             else:
-                other = "Usage providers" if label == "Credit accounts" else "Nutzungskonten"
-                top = 522 if label == "Credit accounts" else 334
-                delta, left, right = 0, 286, 506 if label == "Credit accounts" else 511
+                other, top, left, right, other_left, other_right = {
+                    "Usage providers": ("Credit accounts", 522, 60, 286, 286, 506),
+                    "Credit accounts": ("Usage providers", 522, 286, 506, 60, 286),
+                    "Nutzungskonten": ("Guthabenkonten", 334, 60, 286, 286, 511),
+                    "Guthabenkonten": ("Nutzungskonten", 334, 286, 511, 60, 286),
+                }[label]
+                delta = 0
+            checked = self.preselected and name in (
+                "credits-en-normal-layout", "credits-en-show-first", "credits-de-layout", "credits-de-show-first")
             self.state = {"name": name, "label": label, "other": other, "top": top,
-                          "delta": delta, "left": left, "right": right, "checked": False,
+                          "delta": delta, "left": left, "right": right,
+                          "other_left": other_left, "other_right": other_right,
+                          "initial_checked": checked, "checked": checked,
                           "taps": [], "tap_bounds": [], "observations": []}
             self.states[name] = self.state
 
@@ -1001,7 +1025,7 @@ class CreditHierarchyTest(unittest.TestCase):
                     state["taps"].append((x, y))
                     state["tap_bounds"].append((state["top"], state["top"] + 84))
                     outcome = self.outcome if state["name"] == self.failed else "selected"
-                    if 144 <= y < 1336 and outcome != "lost":
+                    if 144 <= y < 1336 and not state["checked"] and outcome != "lost":
                         state["checked"] = outcome == "selected"
                         if outcome != "visible-wrong":
                             state["top"] += state["delta"]
@@ -1026,9 +1050,8 @@ class CreditHierarchyTest(unittest.TestCase):
                         f'bounds="[{left + 25},{max(144, top + 28)}][{right - 25},{min(1336, top + 57)}]"/>'
                         '</node></node>')
 
-            other_left, other_right = (189, 337) if state["label"] == "Normal" else (60, state["left"])
             radios = option(state["label"], state["checked"], state["left"], state["right"])
-            radios += option(state["other"], not state["checked"], other_left, other_right)
+            radios += option(state["other"], not state["checked"], state["other_left"], state["other_right"])
             return (f'<hierarchy><node package="{pkg}" enabled="true" scrollable="true" '
                     f'bounds="[0,144][720,1336]">{radios}</node></hierarchy>').encode()
 
@@ -1037,13 +1060,7 @@ class CreditHierarchyTest(unittest.TestCase):
         smoke = Smoke(Path(directory), "test-device")
         control, dump, wait_for = smoke.credit_control, smoke.dump, smoke.wait_for
         unrelated = self.unrelated_credit_screens()
-        callers = {
-            "credits-en-compact-layout": "credits-en-compact-selected",
-            "credits-en-credit-first": "credits-en-credit-first-selected",
-            "credits-en-restore-normal": "credits-en-normal-restored",
-            "credits-de-compact": "credits-de-compact-selected",
-            "credits-de-credit-first": "credits-de-credit-first-selected",
-        }
+        callers = self.RADIO_CALLERS
         observed = tuple(callers) + tuple(callers.values())
 
         def reach(name, label, **kwargs):
@@ -1084,28 +1101,29 @@ class CreditHierarchyTest(unittest.TestCase):
     def test_radio_callers_reach_full_targets_and_follow_preview_reflow(self):
         # CI supplies 102/313; lower-edge cases apply the same 84px target and measured +310px reflow.
         for restore_top in (102, 313, 1100, 1270):
-            with self.subTest(restore_top=restore_top), TemporaryDirectory() as directory:
-                device = self.SelectionDevice(restore_top)
-                result = self.selection_journey(device, directory)
-                self.assertEqual("hidden choice persisted", result["creditRelaunch"])
-                for state in device.states.values():
-                    with self.subTest(caller=state["name"]):
-                        self.assertTrue(state["checked"])
-                        self.assertEqual(1, len(state["taps"]), "one tap, not a retry after reflow")
-                        self.assertTrue(144 <= state["taps"][0][1] < 1336, "tap lies inside the viewport")
-                        top, bottom = state["tap_bounds"][0]
-                        self.assertTrue(144 <= top < bottom <= 1336, "the entire original target is visible")
-                        self.assertIsNotNone(runtime_smoke.credit_checked(
-                            state["observations"][-1], state["label"], True))
+            for preselected in (False, True):
+                with self.subTest(restore_top=restore_top, preselected=preselected), TemporaryDirectory() as directory:
+                    device = self.SelectionDevice(restore_top, preselected=preselected)
+                    result = self.selection_journey(device, directory)
+                    self.assertEqual("hidden choice persisted", result["creditRelaunch"])
+                    for state in device.states.values():
+                        with self.subTest(caller=state["name"]):
+                            self.assertIsNotNone(runtime_smoke.credit_checked(
+                                state["observations"][0], state["label"], state["initial_checked"]))
+                            self.assertTrue(state["checked"])
+                            self.assertEqual(1, len(state["taps"]), "one tap, not a retry after reflow")
+                            self.assertTrue(144 <= state["taps"][0][1] < 1336, "tap lies inside the viewport")
+                            top, bottom = state["tap_bounds"][0]
+                            self.assertTrue(144 <= top < bottom <= 1336, "the entire original target is visible")
+                            selected = runtime_smoke.credit_checked(state["observations"][-1], state["label"], True)
+                            self.assertIsNotNone(selected)
+                            self.assertIsNotNone(runtime_smoke.credit_checked(
+                                state["observations"][-1], state["other"], False))
+                            if state["initial_checked"]:
+                                self.assertEqual(top, bounds(selected)[1], "a preselected tap does not grow the preview")
 
     def test_radio_callers_reject_lost_taps_and_visible_wrong_selection(self):
-        for caller, assertion in (
-            ("credits-en-compact-layout", "credits-en-compact-selected"),
-            ("credits-en-credit-first", "credits-en-credit-first-selected"),
-            ("credits-en-restore-normal", "credits-en-normal-restored"),
-            ("credits-de-compact", "credits-de-compact-selected"),
-            ("credits-de-credit-first", "credits-de-credit-first-selected"),
-        ):
+        for caller, assertion in self.RADIO_CALLERS.items():
             for outcome in ("lost", "wrong", "visible-wrong"):
                 with self.subTest(caller=caller, outcome=outcome), TemporaryDirectory() as directory:
                     device = self.SelectionDevice(1100, caller, outcome)
