@@ -13,9 +13,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import com.usagelimits.ui.ClaudeCodeArt
+import com.usagelimits.ui.ClaudeCodeBrand
+import com.usagelimits.ui.STILL
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
@@ -41,8 +48,9 @@ import org.robolectric.annotation.GraphicsMode
  * The Claude Code figure's loop, stepped on the Compose test clock: when it moves, how often it
  * redraws, and that every reason to stop shows the mood's still pose rather than a frozen frame.
  *
- * Each test draws two figures in the same mood: the subject, and beside it a reference with the
- * Settings switch off, which is the still pose. "Still" below means pixel-equal to that reference.
+ * Each test draws two figures in the same mood: the subject, and beside it the still pose drawn
+ * straight from the art, outside every switch the subject obeys. "Still" below means pixel-equal
+ * to that reference.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w393dp-h400dp-xhdpi")
@@ -70,9 +78,13 @@ class ClaudeCodeFigureMotionTest {
                         }
                     }
                     Spacer(Modifier.width(120.dp))
-                    CompositionLocalProvider(LocalAnimateClaudeCodeIcon provides false) {
-                        ProviderLogo(ProviderId.CLAUDE, Modifier.size(28.dp).testTag("still"), FigureSlot.LIST_ROW, mood)
-                    }
+                    // The still pose drawn straight from the art, past every switch the subject obeys.
+                    val muted = UsageColors.Muted
+                    val px = with(LocalDensity.current) { 28.dp.toPx() }
+                    val art = remember(mood, px) { ClaudeCodeArt(mood, px) }
+                    Spacer(Modifier.size(28.dp).testTag("still").drawBehind {
+                        art.draw(this, ClaudeCodeBrand, muted, Offset.Zero, STILL, FigureSlot.LIST_ROW.amplitude)
+                    })
                 }
             }
         }
