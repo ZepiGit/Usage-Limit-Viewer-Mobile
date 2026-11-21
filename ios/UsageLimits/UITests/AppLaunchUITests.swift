@@ -325,6 +325,59 @@ final class AppLaunchUITests: XCTestCase {
         expectDecision("claude:dial:demo-claude-exhausted:asleep still")
     }
 
+    func testQuickNativeClaudeSwitchTapEmitsOneChange() {
+        let app = launch([
+            "-marketing-demo", "-claude-mood-demo", "-motion-log", "-settings-native-control-trace"
+        ])
+        defer { app.terminate() }
+        tabButton("Settings", in: app).tap()
+        let toggle = app.switches["settings-animate-claude-code-icon"]
+        let bottomTabs = bottomTabBarFrame(in: app)
+        XCTAssertTrue(scrollTo(toggle, in: app, towardStart: false, clearOfBottomTabs: bottomTabs))
+        XCTAssertEqual(toggle.value as? String, "1")
+        let log = app.staticTexts["motion-log"]
+        let animated = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "claude:provider:provider:asleep animated"),
+            object: log)
+        XCTAssertEqual(XCTWaiter.wait(for: [animated], timeout: 10), .completed, log.label)
+
+        let tapFrame = toggle.frame
+        let offset = CGVector(dx: 0.9, dy: 0.5)
+        let point = CGPoint(x: tapFrame.minX + tapFrame.width * offset.dx,
+                            y: tapFrame.minY + tapFrame.height * offset.dy)
+        let began = ProcessInfo.processInfo.systemUptime
+        // Keep the quick XCUI tap contract: no longer press and no second attempt.
+        toggle.coordinate(withNormalizedOffset: offset).tap()
+        let uptime = "\(began)–\(ProcessInfo.processInfo.systemUptime)"
+        guard waitForSetting(toggle, in: app, matches: { (toggle.value as? String) == "0" }) else {
+            reportControlFailure("One quick native Claude switch tap must turn it off",
+                                 control: toggle, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapPoint: point, tapUptime: uptime)
+            return
+        }
+
+        let trace = settingsTrace(in: app)
+        let attachment = XCTAttachment(string: trace)
+        attachment.name = "Quick native Claude switch tap \(uptime)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let lines = trace.components(separatedBy: "\n")
+        let observed = lines.filter { $0.contains("native switch observed ") }
+        let valueChanges = lines.filter { $0.contains("native switch valueChanged ") }
+        let effectiveChanges = lines.filter {
+            $0.contains("settings didSet source=control edit ") && $0.contains("animateClaudeCodeIcon=")
+        }
+        let postDispatch = lines.filter { $0.contains("native switch post-dispatch ") }
+        XCTAssertEqual(observed.count, 1, "The probe must observe the one native switch touch")
+        XCTAssertEqual(valueChanges.count, 1, "One quick tap must emit exactly one native valueChanged")
+        XCTAssertTrue(valueChanges.first?.contains("switchOn=false") == true)
+        XCTAssertEqual(effectiveChanges.count, 1, "One quick tap must change the bound field exactly once")
+        XCTAssertTrue(effectiveChanges.first?.contains("animateClaudeCodeIcon=false") == true)
+        XCTAssertEqual(postDispatch.count, 1, "Capture the first main-loop turn after native ended dispatch")
+        XCTAssertTrue(postDispatch.first?.contains("phase=ended") == true)
+        XCTAssertTrue(app.navigationBars["Settings"].exists)
+    }
+
     func testMeasureSettingsPreviewMainThreadGaps() {
         executionTimeAllowance = 280
         for variant in ["animated", "still", "no-figure"] {
