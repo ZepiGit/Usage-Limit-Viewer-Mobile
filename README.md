@@ -10,7 +10,7 @@
 
 <p align="center"><a href="#what-the-app-does">What it does</a> · <a href="#supported-services">Services</a> · <a href="#prepaid-credits">Credits</a> · <a href="#widgets">Widgets</a> · <a href="#your-data">Your data</a> · <a href="#build-it-yourself">Build</a></p>
 
-> **Development preview, not a completed release.** These instructions describe the combined Android redesign candidate in a documentation worktree, not `main` or a released APK. The combined narrow integration gate passed 54 tests; full combined CI and release approval remain pending. iOS redesign work is paused; existing iOS support remains, but the remaining redesign and joint-release gates are incomplete. Physical-device checks remain open on both platforms. See [exact candidate revisions, evidence and limits](docs/release.md#android-redesign-evidence).
+> **Development preview, not a completed release.** These instructions describe the unmerged Android redesign candidate, not `main` or a released APK. Its Android PR workflow succeeded, but the sibling push smoke and Merge gate failed. A newer Credits smoke-harness repair has local proof only; new-head combined CI and release approval remain pending. iOS redesign work is paused; existing iOS support remains, but the remaining redesign and joint-release gates are incomplete. Physical-device checks remain open on both platforms. See [exact candidate revisions, evidence and limits](docs/release.md#android-redesign-evidence).
 >
 > Build from source or download the debug APK from an Android run under **Actions**. Match the artifact to its commit.
 
