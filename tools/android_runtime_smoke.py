@@ -2046,7 +2046,7 @@ def main():
         installed_apk.unlink()
         smoke.launch("current-start")
         smoke.wait_for("current-three-tabs", three_tabs)
-        for tab, marker in [("Overview", EMPTY_OVERVIEW), ("Resets", "No upcoming resets"), ("Settings", "Provider icons")]:
+        for tab, marker in [("Overview", EMPTY_OVERVIEW), ("Resets", "No upcoming resets"), ("Settings", "Appearance")]:
             smoke.navigate(tab, marker, "current-" + tab.lower())
         smoke.setting_is_disabled("current-persisted")
         smoke.capture("current-persisted")

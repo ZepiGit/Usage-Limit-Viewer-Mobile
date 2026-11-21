@@ -657,6 +657,106 @@ class OverviewReadyTest(unittest.TestCase):
             self.assertFalse(runtime_smoke.overview_ready(root, "previous"))
 
 
+class SettingsReadinessTest(unittest.TestCase):
+    @staticmethod
+    def settings(marker):
+        return ET.fromstring(f'''<hierarchy>
+          <node package="com.usagelimits" scrollable="true" bounds="[0,150][720,1300]">
+            <node package="com.usagelimits" text="{marker}" bounds="[28,277][692,310]"/>
+          </node>
+          <node package="com.usagelimits" enabled="true" selected="true"
+                clickable="false" bounds="[489,1336][720,1476]">
+            <node package="com.usagelimits" text="Settings"/>
+          </node>
+        </hierarchy>''')
+
+    def test_current_settings_returns_to_appearance_from_a_restored_lower_position(self):
+        lower, top = self.settings("Provider icons"), self.settings("Appearance")
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "dump", side_effect=[lower, lower, lower, top, top]), \
+                    patch.object(smoke, "scroll") as scroll, patch.object(smoke, "tap") as tap, \
+                    patch.object(smoke, "capture"), patch.object(smoke, "adb", return_value="1234"):
+                smoke.navigate("Settings", "Appearance", "restored-settings")
+            scroll.assert_called_once_with(lower, up=False)
+            tap.assert_not_called()
+
+    def test_main_reaches_current_appearance_before_searching_for_the_persisted_tier(self):
+        with TemporaryDirectory() as directory:
+            directory = Path(directory)
+            aapt = directory / "build-tools" / "37.0.0" / "aapt"
+            aapt.parent.mkdir(parents=True)
+            aapt.touch()
+            checksum = directory / "sha256.txt"
+            checksum.write_text("a" * 64)
+            args = SimpleNamespace(previous_apk=Path("previous.apk"), apk=Path("current.apk"),
+                                   debug_apk=None, apk_sha256_file=checksum, evidence=directory)
+            smoke = unittest.mock.Mock(spec=Smoke)
+            navigator = Smoke(directory, "emulator-test")
+            top = self.settings("Appearance")
+            baseline = self.settings("Provider icons")
+            tier = SettingTest().setting_tree("false")
+            reached = []
+
+            def dump(name, **kwargs):
+                if name.startswith("current-persisted") and name != "current-persisted-0":
+                    return tier
+                return baseline if name.startswith("previous-") else top
+
+            def navigate(tab, marker, name, *args):
+                if tab == "Settings":
+                    navigator.navigate(tab, marker, name, *args)
+                    reached.append(name)
+
+            def adb(*args, **kwargs):
+                if args[:3] == ("shell", "getprop", "ro.kernel.qemu"):
+                    return "1"
+                if args[:3] == ("shell", "getprop", "ro.build.version.sdk"):
+                    return "37"
+                if "resolve-activity" in args:
+                    return "com.android.launcher3/.Launcher"
+                if args == ("shell", "pm", "path", "com.usagelimits"):
+                    return "package:/data/app/base.apk"
+                if args[0] == "pull":
+                    Path(args[2]).touch()
+                return "1234"
+
+            smoke.adb.side_effect = adb
+            smoke.installed.side_effect = [
+                {"versionCode": "1", "versionName": "old", "appId": "10000", "firstInstallTime": "same"},
+                {"versionCode": "2", "versionName": "new", "appId": "10000", "firstInstallTime": "same"},
+            ]
+            smoke.setting.return_value = SettingTest().setting_tree("true")[1]
+            smoke.control.return_value = tier[1]
+            smoke.navigate.side_effect = navigate
+            smoke.setting_is_disabled.side_effect = lambda name: (
+                navigator.setting_is_disabled(name) if name == "current-persisted" else None)
+            smoke.place_widgets.return_value = []
+            smoke.verify_theme_launches.return_value = []
+            smoke.seeded_steps.return_value = {}
+            metadata = [{"package": "com.usagelimits", "versionCode": code, "sha256": "a" * 64,
+                         "versionName": name} for code, name in ((1, "old"), (2, "new"))]
+            with patch.object(runtime_smoke, "Smoke", return_value=smoke), \
+                    patch.object(runtime_smoke, "argument_parser") as parser, \
+                    patch.object(runtime_smoke, "apk_metadata", side_effect=metadata), \
+                    patch.object(runtime_smoke, "digest", return_value="a" * 64), \
+                    patch.object(runtime_smoke, "run", side_effect=["commit", "List of devices attached\nemulator-test device"]), \
+                    patch.dict(os.environ, ANDROID_HOME=str(directory), GITHUB_SHA="commit", GITHUB_RUN_ID="test"), \
+                    patch.object(navigator, "dump", side_effect=dump), \
+                    patch.object(navigator, "adb", return_value="1234"), \
+                    patch.object(navigator, "capture"), patch.object(navigator, "scroll") as scroll, \
+                    patch.object(runtime_smoke.time, "sleep"):
+                parser.return_value.parse_args.return_value = args
+                runtime_smoke.main()
+            self.assertEqual(["previous-settings", "previous-relaunch-settings", "current-settings"], reached)
+            self.assertEqual([unittest.mock.call(top, up=True)], scroll.call_args_list,
+                             "Only the later tier search scrolls down; Settings readiness is already at the top")
+            calls = smoke.method_calls
+            self.assertLess(next(i for i, call in enumerate(calls) if call[0] == "navigate"
+                                 and call.args[2] == "current-settings"),
+                            calls.index(unittest.mock.call.setting_is_disabled("current-persisted")))
+
+
 class InvocationTest(unittest.TestCase):
     """#88 01b review, item 1: both workflows' invocations of the runner parse, and only Android CI seeds.
 
@@ -1286,6 +1386,8 @@ class ThemeSelectionTest(unittest.TestCase):
                     patch.object(smoke, "setting_is_disabled", side_effect=lambda *a: events.append(("setting", current["label"]))), \
                     patch.object(smoke, "capture"), patch.object(smoke, "restore_animations", return_value=True):
                 self.assertEqual(["appearance-light-paper.json", "appearance-pure-black.json"], smoke.verify_theme_launches())
+        self.assertEqual([("navigate", "Settings", "Appearance")] * 4,
+                         [event for event in events if event[0] == "navigate"])
         captures = [event for event in events if event[0] == "capture"]
         self.assertEqual([
             ("capture", "Light paper", "com.usagelimits/.ExistingAlias", (243, 240, 232), True),
