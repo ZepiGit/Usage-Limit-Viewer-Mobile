@@ -99,7 +99,7 @@ fun CreditCard(
                 if (!compact) Text(
                     account.provider.displayName + " · " +
                         Countdown.freshnessLabel(snapshot?.takeIf { it.balances.isNotEmpty() }?.fetchedAt, nowMs, countdownTexts),
-                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint, maxLines = 1,
+                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint,
                 )
             }
             StatusMark(severity)

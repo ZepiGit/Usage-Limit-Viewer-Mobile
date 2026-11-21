@@ -251,7 +251,7 @@ internal fun OverviewDialTile(
             )
             if (identityLabel != null) Text(identityLabel, style = MaterialTheme.typography.bodySmall,
                 color = UsageColors.Muted, textAlign = TextAlign.Center)
-            if (!compact) Text(headlineLine, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint,
+            if (!compact && !expired) Text(headlineLine, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint,
                 textAlign = TextAlign.Center)
             if (validityLabel != null && (expired || message == null)) {
                 Text(validityLabel, style = MaterialTheme.typography.bodySmall,

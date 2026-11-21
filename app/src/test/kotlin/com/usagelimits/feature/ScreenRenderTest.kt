@@ -2,6 +2,7 @@ package com.usagelimits.feature
 
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasScrollToNodeAction
@@ -17,6 +18,7 @@ import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.feature.overview.OverviewFilter
+import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
@@ -408,9 +410,57 @@ class ScreenRenderTest {
     }
 
     @Test
+    @Config(qualifiers = "en-rGB")
+    fun `an expired dial shows reconnect while keeping its reset stamp in semantics`() {
+        val expired = usage().let { usage ->
+            usage.copy(snapshot = usage.snapshot!!.copy(connectionStatus = ConnectionStatus.RECONNECT_REQUIRED))
+        }
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(expired), settings = AppSettings(overviewLayout = OverviewLayout.DIALS)),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"),
+                onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+
+        val tile = compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and
+            hasContentDescription("16:33", substring = true))
+        tile.assertIsDisplayed()
+        compose.onNodeWithText("Reconnect", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("5h limit · 16:33", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `same-provider dials identify accounts without emails`() {
+        val first = usage(id = "first").let { usage ->
+            usage.copy(account = usage.account.copy(email = null, createdAt = 1L))
+        }
+        val second = usage(id = "second").let { usage ->
+            usage.copy(account = usage.account.copy(email = null, createdAt = 2L))
+        }
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(first, second), settings = AppSettings(overviewLayout = OverviewLayout.DIALS)),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"),
+                onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+
+        compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and
+            hasContentDescription("Account 1", substring = true)).assertIsDisplayed()
+        compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and
+            hasContentDescription("Account 2", substring = true)).assertIsDisplayed()
+    }
+
+    @Test
     @Config(qualifiers = "en-rGB-w393dp-h1600dp", fontScale = 1.6f)
     fun `large Dials keep the headline and ignore the List filter`() {
-        val codex = usage()
+        val codex = usage().let { usage ->
+            usage.copy(snapshot = usage.snapshot!!.copy(windows = listOf(
+                window(20.0).copy(id = "first", resetAt = now + 2 * 60 * 60 * 1000),
+                window(90.0).copy(id = "headline", resetAt = now + 3 * 60 * 60 * 1000),
+            )))
+        }
         val claude = codex.copy(account = account("claude", ProviderId.CLAUDE, "Pro"))
         var opened: String? = null
         var add = false
@@ -428,6 +478,10 @@ class ScreenRenderTest {
         val boxes = listOf(codexTile, claudeTile).map { it.fetchSemanticsNode().boundsInRoot }.sortedBy { it.top }
         assertTrue("a large font puts the dials on separate rows", boxes[0].bottom <= boxes[1].top)
         assertEquals(boxes[0].left, boxes[1].left)
+        codexTile.assert(hasContentDescription("10% remaining", substring = true) and
+            hasContentDescription("18:33", substring = true))
+        codexTile.assert(hasContentDescription("80%", substring = true).not() and
+            hasContentDescription("17:33", substring = true).not())
         compose.onNodeWithText("Needs attention").assertDoesNotExist()
         compose.onNodeWithText("OpenAI Codex Plus", useUnmergedTree = true).assertDoesNotExist()
         codexTile.performClick()
