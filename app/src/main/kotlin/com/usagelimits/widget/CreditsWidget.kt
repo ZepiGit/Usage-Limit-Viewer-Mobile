@@ -1,10 +1,6 @@
 package com.usagelimits.widget
 
 import android.content.Context
-import android.content.res.Resources
-import android.graphics.Paint
-import android.graphics.Typeface
-import androidx.core.util.TypedValueCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -109,9 +105,9 @@ class CreditsWidget : GlanceAppWidget() {
     private fun SmallTile(row: CreditWidgetRow, style: WidgetStyle, texts: CreditWidgetTexts) {
         Column(GlanceModifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(row.title, maxLines = 1, style = widgetText(style.textSecondary, 12, FontWeight.Medium))
-                Spacer(GlanceModifier.width(6.dp))
                 SeverityDot(style.accent(row.severity))
+                Spacer(GlanceModifier.width(6.dp))
+                Text(row.title, maxLines = 1, style = widgetText(style.textSecondary, 12, FontWeight.Medium))
             }
             Column(GlanceModifier.defaultWeight().fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalAlignment = Alignment.CenterHorizontally) {
@@ -120,14 +116,25 @@ class CreditsWidget : GlanceAppWidget() {
                     CreditFormat.string(it.amount, it.currency, resources.configuration.locales[0])
                 } ?: "—"
                 Text(amount, maxLines = 1, style = widgetText(style.textPrimary, 28, FontWeight.Bold, mono = true)
-                    .copy(fontSize = fittedAmountSize(amount, resources).sp))
-                val status = statusText(row, texts, asOfOnly = true)
+                    .copy(fontSize = fittedMonoSize(amount, 28f, SMALL.width - (2 * PANEL_INSET).dp, resources).sp))
+                val failedRefresh = refreshFailed(row)
+                val status = when {
+                    row.severity == Severity.ERROR -> texts.couldNotBeRead()
+                    failedRefresh -> resources.getString(R.string.widget_credits_refresh_failed)
+                    row.fetchedAt == null -> texts.notReadYet()
+                    row.severity == Severity.STALE -> resources.getString(statusWordRes(Severity.STALE))
+                    else -> {
+                        val asOf = Countdown.asOfLabel(row.fetchedAt, nowMs = System.currentTimeMillis(), texts = texts)
+                        if (row.balances.firstOrNull()?.unlimited == true) {
+                            // The tile already draws the amount above, so it needs a standalone label instead of the amount sentence.
+                            resources.getString(R.string.widget_credits_spent_this_month) + " · " + asOf
+                        } else asOf
+                    }
+                }
                 Text(
-                    if (row.balances.firstOrNull()?.unlimited == true) {
-                        resources.getString(R.string.widget_credits_spent_this_month) + " · " + status
-                    } else status,
+                    status,
                     maxLines = 2,
-                    style = widgetText(if (refreshFailed(row)) style.textPrimary else style.textSecondary, 11)
+                    style = widgetText(if (failedRefresh) style.textPrimary else style.textSecondary, 11)
                         .copy(textAlign = TextAlign.Center),
                 )
             }
@@ -182,18 +189,6 @@ class CreditsWidget : GlanceAppWidget() {
         }
     }
 
-    private fun fittedAmountSize(amount: String, resources: Resources): Float {
-        val metrics = resources.displayMetrics
-        val available = (SMALL.width.value - 2 * PANEL_INSET) * metrics.density
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            textSize = TypedValueCompat.spToPx(28f, metrics)
-        }
-        val width = paint.measureText(amount)
-        // Fit in pixels, then invert Android's nonlinear sp scaling for the host.
-        return if (width <= available) 28f else TypedValueCompat.pxToSp(paint.textSize * available / width, metrics)
-    }
-
     private companion object {
         const val PANEL_INSET = 10
         val SMALL = DpSize(110.dp, 110.dp)
@@ -219,7 +214,7 @@ internal fun refreshFailed(row: CreditWidgetRow): Boolean = row.statusMessage !=
  * A failure's reason is the message stored with the snapshot when the refresh failed, in English;
  * [CreditWidgetTexts.stored] reads it in the screen's language without touching what is stored.
  */
-internal fun statusText(row: CreditWidgetRow, texts: CreditWidgetTexts = EnglishCreditWidgetTexts, asOfOnly: Boolean = false): String {
+internal fun statusText(row: CreditWidgetRow, texts: CreditWidgetTexts = EnglishCreditWidgetTexts): String {
     val now = System.currentTimeMillis()
     return when {
         row.severity == Severity.ERROR -> row.statusMessage?.let(texts::stored) ?: texts.couldNotBeRead()
@@ -227,7 +222,6 @@ internal fun statusText(row: CreditWidgetRow, texts: CreditWidgetTexts = English
             (row.fetchedAt?.let { " · " + Countdown.asOfLabel(it, nowMs = now, texts = texts) } ?: "")
         row.fetchedAt == null -> texts.notReadYet()
         row.severity == Severity.STALE -> texts.outOfDate(Countdown.asOfLabel(row.fetchedAt, nowMs = now, texts = texts))
-        asOfOnly -> Countdown.asOfLabel(row.fetchedAt, nowMs = now, texts = texts)
         else -> row.providerName + " · " + Countdown.asOfStamp(row.fetchedAt, nowMs = now)
     }
 }

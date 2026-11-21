@@ -221,10 +221,9 @@ private fun RingMark(account: WidgetAccount, size: androidx.compose.ui.unit.Dp, 
         if (mini) {
             WidgetLogo(account, miniLogoSize(size, account.providerId))
         } else ringCentreFigure(resources, p)?.let {
-            // In a narrow host, keep the full figure inside the ring even at large system text.
-            val maxSize = (size.value - 6f) / (0.62f * it.length * resources.configuration.fontScale.coerceAtLeast(1f))
+            val clearWidth = size * (1f - 2f * UsageRing.STROKE_FRACTION) - 2.dp
             val figureStyle = widgetText(style.textPrimary, 12, FontWeight.Bold, mono = true)
-            Text(it, style = figureStyle.copy(fontSize = maxSize.coerceAtMost(12f).sp), maxLines = 1)
+            Text(it, style = figureStyle.copy(fontSize = fittedMonoSize(it, 12f, clearWidth, resources).sp), maxLines = 1)
         }
         if (account.partialUpdate) {
             Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {

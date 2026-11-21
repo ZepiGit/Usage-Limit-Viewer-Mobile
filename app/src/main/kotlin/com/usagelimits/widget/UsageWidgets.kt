@@ -1,6 +1,10 @@
 package com.usagelimits.widget
 
 import android.content.Context
+import android.content.res.Resources
+import android.graphics.Paint
+import android.graphics.Typeface
+import androidx.core.util.TypedValueCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -120,6 +124,18 @@ internal fun widgetText(color: Color, size: Int, weight: FontWeight = FontWeight
     fontWeight = weight,
     fontFamily = if (mono) FontFamily.Monospace else null,
 )
+
+/** Fit bold monospace figures in pixels, then invert the host's nonlinear sp scaling. */
+internal fun fittedMonoSize(text: String, sizeSp: Float, maxWidth: Dp, resources: Resources): Float {
+    val metrics = resources.displayMetrics
+    val available = maxWidth.value * metrics.density
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        textSize = TypedValueCompat.spToPx(sizeSp, metrics)
+    }
+    val width = paint.measureText(text)
+    return if (width <= available) sizeSp else TypedValueCompat.pxToSp(paint.textSize * available / width, metrics)
+}
 
 /** The panel's corner: the launcher's own radius where the system states it, 16dp before API 31. */
 internal fun GlanceModifier.panelCorner(): GlanceModifier =
