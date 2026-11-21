@@ -1593,7 +1593,7 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
 
 
 class ThemeLaunchCaptureTest(unittest.TestCase):
-    def capture(self, transform=lambda phase, data, window: (data, window), fail_start=False):
+    def capture(self, transform=lambda phase, data, window: (data, window), fail_start=False, fail_capture=False):
         events, frame_number = [], 0
         clock = FakeDevice()
         with TemporaryDirectory() as directory:
@@ -1605,6 +1605,8 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
                 clock.now += 0.25
                 events.append(args)
                 if args[:2] == ("exec-out", "screencap"):
+                    if fail_capture:
+                        raise subprocess.CalledProcessError(1, args)
                     frame_number += 1
                     data = ThemeLaunchTest.pixels(artwork=phase() == "app")
                     return transform(phase(), data, ThemeLaunchTest.window(phase()))[0]
@@ -1652,6 +1654,10 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
             "only settled app": lambda phase, data, window: (ThemeLaunchTest.pixels(settled=True), ThemeLaunchTest.window("app")),
             "no app artwork": lambda phase, data, window: (ThemeLaunchTest.pixels(), window),
             "no system window": lambda phase, data, window: (data, ThemeLaunchTest.window("app")),
+            "only system": lambda phase, data, window: (ThemeLaunchTest.pixels(), ThemeLaunchTest.window()),
+            "reversed phases": lambda phase, data, window: (
+                ThemeLaunchTest.pixels(artwork=phase == "system"),
+                ThemeLaunchTest.window("app" if phase == "system" else "system")),
             "wrong status": lambda phase, data, window: (data, ThemeLaunchTest.window(phase, dark=False, navigation_dark=True)),
             "wrong navigation": lambda phase, data, window: (data, ThemeLaunchTest.window(phase, dark=True, navigation_dark=False)),
         }
@@ -1679,6 +1685,11 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
         self.assertIsInstance(result, AssertionError)
         self.assertIn("Launch command failed", report["error"])
         self.assertTrue(report["frames"])
+        result, report, events = self.capture(fail_capture=True)
+        self.assertIsInstance(result, subprocess.CalledProcessError)
+        self.assertEqual("failed", report["result"])
+        self.assertEqual([], report["frames"])
+        self.assertIn(("joined",), events)
 
 
 class ThemeSelectionTest(unittest.TestCase):
@@ -1723,7 +1734,8 @@ class ThemeSelectionTest(unittest.TestCase):
                     patch.object(smoke, "tap", side_effect=tap), patch.object(smoke, "wait_for", side_effect=wait), \
                     patch.object(smoke, "adb", side_effect=adb), patch.object(smoke, "capture_theme_launch", side_effect=capture), \
                     patch.object(smoke, "setting_is_disabled", side_effect=lambda *a: events.append(("setting", current["label"]))), \
-                    patch.object(smoke, "capture"), patch.object(smoke, "restore_animations", return_value=True):
+                    patch.object(smoke, "capture"), patch.object(smoke, "widget_home"), \
+                    patch.object(smoke, "restore_animations", return_value=True):
                 self.assertEqual(["appearance-light-paper.json", "appearance-pure-black.json"], smoke.verify_theme_launches())
         self.assertEqual([("navigate", "Settings", "Appearance")] * 4,
                          [event for event in events if event[0] == "navigate"])
@@ -1742,6 +1754,97 @@ class ThemeSelectionTest(unittest.TestCase):
             self.assertLess(selected, bars)
             self.assertLess(bars, stopped)
             self.assertLess(captured, events.index(("setting", label)))
+
+    def test_foreground_close_handoff_cannot_consume_the_system_launch_phase(self):
+        # Run 44894441451: old Settings, Home with DRAW_PENDING windows, then drawn overlay;
+        # no bare system pixels. Run 44888487707 captured bare ground before the same handoff.
+        clock = FakeDevice()
+        current = {"label": None, "selected": False, "home": False, "homeDumps": 0,
+                   "launching": False, "frame": -1, "stoppedFromHome": False}
+        launcher = "com.android.launcher3"
+        home = ET.fromstring(f'<hierarchy><node package="{launcher}" '
+            f'resource-id="{launcher}:id/workspace"/></hierarchy>')
+
+        def navigate(tab, marker, name):
+            current.update(home=False, launching=False)
+            if not name.endswith("-relaunch-settings"):
+                current.update(label="Light paper" if current["label"] is None else "Pure black", selected=True)
+
+        def dump(name, **kwargs):
+            if name.endswith("-overview"):
+                return OverviewReadyTest.overview("Nothing to monitor yet")
+            if current["home"]:
+                current["homeDumps"] += 1
+                if current["homeDumps"] >= 2:
+                    return home
+            return self.picker(current["label"], current["selected"])
+
+        def windows():
+            dark = current["label"] == "Light paper"
+            splash, app = ThemeLaunchTest.window(dark=dark), ThemeLaunchTest.window("app", dark=dark)
+            app_window = app[app.index("  Window #0 "):app.index("  mCurrentFocus=")]
+            overlap = splash.replace("  mCurrentFocus=",
+                app_window.replace("Window #0", "Window #1") + "  mCurrentFocus=")
+            if not current["launching"]:
+                return app.replace("com.usagelimits", launcher) if current["home"] else app
+            if current["stoppedFromHome"]:
+                return splash if current["frame"] < 2 else overlap
+            if current["frame"] <= 0:
+                return overlap.replace("isReadyForDisplay()=true", "isReadyForDisplay()=false").replace(
+                    "mDrawState=HAS_DRAWN", "mDrawState=DRAW_PENDING")
+            return overlap
+
+        def adb(*args, **kwargs):
+            clock.now += 0.25
+            if args == ("shell", "input", "keyevent", "KEYCODE_HOME"):
+                current.update(home=True, homeDumps=0)
+            elif args == ("shell", "am", "force-stop", runtime_smoke.PACKAGE):
+                current["stoppedFromHome"] = current["home"] and current["homeDumps"] >= 2
+            elif "resolve-activity" in args:
+                return "com.usagelimits/.MainActivity"
+            elif args[:3] == ("shell", "settings", "get"):
+                return "10"
+            elif args == ("shell", "dumpsys", "window", "-a"):
+                return windows()
+            elif args[:2] == ("exec-out", "screencap"):
+                ground = (243, 240, 232) if current["label"] == "Light paper" else (0, 0, 0)
+                if current["launching"]:
+                    current["frame"] += 1
+                    if current["stoppedFromHome"]:
+                        return ThemeLaunchTest.pixels(ground, artwork=current["frame"] >= 2)
+                    if current["frame"] == 0:
+                        return ThemeLaunchTest.pixels(ground, settled=True)
+                    if current["frame"] == 1:
+                        return ThemeLaunchTest.pixels((60, 70, 90))
+                    return ThemeLaunchTest.pixels(ground, artwork=True)
+                return ThemeLaunchTest.pixels(ground)
+            return ""
+
+        class Start:
+            returncode = 0
+            def communicate(self, timeout):
+                return b"Starting: Intent", b""
+
+        def popen(*args, **kwargs):
+            current.update(launching=True, frame=-1)
+            return Start()
+
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            smoke.launcher = launcher
+            with patch.object(smoke, "navigate", side_effect=navigate), \
+                    patch.object(smoke, "dump", side_effect=dump), patch.object(smoke, "adb", side_effect=adb), \
+                    patch.object(smoke, "setting_is_disabled"), patch.object(smoke, "capture"), \
+                    patch.object(smoke, "restore_animations", return_value=True), \
+                    patch.object(runtime_smoke.subprocess, "Popen", side_effect=popen), \
+                    patch.object(runtime_smoke, "time", clock):
+                reports = smoke.verify_theme_launches()
+            for name in reports:
+                report = json.loads((Path(directory) / name).read_text())
+                self.assertEqual("passed", report["result"], report.get("error"))
+                self.assertTrue(report["systemFrames"])
+                self.assertTrue(report["appFrames"])
+                self.assertEqual([], report["wrongFrames"])
 
     def test_wrong_case_label_or_bar_style_stops_before_force_stop(self):
         for label, window, message in (("Light Paper", ThemeLaunchTest.window("app"), "Missing exact theme UI label"),
