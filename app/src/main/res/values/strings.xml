@@ -582,4 +582,8 @@
     <string name="icon_style_monochrome">Monochrome</string>
     <string name="icon_style_wordmark">Wordmark</string>
     <string name="icon_label_with_style">%1$s · %2$s</string>
+
+    <!-- Claude Code figure (CH-3): the switch under Claude's provider icon row. -->
+    <string name="settings_animate_claude_code_title">Animate Claude Code icon</string>
+    <string name="settings_animate_claude_code_subtitle">Moves with Claude\'s usage in Overview and Account detail. Off when Android\'s “Remove animations” is on.</string>
 </resources>

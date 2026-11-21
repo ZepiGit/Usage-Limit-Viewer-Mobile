@@ -353,6 +353,10 @@ class UsageViewModel(
         viewModelScope.launch { container.settingsStore.setOverviewShowCredits(show) }
     }
 
+    fun setAnimateClaudeCodeIcon(animate: Boolean) {
+        viewModelScope.launch { container.settingsStore.setAnimateClaudeCodeIcon(animate) }
+    }
+
     fun setPercentDisplay(mode: PercentDisplay) {
         viewModelScope.launch {
             container.settingsStore.setPercentDisplay(mode)

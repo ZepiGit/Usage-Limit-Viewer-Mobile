@@ -98,7 +98,11 @@ class UsageLimitsActivity : ComponentActivity() {
                 appTheme = theme, providerIcons = settings.providerIcons,
                 textFont = settings.textFont, figureFont = settings.figureFont,
             ) {
-                UsageLimitsNavigation(container, windowSizeClass, pending.value, ::handled)
+                androidx.compose.runtime.CompositionLocalProvider(
+                    com.usagelimits.ui.LocalAnimateClaudeCodeIcon provides settings.animateClaudeCodeIcon,
+                ) {
+                    UsageLimitsNavigation(container, windowSizeClass, pending.value, ::handled)
+                }
             }
             SideEffect {
                 if (appliedTheme != theme) {

@@ -12,13 +12,24 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.TextView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import com.usagelimits.core.model.ClaudeCodeMood
+import com.usagelimits.ui.theme.UsageColors
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
@@ -633,6 +644,92 @@ class RedesignCaptureTest {
 
     @Config(qualifiers = "+de", fontScale = 1.6f)
     @Test fun `dials and settings in German at larger text`() = captureAll("de-large", dialScreens())
+
+    // 05a: the Claude Code figure (CH-3), with motion off so every capture shows still poses.
+
+    /** A second Claude account, 96 % left: Dancing, beside Work's Working (29 % left in its weekly window). */
+    private val claudeSide = AccountUsage(
+        account("claude-side", ProviderId.CLAUDE, "Side", "Pro"),
+        UsageSnapshot("claude-side", NOW - 2 * 60_000, SnapshotStatus.OK, windows = listOf(
+            window("5h", "5h limit", WindowCategory.FIVE_HOUR, 4.0, 18_000, 3 * HOUR),
+            window("week", "Weekly", WindowCategory.WEEKLY, 2.0, 604_800, 5 * 24 * HOUR),
+        )),
+    )
+
+    private fun claudeScreens(): List<Pair<String, @Composable () -> Unit>> {
+        val twoClaudes = state.copy(accounts = listOf(claude, claudeSide, codex))
+        val settings: @Composable (AppSettings) -> Unit = { settings ->
+            SettingsScreen(twoClaudes.copy(settings = settings), onSyncIntervalChange = {}, onNotificationPermissionHandled = {},
+                onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {}, onNotifyResetCredit = {},
+                onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {},
+                onOverviewLayoutChange = {}, onPercentDisplayChange = {}, nowMs = NOW)
+        }
+        return listOf(
+            "claude-overview-list" to {
+                OverviewScreen(twoClaudes, nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                    onPercentDisplayChange = {})
+            },
+            "claude-overview-dials" to {
+                OverviewScreen(twoClaudes.copy(settings = AppSettings(overviewLayout = OverviewLayout.DIALS)), nowMs = NOW,
+                    zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {})
+            },
+            "claude-detail" to {
+                AccountDetailScreen(usage = claudeSide, nowMs = NOW, staleAfterMs = state.staleAfterMs,
+                    percentDisplay = PercentDisplay.LEFT, resetInFlight = false, supportsResetCredits = false, onRefresh = {},
+                    onConsumeResetCredit = {}, onRemove = {}, notificationsEnabled = true, onNotificationsChange = {})
+            },
+            "claude-resets" to { ResetsScreen(state = twoClaudes, nowMs = NOW) },
+            "claude-settings" to { settings(AppSettings()) },
+            "claude-settings-monochrome" to { settings(AppSettings(providerIcons = mapOf(ProviderId.CLAUDE.id to "claudecode"))) },
+            "claude-settings-preview-list" to { settings(AppSettings()) },
+            "claude-settings-preview-dials" to { settings(AppSettings(overviewLayout = OverviewLayout.DIALS)) },
+        )
+    }
+
+    /** Every mood's still at every slot size, in Color and in Monochrome, on the row surface. */
+    @Composable
+    private fun ClaudeStillSheet() {
+        val slots = listOf(FigureSlot.DIAL_PREVIEW, FigureSlot.LIST_PREVIEW, FigureSlot.LIST_ROW, FigureSlot.DIAL, FigureSlot.DETAIL)
+        Column(Modifier.background(UsageColors.Ground).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for ((fillName, fill) in listOf("Color" to ClaudeCodeBrand, "Monochrome" to UsageColors.Ink)) {
+                Text("$fillName · 16 / 20 / 28 / 34 / 36 dp", color = UsageColors.Muted)
+                for (mood in ClaudeCodeMood.entries) {
+                    Row(Modifier.background(UsageColors.Surface).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(mood.name.lowercase(), Modifier.width(72.dp), color = UsageColors.Ink)
+                        for (slot in slots) {
+                            Box(Modifier.size(60.dp), contentAlignment = Alignment.Center) {
+                                ClaudeCodeFigure(mood, fill, slot, Modifier.size(slot.size))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun `claude code figure stills and screens`() {
+        val current = mutableStateOf<@Composable () -> Unit>({})
+        val theme = mutableStateOf(AppTheme.PURE_BLACK)
+        compose.setContent {
+            UsageLimitsTheme(appTheme = theme.value) {
+                CompositionLocalProvider(LocalMotionEnabled provides false) { current.value() }
+            }
+        }
+        val cases = listOf<Pair<String, @Composable () -> Unit>>("claude-still-sheet" to { ClaudeStillSheet() }) + claudeScreens()
+        // Light paper: the Monochrome figure takes the theme's ink and the "z" its muted text.
+        val paper = cases.filter { (name, _) -> name in setOf("claude-still-sheet", "claude-overview-list", "claude-settings-monochrome") }
+        for ((index, case) in (cases + paper).withIndex()) {
+            val light = index >= cases.size
+            theme.value = if (light) AppTheme.LIGHT_PAPER else AppTheme.PURE_BLACK
+            val (name, content) = case
+            current.value = { androidx.compose.runtime.key(name) { content() } }
+            compose.waitForIdle()
+            if (name.startsWith("claude-settings-preview")) {
+                compose.onNode(hasScrollToNodeAction()).performScrollToKey("overview-heading")
+            }
+            captureScreen(case.first, theme.value.name.lowercase())
+        }
+    }
 }
 
 /** The Glance widgets through a real host view, as WidgetAppearanceRenderingTest does it, at 2x. */

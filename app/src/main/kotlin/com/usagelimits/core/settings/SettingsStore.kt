@@ -77,6 +77,8 @@ data class AppSettings(
     val overviewCreditLayout: OverviewCreditLayout = OverviewCreditLayout.NORMAL,
     val overviewShowFirst: OverviewShowFirst = OverviewShowFirst.USAGE_PROVIDERS,
     val overviewShowCredits: Boolean = true,
+    /** Whether Claude's two Claude Code icons move; on by default (CH-3). */
+    val animateClaudeCodeIcon: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_SYNC_INTERVAL_MINUTES = 30
@@ -191,6 +193,8 @@ class SettingsStore(context: Context) {
         it[Keys.OVERVIEW_SHOW_CREDITS] = show
     }
 
+    suspend fun setAnimateClaudeCodeIcon(animate: Boolean) = edit { it[Keys.ANIMATE_CLAUDE_CODE_ICON] = animate }
+
     /**
      * Counts the figures down (LEFT) or up (USED). Widgets observe this like every other setting;
      * the ViewModel additionally refreshes them so cold compositions repaint at once.
@@ -266,6 +270,7 @@ internal fun Preferences.toSettings() = AppSettings(
         OverviewShowFirst.entries.firstOrNull { it.name == stored }
     } ?: OverviewShowFirst.USAGE_PROVIDERS,
     overviewShowCredits = this[Keys.OVERVIEW_SHOW_CREDITS] ?: true,
+    animateClaudeCodeIcon = this[Keys.ANIMATE_CLAUDE_CODE_ICON] ?: true,
 )
 
 /**
@@ -306,6 +311,7 @@ private object Keys {
     val OVERVIEW_CREDIT_LAYOUT = stringPreferencesKey("overview_credit_layout")
     val OVERVIEW_SHOW_FIRST = stringPreferencesKey("overview_show_first")
     val OVERVIEW_SHOW_CREDITS = booleanPreferencesKey("overview_show_credits")
+    val ANIMATE_CLAUDE_CODE_ICON = booleanPreferencesKey("animate_claude_code_icon")
     val MUTED_ACCOUNTS = stringSetPreferencesKey("muted_account_ids")
     val PERCENT_DISPLAY = stringPreferencesKey("percent_display")
     val STATUS_ICONS_ENABLED = booleanPreferencesKey("status_icons_enabled")

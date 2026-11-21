@@ -498,6 +498,8 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     onOverviewShowFirstChange = viewModel::setOverviewShowFirst,
                     onOverviewShowCreditsChange = viewModel::setOverviewShowCredits,
                     onManageCredits = { navController.navigate(Destination.ManageCredits.route) },
+                    onAnimateClaudeCodeIconChange = viewModel::setAnimateClaudeCodeIcon,
+                    nowMs = nowMs,
                 )
             }
 

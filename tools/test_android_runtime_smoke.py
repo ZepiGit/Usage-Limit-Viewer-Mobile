@@ -797,10 +797,72 @@ class InvocationTest(unittest.TestCase):
             with patch.object(smoke, "seed_list", side_effect=lambda *a: calls.append("seed") or {"overview": ["a"]}), \
                     patch.object(smoke, "verify_chip_press", side_effect=lambda *a: calls.append("chip")), \
                     patch.object(smoke, "open_seeded_row",
-                                 side_effect=lambda *a: calls.append("row") or {"tapped": "b", "shownOnScreen": ["a", "b"]}):
+                                 side_effect=lambda *a: calls.append("row") or {"tapped": "b", "shownOnScreen": ["a", "b"]}), \
+                    patch.object(smoke, "verify_figure_switch", side_effect=lambda *a: calls.append("figure")):
                 record = smoke.seeded_steps(Path("app-debug.apk"))
-        self.assertEqual(["seed", "chip", "row"], calls)
+        self.assertEqual(["seed", "chip", "row", "figure"], calls)
         self.assertEqual("passed", record["seededList"])
+
+
+class FigureSwitchTest(unittest.TestCase):
+    """05a: the switch under the moving Claude Code figure takes a tap; animations end off on every way out."""
+
+    def run_step(self, tap_lands=True, switch_shown=True, scale_after_restore="0.0"):
+        """verify_figure_switch on a stand-in device; returns what it raised (or None), the scale puts and the report."""
+        state = {"scale": "0.0", "puts": [], "checked": "true", "taps": 0}
+
+        def adb(*args, **kwargs):
+            if args[:3] == ("shell", "settings", "put"):
+                state["puts"].append(args[-1])
+                state["scale"] = args[-1] if args[-1] != "0.0" else scale_after_restore
+            if args[:3] == ("shell", "settings", "get"):
+                return state["scale"]
+            return ""
+
+        def dump(*args, **kwargs):
+            switch = (f'<node package="{runtime_smoke.DEBUG_PACKAGE}" content-desc="{runtime_smoke.ANIMATE_CLAUDE}" '
+                      f'enabled="true" clickable="true" checkable="true" checked="{state["checked"]}" bounds="[600,300][700,360]"/>')
+            return ET.fromstring(f'<hierarchy>{switch if switch_shown else ""}</hierarchy>')
+
+        def tap(node, deadline=None):
+            state["taps"] += 1
+            if tap_lands:
+                state["checked"] = "false" if state["checked"] == "true" else "true"
+
+        with TemporaryDirectory() as directory, patch.object(runtime_smoke.time, "sleep", lambda seconds: None):
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "adb", side_effect=adb), patch.object(smoke, "dump", side_effect=dump), \
+                    patch.object(smoke, "tap", side_effect=tap), patch.object(smoke, "navigate"), \
+                    patch.object(smoke, "capture"), patch.object(smoke, "scroll"):
+                try:
+                    smoke.verify_figure_switch("figure", runtime_smoke.DEBUG_PACKAGE)
+                    raised = None
+                except AssertionError as error:
+                    raised = error
+            report = json.loads((Path(directory) / "figure.json").read_text())
+        return raised, state, report
+
+    def test_a_tap_that_lands_turns_the_switch_off_then_on_and_animations_end_off(self):
+        raised, state, report = self.run_step()
+        self.assertIsNone(raised)
+        self.assertEqual((2, "true"), (state["taps"], state["checked"]))
+        self.assertEqual(["1.0", "0.0"], state["puts"])
+        self.assertEqual(("false", "true", "0.0"),
+                         (report["switchReadAfterTap"], report["switchReadAfterSecondTap"], report["animatorScaleRestored"]))
+
+    def test_a_lost_tap_fails_and_animations_still_end_off(self):
+        raised, state, report = self.run_step(tap_lands=False)
+        self.assertRegex(str(raised), "UI did not reach figure-false")
+        self.assertEqual(["1.0", "0.0"], state["puts"])
+        self.assertEqual("0.0", report["animatorScaleRestored"])
+
+    def test_no_switch_means_no_figure_and_fails(self):
+        raised, _, _ = self.run_step(switch_shown=False)
+        self.assertRegex(str(raised), "does not show the Claude Code figure")
+
+    def test_animations_left_on_fail_the_smoke(self):
+        raised, _, _ = self.run_step(scale_after_restore="1.0")
+        self.assertRegex(str(raised), "not turned off again")
 
 
 class CreditHierarchyTest(unittest.TestCase):
@@ -905,6 +967,118 @@ class CreditHierarchyTest(unittest.TestCase):
                 root = ET.fromstring(device.hierarchy())
                 self.assertIsNotNone(runtime_smoke.credit_checked(root, "Kompakt", False))
                 self.assertIsNotNone(runtime_smoke.credit_checked(root, "Normal", True))
+
+    class HideDevice(FakeDevice):
+        """Switch geometry and 549px Hide reflow observed in runs 44888484546 / 44888487707."""
+
+        def __init__(self, first_top, second_top, outcome="hidden", failed_hide=1):
+            super().__init__()
+            self.top = first_top
+            self.second_top = second_top
+            self.checked = True
+            self.outcome = outcome
+            self.failed_hide = failed_hide
+            self.hide = 0
+
+        def answer(self, command):
+            if command[:3] == ("shell", "input", "tap"):
+                x, y = map(int, command[3:5])
+                if 573 <= x < 664 and max(144, self.top) <= y < min(1336, self.top + 84):
+                    if self.checked:
+                        self.hide += 1
+                        outcome = self.outcome if self.hide == self.failed_hide else "hidden"
+                        if outcome != "lost":
+                            self.checked = outcome != "hidden"
+                            self.top -= 549
+                    else:
+                        self.checked = True
+                        self.top += 549
+                return b""
+            if command[:3] == ("shell", "input", "swipe"):
+                self.top += 596 if int(command[4]) < int(command[6]) else -596
+                return b""
+            return super().answer(command)
+
+        def hierarchy(self):
+            pkg = self.PACKAGE
+            label, switch = "", ""
+            if self.top + 31 > 144 and self.top + 2 < 1336:
+                label = (f'<node package="{pkg}" text="Guthaben anzeigen" '
+                         f'bounds="[56,{max(144, self.top + 2)}][261,{min(1336, self.top + 31)}]"/>')
+            if self.top + 84 > 144 and self.top < 1336:
+                switch = (f'<node package="{pkg}" enabled="true" clickable="true" checkable="true" '
+                          f'checked="{str(self.checked).lower()}" bounds="[573,{self.top}][664,{self.top + 84}]">'
+                          f'<node package="{pkg}" content-desc="Guthaben anzeigen" clickable="false" '
+                          f'bounds="[573,{max(144, self.top + 14)}][664,{min(1336, self.top + 70)}]"/></node>')
+            return (f'<hierarchy><node package="{pkg}" enabled="true" scrollable="true" '
+                    f'bounds="[0,144][720,1336]"><node package="{pkg}" enabled="true" '
+                    f'bounds="[56,102][664,{min(1336, self.top + 361)}]">{label}{switch}'
+                    '</node></node></hierarchy>').encode()
+
+    def hide_journey(self, device, directory):
+        """Skip unrelated screens; keep the real credit_steps Hide/Show callers and adb selection path."""
+        smoke = Smoke(Path(directory), "test-device")
+        control, dump, wait_for = smoke.credit_control, smoke.dump, smoke.wait_for
+        labels = ("Synthetic credit", "$3.18", "Name", "Compact", "Kompakt", "Guthabenkonten",
+                  "Credits · 1 balance", "Nothing to monitor yet", "Guthaben · 1 Konto", "Noch nichts zu verfolgen")
+        unrelated = ET.fromstring('<hierarchy>' + ''.join(
+            f'<node package="{device.PACKAGE}" enabled="true" checkable="true" checked="true" '
+            f'clickable="true" bounds="[0,{10 + i * 90}][300,{60 + i * 90}]" '
+            f'content-desc="{label}, Low balance: Synthetic credit 3.18, Niedriges Guthaben: Synthetic credit 3,18">'
+            f'<node package="{device.PACKAGE}" text="{label}" bounds="[0,{10 + i * 90}][200,{60 + i * 90}]"/>'
+            '</node>' for i, label in enumerate(labels)) + '</hierarchy>')
+
+        def reach(name, label, **kwargs):
+            if name in ("credits-de-hide", "credits-de-hide-again", "credits-de-restored-show"):
+                if name == "credits-de-hide-again":
+                    device.top = device.second_top
+                elif name == "credits-de-restored-show":
+                    device.top = 953
+                return control(name, label, **kwargs)
+            return self.tree(label)[0]
+
+        def observe(name, **kwargs):
+            if name.startswith(("credits-de-hide-", "credits-de-hidden-", "credits-de-restored-")) \
+                    or name in ("credits-de-persisted-hidden", "credits-de-final-hidden"):
+                return dump(name, **kwargs)
+            if name == "credits-de-persisted-no-credit":
+                return ET.fromstring("<hierarchy/>")
+            return unrelated
+
+        def wait(name, predicate, **kwargs):
+            if name in ("credits-de-hidden-settings", "credits-de-hidden-again"):
+                return wait_for(name, predicate, **kwargs)
+            return unrelated
+
+        with patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device), \
+                patch.object(smoke, "seed_credit_only"), patch.object(smoke, "launch"), \
+                patch.object(smoke, "navigate_credit"), patch.object(smoke, "capture"), \
+                patch.object(smoke, "credit_control", side_effect=reach), \
+                patch.object(smoke, "dump", side_effect=observe), \
+                patch.object(smoke, "wait_for", side_effect=wait):
+            return smoke.credit_steps(Path("fixture.apk"))
+
+    def test_hide_callers_observe_the_unchecked_switch_after_reflow(self):
+        for first_top, second_top in ((488, 664), (1228, 488), (1228, 664)):
+            with self.subTest(first_top=first_top, second_top=second_top), TemporaryDirectory() as directory:
+                device = self.HideDevice(first_top, second_top)
+                result = self.hide_journey(device, directory)
+                self.assertEqual("hidden choice persisted", result["creditRelaunch"])
+                self.assertIsNotNone(runtime_smoke.credit_checked(
+                    ET.fromstring(device.hierarchy()), "Guthaben anzeigen", False))
+                self.assertFalse(device.checked)
+
+    def test_hide_callers_reject_lost_taps_and_wrong_selection(self):
+        for failed_hide, name in ((1, "credits-de-hidden-settings"), (2, "credits-de-hidden-again")):
+            for outcome in ("lost", "wrong"):
+                with self.subTest(hide=failed_hide, outcome=outcome), TemporaryDirectory() as directory:
+                    device = self.HideDevice(488, 488, outcome, failed_hide)
+                    with self.assertRaisesRegex(AssertionError, f"UI did not reach {name}"):
+                        self.hide_journey(device, directory)
+                    self.assertIsNotNone(runtime_smoke.credit_checked(
+                        ET.fromstring(device.hierarchy()), "Guthaben anzeigen", True))
+                    self.assertTrue(device.checked)
 
     def test_selected_semantics_without_checked_attribute(self):
         root = ET.fromstring(f'''<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true"
