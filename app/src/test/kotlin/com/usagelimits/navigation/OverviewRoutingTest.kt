@@ -55,6 +55,7 @@ import com.usagelimits.core.sync.resetTestWorkManager
 import com.usagelimits.feature.waitDrained
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
