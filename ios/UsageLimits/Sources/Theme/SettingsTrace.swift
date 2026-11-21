@@ -31,6 +31,7 @@ enum SettingsTrace {
     private static var previousBodyCount = 0
     private static var previousFigureCount = 0
     private static var previousSettingsFigureCount = 0
+    static var nativeControlBoundary: (identity: String, field: String)?
 
     static func settingsBody() {
         guard isEnabled else { return }
@@ -52,7 +53,8 @@ enum SettingsTrace {
 
     static func record(_ event: @autoclosure () -> String) {
         guard isEnabled else { return }
-        let entry = line(event())
+        let event = event()
+        let entry = line(event)
         previousBodyCount = bodyCount
         previousFigureCount = figureCount
         previousSettingsFigureCount = settingsFigureCount
@@ -67,6 +69,13 @@ enum SettingsTrace {
         #else
         print("[settings-trace] \(entry)")
         #endif
+        if let boundary = nativeControlBoundary,
+           event.hasPrefix("settings didSet source=control edit "),
+           event.contains("\(boundary.field)=") {
+            nativeControlBoundary = nil
+            let changes = event.dropFirst("settings didSet source=control edit ".count)
+            record("native first-binding \(boundary.identity) field=\(boundary.field) changes={\(changes)}")
+        }
     }
 
     static func snapshot() -> String {

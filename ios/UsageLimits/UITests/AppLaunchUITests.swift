@@ -176,7 +176,11 @@ final class AppLaunchUITests: XCTestCase {
         }
     }
 
-    private func selectSegment(_ option: String, in identifier: String, app: XCUIApplication, towardStart: Bool? = nil) {
+    private func selectSegment(_ option: String, in identifier: String, app: XCUIApplication,
+                               towardStart: Bool? = nil, quickTap: Bool = false) {
+        defer {
+            if app.launchArguments.contains("-settings-native-control-trace") { attachSettingsTrace(in: app) }
+        }
         let bottomTabs = bottomTabBarFrame(in: app)
         let control = app.segmentedControls[identifier]
         guard scrollTo(control, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs) else {
@@ -191,7 +195,14 @@ final class AppLaunchUITests: XCTestCase {
             return
         }
         let tapFrame = segment.frame
-        let uptime = pressUptime { segment.press(forDuration: $0) }
+        let uptime: String
+        if quickTap {
+            let began = ProcessInfo.processInfo.systemUptime
+            segment.tap()
+            uptime = "\(began)–\(ProcessInfo.processInfo.systemUptime)"
+        } else {
+            uptime = pressUptime { segment.press(forDuration: $0) }
+        }
         guard app.navigationBars["Settings"].exists else {
             reportControlFailure("Selecting \(option) in \(identifier) left Settings",
                                  control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
@@ -466,6 +477,83 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertEqual(postDispatch.count, 1, "Capture the first main-loop turn after native ended dispatch")
         XCTAssertTrue(postDispatch.first?.contains("phase=ended") == true)
         XCTAssertTrue(app.navigationBars["Settings"].exists)
+    }
+
+    func testQuickNativeCreditsSegmentAndMenuSelectionsTraceBindingEdits() {
+        let app = launch([
+            "-marketing-demo", "-overview-credits-demo", "-reduce-motion", "-settings-native-control-trace"
+        ])
+        defer { app.terminate() }
+        tabButton("Settings", in: app).tap()
+        let layout = app.segmentedControls["settings-overview-credit-layout"]
+        XCTAssertTrue(scrollTo(layout, in: app, towardStart: false,
+                               clearOfBottomTabs: bottomTabBarFrame(in: app)))
+        XCTAssertTrue(layout.buttons["Normal"].isSelected)
+        selectSegment("Compact", in: "settings-overview-credit-layout", app: app,
+                      towardStart: false, quickTap: true)
+        selectMenuOption("Credit accounts", in: "settings-overview-show-first", app: app, quickTap: true)
+
+        let trace = settingsTrace(in: app)
+        let lines = trace.components(separatedBy: "\n")
+        let segments = lines.filter {
+            $0.contains("native segment observed ") && $0.contains("axID=settings-overview-credit-layout ")
+        }
+        XCTAssertEqual(segments.count, 1, trace)
+        let segmentChanges = lines.filter {
+            $0.contains("native segment valueChanged ") && $0.contains("axID=settings-overview-credit-layout ")
+        }
+        XCTAssertEqual(segmentChanges.count, 1, trace)
+        XCTAssertTrue(segmentChanges.first?.contains("selectedSegmentIndex=1") == true, trace)
+        if let observed = segments.first {
+            for key in ["touchID=", "control="] {
+                let identity = observed.components(separatedBy: " ").first { $0.hasPrefix(key) }
+                XCTAssertNotNil(identity, trace)
+                if let identity { XCTAssertTrue(segmentChanges.first?.contains(identity) == true, trace) }
+            }
+        }
+        let menu = lines.first {
+            ($0.contains("native menu observed ") || $0.contains("native unavailable observed "))
+                && $0.contains("axID=settings-overview-show-first ")
+        }
+        XCTAssertNotNil(menu, "The menu must identify its actual native view, including an unavailable UIControl: \(trace)")
+        for (field, value) in [("overviewCreditLayout", "compact"), ("overviewShowFirst", "creditAccounts")] {
+            let edits = lines.filter {
+                $0.contains("settings didSet source=control edit ") && $0.contains("\(field)=")
+            }
+            XCTAssertEqual(edits.count, 1, trace)
+            XCTAssertTrue(edits.first?.contains("\(field)=\(value)") == true, trace)
+            XCTAssertEqual(lines.filter {
+                $0.contains("native first-binding ") && $0.contains("field=\(field) ")
+            }.count, 1, trace)
+        }
+        XCTAssertTrue(lines.contains {
+            $0.contains("native segment post-dispatch ") && $0.contains("phase=ended ")
+                && $0.contains("axID=settings-overview-credit-layout ")
+        }, trace)
+        // A UIButton primary action opens a menu; it is not proof of a selected private menu item.
+        XCTAssertTrue(app.navigationBars["Settings"].exists)
+    }
+
+    func testMissingNativeMenuChoiceAttachesFailureTrace() {
+        let app = launch([
+            "-marketing-demo", "-overview-credits-demo", "-reduce-motion", "-settings-native-control-trace"
+        ])
+        defer { app.terminate() }
+        tabButton("Settings", in: app).tap()
+        let options = XCTExpectedFailure.Options()
+        options.issueMatcher = { issue in
+            issue.compactDescription.contains("Missing menu option Unavailable diagnostic choice in settings-overview-show-first")
+        }
+        XCTExpectFailure("Exercise the real missing-choice screenshot and trace attachment path", options: options) {
+            self.selectMenuOption("Unavailable diagnostic choice", in: "settings-overview-show-first",
+                                  app: app, quickTap: true)
+        }
+        let trace = settingsTrace(in: app)
+        XCTAssertTrue(trace.components(separatedBy: "\n").contains {
+            ($0.contains("native menu observed ") || $0.contains("native unavailable observed "))
+                && $0.contains("axID=settings-overview-show-first ")
+        }, trace)
+        XCTAssertFalse(trace.contains("settings didSet source=control edit "), trace)
     }
 
     func testMeasureSettingsPreviewMainThreadGaps() {
@@ -905,7 +993,11 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(scrollTo(compact, in: app))
     }
 
-    private func selectMenuOption(_ option: String, in identifier: String, app: XCUIApplication) {
+    private func selectMenuOption(_ option: String, in identifier: String, app: XCUIApplication,
+                                  quickTap: Bool = false) {
+        defer {
+            if app.launchArguments.contains("-settings-native-control-trace") { attachSettingsTrace(in: app) }
+        }
         let control = app.descendants(matching: .any)[identifier].firstMatch
         let bottomTabs = bottomTabBarFrame(in: app)
         guard scrollTo(control, in: app, towardStart: false) else {
@@ -914,7 +1006,14 @@ final class AppLaunchUITests: XCTestCase {
             return
         }
         let menuFrame = control.frame
-        let openedAt = pressUptime { control.press(forDuration: $0) }
+        let openedAt: String
+        if quickTap {
+            let began = ProcessInfo.processInfo.systemUptime
+            control.tap()
+            openedAt = "\(began)–\(ProcessInfo.processInfo.systemUptime)"
+        } else {
+            openedAt = pressUptime { control.press(forDuration: $0) }
+        }
         let choice = app.buttons.matching(identifier: option).firstMatch
         guard choice.waitForExistence(timeout: 10) else {
             reportControlFailure("Missing menu option \(option) in \(identifier)",
@@ -924,7 +1023,14 @@ final class AppLaunchUITests: XCTestCase {
         }
         print("[settings-press] acknowledged uptime=\(openedAt) control=\(identifier) opened=true")
         let tapFrame = choice.frame
-        let selectedAt = pressUptime { choice.press(forDuration: $0) }
+        let selectedAt: String
+        if quickTap {
+            let began = ProcessInfo.processInfo.systemUptime
+            choice.tap()
+            selectedAt = "\(began)–\(ProcessInfo.processInfo.systemUptime)"
+        } else {
+            selectedAt = pressUptime { choice.press(forDuration: $0) }
+        }
         guard waitForSetting(control, in: app, matches: { control.label.contains(option) }) else {
             let message = control.exists ? "Found menu \(identifier), but it did not select \(option)"
                 : "Could not find menu \(identifier) after scrolling Settings"

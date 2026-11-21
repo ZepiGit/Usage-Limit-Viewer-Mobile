@@ -94,9 +94,13 @@ struct SettingsTraceProbe: UIViewRepresentable {
         private var nextTouchID = 0
         private var activeTouches: [ObjectIdentifier: Int] = [:]
         private let tracesNativeControls = ProcessInfo.processInfo.arguments.contains("-settings-native-control-trace")
-        private weak var nativeSwitch: UISwitch?
+        private weak var nativeView: UIView?
+        private var nativeKind = "unavailable"
+        private var nativeIdentifier = "unavailable"
         private var nativeTouchID: Int?
+        private var nativeDeliveryTouchID: Int?
         private var nativeValueChangedCount = 0
+        private var nativePrimaryActionCount = 0
 
         override init(target: Any?, action: Selector?) {
             super.init(target: target, action: action)
@@ -116,57 +120,129 @@ struct SettingsTraceProbe: UIViewRepresentable {
             for touch in touches {
                 nextTouchID += 1
                 activeTouches[ObjectIdentifier(touch)] = nextTouchID
-                observeNativeSwitch(for: touch, id: nextTouchID)
+                observeNativeControl(for: touch, id: nextTouchID)
                 record(touch, phase: "began", event: event)
             }
         }
 
         func stopNativeControlTrace() {
-            nativeSwitch?.removeTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
-            nativeSwitch = nil
+            if let control = nativeView as? UIControl {
+                control.removeTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
+                control.removeTarget(self, action: #selector(nativePrimaryAction(_:)), for: .primaryActionTriggered)
+            }
+            nativeView = nil
             nativeTouchID = nil
+            nativeDeliveryTouchID = nil
             nativeValueChangedCount = 0
+            nativePrimaryActionCount = 0
+            SettingsTrace.nativeControlBoundary = nil
         }
 
-        private func observeNativeSwitch(for touch: UITouch, id: Int) {
+        private func observeNativeControl(for touch: UITouch, id: Int) {
             guard tracesNativeControls else { return }
             var ancestor = touch.view
+            var candidate: UIControl?
+            var identifier = "unavailable"
             while let current = ancestor {
-                if let toggle = current as? UISwitch {
-                    stopNativeControlTrace()
-                    nativeSwitch = toggle
-                    nativeTouchID = id
-                    toggle.addTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
-                    SettingsTrace.record("native switch observed touchID=\(id) control=\(ObjectIdentifier(toggle)) "
-                        + "switchOn=\(toggle.isOn)")
-                    return
+                if candidate == nil, current is UISwitch || current is UISegmentedControl {
+                    candidate = current as? UIControl
+                } else if candidate == nil, let button = current as? UIButton, button.menu != nil {
+                    candidate = button
+                }
+                if let axID = current.accessibilityIdentifier,
+                   ["settings-overview-credit-layout", "settings-overview-show-first", "settings-overview-layout",
+                    "settings-animate-claude-code-icon", "settings-overview-show-credits"].contains(axID) {
+                    identifier = axID
                 }
                 ancestor = current.superview
             }
+            // Menu items can be private views in another hierarchy, not UIControls with an action API.
+            if candidate == nil, nativeIdentifier == "settings-overview-show-first", let menu = nativeView {
+                nativeDeliveryTouchID = id
+                SettingsTrace.record("native menu delivered touchID=\(id) menuTouchID=\(nativeTouchID ?? id) "
+                    + "control=\(ObjectIdentifier(menu)) axID=\(nativeIdentifier) "
+                    + "itemUIControl=unavailable association=preceding-menu-touch \(nativeState(menu))")
+                return
+            }
+            stopNativeControlTrace()
+            let candidateView: UIView? = candidate
+            guard let hit = candidateView ?? touch.view else { return }
+            nativeView = hit
+            nativeIdentifier = identifier
+            nativeTouchID = id
+            nativeDeliveryTouchID = id
+            if let toggle = candidate as? UISwitch {
+                nativeKind = "switch"
+                toggle.addTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
+            } else if let segment = candidate as? UISegmentedControl {
+                nativeKind = "segment"
+                segment.addTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
+            } else if let button = candidate as? UIButton {
+                nativeKind = "menu"
+                button.addTarget(self, action: #selector(nativePrimaryAction(_:)), for: .primaryActionTriggered)
+            } else {
+                nativeKind = "unavailable"
+            }
+            let field: String?
+            switch identifier {
+            case "settings-overview-credit-layout": field = "overviewCreditLayout"
+            case "settings-overview-show-first": field = "overviewShowFirst"
+            case "settings-overview-layout": field = "overviewLayout"
+            case "settings-animate-claude-code-icon": field = "animateClaudeCodeIcon"
+            case "settings-overview-show-credits": field = "overviewShowCredits"
+            default: field = nil
+            }
+            if let field {
+                SettingsTrace.nativeControlBoundary = (
+                    "kind=\(nativeKind) touchID=\(id) control=\(ObjectIdentifier(hit)) axID=\(identifier)", field)
+            }
+            SettingsTrace.record("native \(nativeKind) observed touchID=\(id) control=\(ObjectIdentifier(hit)) "
+                + "axID=\(identifier) class=\(String(describing: type(of: hit))) \(nativeState(hit))")
         }
 
-        @objc private func nativeValueChanged(_ sender: UISwitch) {
-            guard sender === nativeSwitch, let id = nativeTouchID else { return }
+        private func nativeState(_ view: UIView) -> String {
+            if let toggle = view as? UISwitch { return "switchOn=\(toggle.isOn)" }
+            if let segment = view as? UISegmentedControl {
+                return "selectedSegmentIndex=\(segment.selectedSegmentIndex)"
+            }
+            if let button = view as? UIButton, let menu = button.menu {
+                return "menu=\(ObjectIdentifier(menu)) selection=unobserved"
+            }
+            return "UIControl=unavailable"
+        }
+
+        @objc private func nativeValueChanged(_ sender: UIControl) {
+            guard sender === nativeView, let id = nativeTouchID else { return }
             nativeValueChangedCount += 1
-            SettingsTrace.record("native switch valueChanged touchID=\(id) control=\(ObjectIdentifier(sender)) "
-                + "count=\(nativeValueChangedCount) switchOn=\(sender.isOn)")
+            SettingsTrace.record("native \(nativeKind) valueChanged touchID=\(id) control=\(ObjectIdentifier(sender)) "
+                + "axID=\(nativeIdentifier) count=\(nativeValueChangedCount) \(nativeState(sender))")
+        }
+
+        @objc private func nativePrimaryAction(_ sender: UIButton) {
+            guard sender === nativeView, let id = nativeTouchID else { return }
+            nativePrimaryActionCount += 1
+            // This action can open the menu; only the existing settings edit proves an item selection.
+            SettingsTrace.record("native menu primaryActionTriggered touchID=\(id) control=\(ObjectIdentifier(sender)) "
+                + "axID=\(nativeIdentifier) count=\(nativePrimaryActionCount) \(nativeState(sender))")
         }
 
         private func recordAfterNativeDispatch(_ touch: UITouch, id: Int, phase: String) {
-            guard nativeTouchID == id, let toggle = nativeSwitch else { return }
-            let identity = ObjectIdentifier(toggle)
+            guard nativeDeliveryTouchID == id, let control = nativeView else { return }
+            let identity = ObjectIdentifier(control)
+            let kind = nativeKind
+            let identifier = nativeIdentifier
             // Read next main-loop turn without retaining the touch or extending the control's lifetime.
-            DispatchQueue.main.async { [weak self, weak toggle, weak hit = touch.view] in
-                guard let self, self.nativeTouchID == id else { return }
-                guard let toggle else {
-                    SettingsTrace.record("native switch post-dispatch touchID=\(id) phase=\(phase) "
-                        + "control=\(identity) alive=false valueChangedCount=\(self.nativeValueChangedCount)")
+            DispatchQueue.main.async { [weak self, weak control, weak hit = touch.view] in
+                guard let self, self.nativeDeliveryTouchID == id else { return }
+                let boundary = "native \(kind) post-dispatch touchID=\(id) phase=\(phase) "
+                    + "control=\(identity) axID=\(identifier) valueChangedCount=\(self.nativeValueChangedCount) "
+                    + "primaryActionCount=\(self.nativePrimaryActionCount)"
+                guard let control else {
+                    SettingsTrace.record("\(boundary) alive=false")
                     return
                 }
-                SettingsTrace.record("native switch post-dispatch touchID=\(id) phase=\(phase) "
-                    + "control=\(identity) alive=true attached=\(toggle.window != nil) switchOn=\(toggle.isOn) "
-                    + "valueChangedCount=\(self.nativeValueChangedCount) "
-                    + "recognizers=\(self.recognizers(from: hit ?? toggle))")
+                SettingsTrace.record("\(boundary) alive=true attached=\(control.window != nil) \(self.nativeState(control)) "
+                    + "recognizers=\(self.recognizers(from: hit ?? control))")
             }
         }
 
