@@ -99,7 +99,10 @@ internal sealed class Destination(val route: String) {
     data object Overview : Destination("overview")
     data object Resets : Destination("resets")
     data object Settings : Destination("settings")
-    data object AddAccount : Destination("add-account")
+    data object AddAccount : Destination("add-account?provider={provider}") {
+        fun of(provider: com.usagelimits.core.model.ProviderId? = null) =
+            provider?.let { "add-account?provider=${it.id}" } ?: "add-account"
+    }
     data object AddCredit : Destination("add-credit")
     data object ManageCredits : Destination("manage-credits")
     data object CreditDetail : Destination("credit/{creditId}") {
@@ -370,7 +373,8 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     // own detail state with a way back. A usage alert or a whole-widget tap opens Overview, over
     // whatever was showing. Each request is handled once.
     val route = (request as? ExternalRequest.OpenAccount)?.let {
-        AccountRoute.resolve(it.accountId, state.accounts.map { usage -> usage.account.localId }.takeIf { state.loaded })
+        AccountRoute.resolve(it.accountId, state.accounts.map { usage -> usage.account.localId }.takeIf { state.loaded },
+            unreadable = state.accountStorageUnreadable)
     }
     // The graph exists once the NavHost inside the scaffold has composed: on a cold start the
     // request waits for the host's first back stack entry before it navigates or is confirmed.
@@ -391,6 +395,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                 val accountId = when (val target = route ?: return@LaunchedEffect) {
                     is AccountRoute.Detail -> target.accountId
                     is AccountRoute.Unavailable -> target.accountId
+                    is AccountRoute.StorageError -> target.accountId
                 }
                 navController.navigate(Destination.AccountDetail.of(accountId)) {
                     popUpTo(navController.graph.findStartDestination().id)
@@ -456,8 +461,9 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     filter = overviewFilter,
                     onFilterChange = { overviewFilter = it },
                     onRefresh = viewModel::refresh,
+                    onRetryStorage = viewModel::retryAccountStorage,
                     onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
-                    onAddAccount = { navController.navigate(Destination.AddAccount.route) },
+                    onAddAccount = { navController.navigate(Destination.AddAccount.of()) },
                     onPercentDisplayChange = viewModel::setPercentDisplay,
                     onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
                     onAddCredit = { navController.navigate(Destination.AddCredit.route) },
@@ -486,7 +492,6 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     onFigureFontChange = viewModel::setFigureFont,
                     onStatusIconsChange = viewModel::setStatusIcons,
                     onPinnedChange = viewModel::setPinned,
-                    onNotificationsAllowed = viewModel::notificationsAllowed,
                     onNotifyBelow20 = viewModel::setNotifyBelow20,
                     onNotifyBelow10 = viewModel::setNotifyBelow10,
                     onNotifyExhausted = viewModel::setNotifyExhausted,
@@ -517,11 +522,21 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                 )
             }
 
-            composable(Destination.AddAccount.route) {
+            composable(Destination.AddAccount.route, arguments = listOf(
+                androidx.navigation.navArgument("provider") {
+                    type = androidx.navigation.NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            )) { entry ->
                 val addViewModel: AddAccountViewModel =
                     viewModel(factory = AddAccountViewModel.Factory(container))
                 val addState by addViewModel.state.collectAsState()
                 val context = androidx.compose.ui.platform.LocalContext.current
+                LaunchedEffect(entry) {
+                    com.usagelimits.core.model.ProviderId.fromId(entry.arguments?.getString("provider") ?: "")
+                        ?.let { addViewModel.startInitialLogin(context, it) }
+                }
 
                 AddAccountScreen(
                     state = addState,
@@ -593,8 +608,10 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     staleAfterMs = state.staleAfterMs,
                     percentDisplay = state.settings.percentDisplay,
                     resetInFlight = resetInFlight == accountId,
-                supportsResetCredits = supportsCredits,
-                onReconnect = { navController.navigate(Destination.AddAccount.route) },
+                    supportsResetCredits = supportsCredits,
+                    accountStorageUnreadable = state.accountStorageUnreadable,
+                    onRetryStorage = viewModel::retryAccountStorage,
+                    onReconnect = { usage?.account?.provider?.let { navController.navigate(Destination.AddAccount.of(it)) } },
                     onRefresh = { accountId?.let(viewModel::refreshAccount) },
                     onConsumeResetCredit = { accountId?.let(viewModel::consumeResetCredit) },
                     onRemove = {

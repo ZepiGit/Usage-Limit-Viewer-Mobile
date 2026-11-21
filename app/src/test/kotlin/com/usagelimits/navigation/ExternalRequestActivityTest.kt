@@ -40,6 +40,7 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.AccountDao
+import com.usagelimits.core.database.ControlledAccountReads
 import com.usagelimits.core.database.UsageRepository
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.ProviderAccount
@@ -97,6 +98,8 @@ class ExternalRequestActivityTest {
     private lateinit var original: AppContainer
     private lateinit var container: AppContainer
     private lateinit var initialSettings: AppSettings
+    private var controlAccountReads = false
+    private lateinit var accountReads: ControlledAccountReads
     private val controllers = mutableListOf<ActivityController<UsageLimitsActivity>>()
     private val selected = SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)
     private val compactCredits = hasContentDescription("Credits · 1 balance", substring = true)
@@ -123,7 +126,11 @@ class ExternalRequestActivityTest {
         original = app.container
         container = object : AppContainer(app) {
             override val repository: UsageRepository by lazy {
-                UsageRepository(GatedAccounts(database.accountDao(), gate), database.usageSnapshotDao(), transactions = transactions)
+                accountReads = ControlledAccountReads(database.accountDao())
+                UsageRepository(object : AccountDao by database.accountDao() {
+                    override fun observeAll() = if (controlAccountReads) accountReads.observeAll()
+                        else GatedAccounts(database.accountDao(), gate).observeAll()
+                }, database.usageSnapshotDao(), transactions = transactions)
             }
         }
         ReflectionHelpers.setField(app, "container", container)
@@ -137,6 +144,9 @@ class ExternalRequestActivityTest {
             // The activities end first: their view model's jobs are cancelled and run out on this
             // thread, so the looper is pumped until they have.
             for (controller in controllers.asReversed()) stop(controller)
+            lateinit var observer: Job
+            compose.runOnUiThread { observer = app.observeStatusIconEligibility() }
+            compose.waitDrained { observer.isCompleted }
         } finally {
             runBlocking {
                 container.settingsStore.setOverviewCreditLayout(initialSettings.overviewCreditLayout)
@@ -297,6 +307,25 @@ class ExternalRequestActivityTest {
         assertFalse("restoration replayed the handled link", shown("Remove account"))
     }
 
+    @Test fun `a cold activity account link reports an unreadable store and retry restores that account without replay`() {
+        controlAccountReads = true
+        val alpha = runBlocking { account("Alpha") }
+        runBlocking { accountReads.fail() }
+        val controller = start(link(alpha))
+        waitFor("cold-link storage error") { shown("Can't read accounts") && shown("Back to Overview") }
+        assertFalse("storage failure is not proof of removal", shown("This account is no longer available."))
+        compose.onNode(hasText("Try again") and hasClickAction()).performClick()
+        runBlocking { accountReads.succeed() }
+        waitFor("recovered cold-link detail") { onDetailOf("Alpha") }
+        assertFalse(shown("Can't read accounts"))
+        back(controller)
+        waitFor("Overview after the recovered detail") { onOverview() && !shown("Remove account") }
+        controller.recreate()
+        runBlocking { accountReads.succeed() }
+        waitFor("Overview after recreation") { onOverview() && shown("Alpha") }
+        assertFalse("recovery replayed the handled account link", shown("Remove account"))
+    }
+
     // Simulated: a new activity started from the intent the activity holds after handling, which
     // handled() has rewritten. Whether the system restores a task from that intent or from the one
     // it recorded at launch is not shown here; that needs a device.
@@ -416,7 +445,9 @@ class ExternalRequestActivityTest {
             compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasContentDescription("Show credits"))
             compose.onNode(hasContentDescription("Show credits") and hasClickAction()).performSemanticsAction(SemanticsActions.OnClick) { it() }
             compose.onNode(hasText("Overview") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).performClick()
-            waitFor("Overview with credits hidden") { onOverview() && !shown("Manage credit accounts") }
+            waitFor("Overview with credits hidden") { onOverview() && shown("Usage account") && compose.onAllNodes(compactCredits).fetchSemanticsNodes().isEmpty() }
+            assertTrue("the compact summary row itself is absent while credits are hidden",
+                compose.onAllNodes(compactCredits).fetchSemanticsNodes().isEmpty())
             compose.onNode(hasText("Settings") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).performClick()
             waitFor("Settings with credits hidden") { onSettings() }
             val manageCredits = hasText("Manage credit accounts") and hasClickAction()
@@ -431,7 +462,9 @@ class ExternalRequestActivityTest {
 
             stop(first)
             val restored = start(launcher())
-            waitFor("new activity restored hidden credits") { onOverview() && !shown("Synthetic credit edited") }
+            waitFor("new activity restored hidden credits") { onOverview() && shown("Usage account") && compose.onAllNodes(compactCredits).fetchSemanticsNodes().isEmpty() }
+            assertTrue("the restored hidden preference removes the compact summary row",
+                compose.onAllNodes(compactCredits).fetchSemanticsNodes().isEmpty())
             compose.onNode(hasText("Settings") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).performClick()
             waitFor("restored Settings") { onSettings() }
             compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasContentDescription("Show credits"))

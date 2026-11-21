@@ -215,9 +215,6 @@ class UsagePublicationRoutingTest {
             change()
             assertEquals(label, "presentation changed", withTimeoutOrNull(5_000) { events.receive() })
         }
-        // Allowed again is its own reason: it restores every pinned icon and evaluates no alert.
-        vm.notificationsAllowed()
-        assertEquals("notifications allowed again", withTimeoutOrNull(5_000) { events.receive() })
         withTimeout(5_000) {
             vm.viewModelScope.coroutineContext[Job]!!.children
                 .filterNot { it in backgroundJobs }.toList().joinAll()

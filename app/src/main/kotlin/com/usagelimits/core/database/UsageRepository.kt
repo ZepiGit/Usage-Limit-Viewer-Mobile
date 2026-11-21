@@ -12,9 +12,16 @@ import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.model.inOverviewOrder
 import com.usagelimits.core.model.confirmedResetWindowIds
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.UUID
@@ -31,6 +38,9 @@ data class AccountUsage(
                 it.windows.isNotEmpty() || it.resetCredits.isNotEmpty() || it.resetCreditCount != null
         }?.fetchedAt
 }
+
+/** A failed cache read keeps the last readable accounts until an explicit retry succeeds. */
+data class AccountUsageRead(val accounts: List<AccountUsage>, val unreadable: Boolean = false)
 
 /** Overview's automatic order (ADR 0004); see [com.usagelimits.core.model.inOverviewOrder]. */
 fun List<AccountUsage>.inOverviewOrder(nowMs: Long): List<AccountUsage> =
@@ -119,6 +129,27 @@ class UsageRepository(
                 )
             }
         }
+
+    private val readRetries = MutableStateFlow(0L)
+
+    /** Only the account cache is caught here, never settings, credits or a downstream consumer. */
+    fun observeAccountUsageRead(): Flow<AccountUsageRead> {
+        var known = emptyList<AccountUsage>()
+        return flow {
+            emitAll(observeAccountUsage().map { accounts ->
+                known = accounts
+                AccountUsageRead(accounts)
+            })
+        }.retryWhen { cause, _ ->
+            if (cause is CancellationException || cause !is Exception) throw cause
+            val generation = readRetries.value
+            emit(AccountUsageRead(known, unreadable = true))
+            readRetries.first { it != generation }
+            true
+        }
+    }
+
+    fun retryAccountRead() { readRetries.update { it + 1 } }
 
     fun observeAccounts(): Flow<List<ProviderAccount>> =
         accountDao.observeAll().map { list -> list.mapNotNull { it.toDomain() } }

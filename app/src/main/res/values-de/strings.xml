@@ -257,6 +257,11 @@
     <string name="resets_tomorrow">Morgen</string>
     <string name="resets_day_pattern">EEEE, d. MMM</string>
 
+    <!-- Account storage read recovery (#108). -->
+    <string name="storage_error_title">Konten nicht lesbar</string>
+    <string name="storage_error_body">Die auf diesem Gerät gespeicherten Konten konnten nicht gelesen werden. Versuche es erneut.</string>
+    <string name="storage_error_retry">Erneut versuchen</string>
+
     <!-- Account detail (feature/accounts/AccountDetailScreen.kt). -->
     <string name="account_unavailable">Dieses Konto ist nicht mehr verfügbar.</string>
     <string name="account_back_to_overview">Zurück zur Übersicht</string>

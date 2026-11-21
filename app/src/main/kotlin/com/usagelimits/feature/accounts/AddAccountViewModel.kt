@@ -99,6 +99,11 @@ class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
     /** The region picked for a regional provider; kept so "try again" and "use a key" reuse it. */
     private var chosenRegion: Pair<ProviderId, ProviderRegion>? = null
 
+    /** A retained route view model must not restart sign-in when its composition returns. */
+    fun startInitialLogin(context: Context, providerId: ProviderId) {
+        if (_state.value == AddAccountState.PickProvider && loginJob == null) startLogin(context, providerId)
+    }
+
     /** Records the picked region and carries on with the login it was asked for. */
     fun chooseRegion(context: Context, providerId: ProviderId, region: ProviderRegion) {
         chosenRegion = providerId to region

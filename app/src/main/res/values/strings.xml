@@ -263,6 +263,11 @@
     <string name="resets_tomorrow">Tomorrow</string>
     <string name="resets_day_pattern">EEEE d MMM</string>
 
+    <!-- Account storage read recovery (#108). -->
+    <string name="storage_error_title">Can\'t read accounts</string>
+    <string name="storage_error_body">The accounts stored on this device could not be read. Try again.</string>
+    <string name="storage_error_retry">Try again</string>
+
     <!-- Account detail (feature/accounts/AccountDetailScreen.kt). -->
     <string name="account_unavailable">This account is no longer available.</string>
     <string name="account_back_to_overview">Back to Overview</string>

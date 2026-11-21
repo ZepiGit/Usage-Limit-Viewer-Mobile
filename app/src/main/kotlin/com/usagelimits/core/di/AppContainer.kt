@@ -70,7 +70,7 @@ open class AppContainer(context: Context) {
         SyncEngine(repository, credentialStore, providerRegistry)
     }
 
-    val creditRepository: CreditRepository by lazy {
+    open val creditRepository: CreditRepository by lazy {
         CreditRepository(database.creditDao(), transactions = transactions)
     }
 

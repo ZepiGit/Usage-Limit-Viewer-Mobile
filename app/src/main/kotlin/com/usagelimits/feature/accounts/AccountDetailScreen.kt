@@ -76,6 +76,8 @@ fun AccountDetailScreen(
     loaded: Boolean = true,
     /** Back to Overview from a detail that has no account to show. */
     onBack: () -> Unit = {},
+    accountStorageUnreadable: Boolean = false,
+    onRetryStorage: () -> Unit = {},
 ) {
     if (usage == null) {
         Column(
@@ -85,7 +87,10 @@ fun AccountDetailScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (loaded) {
+            if (accountStorageUnreadable) {
+                AccountStorageError(onRetryStorage)
+                OutlineButton(stringResource(R.string.account_back_to_overview), onBack)
+            } else if (loaded) {
                 Text(
                     text = stringResource(R.string.account_unavailable),
                     style = MaterialTheme.typography.bodyLarge,
@@ -115,6 +120,9 @@ fun AccountDetailScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (accountStorageUnreadable) {
+            item { AccountStorageError(onRetryStorage) }
+        }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 com.usagelimits.ui.ProviderBadge(provider = usage.account.provider, size = 34.dp,
@@ -285,6 +293,15 @@ fun AccountDetailScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+internal fun AccountStorageError(onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    UsageCard(modifier) {
+        Text(stringResource(R.string.storage_error_title), style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
+        Text(stringResource(R.string.storage_error_body), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
+        OutlineButton(stringResource(R.string.storage_error_retry), onRetry)
     }
 }
 

@@ -33,6 +33,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.NonCancellable
@@ -70,6 +73,7 @@ data class UsageUiState(
     val credits: List<CreditEntry> = emptyList(),
     /** False only before the first repository emission, so an empty list is not read as "no accounts". */
     val loaded: Boolean = true,
+    val accountStorageUnreadable: Boolean = false,
     /**
      * Pin changes made but not yet stored, by account id: true to pin, false to unpin. Settings
      * shows them at once, so a toggle does not spring back while earlier changes are published.
@@ -128,10 +132,13 @@ data class UsageUiState(
  * would mean four collectors over the same Flow and four ways for them to disagree about
  * refresh state.
  */
-class UsageViewModel(
+class UsageViewModel internal constructor(
     private val container: AppContainer,
     private val appContext: Context,
-) : ViewModel() {
+    scope: CoroutineScope,
+) : ViewModel(scope) {
+    constructor(container: AppContainer, appContext: Context) :
+        this(container, appContext, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
 
     private val refreshing = MutableStateFlow(false)
     private val transientMessage = MutableStateFlow<String?>(null)
@@ -140,15 +147,16 @@ class UsageViewModel(
     private val pinRequests = MutableStateFlow<Map<String, PinRequest>>(emptyMap())
 
     val state: StateFlow<UsageUiState> = combine(
-        combine(container.repository.observeAccountUsage(), container.creditRepository.observeEntries()) { accounts, credits ->
-            accounts to credits
+        combine(container.repository.observeAccountUsageRead(), container.creditRepository.observeEntries()) { read, credits ->
+            read to credits
         },
         container.settingsStore.settings,
         refreshing,
         transientMessage,
         combine(container.settingsStore.diagnostics, pinRequests) { diagnostics, pending -> diagnostics to pending.mapValues { it.value.pinned } },
-    ) { (accounts, credits), settings, isRefreshing, message, (diagnostics, pending) ->
-        UsageUiState(accounts, settings, isRefreshing, message, diagnostics, credits, pendingPins = pending)
+    ) { (read, credits), settings, isRefreshing, message, (diagnostics, pending) ->
+        UsageUiState(read.accounts, settings, isRefreshing, message, diagnostics, credits,
+            accountStorageUnreadable = read.unreadable, pendingPins = pending)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState(loaded = false))
 
     private val _resetCreditInFlight = MutableStateFlow<String?>(null)
@@ -166,7 +174,13 @@ class UsageViewModel(
         }
     }
 
+    fun retryAccountStorage() { container.repository.retryAccountRead() }
+
     fun refresh() {
+        if (state.value.accountStorageUnreadable) {
+            retryAccountStorage()
+            return
+        }
         if (refreshing.value) return
         viewModelScope.launch {
             refreshing.value = true
@@ -188,6 +202,10 @@ class UsageViewModel(
     }
 
     fun refreshAccount(accountId: String) {
+        if (state.value.accountStorageUnreadable) {
+            retryAccountStorage()
+            return
+        }
         viewModelScope.launch {
             refreshing.value = true
             try {
@@ -403,18 +421,6 @@ class UsageViewModel(
 
     private var nextPinRequest = 0L
 
-
-    /**
-     * Settings saw notifications become allowed, through the dialog or the system's settings, or
-     * the "Status bar icons" category switched on again.
-     *
-     * Nothing could be shown before, so every pinned account's icon appears now, from the cache,
-     * also one swiped away before the block. Not a cache move: no reading is new, so alerts are
-     * not evaluated, and no provider is asked.
-     */
-    fun notificationsAllowed() {
-        viewModelScope.launch { container.publication.notificationsAllowedAgain() }
-    }
 
     fun recordNotificationPermissionHandled() {
         viewModelScope.launch { container.settingsStore.recordNotificationPermissionHandled() }
