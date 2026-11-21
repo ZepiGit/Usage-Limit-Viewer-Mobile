@@ -21,7 +21,7 @@ class ScreenshotExportTests(unittest.TestCase):
                 "iphone-settings", "iphone-settings-layout", "iphone-settings-credits",
                 "iphone-credits-compact", "iphone-credits-expanded",
                 "iphone-appearance-light", "iphone-appearance-black", "iphone-appearance-fonts", "iphone-appearance-fonts-de-large",
-                "iphone-claude-mood", "iphone-claude-resets-still", "iphone-claude-still-sheet",
+                "iphone-claude-mood", "iphone-claude-hooray", "iphone-claude-resets-still", "iphone-claude-still-sheet",
                 "ipad-overview", "ipad-overview-dials",
                 "iphone-widget-layout-guidance",
             ]
@@ -58,7 +58,7 @@ class ScreenshotExportTests(unittest.TestCase):
             (root / "manifest.json").write_text(json.dumps(records))
             for name in [
                 "iphone-overview-dials", "iphone-settings-layout", "ipad-overview-dials",
-                "iphone-credits-compact", "iphone-settings-credits", "iphone-widget-layout-guidance",
+                "iphone-credits-compact", "iphone-settings-credits", "iphone-widget-layout-guidance", "iphone-claude-hooray",
                 "iphone-appearance-light", "iphone-appearance-black", "iphone-appearance-fonts", "iphone-appearance-fonts-de-large",
             ]:
                 with self.subTest(name=name), self.assertRaisesRegex(ValueError, "found 0"):

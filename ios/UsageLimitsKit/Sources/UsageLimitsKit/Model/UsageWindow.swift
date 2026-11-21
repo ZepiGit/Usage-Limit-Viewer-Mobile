@@ -62,6 +62,8 @@ public struct UsageWindow: Sendable, Codable, Equatable {
     public let group: String?
     public let scope: UsageScope
     public let segments: [UsageSegment]
+    /// False when a sync retained a prior window rather than measuring it.
+    public let measured: Bool
 
     public init(
         id: String,
@@ -73,7 +75,8 @@ public struct UsageWindow: Sendable, Codable, Equatable {
         exhausted: Bool,
         group: String? = nil,
         scope: UsageScope = .global,
-        segments: [UsageSegment] = []
+        segments: [UsageSegment] = [],
+        measured: Bool = true
     ) {
         self.id = id
         self.label = label
@@ -85,6 +88,7 @@ public struct UsageWindow: Sendable, Codable, Equatable {
         self.group = group
         self.scope = scope
         self.segments = segments
+        self.measured = measured
     }
 
     public func with(id: String) -> UsageWindow {
@@ -116,7 +120,8 @@ public struct UsageWindow: Sendable, Codable, Equatable {
             resetAt: try c.decodeIfPresent(Date.self, forKey: .resetAt),
             exhausted: try c.decode(Bool.self, forKey: .exhausted), group: group,
             scope: try c.decodeIfPresent(UsageScope.self, forKey: .scope) ?? legacyScope,
-            segments: try c.decodeIfPresent([UsageSegment].self, forKey: .segments) ?? [])
+            segments: try c.decodeIfPresent([UsageSegment].self, forKey: .segments) ?? [],
+            measured: try c.decodeIfPresent(Bool.self, forKey: .measured) ?? true)
     }
 
     /// The figure token for a window in `mode`: the number only, no `%` — the UI composes it with

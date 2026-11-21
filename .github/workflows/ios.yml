@@ -139,7 +139,8 @@ jobs:
             tests=(-only-testing:UsageLimitsRenderingTests/PinnedAccountsRenderingTests
               -only-testing:UsageLimitsRenderingTests/AppearanceRenderingTests)
             if [ "$language" = en ]; then
-              tests+=(-only-testing:UsageLimitsRenderingTests/SignInMotionTests)
+              tests+=(-only-testing:UsageLimitsRenderingTests/SignInMotionTests
+                -only-testing:UsageLimitsRenderingTests/HoorayRenderingTests)
             fi
             TEST_RUNNER_PINNED_RENDERINGS="$out" TEST_RUNNER_PINNED_LANGUAGE="$language" \
             xcodebuild test-without-building \

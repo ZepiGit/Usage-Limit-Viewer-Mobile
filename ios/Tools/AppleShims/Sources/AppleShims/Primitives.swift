@@ -439,6 +439,21 @@ public struct GeometryReader: View {
 
 public struct GeometryProxy {
     public var size: CGSize { .zero }
+    public subscript<T>(anchor: Anchor<T>) -> T { fatalError("Geometry anchors are type-check-only") }
+}
+
+public struct Anchor<Value> {
+    public struct Source {}
+}
+
+extension Anchor.Source where Value == CGRect {
+    public static var bounds: Self { Self() }
+}
+
+public protocol PreferenceKey {
+    associatedtype Value
+    static var defaultValue: Value { get }
+    static func reduce(value: inout Value, nextValue: () -> Value)
 }
 
 // MARK: - App entry point
@@ -743,6 +758,7 @@ public struct CGPoint {
     public var x: Double
     public var y: Double
     public init(x: Double, y: Double) { self.x = x; self.y = y }
+    public static let zero = CGPoint(x: 0, y: 0)
 }
 
 public struct CGRect {
@@ -755,6 +771,16 @@ public struct CGRect {
     public var height: Double { size.height }
     public var midX: Double { origin.x + size.width / 2 }
     public var midY: Double { origin.y + size.height / 2 }
+    public init(origin: CGPoint, size: CGSize) { self.origin = origin; self.size = size }
+    public var isEmpty: Bool { size.width <= 0 || size.height <= 0 }
+    public var isNull: Bool { origin.x.isInfinite || origin.y.isInfinite }
+    public func intersection(_ other: CGRect) -> CGRect {
+        let x = max(origin.x, other.origin.x)
+        let y = max(origin.y, other.origin.y)
+        let right = min(origin.x + width, other.origin.x + other.width)
+        let bottom = min(origin.y + height, other.origin.y + other.height)
+        return CGRect(x: x, y: y, width: max(0, right - x), height: max(0, bottom - y))
+    }
 }
 
 /// A drawn outline: the calls the glyph and sign shapes make.

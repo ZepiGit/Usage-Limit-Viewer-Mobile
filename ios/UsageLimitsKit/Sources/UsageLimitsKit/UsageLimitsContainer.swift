@@ -135,6 +135,11 @@ public actor UsageLimitsContainer {
         try await repository.checkedUsage()
     }
 
+    /// The app completes this transaction before starting the opening’s refresh.
+    public func claimPendingResetConfirmations() async throws -> Set<String> {
+        try await repository.claimPendingResetConfirmations()
+    }
+
     // MARK: - Signing in
 
     /// Asks a provider for a code to show the user.

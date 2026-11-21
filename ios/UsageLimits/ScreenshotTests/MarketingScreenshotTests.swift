@@ -255,6 +255,31 @@ final class MarketingScreenshotTests: XCTestCase {
         capture("iphone-claude-resets-still", in: app)
     }
 
+    func testCaptureIPhoneClaudeHooray() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-fixture-hooray", "-reduce-motion", "-motion-log",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["overview-account-fixture-claude"].waitForExistence(timeout: 10))
+        let log = app.staticTexts["motion-log"]
+        let cheer = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            log.label.contains("claude:list:fixture-claude:hooray still")
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [cheer], timeout: 10), .completed)
+        capture("iphone-claude-hooray", in: app, requiresDemoLabel: false)
+        let expired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let entries = log.label.components(separatedBy: " | ")
+            guard let cheer = entries.lastIndex(where: { $0.contains("claude:list:fixture-claude:hooray still") }) else { return false }
+            return entries.dropFirst(cheer + 1).contains { $0.contains("claude:list:fixture-claude:idle still") }
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [expired], timeout: 10), .completed)
+        app.tabBars.buttons["Resets"].tap()
+        XCTAssertTrue(app.navigationBars["Resets"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["Overview"].tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+    }
+
     func testCaptureIPhoneClaudeStillSheet() {
         let app = launchDemo(["-claude-still-sheet", "-reduce-motion"])
         defer { app.terminate() }
