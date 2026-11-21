@@ -663,6 +663,13 @@ public struct ContentTransition {
 public struct Transaction {
     public var animation: Animation?
     public var disablesAnimations = false
+    public init(animation: Animation?) { self.animation = animation }
+}
+
+@discardableResult
+public func withTransaction<Result>(_ transaction: Transaction,
+                                    _ body: () throws -> Result) rethrows -> Result {
+    try body()
 }
 
 /// The widget family, declared here because `EnvironmentValues` lives in this module while

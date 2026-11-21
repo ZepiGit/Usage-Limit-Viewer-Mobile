@@ -70,6 +70,23 @@ public protocol ViewModifier {
     @ViewBuilder func body(content: Content) -> Body
 }
 
+public protocol VectorArithmetic: AdditiveArithmetic {
+    mutating func scale(by rhs: Double)
+    var magnitudeSquared: Double { get }
+}
+
+extension Double: VectorArithmetic {
+    public mutating func scale(by rhs: Double) { self *= rhs }
+    public var magnitudeSquared: Double { self * self }
+}
+
+public protocol Animatable {
+    associatedtype AnimatableData: VectorArithmetic
+    var animatableData: AnimatableData { get set }
+}
+
+public protocol AnimatableModifier: Animatable, ViewModifier {}
+
 @MainActor
 extension ViewModifier {
     /// The content a `ViewModifier`'s body receives, spelled `Content` at every call site —

@@ -24,6 +24,12 @@ extension Motion {
         return timing.delay > 0 ? animation.delay(timing.delay) : animation
     }
 
+    /// Derselbe Eintritt ohne Wartezeit, wenn der Austritt bereits abgeschlossen ist.
+    static func enterFromHidden(reduceMotion: Bool) -> Animation? {
+        guard let timing = Motion.enterAfterExit.timing(reduceMotion: reduceMotion) else { return nil }
+        return .easeInOut(duration: timing.duration)
+    }
+
     /// The two animations of a fade-through that ends with this motion: what leaves goes over
     /// `exit`, what arrives comes over this one, which starts when the exit is over. Nil when
     /// the change is to be a cut.
