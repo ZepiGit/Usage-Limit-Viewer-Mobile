@@ -188,7 +188,7 @@ jobs:
               -only-testing:UsageLimitsRenderingTests/NonPinnedWidgetRenderingTests
           done
       - name: Upload non-pinned widget view renderings
-        if: 4{{ !cancelled() }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: non-pinned-widget-renderings
