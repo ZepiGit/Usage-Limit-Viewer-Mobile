@@ -8,7 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.AppTheme
@@ -94,21 +94,25 @@ class OverviewRowContentTest {
         val f = shown(figure).single().boundsInRoot
         compose.waitForIdle()
         val root = compose.activity.window.decorView
-        val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
-        val y = ((l.top + l.bottom) / 2).toInt()
-        var filled = 0
-        var track = 0
-        var segment = false
-        for (x in (l.right + 12).toInt() until (f.left - 4).toInt()) {
-            for (dy in -3..3) {
-                val c = image.getPixel(x, y + dy)
-                if (c == ink) filled++
-                if (c == ink || c == palette.Rule.toArgb()) track++
-                if (c == palette.Ink.toArgb()) segment = true
+        val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+        try {
+            root.draw(Canvas(image))
+            val y = ((l.top + l.bottom) / 2).toInt()
+            var filled = 0
+            var track = 0
+            var segment = false
+            for (x in (l.right + 12).toInt() until (f.left - 4).toInt()) {
+                for (dy in -3..3) {
+                    val c = image.getPixel(x, y + dy)
+                    if (c == ink) filled++
+                    if (c == ink || c == palette.Rule.toArgb()) track++
+                    if (c == palette.Ink.toArgb()) segment = true
+                }
             }
+            return (if (track == 0) 0.0 else filled.toDouble() / track) to segment
+        } finally {
+            image.recycle()
         }
-        image.recycle()
-        return (if (track == 0) 0.0 else filled.toDouble() / track) to segment
     }
     private fun spoken(part: String) = compose.onAllNodes(SemanticsMatcher("speaks $part") { node ->
         node.config.getOrNull(SemanticsProperties.ContentDescription)?.any { part in it } == true
@@ -202,8 +206,9 @@ class OverviewRowContentTest {
         val box = shown(text).single().boundsInRoot
         compose.waitForIdle()
         val root = compose.activity.window.decorView
-        val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
+        val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
         try {
+            root.draw(Canvas(image))
             val surface = palette.Surface.toArgb()
             // The brightest pixel of the glyphs is the full text colour; edges are blended.
             var best = surface
@@ -241,8 +246,9 @@ class OverviewRowContentTest {
         val f = shown(figure).single().boundsInRoot
         compose.waitForIdle()
         val root = compose.activity.window.decorView
-        val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
+        val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
         try {
+            root.draw(Canvas(image))
             val y = ((l.top + l.bottom) / 2).toInt()
             // Just before the figure is the gap or the figure column's free start: background.
             val background = image.getPixel(f.left.toInt() - 2, y)

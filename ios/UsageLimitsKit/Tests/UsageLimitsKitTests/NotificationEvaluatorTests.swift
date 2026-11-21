@@ -140,16 +140,64 @@ final class NotificationEvaluatorTests: XCTestCase {
     }
 
 
-    func testCrossingBelowTwentyWarnsOnceThenStaysQuiet() {
-        let publisher = Publisher()
+    private struct ThresholdVectors: Decodable {
+        let vectors: [ThresholdSequence]
 
-        XCTAssertEqual(
-            publisher.sync([account(remaining: 18)], settings, now),
-            ["Account acct · 5h limit: less than 20% remaining"])
-        XCTAssertTrue(
-            publisher.sync(
-                [account(remaining: 17, fetchedAt: now.addingTimeInterval(1))],
-                settings, now).isEmpty)
+        init(from decoder: Decoder) throws {
+            try requireExactKeys(decoder, ["description", "vectors"])
+            let c = try decoder.container(keyedBy: Keys.self)
+            _ = try c.decode(String.self, forKey: Keys("description"))
+            vectors = try c.decode([ThresholdSequence].self, forKey: Keys("vectors"))
+        }
+    }
+
+    private struct ThresholdSequence: Decodable {
+        let name: String
+        let steps: [ThresholdStep]
+
+        init(from decoder: Decoder) throws {
+            try requireExactKeys(decoder, ["name", "steps"])
+            let c = try decoder.container(keyedBy: Keys.self)
+            name = try c.decode(String.self, forKey: Keys("name"))
+            steps = try c.decode([ThresholdStep].self, forKey: Keys("steps"))
+        }
+    }
+
+    private struct ThresholdStep: Decodable {
+        let remaining: Double?
+        let fetchedOffsetMs: Int64
+        let expectedLines: [String]
+        let expectedEpisode: Int
+        let expectedActive: Bool
+
+        init(from decoder: Decoder) throws {
+            try requireExactKeys(decoder, ["remaining", "fetchedOffsetMs", "expectedLines", "expectedEpisode", "expectedActive"])
+            let c = try decoder.container(keyedBy: Keys.self)
+            remaining = try c.decodeIfPresent(Double.self, forKey: Keys("remaining"))
+            fetchedOffsetMs = try c.decode(Int64.self, forKey: Keys("fetchedOffsetMs"))
+            expectedLines = try c.decode([String].self, forKey: Keys("expectedLines"))
+            expectedEpisode = try c.decode(Int.self, forKey: Keys("expectedEpisode"))
+            expectedActive = try c.decode(Bool.self, forKey: Keys("expectedActive"))
+        }
+    }
+
+    func testCrossingBelowTwentyWarnsOnceThenStaysQuiet() throws {
+        let vectors = try SharedVectors.parse(ThresholdVectors.self, from: Data(
+            contentsOf: SharedVectors.file("notification-threshold.json"))).vectors
+        XCTAssertFalse(vectors.isEmpty, "the shared policy file contains sequences")
+        for vector in vectors {
+            let publisher = Publisher()
+            XCTAssertFalse(vector.steps.isEmpty, "\(vector.name): contains readings")
+            for (index, step) in vector.steps.enumerated() {
+                let context = "\(vector.name), reading \(index)"
+                XCTAssertEqual(publisher.sync([
+                    account(remaining: step.remaining, fetchedAt: now.addingTimeInterval(Double(step.fetchedOffsetMs) / 1_000)),
+                ], settings, now), step.expectedLines, context)
+                let state = try XCTUnwrap(publisher.state("acct"), context)
+                XCTAssertEqual(state.lowQuotaEpisode, step.expectedEpisode, "\(context): episode")
+                XCTAssertEqual(state.lowQuotaActive, step.expectedActive, "\(context): active")
+            }
+        }
     }
 
     func testDroppingBelowTenEscalatesOnce() {

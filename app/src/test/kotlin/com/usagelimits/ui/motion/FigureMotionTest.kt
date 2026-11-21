@@ -13,7 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.unit.dp
@@ -92,17 +92,44 @@ class FigureMotionTest {
     private data class Flip(val before: Bitmap, val frames: List<Bitmap>, val settled: Bitmap, val region: Region)
 
     /** Flips LEFT to USED and steps 20 frames; [unit] finds the figure in the given mode. */
-    private fun flip(name: String, unit: (figure: String) -> List<SemanticsNode>): Flip =
+    private fun assertFlipFadesThrough(name: String, unit: (figure: String) -> List<SemanticsNode>) {
+        val from = region(unit("60%"))
+        compose.change { mode = PercentDisplay.USED }
+        compose.mainClock.advanceTimeBy(1_000)
+        val box = from.union(region(unit("40%")))
+        compose.change { mode = PercentDisplay.LEFT }
+        compose.mainClock.advanceTimeBy(1_000)
         FrameRecorder(compose).use { recorder ->
-            val before = recorder.frame()
-            val from = region(unit("60%"))
-            compose.change { mode = PercentDisplay.USED }
-            val frames = recorder.next(20)
-            compose.mainClock.advanceTimeBy(1_000)
-            val settled = recorder.frame()
-            (listOf(before) + frames + settled).saveSequence(name)
-            Flip(before, frames, settled, from.union(region(unit("40%"))))
+            val captured = ArrayList<Bitmap>()
+            var lastWholeFrame: Bitmap? = null
+            fun capture(index: Int): Bitmap {
+                val frame = recorder.frame()
+                try {
+                    frame.saveFrame(name, index)
+                    if (index == 21) {
+                        assertTrue("the flip ends on the settled picture", checkNotNull(lastWholeFrame).sameAs(frame))
+                    }
+                    return frame.crop(box).also { captured += it }
+                } finally {
+                    if (index == 20) lastWholeFrame = frame else frame.recycle()
+                }
+            }
+            try {
+                val before = capture(0)
+                compose.change { mode = PercentDisplay.USED }
+                val frames = List(20) { index ->
+                    compose.mainClock.advanceTimeByFrame()
+                    capture(index + 1)
+                }
+                compose.mainClock.advanceTimeBy(1_000)
+                val settled = capture(21)
+                assertFadesThroughAsOneUnit(Flip(before, frames, settled, box.atOrigin()))
+            } finally {
+                captured.forEach { it.recycle() }
+                lastWholeFrame?.recycle()
+            }
         }
+    }
 
     /**
      * Every frame of the flip shows the old figure or the new figure, never both. Ink outside
@@ -124,7 +151,6 @@ class FigureMotionTest {
         val arriving = frames.drop(leaving.size)
         assertTrue("the new figure fades in over several frames",
             arriving.count { it.ink(region, surface) > 0 && !it.sameAs(settled, region.left, region.top, region.right, region.bottom) } >= 3)
-        assertTrue("the flip ends on the settled picture", frames.last().sameAs(settled))
     }
 
     /** The summed per-channel difference of two frames inside [region]. */
@@ -183,24 +209,29 @@ class FigureMotionTest {
         compose.mainClock.advanceTimeBy(1_000)
 
         return FrameRecorder(compose).use { recorder ->
+            val captured = ArrayList<Bitmap>()
             fun regionsOf(frame: Bitmap, index: Int): Pair<Bitmap, Bitmap> =
                 try {
                     frame.saveFrame(name, index)
-                    frame.crop(chip) to frame.crop(figure)
+                    frame.crop(chip).also { captured += it } to frame.crop(figure).also { captured += it }
                 } finally {
                     frame.recycle()
                 }
 
-            val before = regionsOf(recorder.frame(), 0)
-            compose.change { mode = toMode }
-            val frames = List(24) { index ->
-                compose.mainClock.advanceTimeByFrame()
-                regionsOf(recorder.frame(), index + 1)
+            try {
+                val before = regionsOf(recorder.frame(), 0)
+                compose.change { mode = toMode }
+                val frames = List(24) { index ->
+                    compose.mainClock.advanceTimeByFrame()
+                    regionsOf(recorder.frame(), index + 1)
+                }
+                compose.mainClock.advanceTimeBy(1_000)
+                val settled = regionsOf(recorder.frame(), 25)
+                phases(before.first, frames.map { it.first }, settled.first, chip.atOrigin()) to
+                    phases(before.second, frames.map { it.second }, settled.second, figure.atOrigin())
+            } finally {
+                captured.forEach { it.recycle() }
             }
-            compose.mainClock.advanceTimeBy(1_000)
-            val settled = regionsOf(recorder.frame(), 25)
-            phases(before.first, frames.map { it.first }, settled.first, chip.atOrigin()) to
-                phases(before.second, frames.map { it.second }, settled.second, figure.atOrigin())
         }
     }
 
@@ -250,7 +281,7 @@ class FigureMotionTest {
     @Test
     fun `on a mode flip a row's figure leaves before the new figure arrives`() {
         setCard(motion = true)
-        assertFadesThroughAsOneUnit(flip("row-mode-flip") { figure -> rowText(figure) })
+        assertFlipFadesThrough("row-mode-flip") { figure -> rowText(figure) }
     }
 
     @Test
@@ -295,14 +326,22 @@ class FigureMotionTest {
     private fun assertMotionOffShowsTheNewPairAtOnce(motion: Boolean?) {
         setOverview(motion)
         FrameRecorder(compose).use { recorder ->
-            recorder.frame()
+            recorder.frame().recycle()
             compose.change { mode = PercentDisplay.USED }
             val first = recorder.next(1).single()
-            compose.mainClock.advanceTimeBy(1_000)
-
-            assertTrue("the first frame after the flip is the settled one", first.sameAs(recorder.frame()))
-            assertEquals(0, rowText("60%").size)
-            assertEquals(1, rowText("40%").size)
+            try {
+                compose.mainClock.advanceTimeBy(1_000)
+                val settled = recorder.frame()
+                try {
+                    assertTrue("the first frame after the flip is the settled one", first.sameAs(settled))
+                    assertEquals(0, rowText("60%").size)
+                    assertEquals(1, rowText("40%").size)
+                } finally {
+                    settled.recycle()
+                }
+            } finally {
+                first.recycle()
+            }
         }
     }
 
@@ -335,13 +374,28 @@ class FigureMotionTest {
         }
         val figure = text("60%").single().boundsInWindow.toRegion(margin = 0)
         FrameRecorder(compose).use { recorder ->
-            val before = recorder.frame()
-            compose.change { color = palette.Muted }
-            val frames = recorder.next(20)
-            val settled = recorder.frame()
-            fun Bitmap.matches(other: Bitmap) = sameAs(other, figure.left, figure.top, figure.right, figure.bottom)
-            assertTrue("the figure actually changes colour", !before.matches(settled))
-            assertTrue("the same figure stays drawn in its new colour", frames.all { it.matches(settled) })
+            val captured = ArrayList<Bitmap>()
+            fun capture(): Bitmap {
+                val frame = recorder.frame()
+                try {
+                    return frame.crop(figure).also { captured += it }
+                } finally {
+                    frame.recycle()
+                }
+            }
+            try {
+                val before = capture()
+                compose.change { color = palette.Muted }
+                val frames = List(20) {
+                    compose.mainClock.advanceTimeByFrame()
+                    capture()
+                }
+                val settled = capture()
+                assertTrue("the figure actually changes colour", !before.sameAs(settled))
+                assertTrue("the same figure stays drawn in its new colour", frames.all { it.sameAs(settled) })
+            } finally {
+                captured.forEach { it.recycle() }
+            }
         }
     }
 
@@ -358,19 +412,26 @@ class FigureMotionTest {
     fun `a different window in the same slot shows its own figure and bar at once`() {
         setCard(motion = true)
         FrameRecorder(compose).use { recorder ->
-            recorder.frame()
+            recorder.frame().recycle()
             // The 5h window (60% left) is replaced by the weekly one (10% left) in the same slot.
             compose.change {
                 accounts = listOf(demoAccount("one", ProviderId.CODEX, 90.0, "week", "Weekly", WindowCategory.WEEKLY))
             }
             val first = recorder.next(1).single()
-            val reachable = listOf("60%", "10%").filter { text(it).isNotEmpty() }
-            compose.mainClock.advanceTimeBy(1_000)
-            val settled = recorder.frame()
-
-            assertEquals("the other window's figure is not carried over", listOf("10%"), reachable)
-            assertEquals("the bar does not glide from the other window's value", barFill(settled), barFill(first))
-            assertTrue("the first frame is the settled one", first.sameAs(settled))
+            try {
+                val reachable = listOf("60%", "10%").filter { text(it).isNotEmpty() }
+                compose.mainClock.advanceTimeBy(1_000)
+                val settled = recorder.frame()
+                try {
+                    assertEquals("the other window's figure is not carried over", listOf("10%"), reachable)
+                    assertEquals("the bar does not glide from the other window's value", barFill(settled), barFill(first))
+                    assertTrue("the first frame is the settled one", first.sameAs(settled))
+                } finally {
+                    settled.recycle()
+                }
+            } finally {
+                first.recycle()
+            }
         }
     }
 

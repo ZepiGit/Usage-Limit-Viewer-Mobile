@@ -9,7 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -42,7 +42,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import kotlinx.coroutines.flow.first
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -210,7 +209,13 @@ class OverviewRoutingTest {
                         UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 40.0, 604_800, fetched + 7 * 86_400_000L, false))))
                 }
         }
-        showShell { base + compose.mainClock.currentTime - start }
+        val clockThreshold = java.util.concurrent.atomic.AtomicLong(-1)
+        showShell {
+            store.keys().mapNotNull { store[it] as? UsageViewModel }.singleOrNull()?.let {
+                clockThreshold.set(it.state.value.staleAfterMs)
+            }
+            base + compose.mainClock.currentTime - start
+        }
 
         /** Lets results posted to the main looper land and draws one frame, until [condition] or 10 s of real time. */
         fun settle(condition: () -> Boolean = { true }) {
@@ -227,15 +232,20 @@ class OverviewRoutingTest {
             ShadowLooper.idleMainLooper()
         }
 
-        settle { shown("Weekly") }
+        settle { shown("Weekly") && clockThreshold.get() == 60 * 60_000L }
         val loaded = compose.mainClock.currentTime - start
         assertEquals("fresh under the 60-minute threshold", false, shown("Stale"))
         advance(5_000 - loaded)
 
-        // Same accounts; only the threshold moves, to 5 s ahead.
+        // No tick is due yet: another read of the injected clock acknowledges the shell's
+        // threshold-change effect, not merely the write reaching DataStore.
         runBlocking { container.settingsStore.setSyncInterval(15) }
-        settle { runBlocking { container.settingsStore.settings.first().syncIntervalMinutes } == 15 }
+        settle {
+            check(compose.mainClock.currentTime - start < 10_000) { "the shell did not re-plan before the boundary" }
+            clockThreshold.get() == 45 * 60_000L
+        }
         settle()
+        assertTrue("the clock acknowledged the change before its new boundary", compose.mainClock.currentTime - start < 10_000)
         assertEquals("not stale before the new boundary", false, shown("Stale"))
         advance(10_000 - (compose.mainClock.currentTime - start) + 200)
         settle()
