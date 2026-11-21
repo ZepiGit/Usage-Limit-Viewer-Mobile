@@ -98,6 +98,8 @@ import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.ui.AppIcons
+import com.usagelimits.core.model.claudeCodeMoodAt
+import com.usagelimits.ui.FigureSlot
 import com.usagelimits.ui.ProviderLogo
 import com.usagelimits.ui.components.OutlineButton
 import com.usagelimits.ui.components.RuleDivider
@@ -533,7 +535,8 @@ private fun OverviewAccountRow(
     ) {
         val logoSize = if (compact) 20.dp else 28.dp
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = logoSize)) {
-            ProviderLogo(usage.account.provider, Modifier.size(logoSize))
+            ProviderLogo(usage.account.provider, Modifier.size(logoSize),
+                if (compact) FigureSlot.LIST_PREVIEW else FigureSlot.LIST_ROW, snapshot.claudeCodeMoodAt(nowMs))
             Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
             // Title and mark take the free width, so the chevron ends every row at the same x.
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {

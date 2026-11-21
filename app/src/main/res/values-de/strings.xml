@@ -541,4 +541,8 @@
     <string name="icon_style_monochrome">Einfarbig</string>
     <string name="icon_style_wordmark">Wortmarke</string>
     <string name="icon_label_with_style">%1$s · %2$s</string>
+
+    <!-- Claude Code figure (CH-3): the switch under Claude's provider icon row. -->
+    <string name="settings_animate_claude_code_title">Claude-Code-Symbol animieren</string>
+    <string name="settings_animate_claude_code_subtitle">Bewegt sich mit Claudes Nutzung in der Übersicht und in den Kontodetails. Aus, wenn in Android „Animationen entfernen“ aktiviert ist.</string>
 </resources>

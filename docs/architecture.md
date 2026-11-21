@@ -50,6 +50,8 @@ The launch is the app's overlay on every Android version: the icon the user chos
 
 Compose can use its fallback spring when the app's route tweens are interrupted. The reorder library's drop spring, Material's ripple and selection indicator, and iOS widget animations keep their own timing.
 
+The Claude Code figure (CH-3, shown for Claude's two Claude Code icons) is the app's only decorative loop. Its timings, keyframes and still poses come from the design's figure appendix, not from the vocabulary above, but it stops for the same reasons. On Android it moves only while the animator duration scale is above 0, "Animate Claude Code icon" is on, its screen is RESUMED and it is inside the window. Otherwise it draws its mood's still pose. Each figure has one time source, read only while drawing and advanced at most 30 times a second. `ClaudeCodeFigureCostTest` counts zero recompositions and zero measure or layout requests while it moves. The mood is the account headline's raw percent left (ADR 0002), held to `shared/test-vectors/claude-code-mood.json`. Placed widgets will take the still pose from `claudeCodeStillBitmap`, which reads nothing from the app's appearance.
+
 The quota bar's fill and segment pill read animation values during drawing. The bottom bar reads opacity and position in its layer without changing the slot height on each tick. Those reads do not trigger recomposition; `BarMotionTest` also counts zero measure passes for a fill. The side rail changes layout width, and a figure's changing width can remeasure its row and neighbouring content.
 
 ## Storage and sync

@@ -75,8 +75,13 @@ class UsageLimitsActivity : ComponentActivity() {
             // Recomputed on every configuration change, so unfolding a foldable, entering
             // split-screen or resizing a freeform window re-lays-out the shell immediately.
             val windowSizeClass = calculateWindowSizeClass(this)
-            UsageLimitsTheme(providerIcons = container.settingsStore.settings.collectAsState(initial = com.usagelimits.core.settings.AppSettings()).value.providerIcons) {
-                UsageLimitsNavigation(container, windowSizeClass, pending.value, ::handled)
+            val settings = container.settingsStore.settings.collectAsState(initial = com.usagelimits.core.settings.AppSettings()).value
+            UsageLimitsTheme(providerIcons = settings.providerIcons) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    com.usagelimits.ui.LocalAnimateClaudeCodeIcon provides settings.animateClaudeCodeIcon,
+                ) {
+                    UsageLimitsNavigation(container, windowSizeClass, pending.value, ::handled)
+                }
             }
         }
     }
