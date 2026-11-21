@@ -130,6 +130,10 @@ jobs:
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
           for language in en de; do
             region=$([ "$language" = de ] && echo DE || echo US)
+            tests=(-only-testing:UsageLimitsRenderingTests/PinnedAccountsRenderingTests)
+            if [ "$language" = en ]; then
+              tests+=(-only-testing:UsageLimitsRenderingTests/SignInMotionTests)
+            fi
             TEST_RUNNER_PINNED_RENDERINGS="$out" TEST_RUNNER_PINNED_LANGUAGE="$language" \
             xcodebuild test-without-building \
               -scheme UsageLimitsRendering \
@@ -138,7 +142,7 @@ jobs:
               -resultBundlePath "$GITHUB_WORKSPACE/rendering-$language.xcresult" \
               -testLanguage "$language" -testRegion "$region" \
               -parallel-testing-enabled NO \
-              -only-testing:UsageLimitsRenderingTests/PinnedAccountsRenderingTests
+              "${tests[@]}"
           done
           find "$out" -type f | sort
       - name: Upload the renderings
@@ -167,8 +171,8 @@ jobs:
             -only-testing:UsageLimitsUITests/AppLaunchUITests/testMeasureSettingsPreviewMainThreadGaps \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
 
-      - name: Keep the test results if rendering fails
-        if: failure()
+      - name: Keep native rendering and sign-in motion evidence
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: pinned-widget-rendering-failure

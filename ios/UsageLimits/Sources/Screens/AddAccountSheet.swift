@@ -19,7 +19,7 @@ struct AddAccountSheet: View {
 
     /// Where the sheet is in the flow. One value rather than several booleans, so "waiting" and
     /// "failed" cannot both be true and leave the screen showing a contradiction.
-    private enum Stage: Equatable {
+    enum Stage: Equatable {
         case choosing
         case starting(ProviderID)
         case waiting(ProviderID, DeviceLoginChallenge)
@@ -30,7 +30,30 @@ struct AddAccountSheet: View {
         case failed(ProviderID, String)
     }
 
-    @State private var stage: Stage = .choosing
+    @ReducesMotion private var reduceMotion
+    @State private var localStage: Stage = .choosing
+    @State private var displayedStage: Stage = .choosing
+    @State private var stepOpacity = 1.0
+    @State private var stepRevision = 0
+
+    private var stage: Stage {
+        get {
+            #if DEBUG
+            if let drivenStage { return drivenStage.wrappedValue }
+            #endif
+            return localStage
+        }
+        nonmutating set {
+            #if DEBUG
+            if let drivenStage { drivenStage.wrappedValue = newValue; return }
+            #endif
+            localStage = newValue
+        }
+    }
+    #if DEBUG
+    private var drivenStage: Binding<Stage>?
+    private var captureStep: ((Double, Bool) -> Void)?
+    #endif
     @State private var login: Task<Void, Never>?
     @State private var loopback = LoopbackSignIn()
     @State private var copied = false
@@ -44,11 +67,30 @@ struct AddAccountSheet: View {
         self.initialProvider = initialProvider
     }
 
+    #if DEBUG
+    init(stage: Binding<Stage>, captureStep: @escaping (Double, Bool) -> Void) {
+        initialProvider = nil
+        drivenStage = stage
+        self.captureStep = captureStep
+        _displayedStage = State(initialValue: stage.wrappedValue)
+    }
+    #endif
+
+    private var acceptsInput: Bool { displayedStage == stage && stepOpacity == 1 }
+
+    private var capturesStepFrames: Bool {
+        #if DEBUG
+        captureStep != nil
+        #else
+        false
+        #endif
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    switch stage {
+                    switch displayedStage {
                     case .choosing:
                         chooser
                     case .starting(let provider):
@@ -64,8 +106,16 @@ struct AddAccountSheet: View {
                     }
                 }
                 .id(stageIdentity)
-                .transition(AnyTransition.opacity)
-                .motion(.contentSwap, value: stage)
+                .disabled(!acceptsInput)
+                .allowsHitTesting(acceptsInput)
+                .accessibilityHidden(!acceptsInput)
+                .modifier(SignInStepOpacity(value: stepOpacity, capturesFrames: capturesStepFrames) { [revision = stepRevision] value in
+                    guard revision == stepRevision else { return }
+                    #if DEBUG
+                    captureStep?(value, displayedStage != stage)
+                    #endif
+                    if value == 0, stepOpacity == 0 { finishExit() }
+                })
                 .padding(16)
                 .readableWidth()
             }
@@ -88,11 +138,40 @@ struct AddAccountSheet: View {
         .onAppear {
             if let initialProvider, stage == .choosing { select(initialProvider) }
         }
+        .onChange(of: stage) { _ in retargetStep() }
+        .onChange(of: reduceMotion) { _ in retargetStep() }
         .onDisappear { login?.cancel() }
     }
 
+    private func retargetStep() {
+        guard !reduceMotion else {
+            stepRevision += 1
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                displayedStage = stage
+                stepOpacity = 1
+            }
+            return
+        }
+        let returning = displayedStage == stage
+        guard returning || stepOpacity != 0 else { return }
+        stepRevision += 1
+        withAnimation(returning ? Motion.enterFromHidden(reduceMotion: false) : Motion.exit.animation(reduceMotion: false)) {
+            stepOpacity = returning ? 1 : 0
+        }
+    }
+
+    private func finishExit() {
+        guard displayedStage != stage else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { displayedStage = stage }
+        withAnimation(Motion.enterFromHidden(reduceMotion: reduceMotion)) { stepOpacity = 1 }
+    }
+
     private var stageIdentity: Int {
-        switch stage {
+        switch displayedStage {
         case .choosing: return 0
         case .starting: return 1
         case .waiting: return 2
@@ -109,7 +188,7 @@ struct AddAccountSheet: View {
         UsageCard(padding: 0, spacing: 0) {
             ForEach(Array(ProviderID.allCases.enumerated()), id: \.offset) { index, provider in
                 if index > 0 { LedgerDivider() }
-                Button { select(provider) } label: {
+                Button { if acceptsInput { select(provider) } } label: {
                     HStack(spacing: 12) {
                         ProviderBadge(provider: provider)
                         VStack(alignment: .leading, spacing: 2) {
@@ -415,4 +494,26 @@ struct AddAccountSheet: View {
             }
         }
     }
+}
+
+/// iOS 16 meldet das Ende einer Animation über ihren tatsächlichen Animatable-Wert.
+private struct SignInStepOpacity: AnimatableModifier {
+    // SwiftUI interpoliert diese lokale Wertkopie außerhalb des Main Actors.
+    nonisolated(unsafe) var value: Double
+    let capturesFrames: Bool
+    let onFrame: @MainActor @Sendable (Double) -> Void
+
+    nonisolated var animatableData: Double {
+        get { value }
+        set {
+            value = newValue
+            guard newValue == 0 || capturesFrames else { return }
+            let report = onFrame
+            let sample = newValue
+            // Zustandsänderungen dürfen nicht innerhalb des laufenden View-Updates passieren.
+            Task { @MainActor in report(sample) }
+        }
+    }
+
+    func body(content: Content) -> some View { content.opacity(value) }
 }
