@@ -1,6 +1,10 @@
 package com.usagelimits.widget
 
 import android.content.Context
+import android.content.res.Resources
+import android.graphics.Paint
+import android.graphics.Typeface
+import androidx.core.util.TypedValueCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -113,13 +117,29 @@ internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier,
 private fun percentText(row: WidgetRow): String =
     percentFigure(row.presentation(null, LocalPercentMode.current).token, androidx.glance.LocalContext.current.resources)
 
-/** Text on a widget: sizes from the scale (11, 12, 14, 16, 22), figures in the system mono. */
+/** Text on a widget, with figures in the system monospace face. */
 internal fun widgetText(color: Color, size: Int, weight: FontWeight = FontWeight.Normal, mono: Boolean = false) = TextStyle(
     color = ColorProvider(color),
     fontSize = size.sp,
     fontWeight = weight,
     fontFamily = if (mono) FontFamily.Monospace else null,
 )
+
+/** Fit bold monospace figures in pixels, then invert the host's nonlinear sp scaling. */
+internal fun fittedMonoSize(text: String, sizeSp: Float, maxWidth: Dp, resources: Resources): Float {
+    val metrics = resources.displayMetrics
+    val available = maxWidth.value * metrics.density
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        textSize = TypedValueCompat.spToPx(sizeSp, metrics)
+    }
+    val width = paint.measureText(text)
+    if (width <= available) return sizeSp
+    // TextView rounds glyph advances. Check again at the smaller size rather than scaling widths linearly.
+    paint.textSize = (paint.textSize * available / width).toInt().toFloat()
+    while (paint.textSize > 1f && paint.measureText(text) > available) paint.textSize -= 1f
+    return TypedValueCompat.pxToSp(paint.textSize, metrics)
+}
 
 /** The panel's corner: the launcher's own radius where the system states it, 16dp before API 31. */
 internal fun GlanceModifier.panelCorner(): GlanceModifier =
@@ -504,8 +524,8 @@ class DetailedUsageWidget : GlanceAppWidget() {
         val validity = account.dataValidity
         Column(GlanceModifier.fillMaxWidth().clickable(openAccount)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ProviderId.fromId(account.providerId)?.let { provider ->
-                    WidgetLogo(provider, account.iconChoiceId, 20.dp)
+                if (ProviderId.fromId(account.providerId) != null) {
+                    WidgetLogo(account, 26.dp)
                     Spacer(GlanceModifier.width(8.dp))
                 }
                 Column(GlanceModifier.defaultWeight()) {
@@ -592,13 +612,24 @@ class DetailedUsageWidget : GlanceAppWidget() {
  * on one the mark is drawn in the panel's ink instead.
  */
 @Composable
-internal fun WidgetLogo(provider: ProviderId, iconChoiceId: String?, size: Dp) {
+internal fun WidgetLogo(account: WidgetAccount, size: Dp) {
+    val provider = ProviderId.fromId(account.providerId) ?: return
     val style = LocalWidgetStyle.current
     Image(
-        ImageProvider(com.usagelimits.ui.providerLogoResource(provider, iconChoiceId)), null, GlanceModifier.size(size),
-        colorFilter = if (!style.lightInk && provider in WHITE_ARTWORK) ColorFilter.tint(ColorProvider(style.textPrimary)) else null,
+        widgetProviderImage(provider, account), null, GlanceModifier.size(size),
+        colorFilter = widgetLogoTint(provider, style)?.let { ColorFilter.tint(ColorProvider(it)) },
     )
 }
+
+internal fun widgetLogoTint(provider: ProviderId, style: WidgetStyle): Color? =
+    if (provider in WHITE_ARTWORK && !style.lightInk) style.textPrimary else null
+
+/** The provider image for a placed account, where the Claude Code still renderer plugs in. */
+private fun widgetProviderImage(provider: ProviderId, account: WidgetAccount): ImageProvider =
+    ImageProvider(com.usagelimits.ui.providerLogoResource(provider, account.iconChoiceId))
+
+internal fun miniLogoSize(ringSize: Dp, providerId: String): Dp =
+    ringSize * if (providerId == ProviderId.CLAUDE.id) 0.575f else 0.46f
 
 private val WHITE_ARTWORK = setOf(
     ProviderId.CODEX, ProviderId.XAI, ProviderId.KIMI,

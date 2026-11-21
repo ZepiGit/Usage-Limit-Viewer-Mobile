@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -26,13 +27,10 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
-import androidx.glance.layout.size
 import androidx.glance.layout.width
-import androidx.glance.text.FontFamily
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
-import androidx.glance.text.TextStyle
-import androidx.glance.unit.ColorProvider
+import androidx.glance.text.TextAlign
 import com.usagelimits.R
 import com.usagelimits.navigation.ExternalRequest
 import com.usagelimits.core.model.CreditFormat
@@ -69,7 +67,7 @@ class CreditsWidget : GlanceAppWidget() {
             GlanceTheme {
                 CompositionLocalProvider(LocalWidgetStyle provides style) {
                     Column(
-                        GlanceModifier.fillMaxSize().panelCorner().background(style.background.color).padding(10.dp)
+                        GlanceModifier.fillMaxSize().panelCorner().background(style.background.color).padding(PANEL_INSET.dp)
                             .clickable(androidx.glance.appwidget.action.actionStartActivity(ExternalRequest.openOverview(context))),
                     ) {
                         when {
@@ -77,7 +75,8 @@ class CreditsWidget : GlanceAppWidget() {
                                 context.getString(R.string.widget_credits_empty),
                                 style = widgetText(style.textSecondary, 12),
                             )
-                            shown.size == 1 -> Single(shown.first(), style, texts, centered = size.width < MEDIUM.width)
+                            size == SMALL -> SmallTile(shown.first(), style, texts)
+                            shown.size == 1 && more == 0 -> Single(shown.first(), style, texts)
                             else -> {
                                 Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
@@ -102,15 +101,49 @@ class CreditsWidget : GlanceAppWidget() {
         }
     }
 
-    /** The 2x2 tile: one account, its amount large, and as of when. */
     @Composable
-    private fun Single(row: CreditWidgetRow, style: WidgetStyle, texts: CreditWidgetTexts, centered: Boolean) {
-        // Centred as a block on the small tile, where a start-aligned lone row reads as left-heavy.
-        Column(
-            GlanceModifier.fillMaxSize(),
-            verticalAlignment = if (centered) Alignment.CenterVertically else Alignment.Top,
-            horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
-        ) {
+    private fun SmallTile(row: CreditWidgetRow, style: WidgetStyle, texts: CreditWidgetTexts) {
+        Column(GlanceModifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SeverityDot(style.accent(row.severity))
+                Spacer(GlanceModifier.width(6.dp))
+                Text(row.title, maxLines = 1, style = widgetText(style.textSecondary, 12, FontWeight.Medium))
+            }
+            Column(GlanceModifier.defaultWeight().fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                val resources = LocalContext.current.resources
+                val amount = row.balances.firstOrNull()?.let {
+                    CreditFormat.string(it.amount, it.currency, resources.configuration.locales[0])
+                } ?: "—"
+                Text(amount, maxLines = 1, style = widgetText(style.textPrimary, 28, FontWeight.Bold, mono = true)
+                    .copy(fontSize = fittedMonoSize(amount, 28f, SMALL.width - (2 * PANEL_INSET).dp, resources).sp))
+                val failedRefresh = refreshFailed(row)
+                val status = when {
+                    row.severity == Severity.ERROR -> texts.couldNotBeRead()
+                    failedRefresh -> resources.getString(R.string.widget_credits_refresh_failed)
+                    row.fetchedAt == null -> texts.notReadYet()
+                    row.severity == Severity.STALE -> resources.getString(statusWordRes(Severity.STALE))
+                    else -> {
+                        val asOf = Countdown.asOfLabel(row.fetchedAt, nowMs = System.currentTimeMillis(), texts = texts)
+                        if (row.balances.firstOrNull()?.unlimited == true) {
+                            // The amount is above this line, so the label needs no amount placeholder.
+                            resources.getString(R.string.widget_credits_spent_this_month) + " · " + asOf
+                        } else asOf
+                    }
+                }
+                Text(
+                    status,
+                    maxLines = 2,
+                    style = widgetText(if (failedRefresh) style.textPrimary else style.textSecondary, 11)
+                        .copy(textAlign = TextAlign.Center),
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun Single(row: CreditWidgetRow, style: WidgetStyle, texts: CreditWidgetTexts) {
+        Column(GlanceModifier.fillMaxSize()) {
             Text(
                 row.title, maxLines = 1,
                 style = widgetText(style.textSecondary, 12, FontWeight.Medium),
@@ -157,6 +190,7 @@ class CreditsWidget : GlanceAppWidget() {
     }
 
     private companion object {
+        const val PANEL_INSET = 10
         val SMALL = DpSize(110.dp, 110.dp)
         val MEDIUM = DpSize(250.dp, 110.dp)
         val LARGE = DpSize(250.dp, 250.dp)
