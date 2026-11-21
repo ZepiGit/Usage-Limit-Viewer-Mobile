@@ -31,6 +31,7 @@ import com.usagelimits.R
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.sync.BackgroundRestrictions
 import com.usagelimits.core.time.Countdown
@@ -72,6 +73,7 @@ fun SettingsScreen(
     onStatusIconsChange: (Boolean) -> Unit = {},
     onPinnedChange: (accountId: String, pinned: Boolean) -> Unit = { _, _ -> },
     onNotificationsAllowed: () -> Unit = {},
+    onAppThemeChange: (AppTheme) -> Unit = {},
 ) {
     val settings = state.settings
     val uriHandler = LocalUriHandler.current
@@ -91,6 +93,9 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item { ScreenTitle(stringResource(R.string.settings_title)) }
+
+        item { SectionHeader(stringResource(R.string.settings_section_appearance)) }
+        item { AppearanceSettings(settings, onAppThemeChange) }
 
         item { ProviderIconSettings(settings.providerIcons, onProviderIconChange) }
         item { AppIconSettings() }

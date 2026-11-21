@@ -67,6 +67,19 @@
 
     <!-- Settings screen (feature/settings/SettingsScreen.kt). Thresholds are passed in as formatted figures so the percent template stays the one place a sign is laid out. -->
     <string name="settings_title">Einstellungen</string>
+
+    <!-- Appearance: app-only theme selection and its live preview. -->
+    <string name="settings_section_appearance">Erscheinungsbild</string>
+    <string name="settings_appearance_preview">Vorschau</string>
+    <string name="settings_appearance_preview_account">Claude Pro</string>
+    <string name="settings_appearance_preview_values">%1$s · %2$s · %3$s</string>
+    <string name="settings_appearance_theme">Design</string>
+    <string name="settings_appearance_theme_subtitle">Farben der App. Widgets behalten ihren eigenen Panelstil.</string>
+    <string name="settings_appearance_warm_dark">Warmes Dunkel</string>
+    <string name="settings_appearance_pure_black">Reines Schwarz</string>
+    <string name="settings_appearance_cool_graphite">Kühles Graphit</string>
+    <string name="settings_appearance_light_paper">Helles Papier</string>
+
     <string name="settings_section_sync">Synchronisierung</string>
     <string name="settings_interval_title">Intervall der Hintergrundaktualisierung</string>
     <string name="settings_interval_subtitle">Android aktualisiert im Ruhemodus oder Energiesparmodus möglicherweise seltener.</string>
@@ -184,7 +197,7 @@
     <string name="overview_filter_attention">Braucht Aufmerksamkeit</string>
     <string name="overview_filter_resets_today">Resets heute</string>
     <string name="overview_no_match">Keine Konten entsprechen diesem Filter.</string>
-    <string name="overview_headline_caption">Die hellere Zeile zeigt das maßgebliche Zeitfenster des Kontos.</string>
+    <string name="overview_headline_caption">Die hervorgehobene Zeile zeigt das maßgebliche Zeitfenster des Kontos.</string>
     <string name="overview_sign_in_expired">Anmeldung abgelaufen · letzte bekannte Daten</string>
     <string name="overview_headline_spoken">Maßgebliches Zeitfenster: %1$s</string>
     <string name="overview_mode_left" formatted="false">% übrig</string>

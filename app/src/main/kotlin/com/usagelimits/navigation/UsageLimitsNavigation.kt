@@ -81,6 +81,7 @@ import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.ConstrainedContent
 import com.usagelimits.ui.NavigationLayout
 import com.usagelimits.ui.theme.AxisShift
+import com.usagelimits.ui.theme.LocalAppTheme
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageMotion
 import com.usagelimits.ui.theme.axisIn
@@ -241,6 +242,7 @@ internal fun NavigationShell(
     val motion = UsageMotion.current
     val reducedBack = !motion.enabled && routeKnown && navController.previousBackStackEntry != null
     val shift = with(LocalDensity.current) { AxisShift.roundToPx() }
+    val rule = UsageColors.Rule
 
     fun navigateToTab(route: String) {
         navController.navigate(route) {
@@ -283,7 +285,7 @@ internal fun NavigationShell(
                         tonalElevation = 0.dp,
                         // A 1px rule on the top edge, not a tone step or a shadow.
                         modifier = Modifier.drawBehind {
-                            drawLine(UsageColors.Rule, Offset.Zero, Offset(size.width, 0f), strokeWidth = 1.dp.toPx())
+                            drawLine(rule, Offset.Zero, Offset(size.width, 0f), strokeWidth = 1.dp.toPx())
                         },
                     ) {
                         TABS.forEach { tab ->
@@ -453,11 +455,13 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
             }
 
             composable(Destination.Settings.route) {
+                val appTheme = LocalAppTheme.current
                 SettingsScreen(
-                    state = state,
+                    state = if (state.settings.appTheme == appTheme) state else state.copy(settings = state.settings.copy(appTheme = appTheme)),
                     onSyncIntervalChange = viewModel::setSyncInterval,
                     onNotificationPermissionHandled = viewModel::recordNotificationPermissionHandled,
                     onProviderIconChange = viewModel::setProviderIcon,
+                    onAppThemeChange = viewModel::setAppTheme,
                     onStatusIconsChange = viewModel::setStatusIcons,
                     onPinnedChange = viewModel::setPinned,
                     onNotificationsAllowed = viewModel::notificationsAllowed,

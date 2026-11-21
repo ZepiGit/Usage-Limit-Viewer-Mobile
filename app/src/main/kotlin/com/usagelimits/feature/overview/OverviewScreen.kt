@@ -486,7 +486,7 @@ private fun FilterChip(label: String, count: Int?, selected: Boolean, onClick: (
     ) {
         Row(
             Modifier.heightIn(min = 32.dp).clip(shape)
-                .drawChipFill { if (motion.enabled) selection else if (selected) 1f else 0f }
+                .drawChipFill(UsageColors.Raised) { if (motion.enabled) selection else if (selected) 1f else 0f }
                 .border(1.dp, if (selected) UsageColors.Muted else UsageColors.Rule, shape)
                 .indication(interaction, ripple())
                 .padding(horizontal = 12.dp),
@@ -501,8 +501,8 @@ private fun FilterChip(label: String, count: Int?, selected: Boolean, onClick: (
     }
 }
 
-private fun Modifier.drawChipFill(alpha: () -> Float) =
-    this.then(Modifier.drawBehind { drawRect(UsageColors.Raised, alpha = alpha()) })
+private fun Modifier.drawChipFill(color: androidx.compose.ui.graphics.Color, alpha: () -> Float) =
+    drawBehind { drawRect(color, alpha = alpha()) }
 
 /** Whether a row's figures are greyed (an old or failed reading) and whether its sign-in expired. */
 private fun rowState(entry: OverviewEntry, state: UsageUiState, nowMs: Long): Pair<Boolean, Boolean> {

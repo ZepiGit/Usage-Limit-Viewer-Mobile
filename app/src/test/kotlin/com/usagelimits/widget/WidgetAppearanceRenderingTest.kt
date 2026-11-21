@@ -20,6 +20,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.*
+import com.usagelimits.core.settings.AppTheme
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -174,6 +175,67 @@ class WidgetAppearanceRenderingTest {
         assertTrue("Mini Rings: no ring writes a figure, got $miniText", miniText.none { it.endsWith("%") || it == "100" })
         assertEquals("Mini Rings: both rings are there, got $miniSaid",
             2, miniSaid.count { "100% remaining" in it || "42% remaining" in it })
+    }
+
+    @Test fun `saving app themes leaves placed widget panel pixels and RemoteViews ink unchanged`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        val settings = app.container.settingsStore
+        val originalTheme = settings.settings.first().appTheme
+        val account = app.container.repository.upsertFromLogin(ProviderId.CLAUDE, "app-theme-widget",
+            "theme@example.invalid", "Theme fixture", "Pro", emptyMap())
+        val now = System.currentTimeMillis()
+        app.container.repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.OK,
+            windows = listOf(UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 40.0, 604_800, null, false))))
+        val configs = listOf(
+            WidgetConfigEntity(520, "CUSTOM", null, null, now,
+                customAccountIdsJson = "[\"${account.localId}\"]"),
+            WidgetConfigEntity(521, "CUSTOM", null, null, now,
+                customAccountIdsJson = "[\"${account.localId}\"]", backgroundArgb = 0xFFFFFFFF.toInt()),
+        )
+        for (config in configs) {
+            app.container.widgetConfigDao.upsert(config)
+            shadowOf(AppWidgetManager.getInstance(app)).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
+                provider = ComponentName(app, CompactUsageWidgetReceiver::class.java)
+            })
+        }
+        val baselineInk = mutableMapOf<Int, List<Int>>()
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            for (theme in AppTheme.entries) {
+                settings.setAppTheme(theme)
+                assertEquals("the shared settings flow has saved the selected app theme", theme, settings.settings.first().appTheme)
+                for ((index, config) in configs.withIndex()) {
+                    CompactUsageWidget().runComposition(app,
+                        id = GlanceAppWidgetManager(app).getGlanceIdBy(config.appWidgetId),
+                        sizes = listOf(DpSize(420.dp, 130.dp))).first { remote ->
+                        val host = AppWidgetHostView(app).apply { setAppWidget(config.appWidgetId, null) }
+                        val view = remote.apply(app, host)
+                        host.addView(view)
+                        remote.reapply(app, view)
+                        ShadowLooper.idleMainLooper()
+                        val bitmap = draw(view, 420, 130)
+                        try {
+                            val panel = bitmap.getPixel(bitmap.width / 2, 2)
+                            assertEquals("$theme: the known widget panel, not the app ground",
+                                if (index == 0) 0xFF0F0F0E.toInt() else 0xFFFFFFFF.toInt(), panel)
+                        } finally {
+                            bitmap.recycle()
+                        }
+                        val texts = textViews(view)
+                        val owner = texts.single { it.text.toString() == account.label }
+                        assertEquals("$theme: the known widget ink remains readable",
+                            if (index == 0) 0xFFF0EEE6.toInt() else 0xFF1A1918.toInt(), owner.currentTextColor)
+                        val ink = texts.map { it.currentTextColor }
+                        val baseline = baselineInk.getOrPut(config.appWidgetId) { ink }
+                        assertEquals("$theme: every RemoteViews text style keeps its pre-change ink", baseline, ink)
+                        true
+                    }
+                }
+            }
+        } finally {
+            settings.setAppTheme(originalTheme)
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun `saved panel and text survive theme changes resizing and host reapply for every widget`() = runTest {

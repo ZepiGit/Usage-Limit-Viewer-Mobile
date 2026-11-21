@@ -68,6 +68,7 @@ data class AppSettings(
      * a removed account or a stored fourth id never needs a write to stop mattering.
      */
     val pinnedAccountIds: List<String> = emptyList(),
+    val appTheme: AppTheme = AppTheme.PURE_BLACK,
     val overviewLayout: OverviewLayout = OverviewLayout.LIST,
 ) {
     companion object {
@@ -193,6 +194,8 @@ class SettingsStore(context: Context) {
             if (enabled) current - accountId else current + accountId
     }
 
+    suspend fun setAppTheme(theme: AppTheme) = edit { it[Keys.APP_THEME] = theme.name }
+
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         dataStore.edit(block)
     }
@@ -227,6 +230,7 @@ internal fun Preferences.toSettings() = AppSettings(
     percentDisplay = PercentDisplay.fromNameOrNull(this[Keys.PERCENT_DISPLAY]) ?: PercentDisplay.LEFT,
     statusIconsEnabled = this[Keys.STATUS_ICONS_ENABLED] ?: false,
     pinnedAccountIds = this[Keys.PINNED_ACCOUNTS].orEmpty().split(PINNED_SEPARATOR).filter { it.isNotBlank() },
+    appTheme = AppTheme.fromStored(this[Keys.APP_THEME]),
     overviewLayout = this[Keys.OVERVIEW_LAYOUT]?.let { stored ->
         OverviewLayout.entries.firstOrNull { it.name == stored }
     } ?: OverviewLayout.LIST,
@@ -271,6 +275,7 @@ private object Keys {
     val PERCENT_DISPLAY = stringPreferencesKey("percent_display")
     val STATUS_ICONS_ENABLED = booleanPreferencesKey("status_icons_enabled")
     val PINNED_ACCOUNTS = stringPreferencesKey("pinned_account_ids")
+    val APP_THEME = stringPreferencesKey("appearance_theme")
     val LAST_SYNC_ATTEMPT = longPreferencesKey("last_sync_attempt_at")
     val LAST_SYNC_FINISHED = longPreferencesKey("last_sync_finished_at")
     val LAST_WIDGET_REFRESH = longPreferencesKey("last_widget_refresh_at")

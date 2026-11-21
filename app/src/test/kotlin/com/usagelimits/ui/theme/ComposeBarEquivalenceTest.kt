@@ -11,6 +11,7 @@ import com.usagelimits.core.model.isExhausted
 import com.usagelimits.core.model.presentation
 import com.usagelimits.core.model.readingValidity
 import com.usagelimits.core.model.usedFillOverridesMissingInk
+import com.usagelimits.core.settings.AppTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -25,19 +26,20 @@ import org.junit.Test
  */
 class ComposeBarEquivalenceTest {
 
+    private val palette = AppTheme.PURE_BLACK.colors
     private val modes = listOf(PercentDisplay.LEFT, PercentDisplay.USED)
 
     /** An independent copy of the palette's fill per severity. */
     private fun referenceBarFill(severity: Severity): Color? = when (severity) {
-        Severity.STALE -> UsageColors.StaleMark
+        Severity.STALE -> palette.StaleMark
         Severity.UNKNOWN, Severity.ERROR, Severity.EXHAUSTED -> null
-        else -> UsageColors.Data
+        else -> palette.Data
     }
 
     /** An independent copy of the palette's ink for a severity and fraction. */
     private fun referenceInk(severity: Severity, fraction: Double?, mode: PercentDisplay): Color? {
         referenceBarFill(severity)?.let { return it }
-        if (usedFillOverridesMissingInk(mode, fraction)) return UsageColors.Data
+        if (usedFillOverridesMissingInk(mode, fraction)) return palette.Data
         return null
     }
 
@@ -72,9 +74,9 @@ class ComposeBarEquivalenceTest {
 
     @Test
     fun `the app palette paints its data hue, its stale mark, or nothing`() {
-        assertEquals(UsageColors.Data, SeverityPalette.fill(FillState.DATA))
-        assertEquals(UsageColors.StaleMark, SeverityPalette.fill(FillState.STALE))
-        assertNull(SeverityPalette.fill(FillState.NO_FILL))
+        assertEquals(palette.Data, palette.fill(FillState.DATA))
+        assertEquals(palette.StaleMark, palette.fill(FillState.STALE))
+        assertNull(palette.fill(FillState.NO_FILL))
     }
 
     @Test
@@ -94,7 +96,7 @@ class ComposeBarEquivalenceTest {
                         val expectedInk = referenceInk(referenceDisplay, referenceFraction, mode)
 
                         val p = window.presentation(window.readingValidity(stale, fetchedAt, nowMs), mode)
-                        val ink = SeverityPalette.fill(p.fillState)
+                        val ink = palette.fill(p.fillState)
                         val target = (p.fill ?: 0.0).coerceIn(0.0, 1.0).toFloat()
                         val drawn = if (target > 0f && ink != null) target else 0f
 
@@ -107,7 +109,7 @@ class ComposeBarEquivalenceTest {
             }
         }
         assertEquals(6 * 2 * 3 * 2, cases)
-        assertEquals("the sweep must reach every ink", setOf<Color?>(UsageColors.Data, UsageColors.StaleMark, null), inks)
+        assertEquals("the sweep must reach every ink", setOf<Color?>(palette.Data, palette.StaleMark, null), inks)
     }
 
     /**
@@ -126,8 +128,8 @@ class ComposeBarEquivalenceTest {
             listOf(0.15, 0.6, 1.0).forEach { fraction ->
                 val at = "$severity $fraction"
                 assertTrue(at, isDeliberateChange(severity, fraction, PercentDisplay.USED))
-                assertEquals("$at reference", UsageColors.Data, referenceInk(severity, fraction, PercentDisplay.USED))
-                assertNull("$at module", SeverityPalette.barInkFor(severity, fraction, PercentDisplay.USED))
+                assertEquals("$at reference", palette.Data, referenceInk(severity, fraction, PercentDisplay.USED))
+                assertNull("$at module", palette.barInkFor(severity, fraction, PercentDisplay.USED))
             }
         }
     }
@@ -143,7 +145,7 @@ class ComposeBarEquivalenceTest {
                     assertEquals(
                         "$severity $fraction $mode",
                         referenceInk(severity, fraction, mode),
-                        SeverityPalette.barInkFor(severity, fraction, mode),
+                        palette.barInkFor(severity, fraction, mode),
                     )
                     compared++
                 }
