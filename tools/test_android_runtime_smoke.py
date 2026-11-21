@@ -733,7 +733,7 @@ class FigureSwitchTest(unittest.TestCase):
             smoke = Smoke(Path(directory), "test-device")
             with patch.object(smoke, "adb", side_effect=adb), patch.object(smoke, "dump", side_effect=dump), \
                     patch.object(smoke, "tap", side_effect=tap), patch.object(smoke, "navigate"), \
-                    patch.object(smoke, "capture"):
+                    patch.object(smoke, "capture"), patch.object(smoke, "scroll"):
                 try:
                     smoke.verify_figure_switch("figure", runtime_smoke.DEBUG_PACKAGE)
                     raised = None

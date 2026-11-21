@@ -1439,7 +1439,13 @@ class Smoke:
             report["animatorScaleReadBack"] = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
             assert scale_is(report["animatorScaleReadBack"], 1), \
                 f"animator scale read back as {report['animatorScaleReadBack']!r}, not 1"
-            self.navigate("Settings", ANIMATE_CLAUDE, name + "-settings", package)
+            # From the top of Settings (Appearance), down to the provider icons below it.
+            self.navigate("Settings", "Appearance", name + "-settings", package)
+            for attempt in range(9):
+                root = self.dump(f"{name}-find-{attempt}")
+                if self.control(root, package, label=ANIMATE_CLAUDE) is not None:
+                    break
+                self.scroll(root, up=True, package=package)
             for checked in ("false", "true"):
                 root = self.dump(f"{name}-before-{checked}")
                 switch = self.control(root, package, label=ANIMATE_CLAUDE)
