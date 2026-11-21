@@ -1,7 +1,6 @@
 package com.usagelimits.feature.settings
 
 import android.Manifest
-import android.app.Application
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
@@ -15,6 +14,13 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.WorkManager
+import com.usagelimits.UsageLimitsApp
+import com.usagelimits.core.sync.resetTestWorkManager
+import kotlinx.coroutines.runBlocking
+import org.junit.Before
+import org.junit.After
+import org.robolectric.shadows.ShadowLooper
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.model.ProviderAccount
@@ -37,11 +43,28 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(application = UsageLimitsApp::class, sdk = [34])
 class StatusIconSettingsTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
-    private val app = ApplicationProvider.getApplicationContext<Application>()
+    private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
+
+    @Before fun prepare() = runBlocking {
+        app.startupJob?.join()
+        WorkManager.getInstance(app).cancelAllWork().result.get()
+        app.container.settingsStore.setStatusIconsEnabled(false)
+        app.container.settingsStore.setPinnedAccounts(emptyList())
+        app.container.settingsStore.recordStatusIconEligibility(true)
+    }
+
+    @After fun drain() {
+        lateinit var barrier: kotlinx.coroutines.Job
+        compose.runOnUiThread { barrier = app.observeStatusIconEligibility() }
+        compose.waitDrained { barrier.isCompleted }
+        WorkManager.getInstance(app).cancelAllWork().result.get()
+        ShadowLooper.idleMainLooper()
+        resetTestWorkManager()
+    }
 
     private fun usage(id: String, name: String, provider: ProviderId) = AccountUsage(
         ProviderAccount(id, provider, "ext-$id", null, name, null, "cred-$id", 0L, null), snapshot = null,

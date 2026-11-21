@@ -126,6 +126,20 @@ class SettingsStore(context: Context) {
 
     val diagnostics: Flow<SyncDiagnostics> = dataStore.data.map { it.toDiagnostics() }.distinctUntilChanged()
 
+    /** Last observed OS eligibility, not a display preference: it must not repaint widgets. */
+    internal val statusIconEligibility: Flow<Boolean?> = dataStore.data
+        .map { it[Keys.STATUS_ICON_ELIGIBILITY] }.distinctUntilChanged()
+
+    /** Records one observation and claims only a known blocked-to-allowed edge, atomically. */
+    internal suspend fun recordStatusIconEligibility(allowed: Boolean): Boolean {
+        var allowedAgain = false
+        dataStore.edit { prefs ->
+            allowedAgain = prefs[Keys.STATUS_ICON_ELIGIBILITY] == false && allowed
+            prefs[Keys.STATUS_ICON_ELIGIBILITY] = allowed
+        }
+        return allowedAgain
+    }
+
     suspend fun recordSyncAttempt(atMs: Long) = edit { it[Keys.LAST_SYNC_ATTEMPT] = atMs }
 
     suspend fun recordSyncFinished(atMs: Long) = edit { it[Keys.LAST_SYNC_FINISHED] = atMs }
@@ -314,6 +328,7 @@ private object Keys {
     val ANIMATE_CLAUDE_CODE_ICON = booleanPreferencesKey("animate_claude_code_icon")
     val MUTED_ACCOUNTS = stringSetPreferencesKey("muted_account_ids")
     val PERCENT_DISPLAY = stringPreferencesKey("percent_display")
+    val STATUS_ICON_ELIGIBILITY = booleanPreferencesKey("status_icon_eligibility")
     val STATUS_ICONS_ENABLED = booleanPreferencesKey("status_icons_enabled")
     val PINNED_ACCOUNTS = stringPreferencesKey("pinned_account_ids")
     val APP_THEME = stringPreferencesKey("appearance_theme")
