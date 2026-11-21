@@ -7,16 +7,18 @@ class WidgetMetricsTest {
     private val pixel = WidgetMetrics(70f, 131f, 132f, 66f)
 
     @Test fun `mini rings allocate height only to populated rows`() {
-        val grid = WidgetLayout.Grid(columns = 1, rows = 6)
-        assertEquals(1, WidgetLayout.miniRows(grid, 1, 246f))
-        assertEquals(3, WidgetLayout.miniRows(grid, 3, 246f))
-        assertEquals(6, WidgetLayout.miniRows(grid, 10, 246f))
-        assertEquals(2, WidgetLayout.miniRows(grid, 4, 48f))
+        val portrait = WidgetLayout.miniGrid(62f, 254f, pixel)
+        assertEquals(1, WidgetLayout.miniRows(portrait, 1, 246f))
+        assertEquals(3, WidgetLayout.miniRows(portrait, 3, 246f))
+        assertEquals(4, WidgetLayout.miniRows(portrait, 10, 246f))
+        val landscape = WidgetLayout.miniGrid(256f, 58f, pixel)
+        assertEquals(1, WidgetLayout.miniRows(landscape, 1, 50f))
+        assertEquals(1, WidgetLayout.miniRows(landscape, 4, 50f))
     }
 
     @Test fun `a mini host shorter than one row still shows one ring row`() {
-        val grid = WidgetLayout.Grid(columns = 1, rows = 2)
-        assertEquals(1, WidgetLayout.miniRows(grid, 2, 19f))
+        val grid = WidgetLayout.miniGrid(62f, 19f, pixel)
+        assertEquals(1, WidgetLayout.miniRows(grid, 2, 11f))
     }
 
     @Test fun `large text requires a single labelled column at intermediate widths`() {

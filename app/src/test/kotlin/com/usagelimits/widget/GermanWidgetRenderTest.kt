@@ -192,6 +192,91 @@ class GermanWidgetRenderTest {
         }
     }
 
+    @Test fun `both ring hosts name the German headline and exact reset clause`() = runTest {
+        val now = java.time.Instant.parse("2027-01-15T12:00:00Z").toEpochMilli()
+        val previousTime = System.currentTimeMillis()
+        val zone = java.util.TimeZone.getDefault()
+        android.os.SystemClock.setCurrentTimeMillis(now)
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"))
+        try {
+            val reset = java.time.Instant.parse("2027-01-15T18:00:00Z").toEpochMilli()
+            val window = UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 63.0, 604_800, reset, false)
+            val id = seed(window)
+            val cases = listOf(
+                Triple("current", com.usagelimits.core.model.SnapshotStatus.OK, ""),
+                Triple("stale", com.usagelimits.core.model.SnapshotStatus.OK, "Daten sind veraltet"),
+                Triple("failed", com.usagelimits.core.model.SnapshotStatus.FAILED, "Aktualisierung fehlgeschlagen · zuletzt bekannte Daten"),
+                Triple("reconnect", com.usagelimits.core.model.SnapshotStatus.OK, "Neuverbindung erforderlich"),
+            )
+            inEachMode { mode ->
+                for ((state, status, clause) in cases) {
+                    app.container.repository.saveSnapshot(UsageSnapshot(id,
+                        if (state == "stale") now - 2 * 86_400_000L else now, status, windows = listOf(window),
+                        connectionStatus = if (state == "reconnect") com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED
+                            else com.usagelimits.core.model.ConnectionStatus.CONNECTED))
+                    for (kind in listOf("MinimalUsageWidget", "MiniRingsWidget")) {
+                        inspect(kind, id, DpSize(180.dp, 110.dp)) { root ->
+                            val speech = ringImages(root).single().contentDescription.toString()
+                            val figure = if (mode == PercentDisplay.USED) "63 % verbraucht" else "37 % übrig"
+                            assertTrue("$kind $mode retains window and exact German reset: $speech",
+                                "$figure, Wöchentlich, Reset 18:00" in speech)
+                            if (clause.isNotEmpty()) assertTrue("$kind $state retains its German validity: $speech", clause in speech)
+                            for ((_, _, other) in cases.filter { it.third.isNotEmpty() && it.third != clause }) {
+                                assertTrue("$kind $state does not speak another reading state: $speech", other !in speech)
+                            }
+                            assertTrue("$kind has no English window or reset: $speech", "Weekly" !in speech && "Resets" !in speech)
+                        }
+                    }
+                }
+            }
+        } finally {
+            java.util.TimeZone.setDefault(zone)
+            android.os.SystemClock.setCurrentTimeMillis(previousTime)
+        }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun `large German ring status and Bars labels retain their complete meaning`() = runTest {
+        val originalScale = app.resources.configuration.fontScale
+        try {
+            val id = seedFixture()
+            for (scale in listOf(1f, 1.6f)) {
+                RuntimeEnvironment.setFontScale(scale)
+                inEachMode { mode ->
+                    inspect("MinimalUsageWidget", id, DpSize(180.dp, 110.dp)) { root ->
+                        val status = textViews(root).single { it.text.startsWith("Wöchentlich · ") }
+                        assertCompleteText(root, status)
+                        assertEquals("status keeps the requested text size",
+                            androidx.core.util.TypedValueCompat.spToPx(11f, app.resources.displayMetrics), status.textSize, 0.01f)
+                    }
+                    inspect("DetailedUsageWidget", id, DpSize(180.dp, 260.dp)) { root ->
+                        for (label in listOf("5‑Std.-Limit", "Wöchentlich")) {
+                            assertCompleteText(root, textViews(root).single { it.text.toString() == label })
+                        }
+                        for (figure in figures(mode)) {
+                            val suffix = if (mode == PercentDisplay.USED) "verbraucht" else "übrig"
+                            assertCompleteText(root, textViews(root).single { it.text.toString() == "$figure $suffix" })
+                        }
+                    }
+                }
+            }
+        } finally { RuntimeEnvironment.setFontScale(originalScale) }
+    }
+
+    private fun assertCompleteText(root: View, text: TextView) {
+        val layout = text.layout
+        assertTrue("'${text.text}' is laid out", layout.lineCount > 0)
+        for (line in 0 until layout.lineCount) {
+            assertEquals("'${text.text}' has no hidden ellipsis on line $line", 0, layout.getEllipsisCount(line))
+            assertTrue("'${text.text}' fits line $line", layout.getLineWidth(line) <= text.width - text.totalPaddingLeft - text.totalPaddingRight)
+        }
+        assertEquals("'${text.text}' retains its ending", text.text.length, layout.getLineEnd(layout.lineCount - 1))
+        assertTrue("'${text.text}' fits vertically", layout.height <= text.height - text.totalPaddingTop - text.totalPaddingBottom)
+        val bounds = android.graphics.Rect(0, 0, text.width, text.height)
+        (root as ViewGroup).offsetDescendantRectToMyCoords(text, bounds)
+        assertTrue("'${text.text}' stays inside the host: $bounds", android.graphics.Rect(0, 0, root.width, root.height).contains(bounds))
+    }
+
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun `account ring fits German 71 percent used at 1_6x`() = runTest {
         assertGermanRingCentreFits(71.0, "71 %", 1.6f, "german-ring-71-used-1_6x")
@@ -205,6 +290,7 @@ class GermanWidgetRenderTest {
     private suspend fun TestScope.assertGermanRingCentreFits(used: Double, figure: String, scale: Float, capture: String) {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val originalScale = app.resources.configuration.fontScale
+        val originalMode = app.container.settingsStore.settings.first().percentDisplay
         try {
             RuntimeEnvironment.setFontScale(scale)
             app.container.settingsStore.setPercentDisplay(PercentDisplay.USED)
@@ -236,7 +322,7 @@ class GermanWidgetRenderTest {
         } finally {
             RuntimeEnvironment.setFontScale(originalScale)
             try {
-                app.container.settingsStore.setPercentDisplay(PercentDisplay.LEFT)
+                app.container.settingsStore.setPercentDisplay(originalMode)
             } finally {
                 Dispatchers.resetMain()
             }

@@ -119,7 +119,7 @@ class GermanWidgetConfigRenderTest {
         assertEquals(1, texts("Widget-Inhalt").size)
         reveal("Ein Anbieter")
         assertEquals(1, texts("Ein Anbieter").size)
-        val footer = "Ob übrig oder verbraucht, richtet sich nach Einstellungen › Anzeige, wie in der Übersicht."
+        val footer = "Ob „Übrig“ oder „Verbraucht“ angezeigt wird, richtet sich nach Einstellungen › Anzeige, wie in der Übersicht."
         reveal(footer)
         assertEquals(1, texts(footer).size)
     }

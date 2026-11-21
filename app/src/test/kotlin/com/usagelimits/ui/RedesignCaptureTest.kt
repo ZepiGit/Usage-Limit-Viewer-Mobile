@@ -549,7 +549,6 @@ class RedesignCaptureTest {
                             compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(amount))
                             compose.waitForIdle()
                             if (row.fontScale == 1.5f) assertTextFits(amount)
-                            captureScreen("A1-credits", row.suffix)
                         }
                         "A2-dials" -> {
                             for (token in listOf("100", "12")) {
@@ -798,6 +797,7 @@ class RedesignWidgetCaptureTest {
             "DetailedUsageWidget" to listOf(
                 PlacedScene("multi", DpSize(300.dp, 360.dp)),
                 PlacedScene("compact-single", DpSize(180.dp, 110.dp), singleAccount = true),
+                PlacedScene("compact-single-large-text", DpSize(180.dp, 260.dp), singleAccount = true, fontScale = 1.6f),
                 PlacedScene("resized-multi", DpSize(250.dp, 180.dp)),
             ),
             "MinimalUsageWidget" to listOf(
@@ -814,12 +814,14 @@ class RedesignWidgetCaptureTest {
             ),
             "CreditsWidget" to listOf(
                 PlacedScene("small", DpSize(110.dp, 110.dp)),
+                PlacedScene("small-large-text", DpSize(110.dp, 110.dp), fontScale = 1.6f),
                 PlacedScene("medium", DpSize(250.dp, 110.dp)),
                 PlacedScene("large", DpSize(250.dp, 250.dp)),
             ),
         )
         val styles = mapOf(
             "charcoal" to WidgetStyle(),
+            "paper" to WidgetStyle(WidgetBackground(0xFFF3F0E8.toInt())),
             "transparent" to WidgetStyle(WidgetBackground(opacityPercent = 0)),
             "navy" to WidgetStyle(WidgetBackground(0xFF16213A.toInt(), 100)),
         )
@@ -924,10 +926,8 @@ class RedesignWidgetCaptureTest {
 
     private fun Bitmap.saveWidget(name: String, transparent: Boolean) {
         if (captureDir == null) return
-        if (!transparent) {
-            save(name)
-            return
-        }
+        save(name)
+        if (!transparent) return
         for ((backdrop, color) in listOf("dark" to 0xFF242322.toInt(), "light" to 0xFFF3F0E8.toInt())) {
             Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).useOnce { frame ->
                 val canvas = Canvas(frame)

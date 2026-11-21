@@ -24,7 +24,6 @@ import androidx.glance.unit.ColorProvider
 import com.usagelimits.R
 import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.PercentDisplay
-import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.WindowPresentation
 import com.usagelimits.core.time.Countdown
@@ -54,9 +53,9 @@ open class AccountRingsWidget(private val mini: Boolean) : GlanceAppWidget() {
                 accounts.take(columns * rows).chunked(columns)
             }
             val rowHeight = if (mini) (contentHeight / groups.size.coerceAtLeast(1)).dp
-                else maxOf(48f, 32f * fontScale + 8f).dp
+                else maxOf(48f, 44f * fontScale + 8f).dp
             val ringSize = if (mini) (minOf((size.width.value - 8f) / columns, rowHeight.value) - 8f).coerceIn(16f, 52f).dp
-                else minOf(rowHeight - 8.dp, (size.width - 20.dp) / columns - 96.dp).coerceAtLeast(40.dp)
+                else minOf(rowHeight - 8.dp, (size.width - 20.dp) / columns - (96f * fontScale.coerceAtLeast(1f)).dp).coerceAtLeast(40.dp)
             val verticalInset = if (mini) 4.dp else ((size.height - rowHeight) / 2).coerceIn(0.dp, 10.dp)
             CompositionLocalProvider(LocalWidgetStyle provides style, LocalPercentMode provides mode) {
                 Column(GlanceModifier.fillMaxSize().panelCorner()
@@ -93,9 +92,7 @@ private fun RingAccountRow(context: Context, group: List<WidgetAccount>, columns
                 Spacer(GlanceModifier.width(8.dp))
                 Column(GlanceModifier.defaultWeight()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (ProviderId.fromId(account.providerId) != null) {
-                            WidgetLogo(account, 18.dp, gap = 6.dp)
-                        }
+                        WidgetLogo(account, 18.dp, gap = 6.dp)
                         Text(account.accountLabel ?: account.subtitle ?: account.title, maxLines = 1,
                             style = widgetText(style.textPrimary, 12, FontWeight.Medium))
                     }
@@ -109,7 +106,7 @@ private fun RingAccountRow(context: Context, group: List<WidgetAccount>, columns
                         else -> ringLimit(account)?.let { limit ->
                             limit.resetAt?.let { "${limit.labelText(resources)} · ${compactRingReset(context, it)}" }
                         } ?: resources.getString(R.string.widget_ring_no_reset)
-                    }, maxLines = 1,
+                    }, maxLines = 2,
                         style = widgetText(style.textSecondary, 11))
                 }
             }

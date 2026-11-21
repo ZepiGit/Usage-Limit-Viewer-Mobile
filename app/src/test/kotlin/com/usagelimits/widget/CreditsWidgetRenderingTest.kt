@@ -25,6 +25,7 @@ import com.usagelimits.core.model.CreditStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -104,6 +105,9 @@ class CreditsWidgetRenderingTest {
             // The title and its 6dp dot plus 6dp gap, not the title glyphs alone, are centered.
             assertEquals("title and severity dot are centered as a group", pixels / 2f, titleTextCenter - 6f, 1f)
             assertTrue("balance is beneath the title", amountBounds.top >= titleBounds.bottom)
+            assertEquals("the amount itself, not the amount-status group, is centered vertically",
+                pixels / 2f, amountBounds.exactCenterY(), 1f)
+            assertEquals("the amount is centered horizontally", pixels / 2f, amountBounds.exactCenterX(), 1f)
             assertTrue("status is directly beneath the balance", statusBounds.top in amountBounds.bottom..(amountBounds.bottom + 1))
             assertTrue("a current balance has a freshness label", status.text.startsWith("As of "))
             assertEquals("balance uses 28sp", androidx.core.util.TypedValueCompat.spToPx(28f, app.resources.displayMetrics), amount.textSize, 0.01f)
@@ -123,8 +127,9 @@ class CreditsWidgetRenderingTest {
         return view
     }
 
-    private fun capture(view: View, name: String): Bitmap =
-        Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888).also { image ->
+    private fun capture(view: View, name: String): Bitmap {
+        val image = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        try {
             view.draw(Canvas(image))
             System.getProperty("capture.dir")?.takeIf { it.isNotBlank() }?.let { path ->
                 val directory = File(path).apply { mkdirs() }
@@ -132,7 +137,12 @@ class CreditsWidgetRenderingTest {
                     image.compress(Bitmap.CompressFormat.PNG, 100, it)
                 }
             }
+            return image
+        } catch (failure: Throwable) {
+            image.recycle()
+            throw failure
         }
+    }
 
     @Test
     @Config(qualifiers = "en-rUS-mdpi")
@@ -277,6 +287,75 @@ class CreditsWidgetRenderingTest {
         } finally {
             Dispatchers.resetMain()
         }
+    }
+
+    @Test
+    @Config(qualifiers = "de-rDE-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `small German Credits at 1_6x keeps the centered amount and complete freshness`() = runTest {
+        checkLargeTile("20,00", "Stand", "de")
+    }
+
+    @Test
+    @Config(qualifiers = "en-rUS-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `small English Credits at 1_6x keeps the centered amount and complete freshness`() = runTest {
+        checkLargeTile("20.00", "As of", "en")
+    }
+
+    private suspend fun TestScope.checkLargeTile(amountText: String, freshness: String, language: String) {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        val originalScale = app.resources.configuration.fontScale
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            org.robolectric.RuntimeEnvironment.setFontScale(1.6f)
+            val now = System.currentTimeMillis()
+            val id = "large-credit"
+            app.container.creditRepository.upsert(
+                CreditAccount(id, CreditProviderId.FAL, "Guthaben", "credit:$id", createdAt = now),
+                CreditSnapshot(id, listOf(CreditBalance("USD", BigDecimal("20"))), fetchedAt = now))
+            val view = smallTile(app)
+            capture(view, "small-1_6x-$language").recycle()
+            val amount = texts(view, amountText).single() as TextView
+            val status = texts(view, freshness).single() as TextView
+            fun bounds(child: View) = Rect(0, 0, child.width, child.height).also {
+                (view as ViewGroup).offsetDescendantRectToMyCoords(child, it)
+            }
+            assertEquals("amount itself stays at the tile's center", view.height / 2f, bounds(amount).exactCenterY(), 1f)
+            assertTrue("freshness hangs below the amount", bounds(status).top >= bounds(amount).bottom)
+            assertTrue("freshness remains at least the default 11sp size", status.textSize >= 11f * app.resources.displayMetrics.density)
+            for (text in listOf(amount, status)) {
+                val layout = text.layout
+                assertEquals("${text.text} retains the complete text", text.text.length, layout.getLineEnd(layout.lineCount - 1))
+                for (line in 0 until layout.lineCount) {
+                    assertEquals("${text.text} is not ellipsized", 0, layout.getEllipsisCount(line))
+                    assertTrue("${text.text} fits its width", layout.getLineWidth(line) <= text.width - text.totalPaddingLeft - text.totalPaddingRight)
+                }
+                assertTrue("${text.text} fits its height", layout.height <= text.height - text.totalPaddingTop - text.totalPaddingBottom)
+                assertTrue("${text.text} stays inside the tile", Rect(0, 0, view.width, view.height).contains(bounds(text)))
+            }
+        } finally {
+            org.robolectric.RuntimeEnvironment.setFontScale(originalScale)
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "de-rDE-mdpi")
+    fun `small uncapped Credits uses the same spend wording as a balance line`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            val now = System.currentTimeMillis()
+            val id = "uncapped-wording"
+            app.container.creditRepository.upsert(
+                CreditAccount(id, CreditProviderId.OPENROUTER, "Uncapped", "credit:$id", createdAt = now),
+                CreditSnapshot(id, listOf(CreditBalance("USD", BigDecimal("20"), unlimited = true)), fetchedAt = now))
+            val view = smallTile(app)
+            assertEquals("one localized spending clause, without repeating the amount", 1,
+                texts(view, "diesen Monat ausgegeben").size)
+            assertEquals("the balance remains separate", 1, texts(view, "20,00").size)
+        } finally { Dispatchers.resetMain() }
     }
 
     @Test fun `composes empty and with accounts at every size`() = runTest {

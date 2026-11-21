@@ -439,6 +439,42 @@ class PercentModeWidgetRenderingTest {
         }
     }
 
+    @Test fun `both hosted ring kinds speak stale failed and reconnect readings without losing the window`() = runTest {
+        val now = 1_800_000_000_000L
+        val previousTime = System.currentTimeMillis()
+        android.os.SystemClock.setCurrentTimeMillis(now)
+        try {
+            val window = UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 63.0, 604_800,
+                now + 86_400_000, false)
+            val cases = listOf(
+                Triple("Stale speech", SnapshotStatus.OK, "Data is out of date"),
+                Triple("Failed speech", SnapshotStatus.FAILED, "Update failed · last known data"),
+                Triple("Reconnect speech", SnapshotStatus.OK, "reconnect required"),
+            ).map { (name, status, clause) ->
+                val id = seedNamedAccount("speech-$name", name, listOf(window))
+                app.container.repository.saveSnapshot(UsageSnapshot(id,
+                    if (name == "Stale speech") now - 2 * 86_400_000L else now,
+                    status, windows = listOf(window),
+                    connectionStatus = if (name == "Reconnect speech") ConnectionStatus.RECONNECT_REQUIRED else ConnectionStatus.CONNECTED))
+                id to clause
+            }
+            inEachMode { mode ->
+                for ((id, clause) in cases) for (kind in listOf("MinimalUsageWidget", "MiniRingsWidget")) {
+                    inspect(kind, listOf(id), DpSize(180.dp, 110.dp)) { root ->
+                        val speech = ringImages(root).single().contentDescription.toString()
+                        assertTrue("$kind $mode keeps the reading's validity: $speech", clause in speech)
+                        assertTrue("$kind $mode names the actual window and reset: $speech", "Weekly, Resets " in speech)
+                        val figure = if (mode == PercentDisplay.USED) "63% used" else "37% remaining"
+                        assertTrue("$kind $mode retains the cached figure: $speech", figure in speech)
+                        for ((_, other) in cases.filter { it.second != clause }) {
+                            assertTrue("$kind does not confuse $clause with $other: $speech", other !in speech)
+                        }
+                    }
+                }
+            }
+        } finally { android.os.SystemClock.setCurrentTimeMillis(previousTime) }
+    }
+
     // endregion
 
     // region Mini Rings
@@ -486,9 +522,7 @@ class PercentModeWidgetRenderingTest {
         }
     }
 
-    @Test fun `an empty selection shows its message and no mode caption`() = runTest {
-        // PLAN 3: the caption is a hint about the rings below it; with no rings it would be a
-        // word floating over an explanation.
+    @Test fun `an empty ring selection shows the no matching accounts message`() = runTest {
         seedFixtureAccount()
         inEachMode { mode ->
             for (name in listOf("MinimalUsageWidget", "MiniRingsWidget")) {
@@ -689,6 +723,8 @@ class PercentModeWidgetRenderingTest {
         directory.mkdirs()
         val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
         try {
+            root.draw(Canvas(bitmap))
+            File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             for ((backdrop, color) in listOf("dark" to 0xFF242322.toInt(), "light" to 0xFFF3F0E8.toInt())) {
                 val canvas = Canvas(bitmap)
                 canvas.drawColor(color)
@@ -700,11 +736,12 @@ class PercentModeWidgetRenderingTest {
 
     /** Runs [body] at [scale] and always puts the font scale back, so a failure cannot leak it onward. */
     private inline fun <T> atFontScale(scale: Float, body: () -> T): T {
+        val original = app.resources.configuration.fontScale
         RuntimeEnvironment.setFontScale(scale)
         try {
             return body()
         } finally {
-            RuntimeEnvironment.setFontScale(1f)
+            RuntimeEnvironment.setFontScale(original)
         }
     }
 
