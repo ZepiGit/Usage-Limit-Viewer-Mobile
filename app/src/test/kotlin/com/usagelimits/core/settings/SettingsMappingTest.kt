@@ -206,6 +206,16 @@ class SettingsMappingTest {
     }
 
     @Test
+    fun `the Claude Code figure animates until someone turns it off, under its own key`() {
+        assertTrue(settingsFrom().animateClaudeCodeIcon)
+
+        val off = settingsFrom(booleanPreferencesKey("animate_claude_code_icon") to false)
+        assertFalse(off.animateClaudeCodeIcon)
+        // Its own key: turning the figure still leaves the other display choices as stored.
+        assertEquals(AppSettings(animateClaudeCodeIcon = false), off)
+    }
+
+    @Test
     fun `diagnostics timestamps live beside the settings without changing them`() {
         // They share the file, so a sync writing its timestamp must not alter what
         // `toSettings` reads — the widgets observe that mapping.
