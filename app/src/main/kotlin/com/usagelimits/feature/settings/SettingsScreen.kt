@@ -28,8 +28,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.annotation.StringRes
 import com.usagelimits.R
+import com.usagelimits.core.database.inOverviewOrder
 import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.claudeCodeMoodAt
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.OverviewCreditLayout
 import com.usagelimits.core.settings.AppTheme
@@ -84,6 +87,9 @@ fun SettingsScreen(
     onAppThemeChange: (AppTheme) -> Unit = {},
     onTextFontChange: (TextFont) -> Unit = {},
     onFigureFontChange: (FigureFont) -> Unit = {},
+    onAnimateClaudeCodeIconChange: (Boolean) -> Unit = {},
+    /** The instant Overview orders by; the Claude provider row follows Overview's first Claude account. */
+    nowMs: Long = System.currentTimeMillis(),
 ) {
     val settings = state.settings
     val uriHandler = LocalUriHandler.current
@@ -107,7 +113,13 @@ fun SettingsScreen(
         item { SectionHeader(stringResource(R.string.settings_section_appearance)) }
         item { AppearanceSettings(settings, onTextFontChange, onFigureFontChange, onAppThemeChange) }
 
-        item { ProviderIconSettings(settings.providerIcons, onProviderIconChange) }
+        item {
+            // The first Claude account in unfiltered Overview order speaks for Claude's row; none is Idle.
+            val claude = state.accounts.inOverviewOrder(nowMs).firstOrNull { it.account.provider == ProviderId.CLAUDE }
+            ProviderIconSettings(settings.providerIcons, claude?.snapshot.claudeCodeMoodAt(nowMs),
+                settings.animateClaudeCodeIcon, onAnimateClaudeCodeIconChange,
+                claudeAccountId = claude?.account?.localId, onChoose = onProviderIconChange)
+        }
         item { AppIconSettings() }
         item { SectionHeader(stringResource(R.string.settings_section_sync)) }
         item {

@@ -432,6 +432,9 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     // An account detail opened from the list, and the way back to it, keep the filter.
     var overviewFilter by rememberSaveable { mutableStateOf(OverviewFilter.ALL) }
     val activeEntry by navController.currentBackStackEntryAsState()
+    val routeState = activeEntry?.lifecycle?.currentStateFlow?.collectAsState()?.value
+    val hoorayLayout = com.usagelimits.ui.HoorayPresentation(com.usagelimits.ui.LocalHoorayPlayback.current,
+        state.loaded && routeState == androidx.lifecycle.Lifecycle.State.RESUMED)
     val currentRoute = activeEntry?.destination?.route
     val dials = state.settings.overviewLayout == OverviewLayout.DIALS
     LaunchedEffect(currentRoute, dials) {
@@ -440,7 +443,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         }
     }
 
-    Box(Modifier.fillMaxSize().background(UsageColors.Ground)) {
+    Box(Modifier.fillMaxSize().background(UsageColors.Ground).then(hoorayLayout)) {
         NavigationShell(
             navController, NavigationLayout.forWidth(windowSizeClass.widthSizeClass),
             snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -498,6 +501,8 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     onOverviewShowFirstChange = viewModel::setOverviewShowFirst,
                     onOverviewShowCreditsChange = viewModel::setOverviewShowCredits,
                     onManageCredits = { navController.navigate(Destination.ManageCredits.route) },
+                    onAnimateClaudeCodeIconChange = viewModel::setAnimateClaudeCodeIcon,
+                    nowMs = nowMs,
                 )
             }
 

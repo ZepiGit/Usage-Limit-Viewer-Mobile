@@ -154,7 +154,7 @@ class ExternalRequestActivityTest {
     private fun stop(controller: ActivityController<UsageLimitsActivity>) {
         val activity = controller.get()
         if (activity.isDestroyed) return
-        val jobs = listOfNotNull(viewModelJob(activity), activity.notificationPermissionCheck)
+        val jobs = listOfNotNull(viewModelJob(activity), activity.notificationPermissionCheck, app.mainOpening.job)
         controller.pause().stop().destroy()
         val deadline = System.currentTimeMillis() + 10_000
         while (jobs.any { !it.isCompleted }) {

@@ -35,6 +35,8 @@ PACKAGE = "com.usagelimits"
 DEBUG_PACKAGE = PACKAGE + ".debug"
 DEBUG_RECEIVER = DEBUG_PACKAGE + "/com.usagelimits.evidence.StatusIconEvidenceReceiver"
 SETTING = "Show subscription tier"
+# 05a: the switch under Claude's provider icon row, drawn only while a Claude Code icon is chosen.
+ANIMATE_CLAUDE = "Animate Claude Code icon"
 # What an empty Overview says once it is ready. This build is held to C1. The upgrade baseline is
 # the newest published release, so it may be one from before the redesign (whose Overview counted
 # its accounts) or one after it; either known empty state counts for it, inside its own package
@@ -1419,11 +1421,56 @@ class Smoke:
         seeded = self.seed_list("seeded", debug_apk)
         self.verify_chip_press("chip", DEBUG_PACKAGE)
         row = self.open_seeded_row("seeded-row", DEBUG_PACKAGE)
+        self.verify_figure_switch("figure", DEBUG_PACKAGE)
         # The order the debug receiver computed is driver evidence; the rows on screen, top to
         # bottom, are what the UI showed (as many as fit). Both are recorded, neither is asserted.
         return {"seededList": "passed", "seededOverviewByDriver": seeded["overview"],
                 "seededRowsShownByUi": row["shownOnScreen"], "seededRowTapped": row["tapped"],
-                "chipPress": "chip-ripple.json", "motionFrames": {"report": "motion.json"}}
+                "chipPress": "chip-ripple.json", "claudeFigureSwitch": "figure.json",
+                "motionFrames": {"report": "motion.json"}}
+
+    def verify_figure_switch(self, name, package):
+        """05a: a tap on the switch right below the moving Claude Code figure takes effect.
+
+        Claude's Settings row shows the figure, and the "Animate Claude Code icon" switch under it,
+        only while a Claude Code icon is chosen (the default), so finding the switch finds the
+        figure's row. The rest of the smoke runs with animations off; here the animator scale is 1,
+        so the figure moves while the switch is tapped. The switch must then read off; a second tap
+        turns it on again. From the moment it asks for scale 1, the step owes the device a scale of
+        0, read back, on every way out: a scale it cannot confirm as 0 fails the smoke.
+        """
+        report = {"animatorScale": 1}
+        try:
+            self.adb("shell", "settings", "put", "global", "animator_duration_scale", "1.0")
+            report["animatorScaleReadBack"] = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
+            assert scale_is(report["animatorScaleReadBack"], 1), \
+                f"animator scale read back as {report['animatorScaleReadBack']!r}, not 1"
+            # From the top of Settings (Appearance), down to the provider icons below it.
+            self.navigate("Settings", "Appearance", name + "-settings", package)
+            for attempt in range(9):
+                root = self.dump(f"{name}-find-{attempt}")
+                if self.control(root, package, label=ANIMATE_CLAUDE) is not None:
+                    break
+                self.scroll(root, up=True, package=package)
+            for checked in ("false", "true"):
+                root = self.dump(f"{name}-before-{checked}")
+                switch = self.control(root, package, label=ANIMATE_CLAUDE)
+                assert switch is not None and switch.get("checkable") == "true", \
+                    f"No {ANIMATE_CLAUDE} switch: Claude's row does not show the Claude Code figure"
+                assert switch.get("checked") != checked, f"{ANIMATE_CLAUDE} already reads {checked}"
+                self.tap(switch)
+                self.wait_for(f"{name}-{checked}", lambda root: (
+                    (now := self.control(root, package, label=ANIMATE_CLAUDE)) is not None
+                    and now.get("checked") == checked))
+                report["switchReadAfterTap" if checked == "false" else "switchReadAfterSecondTap"] = checked
+                if checked == "false":
+                    self.capture(name + "-tapped")
+        finally:
+            restored = self.restore_animations(report)
+            self.text(name + ".json", json.dumps(report, indent=2))
+        assert restored, (f"Animations were not turned off again after {name}: the animator scale read "
+                          f"{report['animatorScaleRestored']!r} after {MOTION_RESTORE_ATTEMPTS} attempts.")
+        return report
 
     def seed_credit_only(self, name, apk, locale):
         """Replace only the throwaway debug app's usage fixture with one local synthetic credit account."""
@@ -1490,15 +1537,31 @@ class Smoke:
                 assert len(candidates) <= 1, f"Ambiguous {package} credit row: {label}"
                 target = next(iter(candidates.values()), None)
             if target is not None:
-                return target
-            self.scroll(root, up=up, package=package)
+                parents = {child: parent for parent in root.iter() for child in parent}
+                ancestor = parents.get(target)
+                box = bounds(target)
+                while ancestor is not None:
+                    if ancestor.get("scrollable") == "true" and bounds(ancestor):
+                        viewport = bounds(ancestor)
+                        assert viewport[0] <= box[0] < box[2] <= viewport[2], \
+                            f"Credit control {label} extends outside its horizontal viewport"
+                        # Compose exposes clipped selector ancestors whose centre is outside the viewport.
+                        if box[1] < viewport[1] or box[3] > viewport[3]:
+                            self.scroll(root, up=box[3] > viewport[3], package=package)
+                            break
+                    ancestor = parents.get(ancestor)
+                else:
+                    return target
+            else:
+                self.scroll(root, up=up, package=package)
         raise AssertionError(f"Could not reach credit control {label}")
 
     def credit_selection(self, name, label, checked, package=DEBUG_PACKAGE, up=True):
         """Follow a selection moved out of view by the Settings preview or dependent controls.
 
-        Compact shrinks the preview and can move its selector above the viewport (up=False).
-        Show credits adds controls above its switch and moves it below the viewport (up=True).
+        Compact and Hide credits shrink content above their selectors (up=False).
+        Normal and Show credits grow content above their selectors (up=True).
+        Show first only reorders the same preview blocks; its controls keep their height.
         A visible control with the old value is only waited for, never tapped again.
         """
         for attempt in range(12):
@@ -1544,14 +1607,16 @@ class Smoke:
         self.navigate_credit("Settings", "Show credits", "credits-en-settings")
         normal = self.credit_control("credits-en-normal-layout", "Normal", up=False)
         self.tap(normal)
+        self.credit_selection("credits-en-normal-selected", "Normal", True, up=True)
         compact_option = self.credit_control("credits-en-compact-layout", "Compact", up=False)
         self.tap(compact_option)
         self.credit_selection("credits-en-compact-selected", "Compact", True, up=False)
         first = self.credit_control("credits-en-show-first", "Usage providers", up=True)
         self.tap(first)
+        self.credit_selection("credits-en-usage-first-selected", "Usage providers", True, up=True)
         credit_first = self.credit_control("credits-en-credit-first", "Credit accounts", up=True)
         self.tap(credit_first)
-        self.wait_for("credits-en-credit-first-selected", lambda root: credit_checked(root, "Credit accounts", True, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-en-credit-first-selected", "Credit accounts", True, up=True)
         self.navigate_credit("Overview", "Credits · 1 balance", "credits-en-compact-overview")
         compact_root = self.dump("credits-en-compact-order")
         count_node = next(node for node in credit_matches(compact_root, "Credits · 1 balance") if bounds(node))
@@ -1569,7 +1634,7 @@ class Smoke:
         self.wait_for("credits-en-collapsed", lambda root: bool(credit_matches(root, "Credits · 1 balance")))
         self.navigate_credit("Settings", "Show credits", "credits-en-settings-normal")
         self.tap(self.credit_control("credits-en-restore-normal", "Normal", up=False))
-        self.wait_for("credits-en-normal-restored", lambda root: credit_checked(root, "Normal", True, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-en-normal-restored", "Normal", True, up=True)
         self.adb("shell", "cmd", "locale", "set-app-locales", DEBUG_PACKAGE, "--locales", "de-DE", "--user", "0")
         self.adb("shell", "am", "force-stop", DEBUG_PACKAGE)
         self.launch("credits-de-start", DEBUG_PACKAGE, tab="Übersicht")
@@ -1578,14 +1643,16 @@ class Smoke:
         self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-settings")
         layout = self.credit_control("credits-de-layout", "Normal", up=False)
         self.tap(layout)
+        self.credit_selection("credits-de-normal-selected", "Normal", True, up=True)
         compact = self.credit_control("credits-de-compact", "Kompakt", up=False)
         self.tap(compact)
         self.credit_selection("credits-de-compact-selected", "Kompakt", True, up=False)
         first = self.credit_control("credits-de-show-first", "Nutzungskonten", up=True)
         self.tap(first)
+        self.credit_selection("credits-de-usage-first-selected", "Nutzungskonten", True, up=True)
         credit_first = self.credit_control("credits-de-credit-first", "Guthabenkonten", up=True)
         self.tap(credit_first)
-        self.wait_for("credits-de-credit-first-selected", lambda root: credit_checked(root, "Guthabenkonten", True, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-de-credit-first-selected", "Guthabenkonten", True, up=True)
         show = self.credit_control("credits-de-show-credits", "Guthaben anzeigen", up=True)
         assert show.get("checkable") == "true" and show.get("checked") == "true", "Show credits did not start enabled"
         self.capture("credits-de-settings")
@@ -1608,8 +1675,7 @@ class Smoke:
         self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-settings-hide")
         show = self.credit_control("credits-de-hide", "Guthaben anzeigen", up=True)
         self.tap(show)
-        self.wait_for("credits-de-hidden-settings", lambda root:
-            credit_checked(root, "Guthaben anzeigen", False, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-de-hidden-settings", "Guthaben anzeigen", False, up=False)
         self.credit_control("credits-de-manage-always", "Guthaben verwalten", up=True)
         self.adb("shell", "am", "force-stop", DEBUG_PACKAGE)
         self.launch("credits-de-relaunch", DEBUG_PACKAGE, tab="Übersicht")
@@ -1630,8 +1696,7 @@ class Smoke:
         self.navigate_credit("Übersicht", "Guthaben · 1 Konto", "credits-de-persisted-compact")
         self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-hide-again-settings")
         self.tap(self.credit_control("credits-de-hide-again", "Guthaben anzeigen", up=True))
-        self.wait_for("credits-de-hidden-again", lambda root:
-            credit_checked(root, "Guthaben anzeigen", False, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-de-hidden-again", "Guthaben anzeigen", False, up=False)
         manage = self.credit_control("credits-de-manage-always", "Guthaben verwalten", up=True)
         self.tap(manage)
         self.wait_for("credits-de-manage-from-settings", lambda root: bool(matches(root, "Guthaben verwalten", DEBUG_PACKAGE))
@@ -1857,7 +1922,7 @@ class Smoke:
         }, indent=2))
 
     def verify_theme_launches(self):
-        """09a: Settings UI selection, stopped release launch, then the existing bounded tier search."""
+        """09a: Settings selection, observed Home, stopped release launch, then the bounded tier search."""
         reports = []
         scale_touched = False
         restore = {}
@@ -1889,6 +1954,8 @@ class Smoke:
                     raise AssertionError(f"Selected {label} did not apply both bar styles; see {name}-selection.json")
                 activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
                 assert activity.startswith(PACKAGE + "/"), activity
+                # Finish Settings' Home transition before slowing motion and stopping the background app.
+                self.widget_home(name + "-home")
                 scale_touched = True
                 self.adb("shell", "settings", "put", "global", "animator_duration_scale", str(MOTION_SCALE))
                 read_back = self.adb("shell", "settings", "get", "global", "animator_duration_scale")

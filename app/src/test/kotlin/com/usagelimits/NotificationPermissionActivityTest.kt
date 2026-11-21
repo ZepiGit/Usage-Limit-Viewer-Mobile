@@ -35,6 +35,7 @@ class NotificationPermissionActivityTest {
     fun drainStartupWork() {
         ShadowLooper.idleMainLooper()
         runBlocking { app.startupJob?.join() }
+        await { app.mainOpening.job?.isCompleted != false }
         ShadowLooper.idleMainLooper()
         WorkManager.getInstance(app).cancelAllWork().result.get()
     }

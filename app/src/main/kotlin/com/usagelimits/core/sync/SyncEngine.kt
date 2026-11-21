@@ -89,7 +89,8 @@ class SyncEngine(
         if (com.usagelimits.BuildConfig.DEBUG && account.attributes["screenshotFixture"] == "true") {
             val attemptedAt = nowMs()
             repository.snapshot(account.localId)?.let {
-                repository.saveSnapshot(it.copy(fetchedAt = attemptedAt, lastAttemptAt = attemptedAt))
+                repository.saveSnapshot(it.copy(fetchedAt = attemptedAt, lastAttemptAt = attemptedAt,
+                    windows = it.windows.map { window -> window.copy(measured = false) }))
             }
             return SyncOutcome(account.localId, success = true)
         }

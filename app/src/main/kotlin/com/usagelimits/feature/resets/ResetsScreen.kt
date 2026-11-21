@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -151,7 +152,10 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
         Spacer(Modifier.width(8.dp))
         Dot(SeverityPalette.accent(reset.severity), size = 6.dp)
         Spacer(Modifier.width(12.dp))
-        com.usagelimits.ui.ProviderBadge(provider = reset.provider, size = 28.dp)
+        // The logo fills its 28dp box (A4); Claude's Claude Code icons always cheer here, as every
+        // row on this screen is a coming reset.
+        com.usagelimits.ui.ProviderLogo(reset.provider, Modifier.size(28.dp), com.usagelimits.ui.FigureSlot.RESETS,
+            com.usagelimits.core.model.ClaudeCodeMood.HOORAY)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(

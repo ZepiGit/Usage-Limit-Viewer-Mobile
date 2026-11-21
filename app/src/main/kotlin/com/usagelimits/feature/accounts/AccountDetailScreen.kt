@@ -1,6 +1,7 @@
 package com.usagelimits.feature.accounts
 
 import com.usagelimits.core.model.title
+import com.usagelimits.core.model.claudeCodeMoodAt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -116,7 +117,9 @@ fun AccountDetailScreen(
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                com.usagelimits.ui.ProviderBadge(provider = usage.account.provider, size = 34.dp)
+                com.usagelimits.ui.ProviderBadge(provider = usage.account.provider, size = 34.dp,
+                    figure = com.usagelimits.ui.FigureSlot.DETAIL,
+                    mood = snapshot.claudeCodeMoodAt(nowMs), accountId = usage.account.localId)
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(

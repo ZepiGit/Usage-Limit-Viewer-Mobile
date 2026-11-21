@@ -2,7 +2,7 @@
 
 <h1 align="center">Usage Limits Mobile</h1>
 
-<p align="center"><strong>How much of your AI plan is left, and when does it come back?</strong><br>One app and a few home-screen widgets that answer that for every coding assistant you pay for, plus the prepaid credit on your API accounts.</p>
+<p align="center">Usage readings and reset times for supported AI subscriptions, plus prepaid API balances, in the app and on home-screen widgets.</p>
 
 <p align="center">
 <a href="#build-it-yourself"><img src="docs/01-terracotta/android-badge.png" height="25" alt="Android 8.0+"></a> <a href="#build-it-yourself"><img src="docs/01-terracotta/ios-badge.png" height="25" alt="iOS 16.0+"></a> <a href="#build-it-yourself"><img src="docs/01-terracotta/source-badge.png" height="25" alt="Build from source"></a>
@@ -10,36 +10,28 @@
 
 <p align="center"><a href="#what-the-app-does">What it does</a> · <a href="#supported-services">Services</a> · <a href="#prepaid-credits">Credits</a> · <a href="#widgets">Widgets</a> · <a href="#your-data">Your data</a> · <a href="#build-it-yourself">Build</a></p>
 
-<p align="center"><img src="docs/01-terracotta/devices.png" width="1000" alt="Usage Limits on Android, iPhone and an unfolded foldable"></p>
+> **Development preview, not a completed release.** These instructions describe the unmerged Android redesign candidate, not `main` or a released APK. Its Android PR workflow succeeded, but the sibling push smoke and Merge gate failed. A newer Credits smoke-harness repair has local proof only; new-head combined CI and release approval remain pending. iOS redesign work is paused; existing iOS support remains, but the remaining redesign and joint-release gates are incomplete. Physical-device checks remain open on both platforms. See [exact candidate revisions, evidence and limits](docs/release.md#android-redesign-evidence).
+>
+> Build from source or download the debug APK from an Android run under **Actions**. Match the artifact to its commit.
 
-> **Development preview.** Usage Limits is not in the app stores yet. You can build it
-> yourself (see below) or grab the debug APK from the latest Android run under *Actions*.
+<p align="center"><img src="docs/redesign/android/overview-list.png" width="280" alt="Android candidate Overview List rendered with synthetic accounts"><img src="docs/redesign/android/overview-dials.png" width="280" alt="Android candidate Overview Dials rendered with synthetic accounts"></p>
 
-<p align="center"><a href="https://rookieenough.github.io/Orion-Data/redirect.html?id=firefin"><img src="https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png" width="206" alt="Get it on Orion Store"></a></p>
+Android List and Dials, rendered from native Compose views by `RedesignCaptureTest` at `a0857ee7d8b70a46a733c364bc36f636abb2414f` (Robolectric API 34, synthetic accounts). These tall scrolling-view captures are not emulator or phone screenshots. [Capture provenance and before/after selection](docs/release.md#selected-android-captures).
 
 ## What the app does
 
-You connect the AI subscriptions you use. The app reads how much of each limit is used and
-when it resets, and shows it in three places:
+Connect a supported subscription to read its usage windows and reset times. Android has three destinations: **Overview**, **Resets** and **Settings**. Account management starts in Overview; there is no separate Accounts tab.
 
-| Overview | Resets | Widgets |
-| :--- | :--- | :--- |
-| Every account at a glance, with the one closest to running out at the top. | A timeline of what comes back next, and when. | The same numbers on your home screen, without opening the app. |
+| Destination | What it shows |
+| :--- | :--- |
+| Overview | Usage accounts in List or Dials, plus the optional Credits block |
+| Resets | Recorded upcoming resets, grouped by day |
+| Settings | Appearance, display mode, Overview layout, icons, sync and notifications |
 
-Some details that make it pleasant to live with:
+The app also supports:
 
-- **Several accounts per service.** Personal and work Claude, two Codex plans, whatever you
-  have. Each one keeps its own limits.
-- **Honest when it doesn't know.** If a refresh fails, you keep the last numbers you had,
-  clearly marked as old, instead of a blank screen. If a limit has reset since the last
-  refresh, it is shown as "reset due", not as still used up.
-- **List or Dials.** In Settings → Overview, choose List to see every usage window or Dials
-  to see one headline ring per account. Tap a row or dial to see the full account.
-- **Left or used, your choice.** *Show percentages as* offers **Left** (the default) or
-  **Used** in Settings → Display. Tap the percentage chip in Overview to switch without
-  opening Settings. Bar lengths and ring arcs follow the chosen mode; severity, account
-  order and notification thresholds still follow what is left. Details in
-  [Percentages: left or used](docs/widgets.md#percentages-left-or-used).
+- **Several accounts per service.** Each identity keeps its own usage windows.
+- **Retained readings.** A failed refresh keeps the previous readings and their age. A passed reset is marked **Reset due**, not treated as a fresh allowance.
 - **In German too.** The app and its widgets follow the device language and come in English
   and German. Names the services report, such as model names, are shown as they arrive.
 - **Status icons.** Pin up to three accounts and see each one's figure next to the clock on
@@ -47,11 +39,53 @@ Some details that make it pleasant to live with:
   [Status icons](docs/status-icons.md).
 - **No model calls.** The app only asks each service for your usage. It never sends a prompt,
   so checking your limits never costs you any of them.
-- **One look for everything.** Neutral colours for everything around your data, a single
-  Terracotta colour for the bars and rings that matter, and the limit closest to running out
-  right at the top.
 
-<img src="docs/01-terracotta/widgets.png" width="1000" alt="Usage Summary home-screen widget">
+## Android Overview and Settings
+
+Choose **Settings → Overview → Layout** for **List** or **Dials**. List shows every usage window and emphasises the account's **headline**. Dials shows one headline ring per account, without filters. Tap either layout's account to open the same detail screen, including every window, refresh, reconnect, alerts and removal. **Show subscription tier** affects List titles, not Dial names. Reset stamps stay visible; there is no Show renewal time switch.
+
+The headline follows [ADR 0002](docs/adr/0002-one-account-headline-per-platform.md): prefer windows not reset due, then global windows, then exhaustion and the lowest known percentage left. An account's status mark can reflect a worse model-specific window without making it the headline.
+
+Overview sorts automatically: expired sign-ins first, then the headline's unrounded percentage left, lowest first. Provider-declared exhaustion ranks as zero; unknown figures come last within each sign-in group. Ties use account-added time, then ID. **Used** does not change this order. There is no manual reorder; pins, Provider-scoped widgets and Custom selections retain their separate [order contracts](docs/adr/0004-automatic-overview-order-and-stored-order.md).
+
+In List, choose one filter:
+
+- **All** shows every usage account.
+- **Needs attention** shows expired sign-ins only, not low or exhausted allowance, stale readings or ordinary refresh failures.
+- **Resets today** shows accounts with a recorded reset after now and before the next local day starts, not the next 24 hours.
+
+Switching to another primary destination or to Dials returns the filter to All; opening an account detail and returning keeps it. The header counts expired sign-ins across all accounts. “All accounts have room” appears only when every headline is current, known, non-exhausted and above 20% left. Its next-reset time comes from connected accounts, independently of the filter.
+
+**Settings → Display → Show percentages as** and the Overview percentage chip write the same **Left/Used** choice. Figures, bar lengths and ring arcs follow it; severity, account order, mood and alert thresholds still follow what is left. [Percentage details](docs/widgets.md#percentages-left-or-used) cover unknown and stale readings. The previews show the chosen display mode and layout without changing real accounts. For prepaid controls and hidden balances, see [Credit balances](docs/credits.md#credits-in-android-overview).
+
+### App appearance and fonts
+
+Under **Settings → Appearance**, choose **Warm dark**, **Pure black** (default), **Cool graphite** or **Light paper**. Text choices are system **Roboto** (default), **Roboto Flex**, **IBM Plex Sans** and **Figtree**. Figure choices are **Roboto Mono** (default), **JetBrains Mono** and **IBM Plex Mono** for percentages, times and amounts. The preview reacts immediately; no restart is required.
+
+Open **Font licences** in that section for the six bundled families' offline notices. Their pinned sources, versions, checksums and full licences are in the [canonical font manifest](third_party/fonts/manifest.json) and [font notes](third_party/fonts/README.md). These are Android app choices, not a change to placed widgets or their editor ([ADR 0005](docs/adr/0005-app-and-widget-appearance.md)).
+
+On a German device, use **Einstellungen → Übersicht → Layout → Liste/Ringe**, **Anzeige → Prozente anzeigen als**, or **Erscheinungsbild** for **Textschrift**, **Ziffernschrift** and **Schriftlizenzen**. The List filters are **Alle**, **Braucht Aufmerksamkeit** and **Resets heute**.
+
+### Claude Code mood and Hooray
+
+Under **Settings → Provider icons → Claude**, the **Claude Code · Color** and **Claude Code · Monochrome** choices use the account's headline for their figure. Other artwork stays static. Mood uses raw percentage left, never the rounded or Used figure:
+
+| Raw headline percentage left | Steady mood |
+| :--- | :--- |
+| 0, or provider-declared exhaustion even with a positive or missing figure | Asleep |
+| Above 0 through 20 | Tired |
+| Above 20 through 50 | Working |
+| Above 50 through 90 | Idle |
+| Above 90 | Dancing |
+| No known figure, without declared exhaustion | Idle |
+
+A stale reading or expired sign-in can retain its last mood; passing a reset time is not evidence of a refill. **Animate Claude Code icon** is on by default for the two eligible choices. Turn it off for still poses; Android's **Remove animations** also stops the movement. The figure stops outside its visible, resumed screen. In Resets it always uses Hooray, including its still pose when motion is off.
+
+The Android candidate remembers a reset only when a new measured reading confirms the same account/window's dated rollover: the previous reading preceded its advertised reset, the new reading reaches or passes it, and the next reset has advanced into the future. An increase in allowance, clock crossing, first reading or failed refresh does not qualify.
+
+At the next qualifying main-app opening, it claims the mark before refreshing. After the loaded, resumed screen's first ready layout, each qualifying account with a visible eligible figure gets one shared four-second Hooray presentation, or its still pose for the same time with motion off. The corrected code uses actual placement rather than a fixed frame count; controlled navigation tests cover cold entry and held first placement. A qualifying opening is a process background-to-foreground transition with the main activity started. Returning from a sign-in Custom Tab counts only if that transition occurs; activity recreation, resume alone and opening widget configuration do not.
+
+An interrupted or unseen opportunity does not replay later. Placed Usage Bars, Account Rings and Mini Rings use each account's steady mood, never Hooray; configuration keeps static catalog artwork. See [candidate proof and remaining CI/device gates](docs/release.md#android-redesign-evidence). Phone occurrence of the original layout race and real animation pacing are unverified; no iOS Hooray parity is claimed.
 
 ## Supported services
 
@@ -92,8 +126,6 @@ minutes, the notification asks you to come back to the app, and that finishes it
 If you use AI through API keys, the **Credits** section shows how much money is left on
 each account, in that account's currency, and warns you when it gets low.
 
-<p align="center"><a href="docs/01-terracotta/credits-devices.png"><img src="docs/01-terracotta/credits-devices.png" width="1000" alt="The Credits screen on Android and iPhone with OpenRouter, DeepSeek, Moonshot and fal.ai balances"></a></p>
-
 | Service | Which key it needs |
 | :--- | :--- |
 | **OpenRouter** | A management key shows the whole account; a normal key shows that key's own limit |
@@ -106,12 +138,7 @@ each account, in that account's currency, and warns you when it gets low.
 **Anthropic and OpenAI can't be shown.** Neither offers a way to read the remaining balance
 with an API key, so the app says so instead of guessing.
 
-You can set your own "low" threshold per account. Credits refresh together with your usage,
-and the Credits widget puts the lowest balances on your home screen in three sizes:
-
-<p align="center"><a href="docs/01-terracotta/credits-widgets.png"><img src="docs/01-terracotta/credits-widgets.png" width="1000" alt="Credits widget in small, medium and large sizes, lowest balance first"></a></p>
-
-More in [docs/credits.md](docs/credits.md).
+Set a low-balance threshold per account. Credits refresh with usage, and the Credits widget lists balances worst first in three sizes. On Android, choose Normal or Compact, change the block order, or hide it under **Settings → Overview**. **Manage credit accounts** remains available when hidden. Compact compares each current balance with its own threshold, not nominal amounts across currencies. See [Credit balances](docs/credits.md).
 
 ## Widgets
 
@@ -121,24 +148,17 @@ Pick the style that fits your home screen:
 - **Usage Bars:** a list of accounts with their bars and reset times.
 - **Account Rings:** a ring around each service's logo, with the name and reset time.
 - **Mini Rings:** small rings, as many as fit.
-- **Credits:** your prepaid balances, the lowest one first.
+- **Credits:** prepaid balances, worst status first.
 
-<p align="center"><a href="docs/01-terracotta/widgets-gallery.png"><img src="docs/01-terracotta/widgets-gallery.png" width="1000" alt="Usage Bars, Usage Summary, Account Rings and Mini Rings widgets"></a></p>
+Each configurable usage widget can show all accounts, one service, one account, or a Custom selection in its saved order. **All accounts** follows Overview's automatic headline order. Pinned status icons use the stored account order instead; choosing pins does not reorder them. Android requests that notification order, but SystemUI decides what appears ([ADR 0003 clarification](docs/adr/0003-status-icons-and-lock-screen-substitute.md#consequences)).
 
-Each widget can show every account, one service, one account, or your own selection in your
-own order. On Android you also choose the background colour, how see-through it is, and the
-text colour. Widgets show the last numbers the app fetched; tapping refresh asks for new ones
-on Android and opens the app on iOS.
+On Android, each usage widget keeps its own background, opacity and text tone when app appearance changes. Widgets show cached readings; refresh requests a sync on Android and opens the app on iOS. Widget delivery remains system-controlled.
 
 Every usage widget follows the app's display mode, left or used. There is no separate setting
 per widget. Credits show money, so this does not apply to them.
 
-<p align="center"><a href="docs/01-terracotta/rings-multiaccount.png"><img src="docs/01-terracotta/rings-multiaccount.png" width="1000" alt="Account Rings and Mini Rings with personal and work accounts"></a></p>
-
 <details>
 <summary><strong>Which widgets work on which iOS version</strong></summary>
-
-<p align="center"><a href="docs/01-terracotta/ios-widget-gallery.png"><img src="docs/01-terracotta/ios-widget-gallery.png" width="1000" alt="Usage Bars, Account Rings, Mini Rings, Usage Limits, Usage Limits Clear and Usage Ring on iOS"></a></p>
 
 | Widget | iOS | Notes |
 | :--- | :--- | :--- |
@@ -162,12 +182,7 @@ More about how widgets stay current: [docs/widgets.md](docs/widgets.md).
 
 ## App tour
 
-<p align="center"><a href="docs/01-terracotta/DEMO.md"><img src="docs/01-terracotta/tour-card.png" width="1000" alt="App tour: Overview, Accounts, Resets and Settings"></a></p>
-
-The [app tour](docs/01-terracotta/DEMO.md) walks through Overview, Accounts, Resets and
-Settings in your browser. The tour and the usage pictures above still show the earlier look;
-current screens and widgets are in [docs/redesign/after](docs/redesign/after), next to the
-[old ones](docs/redesign/before).
+The [archived app tour](docs/01-terracotta/DEMO.md) shows an earlier interface, including the removed Accounts destination. Its [asset notes](docs/01-terracotta/ASSET-SOURCES.md) distinguish illustrations from old iOS simulator captures. It is not a walkthrough of this Android candidate. Use the [selected Android captures](docs/release.md#selected-android-captures) for the documented redesign; the older `docs/redesign/after` directory predates this candidate too.
 
 ## Your data
 
@@ -203,6 +218,7 @@ Then open the generated project in Xcode, set up signing and run it.
 
 | If you want to… | Read |
 | :--- | :--- |
+| use the Android redesign controls | [Overview and Settings](#android-overview-and-settings) |
 | check whether your phone is supported | [Device compatibility](docs/compatibility.md) |
 | understand the widgets | [Widgets](docs/widgets.md) |
 | keep accounts in the status bar or on the Lock Screen | [Status icons](docs/status-icons.md) |

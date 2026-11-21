@@ -797,10 +797,72 @@ class InvocationTest(unittest.TestCase):
             with patch.object(smoke, "seed_list", side_effect=lambda *a: calls.append("seed") or {"overview": ["a"]}), \
                     patch.object(smoke, "verify_chip_press", side_effect=lambda *a: calls.append("chip")), \
                     patch.object(smoke, "open_seeded_row",
-                                 side_effect=lambda *a: calls.append("row") or {"tapped": "b", "shownOnScreen": ["a", "b"]}):
+                                 side_effect=lambda *a: calls.append("row") or {"tapped": "b", "shownOnScreen": ["a", "b"]}), \
+                    patch.object(smoke, "verify_figure_switch", side_effect=lambda *a: calls.append("figure")):
                 record = smoke.seeded_steps(Path("app-debug.apk"))
-        self.assertEqual(["seed", "chip", "row"], calls)
+        self.assertEqual(["seed", "chip", "row", "figure"], calls)
         self.assertEqual("passed", record["seededList"])
+
+
+class FigureSwitchTest(unittest.TestCase):
+    """05a: the switch under the moving Claude Code figure takes a tap; animations end off on every way out."""
+
+    def run_step(self, tap_lands=True, switch_shown=True, scale_after_restore="0.0"):
+        """verify_figure_switch on a stand-in device; returns what it raised (or None), the scale puts and the report."""
+        state = {"scale": "0.0", "puts": [], "checked": "true", "taps": 0}
+
+        def adb(*args, **kwargs):
+            if args[:3] == ("shell", "settings", "put"):
+                state["puts"].append(args[-1])
+                state["scale"] = args[-1] if args[-1] != "0.0" else scale_after_restore
+            if args[:3] == ("shell", "settings", "get"):
+                return state["scale"]
+            return ""
+
+        def dump(*args, **kwargs):
+            switch = (f'<node package="{runtime_smoke.DEBUG_PACKAGE}" content-desc="{runtime_smoke.ANIMATE_CLAUDE}" '
+                      f'enabled="true" clickable="true" checkable="true" checked="{state["checked"]}" bounds="[600,300][700,360]"/>')
+            return ET.fromstring(f'<hierarchy>{switch if switch_shown else ""}</hierarchy>')
+
+        def tap(node, deadline=None):
+            state["taps"] += 1
+            if tap_lands:
+                state["checked"] = "false" if state["checked"] == "true" else "true"
+
+        with TemporaryDirectory() as directory, patch.object(runtime_smoke.time, "sleep", lambda seconds: None):
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "adb", side_effect=adb), patch.object(smoke, "dump", side_effect=dump), \
+                    patch.object(smoke, "tap", side_effect=tap), patch.object(smoke, "navigate"), \
+                    patch.object(smoke, "capture"), patch.object(smoke, "scroll"):
+                try:
+                    smoke.verify_figure_switch("figure", runtime_smoke.DEBUG_PACKAGE)
+                    raised = None
+                except AssertionError as error:
+                    raised = error
+            report = json.loads((Path(directory) / "figure.json").read_text())
+        return raised, state, report
+
+    def test_a_tap_that_lands_turns_the_switch_off_then_on_and_animations_end_off(self):
+        raised, state, report = self.run_step()
+        self.assertIsNone(raised)
+        self.assertEqual((2, "true"), (state["taps"], state["checked"]))
+        self.assertEqual(["1.0", "0.0"], state["puts"])
+        self.assertEqual(("false", "true", "0.0"),
+                         (report["switchReadAfterTap"], report["switchReadAfterSecondTap"], report["animatorScaleRestored"]))
+
+    def test_a_lost_tap_fails_and_animations_still_end_off(self):
+        raised, state, report = self.run_step(tap_lands=False)
+        self.assertRegex(str(raised), "UI did not reach figure-false")
+        self.assertEqual(["1.0", "0.0"], state["puts"])
+        self.assertEqual("0.0", report["animatorScaleRestored"])
+
+    def test_no_switch_means_no_figure_and_fails(self):
+        raised, _, _ = self.run_step(switch_shown=False)
+        self.assertRegex(str(raised), "does not show the Claude Code figure")
+
+    def test_animations_left_on_fail_the_smoke(self):
+        raised, _, _ = self.run_step(scale_after_restore="1.0")
+        self.assertRegex(str(raised), "not turned off again")
 
 
 class CreditHierarchyTest(unittest.TestCase):
@@ -905,6 +967,288 @@ class CreditHierarchyTest(unittest.TestCase):
                 root = ET.fromstring(device.hierarchy())
                 self.assertIsNotNone(runtime_smoke.credit_checked(root, "Kompakt", False))
                 self.assertIsNotNone(runtime_smoke.credit_checked(root, "Normal", True))
+
+    RADIO_CALLERS = {
+        "credits-en-normal-layout": "credits-en-normal-selected",
+        "credits-en-compact-layout": "credits-en-compact-selected",
+        "credits-en-show-first": "credits-en-usage-first-selected",
+        "credits-en-credit-first": "credits-en-credit-first-selected",
+        "credits-en-restore-normal": "credits-en-normal-restored",
+        "credits-de-layout": "credits-de-normal-selected",
+        "credits-de-compact": "credits-de-compact-selected",
+        "credits-de-show-first": "credits-de-usage-first-selected",
+        "credits-de-credit-first": "credits-de-credit-first-selected",
+    }
+
+    class SelectionDevice(FakeDevice):
+        """CI radio geometry, 310px preview reflow and the observed 596px viewport swipe."""
+
+        def __init__(self, restore_top=102, failed=None, outcome="selected", preselected=False):
+            super().__init__()
+            self.restore_top, self.failed, self.outcome = restore_top, failed, outcome
+            self.preselected = preselected
+            self.states = {}
+            self.state = None
+
+        def prepare(self, name, label):
+            if label == "Normal":
+                other = "Kompakt" if name.startswith("credits-de-") else "Compact"
+                top = self.restore_top if name == "credits-en-restore-normal" else 407
+                delta, left, right, other_left, other_right = 310, 60, 189, 189, 337
+            elif label in ("Compact", "Kompakt"):
+                other, top, delta, left, right = "Normal", 317, -310, 190, 336
+                other_left, other_right = 60, 190
+            else:
+                other, top, left, right, other_left, other_right = {
+                    "Usage providers": ("Credit accounts", 522, 60, 286, 286, 506),
+                    "Credit accounts": ("Usage providers", 522, 286, 506, 60, 286),
+                    "Nutzungskonten": ("Guthabenkonten", 334, 60, 286, 286, 511),
+                    "Guthabenkonten": ("Nutzungskonten", 334, 286, 511, 60, 286),
+                }[label]
+                delta = 0
+            checked = self.preselected and name in (
+                "credits-en-normal-layout", "credits-en-show-first", "credits-de-layout", "credits-de-show-first")
+            self.state = {"name": name, "label": label, "other": other, "top": top,
+                          "delta": delta, "left": left, "right": right,
+                          "other_left": other_left, "other_right": other_right,
+                          "initial_checked": checked, "checked": checked,
+                          "taps": [], "tap_bounds": [], "observations": []}
+            self.states[name] = self.state
+
+        def answer(self, command):
+            if self.state is None:
+                return super().answer(command)
+            state = self.state
+            if command[:3] == ("shell", "input", "tap"):
+                x, y = map(int, command[3:5])
+                if state["left"] <= x < state["right"] and state["top"] <= y < state["top"] + 84:
+                    state["taps"].append((x, y))
+                    state["tap_bounds"].append((state["top"], state["top"] + 84))
+                    outcome = self.outcome if state["name"] == self.failed else "selected"
+                    if 144 <= y < 1336 and not state["checked"] and outcome != "lost":
+                        state["checked"] = outcome == "selected"
+                        if outcome != "visible-wrong":
+                            state["top"] += state["delta"]
+                return b""
+            if command[:3] == ("shell", "input", "swipe"):
+                state["top"] += 596 if int(command[4]) < int(command[6]) else -596
+                return b""
+            return super().answer(command)
+
+        def hierarchy(self):
+            state, pkg = self.state, self.PACKAGE
+            top = state["top"]
+            bottom = top + (79 if top == 102 else 84)
+
+            def option(label, checked, left, right):
+                if bottom <= 144 or top >= 1336:
+                    return ""
+                return (f'<node package="{pkg}" enabled="true" checkable="true" checked="{str(checked).lower()}" '
+                        f'clickable="{str(not checked).lower()}" bounds="[{left},{top}][{right},{bottom}]">'
+                        f'<node package="{pkg}" enabled="true" clickable="false" bounds="[{left},{top}][{right},{bottom}]">'
+                        f'<node package="{pkg}" text="{label}" '
+                        f'bounds="[{left + 25},{max(144, top + 28)}][{right - 25},{min(1336, top + 57)}]"/>'
+                        '</node></node>')
+
+            radios = option(state["label"], state["checked"], state["left"], state["right"])
+            radios += option(state["other"], not state["checked"], state["other_left"], state["other_right"])
+            return (f'<hierarchy><node package="{pkg}" enabled="true" scrollable="true" '
+                    f'bounds="[0,144][720,1336]">{radios}</node></hierarchy>').encode()
+
+    def selection_journey(self, device, directory):
+        """Keep actual credit_steps radio callers and their predicates; bypass unrelated screens only."""
+        smoke = Smoke(Path(directory), "test-device")
+        control, dump, wait_for = smoke.credit_control, smoke.dump, smoke.wait_for
+        unrelated = self.unrelated_credit_screens()
+        callers = self.RADIO_CALLERS
+        observed = tuple(callers) + tuple(callers.values())
+
+        def reach(name, label, **kwargs):
+            if name in callers:
+                device.prepare(name, label)
+                return control(name, label, **kwargs)
+            return self.tree(label)[0]
+
+        def observe(name, **kwargs):
+            if any(name == stem or name.removeprefix(stem + "-").isdigit() for stem in observed):
+                root = dump(name, **kwargs)
+                device.state["observations"].append(root)
+                return root
+            if name in ("credits-de-hidden-settings", "credits-de-hidden-again",
+                        "credits-de-persisted-hidden", "credits-de-final-hidden") \
+                    or name.startswith(("credits-de-hidden-settings-", "credits-de-hidden-again-")):
+                return self.tree("Guthaben anzeigen", "false")
+            if name.startswith("credits-de-restored-visible-"):
+                return self.tree("Guthaben anzeigen")
+            if name == "credits-de-persisted-no-credit":
+                return ET.fromstring("<hierarchy/>")
+            return unrelated
+
+        def wait(name, predicate, **kwargs):
+            if name in callers.values():
+                return wait_for(name, predicate, **kwargs)
+            return unrelated
+
+        with patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device), \
+                patch.object(smoke, "seed_credit_only"), patch.object(smoke, "launch"), \
+                patch.object(smoke, "navigate_credit"), patch.object(smoke, "capture"), \
+                patch.object(smoke, "credit_control", side_effect=reach), \
+                patch.object(smoke, "dump", side_effect=observe), \
+                patch.object(smoke, "wait_for", side_effect=wait):
+            return smoke.credit_steps(Path("fixture.apk"))
+
+    def test_radio_callers_reach_full_targets_and_follow_preview_reflow(self):
+        # CI supplies 102/313; lower-edge cases apply the same 84px target and measured +310px reflow.
+        for restore_top in (102, 313, 1100, 1270):
+            for preselected in (False, True):
+                with self.subTest(restore_top=restore_top, preselected=preselected), TemporaryDirectory() as directory:
+                    device = self.SelectionDevice(restore_top, preselected=preselected)
+                    result = self.selection_journey(device, directory)
+                    self.assertEqual("hidden choice persisted", result["creditRelaunch"])
+                    for state in device.states.values():
+                        with self.subTest(caller=state["name"]):
+                            self.assertIsNotNone(runtime_smoke.credit_checked(
+                                state["observations"][0], state["label"], state["initial_checked"]))
+                            self.assertTrue(state["checked"])
+                            self.assertEqual(1, len(state["taps"]), "one tap, not a retry after reflow")
+                            self.assertTrue(144 <= state["taps"][0][1] < 1336, "tap lies inside the viewport")
+                            top, bottom = state["tap_bounds"][0]
+                            self.assertTrue(144 <= top < bottom <= 1336, "the entire original target is visible")
+                            selected = runtime_smoke.credit_checked(state["observations"][-1], state["label"], True)
+                            self.assertIsNotNone(selected)
+                            self.assertIsNotNone(runtime_smoke.credit_checked(
+                                state["observations"][-1], state["other"], False))
+                            if state["initial_checked"]:
+                                self.assertEqual(top, bounds(selected)[1], "a preselected tap does not grow the preview")
+
+    def test_radio_callers_reject_lost_taps_and_visible_wrong_selection(self):
+        for caller, assertion in self.RADIO_CALLERS.items():
+            for outcome in ("lost", "wrong", "visible-wrong"):
+                with self.subTest(caller=caller, outcome=outcome), TemporaryDirectory() as directory:
+                    device = self.SelectionDevice(1100, caller, outcome)
+                    with self.assertRaisesRegex(AssertionError, f"UI did not reach {assertion}"):
+                        self.selection_journey(device, directory)
+                    self.assertFalse(device.state["checked"])
+                    self.assertEqual(1, len(device.state["taps"]))
+                    self.assertIsNotNone(runtime_smoke.credit_checked(
+                        ET.fromstring(device.hierarchy()), device.state["label"], False))
+
+    class HideDevice(FakeDevice):
+        """Switch geometry and 549px Hide reflow observed in runs 44888484546 / 44888487707."""
+
+        def __init__(self, first_top, second_top, outcome="hidden", failed_hide=1):
+            super().__init__()
+            self.top = first_top
+            self.second_top = second_top
+            self.checked = True
+            self.outcome = outcome
+            self.failed_hide = failed_hide
+            self.hide = 0
+
+        def answer(self, command):
+            if command[:3] == ("shell", "input", "tap"):
+                x, y = map(int, command[3:5])
+                if 573 <= x < 664 and max(144, self.top) <= y < min(1336, self.top + 84):
+                    if self.checked:
+                        self.hide += 1
+                        outcome = self.outcome if self.hide == self.failed_hide else "hidden"
+                        if outcome != "lost":
+                            self.checked = outcome != "hidden"
+                            self.top -= 549
+                    else:
+                        self.checked = True
+                        self.top += 549
+                return b""
+            if command[:3] == ("shell", "input", "swipe"):
+                self.top += 596 if int(command[4]) < int(command[6]) else -596
+                return b""
+            return super().answer(command)
+
+        def hierarchy(self):
+            pkg = self.PACKAGE
+            label, switch = "", ""
+            if self.top + 31 > 144 and self.top + 2 < 1336:
+                label = (f'<node package="{pkg}" text="Guthaben anzeigen" '
+                         f'bounds="[56,{max(144, self.top + 2)}][261,{min(1336, self.top + 31)}]"/>')
+            if self.top + 84 > 144 and self.top < 1336:
+                switch = (f'<node package="{pkg}" enabled="true" clickable="true" checkable="true" '
+                          f'checked="{str(self.checked).lower()}" bounds="[573,{self.top}][664,{self.top + 84}]">'
+                          f'<node package="{pkg}" content-desc="Guthaben anzeigen" clickable="false" '
+                          f'bounds="[573,{max(144, self.top + 14)}][664,{min(1336, self.top + 70)}]"/></node>')
+            return (f'<hierarchy><node package="{pkg}" enabled="true" scrollable="true" '
+                    f'bounds="[0,144][720,1336]"><node package="{pkg}" enabled="true" '
+                    f'bounds="[56,102][664,{min(1336, self.top + 361)}]">{label}{switch}'
+                    '</node></node></hierarchy>').encode()
+
+    def unrelated_credit_screens(self):
+        labels = ("Synthetic credit", "$3.18", "Name", "Compact", "Kompakt", "Guthabenkonten",
+                  "Credits · 1 balance", "Nothing to monitor yet", "Guthaben · 1 Konto", "Noch nichts zu verfolgen",
+                  "Normal", "Usage providers", "Nutzungskonten", "Credit accounts")
+        return ET.fromstring('<hierarchy>' + ''.join(
+            f'<node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true" checkable="true" checked="true" '
+            f'clickable="true" bounds="[0,{10 + i * 90}][300,{60 + i * 90}]" '
+            f'content-desc="{label}, Low balance: Synthetic credit 3.18, Niedriges Guthaben: Synthetic credit 3,18">'
+            f'<node package="{runtime_smoke.DEBUG_PACKAGE}" text="{label}" bounds="[0,{10 + i * 90}][200,{60 + i * 90}]"/>'
+            '</node>' for i, label in enumerate(labels)) + '</hierarchy>')
+
+    def hide_journey(self, device, directory):
+        """Skip unrelated screens; keep the real credit_steps Hide/Show callers and adb selection path."""
+        smoke = Smoke(Path(directory), "test-device")
+        control, dump, wait_for = smoke.credit_control, smoke.dump, smoke.wait_for
+        unrelated = self.unrelated_credit_screens()
+
+        def reach(name, label, **kwargs):
+            if name in ("credits-de-hide", "credits-de-hide-again", "credits-de-restored-show"):
+                if name == "credits-de-hide-again":
+                    device.top = device.second_top
+                elif name == "credits-de-restored-show":
+                    device.top = 953
+                return control(name, label, **kwargs)
+            return self.tree(label)[0]
+
+        def observe(name, **kwargs):
+            if name.startswith(("credits-de-hide-", "credits-de-hidden-", "credits-de-restored-")) \
+                    or name in ("credits-de-persisted-hidden", "credits-de-final-hidden"):
+                return dump(name, **kwargs)
+            if name == "credits-de-persisted-no-credit":
+                return ET.fromstring("<hierarchy/>")
+            return unrelated
+
+        def wait(name, predicate, **kwargs):
+            if name in ("credits-de-hidden-settings", "credits-de-hidden-again"):
+                return wait_for(name, predicate, **kwargs)
+            return unrelated
+
+        with patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device), \
+                patch.object(smoke, "seed_credit_only"), patch.object(smoke, "launch"), \
+                patch.object(smoke, "navigate_credit"), patch.object(smoke, "capture"), \
+                patch.object(smoke, "credit_control", side_effect=reach), \
+                patch.object(smoke, "dump", side_effect=observe), \
+                patch.object(smoke, "wait_for", side_effect=wait):
+            return smoke.credit_steps(Path("fixture.apk"))
+
+    def test_hide_callers_observe_the_unchecked_switch_after_reflow(self):
+        for first_top, second_top in ((488, 664), (1228, 488), (1228, 664)):
+            with self.subTest(first_top=first_top, second_top=second_top), TemporaryDirectory() as directory:
+                device = self.HideDevice(first_top, second_top)
+                result = self.hide_journey(device, directory)
+                self.assertEqual("hidden choice persisted", result["creditRelaunch"])
+                self.assertIsNotNone(runtime_smoke.credit_checked(
+                    ET.fromstring(device.hierarchy()), "Guthaben anzeigen", False))
+                self.assertFalse(device.checked)
+
+    def test_hide_callers_reject_lost_taps_and_wrong_selection(self):
+        for failed_hide, name in ((1, "credits-de-hidden-settings"), (2, "credits-de-hidden-again")):
+            for outcome in ("lost", "wrong"):
+                with self.subTest(hide=failed_hide, outcome=outcome), TemporaryDirectory() as directory:
+                    device = self.HideDevice(488, 488, outcome, failed_hide)
+                    with self.assertRaisesRegex(AssertionError, f"UI did not reach {name}"):
+                        self.hide_journey(device, directory)
+                    self.assertIsNotNone(runtime_smoke.credit_checked(
+                        ET.fromstring(device.hierarchy()), "Guthaben anzeigen", True))
+                    self.assertTrue(device.checked)
 
     def test_selected_semantics_without_checked_attribute(self):
         root = ET.fromstring(f'''<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true"
@@ -1419,7 +1763,7 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
 
 
 class ThemeLaunchCaptureTest(unittest.TestCase):
-    def capture(self, transform=lambda phase, data, window: (data, window), fail_start=False):
+    def capture(self, transform=lambda phase, data, window: (data, window), fail_start=False, fail_capture=False):
         events, frame_number = [], 0
         clock = FakeDevice()
         with TemporaryDirectory() as directory:
@@ -1431,6 +1775,8 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
                 clock.now += 0.25
                 events.append(args)
                 if args[:2] == ("exec-out", "screencap"):
+                    if fail_capture:
+                        raise subprocess.CalledProcessError(1, args)
                     frame_number += 1
                     data = ThemeLaunchTest.pixels(artwork=phase() == "app")
                     return transform(phase(), data, ThemeLaunchTest.window(phase()))[0]
@@ -1478,6 +1824,10 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
             "only settled app": lambda phase, data, window: (ThemeLaunchTest.pixels(settled=True), ThemeLaunchTest.window("app")),
             "no app artwork": lambda phase, data, window: (ThemeLaunchTest.pixels(), window),
             "no system window": lambda phase, data, window: (data, ThemeLaunchTest.window("app")),
+            "only system": lambda phase, data, window: (ThemeLaunchTest.pixels(), ThemeLaunchTest.window()),
+            "reversed phases": lambda phase, data, window: (
+                ThemeLaunchTest.pixels(artwork=phase == "system"),
+                ThemeLaunchTest.window("app" if phase == "system" else "system")),
             "wrong status": lambda phase, data, window: (data, ThemeLaunchTest.window(phase, dark=False, navigation_dark=True)),
             "wrong navigation": lambda phase, data, window: (data, ThemeLaunchTest.window(phase, dark=True, navigation_dark=False)),
         }
@@ -1505,6 +1855,11 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
         self.assertIsInstance(result, AssertionError)
         self.assertIn("Launch command failed", report["error"])
         self.assertTrue(report["frames"])
+        result, report, events = self.capture(fail_capture=True)
+        self.assertIsInstance(result, subprocess.CalledProcessError)
+        self.assertEqual("failed", report["result"])
+        self.assertEqual([], report["frames"])
+        self.assertIn(("joined",), events)
 
 
 class ThemeSelectionTest(unittest.TestCase):
@@ -1549,7 +1904,8 @@ class ThemeSelectionTest(unittest.TestCase):
                     patch.object(smoke, "tap", side_effect=tap), patch.object(smoke, "wait_for", side_effect=wait), \
                     patch.object(smoke, "adb", side_effect=adb), patch.object(smoke, "capture_theme_launch", side_effect=capture), \
                     patch.object(smoke, "setting_is_disabled", side_effect=lambda *a: events.append(("setting", current["label"]))), \
-                    patch.object(smoke, "capture"), patch.object(smoke, "restore_animations", return_value=True):
+                    patch.object(smoke, "capture"), patch.object(smoke, "widget_home"), \
+                    patch.object(smoke, "restore_animations", return_value=True):
                 self.assertEqual(["appearance-light-paper.json", "appearance-pure-black.json"], smoke.verify_theme_launches())
         self.assertEqual([("navigate", "Settings", "Appearance")] * 4,
                          [event for event in events if event[0] == "navigate"])
@@ -1568,6 +1924,97 @@ class ThemeSelectionTest(unittest.TestCase):
             self.assertLess(selected, bars)
             self.assertLess(bars, stopped)
             self.assertLess(captured, events.index(("setting", label)))
+
+    def test_foreground_close_handoff_cannot_consume_the_system_launch_phase(self):
+        # Run 44894441451: old Settings, Home with DRAW_PENDING windows, then drawn overlay;
+        # no bare system pixels. Run 44888487707 captured bare ground before the same handoff.
+        clock = FakeDevice()
+        current = {"label": None, "selected": False, "home": False, "homeDumps": 0,
+                   "launching": False, "frame": -1, "stoppedFromHome": False}
+        launcher = "com.android.launcher3"
+        home = ET.fromstring(f'<hierarchy><node package="{launcher}" '
+            f'resource-id="{launcher}:id/workspace"/></hierarchy>')
+
+        def navigate(tab, marker, name):
+            current.update(home=False, launching=False)
+            if not name.endswith("-relaunch-settings"):
+                current.update(label="Light paper" if current["label"] is None else "Pure black", selected=True)
+
+        def dump(name, **kwargs):
+            if name.endswith("-overview"):
+                return OverviewReadyTest.overview("Nothing to monitor yet")
+            if current["home"]:
+                current["homeDumps"] += 1
+                if current["homeDumps"] >= 2:
+                    return home
+            return self.picker(current["label"], current["selected"])
+
+        def windows():
+            dark = current["label"] == "Light paper"
+            splash, app = ThemeLaunchTest.window(dark=dark), ThemeLaunchTest.window("app", dark=dark)
+            app_window = app[app.index("  Window #0 "):app.index("  mCurrentFocus=")]
+            overlap = splash.replace("  mCurrentFocus=",
+                app_window.replace("Window #0", "Window #1") + "  mCurrentFocus=")
+            if not current["launching"]:
+                return app.replace("com.usagelimits", launcher) if current["home"] else app
+            if current["stoppedFromHome"]:
+                return splash if current["frame"] < 2 else overlap
+            if current["frame"] <= 0:
+                return overlap.replace("isReadyForDisplay()=true", "isReadyForDisplay()=false").replace(
+                    "mDrawState=HAS_DRAWN", "mDrawState=DRAW_PENDING")
+            return overlap
+
+        def adb(*args, **kwargs):
+            clock.now += 0.25
+            if args == ("shell", "input", "keyevent", "KEYCODE_HOME"):
+                current.update(home=True, homeDumps=0)
+            elif args == ("shell", "am", "force-stop", runtime_smoke.PACKAGE):
+                current["stoppedFromHome"] = current["home"] and current["homeDumps"] >= 2
+            elif "resolve-activity" in args:
+                return "com.usagelimits/.MainActivity"
+            elif args[:3] == ("shell", "settings", "get"):
+                return "10"
+            elif args == ("shell", "dumpsys", "window", "-a"):
+                return windows()
+            elif args[:2] == ("exec-out", "screencap"):
+                ground = (243, 240, 232) if current["label"] == "Light paper" else (0, 0, 0)
+                if current["launching"]:
+                    current["frame"] += 1
+                    if current["stoppedFromHome"]:
+                        return ThemeLaunchTest.pixels(ground, artwork=current["frame"] >= 2)
+                    if current["frame"] == 0:
+                        return ThemeLaunchTest.pixels(ground, settled=True)
+                    if current["frame"] == 1:
+                        return ThemeLaunchTest.pixels((60, 70, 90))
+                    return ThemeLaunchTest.pixels(ground, artwork=True)
+                return ThemeLaunchTest.pixels(ground)
+            return ""
+
+        class Start:
+            returncode = 0
+            def communicate(self, timeout):
+                return b"Starting: Intent", b""
+
+        def popen(*args, **kwargs):
+            current.update(launching=True, frame=-1)
+            return Start()
+
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            smoke.launcher = launcher
+            with patch.object(smoke, "navigate", side_effect=navigate), \
+                    patch.object(smoke, "dump", side_effect=dump), patch.object(smoke, "adb", side_effect=adb), \
+                    patch.object(smoke, "setting_is_disabled"), patch.object(smoke, "capture"), \
+                    patch.object(smoke, "restore_animations", return_value=True), \
+                    patch.object(runtime_smoke.subprocess, "Popen", side_effect=popen), \
+                    patch.object(runtime_smoke, "time", clock):
+                reports = smoke.verify_theme_launches()
+            for name in reports:
+                report = json.loads((Path(directory) / name).read_text())
+                self.assertEqual("passed", report["result"], report.get("error"))
+                self.assertTrue(report["systemFrames"])
+                self.assertTrue(report["appFrames"])
+                self.assertEqual([], report["wrongFrames"])
 
     def test_wrong_case_label_or_bar_style_stops_before_force_stop(self):
         for label, window, message in (("Light Paper", ThemeLaunchTest.window("app"), "Missing exact theme UI label"),

@@ -94,8 +94,7 @@ private fun RingAccountRow(context: Context, group: List<WidgetAccount>, columns
                 Column(GlanceModifier.defaultWeight()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (ProviderId.fromId(account.providerId) != null) {
-                            WidgetLogo(account, 18.dp)
-                            Spacer(GlanceModifier.width(6.dp))
+                            WidgetLogo(account, 18.dp, gap = 6.dp)
                         }
                         Text(account.accountLabel ?: account.subtitle ?: account.title, maxLines = 1,
                             style = widgetText(style.textPrimary, 12, FontWeight.Medium))

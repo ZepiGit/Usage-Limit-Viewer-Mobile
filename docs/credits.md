@@ -30,9 +30,11 @@ With a known total, severity follows the percentage remaining. Otherwise the def
 
 ## Credits in Android Overview
 
-Under **Settings → Overview**, choose **Normal** to list balances or **Compact** to see the number of tracked credit accounts. Compact also names the current balance furthest below its own threshold, comparing each amount as a share of that threshold rather than comparing currencies. A still-current balance retained during a rate-limit pause can appear there; stale balances and ordinary failed reads cannot. Tap the compact row to open it. **Collapse** or leaving Overview restores the compact row.
+Under **Settings → Overview**, choose **Normal** to list balances or **Compact** to see the number of tracked credit accounts. When a current balance is below its own threshold, Compact also names the one furthest below, comparing each amount as a share of that threshold rather than comparing currencies. A still-current balance retained during a rate-limit pause can appear there; stale balances and ordinary failed reads cannot. Tap the compact row to open it. **Collapse** or leaving Overview restores the compact row.
 
-**Show first** places Credits above or below usage accounts in List and Dials. **Show credits** hides only that block; it does not remove accounts or change refresh or widget settings. **Manage credit accounts** in Settings is always available, including when the block is hidden.
+**Show first** places Credits above or below usage accounts in List and Dials. **Show credits** hides only that block and its layout/order controls; it does not remove accounts or change refresh or widget settings. **Manage credit accounts** in Settings → Overview is always available, including when the block is hidden. The Normal and expanded blocks also offer management. With no tracked credit accounts, Compact shows the normal empty state so you can add one.
+
+On a German device these controls are under **Einstellungen → Übersicht**: **Guthabenkonten**, **Zuerst anzeigen**, **Guthaben anzeigen** and **Guthaben verwalten**. iOS redesign work is paused; this Android walkthrough is not a claim that the remaining iOS redesign or joint release is complete.
 
 ## Refresh and removal
 
