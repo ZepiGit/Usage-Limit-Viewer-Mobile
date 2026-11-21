@@ -10,7 +10,7 @@
 
 <p align="center"><a href="#what-the-app-does">What it does</a> · <a href="#supported-services">Services</a> · <a href="#prepaid-credits">Credits</a> · <a href="#widgets">Widgets</a> · <a href="#your-data">Your data</a> · <a href="#build-it-yourself">Build</a></p>
 
-> **Development preview, not a completed release.** These instructions describe the unmerged Android redesign candidate, not `main` or a released APK. Its Android PR workflow succeeded, but the sibling push smoke and Merge gate failed. A newer Credits smoke-harness repair has local proof only; new-head combined CI and release approval remain pending. iOS redesign work is paused; existing iOS support remains, but the remaining redesign and joint-release gates are incomplete. Physical-device checks remain open on both platforms. See [exact candidate revisions, evidence and limits](docs/release.md#android-redesign-evidence).
+> **0.5.0 release candidate, not a published release.** These instructions describe `release/0.5.0`, not `main` or a released APK. The Android and iOS software changes are integrated; full CI for this combined candidate remains pending. Earlier green Android runs do not verify the newer changes. Physical-device checks remain open on both platforms. See [candidate evidence and remaining gates](docs/release.md#release-050-checkpoint).
 >
 > Build from source or download the debug APK from an Android run under **Actions**. Match the artifact to its commit.
 
@@ -20,7 +20,7 @@ Android List and Dials, rendered from native Compose views by `RedesignCaptureTe
 
 ## What the app does
 
-Connect a supported subscription to read its usage windows and reset times. Android has three destinations: **Overview**, **Resets** and **Settings**. Account management starts in Overview; there is no separate Accounts tab.
+Connect a supported subscription to read its usage windows and reset times. Both native apps have three destinations: **Overview**, **Resets** and **Settings**. Account management starts in Overview; there is no separate Accounts tab.
 
 | Destination | What it shows |
 | :--- | :--- |
@@ -40,7 +40,9 @@ The app also supports:
 - **No model calls.** The app only asks each service for your usage. It never sends a prompt,
   so checking your limits never costs you any of them.
 
-## Android Overview and Settings
+<a id="android-overview-and-settings"></a>
+
+## Overview and Settings
 
 Choose **Settings → Overview → Layout** for **List** or **Dials**. List shows every usage window and emphasises the account's **headline**. Dials shows one headline ring per account, without filters. Tap either layout's account to open the same detail screen, including every window, refresh, reconnect, alerts and removal. **Show subscription tier** affects List titles, not Dial names. Reset stamps stay visible; there is no Show renewal time switch.
 
@@ -56,13 +58,13 @@ In List, choose one filter:
 
 Switching to another primary destination or to Dials returns the filter to All; opening an account detail and returning keeps it. The header counts expired sign-ins across all accounts. “All accounts have room” appears only when every headline is current, known, non-exhausted and above 20% left. Its next-reset time comes from connected accounts, independently of the filter.
 
-**Settings → Display → Show percentages as** and the Overview percentage chip write the same **Left/Used** choice. Figures, bar lengths and ring arcs follow it; severity, account order, mood and alert thresholds still follow what is left. [Percentage details](docs/widgets.md#percentages-left-or-used) cover unknown and stale readings. The previews show the chosen display mode and layout without changing real accounts. For prepaid controls and hidden balances, see [Credit balances](docs/credits.md#credits-in-android-overview).
+**Settings → Display → Show percentages as** and the Overview percentage chip write the same **Left/Used** choice. Figures, bar lengths and ring arcs follow it; severity, account order, mood and alert thresholds still follow what is left. [Percentage details](docs/widgets.md#percentages-left-or-used) cover unknown and stale readings. The previews show the chosen display mode and layout without changing real accounts. For prepaid controls and hidden balances on both platforms, see [Credit balances](docs/credits.md#credits-in-overview).
 
 ### App appearance and fonts
 
-Under **Settings → Appearance**, choose **Warm dark**, **Pure black** (default), **Cool graphite** or **Light paper**. Text choices are system **Roboto** (default), **Roboto Flex**, **IBM Plex Sans** and **Figtree**. Figure choices are **Roboto Mono** (default), **JetBrains Mono** and **IBM Plex Mono** for percentages, times and amounts. The preview reacts immediately; no restart is required.
+Under **Settings → Appearance**, both apps offer **Warm dark**, **Pure black** (default), **Cool graphite** and **Light paper**. Android text choices start with system **Roboto**; iOS starts with Apple's **System** text. Both also offer **Roboto Flex**, **IBM Plex Sans** and **Figtree**. Choose **Roboto Mono** (default), **JetBrains Mono** or **IBM Plex Mono** independently for percentages, times and amounts. The preview reacts immediately; no restart is required.
 
-Open **Font licences** in that section for the six bundled families' offline notices. Their pinned sources, versions, checksums and full licences are in the [canonical font manifest](third_party/fonts/manifest.json) and [font notes](third_party/fonts/README.md). These are Android app choices, not a change to placed widgets or their editor ([ADR 0005](docs/adr/0005-app-and-widget-appearance.md)).
+Open **Font licences** in that section for the six bundled families' offline notices. Their pinned sources, versions, checksums and full licences are in the [canonical font manifest](third_party/fonts/manifest.json) and [font notes](third_party/fonts/README.md). These choices affect the app, not placed widgets or their configuration previews ([ADR 0005](docs/adr/0005-app-and-widget-appearance.md)). iOS bundles the canonical font files and licences in the app only, not its widget extension. The first app-controlled interface waits for saved preferences; iOS shows a neutral root while loading them. This is implemented behavior, not physical cold-launch proof.
 
 On a German device, use **Einstellungen → Übersicht → Layout → Liste/Ringe**, **Anzeige → Prozente anzeigen als**, or **Erscheinungsbild** for **Textschrift**, **Ziffernschrift** and **Schriftlizenzen**. The List filters are **Alle**, **Braucht Aufmerksamkeit** and **Resets heute**.
 
@@ -79,13 +81,13 @@ Under **Settings → Provider icons → Claude**, the **Claude Code · Color** a
 | Above 90 | Dancing |
 | No known figure, without declared exhaustion | Idle |
 
-A stale reading or expired sign-in can retain its last mood; passing a reset time is not evidence of a refill. **Animate Claude Code icon** is on by default for the two eligible choices. Turn it off for still poses; Android's **Remove animations** also stops the movement. The figure stops outside its visible, resumed screen. In Resets it always uses Hooray, including its still pose when motion is off.
+A stale reading or expired sign-in can retain its last mood; passing a reset time is not evidence of a refill. **Animate Claude Code icon** is on by default for the two eligible choices. Turn it off for still poses; Android's **Remove animations** and iOS **Reduce Motion** also stop movement. The figure stops outside its visible, active screen. In Resets it always uses Hooray, including its still pose when motion is off.
 
-The Android candidate remembers a reset only when a new measured reading confirms the same account/window's dated rollover: the previous reading preceded its advertised reset, the new reading reaches or passes it, and the next reset has advanced into the future. An increase in allowance, clock crossing, first reading or failed refresh does not qualify.
+Both apps remember a reset only when a new measured reading confirms the same account/window's dated rollover: the previous reading preceded its advertised reset, the new reading reaches or passes it, and the next reset has advanced into the future. An increase in allowance, clock crossing, first reading or failed refresh does not qualify.
 
-At the next qualifying main-app opening, it claims the mark before refreshing. After the loaded, resumed screen's first ready layout, each qualifying account with a visible eligible figure gets one shared four-second Hooray presentation, or its still pose for the same time with motion off. The corrected code uses actual placement rather than a fixed frame count; controlled navigation tests cover cold entry and held first placement. A qualifying opening is a process background-to-foreground transition with the main activity started. Returning from a sign-in Custom Tab counts only if that transition occurs; activity recreation, resume alone and opening widget configuration do not.
+At the next qualifying main-app opening, the app claims the mark before refreshing. After the loaded, active screen's first ready placement, each qualifying account with a visible eligible figure gets one shared four-second Hooray presentation. Motion off uses its still pose for the same time. Android counts a process foreground transition with the main activity started; recreation, resume alone and widget configuration do not count. iOS counts initial activation and a return from background to active, not an inactive-only interruption. Returning from browser sign-in counts only when the platform's opening rule applies.
 
-An interrupted or unseen opportunity does not replay later. Placed Usage Bars, Account Rings and Mini Rings use each account's steady mood, never Hooray; configuration keeps static catalog artwork. See [candidate proof and remaining CI/device gates](docs/release.md#android-redesign-evidence). Phone occurrence of the original layout race and real animation pacing are unverified; no iOS Hooray parity is claimed.
+An interrupted or unseen opportunity does not replay later. Placed Usage Bars, Account Rings and Mini Rings use each account's steady mood, never Hooray; configuration keeps static catalog artwork. Both implementations use the same dated-reset vectors. See [candidate proof and remaining CI/device gates](docs/release.md#release-050-checkpoint). Real foreground transitions, first placement and animation pacing still need device checks.
 
 ## Supported services
 
@@ -138,7 +140,7 @@ each account, in that account's currency, and warns you when it gets low.
 **Anthropic and OpenAI can't be shown.** Neither offers a way to read the remaining balance
 with an API key, so the app says so instead of guessing.
 
-Set a low-balance threshold per account. Credits refresh with usage, and the Credits widget lists balances worst first in three sizes. On Android, choose Normal or Compact, change the block order, or hide it under **Settings → Overview**. **Manage credit accounts** remains available when hidden. Compact compares each current balance with its own threshold, not nominal amounts across currencies. See [Credit balances](docs/credits.md).
+Set a low-balance threshold per account. Credits refresh with usage, and the Credits widget lists balances worst first in three sizes. On both platforms, choose Normal or Compact, change the block order, or hide it under **Settings → Overview**. **Show credits** precedes dependent controls; the changing Overview preview follows all controls. **Manage credit accounts** remains available when hidden. Compact compares each current balance with its own threshold, not nominal amounts across currencies. With credit accounts but no usage accounts, Overview says **No usage accounts yet** and keeps one visible Add credit path; collapsed Compact retains the secondary path. See [Credit balances](docs/credits.md).
 
 ## Widgets
 
@@ -152,7 +154,7 @@ Pick the style that fits your home screen:
 
 Each configurable usage widget can show all accounts, one service, one account, or a Custom selection in its saved order. **All accounts** follows Overview's automatic headline order. Pinned status icons use the stored account order instead; choosing pins does not reorder them. Android requests that notification order, but SystemUI decides what appears ([ADR 0003 clarification](docs/adr/0003-status-icons-and-lock-screen-substitute.md#consequences)).
 
-On Android, each usage widget keeps its own background, opacity and text tone when app appearance changes. Widgets show cached readings; refresh requests a sync on Android and opens the app on iOS. Widget delivery remains system-controlled.
+Each platform's widgets keep their own appearance when app palettes or fonts change. Android usage widgets retain their background, opacity and text tone; iOS widgets retain their widget palette and system typography. Non-pinned ring widgets omit the visible Left/Used caption but retain it in speech. Widgets show cached readings; refresh requests a sync on Android and opens the app on iOS. Widget delivery remains system-controlled.
 
 Every usage widget follows the app's display mode, left or used. There is no separate setting
 per widget. Credits show money, so this does not apply to them.
@@ -165,7 +167,7 @@ per widget. Credits show money, so this does not apply to them.
 | **Usage Bars** | 17+ | Small, medium and large. Choose an account, a service or your own selection. |
 | **Account Rings** | 17+ | A grid of rings with names and reset times. |
 | **Mini Rings** | 17+ | Compact rings with logos. |
-| **Credits** | 16+ | Prepaid balances, lowest first. |
+| **Credits** | 16+ | Prepaid balances, worst status first; the small tile centers its balance and status. |
 | **Usage Limits** | 16+ | Usage tiles in three sizes, also on the Lock Screen. |
 | **Usage Limits (Clear)** | 16+ | The same tiles on a transparent background. |
 | **Pinned accounts** | 16+ | Up to three pinned accounts on the Lock Screen, as glyph and figure. See [Status icons](docs/status-icons.md). |
@@ -182,7 +184,7 @@ More about how widgets stay current: [docs/widgets.md](docs/widgets.md).
 
 ## App tour
 
-The [archived app tour](docs/01-terracotta/DEMO.md) shows an earlier interface, including the removed Accounts destination. Its [asset notes](docs/01-terracotta/ASSET-SOURCES.md) distinguish illustrations from old iOS simulator captures. It is not a walkthrough of this Android candidate. Use the [selected Android captures](docs/release.md#selected-android-captures) for the documented redesign; the older `docs/redesign/after` directory predates this candidate too.
+The [archived app tour](docs/01-terracotta/DEMO.md) shows an earlier interface, including the removed Accounts destination. Its [asset notes](docs/01-terracotta/ASSET-SOURCES.md) distinguish illustrations from old iOS simulator captures. It is not a walkthrough of the 0.5.0 candidate. The [selected Android captures](docs/release.md#selected-android-captures) show earlier redesign revisions; the older `docs/redesign/after` directory predates this candidate too. Current combined-candidate and new iOS capture coverage remains pending; no new gallery is claimed.
 
 ## Your data
 
@@ -218,7 +220,7 @@ Then open the generated project in Xcode, set up signing and run it.
 
 | If you want to… | Read |
 | :--- | :--- |
-| use the Android redesign controls | [Overview and Settings](#android-overview-and-settings) |
+| use the native Overview and Settings controls | [Overview and Settings](#overview-and-settings) |
 | check whether your phone is supported | [Device compatibility](docs/compatibility.md) |
 | understand the widgets | [Widgets](docs/widgets.md) |
 | keep accounts in the status bar or on the Lock Screen | [Status icons](docs/status-icons.md) |
