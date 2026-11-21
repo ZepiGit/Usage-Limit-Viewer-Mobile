@@ -13,6 +13,13 @@ struct WidgetPresetsScreen: View {
             Section {
                 Text("Choose Custom when editing a widget, then select one of these layouts. Each layout keeps its own account selection and order.")
                     .foregroundStyle(UsageColors.muted)
+                Text("Left or used follows Settings › Display, like Overview. Ring widgets keep the side in VoiceOver, not as a visible caption.")
+                    .foregroundStyle(UsageColors.muted)
+                    .accessibilityIdentifier("widget-mode-guidance")
+                WidgetLayoutArtwork(mode: store.settings.percentDisplay)
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                Text("Static artwork. Add a widget from the Home Screen gallery; touch and hold it to edit its content. System tint, size and update timing are controlled by WidgetKit.")
+                    .foregroundStyle(UsageColors.muted)
             }
             .listRowBackground(UsageColors.surface)
             Section(header: LedgerHeader(String(localized: "Custom layouts"))) {
@@ -54,6 +61,45 @@ struct WidgetPresetsScreen: View {
     }
 }
 
+private struct WidgetLayoutArtwork: View {
+    let mode: PercentDisplay
+
+    var body: some View {
+        let presentation = WindowPresentation(remaining: 18, severity: .low, validity: .current, mode: mode)
+        HStack(spacing: 16) {
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    ProviderMark(assetName: "ProviderIconClaudecodeColor").frame(width: 27, height: 27)
+                    Text(verbatim: "Claude").font(.system(size: 13, weight: .medium))
+                    Spacer(minLength: 0)
+                }
+                Text(verbatim: PercentText.figure(presentation))
+                    .font(.system(size: 18, weight: .medium, design: .monospaced))
+                Text(verbatim: PercentText.sideWord(mode)).font(.system(size: 11))
+                Capsule().fill(UsageColors.data).frame(height: 4)
+            }
+            VStack(spacing: 8) {
+                ZStack {
+                    Circle().stroke(UsageColors.dataTrack, lineWidth: 4)
+                    Circle().trim(from: 0, to: presentation.fill ?? 0).stroke(UsageColors.data,
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round)).rotationEffect(.degrees(-90))
+                    ProviderMark(assetName: "ProviderIconClaudecodeColor").frame(width: 28, height: 28)
+                }.frame(width: 48, height: 48)
+                Text("Mini Rings").font(.system(size: 11, weight: .medium))
+            }
+        }
+        .padding(16)
+        .foregroundStyle(UsageColors.ink)
+        .background(UsageColors.ground)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .environment(\.usageAppearance, .widget)
+        .environment(\.colorScheme, .dark)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Static Usage Bars and Mini Rings artwork")
+        .accessibilityIdentifier("widget-layout-static-artwork")
+    }
+}
+
 private struct WidgetPresetEditor: View {
     @Environment(\.dismiss) private var dismiss
     let preset: WidgetPreset
@@ -88,6 +134,7 @@ private struct WidgetPresetEditor: View {
                         }
                         if selected.isEmpty { Text("Select accounts below").foregroundStyle(UsageColors.muted) }
                     }
+                    .environment(\.usageAppearance, .widget)
                 }
                 .listRowBackground(UsageColors.surface)
                 Section(header: LedgerHeader(String(localized: "Accounts · drag to reorder"))) {

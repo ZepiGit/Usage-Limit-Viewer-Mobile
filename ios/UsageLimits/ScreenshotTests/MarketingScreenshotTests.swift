@@ -170,6 +170,26 @@ final class MarketingScreenshotTests: XCTestCase {
         capture("iphone-claude-still-sheet", in: app, requiresDemoLabel: false)
     }
 
+    func testCaptureIPhoneWidgetLayoutGuidance() {
+        let app = launchDemo(["-reduce-motion"])
+        defer { app.terminate() }
+        let settings = app.buttons.matching(identifier: "Settings")
+        let tab = settings.allElementsBoundByIndex.first { $0.isHittable } ?? settings.firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 10))
+        tab.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        let layouts = app.buttons["Widget layouts"]
+        reach(layouts, in: app)
+        layouts.tap()
+        XCTAssertTrue(app.navigationBars["Widget layouts"].waitForExistence(timeout: 10))
+        let guidance = app.staticTexts["widget-mode-guidance"]
+        XCTAssertTrue(guidance.waitForExistence(timeout: 10))
+        XCTAssertTrue(guidance.label.contains("Settings › Display"))
+        XCTAssertTrue(guidance.label.contains("VoiceOver"))
+        XCTAssertTrue(app.descendants(matching: .any)["widget-layout-static-artwork"].firstMatch.exists)
+        capture("iphone-widget-layout-guidance", in: app, requiresDemoLabel: false)
+    }
+
     func testCaptureIPadOverview() {
         let app = launchDemo()
         capture("ipad-overview", in: app)

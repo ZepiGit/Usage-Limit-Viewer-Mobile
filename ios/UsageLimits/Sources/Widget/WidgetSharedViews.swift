@@ -162,8 +162,7 @@ struct WidgetFigure: View {
     let font: UsageFont
     let ink: WidgetInk
     let severity: Severity
-    /// Whether the side word follows the figure ("45% left"). A ring's centre has no room beside
-    /// the figure and draws its own caption underneath instead.
+    /// Bars show the side beside the figure; rings retain it in their spoken label only.
     var showsSideWord: Bool = true
 
     private var text: String {

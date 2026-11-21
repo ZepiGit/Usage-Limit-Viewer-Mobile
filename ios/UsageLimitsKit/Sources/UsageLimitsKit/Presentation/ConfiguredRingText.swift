@@ -25,21 +25,12 @@ public enum ConfiguredRingText {
 
     /// What VoiceOver says for the ring: always the full figure, whatever the centre writes.
     ///
-    /// Left is the sentence spoken before the mode existed, which reads the lowest figure across
-    /// every window. Used speaks the presentation's own figure: an exhausted 5h window whose reset
-    /// has passed, beside an open weekly at 60% left, draws "40% used" from the representative
-    /// row, and a second derivation over all rows announced "100% used".
+    /// Both sides speak the rendered presentation, not a second selection across all windows.
     public static func spoken(
         _ account: GlanceAccount, presentation p: WindowPresentation, texts: any PercentTexts
     ) -> String {
-        let sentence: String
-        if p.side == .used {
-            sentence = texts.spoken(texts.figure(p.token), .used)
-        } else {
-            let lowest = account.rows.compactMap(\.remainingPercent).min()
-            let token = UsageWindow.percentToken(lowest, exhausted: false, mode: .left)
-            sentence = texts.spoken(texts.figure(token), .left)
-        }
-        return "\(account.title), \(account.subtitle ?? ""), \(sentence)"
+        let sentence = texts.spoken(texts.figure(p.token), p.side)
+        return ([account.title, account.subtitle].compactMap { $0 }.filter { !$0.isEmpty } + [sentence])
+            .joined(separator: ", ")
     }
 }

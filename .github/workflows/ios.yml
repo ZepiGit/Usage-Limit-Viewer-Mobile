@@ -152,6 +152,50 @@ jobs:
           path: pinned-widget-renderings
           if-no-files-found: error
           retention-days: 7
+      - name: Render non-pinned Home Screen and accessory views in English and German
+        working-directory: ios/UsageLimits
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices booted --json \
+            | jq -r '[.devices[][] | select(.name | startswith("iPhone"))] | last | .udid')
+          test -n "$udid" && test "$udid" != "null"
+          out="$GITHUB_WORKSPACE/non-pinned-widget-renderings"
+          mkdir -p "$out"
+          {
+            echo "Production SwiftUI Home Screen and accessory views at native family sizes."
+            echo "NOT installed WidgetKit or Lock Screen captures: no host tint, vibrancy, edit UI or timeline delivery proof."
+            echo "Synthetic accounts only. Source commit: $GITHUB_SHA"
+            xcodebuild -version
+            xcrun simctl list devices --json | jq -r --arg id "$udid" '.devices[][] | select(.udid == $id) | .name'
+          } > "$out/CAPTURE.txt"
+          for language in en de; do
+            region=$([ "$language" = de ] && echo DE || echo US)
+            TEST_RUNNER_NON_PINNED_RENDERINGS="$out" TEST_RUNNER_NON_PINNED_LANGUAGE="$language" \
+            xcodebuild test-without-building \
+              -scheme UsageLimitsRendering \
+              -destination "platform=iOS Simulator,id=$udid" \
+              -derivedDataPath "$GITHUB_WORKSPACE/rendering-build" \
+              -resultBundlePath "$GITHUB_WORKSPACE/non-pinned-rendering-$language.xcresult" \
+              -testLanguage "$language" -testRegion "$region" \
+              -parallel-testing-enabled NO \
+              -only-testing:UsageLimitsRenderingTests/NonPinnedWidgetRenderingTests
+          done
+      - name: Upload non-pinned widget view renderings
+        if: 4{{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: non-pinned-widget-renderings
+          path: non-pinned-widget-renderings
+          if-no-files-found: error
+          retention-days: 7
+      - name: Keep non-pinned rendering failures
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: non-pinned-widget-rendering-failure
+          path: non-pinned-rendering-*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Measure Settings preview display callback gaps
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.measure_settings_gaps == true }}
         working-directory: ios/UsageLimits

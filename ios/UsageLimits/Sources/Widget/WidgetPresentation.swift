@@ -99,6 +99,25 @@ enum GlanceText {
     }
 }
 
+/// Non-pinned rings omit the visible side line, not the window, validity or reset from speech.
+enum WidgetRingSpeech {
+    static func label(account: GlanceAccount, row: GlanceRow?, presentation: WindowPresentation,
+                      date: Date, staleAfter: TimeInterval, resetAt: Date? = nil) -> String {
+        var parts = [presentation.hasFigure
+            ? ConfiguredRingText.spoken(account, presentation: presentation, texts: LocalizedPercentTexts())
+            : String(localized: "\(GlanceText.subject(account, row)): remaining unknown")]
+        if !presentation.hasFigure, let identity = account.subtitle { parts.append(identity) }
+        if let row { parts.append(row.displayLabel) }
+        if account.connectionStatus == .reconnectRequired { parts.append(String(localized: "Reconnect")) }
+        if let message = account.statusMessage { parts.append(DisplayText.stored(message)) }
+        let severity = account.displaySeverity(of: row, at: date, staleAfter: staleAfter)
+        if severity != .healthy { parts.append(SeverityPalette.label(severity)) }
+        if let reset = GlanceText.resetLine(resetAt: resetAt ?? row?.resetAt, now: date) { parts.append(reset) }
+        if let stamp = GlanceText.asOfLine(updatedAt: account.fetchedAt, now: date) { parts.append(stamp) }
+        return parts.joined(separator: ", ")
+    }
+}
+
 extension GlanceRow {
     /// The row's label in the current language: "5h limit", "Weekly" and "Monthly" of a global
     /// window are the app's words, anything else is the provider's.

@@ -1046,13 +1046,13 @@
         }
       }
     },
-    "Closest Resets automatically shows whatever account resets next. Create custom layouts in the app's widget settings." : {
+    "Closest Resets follows the next reset. All accounts follows Overview; Custom keeps your saved order. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nächste Resets zeigt automatisch das Konto, das als Nächstes zurückgesetzt wird. Eigene Layouts erstellst du in den Widget-Einstellungen der App."
+            "value" : "Nächste Resets folgt dem nächsten Reset. Alle Konten folgt der Übersicht; Eigene Layouts behält deine gespeicherte Reihenfolge. Übrig oder verbraucht folgt Einstellungen › Anzeige."
           }
         }
       }
@@ -2248,13 +2248,13 @@
         }
       }
     },
-    "Only your usage rings and provider logos." : {
+    "Usage rings and provider marks. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nur deine Verbrauchsringe und Anbieter-Logos."
+            "value" : "Verbrauchsringe und Anbieter-Logos. Übrig oder verbraucht folgt Einstellungen › Anzeige."
           }
         }
       }
@@ -3488,13 +3488,13 @@
         }
       }
     },
-    "Usage, account and reset at a glance." : {
+    "Usage, account and reset at a glance. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verbrauch, Konto und Reset auf einen Blick."
+            "value" : "Verbrauch, Konto und Reset auf einen Blick. Übrig oder verbraucht folgt Einstellungen › Anzeige."
           }
         }
       }
@@ -3576,13 +3576,13 @@
         }
       }
     },
-    "What is left on one subscription, as a ring, with its reset time." : {
+    "One subscription as a ring, with its reset time. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Was bei einem Abo übrig ist, als Ring mit Reset-Zeit."
+            "value" : "Ein Abo als Ring mit Reset-Zeit. Übrig oder verbraucht folgt Einstellungen › Anzeige."
           }
         }
       }
@@ -3642,13 +3642,46 @@
         }
       }
     },
-    "Your accounts, your order. Choose one account, a provider or a custom layout." : {
+    "Choose accounts, a provider or a custom layout. Only Custom has your own order. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Konten in deiner Reihenfolge. Wähle ein Konto, einen Anbieter oder ein eigenes Layout."
+            "value" : "Wähle Konten, einen Anbieter oder ein eigenes Layout. Nur Eigene Layouts hat deine eigene Reihenfolge. Übrig oder verbraucht folgt Einstellungen › Anzeige."
+          }
+        }
+      }
+    },
+    "Left or used follows Settings › Display, like Overview. Ring widgets keep the side in VoiceOver, not as a visible caption." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übrig oder verbraucht folgt Einstellungen › Anzeige, wie die Übersicht. Ring-Widgets nennen die Seite in VoiceOver, nicht als sichtbare Beschriftung."
+          }
+        }
+      }
+    },
+    "Static artwork. Add a widget from the Home Screen gallery; touch and hold it to edit its content. System tint, size and update timing are controlled by WidgetKit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Statische Vorschau. Füge ein Widget über die Galerie des Home-Bildschirms hinzu; halte es gedrückt, um seinen Inhalt zu bearbeiten. Systemtönung, Größe und Aktualisierungszeitpunkt werden von WidgetKit gesteuert."
+          }
+        }
+      }
+    },
+    "Static Usage Bars and Mini Rings artwork" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Statische Vorschau von Verbrauchsbalken und Mini-Ringen"
           }
         }
       }

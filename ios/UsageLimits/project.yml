@@ -178,7 +178,7 @@ targets:
     sources:
       - path: RenderingTests
       - path: Sources/Theme
-      - path: Sources/Widget/PinnedAccountsViews.swift
+      - path: Sources/Widget
       - path: ../../shared/glyphs/status-icon-glyphs.json
         buildPhase: resources
     dependencies:
@@ -187,6 +187,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.usagelimits.app.renderingtests
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WIDGET_RENDERING_TESTS"
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/UsageLimits.app/UsageLimits
         BUNDLE_LOADER: $(TEST_HOST)
