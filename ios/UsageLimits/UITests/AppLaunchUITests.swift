@@ -288,6 +288,41 @@ final class AppLaunchUITests: XCTestCase {
         release.tap()
     }
 
+    func testFailedRetainedHealthyGlobalAllowanceHidesLowAndMediumModelMarks() {
+        for quotaCase in ["low-model", "medium-model"] {
+            let app = launch(["-fixture-retained-scoped", "-fixture-retained-quota-case", quotaCase])
+            defer { app.terminate() }
+            let release = app.buttons["settings-load-release-cached-usage"]
+            XCTAssertTrue(release.waitForExistence(timeout: 10), quotaCase)
+            let row = app.buttons["overview-account-codex:fixture"]
+            XCTAssertTrue(row.waitForExistence(timeout: 10), quotaCase)
+            let mark = app.descendants(matching: .any)["overview-mark-codex:fixture"].firstMatch
+            XCTAssertFalse(mark.exists, "\(quotaCase): healthy global allowance must not show a scoped warning")
+            XCTAssertTrue(row.label.contains("63%") || row.descendants(matching: .any).matching(
+                NSPredicate(format: "label CONTAINS %@", "63%")).firstMatch.exists, quotaCase)
+            XCTAssertTrue(row.label.contains("Error") || app.staticTexts["Error"].firstMatch.exists,
+                "\(quotaCase): failed validity stays visible")
+            release.tap()
+        }
+    }
+
+    func testFailedRetainedGlobalScopeVerdictDeterminesVisibleMark() {
+        for (quotaCase, expected) in [("medium-global", "Moderate"), ("low-global", "Low"),
+                                       ("exhausted-global", "Exhausted"), ("unknown-global", "Unknown")] {
+            let app = launch(["-fixture-retained-scoped", "-fixture-retained-quota-case", quotaCase])
+            defer { app.terminate() }
+            let release = app.buttons["settings-load-release-cached-usage"]
+            XCTAssertTrue(release.waitForExistence(timeout: 10), quotaCase)
+            let mark = app.descendants(matching: .any)["overview-mark-codex:fixture"].firstMatch
+            XCTAssertTrue(mark.waitForExistence(timeout: 10), quotaCase)
+            XCTAssertEqual(mark.label, expected, quotaCase)
+            let row = app.buttons["overview-account-codex:fixture"]
+            XCTAssertTrue(row.label.contains("Error") || app.staticTexts["Error"].firstMatch.exists,
+                "\(quotaCase): failed validity stays visible")
+            release.tap()
+        }
+    }
+
     func testColdSettingsLoadRejectsEditsBeforeReadAndApplyAndPreservesPreferences() {
         var app = launch(["-fixture-settings", "-fixture-settings-reset", "-fixture-settings-gates"])
         defer { app.terminate() }

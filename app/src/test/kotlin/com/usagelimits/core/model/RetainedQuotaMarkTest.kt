@@ -16,7 +16,7 @@ class RetainedQuotaMarkTest {
     )
 
     @Test
-    fun `failed retained windows keep limited mark and failed validity`() {
+    fun `failed retained windows keep scope mark and failed validity`() {
         val vectors = SharedVectors.parse(SharedVectors.file("retained-quota-mark.json").readText(),
             VectorFile.serializer()).vectors
         assertTrue(vectors.isNotEmpty())

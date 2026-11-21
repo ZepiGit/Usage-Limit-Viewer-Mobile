@@ -705,11 +705,27 @@ private enum RegisterFixture {
 
         // Written as the file the repository reads, before anything reads it. The row is the
         // oldest shape the register has had, which the Kit's tests keep loadable.
+        let quotaCase = arguments.firstIndex(of: "-fixture-retained-quota-case").flatMap {
+            arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil
+        }
+        let globalUsed: String = switch quotaCase {
+        case "medium-global": "70"
+        case "low-global": "90"
+        case "exhausted-global": "100"
+        case "unknown-global": "null"
+        default: "37"
+        }
+        let modelUsed: Int = switch quotaCase {
+        case "medium-model": 70
+        case "low-global", "exhausted-global": 37
+        case nil: 100
+        default: 90
+        }
         let reading = retained ? """
             ,"snapshot":{"accountID":"codex:fixture","fetchedAt":"2026-09-01T00:00:00Z",
               "status":"failed","windows":[
-                {"id":"global","label":"Weekly","category":"weekly","usedPercent":37,"exhausted":false,"scope":"global"},
-                {"id":"model","label":"Model","category":"weekly","usedPercent":100,"exhausted":true,"scope":"model"}]}
+                {"id":"global","label":"Weekly","category":"weekly","usedPercent":\(globalUsed),"exhausted":false,"scope":"global"},
+                {"id":"model","label":"Model","category":"weekly","usedPercent":\(modelUsed),"exhausted":\(modelUsed == 100),"scope":"model"}]}
             """ : ""
         let register = isUnreadable ? "not json" : """
             [{"account": {"id": "codex:fixture", "provider": "codex", "externalAccountID": "fixture",

@@ -615,21 +615,13 @@ private fun OverviewAccountRow(
 }
 
 /**
- * The 8dp account mark: the worst raw window, an expired sign-in overriding it. Above 50% left no
- * mark; above 20 a hollow amber ring; above 0 filled amber; exhausted or expired filled red. A
- * scoped pool running dry reads as limited, not as the whole account exhausted. It speaks its state.
+ * The 8dp account mark: the windows' scope verdict, an expired sign-in overriding it. Above 50%
+ * left no mark; above 20 a hollow amber ring; above 0 filled amber; exhausted or expired filled red.
+ * A scoped pool running dry reads as limited, not as the whole account exhausted. It speaks its state.
  */
 @Composable
 private fun AccountMark(usage: AccountUsage, expired: Boolean, size: Dp) {
-    val snapshot = usage.snapshot
-    val raw = snapshot?.windows.orEmpty().map { it.severity }.filter { it != Severity.UNKNOWN }.maxOrNull() ?: Severity.UNKNOWN
-    val mark = when {
-        expired -> Severity.ERROR
-        // The scope rule, not the snapshot's overall verdict, which a failed read overrides: a
-        // retained exhausted model window beside an open global one is limited, not exhausted.
-        raw == Severity.EXHAUSTED && snapshot?.quotaSeverity == Severity.LIMITED -> Severity.LIMITED
-        else -> raw
-    }
+    val mark = if (expired) Severity.ERROR else usage.snapshot?.quotaSeverity ?: Severity.UNKNOWN
     if (mark == Severity.HEALTHY || mark == Severity.UNKNOWN) return
     val label = if (expired) stringResource(R.string.status_reconnect) else stringResource(SeverityPalette.labelRes(mark))
     val color = SeverityPalette.accent(mark)

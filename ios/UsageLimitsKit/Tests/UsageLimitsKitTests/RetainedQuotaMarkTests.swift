@@ -2,7 +2,7 @@ import XCTest
 @testable import UsageLimitsKit
 
 final class RetainedQuotaMarkTests: XCTestCase {
-    func testFailedRetainedWindowsKeepLimitedMarkWithoutChangingHeadlineValidity() throws {
+    func testFailedRetainedWindowsKeepScopeMarkWithoutChangingHeadlineValidity() throws {
         let file = try SharedVectors.parse(VectorFile.self,
             from: Data(contentsOf: SharedVectors.file("retained-quota-mark.json")))
         XCTAssertFalse(file.vectors.isEmpty)
@@ -21,6 +21,11 @@ final class RetainedQuotaMarkTests: XCTestCase {
             let glance = try XCTUnwrap(GlanceModel.build([AccountUsage(account: account, snapshot: snapshot)],
                 now: now, scope: .allAccounts).accounts.first)
             XCTAssertEqual(glance.quotaSeverity, vector.expectedMark, vector.name)
+            let restored = try JSONDecoder().decode(GlanceAccount.self, from: JSONEncoder().encode(glance))
+            XCTAssertEqual(restored.quotaSeverity, vector.expectedMark, vector.name)
+            XCTAssertEqual(restored.baseSeverity, .error, vector.name)
+            XCTAssertEqual(restored.readingValidity(of: restored.representative(at: now), at: now, staleAfter: 3600),
+                vector.expectedValidity, vector.name)
             XCTAssertEqual(glance.baseSeverity, .error, vector.name)
             XCTAssertEqual(glance.severity(at: now, staleAfter: 3600), .error, vector.name)
             let headline = glance.representative(at: now)
@@ -52,11 +57,18 @@ final class RetainedQuotaMarkTests: XCTestCase {
             name = try c.decode(String.self, forKey: Keys("name"))
             status = try c.decode(SnapshotStatus.self, forKey: Keys("status"))
             windows = try c.decode([Window].self, forKey: Keys("windows"))
-            guard try c.decode(String.self, forKey: Keys("expectedMark")) == "limited",
-                  try c.decode(String.self, forKey: Keys("expectedValidity")) == "error" else {
-                throw VectorFileError(description: "unknown mark or validity")
+            expectedMark = switch try c.decode(String.self, forKey: Keys("expectedMark")) {
+            case "healthy": .healthy
+            case "medium": .medium
+            case "low": .low
+            case "limited": .limited
+            case "exhausted": .exhausted
+            case "unknown": .unknown
+            default: throw VectorFileError(description: "unknown quota mark")
             }
-            expectedMark = .limited
+            guard try c.decode(String.self, forKey: Keys("expectedValidity")) == "error" else {
+                throw VectorFileError(description: "unknown validity")
+            }
             expectedValidity = .error
             expectedHeadline = try c.decode(String.self, forKey: Keys("expectedHeadline"))
         }

@@ -365,10 +365,7 @@ struct OverviewAccountContent: View {
     }
 
     @ViewBuilder private var mark: some View {
-        let raw = account.candidates.map(\.severity).filter { $0 != .unknown }.max() ?? .unknown
-        let severity: Severity = if expired { .error }
-            else if raw == .exhausted && account.quotaSeverity == .limited { .limited }
-            else { raw }
+        let severity: Severity = expired ? .error : account.quotaSeverity
         if severity != .healthy {
             Circle()
                 .fill(severity == .medium ? Color.clear : colors.accent(severity))
