@@ -19,8 +19,13 @@ enum class ClaudeCodeMood { ASLEEP, TIRED, WORKING, IDLE, DANCING, HOORAY }
  */
 fun UsageSnapshot?.claudeCodeMoodAt(nowMs: Long): ClaudeCodeMood {
     val headline = this?.headlineAt(nowMs) ?: return ClaudeCodeMood.IDLE
-    if (headline.exhausted) return ClaudeCodeMood.ASLEEP
-    val left = headline.remainingPercent ?: return ClaudeCodeMood.IDLE
+    return claudeCodeMood(headline.remainingPercent, headline.exhausted)
+}
+
+/** Also used by placed widgets, whose headline has already been projected at presentation time. */
+internal fun claudeCodeMood(remainingPercent: Double?, exhausted: Boolean): ClaudeCodeMood {
+    if (exhausted) return ClaudeCodeMood.ASLEEP
+    val left = remainingPercent ?: return ClaudeCodeMood.IDLE
     return when {
         left <= 0.0 -> ClaudeCodeMood.ASLEEP
         left <= 20.0 -> ClaudeCodeMood.TIRED

@@ -123,15 +123,22 @@ class GermanWidgetRenderTest {
     }
 
     private suspend fun TestScope.inEachMode(body: suspend (PercentDisplay) -> Unit) {
+        val settings = app.container.settingsStore
+        val original = settings.settings.first()
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
+            // These text/ProgressBar checks use legacy graphics; mood pixels have native coverage.
+            settings.setProviderIcon(ProviderId.CLAUDE.id, "claude-color")
             for (mode in PercentDisplay.entries) {
                 app.container.settingsStore.setPercentDisplay(mode)
                 body(mode)
             }
         } finally {
-            app.container.settingsStore.setPercentDisplay(PercentDisplay.LEFT)
-            Dispatchers.resetMain()
+            try { settings.setPercentDisplay(original.percentDisplay) }
+            finally {
+                try { settings.setProviderIcon(ProviderId.CLAUDE.id, original.providerIcons[ProviderId.CLAUDE.id] ?: "claudecode-color") }
+                finally { Dispatchers.resetMain() }
+            }
         }
     }
 

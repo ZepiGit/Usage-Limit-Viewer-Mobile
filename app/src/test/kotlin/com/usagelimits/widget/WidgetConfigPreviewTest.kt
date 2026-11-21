@@ -1,10 +1,16 @@
 package com.usagelimits.widget
 
-import androidx.compose.runtime.getValue
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -44,7 +50,7 @@ import org.robolectric.annotation.Config
 class WidgetConfigPreviewTest {
 
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createAndroidComposeRule<ComponentActivity>()
 
     private val weekly = WidgetRow("Weekly", WindowCategory.WEEKLY, 60.0, null, Severity.HEALTHY)
 
@@ -174,6 +180,52 @@ class WidgetConfigPreviewTest {
             preview(WidgetSnapshot.Empty, "Account Rings", mode)
             assertTrue("$mode: no caption over an empty preview", texts("Left").isEmpty() && texts("Used").isEmpty())
         }
+    }
+
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    @Test
+    fun `Claude Mini configuration keeps catalog artwork even for a tired headline`() {
+        val row = weekly.copy(remainingPercent = 15.0)
+        val fixture = snapshot(account().copy(rows = listOf(row), representative = row,
+            severity = Severity.STALE, iconChoiceId = "claudecode-color"))
+        val actual = mutableStateOf(true)
+        compose.setContent {
+            UsageLimitsTheme {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    com.usagelimits.ui.LocalProviderIcons provides mapOf(ProviderId.CLAUDE.id to "claudecode-color"),
+                ) {
+                    if (actual.value) ContentPreview(fixture, "Mini Rings", WidgetStyle(), PercentDisplay.LEFT)
+                    else androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.size(48.dp)
+                        .background(WidgetStyle().background.color), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.usagelimits.R.drawable.icon_claudecode_color),
+                            null, androidx.compose.ui.Modifier.size(48.dp * 0.575f))
+                    }
+                }
+            }
+        }
+        fun capture(): android.graphics.Bitmap {
+            compose.waitForIdle()
+            val root = compose.activity.window.decorView
+            return Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
+        }
+        fun art(bitmap: android.graphics.Bitmap): List<Pair<Int, Int>> {
+            val points = buildList {
+                for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+                    if (bitmap.getPixel(x, y) == 0xFFD97757.toInt()) add(x to y)
+                }
+            }
+            assertTrue("catalog draws its brand ink", points.isNotEmpty())
+            val left = points.minOf { it.first }
+            val top = points.minOf { it.second }
+            return points.map { (x, y) -> x - left to y - top }
+        }
+        val baseline = capture()
+        try {
+            compose.runOnIdle { actual.value = false }
+            val reference = capture()
+            try { assertEquals("configuration uses the fixed catalog, not the Tired still", art(reference), art(baseline)) }
+            finally { reference.recycle() }
+        } finally { baseline.recycle() }
     }
 
     private fun fixtureUsage(): AccountUsage {
