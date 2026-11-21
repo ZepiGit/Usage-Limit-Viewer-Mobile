@@ -1537,15 +1537,31 @@ class Smoke:
                 assert len(candidates) <= 1, f"Ambiguous {package} credit row: {label}"
                 target = next(iter(candidates.values()), None)
             if target is not None:
-                return target
-            self.scroll(root, up=up, package=package)
+                parents = {child: parent for parent in root.iter() for child in parent}
+                ancestor = parents.get(target)
+                box = bounds(target)
+                while ancestor is not None:
+                    if ancestor.get("scrollable") == "true" and bounds(ancestor):
+                        viewport = bounds(ancestor)
+                        assert viewport[0] <= box[0] < box[2] <= viewport[2], \
+                            f"Credit control {label} extends outside its horizontal viewport"
+                        # Compose exposes clipped selector ancestors whose centre is outside the viewport.
+                        if box[1] < viewport[1] or box[3] > viewport[3]:
+                            self.scroll(root, up=box[3] > viewport[3], package=package)
+                            break
+                    ancestor = parents.get(ancestor)
+                else:
+                    return target
+            else:
+                self.scroll(root, up=up, package=package)
         raise AssertionError(f"Could not reach credit control {label}")
 
     def credit_selection(self, name, label, checked, package=DEBUG_PACKAGE, up=True):
         """Follow a selection moved out of view by the Settings preview or dependent controls.
 
         Compact and Hide credits shrink content above their selectors (up=False).
-        Show credits adds controls above its switch and moves it below the viewport (up=True).
+        Normal and Show credits grow content above their selectors (up=True).
+        Show first only reorders the same preview blocks; its controls keep their height.
         A visible control with the old value is only waited for, never tapped again.
         """
         for attempt in range(12):
@@ -1591,14 +1607,16 @@ class Smoke:
         self.navigate_credit("Settings", "Show credits", "credits-en-settings")
         normal = self.credit_control("credits-en-normal-layout", "Normal", up=False)
         self.tap(normal)
+        self.credit_selection("credits-en-normal-selected", "Normal", True, up=True)
         compact_option = self.credit_control("credits-en-compact-layout", "Compact", up=False)
         self.tap(compact_option)
         self.credit_selection("credits-en-compact-selected", "Compact", True, up=False)
         first = self.credit_control("credits-en-show-first", "Usage providers", up=True)
         self.tap(first)
+        self.credit_selection("credits-en-usage-first-selected", "Usage providers", True, up=True)
         credit_first = self.credit_control("credits-en-credit-first", "Credit accounts", up=True)
         self.tap(credit_first)
-        self.wait_for("credits-en-credit-first-selected", lambda root: credit_checked(root, "Credit accounts", True, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-en-credit-first-selected", "Credit accounts", True, up=True)
         self.navigate_credit("Overview", "Credits · 1 balance", "credits-en-compact-overview")
         compact_root = self.dump("credits-en-compact-order")
         count_node = next(node for node in credit_matches(compact_root, "Credits · 1 balance") if bounds(node))
@@ -1616,7 +1634,7 @@ class Smoke:
         self.wait_for("credits-en-collapsed", lambda root: bool(credit_matches(root, "Credits · 1 balance")))
         self.navigate_credit("Settings", "Show credits", "credits-en-settings-normal")
         self.tap(self.credit_control("credits-en-restore-normal", "Normal", up=False))
-        self.wait_for("credits-en-normal-restored", lambda root: credit_checked(root, "Normal", True, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-en-normal-restored", "Normal", True, up=True)
         self.adb("shell", "cmd", "locale", "set-app-locales", DEBUG_PACKAGE, "--locales", "de-DE", "--user", "0")
         self.adb("shell", "am", "force-stop", DEBUG_PACKAGE)
         self.launch("credits-de-start", DEBUG_PACKAGE, tab="Übersicht")
@@ -1625,14 +1643,16 @@ class Smoke:
         self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-settings")
         layout = self.credit_control("credits-de-layout", "Normal", up=False)
         self.tap(layout)
+        self.credit_selection("credits-de-normal-selected", "Normal", True, up=True)
         compact = self.credit_control("credits-de-compact", "Kompakt", up=False)
         self.tap(compact)
         self.credit_selection("credits-de-compact-selected", "Kompakt", True, up=False)
         first = self.credit_control("credits-de-show-first", "Nutzungskonten", up=True)
         self.tap(first)
+        self.credit_selection("credits-de-usage-first-selected", "Nutzungskonten", True, up=True)
         credit_first = self.credit_control("credits-de-credit-first", "Guthabenkonten", up=True)
         self.tap(credit_first)
-        self.wait_for("credits-de-credit-first-selected", lambda root: credit_checked(root, "Guthabenkonten", True, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-de-credit-first-selected", "Guthabenkonten", True, up=True)
         show = self.credit_control("credits-de-show-credits", "Guthaben anzeigen", up=True)
         assert show.get("checkable") == "true" and show.get("checked") == "true", "Show credits did not start enabled"
         self.capture("credits-de-settings")

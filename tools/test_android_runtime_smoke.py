@@ -968,6 +968,154 @@ class CreditHierarchyTest(unittest.TestCase):
                 self.assertIsNotNone(runtime_smoke.credit_checked(root, "Kompakt", False))
                 self.assertIsNotNone(runtime_smoke.credit_checked(root, "Normal", True))
 
+    class SelectionDevice(FakeDevice):
+        """CI radio geometry, 310px preview reflow and the observed 596px viewport swipe."""
+
+        def __init__(self, restore_top=102, failed=None, outcome="selected"):
+            super().__init__()
+            self.restore_top, self.failed, self.outcome = restore_top, failed, outcome
+            self.states = {}
+            self.state = None
+
+        def prepare(self, name, label):
+            if label == "Normal":
+                other, top, delta, left, right = "Compact", self.restore_top, 310, 60, 189
+            elif label in ("Compact", "Kompakt"):
+                other, top, delta, left, right = "Normal", 317, -310, 190, 336
+            else:
+                other = "Usage providers" if label == "Credit accounts" else "Nutzungskonten"
+                top = 522 if label == "Credit accounts" else 334
+                delta, left, right = 0, 286, 506 if label == "Credit accounts" else 511
+            self.state = {"name": name, "label": label, "other": other, "top": top,
+                          "delta": delta, "left": left, "right": right, "checked": False,
+                          "taps": [], "tap_bounds": [], "observations": []}
+            self.states[name] = self.state
+
+        def answer(self, command):
+            if self.state is None:
+                return super().answer(command)
+            state = self.state
+            if command[:3] == ("shell", "input", "tap"):
+                x, y = map(int, command[3:5])
+                if state["left"] <= x < state["right"] and state["top"] <= y < state["top"] + 84:
+                    state["taps"].append((x, y))
+                    state["tap_bounds"].append((state["top"], state["top"] + 84))
+                    outcome = self.outcome if state["name"] == self.failed else "selected"
+                    if 144 <= y < 1336 and outcome != "lost":
+                        state["checked"] = outcome == "selected"
+                        if outcome != "visible-wrong":
+                            state["top"] += state["delta"]
+                return b""
+            if command[:3] == ("shell", "input", "swipe"):
+                state["top"] += 596 if int(command[4]) < int(command[6]) else -596
+                return b""
+            return super().answer(command)
+
+        def hierarchy(self):
+            state, pkg = self.state, self.PACKAGE
+            top = state["top"]
+            bottom = top + (79 if top == 102 else 84)
+
+            def option(label, checked, left, right):
+                if bottom <= 144 or top >= 1336:
+                    return ""
+                return (f'<node package="{pkg}" enabled="true" checkable="true" checked="{str(checked).lower()}" '
+                        f'clickable="{str(not checked).lower()}" bounds="[{left},{top}][{right},{bottom}]">'
+                        f'<node package="{pkg}" enabled="true" clickable="false" bounds="[{left},{top}][{right},{bottom}]">'
+                        f'<node package="{pkg}" text="{label}" '
+                        f'bounds="[{left + 25},{max(144, top + 28)}][{right - 25},{min(1336, top + 57)}]"/>'
+                        '</node></node>')
+
+            other_left, other_right = (189, 337) if state["label"] == "Normal" else (60, state["left"])
+            radios = option(state["label"], state["checked"], state["left"], state["right"])
+            radios += option(state["other"], not state["checked"], other_left, other_right)
+            return (f'<hierarchy><node package="{pkg}" enabled="true" scrollable="true" '
+                    f'bounds="[0,144][720,1336]">{radios}</node></hierarchy>').encode()
+
+    def selection_journey(self, device, directory):
+        """Keep actual credit_steps radio callers and their predicates; bypass unrelated screens only."""
+        smoke = Smoke(Path(directory), "test-device")
+        control, dump, wait_for = smoke.credit_control, smoke.dump, smoke.wait_for
+        unrelated = self.unrelated_credit_screens()
+        callers = {
+            "credits-en-compact-layout": "credits-en-compact-selected",
+            "credits-en-credit-first": "credits-en-credit-first-selected",
+            "credits-en-restore-normal": "credits-en-normal-restored",
+            "credits-de-compact": "credits-de-compact-selected",
+            "credits-de-credit-first": "credits-de-credit-first-selected",
+        }
+        observed = tuple(callers) + tuple(callers.values())
+
+        def reach(name, label, **kwargs):
+            if name in callers:
+                device.prepare(name, label)
+                return control(name, label, **kwargs)
+            return self.tree(label)[0]
+
+        def observe(name, **kwargs):
+            if any(name == stem or name.removeprefix(stem + "-").isdigit() for stem in observed):
+                root = dump(name, **kwargs)
+                device.state["observations"].append(root)
+                return root
+            if name in ("credits-de-hidden-settings", "credits-de-hidden-again",
+                        "credits-de-persisted-hidden", "credits-de-final-hidden") \
+                    or name.startswith(("credits-de-hidden-settings-", "credits-de-hidden-again-")):
+                return self.tree("Guthaben anzeigen", "false")
+            if name.startswith("credits-de-restored-visible-"):
+                return self.tree("Guthaben anzeigen")
+            if name == "credits-de-persisted-no-credit":
+                return ET.fromstring("<hierarchy/>")
+            return unrelated
+
+        def wait(name, predicate, **kwargs):
+            if name in callers.values():
+                return wait_for(name, predicate, **kwargs)
+            return unrelated
+
+        with patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device), \
+                patch.object(smoke, "seed_credit_only"), patch.object(smoke, "launch"), \
+                patch.object(smoke, "navigate_credit"), patch.object(smoke, "capture"), \
+                patch.object(smoke, "credit_control", side_effect=reach), \
+                patch.object(smoke, "dump", side_effect=observe), \
+                patch.object(smoke, "wait_for", side_effect=wait):
+            return smoke.credit_steps(Path("fixture.apk"))
+
+    def test_radio_callers_reach_full_targets_and_follow_preview_reflow(self):
+        # CI supplies 102/313; lower-edge cases apply the same 84px target and measured +310px reflow.
+        for restore_top in (102, 313, 1100, 1270):
+            with self.subTest(restore_top=restore_top), TemporaryDirectory() as directory:
+                device = self.SelectionDevice(restore_top)
+                result = self.selection_journey(device, directory)
+                self.assertEqual("hidden choice persisted", result["creditRelaunch"])
+                for state in device.states.values():
+                    with self.subTest(caller=state["name"]):
+                        self.assertTrue(state["checked"])
+                        self.assertEqual(1, len(state["taps"]), "one tap, not a retry after reflow")
+                        self.assertTrue(144 <= state["taps"][0][1] < 1336, "tap lies inside the viewport")
+                        top, bottom = state["tap_bounds"][0]
+                        self.assertTrue(144 <= top < bottom <= 1336, "the entire original target is visible")
+                        self.assertIsNotNone(runtime_smoke.credit_checked(
+                            state["observations"][-1], state["label"], True))
+
+    def test_radio_callers_reject_lost_taps_and_visible_wrong_selection(self):
+        for caller, assertion in (
+            ("credits-en-compact-layout", "credits-en-compact-selected"),
+            ("credits-en-credit-first", "credits-en-credit-first-selected"),
+            ("credits-en-restore-normal", "credits-en-normal-restored"),
+            ("credits-de-compact", "credits-de-compact-selected"),
+            ("credits-de-credit-first", "credits-de-credit-first-selected"),
+        ):
+            for outcome in ("lost", "wrong", "visible-wrong"):
+                with self.subTest(caller=caller, outcome=outcome), TemporaryDirectory() as directory:
+                    device = self.SelectionDevice(1100, caller, outcome)
+                    with self.assertRaisesRegex(AssertionError, f"UI did not reach {assertion}"):
+                        self.selection_journey(device, directory)
+                    self.assertFalse(device.state["checked"])
+                    self.assertEqual(1, len(device.state["taps"]))
+                    self.assertIsNotNone(runtime_smoke.credit_checked(
+                        ET.fromstring(device.hierarchy()), device.state["label"], False))
+
     class HideDevice(FakeDevice):
         """Switch geometry and 549px Hide reflow observed in runs 44888484546 / 44888487707."""
 
@@ -1015,18 +1163,22 @@ class CreditHierarchyTest(unittest.TestCase):
                     f'bounds="[56,102][664,{min(1336, self.top + 361)}]">{label}{switch}'
                     '</node></node></hierarchy>').encode()
 
+    def unrelated_credit_screens(self):
+        labels = ("Synthetic credit", "$3.18", "Name", "Compact", "Kompakt", "Guthabenkonten",
+                  "Credits · 1 balance", "Nothing to monitor yet", "Guthaben · 1 Konto", "Noch nichts zu verfolgen",
+                  "Normal", "Usage providers", "Nutzungskonten", "Credit accounts")
+        return ET.fromstring('<hierarchy>' + ''.join(
+            f'<node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true" checkable="true" checked="true" '
+            f'clickable="true" bounds="[0,{10 + i * 90}][300,{60 + i * 90}]" '
+            f'content-desc="{label}, Low balance: Synthetic credit 3.18, Niedriges Guthaben: Synthetic credit 3,18">'
+            f'<node package="{runtime_smoke.DEBUG_PACKAGE}" text="{label}" bounds="[0,{10 + i * 90}][200,{60 + i * 90}]"/>'
+            '</node>' for i, label in enumerate(labels)) + '</hierarchy>')
+
     def hide_journey(self, device, directory):
         """Skip unrelated screens; keep the real credit_steps Hide/Show callers and adb selection path."""
         smoke = Smoke(Path(directory), "test-device")
         control, dump, wait_for = smoke.credit_control, smoke.dump, smoke.wait_for
-        labels = ("Synthetic credit", "$3.18", "Name", "Compact", "Kompakt", "Guthabenkonten",
-                  "Credits · 1 balance", "Nothing to monitor yet", "Guthaben · 1 Konto", "Noch nichts zu verfolgen")
-        unrelated = ET.fromstring('<hierarchy>' + ''.join(
-            f'<node package="{device.PACKAGE}" enabled="true" checkable="true" checked="true" '
-            f'clickable="true" bounds="[0,{10 + i * 90}][300,{60 + i * 90}]" '
-            f'content-desc="{label}, Low balance: Synthetic credit 3.18, Niedriges Guthaben: Synthetic credit 3,18">'
-            f'<node package="{device.PACKAGE}" text="{label}" bounds="[0,{10 + i * 90}][200,{60 + i * 90}]"/>'
-            '</node>' for i, label in enumerate(labels)) + '</hierarchy>')
+        unrelated = self.unrelated_credit_screens()
 
         def reach(name, label, **kwargs):
             if name in ("credits-de-hide", "credits-de-hide-again", "credits-de-restored-show"):
