@@ -33,6 +33,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
                 gapSampler?.start()
             }
             if touchObserver.view !== window {
+                touchObserver.stopNativeControlTrace()
                 touchObserver.view?.removeGestureRecognizer(touchObserver)
             }
             guard let window, touchObserver.view == nil, SettingsTrace.isEnabled, tracesTouches else { return }
@@ -92,6 +93,10 @@ struct SettingsTraceProbe: UIViewRepresentable {
     private final class TouchObserver: UIGestureRecognizer {
         private var nextTouchID = 0
         private var activeTouches: [ObjectIdentifier: Int] = [:]
+        private let tracesNativeControls = ProcessInfo.processInfo.arguments.contains("-settings-native-control-trace")
+        private weak var nativeSwitch: UISwitch?
+        private var nativeTouchID: Int?
+        private var nativeValueChangedCount = 0
 
         override init(target: Any?, action: Selector?) {
             super.init(target: target, action: action)
@@ -111,8 +116,73 @@ struct SettingsTraceProbe: UIViewRepresentable {
             for touch in touches {
                 nextTouchID += 1
                 activeTouches[ObjectIdentifier(touch)] = nextTouchID
+                observeNativeSwitch(for: touch, id: nextTouchID)
                 record(touch, phase: "began", event: event)
             }
+        }
+
+        func stopNativeControlTrace() {
+            nativeSwitch?.removeTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
+            nativeSwitch = nil
+            nativeTouchID = nil
+            nativeValueChangedCount = 0
+        }
+
+        private func observeNativeSwitch(for touch: UITouch, id: Int) {
+            guard tracesNativeControls else { return }
+            var ancestor = touch.view
+            while let current = ancestor {
+                if let toggle = current as? UISwitch {
+                    stopNativeControlTrace()
+                    nativeSwitch = toggle
+                    nativeTouchID = id
+                    toggle.addTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
+                    SettingsTrace.record("native switch observed touchID=\(id) control=\(ObjectIdentifier(toggle)) "
+                        + "switchOn=\(toggle.isOn)")
+                    return
+                }
+                ancestor = current.superview
+            }
+        }
+
+        @objc private func nativeValueChanged(_ sender: UISwitch) {
+            guard sender === nativeSwitch, let id = nativeTouchID else { return }
+            nativeValueChangedCount += 1
+            SettingsTrace.record("native switch valueChanged touchID=\(id) control=\(ObjectIdentifier(sender)) "
+                + "count=\(nativeValueChangedCount) switchOn=\(sender.isOn)")
+        }
+
+        private func recordAfterNativeDispatch(_ touch: UITouch, id: Int, phase: String) {
+            guard nativeTouchID == id, let toggle = nativeSwitch else { return }
+            let identity = ObjectIdentifier(toggle)
+            // Read next main-loop turn without retaining the touch or extending the control's lifetime.
+            DispatchQueue.main.async { [weak self, weak toggle, weak hit = touch.view] in
+                guard let self, self.nativeTouchID == id else { return }
+                guard let toggle else {
+                    SettingsTrace.record("native switch post-dispatch touchID=\(id) phase=\(phase) "
+                        + "control=\(identity) alive=false valueChangedCount=\(self.nativeValueChangedCount)")
+                    return
+                }
+                SettingsTrace.record("native switch post-dispatch touchID=\(id) phase=\(phase) "
+                    + "control=\(identity) alive=true attached=\(toggle.window != nil) switchOn=\(toggle.isOn) "
+                    + "valueChangedCount=\(self.nativeValueChangedCount) "
+                    + "recognizers=\(self.recognizers(from: hit ?? toggle))")
+            }
+        }
+
+        private func recognizers(from hit: UIView) -> String {
+            var ancestor: UIView? = hit
+            var entries: [String] = []
+            while let current = ancestor {
+                for recognizer in current.gestureRecognizers ?? [] where recognizer !== self {
+                    entries.append("\(String(describing: type(of: recognizer))):\(recognizer.state.rawValue) "
+                        + "cancels=\(recognizer.cancelsTouchesInView) "
+                        + "delaysBegan=\(recognizer.delaysTouchesBegan) delaysEnded=\(recognizer.delaysTouchesEnded)")
+                }
+                if current is UIScrollView { break }
+                ancestor = current.superview
+            }
+            return entries.joined(separator: "; ")
         }
 
         override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -131,6 +201,9 @@ struct SettingsTraceProbe: UIViewRepresentable {
         private func finish(_ touches: Set<UITouch>, phase: String, event: UIEvent) {
             for touch in touches {
                 record(touch, phase: phase, event: event)
+                if let id = activeTouches[ObjectIdentifier(touch)] {
+                    recordAfterNativeDispatch(touch, id: id, phase: phase)
+                }
                 activeTouches.removeValue(forKey: ObjectIdentifier(touch))
             }
             // Never recognize: controls and other recognizers keep their normal delivery.
@@ -166,6 +239,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
                 }
                 if let toggle = current as? UISwitch {
                     details += " switchOn=\(toggle.isOn)"
+                    if tracesNativeControls { details += " control=\(ObjectIdentifier(toggle))" }
                 }
                 if let scroll = current as? UIScrollView {
                     details += " scrollTracking=\(scroll.isTracking) dragging=\(scroll.isDragging) "
