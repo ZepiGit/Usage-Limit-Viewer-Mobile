@@ -50,7 +50,7 @@ open class AccountRingsWidget(private val mini: Boolean) : GlanceAppWidget() {
             val columns = grid?.columns ?: WidgetLayout.accountColumns(size.width.value, size.height.value, view.metrics, fontScale)
             val contentHeight = size.height.value - 8f
             val groups = if (grid == null) accounts.chunked(columns) else {
-                val rows = minOf(WidgetLayout.miniVisibleRows(grid, accounts.size), (contentHeight / 20f).toInt().coerceAtLeast(1))
+                val rows = WidgetLayout.miniRows(grid, accounts.size, contentHeight)
                 accounts.take(columns * rows).chunked(columns)
             }
             val rowHeight = if (mini) (contentHeight / groups.size.coerceAtLeast(1)).dp

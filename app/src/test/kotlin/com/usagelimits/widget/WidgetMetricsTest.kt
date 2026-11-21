@@ -8,9 +8,15 @@ class WidgetMetricsTest {
 
     @Test fun `mini rings allocate height only to populated rows`() {
         val grid = WidgetLayout.Grid(columns = 1, rows = 6)
-        assertEquals(1, WidgetLayout.miniVisibleRows(grid, 1))
-        assertEquals(3, WidgetLayout.miniVisibleRows(grid, 3))
-        assertEquals(6, WidgetLayout.miniVisibleRows(grid, 10))
+        assertEquals(1, WidgetLayout.miniRows(grid, 1, 246f))
+        assertEquals(3, WidgetLayout.miniRows(grid, 3, 246f))
+        assertEquals(6, WidgetLayout.miniRows(grid, 10, 246f))
+        assertEquals(2, WidgetLayout.miniRows(grid, 4, 48f))
+    }
+
+    @Test fun `a mini host shorter than one row still shows one ring row`() {
+        val grid = WidgetLayout.Grid(columns = 1, rows = 2)
+        assertEquals(1, WidgetLayout.miniRows(grid, 2, 19f))
     }
 
     @Test fun `large text requires a single labelled column at intermediate widths`() {

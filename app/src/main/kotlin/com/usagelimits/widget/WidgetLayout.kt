@@ -12,8 +12,10 @@ object WidgetLayout {
         else { val span = metrics.span(width, height); if (span.columns >= 2 && span.rows >= 4) 2 else 1 }
     }
 
-    fun miniVisibleRows(grid: Grid, accountCount: Int): Int =
-        ((accountCount.coerceAtMost(grid.capacity) + grid.columns - 1) / grid.columns).coerceAtLeast(1)
+    internal fun miniRows(grid: Grid, accountCount: Int, contentHeightDp: Float): Int {
+        val populatedRows = (accountCount.coerceAtMost(grid.capacity) + grid.columns - 1) / grid.columns
+        return minOf(populatedRows, (contentHeightDp / 20f).toInt()).coerceAtLeast(1)
+    }
 
     fun miniGrid(width: Float, height: Float, metrics: WidgetMetrics = WidgetMetrics()): Grid {
         val span = metrics.span(width, height)

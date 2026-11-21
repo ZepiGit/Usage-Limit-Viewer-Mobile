@@ -160,9 +160,15 @@ class PercentModeWidgetRenderingTest {
                 body(mode)
             }
         } finally {
-            settings.setPercentDisplay(original.percentDisplay)
-            settings.setProviderIcon(provider, originalIcon)
-            Dispatchers.resetMain()
+            try {
+                settings.setPercentDisplay(original.percentDisplay)
+            } finally {
+                try {
+                    settings.setProviderIcon(provider, originalIcon)
+                } finally {
+                    Dispatchers.resetMain()
+                }
+            }
         }
     }
 

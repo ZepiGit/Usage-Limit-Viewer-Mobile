@@ -636,7 +636,7 @@ class RedesignWidgetCaptureTest {
                                         remote.reapply(context, view)
                                         ShadowLooper.idleMainLooper()
                                         draw(view, (size.width.value * density).toInt(), (size.height.value * density).toInt())
-                                            .useOnce { it.save(name) }
+                                            .useOnce { it.saveWidget(name, style.background.isTransparent) }
                                         assertCollectionChildren(view, placed.name, name, selected.size)
                                         true
                                     }
@@ -679,6 +679,22 @@ class RedesignWidgetCaptureTest {
     private fun textViews(view: View): List<TextView> = buildList {
         if (view is TextView) add(view)
         if (view is ViewGroup) for (index in 0 until view.childCount) addAll(textViews(view.getChildAt(index)))
+    }
+
+    private fun Bitmap.saveWidget(name: String, transparent: Boolean) {
+        if (captureDir == null) return
+        if (!transparent) {
+            save(name)
+            return
+        }
+        for ((backdrop, color) in listOf("dark" to 0xFF242322.toInt(), "light" to 0xFFF3F0E8.toInt())) {
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).useOnce { frame ->
+                val canvas = Canvas(frame)
+                canvas.drawColor(color)
+                canvas.drawBitmap(this, 0f, 0f, null)
+                frame.save("$name-on-$backdrop")
+            }
+        }
     }
 
     private fun draw(view: View, width: Int, height: Int): Bitmap {

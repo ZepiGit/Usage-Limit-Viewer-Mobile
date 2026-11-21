@@ -126,7 +126,7 @@ class CreditsWidget : GlanceAppWidget() {
                     else -> {
                         val asOf = Countdown.asOfLabel(row.fetchedAt, nowMs = System.currentTimeMillis(), texts = texts)
                         if (row.balances.firstOrNull()?.unlimited == true) {
-                            // The tile already draws the amount above, so it needs a standalone label instead of the amount sentence.
+                            // The amount is above this line, so the label needs no amount placeholder.
                             resources.getString(R.string.widget_credits_spent_this_month) + " · " + asOf
                         } else asOf
                     }
