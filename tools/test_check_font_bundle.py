@@ -26,6 +26,7 @@ class CheckFontBundleTests(unittest.TestCase):
         self.bundle = self.root / "third_party/fonts"
         self.manifest = self.bundle / "manifest.json"
         self.apk = self.root / "app.apk"
+        self.resource_table = None
         self.data = {
             "families": [{
                 "family": "Example",
@@ -70,8 +71,9 @@ class CheckFontBundleTests(unittest.TestCase):
                     apk.writestr(name, content)
 
     def run_checker(self, *arguments, script=CHECKER):
+        metadata = ["--resource-table", str(self.resource_table)] if self.resource_table else []
         return subprocess.run(
-            [sys.executable, str(script), *map(str, arguments)],
+            [sys.executable, str(script), *map(str, arguments), *metadata],
             capture_output=True, text=True, cwd=self.root, check=False,
         )
 
@@ -87,6 +89,106 @@ class CheckFontBundleTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, f"{self.apk}: valid font bundle (1 font, 1 license)\n")
         self.assertEqual(result.stderr, "")
+
+    def resource_dump(self, font="res/F1.ttf", license="res/L1.txt"):
+        return (
+            "Binary APK\nPackage name=com.example id=7f\n"
+            "  type font id=07 entryCount=1\n"
+            "    resource 0x7f070000 font/example_regular\n"
+            f"      () (file) {font}\n"
+            "  type raw id=0e entryCount=1\n"
+            "    resource 0x7f0e0000 raw/font_license_example\n"
+            f"      () (file) {license}\n"
+        )
+
+    def use_resource_dump(self, text):
+        self.resource_table = self.root / "resources.txt"
+        self.resource_table.write_text(text, encoding="utf-8")
+
+    def use_optimized_apk(self):
+        self.entries = [("res/F1.ttf", FONT_BYTES), ("res/L1.txt", LICENSE_BYTES)]
+        self.write_apk()
+        self.use_resource_dump(self.resource_dump())
+
+    def test_optimized_and_debug_resources_succeed_with_resource_table(self):
+        for optimized in (False, True):
+            with self.subTest(optimized=optimized):
+                if optimized:
+                    self.use_optimized_apk()
+                else:
+                    self.use_resource_dump(self.resource_dump(
+                        "res/font/example_regular.ttf", "res/raw/font_license_example.txt",
+                    ))
+                result = self.run_checker(self.apk, "--manifest", self.manifest)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, f"{self.apk}: valid font bundle (1 font, 1 license)\n")
+                self.assertEqual(result.stderr, "")
+
+    def test_optimized_missing_and_changed_zip_assets_are_rejected(self):
+        for name in ("res/F1.ttf", "res/L1.txt"):
+            for mutation in ("missing", "changed"):
+                with self.subTest(name=name, mutation=mutation):
+                    self.use_optimized_apk()
+                    self.entries = [
+                        (key, b"changed" if key == name else value)
+                        for key, value in self.entries
+                        if mutation != "missing" or key != name
+                    ]
+                    self.write_apk()
+                    message = "missing APK file" if mutation == "missing" else "SHA-256 mismatch: APK"
+                    self.assert_rejected(f"{message}: {name}" if mutation == "missing" else f"{message} {name}")
+
+    def test_resource_table_missing_extra_and_duplicate_mappings_are_rejected(self):
+        original = self.resource_dump()
+        font_header = "    resource 0x7f070000 font/example_regular\n"
+        font_value = "      () (file) res/F1.ttf\n"
+        cases = (
+            (original.replace(font_header + font_value, ""), "missing resource mapping: font/example_regular"),
+            (original.replace(font_value, ""), "missing resource file: font/example_regular"),
+            (original + font_header + font_value, "duplicate resource mapping: font/example_regular"),
+            (original.replace(font_value, font_value * 2), "duplicate resource file: font/example_regular"),
+            (original.replace(font_value, font_value + "      () (file) res/other.ttf\n"),
+             "duplicate resource file: font/example_regular"),
+            (original + "    resource 0x7f070001 font/extra\n      () (file) res/extra.xml\n",
+             "extra font resource: font/extra"),
+            (original + "    resource 0x7f0e0001 raw/font_license_extra\n      () (file) res/extra.txt\n",
+             "extra license resource: raw/font_license_extra"),
+            (original.replace("0x7f0e0000", "0x7f070000"), "duplicate resource id: 0x7f070000"),
+            (original.replace("res/L1.txt", "res/F1.ttf"), "conflicting resource path: res/F1.ttf"),
+            (original.replace("res/F1.ttf", "../outside.ttf"), "invalid resource path"),
+            (original.replace("res/F1.ttf", "res/../outside.ttf"), "invalid resource path"),
+            (original.replace(font_value, "      (v26) (file) res/F1.ttf\n"), "invalid resource value"),
+            (original.replace(font_value, "      () @font/other\n"), "invalid resource value"),
+        )
+        self.use_optimized_apk()
+        for text, message in cases:
+            with self.subTest(message=message, text=text):
+                self.use_resource_dump(text)
+                self.assert_rejected(message)
+
+    def test_optimized_extra_font_outside_resource_table_is_rejected(self):
+        self.use_optimized_apk()
+        self.entries.append(("assets/hidden.woff2", b"hidden font"))
+        self.write_apk()
+        self.assert_rejected("extra APK font: assets/hidden.woff2")
+
+    def test_unrelated_resources_are_ignored(self):
+        self.use_optimized_apk()
+        self.use_resource_dump(self.resource_dump() + (
+            "    resource 0x7f0e0001 raw/unrelated\n      () (file) res/unrelated.xml\n"
+            "    resource 0x7f100000 string/label\n      () \"Example\"\n"
+        ))
+        result = self.run_checker(self.apk, "--manifest", self.manifest)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_or_invalid_resource_table_is_rejected(self):
+        self.use_optimized_apk()
+        self.resource_table.unlink()
+        self.assert_rejected("cannot read resource table")
+        self.resource_table.write_bytes(b"\xff")
+        self.assert_rejected("cannot read resource table")
+        self.resource_table.write_text("not a resource dump", encoding="utf-8")
+        self.assert_rejected("missing resource mapping")
 
     def test_cli_defaults_to_the_canonical_manifest_next_to_its_tools(self):
         tools = self.root / "tools"

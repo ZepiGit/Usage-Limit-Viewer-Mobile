@@ -168,8 +168,14 @@ jobs:
 
       - name: Verify debug and release font bundles
         run: |
-          python3 tools/check_font_bundle.py app/build/outputs/apk/debug/app-debug.apk
-          python3 tools/check_font_bundle.py app/build/outputs/apk/release/app-release.apk
+          set -euo pipefail
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          for variant in debug release; do
+            apk="app/build/outputs/apk/$variant/app-$variant.apk"
+            resources="app/build/reports/apk-font-resources-$variant.txt"
+            "$build_tools/aapt2" dump resources "$apk" > "$resources"
+            python3 tools/check_font_bundle.py "$apk" --resource-table "$resources"
+          done
 
       - name: Verify APK identity and signing continuity
         env:

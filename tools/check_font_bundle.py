@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Verify canonical font/license bytes in the repository and an Android APK.
 
-Usage: python3 tools/check_font_bundle.py APK [--manifest MANIFEST]
+Usage: python3 tools/check_font_bundle.py APK [--manifest MANIFEST] [--resource-table DUMP]
 Default manifest: third_party/fonts/manifest.json, relative to the repository root.
-Manifest file paths are relative to the manifest directory. Android resources map
-from android-res/ to res/ in the APK. SHA-256 pins the same bytes for future iOS
+Manifest file paths are relative to the manifest directory. Supply the output of
+`aapt2 dump resources APK` to resolve resource names after AAPT path shortening;
+without a dump, android-res/ maps directly to res/. SHA-256 pins the same bytes for future iOS
 bundling; this checker does not build or inspect iOS bundles.
 Exit status: 0 valid, 1 invalid, 2 invalid arguments.
 """
@@ -100,8 +101,64 @@ def read_manifest(path: Path) -> dict[str, str]:
     return assets
 
 
-def check(apk_path: Path, manifest_path: Path) -> tuple[int, int]:
+def read_resource_table(path: Path, expected: set[str]) -> dict[str, str]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as error:
+        raise Invalid(f"cannot read resource table {path}: {error}") from None
+    mappings = {}
+    ids = set()
+    paths = set()
+    current = None
+    for line in lines:
+        header = re.fullmatch(r"\s*resource (0x[0-9a-fA-F]{8}) (\S+)(?: .*)?", line)
+        if header:
+            resource_id, name = header.groups()
+            current = None
+            if not (name.startswith("font/") or name.startswith("raw/font_license_")):
+                continue
+            if name in mappings:
+                raise Invalid(f"duplicate resource mapping: {name}")
+            if resource_id.lower() in ids:
+                raise Invalid(f"duplicate resource id: {resource_id}")
+            ids.add(resource_id.lower())
+            if name not in expected:
+                kind = "font" if name.startswith("font/") else "license"
+                raise Invalid(f"extra {kind} resource: {name}")
+            mappings[name] = None
+            current = name
+        elif current is not None and line.strip():
+            if not line.lstrip().startswith("("):
+                current = None
+                continue
+            if mappings[current] is not None:
+                raise Invalid(f"duplicate resource file: {current}")
+            value = re.fullmatch(r"\s*\(\) \(file\) (\S+)", line)
+            if not value:
+                raise Invalid(f"invalid resource value: {current}: {line.strip()}")
+            archive_path = value[1]
+            parts = archive_path.split("/")
+            if parts[0] != "res" or any(part in ("", ".", "..") for part in parts) or "\\" in archive_path:
+                raise Invalid(f"invalid resource path: {archive_path}")
+            if archive_path in paths:
+                raise Invalid(f"conflicting resource path: {archive_path}")
+            paths.add(archive_path)
+            mappings[current] = archive_path
+    for name in sorted(expected):
+        if name not in mappings:
+            raise Invalid(f"missing resource mapping: {name}")
+        if mappings[name] is None:
+            raise Invalid(f"missing resource file: {name}")
+    return mappings
+
+
+def check(apk_path: Path, manifest_path: Path, resource_table: Path | None = None) -> tuple[int, int]:
     assets = read_manifest(manifest_path)
+    resource_names = {
+        name: str(PurePosixPath(name).relative_to("android-res").with_suffix(""))
+        for name in assets
+    }
+    mappings = read_resource_table(resource_table, set(resource_names.values())) if resource_table else None
     expected = {}
     for name, digest in assets.items():
         path = manifest_path.parent / name
@@ -114,7 +171,8 @@ def check(apk_path: Path, manifest_path: Path) -> tuple[int, int]:
             raise Invalid(f"cannot read repository file {name}: {error}") from None
         if actual != digest:
             raise Invalid(f"SHA-256 mismatch: repository {name}")
-        expected[name.replace("android-res/", "res/", 1)] = digest
+        archive_path = mappings[resource_names[name]] if mappings else name.replace("android-res/", "res/", 1)
+        expected[archive_path] = digest
 
     try:
         with zipfile.ZipFile(apk_path) as apk:
@@ -139,7 +197,7 @@ def check(apk_path: Path, manifest_path: Path) -> tuple[int, int]:
                     raise Invalid(f"SHA-256 mismatch: APK {name}")
     except (OSError, zipfile.BadZipFile, RuntimeError, NotImplementedError) as error:
         raise Invalid(f"cannot read APK {apk_path}: {error}") from None
-    fonts = sum(name.startswith("res/font/") for name in expected)
+    fonts = sum(name.startswith("font/") for name in resource_names.values())
     return fonts, len(expected) - fonts
 
 
@@ -147,9 +205,10 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
     parser.add_argument("--manifest", type=Path, default=MANIFEST)
+    parser.add_argument("--resource-table", type=Path, help="output of aapt2 dump resources APK")
     arguments = parser.parse_args(argv[1:])
     try:
-        fonts, licenses = check(arguments.apk, arguments.manifest)
+        fonts, licenses = check(arguments.apk, arguments.manifest, arguments.resource_table)
     except Invalid as error:
         print(f"{arguments.apk}: {error}", file=sys.stderr)
         return 1
