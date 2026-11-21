@@ -6,6 +6,7 @@ import com.usagelimits.core.model.FillState
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.SharedVectors
 import com.usagelimits.core.model.windowPresentation
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -19,7 +20,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.io.File
 
 /**
  * What a ring writes in its centre (#38), proven against the vector file the Swift suite reads too.
@@ -66,8 +66,7 @@ class RingCentreVectorsTest {
         return vectors
     }
 
-    /** Repo-relative: Gradle runs unit tests from the module directory. */
-    private val file = File("../shared/test-vectors/ring-centre.json")
+    private val file = SharedVectors.file("ring-centre.json")
 
     @Test
     fun `every shared vector writes the expected centre`() {

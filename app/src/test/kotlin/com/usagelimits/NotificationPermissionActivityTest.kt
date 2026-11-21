@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
+import com.usagelimits.core.sync.resetTestWorkManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -38,6 +39,8 @@ class NotificationPermissionActivityTest {
         await { app.mainOpening.job?.isCompleted != false }
         ShadowLooper.idleMainLooper()
         WorkManager.getInstance(app).cancelAllWork().result.get()
+        ShadowLooper.idleMainLooper()
+        resetTestWorkManager()
     }
 
     @Test

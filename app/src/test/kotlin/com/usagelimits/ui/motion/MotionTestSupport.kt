@@ -61,7 +61,14 @@ internal fun demoAccount(
 internal fun MotionRule.softwareFrame(): Bitmap {
     waitForIdle()
     val root = activity.window.decorView
-    return Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
+    val frame = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+    try {
+        root.draw(Canvas(frame))
+        return frame
+    } catch (error: Throwable) {
+        frame.recycle()
+        throw error
+    }
 }
 
 /**
@@ -78,36 +85,59 @@ internal class FrameRecorder(private val rule: MotionRule) : AutoCloseable {
     private val node = android.graphics.RenderNode("frames").apply { setPosition(0, 0, root.width, root.height) }
 
     init {
-        renderer.setSurface(reader.surface)
-        renderer.setContentRoot(node)
+        try {
+            renderer.setSurface(reader.surface)
+            renderer.setContentRoot(node)
+        } catch (error: Throwable) {
+            close()
+            throw error
+        }
     }
 
     fun frame(): Bitmap {
         rule.waitForIdle()
-        root.draw(node.beginRecording())
-        node.endRecording()
+        val canvas = node.beginRecording()
+        try {
+            root.draw(canvas)
+        } finally {
+            node.endRecording()
+        }
         renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()
         return reader.acquireNextImage().use { image ->
             val plane = image.planes[0]
             val padded = Bitmap.createBitmap(plane.rowStride / plane.pixelStride, root.height, Bitmap.Config.ARGB_8888)
-            padded.copyPixelsFromBuffer(plane.buffer)
-            val frame = Bitmap.createBitmap(padded, 0, 0, root.width, root.height)
-            // The crop is a copy whenever the row stride pads the image; the padded buffer is then
-            // garbage at once, so it is released here rather than left for the collector.
-            if (frame !== padded) padded.recycle()
-            frame
+            var frame: Bitmap? = null
+            try {
+                padded.copyPixelsFromBuffer(plane.buffer)
+                Bitmap.createBitmap(padded, 0, 0, root.width, root.height).also { frame = it }
+            } finally {
+                // With no padding the caller takes ownership of this bitmap itself.
+                if (frame !== padded) padded.recycle()
+            }
         }
     }
 
     /** The next [count] frames, 16 ms apart. */
-    fun next(count: Int): List<Bitmap> = List(count) {
-        rule.mainClock.advanceTimeByFrame()
-        frame()
+    fun next(count: Int): List<Bitmap> {
+        val frames = ArrayList<Bitmap>(count)
+        try {
+            repeat(count) {
+                rule.mainClock.advanceTimeByFrame()
+                frames += frame()
+            }
+            return frames
+        } catch (error: Throwable) {
+            frames.forEach { it.recycle() }
+            throw error
+        }
     }
 
     override fun close() {
-        renderer.destroy()
-        reader.close()
+        try {
+            renderer.destroy()
+        } finally {
+            reader.close()
+        }
     }
 }
 

@@ -566,24 +566,51 @@ extension SyncEngineTests {
         // from an age ago overwriting the 10% a newer request had just recorded, and taking
         // the newer timestamp with it.
         //
-        // The provider records when each fetch starts and ends. If the two runs interleave,
-        // a start appears between another's start and end.
-        let store = InMemoryCredentialStore(credentials: ["ref-a": fresh("access-1")])
-        let provider = SlowProvider()
-        let sink = RecordingSink()
-        let engine = SyncEngine(
-            providers: ["codex": provider], credentials: store, sink: sink,
-            now: { [now] in now })
+        // Hold the first fetch, then its recording. The serial executor lets the second
+        // caller reach its wait before either gate opens, without an elapsed-time guess.
+        try await SerialScheduling.run {
+            let store = InMemoryCredentialStore(credentials: ["ref-a": fresh("access-1")])
+            let boundary = GatedSyncBoundary()
+            let engine = SyncEngine(
+                providers: ["codex": boundary], credentials: store, sink: boundary,
+                now: { [now] in now })
 
-        async let first: Void = { _ = try? await engine.sync(accounts: [account("a")]) }()
-        async let second: Void = { _ = try? await engine.sync(accounts: [account("a")]) }()
-        _ = await (first, second)
+            let syncing = account("a")
+            let first = Task { try await engine.sync(accounts: [syncing]) }
+            await boundary.waitForFetch()
+            await SerialScheduling.settle()
+            let entered = await boundary.events
+            XCTAssertEqual(entered, ["fetch 1 started"], "the first request is held at the provider")
 
-        let events = await provider.events
-        XCTAssertEqual(events.count, 4, "two fetches, each with a start and an end")
-        XCTAssertEqual(
-            events, ["start", "end", "start", "end"],
-            "one account's fetches must not overlap: \(events)")
+            let second = Task { try await engine.sync(accounts: [syncing]) }
+            await SerialScheduling.settle()
+            let whileFetching = await boundary.events
+            XCTAssertEqual(whileFetching, ["fetch 1 started"],
+                           "the second fetch must wait while the first is in flight")
+
+            await boundary.releaseFetch()
+            await SerialScheduling.settle()
+            let whileRecording = await boundary.events
+            XCTAssertEqual(whileRecording, ["fetch 1 started", "fetch 1 ended", "record 1 started"],
+                           "the second fetch must also wait until the first reading is recorded")
+
+            // Always release and await both tasks, even when an assertion above failed.
+            await boundary.releaseRecord()
+            let firstResult = await first.result
+            let secondResult = await second.result
+            for result in [firstResult, secondResult] {
+                let outcomes = try result.get()
+                guard case .success(let id, _) = outcomes.first else {
+                    return XCTFail("both syncs must succeed: \(outcomes)")
+                }
+                XCTAssertEqual(id, "a")
+            }
+            let events = await boundary.events
+            XCTAssertEqual(events, [
+                "fetch 1 started", "fetch 1 ended", "record 1 started", "record 1 ended",
+                "fetch 2 started", "fetch 2 ended", "record 2 started", "record 2 ended",
+            ], "a fetch and its recorded reading are one ordered operation")
+        }
     }
 
     private func fresh(_ token: String) -> OAuthCredentials {
@@ -593,24 +620,60 @@ extension SyncEngineTests {
             expiresAt: Date(timeIntervalSince1970: 4_000_000_000))
     }
 
-    /// Records the order of fetch entry and exit, with a suspension between them so an
-    /// unserialised caller has every opportunity to interleave.
-    private actor SlowProvider: SyncProvider {
+    private actor GatedSyncBoundary: SyncProvider, SyncSink {
         nonisolated let providerID = "codex"
         private(set) var events: [String] = []
+        private var fetches = 0
+        private var records = 0
+        private var fetchGate: CheckedContinuation<Void, Never>?
+        private var recordGate: CheckedContinuation<Void, Never>?
+        private var enteredGate: CheckedContinuation<Void, Never>?
+        private var fetchReleased = false
+        private var recordReleased = false
 
-        func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials {
-            credentials
-        }
+        func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
+        func automaticSyncNotBefore(accountID: String) async -> TimeInterval? { nil }
 
         func fetchUsage(
             credentials: OAuthCredentials, attributes: [String: String]
         ) async throws -> UsageResult {
-            events.append("start")
-            await Task.yield()
-            try? await Task.sleep(nanoseconds: 5_000_000)
-            events.append("end")
+            fetches += 1
+            let fetch = fetches
+            events.append("fetch \(fetch) started")
+            enteredGate?.resume()
+            enteredGate = nil
+            if fetch == 1 && !fetchReleased {
+                await withCheckedContinuation { fetchGate = $0 }
+            }
+            events.append("fetch \(fetch) ended")
             return UsageResult()
+        }
+
+        func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date) async {
+            records += 1
+            let record = records
+            events.append("record \(record) started")
+            if record == 1 && !recordReleased {
+                await withCheckedContinuation { recordGate = $0 }
+            }
+            events.append("record \(record) ended")
+        }
+
+        func waitForFetch() async {
+            guard fetches == 0 else { return }
+            await withCheckedContinuation { enteredGate = $0 }
+        }
+
+        func releaseFetch() {
+            fetchReleased = true
+            fetchGate?.resume()
+            fetchGate = nil
+        }
+
+        func releaseRecord() {
+            recordReleased = true
+            recordGate?.resume()
+            recordGate = nil
         }
     }
 

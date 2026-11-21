@@ -6,6 +6,8 @@ import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.ResetCredit
 import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.SharedVectors
+import kotlinx.serialization.Serializable
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
@@ -206,23 +208,40 @@ class NotificationEvaluatorTest {
     }
 
 
+    @Serializable
+    private data class ThresholdVectors(val description: String, val vectors: List<ThresholdSequence>)
+
+    @Serializable
+    private data class ThresholdSequence(val name: String, val steps: List<ThresholdStep>)
+
+    @Serializable
+    private data class ThresholdStep(
+        val remaining: Double?,
+        val fetchedOffsetMs: Long,
+        val expectedLines: List<String>,
+        val expectedEpisode: Int,
+        val expectedActive: Boolean,
+    )
+
     @Test
     fun `crossing below twenty percent warns once and then stays quiet`() {
-        val publisher = publisher()
-
-        assertEquals(
-            listOf("Account acct · 5h limit: less than 20% remaining"),
-            publisher.sync(listOf(usage(remaining = 18.0)), settings, now),
-        )
-        // Still below, same episode: nothing more to say for the next five hours.
-        assertTrue(
-            publisher.sync(listOf(usage(remaining = 17.0, fetchedAt = now + 1)), settings, now)
-                .isEmpty(),
-        )
-        assertTrue(
-            publisher.sync(listOf(usage(remaining = 16.0, fetchedAt = now + 2)), settings, now)
-                .isEmpty(),
-        )
+        val vectors = SharedVectors.parse(
+            SharedVectors.file("notification-threshold.json").readText(), ThresholdVectors.serializer(),
+        ).vectors
+        assertTrue("the shared policy file contains sequences", vectors.isNotEmpty())
+        for (vector in vectors) {
+            val publisher = publisher()
+            assertTrue("${vector.name}: contains readings", vector.steps.isNotEmpty())
+            for ((index, step) in vector.steps.withIndex()) {
+                val context = "${vector.name}, reading $index"
+                assertEquals(context, step.expectedLines, publisher.sync(
+                    listOf(usage(remaining = step.remaining, fetchedAt = now + step.fetchedOffsetMs)), settings, now,
+                ))
+                val state = publisher.stateOf("acct")
+                assertEquals("$context: episode", step.expectedEpisode, state.lowQuotaEpisode)
+                assertEquals("$context: active", step.expectedActive, state.lowQuotaActive)
+            }
+        }
     }
 
     @Test

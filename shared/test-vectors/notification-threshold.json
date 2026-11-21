@@ -1,0 +1,27 @@
+{
+  "description": "A remaining percentage strictly below 20 starts one warning episode. New readings within it stay quiet after the warning key is claimed; a measured recovery to 20 or above re-arms it. Unknown readings prove no recovery, and re-delivered fetches produce no new edge. Each sequence starts with an empty ledger and state; all times are offsets in milliseconds from the test's fixed instant. Expected lines and episode states are handwritten.",
+  "vectors": [
+    {
+      "name": "strict boundary, one warning per episode, recovery at twenty",
+      "steps": [
+        {"remaining": 21, "fetchedOffsetMs": 0, "expectedLines": [], "expectedEpisode": 0, "expectedActive": false},
+        {"remaining": 20, "fetchedOffsetMs": 1, "expectedLines": [], "expectedEpisode": 0, "expectedActive": false},
+        {"remaining": 19.9, "fetchedOffsetMs": 2, "expectedLines": ["Account acct · 5h limit: less than 20% remaining"], "expectedEpisode": 1, "expectedActive": true},
+        {"remaining": 18, "fetchedOffsetMs": 3, "expectedLines": [], "expectedEpisode": 1, "expectedActive": true},
+        {"remaining": 17, "fetchedOffsetMs": 4, "expectedLines": [], "expectedEpisode": 1, "expectedActive": true},
+        {"remaining": 16, "fetchedOffsetMs": 5, "expectedLines": [], "expectedEpisode": 1, "expectedActive": true},
+        {"remaining": 20, "fetchedOffsetMs": 6, "expectedLines": [], "expectedEpisode": 1, "expectedActive": false},
+        {"remaining": 19.9, "fetchedOffsetMs": 7, "expectedLines": ["Account acct · 5h limit: less than 20% remaining"], "expectedEpisode": 2, "expectedActive": true}
+      ]
+    },
+    {
+      "name": "unknown and repeated readings cannot re-arm a warning",
+      "steps": [
+        {"remaining": 18, "fetchedOffsetMs": 0, "expectedLines": ["Account acct · 5h limit: less than 20% remaining"], "expectedEpisode": 1, "expectedActive": true},
+        {"remaining": 18, "fetchedOffsetMs": 0, "expectedLines": [], "expectedEpisode": 1, "expectedActive": true},
+        {"remaining": null, "fetchedOffsetMs": 1, "expectedLines": [], "expectedEpisode": 1, "expectedActive": true},
+        {"remaining": 17, "fetchedOffsetMs": 2, "expectedLines": [], "expectedEpisode": 1, "expectedActive": true}
+      ]
+    }
+  ]
+}

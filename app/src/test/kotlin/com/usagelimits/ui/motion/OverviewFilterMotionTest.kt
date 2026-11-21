@@ -8,7 +8,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import com.usagelimits.core.model.ProviderId
@@ -55,10 +55,16 @@ class OverviewFilterMotionTest {
     private val surface = AppTheme.PURE_BLACK.colors.Surface.argb
     private val radioButton = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)
 
-    private data class Run(val before: Bitmap, val frames: List<Bitmap>, val settled: Bitmap, val box: IntArray)
+    private data class Run(val before: Bitmap, val frames: List<Bitmap>, val settled: Bitmap, val box: IntArray) : AutoCloseable {
+        override fun close() {
+            before.recycle()
+            frames.forEach { it.recycle() }
+            settled.recycle()
+        }
+    }
 
     /** Shows two healthy accounts, picks "Needs attention" (which matches neither) and steps the frames. */
-    private fun emptyTheList(motion: Boolean, name: String): Run {
+    private fun emptyTheList(motion: Boolean, name: String): Run? {
         compose.mainClock.autoAdvance = false
         compose.setContent {
             UsageLimitsTheme {
@@ -85,29 +91,45 @@ class OverviewFilterMotionTest {
         val box = Region(bounds.left.roundToInt(), bounds.top.roundToInt(), bounds.right.roundToInt(), bounds.bottom.roundToInt())
         pick("All"); compose.change {}; compose.mainClock.advanceTimeBy(1_000)
 
-        // Closed on every way out, also when the target search or a frame throws. Each full frame
-        // is exported (with a capture directory) and released at once; only the box is kept.
-        val (before, frames, settled) = FrameRecorder(compose).use { recorder ->
-            fun boxOf(frame: Bitmap, index: Int): Bitmap =
+        // Motion-on keeps only the box per frame. Motion-off compares exactly two whole screens,
+        // including the caption and actions outside that box. Both paths release on failure too.
+        return FrameRecorder(compose).use { recorder ->
+            val captured = ArrayList<Bitmap>()
+            fun capture(index: Int): Bitmap {
+                val frame = recorder.frame()
+                var kept: Bitmap? = null
                 try {
                     frame.saveFrame(name, index)
-                    frame.crop(box)
+                    val retained = if (motion) frame.crop(box) else frame
+                    captured += retained
+                    kept = retained
+                    return retained
                 } finally {
-                    frame.recycle()
+                    if (kept !== frame) frame.recycle()
                 }
-
-            val before = boxOf(recorder.frame(), 0)
-            // The semantics action, not a touch: injected touch events advance the held clock.
-            pick("Needs attention")
-            compose.change {}
-            val frames = List(30) { index ->
-                compose.mainClock.advanceTimeByFrame()
-                boxOf(recorder.frame(), index + 1)
             }
-            compose.mainClock.advanceTimeBy(1_000)
-            Triple(before, frames, boxOf(recorder.frame(), 31))
+
+            try {
+                val before = if (motion) capture(0) else null
+                // The semantics action, not a touch: injected touch events advance the held clock.
+                pick("Needs attention")
+                compose.change {}
+                val frames = List(if (motion) 30 else 1) { index ->
+                    compose.mainClock.advanceTimeByFrame()
+                    capture(index + 1)
+                }
+                compose.mainClock.advanceTimeBy(1_000)
+                val settled = capture(31)
+                if (!motion) {
+                    assertTrue("the first whole screen after the filter is already settled", frames.single().sameAs(settled))
+                    return@use null
+                }
+                Run(checkNotNull(before), frames, settled, with(box.atOrigin()) { intArrayOf(left, top, right, bottom) })
+                    .also { captured.clear() }
+            } finally {
+                captured.forEach { it.recycle() }
+            }
         }
-        return Run(before, frames, settled, with(box.atOrigin()) { intArrayOf(left, top, right, bottom) })
     }
 
     private data class Probes(val sentence: Pair<Int, Int>, val content: Pair<Int, Int>, val plain: Pair<Int, Int>)
@@ -139,27 +161,26 @@ class OverviewFilterMotionTest {
 
     @Test
     fun `the empty sentence waits until the old cards are gone`() {
-        val run = emptyTheList(motion = true, name = "overview-filter-empties")
-        val (sentence, content, plain) = probes(run)
-        fun Bitmap.rowShows() = at(content) != at(plain)
-        fun Bitmap.sentenceShows() = at(sentence) != at(plain)
+        checkNotNull(emptyTheList(motion = true, name = "overview-filter-empties")).use { run ->
+            val (sentence, content, plain) = probes(run)
+            fun Bitmap.rowShows() = at(content) != at(plain)
+            fun Bitmap.sentenceShows() = at(sentence) != at(plain)
 
-        val overlapping = run.frames.withIndex().filter { (_, frame) -> frame.rowShows() && frame.sentenceShows() }.map { it.index }
-        assertEquals("frames drawing the sentence over a row that is still fading", emptyList<Int>(), overlapping)
+            val overlapping = run.frames.withIndex().filter { (_, frame) -> frame.rowShows() && frame.sentenceShows() }.map { it.index }
+            assertEquals("frames drawing the sentence over a row that is still fading", emptyList<Int>(), overlapping)
 
-        // Both halves were really observed mid-way, so the sequence above is not vacuous.
-        assertTrue("the row fades out over several frames", run.frames.count {
-            it.rowShows() && it.at(content) != run.before.at(content)
-        } >= 2)
-        assertTrue("the sentence fades in over several frames", run.frames.count {
-            it.sentenceShows() && it.at(sentence) != run.settled.at(sentence)
-        } >= 2)
+            // Both halves were really observed mid-way, so the sequence above is not vacuous.
+            assertTrue("the row fades out over several frames", run.frames.count {
+                it.rowShows() && it.at(content) != run.before.at(content)
+            } >= 2)
+            assertTrue("the sentence fades in over several frames", run.frames.count {
+                it.sentenceShows() && it.at(sentence) != run.settled.at(sentence)
+            } >= 2)
+        }
     }
 
     @Test
     fun `with motion off the list is in its final state on the next frame`() {
-        val run = emptyTheList(motion = false, name = "overview-filter-empties-reduced")
-
-        assertTrue("the first frame after the filter is already the settled one", run.frames.first().sameAs(run.settled))
+        emptyTheList(motion = false, name = "overview-filter-empties-reduced")
     }
 }

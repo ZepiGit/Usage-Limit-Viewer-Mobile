@@ -46,6 +46,7 @@ class PublicationSchedulingTest {
     fun drain() {
         WorkManager.getInstance(app).cancelAllWork().result.get()
         ShadowLooper.idleMainLooper()
+        resetTestWorkManager()
     }
 
     @Test
