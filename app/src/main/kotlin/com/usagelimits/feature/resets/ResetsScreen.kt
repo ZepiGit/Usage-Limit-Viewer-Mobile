@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -147,7 +148,7 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = time, style = UsageType.Figure, color = UsageColors.Ink, modifier = Modifier.width(48.dp))
+        Text(text = time, style = UsageType.Figure, color = UsageColors.Ink, modifier = Modifier.widthIn(min = 48.dp), maxLines = 1, softWrap = false)
         Spacer(Modifier.width(8.dp))
         Dot(SeverityPalette.accent(reset.severity), size = 6.dp)
         Spacer(Modifier.width(12.dp))

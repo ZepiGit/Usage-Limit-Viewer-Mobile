@@ -41,7 +41,11 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.AccountUsage
@@ -66,7 +70,6 @@ import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.percentSideCaptionRes
 import com.usagelimits.ui.percentSideWordRes
 import com.usagelimits.ui.text.percentFigure
-import com.usagelimits.ui.theme.UsageType
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import kotlinx.coroutines.launch
@@ -424,7 +427,7 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                             // The centre the placed widget draws: Mini Rings the provider mark,
                             // Account Rings the figure, through the same rule for a 100.
                             if (kind == "Mini Rings") ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
-                            else ringCentreFigure(resources, p)?.let { Text(it, style = UsageType.Figure, color = style.textPrimary) }
+                            else ringCentreFigure(resources, p)?.let { Text(it, style = WidgetPreviewFigure, color = style.textPrimary) }
                         }
                     }
                 }
@@ -442,7 +445,7 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                         // The preview names the side as the placed widget does; a dash stays bare.
                         Text(
                             if (!p.hasFigure) percent else "$percent ${stringResource(percentSideWordRes(mode))}",
-                            style = UsageType.Figure, color = style.barText(row, account.dataValidity),
+                            style = WidgetPreviewFigure, color = style.barText(row, account.dataValidity),
                         )
                     }
                 }
@@ -450,6 +453,10 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
         }
     }
 }
+
+private val WidgetPreviewFigure = TextStyle(
+    fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp,
+)
 
 /** A 4dp bar on the widget's own track; no fill when the widget would draw none. */
 @Composable

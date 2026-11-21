@@ -267,7 +267,7 @@ fun UsageWindowRow(
             SegmentLegend(window, segmentLegends)
         }
         if (window.hasConflictingAvailability) ConflictingAvailabilityNote()
-        if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
+        if (reset != null) Text(reset, style = UsageType.Stamp, color = UsageColors.Faint)
     }
 }
 
@@ -499,7 +499,7 @@ fun ScreenTitle(
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.headlineLarge, color = UsageColors.Ink)
-            if (stamp != null) Text(stamp, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
+            if (stamp != null) Text(stamp, style = UsageType.Stamp, color = UsageColors.Faint)
         }
         action?.invoke()
     }

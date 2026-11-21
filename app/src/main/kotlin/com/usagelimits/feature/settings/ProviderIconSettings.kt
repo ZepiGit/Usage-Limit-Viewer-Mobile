@@ -45,10 +45,10 @@ private fun ProviderIconChoice.labelText(): String {
 @Composable
 fun ProviderIconSettings(
     selected: Map<String, String>,
-    onChoose: (ProviderId, String) -> Unit,
     claudeMood: ClaudeCodeMood = ClaudeCodeMood.IDLE,
     animateClaudeCode: Boolean = true,
     onAnimateClaudeCodeChange: (Boolean) -> Unit = {},
+    onChoose: (ProviderId, String) -> Unit,
 ) {
     var editing by remember { mutableStateOf<ProviderId?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

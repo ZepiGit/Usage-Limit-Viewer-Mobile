@@ -99,6 +99,9 @@ class ClaudeCodeFigureCostTest {
             zone = ZoneId.of("Etc/UTC"), onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {})
     }
 
+    // Settings opens with Appearance (themes and fonts); a window this tall holds the provider card
+    // without scrolling, so the figure starts on the held test clock.
+    @Config(qualifiers = "w393dp-h2400dp-xhdpi")
     @Test
     fun `the Settings provider card is not recomposed`() = assertNoRecomposition("Settings card") {
         SettingsScreen(state = state, onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},

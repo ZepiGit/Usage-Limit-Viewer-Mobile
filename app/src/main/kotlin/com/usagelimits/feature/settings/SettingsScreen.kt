@@ -36,6 +36,8 @@ import com.usagelimits.core.model.claudeCodeMoodAt
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.OverviewCreditLayout
 import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
 import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.core.sync.BackgroundRestrictions
@@ -83,6 +85,8 @@ fun SettingsScreen(
     onOverviewShowCreditsChange: (Boolean) -> Unit = {},
     onManageCredits: (() -> Unit)? = null,
     onAppThemeChange: (AppTheme) -> Unit = {},
+    onTextFontChange: (TextFont) -> Unit = {},
+    onFigureFontChange: (FigureFont) -> Unit = {},
     onAnimateClaudeCodeIconChange: (Boolean) -> Unit = {},
     /** The instant Overview orders by; the Claude provider row follows Overview's first Claude account. */
     nowMs: Long = System.currentTimeMillis(),
@@ -107,13 +111,13 @@ fun SettingsScreen(
         item { ScreenTitle(stringResource(R.string.settings_title)) }
 
         item { SectionHeader(stringResource(R.string.settings_section_appearance)) }
-        item { AppearanceSettings(settings, onAppThemeChange) }
+        item { AppearanceSettings(settings, onTextFontChange, onFigureFontChange, onAppThemeChange) }
 
         item {
             // The first Claude account in unfiltered Overview order speaks for Claude's row; none is Idle.
             val claude = state.accounts.inOverviewOrder(nowMs).firstOrNull { it.account.provider == ProviderId.CLAUDE }
-            ProviderIconSettings(settings.providerIcons, onProviderIconChange, claude?.snapshot.claudeCodeMoodAt(nowMs),
-                settings.animateClaudeCodeIcon, onAnimateClaudeCodeIconChange)
+            ProviderIconSettings(settings.providerIcons, claude?.snapshot.claudeCodeMoodAt(nowMs),
+                settings.animateClaudeCodeIcon, onAnimateClaudeCodeIconChange, onProviderIconChange)
         }
         item { AppIconSettings() }
         item { SectionHeader(stringResource(R.string.settings_section_sync)) }

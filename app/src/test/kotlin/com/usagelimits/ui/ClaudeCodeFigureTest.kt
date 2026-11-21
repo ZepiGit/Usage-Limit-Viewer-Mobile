@@ -141,6 +141,9 @@ class ClaudeCodeFigureTest {
         assertEquals(Role.Image, figure.getOrNull(SemanticsProperties.Role))
     }
 
+    // Settings opens with Appearance (themes and fonts); a window this tall holds the provider card
+    // without scrolling, so the figure starts on the held test clock.
+    @Config(qualifiers = "w393dp-h2400dp-xhdpi")
     @Test
     fun `only the two Claude Code icons get the animation switch`() {
         var changedTo: Boolean? = null
@@ -164,6 +167,9 @@ class ClaudeCodeFigureTest {
         assertEquals("the switch turns the stored choice off", false, changedTo)
     }
 
+    // Settings opens with Appearance (themes and fonts); a window this tall holds the provider card
+    // without scrolling, so the figure starts on the held test clock.
+    @Config(qualifiers = "w393dp-h2400dp-xhdpi")
     @Test
     fun `Claude's Settings row follows the first Claude account in Overview order`() {
         // Added first but 95 % left (Dancing); the 15 %-left account (Tired) leads Overview.
