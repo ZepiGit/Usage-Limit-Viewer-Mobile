@@ -67,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -267,7 +268,7 @@ fun UsageWindowRow(
             SegmentLegend(window, segmentLegends)
         }
         if (window.hasConflictingAvailability) ConflictingAvailabilityNote()
-        if (reset != null) Text(reset, style = UsageType.Stamp, color = UsageColors.Faint)
+        if (reset != null) Text(reset, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
     }
 }
 
@@ -488,7 +489,7 @@ fun SectionHeader(
     )
 }
 
-/** The page title row: 24/500 title, a one-line stamp under it, one bare action at the right edge. */
+/** The page title row: a text-face title and subtitle, one bare action at the right edge. */
 @Composable
 fun ScreenTitle(
     title: String,
@@ -499,7 +500,7 @@ fun ScreenTitle(
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.headlineLarge, color = UsageColors.Ink)
-            if (stamp != null) Text(stamp, style = UsageType.Stamp, color = UsageColors.Faint)
+            if (stamp != null) Text(stamp, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
         }
         action?.invoke()
     }
@@ -702,6 +703,17 @@ fun Segment(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
+internal fun Modifier.dashedOutline(color: Color, radius: Dp = 8.dp): Modifier = drawWithCache {
+    val width = 1.dp.toPx()
+    val inset = width / 2
+    val outline = Stroke(width, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx())))
+    val corner = CornerRadius(radius.toPx() - inset)
+    onDrawBehind {
+        drawRoundRect(color, topLeft = Offset(inset, inset), size = Size(size.width - width, size.height - width),
+            cornerRadius = corner, style = outline)
+    }
+}
+
 /** A sentence in a dashed 1px box: the empty state. */
 @Composable
 fun EmptyBox(text: String, modifier: Modifier = Modifier) {
@@ -710,16 +722,7 @@ fun EmptyBox(text: String, modifier: Modifier = Modifier) {
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
-            .drawBehind {
-                val stroke = 1.dp.toPx()
-                drawRoundRect(
-                    contour,
-                    topLeft = Offset(stroke / 2, stroke / 2),
-                    size = Size(size.width - stroke, size.height - stroke),
-                    cornerRadius = CornerRadius(8.dp.toPx()),
-                    style = Stroke(stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx()))),
-                )
-            }
+            .dashedOutline(contour)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         contentAlignment = Alignment.CenterStart,
     ) {

@@ -1,10 +1,19 @@
 package com.usagelimits.feature
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.toArgb
+import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.ui.theme.LocalMotionEnabled
+import com.usagelimits.ui.theme.colors
+import org.robolectric.annotation.GraphicsMode
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasContentDescription
@@ -63,7 +72,7 @@ import org.robolectric.annotation.Config
 class ScreenRenderTest {
 
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createAndroidComposeRule<ComponentActivity>()
 
     private val now = 1_757_000_000_000L
 
@@ -450,6 +459,91 @@ class ScreenRenderTest {
             hasContentDescription("Account 1", substring = true)).assertIsDisplayed()
         compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and
             hasContentDescription("Account 2", substring = true)).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a moderate dial does not add an extra spoken severity`() {
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(usage(usedPercent = 60.0)),
+                    settings = AppSettings(overviewLayout = OverviewLayout.DIALS)),
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+        compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and hasClickAction())
+            .assert(hasContentDescription("40% remaining", substring = true) and hasContentDescription("Moderate", substring = true).not())
+    }
+
+    @Test
+    @Config(qualifiers = "en-rGB-w393dp-h1600dp")
+    fun `List and Dials preserve stored reading messages with their reset stamps`() {
+        val layout = mutableStateOf(OverviewLayout.LIST)
+        val snapshot = mutableStateOf(usage().snapshot!!.copy(errorMessage = "Network unavailable"))
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(usage().copy(snapshot = snapshot.value)),
+                    settings = AppSettings(overviewLayout = layout.value)),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"), onRefresh = {}, onAccountClick = {},
+                onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+        for (choice in OverviewLayout.entries) {
+            for ((status, message) in listOf(SnapshotStatus.OK to "Network unavailable",
+                SnapshotStatus.PARTIAL to "Network unavailable · partial update",
+                SnapshotStatus.FAILED to "Network unavailable · showing last known data")) {
+                compose.runOnIdle { layout.value = choice; snapshot.value = snapshot.value.copy(status = status) }
+                compose.onNodeWithText(message, useUnmergedTree = true).assertIsDisplayed()
+                compose.onNodeWithText(if (choice == OverviewLayout.LIST) "16:33" else "5h limit · 16:33",
+                    useUnmergedTree = true).assertIsDisplayed()
+                compose.onNodeWithText("60%", useUnmergedTree = true).assertIsDisplayed()
+            }
+        }
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Config(qualifiers = "en-rGB-w393dp-h873dp")
+    fun `Dials draw warning expired stale data and missing arcs in their actual palette colours`() {
+        val palette = AppTheme.PURE_BLACK.colors
+        val low = usage(usedPercent = 80.0)
+        val data = usage(usedPercent = 40.0)
+        val expired = low.copy(snapshot = low.snapshot!!.copy(connectionStatus = ConnectionStatus.RECONNECT_REQUIRED))
+        val stale = low.copy(snapshot = low.snapshot!!.copy(fetchedAt = now - 48 * 3_600_000L))
+        val failed = low.copy(snapshot = low.snapshot!!.copy(status = SnapshotStatus.FAILED))
+        val unknown = usage(usedPercent = null)
+        val reading = mutableStateOf(low)
+        compose.setContent {
+            UsageLimitsTheme {
+                CompositionLocalProvider(LocalMotionEnabled provides false) {
+                    OverviewScreen(
+                        state = UsageUiState(accounts = listOf(reading.value),
+                            settings = AppSettings(overviewLayout = OverviewLayout.DIALS, percentDisplay = PercentDisplay.USED)),
+                        nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+                    )
+                }
+            }
+        }
+        val cases = listOf(
+            "low" to (low to palette.Warning), "exhausted" to (usage(usedPercent = 100.0) to palette.Warning),
+            "expired" to (expired to palette.Faint),
+            "stale" to (stale to palette.StaleMark), "current" to (data to palette.Data),
+            "failed" to (failed to palette.Rule), "unknown" to (unknown to palette.Rule),
+        )
+        for ((name, sample) in cases) {
+            compose.runOnIdle { reading.value = sample.first }
+            compose.waitForIdle()
+            val tile = compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and hasClickAction())
+                .fetchSemanticsNode().boundsInRoot
+            val density = compose.activity.resources.displayMetrics.density
+            val root = compose.activity.window.decorView
+            val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
+            try {
+                // The 3 o'clock centre of the real 104dp ring: 48dp radius, 16dp tile top padding.
+                val x = (tile.center.x + 48 * density).toInt()
+                val y = (tile.top + 68 * density).toInt()
+                assertEquals("$name ring stroke", sample.second.toArgb(), image.getPixel(x, y))
+            } finally { image.recycle() }
+        }
     }
 
     @Test

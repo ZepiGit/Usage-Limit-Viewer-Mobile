@@ -113,16 +113,4 @@ class OverviewCreditSummaryVectorsTest {
     @Test fun `every shared vector selects the expected summary`() {
         vectors().forEach(::check)
     }
-
-    @Test fun `threshold equality is excluded`() {
-        check(vectors().single { it.name == "threshold equality is not low even with a nearly empty total" })
-    }
-
-    @Test fun `equal ratios preserve account and balance order`() {
-        check(vectors().single { it.name == "equal ratios keep stored account order then provider balance order" })
-    }
-
-    @Test fun `stale boundary is inclusive`() {
-        check(vectors().single { it.name == "ordinary failure and both kinds of stale reports lose to a usable paused reading" })
-    }
 }

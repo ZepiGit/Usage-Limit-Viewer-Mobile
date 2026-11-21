@@ -14,6 +14,12 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performSemanticsAction
+import com.usagelimits.feature.credits.CreditCard
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -21,6 +27,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
+import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.model.CreditAccount
@@ -141,6 +148,31 @@ class CreditScreensRenderTest {
 
     @Test
     @Config(qualifiers = "w393dp-h2400dp-xhdpi")
+    fun `expanded credits survive saved state restoration and collapse still works`() {
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            UsageLimitsTheme {
+                OverviewScreen(
+                    state = UsageUiState(settings = AppSettings(overviewCreditLayout = OverviewCreditLayout.COMPACT),
+                        credits = listOf(entry())),
+                    nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+                    onManageCredits = {},
+                )
+            }
+        }
+        compose.onNode(hasContentDescription("Credits · 1 balance", substring = true)).performClick()
+        compose.onNodeWithText("Collapse").assertIsDisplayed()
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("Collapse").assertIsDisplayed()
+        compose.onNodeWithText("My fal").assertIsDisplayed()
+        compose.onNodeWithText("Manage credit accounts").assertIsDisplayed()
+        compose.onNode(hasContentDescription("Credits · 1 balance", substring = true)).assertDoesNotExist()
+        compose.onNodeWithText("Collapse").performClick()
+        compose.onNode(hasContentDescription("Credits · 1 balance", substring = true)).assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "w393dp-h2400dp-xhdpi")
     fun `show first controls the semantic order of the real overview blocks`() {
         var order by mutableStateOf(OverviewShowFirst.USAGE_PROVIDERS)
         val usage = listOf(usageAccount())
@@ -204,6 +236,83 @@ class CreditScreensRenderTest {
         compose.onNode(hasText("No prepaid balances tracked.")).assertExists()
     }
 
+    @Test
+    @Config(qualifiers = "w393dp-h2400dp-xhdpi")
+    fun `credit only Overview names missing usage accounts and offers one visible add credit path`() {
+        var visible by mutableStateOf(true)
+        var tracked by mutableStateOf(listOf(entry(error = "Network unavailable")))
+        var additions = 0
+        render {
+            OverviewScreen(
+                state = UsageUiState(settings = AppSettings(overviewShowCredits = visible), credits = tracked),
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+                onAddCredit = { additions++ },
+            )
+        }
+        compose.onNodeWithText("No usage accounts yet").assertIsDisplayed()
+        compose.onNodeWithText("My fal").assertIsDisplayed()
+        compose.onNodeWithText("Nothing to monitor yet").assertDoesNotExist()
+        compose.onNodeWithText("Track a prepaid credit balance").assertDoesNotExist()
+        compose.onNodeWithText("Add credit balance").assertIsDisplayed().performClick()
+        assertEquals(1, additions)
+        compose.runOnIdle { visible = false }
+        compose.onNodeWithText("No usage accounts yet").assertIsDisplayed()
+        compose.onNodeWithText("My fal").assertDoesNotExist()
+        compose.onNodeWithText("Add credit balance").assertDoesNotExist()
+        compose.onNodeWithText("Track a prepaid credit balance").assertIsDisplayed().performClick()
+        assertEquals(2, additions)
+        compose.runOnIdle { tracked = emptyList(); visible = true }
+        compose.onNodeWithText("Nothing to monitor yet").assertIsDisplayed()
+        compose.onNodeWithText("No usage accounts yet").assertDoesNotExist()
+        compose.onNodeWithText("Track a prepaid credit balance").assertDoesNotExist()
+        compose.onNodeWithText("Add credit balance").assertIsDisplayed().performClick()
+        assertEquals(3, additions)
+    }
+
+    @Test
+    @Config(qualifiers = "de-w393dp-h2400dp-xhdpi")
+    fun `German credit only Overview names usage accounts without hiding the existing balance`() {
+        var additions = 0
+        render {
+            OverviewScreen(
+                state = UsageUiState(credits = listOf(entry(error = "Network unavailable"))),
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+                onAddCredit = { additions++ },
+            )
+        }
+        compose.onNodeWithText("Noch keine Nutzungskonten").assertIsDisplayed()
+        compose.onNodeWithText("Noch nichts zu verfolgen").assertDoesNotExist()
+        compose.onNodeWithText("My fal").assertIsDisplayed()
+        compose.onNodeWithText("Prepaid-Guthaben erfassen").assertDoesNotExist()
+        val resources = ApplicationProvider.getApplicationContext<Context>().resources
+        compose.onNodeWithText(resources.getString(R.string.overview_add_credit)).assertIsDisplayed().performClick()
+        assertEquals(1, additions)
+    }
+
+    @Test
+    @Config(qualifiers = "w393dp-h2400dp-xhdpi")
+    fun `credit only collapsed summary keeps its add path until expanded Credits supplies one`() {
+        var additions = 0
+        render {
+            OverviewScreen(
+                state = UsageUiState(settings = AppSettings(overviewCreditLayout = OverviewCreditLayout.COMPACT), credits = listOf(entry())),
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+                onAddCredit = { additions++ },
+            )
+        }
+        compose.onNodeWithText("Track a prepaid credit balance").assertIsDisplayed().performClick()
+        assertEquals(1, additions)
+        compose.onNodeWithText("Add credit balance").assertDoesNotExist()
+        compose.onNode(hasContentDescription("Credits · 1 balance", substring = true)).performClick()
+        compose.onNodeWithText("Track a prepaid credit balance").assertDoesNotExist()
+        compose.onNodeWithText("My fal").assertIsDisplayed()
+        compose.onNodeWithText("Add credit balance").assertIsDisplayed().performClick()
+        assertEquals(2, additions)
+        compose.onNodeWithText("Collapse").performClick()
+        compose.onNodeWithText("Track a prepaid credit balance").assertIsDisplayed()
+        compose.onNodeWithText("Add credit balance").assertDoesNotExist()
+    }
+
     @Test fun `the add screen lists every provider with Anthropic and OpenAI disabled`() {
         render {
             AddCreditScreen(
@@ -258,6 +367,24 @@ class CreditScreensRenderTest {
             )
         }
         compose.onNode(hasText("Work is now being tracked.")).assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "en-w300dp-h873dp", fontScale = 1.6f)
+    fun `a long credit identity and its freshness remain readable at large text`() {
+        val label = "Personal OpenRouter development balance"
+        render {
+            CreditCard(entry(label = label, provider = CreditProviderId.OPENROUTER), now, 3_600_000)
+        }
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText(label).assertIsDisplayed()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        val layout = layouts.single()
+        assertTrue("the identity wraps rather than clipping", layout.lineCount > 1 && !layout.hasVisualOverflow)
+        val freshness = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("OpenRouter · Updated just now").assertIsDisplayed()
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(freshness) }
+        assertTrue("the provider and update age remain complete", !freshness.single().hasVisualOverflow)
     }
 
     @Test fun `the detail screen offers edit and remove`() {

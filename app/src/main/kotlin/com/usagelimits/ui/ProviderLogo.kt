@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import com.usagelimits.core.model.ClaudeCodeMood
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.R
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -46,7 +47,12 @@ internal fun ProviderArtwork(choice: ProviderIconChoice, description: String?, m
     ProviderArtwork(choice.drawable, choice.whiteInk, description, modifier)
 
 @Composable
-internal fun ProviderArtwork(@androidx.annotation.DrawableRes drawable: Int, whiteInk: Boolean, description: String?, modifier: Modifier) {
+internal fun ProviderArtwork(@androidx.annotation.DrawableRes drawable: Int, description: String?, modifier: Modifier) =
+    ProviderArtwork(drawable, drawable == R.drawable.icon_credit_xai || drawable == R.drawable.icon_credit_moonshot,
+        description, modifier)
+
+@Composable
+private fun ProviderArtwork(@androidx.annotation.DrawableRes drawable: Int, whiteInk: Boolean, description: String?, modifier: Modifier) {
     val tint = if (whiteInk && LocalAppTheme.current.isLight) ColorFilter.tint(UsageColors.Ink) else null
     Image(painterResource(drawable), description, modifier, colorFilter = tint)
 }

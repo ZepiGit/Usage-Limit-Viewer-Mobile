@@ -4,15 +4,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -100,7 +103,6 @@ internal fun OverviewSettings(
 ) {
     UsageCard {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SettingsPreview { OverviewLayoutPreview(PreviewAccounts, PreviewCredits, settings, PreviewNow, PreviewZone) }
             SettingTitle(R.string.settings_overview_layout_title, R.string.settings_overview_layout_subtitle)
             SegmentedRow {
                 Segment(stringResource(R.string.settings_overview_list), settings.overviewLayout == OverviewLayout.LIST,
@@ -108,6 +110,13 @@ internal fun OverviewSettings(
                 Segment(stringResource(R.string.settings_overview_dials), settings.overviewLayout == OverviewLayout.DIALS,
                     { onLayoutChange(OverviewLayout.DIALS) })
             }
+            RuleDivider()
+            ToggleRow(
+                title = stringResource(R.string.settings_show_credits_title),
+                subtitle = stringResource(R.string.settings_show_credits_subtitle),
+                checked = settings.overviewShowCredits,
+                onChange = onShowCredits,
+            )
             if (settings.overviewShowCredits) {
                 RuleDivider()
                 SettingTitle(R.string.settings_credit_layout_title, R.string.settings_credit_layout_subtitle)
@@ -119,20 +128,18 @@ internal fun OverviewSettings(
                 }
                 RuleDivider()
                 SettingTitle(R.string.settings_overview_show_first_title, R.string.settings_overview_show_first_subtitle)
-                SegmentedRow {
+                val choices: @Composable () -> Unit = {
                     Segment(stringResource(R.string.settings_overview_usage_providers), settings.overviewShowFirst == OverviewShowFirst.USAGE_PROVIDERS,
                         { onShowFirstChange(OverviewShowFirst.USAGE_PROVIDERS) })
                     Segment(stringResource(R.string.settings_credit_layout_title), settings.overviewShowFirst == OverviewShowFirst.CREDIT_ACCOUNTS,
                         { onShowFirstChange(OverviewShowFirst.CREDIT_ACCOUNTS) })
                 }
+                if (LocalDensity.current.fontScale >= 1.4f) {
+                    FlowRow(Modifier.fillMaxWidth().selectableGroup()) { choices() }
+                } else {
+                    SegmentedRow(content = choices)
+                }
             }
-            RuleDivider()
-            ToggleRow(
-                title = stringResource(R.string.settings_show_credits_title),
-                subtitle = stringResource(R.string.settings_show_credits_subtitle),
-                checked = settings.overviewShowCredits,
-                onChange = onShowCredits,
-            )
             RuleDivider()
             ToggleRow(
                 title = stringResource(R.string.settings_show_tier_title),
@@ -144,6 +151,7 @@ internal fun OverviewSettings(
                 RuleDivider()
                 TextAction(stringResource(R.string.credit_manage), onManageCredits, Modifier.heightIn(min = 48.dp))
             }
+            SettingsPreview { OverviewLayoutPreview(PreviewAccounts, PreviewCredits, settings, PreviewNow, PreviewZone) }
         }
     }
 }

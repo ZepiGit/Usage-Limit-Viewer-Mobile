@@ -1,5 +1,10 @@
 package com.usagelimits.ui.theme
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import androidx.compose.ui.graphics.Color
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
@@ -18,9 +23,11 @@ import kotlin.math.pow
  *
  * The StatusMark word, the row figure and the stamp are 12-14sp: normal text, so 4.5:1, not the
  * 3:1 large-text allowance. Severity hues are dots now, so they are held to the 3:1 graphic floor
- * instead; only the figure tones and the greys are text. The maths is pure Kotlin, so this stays
- * a plain JVM test.
+ * instead; only the figure tones and the greys are text. Faint is not text ink on Raised:
+ * that surface uses Muted. Grounds are resolved from the palette's actual colour resources.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class StatusContrastTest {
 
     private companion object {
@@ -45,19 +52,15 @@ class StatusContrastTest {
         return (max(a, b) + 0.05) / (min(a, b) + 0.05)
     }
 
-    // Ground lives in a resource shared with the launcher. LaunchOverlayTest checks that resource
-    // against the hand-off; use the same prescribed colours here without adding a JVM sandbox.
-    private val grounds = mapOf(
-        AppTheme.WARM_DARK to Color(0xFF0F0F0E),
-        AppTheme.PURE_BLACK to Color.Black,
-        AppTheme.COOL_GRAPHITE to Color(0xFF0E1013),
-        AppTheme.LIGHT_PAPER to Color(0xFFF3F0E8),
-    )
+    private val resources = ApplicationProvider.getApplicationContext<Context>().resources
 
     @Test
     fun `text roles and status marks meet their floors on every palette surface`() {
-        for ((theme, ground) in grounds) {
+        for (theme in AppTheme.entries) {
             val palette = theme.colors
+            val ground = Color(resources.getColor(palette.groundRes, null))
+            assertTrue("$theme Faint is not AA text ink on Raised",
+                contrast(palette.Faint, palette.Raised) < AA_NORMAL_TEXT)
             val surfaces = mapOf("ground" to ground, "surface" to palette.Surface, "raised" to palette.Raised)
             for ((surface, background) in surfaces) {
                 val quiet = if (surface == "raised") palette.Muted else palette.Faint

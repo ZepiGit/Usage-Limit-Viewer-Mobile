@@ -32,14 +32,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -64,18 +61,15 @@ import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowPresentation
 import com.usagelimits.core.model.presentation
-import com.usagelimits.core.notifications.NotificationEvaluator
 import com.usagelimits.core.settings.AppSettings
-import com.usagelimits.core.time.Countdown
 import com.usagelimits.core.model.ClaudeCodeMood
 import com.usagelimits.core.model.claudeCodeMoodAt
 import com.usagelimits.ui.FigureSlot
 import com.usagelimits.ui.ProviderLogo
 import com.usagelimits.ui.components.FadingFigure
+import com.usagelimits.ui.components.dashedOutline
 import com.usagelimits.ui.percentSpokenClauseRes
 import com.usagelimits.ui.text.percentFigureText
-import com.usagelimits.ui.text.rememberCountdownTexts
-import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.ui.text.textWithResetStamp
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
@@ -175,10 +169,7 @@ internal fun OverviewDialTile(
         is DialIdentity.Number -> stringResource(R.string.overview_dial_account_number, identity.position)
         DialIdentity.ProviderOnly, null -> null
     }
-    val texts = rememberCountdownTexts()
-    val locale = LocalConfiguration.current.locales[0]
-    val stamp = if (validity == ReadingValidity.RESET_DUE) texts.resetDue()
-        else window?.resetAt?.let { Countdown.absoluteResetStamp(it, nowMs, zone, locale, texts) }
+    val stamp = resetStamp(window, validity, nowMs, zone)
     val label = window?.let { windowLabel(it) }
 
     val validityLabel = when {
@@ -188,22 +179,13 @@ internal fun OverviewDialTile(
         validity == ReadingValidity.ERROR -> stringResource(SeverityPalette.labelRes(Severity.ERROR))
         else -> null
     }
-    val message = snapshot?.errorMessage
-        ?.takeUnless { expired && it == NotificationEvaluator.SIGN_IN_EXPIRED_MESSAGE }
-        ?.let { stored ->
-            val text = storedMessageText(stored)
-            when (snapshot.status) {
-                SnapshotStatus.PARTIAL -> stringResource(R.string.error_partial_update, text)
-                SnapshotStatus.FAILED -> if (window != null) stringResource(R.string.error_showing_last_known, text) else text
-                SnapshotStatus.OK -> text
-            }
-        }
+    val message = storedStatusMessage(snapshot, hasWindows = window != null)
     val spokenFigure = "$figure ${stringResource(percentSpokenClauseRes(mode))}"
     val spokenHeadline = label?.let {
         stringResource(R.string.overview_headline_spoken, listOfNotNull(window.group, it).joinToString(", "))
     }
     val spokenSeverity = if (validity == ReadingValidity.CURRENT && window != null &&
-        window.severity != Severity.HEALTHY && window.severity != Severity.UNKNOWN) {
+        (window.severity == Severity.LOW || window.severity == Severity.EXHAUSTED || window.severity == Severity.LIMITED)) {
         stringResource(SeverityPalette.labelRes(window.severity))
     } else null
     val spoken = listOfNotNull(
@@ -345,16 +327,7 @@ private fun AddDialAccountTile(onAddAccount: () -> Unit, modifier: Modifier) {
             .clickable(interaction, indication = null, role = Role.Button, onClick = onAddAccount)
             .clip(RoundedCornerShape(DialRadius))
             .indication(interaction, ripple())
-            .drawWithCache {
-                val width = 1.dp.toPx()
-                val inset = width / 2
-                val outline = Stroke(width, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx())))
-                val radius = DialRadius.toPx() - inset
-                onDrawBehind {
-                    drawRoundRect(contour, topLeft = Offset(inset, inset), size = Size(size.width - width, size.height - width),
-                        cornerRadius = CornerRadius(radius), style = outline)
-                }
-            }
+            .dashedOutline(contour, DialRadius)
             .clearAndSetSemantics {
                 contentDescription = label
                 role = Role.Button

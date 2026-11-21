@@ -90,6 +90,8 @@ def read_manifest(path: Path) -> dict[str, str]:
             _object(asset, keys, "asset")
             for key in keys:
                 _text(asset[key], key)
+            if "spdx" in asset and asset["spdx"] != "OFL-1.1":
+                raise Invalid("invalid manifest: license spdx must be OFL-1.1")
             name = asset["file"]
             if not pattern.fullmatch(name):
                 raise Invalid(f"invalid manifest: invalid asset path {name!r}")

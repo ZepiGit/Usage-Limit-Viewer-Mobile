@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,6 +88,7 @@ import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageScope
+import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.model.presentation
@@ -138,8 +140,8 @@ private val CardRadius = 8.dp
  *
  * The ranking, the filters and the header come from [overviewAt] at [nowMs] in [zone], so the
  * screen and the shared vectors cannot disagree. With no accounts the screen is C1: the fixed
- * brand mark and both add paths, no chips. Until the store has answered it is a skeleton, and a
- * filter that matches nothing says so inside the card; the three are never confused.
+ * brand mark and an add path for each account type, no chips. Until the store has answered it is
+ * a skeleton; a filter that matches nothing says so inside the card. These states stay distinct.
  */
 @Composable
 fun OverviewScreen(
@@ -160,7 +162,7 @@ fun OverviewScreen(
 ) {
     val listState = rememberLazyListState()
     val compactCredits = state.settings.showCompactCredits(state.credits)
-    var creditsExpanded by remember(isCurrentDestination, compactCredits, state.settings.overviewShowCredits) {
+    var creditsExpanded by rememberSaveable(isCurrentDestination, compactCredits, state.settings.overviewShowCredits) {
         mutableStateOf(false)
     }
     // Content arriving for the first time replaces the skeleton in one cut. It is not a list
@@ -203,7 +205,11 @@ fun OverviewScreen(
             if (state.settings.creditsFirst) credits()
 
             if (state.accounts.isEmpty()) {
-                item(key = "empty") { EmptyOverview(onAddAccount, onAddCredit, itemMotion(listMotion).padding(top = BlockGap)) }
+                item(key = "empty") {
+                    EmptyOverview(onAddAccount, onAddCredit, itemMotion(listMotion).padding(top = BlockGap),
+                        hasCredits = state.credits.isNotEmpty(),
+                        showAddCredit = !state.settings.overviewShowCredits || (compactCredits && !creditsExpanded))
+                }
             } else if (dials) {
                 overviewDials(projection.entries, state.settings, nowMs, zone, state.staleAfterMs, dialColumns,
                     listMotion, onAccountClick, onAddAccount)
@@ -574,16 +580,7 @@ private fun OverviewAccountRow(
             }
             // A failed, partial or paused reading keeps the message it was stored with, worded by
             // its status; the expired line above already says what the sign-in message would.
-            val message = snapshot?.errorMessage
-                ?.takeIf { windows.isNotEmpty() && !(expired && it == NotificationEvaluator.SIGN_IN_EXPIRED_MESSAGE) }
-                ?.let { stored ->
-                    val text = storedMessageText(stored)
-                    when (snapshot.status) {
-                        SnapshotStatus.OK -> text
-                        SnapshotStatus.PARTIAL -> stringResource(R.string.error_partial_update, text)
-                        SnapshotStatus.FAILED -> stringResource(R.string.error_showing_last_known, text)
-                    }
-                }
+            val message = if (windows.isNotEmpty()) storedStatusMessage(snapshot, hasWindows = true) else null
             if (message != null) {
                 Text(message, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
             }
@@ -669,8 +666,6 @@ private class WindowLine(
 private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, zone: ZoneId): List<WindowLine> {
     val snapshot = entry.usage.snapshot ?: return emptyList()
     val (stale, expired) = rowState(entry, state, nowMs)
-    val texts = rememberCountdownTexts()
-    val locale = currentLocale()
     val spokenSide = stringResource(percentSpokenClauseRes(state.settings.percentDisplay))
     val staleWord = stringResource(SeverityPalette.labelRes(Severity.STALE))
     val conflictNote = stringResource(R.string.usage_conflicting_availability)
@@ -686,8 +681,7 @@ private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, 
         val otherFigure = percentFigureText(window.presentation(validity, other).token)
         val label = windowLabel(window)
         val headline = window.id == entry.headlineWindowId
-        val stamp = if (validity == ReadingValidity.RESET_DUE) texts.resetDue()
-            else window.resetAt?.let { Countdown.absoluteResetStamp(it, nowMs, zone, locale, texts) }
+        val stamp = resetStamp(window, validity, nowMs, zone)
         // A pool's windows can share a label ("Weekly" in two pools), so the pool is spoken with it.
         val reading = listOfNotNull(window.group, "$label, $figure $spokenSide").joinToString(", ")
         val legends = segmentLegends(window)
@@ -899,6 +893,27 @@ private fun StackedLine(line: WindowLine, columns: GridColumns) {
 }
 
 @Composable
+internal fun resetStamp(window: UsageWindow?, validity: ReadingValidity, nowMs: Long, zone: ZoneId): String? {
+    val texts = rememberCountdownTexts()
+    val locale = currentLocale()
+    return if (validity == ReadingValidity.RESET_DUE) texts.resetDue()
+        else window?.resetAt?.let { Countdown.absoluteResetStamp(it, nowMs, zone, locale, texts) }
+}
+
+@Composable
+internal fun storedStatusMessage(snapshot: UsageSnapshot?, hasWindows: Boolean): String? {
+    val stored = snapshot?.errorMessage ?: return null
+    if (snapshot.connectionStatus == ConnectionStatus.RECONNECT_REQUIRED &&
+        stored == NotificationEvaluator.SIGN_IN_EXPIRED_MESSAGE) return null
+    val text = storedMessageText(stored)
+    return when (snapshot.status) {
+        SnapshotStatus.PARTIAL -> stringResource(R.string.error_partial_update, text)
+        SnapshotStatus.FAILED -> if (hasWindows) stringResource(R.string.error_showing_last_known, text) else text
+        SnapshotStatus.OK -> text
+    }
+}
+
+@Composable
 internal fun windowLabel(window: UsageWindow): String {
     val appLabel = windowLabelRes(window.label, window.category, window.scope)
     return when {
@@ -912,18 +927,25 @@ internal fun windowLabel(window: UsageWindow): String {
 }
 
 /**
- * C1: no accounts yet. The fixed default brand mark, never the alternate launcher icon a person
- * chose, then both ways to start. No chips: there is nothing to filter or count.
+ * C1: no usage accounts yet. The fixed brand mark and a usage-account action; the credit action
+ * stays here when Credits is hidden or collapsed without its Add action. No chips to filter.
  */
 @Composable
-private fun EmptyOverview(onAddAccount: () -> Unit, onAddCredit: () -> Unit, modifier: Modifier) {
+private fun EmptyOverview(
+    onAddAccount: () -> Unit,
+    onAddCredit: () -> Unit,
+    modifier: Modifier,
+    hasCredits: Boolean,
+    showAddCredit: Boolean,
+) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // The 192dp transparent foreground in a 128dp slot: its safe-zone margin overlaps the edges.
         Box(Modifier.fillMaxWidth().height(128.dp), contentAlignment = Alignment.Center) {
             Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null,
                 modifier = Modifier.requiredSize(192.dp))
         }
-        Text(stringResource(R.string.overview_empty_title), Modifier.padding(top = 4.dp).semantics { heading() },
+        Text(stringResource(if (hasCredits) R.string.overview_no_usage_accounts_title else R.string.overview_empty_title),
+            Modifier.padding(top = 4.dp).semantics { heading() },
             style = MaterialTheme.typography.titleMedium.copy(fontSize = 20.sp, lineHeight = 26.sp), color = UsageColors.Ink)
         Text(stringResource(R.string.overview_empty_body), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
         Button(
@@ -936,7 +958,7 @@ private fun EmptyOverview(onAddAccount: () -> Unit, onAddCredit: () -> Unit, mod
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.overview_add_account), style = MaterialTheme.typography.labelLarge)
         }
-        OutlinedButton(
+        if (showAddCredit) OutlinedButton(
             onClick = onAddCredit,
             shape = MaterialTheme.shapes.small,
             border = BorderStroke(1.dp, UsageColors.Control),

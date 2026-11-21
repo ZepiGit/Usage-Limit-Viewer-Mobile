@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -126,9 +127,10 @@ private fun ThemeTile(theme: AppTheme, selected: Boolean, onClick: () -> Unit, m
     val shape = RoundedCornerShape(8.dp)
     val palette = theme.colors
     Row(
-        modifier.heightIn(min = 48.dp).clip(shape)
-            .border(when { focused -> 3.dp; selected -> 2.dp; else -> 1.dp },
-                if (selected || focused) UsageColors.Ink else UsageColors.Rule, shape)
+        modifier.heightIn(min = 48.dp)
+            .border(2.dp, if (focused) UsageColors.Ink else Color.Transparent, shape)
+            .padding(4.dp).clip(shape)
+            .border(if (selected) 2.dp else 1.dp, if (selected) UsageColors.Ink else UsageColors.Rule, shape)
             .onFocusChanged { focused = it.isFocused }
             .selectable(selected, interactionSource = null, indication = ripple(), role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
