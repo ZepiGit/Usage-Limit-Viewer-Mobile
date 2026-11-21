@@ -21,6 +21,7 @@ import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.UsageRepository
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.overviewCreditSummary
 import com.usagelimits.core.sync.NotificationPublisher
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.resetTestWorkManager
@@ -127,6 +128,26 @@ class StatusIconEvidenceDriverTest {
             assertEquals(token, it.getString("token"))
             assertEquals(name, it.getString("command"))
             assertTrue("completion uses the device's elapsed clock", it.getLong("completedElapsedRealtimeMs") in started..returned)
+        }
+    }
+
+    @Test
+    fun `credit fixture keeps a usable compact hint through an automatic refresh`() = runBlocking {
+        val completion = command("seed-credits")
+        assertTrue(completion.toString(), completion.getBoolean("success"))
+        val credits = app.container.creditRepository
+        val before = credits.entriesOnce().single()
+        try {
+            val instant = requireNotNull(before.snapshot).fetchedAt
+            val engine = com.usagelimits.core.sync.CreditSyncEngine(
+                credits, app.container.credentialStore, app.container.creditRegistry, nowMs = { instant },
+            )
+            engine.syncAll(automatic = true)
+            val winner = credits.entriesOnce().overviewCreditSummary(instant, 3_600_000).winner
+            assertEquals("Synthetic credit", winner?.account?.label)
+            assertEquals("3.18", winner?.balance?.amount?.toPlainString())
+        } finally {
+            credits.remove(before.id)
         }
     }
 

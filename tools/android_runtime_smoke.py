@@ -1412,7 +1412,7 @@ class Smoke:
         assert matches(root, "Synthetic credit", DEBUG_PACKAGE) and matches(root, "$3.18", DEBUG_PACKAGE), \
             "Normal credit block did not show the local synthetic balance"
         self.capture("credits-en-normal")
-        manage = self.credit_control("credits-en-manage", "Manage credit accounts")
+        manage = self.credit_control("credits-en-manage", "Manage credit accounts", up=True)
         self.tap(manage)
         self.wait_for("credits-en-management", lambda root: bool(matches(root, "Manage credit accounts", DEBUG_PACKAGE))
                       and bool(matches(root, "Synthetic credit", DEBUG_PACKAGE))

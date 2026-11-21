@@ -20,6 +20,7 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WidgetScope
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.model.pinnedAccountIds
+import com.usagelimits.core.sync.RATE_LIMITED_PAUSE_MESSAGE
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.widget.WidgetDataBuilder
@@ -153,6 +154,10 @@ internal class StatusIconEvidenceDriver(
             balances = listOf(CreditBalance("USD", BigDecimal("3.18"), BigDecimal("100"))),
             fetchedAt = now,
         ))
+        // The real app refreshes on resume. This fixture has no key; retain its usable reading
+        // through the existing automatic cooldown instead of turning it into an ordinary failure.
+        container.creditRepository.record(account.id, balances = null, error = RATE_LIMITED_PAUSE_MESSAGE,
+            at = now, backgroundNotBefore = now + 3_600_000)
         container.publication.cacheMoved()
     }
 
