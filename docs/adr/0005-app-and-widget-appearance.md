@@ -39,9 +39,11 @@ and this decision does not promise that app-theme writes cause no widget emissio
 `WidgetAppearanceRenderingTest` saves every app theme through the same settings store, applies
 Compact widget RemoteViews to a host, and checks known default/white panel pixels and known light/
 dark ink as well as unchanged text colours. `WidgetConfigActivitySaveTest` captures the real
-configuration activity with a Codex Account Rings fixture, checks the existing warm scene colours
-and a represented figure, and compares its pixels across saved themes with another font pair.
-It drives the shared display mode to Used and back to Left before comparison so the editor has
-visibly consumed settings emissions. Passing `-PcaptureDir=<directory>` exports the baseline and
-variant images for visual inspection. These are Robolectric rendering checks, not launcher or device evidence;
-their execution and image observations belong in the ticket report.
+configuration activity with a Codex Account Rings fixture, checks the existing warm scene colours,
+and compares its pixels after changing the saved app theme and fonts. It drives the shared display
+mode to Used and back to Left before comparison so the editor has visibly consumed settings
+emissions. Passing `-PcaptureDir=<directory>` exports the baseline and variant images for visual
+inspection. Separately, `WidgetConfigPreviewTest` renders `ContentPreview` with IBM Plex Mono
+selected for app figures and checks that Account Rings and Usage Bars still request system
+monospace for their figures. These are Robolectric checks, not launcher or device evidence. The
+run results and image observations belong in the ticket report.
