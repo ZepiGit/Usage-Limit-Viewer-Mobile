@@ -54,6 +54,15 @@ class WidgetConfigActivitySaveTest {
         runBlocking { app.startupJob?.join() }
     }
 
+    @org.junit.After fun drain() {
+        try {
+            androidx.work.WorkManager.getInstance(app).cancelAllWork().result.get()
+            org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        } finally {
+            com.usagelimits.core.sync.resetTestWorkManager()
+        }
+    }
+
     private fun storedConfig(widgetId: Int): WidgetConfigEntity? = runBlocking { dao.get(widgetId) }
 
     private fun openConfigFor(config: WidgetConfigEntity): ActivityScenario<WidgetConfigActivity> {
@@ -119,7 +128,10 @@ class WidgetConfigActivitySaveTest {
                     compose.onAllNodesWithContentDescription("60% remaining", substring = true).fetchSemanticsNodes().isNotEmpty()
                 }
                 compose.onNodeWithText("60%").assertExists()
-                val baseline = capture(scenario, "09b-warm-baseline")
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("Left or used follows Settings › Display, like the Overview."))
+                capture(scenario, "B3-text-controls").recycle()
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("60%"))
+                val baseline = capture(scenario, "B3-warm-baseline")
                 runBlocking {
                     settings.setTextFont(TextFont.FIGTREE)
                     settings.setFigureFont(FigureFont.IBM_PLEX_MONO)
@@ -149,7 +161,7 @@ class WidgetConfigActivitySaveTest {
                         compose.waitDrained {
                             compose.onAllNodesWithContentDescription("60% remaining", substring = true).fetchSemanticsNodes().isNotEmpty()
                         }
-                        val changed = capture(scenario, "09b-${theme.name.lowercase()}-figtree-plex")
+                        val changed = capture(scenario, "B3-${theme.name.lowercase()}-figtree-plex")
                         try {
                             assertTrue("$theme must not restyle the configuration or its preview", baseline.sameAs(changed))
                         } finally {

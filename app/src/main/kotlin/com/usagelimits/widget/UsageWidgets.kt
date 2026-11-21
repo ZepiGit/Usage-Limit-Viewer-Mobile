@@ -113,7 +113,7 @@ internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier,
 private fun percentText(row: WidgetRow): String =
     percentFigure(row.presentation(null, LocalPercentMode.current).token, androidx.glance.LocalContext.current.resources)
 
-/** Text on a widget: sizes from the scale (11, 12, 14, 16, 22), figures in the system mono. */
+/** Text on a widget, with figures in the system monospace face. */
 internal fun widgetText(color: Color, size: Int, weight: FontWeight = FontWeight.Normal, mono: Boolean = false) = TextStyle(
     color = ColorProvider(color),
     fontSize = size.sp,
@@ -504,8 +504,8 @@ class DetailedUsageWidget : GlanceAppWidget() {
         val validity = account.dataValidity
         Column(GlanceModifier.fillMaxWidth().clickable(openAccount)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ProviderId.fromId(account.providerId)?.let { provider ->
-                    WidgetLogo(provider, account.iconChoiceId, 20.dp)
+                if (ProviderId.fromId(account.providerId) != null) {
+                    WidgetLogo(account, 26.dp)
                     Spacer(GlanceModifier.width(8.dp))
                 }
                 Column(GlanceModifier.defaultWeight()) {
@@ -592,13 +592,24 @@ class DetailedUsageWidget : GlanceAppWidget() {
  * on one the mark is drawn in the panel's ink instead.
  */
 @Composable
-internal fun WidgetLogo(provider: ProviderId, iconChoiceId: String?, size: Dp) {
+internal fun WidgetLogo(account: WidgetAccount, size: Dp) {
+    val provider = ProviderId.fromId(account.providerId) ?: return
     val style = LocalWidgetStyle.current
     Image(
-        ImageProvider(com.usagelimits.ui.providerLogoResource(provider, iconChoiceId)), null, GlanceModifier.size(size),
-        colorFilter = if (!style.lightInk && provider in WHITE_ARTWORK) ColorFilter.tint(ColorProvider(style.textPrimary)) else null,
+        widgetProviderImage(provider, account), null, GlanceModifier.size(size),
+        colorFilter = widgetLogoTint(provider, style)?.let { ColorFilter.tint(ColorProvider(it)) },
     )
 }
+
+internal fun widgetLogoTint(provider: ProviderId, style: WidgetStyle): Color? =
+    if (provider in WHITE_ARTWORK && !style.lightInk) style.textPrimary else null
+
+/** The provider image for a placed account, where the Claude Code still renderer plugs in. */
+private fun widgetProviderImage(provider: ProviderId, account: WidgetAccount): ImageProvider =
+    ImageProvider(com.usagelimits.ui.providerLogoResource(provider, account.iconChoiceId))
+
+internal fun miniLogoSize(ringSize: Dp, providerId: String): Dp =
+    ringSize * if (providerId == ProviderId.CLAUDE.id) 0.575f else 0.46f
 
 private val WHITE_ARTWORK = setOf(
     ProviderId.CODEX, ProviderId.XAI, ProviderId.KIMI,

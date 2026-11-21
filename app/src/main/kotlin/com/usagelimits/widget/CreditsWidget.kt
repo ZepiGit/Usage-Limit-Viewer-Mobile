@@ -1,6 +1,10 @@
 package com.usagelimits.widget
 
 import android.content.Context
+import android.content.res.Resources
+import android.graphics.Paint
+import android.graphics.Typeface
+import androidx.core.util.TypedValueCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -11,6 +15,7 @@ import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -26,13 +31,10 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
-import androidx.glance.layout.size
 import androidx.glance.layout.width
-import androidx.glance.text.FontFamily
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
-import androidx.glance.text.TextStyle
-import androidx.glance.unit.ColorProvider
+import androidx.glance.text.TextAlign
 import com.usagelimits.R
 import com.usagelimits.navigation.ExternalRequest
 import com.usagelimits.core.model.CreditFormat
@@ -69,7 +71,7 @@ class CreditsWidget : GlanceAppWidget() {
             GlanceTheme {
                 CompositionLocalProvider(LocalWidgetStyle provides style) {
                     Column(
-                        GlanceModifier.fillMaxSize().panelCorner().background(style.background.color).padding(10.dp)
+                        GlanceModifier.fillMaxSize().panelCorner().background(style.background.color).padding(PANEL_INSET.dp)
                             .clickable(androidx.glance.appwidget.action.actionStartActivity(ExternalRequest.openOverview(context))),
                     ) {
                         when {
@@ -77,7 +79,8 @@ class CreditsWidget : GlanceAppWidget() {
                                 context.getString(R.string.widget_credits_empty),
                                 style = widgetText(style.textSecondary, 12),
                             )
-                            shown.size == 1 -> Single(shown.first(), style, texts, centered = size.width < MEDIUM.width)
+                            size == SMALL -> SmallTile(shown.first(), style, texts)
+                            shown.size == 1 && more == 0 -> Single(shown.first(), style, texts)
                             else -> {
                                 Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
@@ -102,15 +105,38 @@ class CreditsWidget : GlanceAppWidget() {
         }
     }
 
-    /** The 2x2 tile: one account, its amount large, and as of when. */
     @Composable
-    private fun Single(row: CreditWidgetRow, style: WidgetStyle, texts: CreditWidgetTexts, centered: Boolean) {
-        // Centred as a block on the small tile, where a start-aligned lone row reads as left-heavy.
-        Column(
-            GlanceModifier.fillMaxSize(),
-            verticalAlignment = if (centered) Alignment.CenterVertically else Alignment.Top,
-            horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
-        ) {
+    private fun SmallTile(row: CreditWidgetRow, style: WidgetStyle, texts: CreditWidgetTexts) {
+        Column(GlanceModifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(row.title, maxLines = 1, style = widgetText(style.textSecondary, 12, FontWeight.Medium))
+                Spacer(GlanceModifier.width(6.dp))
+                SeverityDot(style.accent(row.severity))
+            }
+            Column(GlanceModifier.defaultWeight().fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                val resources = LocalContext.current.resources
+                val amount = row.balances.firstOrNull()?.let {
+                    CreditFormat.string(it.amount, it.currency, resources.configuration.locales[0])
+                } ?: "—"
+                Text(amount, maxLines = 1, style = widgetText(style.textPrimary, 28, FontWeight.Bold, mono = true)
+                    .copy(fontSize = fittedAmountSize(amount, resources).sp))
+                val status = statusText(row, texts, asOfOnly = true)
+                Text(
+                    if (row.balances.firstOrNull()?.unlimited == true) {
+                        resources.getString(R.string.widget_credits_spent_this_month) + " · " + status
+                    } else status,
+                    maxLines = 2,
+                    style = widgetText(if (refreshFailed(row)) style.textPrimary else style.textSecondary, 11)
+                        .copy(textAlign = TextAlign.Center),
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun Single(row: CreditWidgetRow, style: WidgetStyle, texts: CreditWidgetTexts) {
+        Column(GlanceModifier.fillMaxSize()) {
             Text(
                 row.title, maxLines = 1,
                 style = widgetText(style.textSecondary, 12, FontWeight.Medium),
@@ -156,7 +182,20 @@ class CreditsWidget : GlanceAppWidget() {
         }
     }
 
+    private fun fittedAmountSize(amount: String, resources: Resources): Float {
+        val metrics = resources.displayMetrics
+        val available = (SMALL.width.value - 2 * PANEL_INSET) * metrics.density
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textSize = TypedValueCompat.spToPx(28f, metrics)
+        }
+        val width = paint.measureText(amount)
+        // Fit in pixels, then invert Android's nonlinear sp scaling for the host.
+        return if (width <= available) 28f else TypedValueCompat.pxToSp(paint.textSize * available / width, metrics)
+    }
+
     private companion object {
+        const val PANEL_INSET = 10
         val SMALL = DpSize(110.dp, 110.dp)
         val MEDIUM = DpSize(250.dp, 110.dp)
         val LARGE = DpSize(250.dp, 250.dp)
@@ -180,7 +219,7 @@ internal fun refreshFailed(row: CreditWidgetRow): Boolean = row.statusMessage !=
  * A failure's reason is the message stored with the snapshot when the refresh failed, in English;
  * [CreditWidgetTexts.stored] reads it in the screen's language without touching what is stored.
  */
-internal fun statusText(row: CreditWidgetRow, texts: CreditWidgetTexts = EnglishCreditWidgetTexts): String {
+internal fun statusText(row: CreditWidgetRow, texts: CreditWidgetTexts = EnglishCreditWidgetTexts, asOfOnly: Boolean = false): String {
     val now = System.currentTimeMillis()
     return when {
         row.severity == Severity.ERROR -> row.statusMessage?.let(texts::stored) ?: texts.couldNotBeRead()
@@ -188,6 +227,7 @@ internal fun statusText(row: CreditWidgetRow, texts: CreditWidgetTexts = English
             (row.fetchedAt?.let { " · " + Countdown.asOfLabel(it, nowMs = now, texts = texts) } ?: "")
         row.fetchedAt == null -> texts.notReadYet()
         row.severity == Severity.STALE -> texts.outOfDate(Countdown.asOfLabel(row.fetchedAt, nowMs = now, texts = texts))
+        asOfOnly -> Countdown.asOfLabel(row.fetchedAt, nowMs = now, texts = texts)
         else -> row.providerName + " · " + Countdown.asOfStamp(row.fetchedAt, nowMs = now)
     }
 }

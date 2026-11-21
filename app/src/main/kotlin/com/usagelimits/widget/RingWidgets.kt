@@ -2,6 +2,7 @@ package com.usagelimits.widget
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.Resources
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -26,7 +27,7 @@ import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.WindowPresentation
-import com.usagelimits.ui.percentSideCaptionRes
+import com.usagelimits.core.time.Countdown
 import com.usagelimits.ui.percentSpokenClauseRes
 import com.usagelimits.ui.text.ResourceCountdownTexts
 import com.usagelimits.ui.text.percentFigure
@@ -44,56 +45,38 @@ open class AccountRingsWidget(private val mini: Boolean) : GlanceAppWidget() {
             val mode = view.percentDisplay
             val size = LocalSize.current
             val fontScale = LocalContext.current.resources.configuration.fontScale
-            val grid = WidgetLayout.miniGrid(size.width.value, size.height.value, view.metrics)
-            val columns = if (mini) grid.columns else WidgetLayout.accountColumns(size.width.value, size.height.value, view.metrics, fontScale)
-            // The caption above the grid states which side every arc counts. Mini grids
-            // reserve its line before counting rows; non-mini grids scroll, so it is only an inset.
-            val captionHeight = WidgetLayout.ringCaptionHeight(fontScale)
-            val selected = if (mini) {
-                val rows = WidgetLayout.miniCaptionedRows(grid, view.snapshot.accounts.size, size.height.value, fontScale)
-                view.snapshot.accounts.take(columns * rows)
-            } else view.snapshot.accounts
-            val groups = selected.chunked(columns)
-            val rowHeight = if (mini) (((size.height.value - 8f - captionHeight) / WidgetLayout.miniVisibleRows(grid, selected.size))).coerceAtLeast(20f).dp
+            val accounts = view.snapshot.accounts
+            val grid = if (mini) WidgetLayout.miniGrid(size.width.value, size.height.value, view.metrics) else null
+            val columns = grid?.columns ?: WidgetLayout.accountColumns(size.width.value, size.height.value, view.metrics, fontScale)
+            val contentHeight = size.height.value - 8f
+            val groups = if (grid == null) accounts.chunked(columns) else {
+                val rows = minOf(WidgetLayout.miniVisibleRows(grid, accounts.size), (contentHeight / 20f).toInt().coerceAtLeast(1))
+                accounts.take(columns * rows).chunked(columns)
+            }
+            val rowHeight = if (mini) (contentHeight / groups.size.coerceAtLeast(1)).dp
                 else maxOf(48f, 32f * fontScale + 8f).dp
-            val ringSize = if (mini) minOf((size.width.value - 8f) / columns, rowHeight.value).minus(8f).coerceIn(16f, 52f).dp else 40.dp
+            val ringSize = if (mini) (minOf((size.width.value - 8f) / columns, rowHeight.value) - 8f).coerceIn(16f, 52f).dp
+                else minOf(rowHeight - 8.dp, (size.width - 20.dp) / columns - 96.dp).coerceAtLeast(40.dp)
+            val verticalInset = if (mini) 4.dp else ((size.height - rowHeight) / 2).coerceIn(0.dp, 10.dp)
             CompositionLocalProvider(LocalWidgetStyle provides style, LocalPercentMode provides mode) {
                 Column(GlanceModifier.fillMaxSize().panelCorner()
                     .background(style.background.color)
-                    .padding(if (mini) 4.dp else 10.dp)) {
-                    if (groups.isEmpty()) Text(view.snapshot.emptyText(context.resources) ?: context.getString(R.string.widget_no_matching_accounts), style = widgetText(style.textSecondary, 12))
-                    else {
-                        ModeCaption()
-                        if (mini) {
-                            // Fixed visible capacity also avoids sharing a collection adapter between
-                            // differently sized portrait and landscape RemoteViews.
-                            groups.forEach { group -> RingAccountRow(context, group, columns, rowHeight, ringSize, true) }
-                        } else LazyColumn(GlanceModifier.fillMaxSize()) {
-                            items(groups, itemId = { it.first().accountId.hashCode().toLong() }) { group ->
-                                RingAccountRow(context, group, columns, rowHeight, ringSize, false)
-                            }
+                    .padding(horizontal = if (mini) 4.dp else 10.dp, vertical = verticalInset)) {
+                    if (groups.isEmpty()) {
+                        Text(view.snapshot.emptyText(context.resources) ?: context.getString(R.string.widget_no_matching_accounts), style = widgetText(style.textSecondary, 12))
+                    } else if (mini) {
+                        // Fixed visible capacity avoids sharing a collection adapter between
+                        // differently sized portrait and landscape RemoteViews.
+                        groups.forEach { group -> RingAccountRow(context, group, columns, rowHeight, ringSize, true) }
+                    } else LazyColumn(GlanceModifier.fillMaxSize()) {
+                        items(groups, itemId = { it.first().accountId.hashCode().toLong() }) { group ->
+                            RingAccountRow(context, group, columns, rowHeight, ringSize, false)
                         }
                     }
                 }
             }
         }
     }
-}
-
-/**
- * The one-word hint that keeps a bare ring unambiguous: a figure alone does not say which
- * side it counts. Same placement on every ring widget, independent of any branch below it.
- */
-@Composable
-private fun ModeCaption() {
-    val style = LocalWidgetStyle.current
-    val mode = LocalPercentMode.current
-    Text(
-        text = LocalContext.current.resources.getString(percentSideCaptionRes(mode)),
-        style = widgetText(style.textSecondary, 9),
-        maxLines = 1,
-        modifier = GlanceModifier.padding(horizontal = 2.dp).height(((9 * LocalContext.current.resources.configuration.fontScale + 4).dp)),
-    )
 }
 
 @Composable
@@ -110,8 +93,8 @@ private fun RingAccountRow(context: Context, group: List<WidgetAccount>, columns
                 Spacer(GlanceModifier.width(8.dp))
                 Column(GlanceModifier.defaultWeight()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        ProviderId.fromId(account.providerId)?.let {
-                            WidgetLogo(it, account.iconChoiceId, 16.dp)
+                        if (ProviderId.fromId(account.providerId) != null) {
+                            WidgetLogo(account, 18.dp)
                             Spacer(GlanceModifier.width(6.dp))
                         }
                         Text(account.accountLabel ?: account.subtitle ?: account.title, maxLines = 1,
@@ -137,15 +120,6 @@ private fun RingAccountRow(context: Context, group: List<WidgetAccount>, columns
 }
 
 internal fun ringLimit(account: WidgetAccount): WidgetRow? = account.representative
-
-/**
- * The figure a ring shows in [mode], with its sign.
- *
- * The raw severity decides exhaustion, so a window the provider called closed still reads "100%"
- * in USED beside whatever colour an aged severity gives the arc.
- */
-internal fun ringFigure(resources: android.content.res.Resources, account: WidgetAccount, mode: PercentDisplay): String =
-    percentFigure(ringLimit(account).presentation(null, mode).token, resources)
 
 /** What a ring writes in its centre: the figure with its sign, the figure alone, or nothing. */
 internal enum class RingCentre { SIGNED, BARE, NOTHING }
@@ -191,16 +165,27 @@ internal fun ringCentreFigure(resources: android.content.res.Resources, p: Windo
  * What a screen reader hears for one ring. Shared by the placed widgets and the configuration
  * preview so the preview cannot describe a ring differently from the widget it stands for.
  */
-internal fun ringDescription(resources: android.content.res.Resources, account: WidgetAccount, mode: PercentDisplay): String =
-    "${account.title}, ${account.subtitle.orEmpty()}, ${ringFigure(resources, account, mode)} ${resources.getString(percentSpokenClauseRes(mode))}" +
-        listOfNotNull(
-            R.string.widget_ring_desc_reconnect.takeIf { account.requiresReauthentication }
-                ?.let { ", " + resources.getString(it) },
-            R.string.widget_ring_desc_partial.takeIf { account.partialUpdate }
-                ?.let { ", " + resources.getString(it) },
-            R.string.widget_ring_desc_limited.takeIf { account.restrictions.isNotEmpty() }
-                ?.let { ", " + resources.getString(it, account.restrictions.joinToString()) },
-        ).joinToString("")
+internal fun ringDescription(resources: Resources, account: WidgetAccount, presentation: WindowPresentation): String {
+    val window = ringLimit(account)
+    val reset = Countdown.absoluteResetLabel(window?.resetAt, System.currentTimeMillis(),
+        locale = resources.configuration.locales[0], texts = ResourceCountdownTexts(resources))
+    val reading = if (presentation.hasFigure) {
+        "${percentFigure(presentation.token, resources)} ${resources.getString(percentSpokenClauseRes(presentation.side))}"
+    } else resources.getString(R.string.widget_ring_quota_unknown)
+    val validity = when {
+        account.requiresReauthentication -> R.string.widget_ring_desc_reconnect
+        account.severity == Severity.ERROR -> R.string.widget_update_failed_last_known
+        account.severity == Severity.STALE && window?.resetElapsed != true -> R.string.widget_data_out_of_date
+        else -> null
+    }
+    return listOfNotNull(
+        account.title, account.subtitle ?: account.accountLabel, reading,
+        window?.labelText(resources), reset ?: resources.getString(R.string.widget_ring_no_reset),
+        validity?.let(resources::getString),
+        if (account.partialUpdate) resources.getString(R.string.widget_ring_desc_partial) else null,
+        if (account.restrictions.isNotEmpty()) resources.getString(R.string.widget_ring_desc_limited, account.restrictions.joinToString()) else null,
+    ).joinToString(", ")
+}
 
 internal fun compactRingReset(context: Context, resetAt: Long): String {
     val now = System.currentTimeMillis()
@@ -231,14 +216,15 @@ private fun RingMark(account: WidgetAccount, size: androidx.compose.ui.unit.Dp, 
                 160,
                 p.fill?.times(100.0),
                 ringAccent(account, style).toArgb(), style.trackArgb)),
-            ringDescription(resources, account, mode),
+            ringDescription(resources, account, p),
             GlanceModifier.fillMaxSize())
         if (mini) {
-            ProviderId.fromId(account.providerId)?.let {
-                WidgetLogo(it, account.iconChoiceId, size * 0.46f)
-            }
+            WidgetLogo(account, miniLogoSize(size, account.providerId))
         } else ringCentreFigure(resources, p)?.let {
-            Text(it, style = widgetText(style.textPrimary, 12, FontWeight.Bold, mono = true), maxLines = 1)
+            // In a narrow host, keep the full figure inside the ring even at large system text.
+            val maxSize = (size.value - 6f) / (0.62f * it.length * resources.configuration.fontScale.coerceAtLeast(1f))
+            val figureStyle = widgetText(style.textPrimary, 12, FontWeight.Bold, mono = true)
+            Text(it, style = figureStyle.copy(fontSize = maxSize.coerceAtMost(12f).sp), maxLines = 1)
         }
         if (account.partialUpdate) {
             Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.TopEnd) {

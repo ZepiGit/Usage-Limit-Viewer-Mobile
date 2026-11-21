@@ -29,7 +29,7 @@ import org.robolectric.annotation.Config
  * The widget configuration preview in both percent modes (R2).
  *
  * The preview is the one place a user sees a widget before placing it, so it has to say what the
- * placed widget says: rings carry the one-word caption and a spoken description, bars carry the
+ * placed widget says: rings have no side caption and carry a spoken description, bars carry the
  * side word after the figure. Fixture: a Weekly window with 40% used (60% left), so a swapped
  * mode shows up as different digits, not only a different word.
  */
@@ -87,16 +87,12 @@ class WidgetConfigPreviewTest {
     private fun spoken(value: String) =
         compose.onAllNodesWithContentDescription(value, substring = true).fetchSemanticsNodes()
 
-    private fun caption(mode: PercentDisplay) = if (mode == PercentDisplay.USED) "Used" else "Left"
-    private fun otherCaption(mode: PercentDisplay) = if (mode == PercentDisplay.USED) "Left" else "Used"
-
     @Test
-    fun `ring previews caption the mode and describe each ring`() {
+    fun `ring previews omit side captions and describe each ring`() {
         for (kind in listOf("Account Rings", "Mini Rings")) {
             for (mode in PercentDisplay.entries) {
                 preview(snapshot(account()), kind, mode)
-                assertEquals("$kind $mode: one caption '${caption(mode)}'", 1, texts(caption(mode)).size)
-                assertTrue("$kind $mode: no caption of the other mode", texts(otherCaption(mode)).isEmpty())
+                assertTrue("$kind $mode: no side captions", texts("Left").isEmpty() && texts("Used").isEmpty())
                 val sentence = if (mode == PercentDisplay.USED) "Claude, fixture@example.invalid, 40% used"
                     else "Claude, fixture@example.invalid, 60% remaining"
                 assertEquals("$kind $mode: the ring says '$sentence'", 1, spoken(sentence).size)
@@ -130,7 +126,8 @@ class WidgetConfigPreviewTest {
     @Test
     fun `a ring preview describes a partial update the way the placed widget does`() {
         preview(snapshot(account(partialUpdate = true)), "Account Rings", PercentDisplay.USED)
-        assertEquals(1, spoken("Claude, fixture@example.invalid, 40% used, some limits could not be updated").size)
+        assertEquals(1, spoken("Claude, fixture@example.invalid, 40% used").size)
+        assertEquals(1, spoken("some limits could not be updated").size)
     }
 
     @Test

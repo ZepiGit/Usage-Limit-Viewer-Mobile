@@ -89,9 +89,10 @@ class GermanWidgetConfigRenderTest {
     }
 
     @Test
-    fun `the ring preview carries the German caption and a German spoken description`() {
+    fun `the ring preview omits side captions and has a German spoken description`() {
         preview("Account Rings", PercentDisplay.USED)
-        assertEquals(1, texts("Verbraucht").size)
+        assertTrue(texts("Verbraucht").isEmpty() && texts("Übrig").isEmpty())
+        assertEquals(1, texts("40 %").size)
         assertEquals(1, compose.onAllNodesWithContentDescription("Claude, fixture@example.invalid, 40 % verbraucht",
             substring = true).fetchSemanticsNodes().size)
     }
@@ -118,5 +119,8 @@ class GermanWidgetConfigRenderTest {
         assertEquals(1, texts("Widget-Inhalt").size)
         reveal("Ein Anbieter")
         assertEquals(1, texts("Ein Anbieter").size)
+        val footer = "Ob übrig oder verbraucht, richtet sich nach Einstellungen › Anzeige, wie in der Übersicht."
+        reveal(footer)
+        assertEquals(1, texts(footer).size)
     }
 }

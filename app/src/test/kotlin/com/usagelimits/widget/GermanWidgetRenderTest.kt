@@ -70,6 +70,15 @@ class GermanWidgetRenderTest {
 
     private val app get() = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
 
+    @org.junit.After fun drain() {
+        try {
+            androidx.work.WorkManager.getInstance(app).cancelAllWork().result.get()
+            ShadowLooper.idleMainLooper()
+        } finally {
+            com.usagelimits.core.sync.resetTestWorkManager()
+        }
+    }
+
     private suspend fun seed(vararg windows: UsageWindow): String {
         val repository = app.container.repository
         val account = repository.upsertFromLogin(ProviderId.CLAUDE, "german-fixture",
@@ -153,13 +162,13 @@ class GermanWidgetRenderTest {
         }
     }
 
-    @Test fun `account rings caption the mode in German and describe each ring in German`() = runTest {
+    @Test fun `account rings omit side captions and describe each ring in German`() = runTest {
         val id = seedFixture()
         inEachMode { mode ->
             inspect("MinimalUsageWidget", id, DpSize(180.dp, 240.dp)) { view ->
                 val text = textViews(view).map { it.text.toString() }
                 val descriptions = descriptions(view)
-                assertTrue("$mode: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
+                assertTrue("$mode: no side captions, got $text", "Verbraucht" !in text && "Übrig" !in text)
                 val centre = figures(mode).last()
                 assertTrue("$mode: centre figure $centre present, got $text", centre in text)
                 val spoken = "$centre ${if (mode == PercentDisplay.USED) "verbraucht" else "übrig"}"
