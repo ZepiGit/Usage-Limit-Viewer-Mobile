@@ -14,7 +14,7 @@ Credit providers each have one fixed mark: OpenRouter, DeepSeek, Moonshot, xAI, 
 
 The **Claude Code · Color** (`claudecode-color`) and **Claude Code · Monochrome** (`claudecode`) choices use native figure art derived from LobeHub's Claude Code mark. The LobeHub MIT attribution above still applies. Mood follows each account's raw headline percentage left, with declared exhaustion taking precedence; Used does not change it. See the [mood and Hooray guide](../README.md#claude-code-mood-and-hooray) for the animation switch, reduced-motion behavior and one-shot reset rules.
 
-The picker and Add account use static artwork. The status-icon glyph below remains a separate fixed silhouette, not an animated figure. Steady-mood stills in placed widgets are pending in the documentation base; widgets never play Hooray. iOS figure and appearance redesign work is paused, not documented here as released parity.
+The picker, Add account and widget configuration use static artwork. In the combined Android candidate, placed Usage Bars, Account Rings and Mini Rings use the same native figure renderer for the selected account's steady mood. Color retains its artwork; monochrome uses the widget's own text ink, with transparent eye cut-outs. Other icon choices stay static. Widgets never animate or play Hooray, and the status-icon glyph below remains a separate fixed silhouette. [Release evidence](release.md#android-redesign-evidence) records the candidate's incomplete CI and device gates. iOS figure and appearance redesign work is paused, not documented here as released parity.
 
 ## Font notices
 

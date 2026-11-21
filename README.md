@@ -10,7 +10,7 @@
 
 <p align="center"><a href="#what-the-app-does">What it does</a> · <a href="#supported-services">Services</a> · <a href="#prepaid-credits">Credits</a> · <a href="#widgets">Widgets</a> · <a href="#your-data">Your data</a> · <a href="#build-it-yourself">Build</a></p>
 
-> **Development preview, not a completed release.** These instructions describe the Android redesign candidate. iOS redesign work is paused; existing iOS support remains, but the remaining redesign and joint-release gates are incomplete. Physical-device checks remain open on both platforms. See [candidate evidence and limits](docs/release.md#android-redesign-evidence).
+> **Development preview, not a completed release.** These instructions describe the combined Android redesign candidate in a documentation worktree, not `main` or a released APK. The combined narrow integration gate passed 54 tests; full combined CI and release approval remain pending. iOS redesign work is paused; existing iOS support remains, but the remaining redesign and joint-release gates are incomplete. Physical-device checks remain open on both platforms. See [exact candidate revisions, evidence and limits](docs/release.md#android-redesign-evidence).
 >
 > Build from source or download the debug APK from an Android run under **Actions**. Match the artifact to its commit.
 
@@ -81,11 +81,11 @@ Under **Settings → Provider icons → Claude**, the **Claude Code · Color** a
 
 A stale reading or expired sign-in can retain its last mood; passing a reset time is not evidence of a refill. **Animate Claude Code icon** is on by default for the two eligible choices. Turn it off for still poses; Android's **Remove animations** also stops the movement. The figure stops outside its visible, resumed screen. In Resets it always uses Hooray, including its still pose when motion is off.
 
-This behavior is implemented in the Android candidate but remains under correction for a possible visible-slot enrollment race; it is not release-ready ([review and evidence](docs/release.md#android-redesign-evidence)). The candidate remembers a reset only when a new measured reading confirms the same account/window's dated rollover: the previous reading preceded its advertised reset, the new reading reaches or passes it, and the next reset has advanced into the future. An increase in allowance, clock crossing, first reading or failed refresh does not qualify.
+The Android candidate remembers a reset only when a new measured reading confirms the same account/window's dated rollover: the previous reading preceded its advertised reset, the new reading reaches or passes it, and the next reset has advanced into the future. An increase in allowance, clock crossing, first reading or failed refresh does not qualify.
 
-At the next qualifying main-app opening, it claims the mark before refreshing. The intended presentation is Hooray once for four elapsed seconds on a visible eligible figure, or its still pose for the same time with motion off; the pending correction must establish reliable first-layout enrollment. A qualifying opening is a process background-to-foreground transition with the main activity started. Returning from a sign-in Custom Tab counts only if that transition occurs; activity recreation, resume alone and opening widget configuration do not.
+At the next qualifying main-app opening, it claims the mark before refreshing. After the loaded, resumed screen's first ready layout, each qualifying account with a visible eligible figure gets one shared four-second Hooray presentation, or its still pose for the same time with motion off. The corrected code uses actual placement rather than a fixed frame count; controlled navigation tests cover cold entry and held first placement. A qualifying opening is a process background-to-foreground transition with the main activity started. Returning from a sign-in Custom Tab counts only if that transition occurs; activity recreation, resume alone and opening widget configuration do not.
 
-An interrupted or unseen opportunity does not replay later. See [candidate and device evidence](docs/release.md#android-redesign-evidence); steady-mood widget stills are pending in this documentation base, and no iOS Hooray parity is claimed.
+An interrupted or unseen opportunity does not replay later. Placed Usage Bars, Account Rings and Mini Rings use each account's steady mood, never Hooray; configuration keeps static catalog artwork. See [candidate proof and remaining CI/device gates](docs/release.md#android-redesign-evidence). Phone occurrence of the original layout race and real animation pacing are unverified; no iOS Hooray parity is claimed.
 
 ## Supported services
 
