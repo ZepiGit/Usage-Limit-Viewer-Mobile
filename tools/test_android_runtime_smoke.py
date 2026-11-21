@@ -605,6 +605,200 @@ class ThreeTabsTest(unittest.TestCase):
         self.assertTrue(runtime_smoke.three_tabs(root))
 
 
+class BootReadinessTest(unittest.TestCase):
+    # Dialog text/IDs transcribed from runs 44012206579 attempt 2 and 44055226886 (#66).
+    DIALOG = '''<hierarchy><node package="android" resource-id="android:id/alertTitle"
+        text="System UI isn't responding"/><node package="android" resource-id="android:id/aerr_close"
+        text="Close app"/><node package="android" resource-id="android:id/aerr_wait" text="Wait"/></hierarchy>'''
+    ANR = ("ACTIVITY MANAGER LAST ANR (dumpsys activity lastanr)\nANR in com.android.systemui\n"
+           "PID: 1061\nReason: Process com.android.systemui failed to complete startup\n")
+    CLEAN = "ACTIVITY MANAGER LAST ANR (dumpsys activity lastanr)\n  <no ANR has occurred since boot>"
+
+    class Device(FakeDevice):
+        def __init__(self, dialog, anr, focused=True):
+            super().__init__()
+            self.dialog, self.anr, self.focused = dialog, anr, focused
+
+        def hierarchy(self):
+            return (self.dialog or '<hierarchy><node package="com.android.launcher3" enabled="true" '
+                    'resource-id="com.android.launcher3:id/workspace" bounds="[0,0][720,1560]"/></hierarchy>').encode()
+
+        def answer(self, command):
+            if command == ("shell", "dumpsys", "activity", "lastanr"):
+                return self.anr.encode()
+            if command == ("shell", "dumpsys", "window"):
+                owner = "com.android.launcher3/.Launcher" if self.focused else "com.other/.Activity"
+                return f"mCurrentFocus=Window{{abc u0 {owner}}}".encode()
+            if "resolve-activity" in command:
+                return b"com.android.launcher3/.Launcher"
+            if command[:2] == ("shell", "getprop"):
+                return {"ro.kernel.qemu": b"1", "ro.build.version.sdk": b"37"}[command[-1]]
+            if command[:1] == ("logcat",):
+                return self.anr.encode()
+            return super().answer(command)
+
+    def preflight(self, device):
+        with TemporaryDirectory() as directory, patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke, "time", device):
+            summary = Path(directory, "summary.md")
+            with patch.dict(os.environ, GITHUB_STEP_SUMMARY=str(summary)):
+                result = runtime_smoke.boot_readiness(Path(directory), "emulator-test")
+            files = {path.name: path.read_bytes() for path in Path(directory).iterdir()}
+            return result, files
+
+    def test_only_proven_systemui_startup_anr_requests_a_clean_boot(self):
+        device = self.Device(self.DIALOG, self.ANR)
+        code, files = self.preflight(device)
+        self.assertEqual(75, code)
+        for name in ("failure.xml", "failure.png", "system-log.txt", "last-anr.txt", "system-app-anr.txt"):
+            self.assertIn(name, files)
+        self.assertIn(b"Rejected pre-install boot", files["summary.md"])
+        self.assertIn(b"com.android.systemui", files["boot-readiness.json"])
+        self.assertFalse(any(command[0] == "install" or command[:2] == ("shell", "input")
+                             for command, _, _ in device.calls))
+
+    def test_missing_or_unrelated_evidence_and_nonstartup_anrs_are_fatal(self):
+        cases = [
+            (self.DIALOG, self.CLEAN),
+            (self.DIALOG.replace("android:id/aerr_wait", "android:id/aerr_report"), self.ANR),
+            (self.DIALOG, self.ANR.replace("failed to complete startup", "Input dispatching timed out")),
+            (self.DIALOG.replace("System UI", "Settings"), self.ANR),
+            (self.DIALOG.replace("android:id/aerr_wait", "android:id/other"), self.ANR),
+            (self.DIALOG, self.ANR.replace("com.android.systemui", "com.android.settings")),
+            (None, self.ANR),
+            (self.DIALOG, self.ANR + "\nANR in com.other\nReason: failed to complete startup\n"),
+        ]
+        for dialog, anr in cases:
+            with self.subTest(dialog=dialog, anr=anr):
+                device = self.Device(dialog, anr)
+                code, files = self.preflight(device)
+                self.assertEqual(1, code)
+                self.assertNotIn("summary.md", files)
+                self.assertFalse(any(command[0] == "install" or command[:2] == ("shell", "input")
+                                     for command, _, _ in device.calls))
+
+    def test_an_anr_after_home_observation_still_rejects_the_boot(self):
+        class LateANR(self.Device):
+            def __init__(self):
+                super().__init__(None, BootReadinessTest.CLEAN)
+                self.reads = 0
+
+            def answer(self, command):
+                if command == ("shell", "dumpsys", "activity", "lastanr"):
+                    self.reads += 1
+                    if self.reads > 1:
+                        return BootReadinessTest.ANR.encode()
+                return super().answer(command)
+        code, files = self.preflight(LateANR())
+        self.assertEqual(1, code)
+        self.assertIn(b"failed to complete startup", files["initial-home-0-ready-last-anr.txt"])
+        self.assertEqual("failed", json.loads(files["initial-home.json"])["result"])
+
+    def test_clean_boot_still_requires_focused_home_and_clean_anr(self):
+        for focused, expected in ((True, 0), (False, 1)):
+            with self.subTest(focused=focused):
+                device = self.Device(None, self.CLEAN, focused)
+                code, files = self.preflight(device)
+                self.assertEqual(expected, code)
+                if expected == 0:
+                    self.assertEqual("passed", json.loads(files["initial-home.json"])["result"])
+                self.assertFalse(any(command[0] == "install" or command[:2] == ("shell", "input")
+                                     for command, _, _ in device.calls))
+
+
+class BootRunnerTest(unittest.TestCase):
+    """Execute the runner's boot/teardown functions with synthetic adb and readiness subprocesses."""
+
+    def boot(self, statuses, smoke_status=0):
+        runner = (Path(__file__).parent / "run_android_runtime.sh").read_text()
+        functions = runner[runner.index("preserve_boot() {"):runner.index("cleanup() {")]
+        bootstrap = runner[runner.index("boot_emulator() {"):]
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            emulator = root / "sdk/emulator/emulator"
+            emulator.parent.mkdir(parents=True)
+            emulator.write_text('#!/bin/bash\necho "vulkan_mode_selected:swiftshader gles_mode_selected:swiftshader"\nexec /bin/sleep 60\n')
+            emulator.chmod(0o755)
+            evidence = root / "evidence"
+            evidence.mkdir()
+            harness = r'''
+set -euo pipefail
+emulator_pid=
+ANDROID_SERIAL=emulator-test
+script_directory=/fixture/tools
+emulator_args=(-wipe-data -gpu swiftshader)
+smoke_args=(--apk fixture.apk)
+boot_evidence=$evidence
+sleep() { wait "$emulator_pid" 2>/dev/null || true; }
+timeout() {
+  shift
+  [[ "$1" == adb ]] || return 90
+  shift 3
+  case "$*" in
+    wait-for-device)
+      for ((probe=0; probe<100; probe++)); do
+        [[ -s "$boot_evidence/emulator-boot.txt" ]] && return 0
+        /bin/sleep 0.01
+      done
+      return 91 ;;
+    'shell getprop sys.boot_completed') echo 1 ;;
+    'shell wm size') echo 'Physical size: 720x1560' ;;
+    'shell wm density') echo 'Physical density: 280' ;;
+    *) echo "diagnostic: $*" ;;
+  esac
+}
+readiness=0
+python3() {
+  if [[ "${2:-}" == --boot-readiness ]]; then
+    ((readiness+=1))
+    printf 'ready-%s\n' "$readiness" >> "$evidence/calls.txt"
+    local results=(${TEST_STATUSES//,/ })
+    return "${results[readiness-1]}"
+  fi
+  if [[ "$1" == /fixture/tools/android_runtime_smoke.py ]]; then
+    echo smoke >> "$evidence/calls.txt"
+    return "$TEST_SMOKE_STATUS"
+  fi
+  command python3 "$@"
+}
+'''
+            script = harness + functions + '\ntrap stop_emulator EXIT\n' + bootstrap
+            env = {**os.environ, "ANDROID_HOME": str(root / "sdk"), "evidence": str(evidence),
+                   "GITHUB_STEP_SUMMARY": str(root / "summary.md"), "TEST_STATUSES": statuses,
+                   "TEST_SMOKE_STATUS": str(smoke_status)}
+            result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, timeout=15)
+            calls = (evidence / "calls.txt").read_text().splitlines() if (evidence / "calls.txt").exists() else []
+            files = sorted(str(path.relative_to(evidence)) for path in evidence.rglob("*") if path.is_file())
+            summary = (root / "summary.md").read_text() if (root / "summary.md").exists() else ""
+            installed = (evidence / "installed-on-boot.txt").read_text().strip() if (evidence / "installed-on-boot.txt").exists() else None
+            return result, calls, files, summary, installed
+
+    def test_startup_rejection_reboots_before_exactly_one_smoke(self):
+        result, calls, files, _, installed = self.boot("75,0")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(["ready-1", "ready-2", "smoke"], calls)
+        self.assertEqual("2", installed)
+        self.assertIn("boot-1/emulator-last-anr.txt", files)
+        self.assertIn("boot-1/emulator-system-log.txt", files)
+        self.assertIn("boot-2/emulator-boot.txt", files)
+
+    def test_three_rejected_boots_fail_and_name_the_anr_without_installing(self):
+        result, calls, files, summary, installed = self.boot("75,75,75")
+        self.assertEqual(1, result.returncode)
+        self.assertEqual(["ready-1", "ready-2", "ready-3"], calls)
+        self.assertIsNone(installed)
+        self.assertIn("com.android.systemui failed to complete startup", summary)
+        for attempt in (1, 2, 3):
+            self.assertIn(f"boot-{attempt}/emulator-system-app-anr.txt", files)
+
+    def test_other_boot_failures_and_app_failures_never_retry(self):
+        for statuses, smoke_status, calls in (("1", 0, ["ready-1"]), ("0", 7, ["ready-1", "smoke"])):
+            with self.subTest(statuses=statuses, smoke_status=smoke_status):
+                result, observed, _, _, _ = self.boot(statuses, smoke_status)
+                self.assertEqual(smoke_status or 1, result.returncode, result.stderr)
+                self.assertEqual(calls, observed)
+
+
 class SeededRowTest(unittest.TestCase):
     """#88 01b review, item 3: the second row is tapped, and its own account must open."""
 
@@ -619,6 +813,18 @@ class SeededRowTest(unittest.TestCase):
         result = self.run_row(device)
         self.assertEqual({"tapped": "Kimi (synthetic)", "shownOnScreen": ["Grok (synthetic)", "Kimi (synthetic)"]}, result)
         self.assertEqual("Kimi (synthetic)", device.opened)
+
+    def test_a_duplicate_label_fails_before_tapping_even_when_only_one_node_is_pressable(self):
+        class DuplicateLabel(FakeDevice):
+            def hierarchy(self):
+                xml = super().hierarchy().decode()
+                return xml.replace("</hierarchy>", f'<node package="{self.PACKAGE}" '
+                                   'text="Kimi (synthetic)" bounds="[40,700][680,740]"/></hierarchy>').encode()
+        device = DuplicateLabel()
+        with self.assertRaisesRegex(AssertionError, "Ambiguous seeded row label"):
+            self.run_row(device)
+        self.assertIsNone(device.opened)
+        self.assertFalse(any(command[:3] == ("shell", "input", "tap") for command, _, _ in device.calls))
 
     def test_a_tap_that_opens_the_first_account_instead_fails(self):
         class WrongRow(FakeDevice):
@@ -981,12 +1187,13 @@ class CreditHierarchyTest(unittest.TestCase):
     }
 
     class SelectionDevice(FakeDevice):
-        """CI radio geometry, 310px preview reflow and the observed 596px viewport swipe."""
+        """Historical CI target clipping and preview-above-controls reflow; #123 has no such reflow."""
 
-        def __init__(self, restore_top=102, failed=None, outcome="selected", preselected=False):
+        def __init__(self, restore_top=407, failed=None, outcome="selected", preselected=False, historical=False):
             super().__init__()
             self.restore_top, self.failed, self.outcome = restore_top, failed, outcome
             self.preselected = preselected
+            self.historical = historical
             self.states = {}
             self.state = None
 
@@ -1005,6 +1212,8 @@ class CreditHierarchyTest(unittest.TestCase):
                     "Nutzungskonten": ("Guthabenkonten", 334, 60, 286, 286, 511),
                     "Guthabenkonten": ("Nutzungskonten", 334, 286, 511, 60, 286),
                 }[label]
+                delta = 0
+            if not self.historical:
                 delta = 0
             checked = self.preselected and name in (
                 "credits-en-normal-layout", "credits-en-show-first", "credits-de-layout", "credits-de-show-first")
@@ -1098,12 +1307,57 @@ class CreditHierarchyTest(unittest.TestCase):
                 patch.object(smoke, "wait_for", side_effect=wait):
             return smoke.credit_steps(Path("fixture.apk"))
 
-    def test_radio_callers_reach_full_targets_and_follow_preview_reflow(self):
-        # CI supplies 102/313; lower-edge cases apply the same 84px target and measured +310px reflow.
+    def test_controls_before_preview_keep_checked_coordinates_without_a_second_tap(self):
+        for preselected in (False, True):
+            with self.subTest(preselected=preselected), TemporaryDirectory() as directory:
+                device = self.SelectionDevice(preselected=preselected)
+                result = self.selection_journey(device, directory)
+                self.assertEqual("hidden choice persisted", result["creditRelaunch"])
+                for state in device.states.values():
+                    with self.subTest(caller=state["name"]):
+                        self.assertEqual(1, len(state["taps"]))
+                        top, bottom = state["tap_bounds"][0]
+                        self.assertTrue(144 <= top < bottom <= 1336)
+                        selected = runtime_smoke.credit_checked(state["observations"][-1], state["label"], True)
+                        self.assertIsNotNone(selected)
+                        self.assertEqual(top, bounds(selected)[1])
+                        self.assertIsNotNone(runtime_smoke.credit_checked(
+                            state["observations"][-1], state["other"], False))
+
+    def test_current_control_callers_still_reject_lost_or_wrong_taps(self):
+        for caller, assertion in self.RADIO_CALLERS.items():
+            for outcome in ("lost", "visible-wrong"):
+                with self.subTest(caller=caller, outcome=outcome), TemporaryDirectory() as directory:
+                    device = self.SelectionDevice(failed=caller, outcome=outcome)
+                    with self.assertRaisesRegex(AssertionError, f"UI did not reach {assertion}"):
+                        self.selection_journey(device, directory)
+                    self.assertEqual(1, len(device.state["taps"]))
+                    self.assertFalse(device.state["checked"])
+
+    def test_navigation_reaches_required_layout_below_show_credits_before_returning(self):
+        package = runtime_smoke.DEBUG_PACKAGE
+        first = ET.fromstring(f'<hierarchy><node package="{package}" text="Show credits"/></hierarchy>')
+        reached = ET.fromstring(f'<hierarchy><node package="{package}" text="Show credits"/>'
+                                f'<node package="{package}" text="Normal"/></hierarchy>')
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            target = ET.fromstring('<node selected="true"/>')
+            with patch.object(runtime_smoke, "navigation_target", return_value=target), \
+                    patch.object(smoke, "dump", side_effect=[first, first, reached]), \
+                    patch.object(smoke, "wait_for") as wait, patch.object(smoke, "capture"), \
+                    patch.object(smoke, "scroll") as scroll, patch.object(smoke, "adb", return_value="1234"):
+                smoke.navigate_credit("Settings", "Show credits", "settings", required_label="Normal")
+            self.assertEqual([unittest.mock.call(first, up=True, package=package)], scroll.call_args_list)
+            with patch.object(runtime_smoke, "selected_tab", return_value=True):
+                self.assertFalse(wait.call_args.args[1](first))
+                self.assertTrue(wait.call_args.args[1](reached))
+
+    def test_historical_radio_callers_reach_full_targets_and_follow_preview_reflow(self):
+        # Historical CI supplied 102/313; lower-edge cases keep the measured +310px reflow regression.
         for restore_top in (102, 313, 1100, 1270):
             for preselected in (False, True):
                 with self.subTest(restore_top=restore_top, preselected=preselected), TemporaryDirectory() as directory:
-                    device = self.SelectionDevice(restore_top, preselected=preselected)
+                    device = self.SelectionDevice(restore_top, preselected=preselected, historical=True)
                     result = self.selection_journey(device, directory)
                     self.assertEqual("hidden choice persisted", result["creditRelaunch"])
                     for state in device.states.values():
@@ -1126,7 +1380,7 @@ class CreditHierarchyTest(unittest.TestCase):
         for caller, assertion in self.RADIO_CALLERS.items():
             for outcome in ("lost", "wrong", "visible-wrong"):
                 with self.subTest(caller=caller, outcome=outcome), TemporaryDirectory() as directory:
-                    device = self.SelectionDevice(1100, caller, outcome)
+                    device = self.SelectionDevice(1100, caller, outcome, historical=True)
                     with self.assertRaisesRegex(AssertionError, f"UI did not reach {assertion}"):
                         self.selection_journey(device, directory)
                     self.assertFalse(device.state["checked"])
@@ -1135,15 +1389,16 @@ class CreditHierarchyTest(unittest.TestCase):
                         ET.fromstring(device.hierarchy()), device.state["label"], False))
 
     class HideDevice(FakeDevice):
-        """Switch geometry and 549px Hide reflow observed in runs 44888484546 / 44888487707."""
+        """Current stable switch, plus optional historical 549px preview-above-controls reflow."""
 
-        def __init__(self, first_top, second_top, outcome="hidden", failed_hide=1):
+        def __init__(self, first_top, second_top, outcome="hidden", failed_hide=1, historical=False):
             super().__init__()
             self.top = first_top
             self.second_top = second_top
             self.checked = True
             self.outcome = outcome
             self.failed_hide = failed_hide
+            self.reflow = 549 if historical else 0
             self.hide = 0
 
         def answer(self, command):
@@ -1155,10 +1410,10 @@ class CreditHierarchyTest(unittest.TestCase):
                         outcome = self.outcome if self.hide == self.failed_hide else "hidden"
                         if outcome != "lost":
                             self.checked = outcome != "hidden"
-                            self.top -= 549
+                            self.top -= self.reflow
                     else:
                         self.checked = True
-                        self.top += 549
+                        self.top += self.reflow
                 return b""
             if command[:3] == ("shell", "input", "swipe"):
                 self.top += 596 if int(command[4]) < int(command[6]) else -596
@@ -1229,15 +1484,26 @@ class CreditHierarchyTest(unittest.TestCase):
                 patch.object(smoke, "wait_for", side_effect=wait):
             return smoke.credit_steps(Path("fixture.apk"))
 
-    def test_hide_callers_observe_the_unchecked_switch_after_reflow(self):
+    def test_historical_hide_callers_observe_the_unchecked_switch_after_reflow(self):
         for first_top, second_top in ((488, 664), (1228, 488), (1228, 664)):
             with self.subTest(first_top=first_top, second_top=second_top), TemporaryDirectory() as directory:
-                device = self.HideDevice(first_top, second_top)
+                device = self.HideDevice(first_top, second_top, historical=True)
                 result = self.hide_journey(device, directory)
                 self.assertEqual("hidden choice persisted", result["creditRelaunch"])
                 self.assertIsNotNone(runtime_smoke.credit_checked(
                     ET.fromstring(device.hierarchy()), "Guthaben anzeigen", False))
                 self.assertFalse(device.checked)
+
+    def test_show_first_switch_keeps_its_coordinates_through_both_hide_callers(self):
+        with TemporaryDirectory() as directory:
+            device = self.HideDevice(488, 664)
+            result = self.hide_journey(device, directory)
+            self.assertEqual("hidden choice persisted", result["creditRelaunch"])
+            self.assertEqual(2, device.hide)
+            self.assertFalse(device.checked)
+            taps = [command for command, _, _ in device.calls if command[:3] == ("shell", "input", "tap")]
+            self.assertIn(("shell", "input", "tap", "618", "530"), taps)
+            self.assertIn(("shell", "input", "tap", "618", "706"), taps)
 
     def test_hide_callers_reject_lost_taps_and_wrong_selection(self):
         for failed_hide, name in ((1, "credits-de-hidden-settings"), (2, "credits-de-hidden-again")):
@@ -1749,6 +2015,15 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
             "bounds=[0,0][50,200]}\n      AppearanceRegion{LIGHT_STATUS_BARS bounds=[50,0][100,200]}")
         self.assertIsNone(runtime_smoke.launch_window_state(mixed)["statusDarkIcons"])
         self.assertFalse(runtime_smoke.theme_launch_frame(self.pixels((0, 0, 0)), (0, 0, 0), mixed, mixed, False)["systemEvidence"])
+
+    def test_missing_navigation_appearance_is_unknown_even_on_pure_black(self):
+        window = self.window(dark=False).replace("    mLastAppearance=OPAQUE_NAVIGATION_BARS\n", "")
+        state = runtime_smoke.launch_window_state(window)
+        self.assertIsNone(state["navigationDarkIcons"])
+        self.assertFalse(state["appearanceKnown"])
+        measured = runtime_smoke.theme_launch_frame(self.pixels((0, 0, 0)), (0, 0, 0), window, window, False)
+        self.assertFalse(measured["barsCorrect"])
+        self.assertFalse(measured["systemEvidence"])
 
     def test_each_bar_and_unproven_foreground_fail_independently(self):
         for window in (self.window(dark=False, navigation_dark=True),
