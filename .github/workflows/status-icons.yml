@@ -2,6 +2,7 @@ name: Status icon device evidence
 
 on:
   push:
+    branches: ['**']
     paths:
       - 'app/src/main/kotlin/com/usagelimits/statusicon/**'
       - 'app/src/test/kotlin/com/usagelimits/statusicon/**'

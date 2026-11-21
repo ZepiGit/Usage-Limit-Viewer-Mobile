@@ -4,6 +4,7 @@ name: iOS
 
 on:
   push:
+    branches: ['**']
     paths:
       - 'ios/**'
       - 'shared/**'

@@ -24,6 +24,7 @@ import re
 import statistics
 import struct
 import subprocess
+import sys
 import time
 import uuid
 import xml.etree.ElementTree as ET
@@ -268,6 +269,56 @@ def motion_sequence(name, says, samples):
             "framesDiffer": distinct > 1}
 
 
+def systemui_startup_anr(root, last_anr):
+    """The observed System UI dialog plus the same process's startup failure, never another ANR."""
+    ids = [node.get("resource-id", "") for node in root.iter("node")
+           if node.get("resource-id", "").startswith("android:id/aerr_")]
+    titles = [node.get("text", "").replace("\u2019", "'") for node in root.iter("node")
+              if node.get("package") == "android" and node.get("resource-id") == "android:id/alertTitle"]
+    processes = re.findall(r"(?m)^\s*(?:ANR in|Process:)\s+(\S+)", last_anr)
+    reasons = re.findall(r"(?m)^\s*Reason:\s*(.+)$", last_anr)
+    return (sorted(ids) == ["android:id/aerr_close", "android:id/aerr_wait"]
+            and titles == ["System UI isn't responding"] and processes == ["com.android.systemui"]
+            and len(reasons) == 1 and "failed to complete startup" in reasons[0])
+
+
+def boot_readiness(directory, serial):
+    """Read-only pre-install check; exit 75 requests a fresh boot only for the proven #66 failure."""
+    smoke = Smoke(directory, serial)
+    checking_home = False
+    try:
+        assert smoke.adb("shell", "getprop", "ro.kernel.qemu") == "1", "Expected an emulator"
+        assert smoke.adb("shell", "getprop", "ro.build.version.sdk") == "37", "Expected API 37"
+        component = smoke.adb("shell", "cmd", "package", "resolve-activity", "--brief", "-a",
+                              "android.intent.action.MAIN", "-c", "android.intent.category.HOME").splitlines()[-1]
+        smoke.launcher = component.split("/", 1)[0]
+        checking_home = True
+        smoke.wait_for_launcher("initial-home", component)
+    except (AssertionError, subprocess.SubprocessError, ET.ParseError) as error:
+        root = None
+        try:
+            root = smoke.capture("failure")
+        except (AssertionError, subprocess.SubprocessError, ET.ParseError, struct.error, zlib.error, IndexError):
+            pass
+        complete = smoke.diagnostics()
+        try:
+            smoke.text("system-app-anr.txt", smoke.adb("shell", "dumpsys", "dropbox", "--print", "system_app_anr"))
+        except subprocess.SubprocessError as capture_error:
+            complete = False
+            smoke.text("system-app-anr.txt", str(capture_error))
+        last_anr = directory / "last-anr.txt"
+        retry = checking_home and complete and root is not None and last_anr.exists() and systemui_startup_anr(root, last_anr.read_text())
+        reason = "com.android.systemui failed to complete startup" if retry else str(error)
+        smoke.text("boot-readiness.json", json.dumps({"result": "rejected" if retry else "failed", "reason": reason}))
+        print(f"Boot {'rejected' if retry else 'failed'}: {reason}; evidence: {directory}")
+        if retry and (summary := os.environ.get("GITHUB_STEP_SUMMARY")):
+            with open(summary, "a") as file:
+                file.write(f"Rejected pre-install boot for {reason}; evidence: {directory.name}/.\n")
+        return 75 if retry else 1
+    smoke.text("boot-readiness.json", json.dumps({"result": "passed"}))
+    return 0
+
+
 def launch_window_state(text):
     """Applied bar appearance and the visible fullscreen owner, from Android's window dump.
 
@@ -307,12 +358,12 @@ def launch_window_state(text):
             phase, owner = candidate_phase, candidate
     handoff = len(own) == 2 and len(owners) == 2 and top == nav and len(top) == 1 and top[0] in owners.values()
     status_icons = {"LIGHT_STATUS_BARS" in value.split() for value in status}
-    known = len(policies) == 1 and len(appearances) <= 1 and len(status_icons) == 1
+    known = len(policies) == 1 and len(appearances) == 1 and len(status_icons) == 1
     return {"phase": phase, "owner": owner, "handoff": handoff,
             "systemWindow": owners.get("system") if phase == "system" or (handoff and top == [owners["system"]]) else None,
             "appWindow": owners.get("app") if phase == "app" or handoff else None, "appearanceKnown": known,
             "statusDarkIcons": next(iter(status_icons)) if known else None,
-            "navigationDarkIcons": "LIGHT_NAVIGATION_BARS" in appearances[0].split() if known and appearances else False if known else None}
+            "navigationDarkIcons": "LIGHT_NAVIGATION_BARS" in appearances[0].split() if known else None}
 
 
 def theme_launch_frame(data, ground, before, after, dark_icons):
@@ -1499,7 +1550,8 @@ class Smoke:
         self.text(name + "-seed.json", json.dumps(state, indent=2))
         return state
 
-    def navigate_credit(self, tab, marker, name):
+    def navigate_credit(self, tab, marker, name, required_label=None):
+        required_label = required_label or marker
         root = self.dump(name + "-before")
         target = navigation_target(root, tab, DEBUG_PACKAGE)
         assert target is not None, f"No enabled {tab} navigation item in the debug app"
@@ -1507,13 +1559,20 @@ class Smoke:
             assert target.get("clickable") == "true", f"Unselected {tab} tab is not clickable"
             self.tap(target)
         self.wait_for(name + "-selected", lambda root: selected_tab(root, tab, DEBUG_PACKAGE))
+        heading = {"Settings": "Appearance", "Einstellungen": "Erscheinungsbild"}.get(tab)
+        if heading:
+            for attempt in range(9):
+                root = self.dump(f"{name}-top-{attempt}")
+                if matches(root, heading, DEBUG_PACKAGE):
+                    break
+                self.scroll(root, up=False, package=DEBUG_PACKAGE)
         for attempt in range(10):
             root = self.dump(f"{name}-content-{attempt}")
-            if credit_matches(root, marker):
+            if credit_matches(root, required_label):
                 break
             self.scroll(root, up=True, package=DEBUG_PACKAGE)
         self.wait_for(name, lambda root: selected_tab(root, tab, DEBUG_PACKAGE)
-                      and bool(credit_matches(root, marker)))
+                      and bool(credit_matches(root, required_label)))
         self.capture(name)
         assert self.adb("shell", "pidof", DEBUG_PACKAGE), "Debug app process exited after navigation"
 
@@ -1557,12 +1616,11 @@ class Smoke:
         raise AssertionError(f"Could not reach credit control {label}")
 
     def credit_selection(self, name, label, checked, package=DEBUG_PACKAGE, up=True):
-        """Follow a selection moved out of view by the Settings preview or dependent controls.
+        """Observe the selected value without another tap, following an off-screen control if needed.
 
-        Compact and Hide credits shrink content above their selectors (up=False).
-        Normal and Show credits grow content above their selectors (up=True).
-        Show first only reorders the same preview blocks; its controls keep their height.
-        A visible control with the old value is only waited for, never tapped again.
+        The Overview preview follows its controls, and Show credits precedes its dependent rows.
+        Their own changes therefore no longer reflow content above them (#123). A visible control
+        with the old value is only waited for, never tapped again.
         """
         for attempt in range(12):
             root = self.dump(f"{name}-{attempt}")
@@ -1604,7 +1662,7 @@ class Smoke:
         self.wait_for("credits-en-management-back", lambda root: bool(matches(root, "Manage credit accounts", DEBUG_PACKAGE)))
         self.adb("shell", "input", "keyevent", "BACK")
         self.wait_for("credits-en-overview-back", lambda root: bool(matches(root, "Synthetic credit", DEBUG_PACKAGE)))
-        self.navigate_credit("Settings", "Show credits", "credits-en-settings")
+        self.navigate_credit("Settings", "Show credits", "credits-en-settings", required_label="Normal")
         normal = self.credit_control("credits-en-normal-layout", "Normal", up=False)
         self.tap(normal)
         self.credit_selection("credits-en-normal-selected", "Normal", True, up=True)
@@ -1632,7 +1690,7 @@ class Smoke:
                       and bool(matches(root, "$3.18", DEBUG_PACKAGE)))
         self.tap(self.credit_control("credits-en-collapse", "Collapse"))
         self.wait_for("credits-en-collapsed", lambda root: bool(credit_matches(root, "Credits · 1 balance")))
-        self.navigate_credit("Settings", "Show credits", "credits-en-settings-normal")
+        self.navigate_credit("Settings", "Show credits", "credits-en-settings-normal", required_label="Normal")
         self.tap(self.credit_control("credits-en-restore-normal", "Normal", up=False))
         self.credit_selection("credits-en-normal-restored", "Normal", True, up=True)
         self.adb("shell", "cmd", "locale", "set-app-locales", DEBUG_PACKAGE, "--locales", "de-DE", "--user", "0")
@@ -1640,7 +1698,7 @@ class Smoke:
         self.launch("credits-de-start", DEBUG_PACKAGE, tab="Übersicht")
         self.wait_for("credits-de-overview", lambda root: selected_tab(root, "Übersicht", DEBUG_PACKAGE)
                       and bool(matches(root, "Synthetic credit", DEBUG_PACKAGE)))
-        self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-settings")
+        self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-settings", required_label="Normal")
         layout = self.credit_control("credits-de-layout", "Normal", up=False)
         self.tap(layout)
         self.credit_selection("credits-de-normal-selected", "Normal", True, up=True)
@@ -1653,7 +1711,7 @@ class Smoke:
         credit_first = self.credit_control("credits-de-credit-first", "Guthabenkonten", up=True)
         self.tap(credit_first)
         self.credit_selection("credits-de-credit-first-selected", "Guthabenkonten", True, up=True)
-        show = self.credit_control("credits-de-show-credits", "Guthaben anzeigen", up=True)
+        show = self.credit_control("credits-de-show-credits", "Guthaben anzeigen", up=False)
         assert show.get("checkable") == "true" and show.get("checked") == "true", "Show credits did not start enabled"
         self.capture("credits-de-settings")
         self.navigate_credit("Übersicht", "Guthaben · 1 Konto", "credits-de-compact-overview")
@@ -1725,7 +1783,8 @@ class Smoke:
         shown = [node.get("text") for node in lines]
         assert len(shown) >= 2, f"Fewer than two seeded rows on screen: {shown}"
         chosen = shown[1]
-        row = self.control(root, package, label=lines[1].get("text"))
+        assert len(matches(root, chosen, package)) == 1, f"Ambiguous seeded row label: {chosen}"
+        row = self.control(root, package, label=chosen)
         assert row is not None, f"The row of {chosen} is not pressable"
         self.tap(row)
         self.wait_for(name + "-detail", lambda root: navigation_target(root, "Overview", package) is None
@@ -2088,9 +2147,9 @@ class Smoke:
         order of events are the app's own, only stretched. Window and transition scales stay 0, so
         system window motion (the splash screen's exit) is not part of what these frames show.
 
-        This is evidence, not a gate, and runs after every mandatory check has passed and is on
-        record. It has MOTION_BUDGET_SECONDS for everything it does: the time left is the upper limit
-        of every adb and UIAutomator call and of every pause, and when it is used up the capture ends
+        This is evidence, not a gate, and runs after the release checks and seeded List, before the
+        separate mandatory credit journey. It has MOTION_BUDGET_SECONDS for everything it does:
+        the time left is the upper limit of every adb and UIAutomator call and of every pause, and when it is used up the capture ends
         as `skipped` with the frames it has. A capture that goes wrong is recorded as `capture
         failed`, one whose scale did not read back as MOTION_SCALE as `skipped`. None of that, and no
         file it cannot write, fails the job; the outcome goes to the log and the job summary.
@@ -2426,4 +2485,11 @@ def main():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--boot-readiness"]:
+        parser = argparse.ArgumentParser(description="Read-only pre-install API 37 readiness")
+        parser.add_argument("--boot-readiness", action="store_true")
+        parser.add_argument("--evidence", type=Path, required=True)
+        parser.add_argument("--serial", required=True)
+        arguments = parser.parse_args()
+        sys.exit(boot_readiness(arguments.evidence, arguments.serial))
     main()

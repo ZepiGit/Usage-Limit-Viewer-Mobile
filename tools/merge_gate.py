@@ -12,7 +12,9 @@ GITHUB_STEP_SUMMARY.
 Exit status: 0 passed, 1 failed or gave up, 2 bad usage.
 """
 
+from email.utils import parsedate_to_datetime
 import json
+import math
 import os
 import re
 import sys
@@ -48,6 +50,12 @@ FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
 class Transient(Exception):
     """The listing could not be trusted this time; the next poll tries again."""
+
+
+class RateLimited(Transient):
+    def __init__(self, message, retry_after):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class ApiError(Exception):
@@ -134,7 +142,25 @@ def list_runs(fetch, repo, sha, api="https://api.github.com"):
     return list(runs.values())
 
 
-def http_fetch(token):
+def rate_limit_delay(headers, now):
+    retry = headers.get("Retry-After", "")
+    try:
+        delay = float(retry)
+    except ValueError:
+        try:
+            delay = parsedate_to_datetime(retry).timestamp() - now
+        except (ValueError, TypeError, OverflowError):
+            delay = 0
+    if math.isfinite(delay) and delay > 0:
+        return delay
+    try:
+        delay = float(headers.get("X-RateLimit-Reset", "")) - now
+    except ValueError:
+        delay = 0
+    return delay if math.isfinite(delay) and delay > 0 else 60
+
+
+def http_fetch(token, wall_clock=time.time):
     def fetch(url):
         request = urllib.request.Request(url, headers={
             "Accept": "application/vnd.github+json",
@@ -145,10 +171,16 @@ def http_fetch(token):
             with urllib.request.urlopen(request, timeout=30) as response:
                 return json.load(response), parse_next_link(response.headers.get("Link"))
         except urllib.error.HTTPError as error:
-            limited = error.code == 403 and error.headers.get("X-RateLimit-Remaining") == "0"
-            if error.code >= 500 or error.code == 429 or limited:
+            body = error.read().decode(errors="replace")
+            limited = error.code == 403 and (
+                error.headers.get("X-RateLimit-Remaining") == "0"
+                or any(reason in body.lower() for reason in ("secondary rate limit", "abuse detection")))
+            if error.code == 429 or limited:
+                raise RateLimited(f"HTTP {error.code} rate limit for {url}",
+                                  rate_limit_delay(error.headers, wall_clock())) from error
+            if error.code >= 500:
                 raise Transient(f"HTTP {error.code} for {url}") from error
-            raise ApiError(f"HTTP {error.code} for {url}: {error.read()[:300].decode(errors='replace')}") from error
+            raise ApiError(f"HTTP {error.code} for {url}: {body[:300]}") from error
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
             raise Transient(f"{error} for {url}") from error
     return fetch
@@ -158,14 +190,19 @@ def wait_for_runs(list_now, clock, sleep, log):
     """All listed runs once the judged ones have settled and finished; GaveUp at the deadline."""
     start = clock()
     previous, streak, runs, last_line = None, 0, [], None
+    backoff = 0
     # No fetch starts at or after the deadline.
     while clock() - start < DEADLINE:
+        delay = INTERVAL
         try:
             runs = list_now()
         except Transient as error:
             previous, streak = None, 0
-            line = f"listing failed, trying again: {error}"
+            backoff = max(error.retry_after, backoff * 2) if isinstance(error, RateLimited) else 0
+            delay = backoff or INTERVAL
+            line = f"listing failed, trying again in {delay:g}s: {error}"
         else:
+            backoff = 0
             current = judged(runs)
             ids = frozenset(run["id"] for run in current)
             streak = streak + 1 if ids == previous else 1
@@ -182,7 +219,7 @@ def wait_for_runs(list_now, clock, sleep, log):
             last_line = line
         if elapsed >= DEADLINE:
             break
-        sleep(min(INTERVAL, DEADLINE - elapsed))
+        sleep(min(delay, DEADLINE - elapsed))
     busy = [run for run in judged(runs) if not finished(run)]
     what = "; ".join(f"{label(run)} {state(run)} {run['html_url']}" for run in busy)
     raise GaveUp(f"gave up after {DEADLINE // 60} minutes waiting for "
