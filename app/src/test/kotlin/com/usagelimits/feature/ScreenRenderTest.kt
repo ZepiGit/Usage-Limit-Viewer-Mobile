@@ -208,6 +208,48 @@ class ScreenRenderTest {
     }
 
     @Test
+    fun `failed retained global scope determines the actual List mark`() {
+        val sample = mutableStateOf(usage(status = SnapshotStatus.FAILED))
+        render {
+            OverviewScreen(
+                state = state(sample.value), nowMs = now,
+                onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+        val cases = listOf(
+            Triple(37.0, 90.0, null),
+            Triple(37.0, 70.0, null),
+            Triple(70.0, 90.0, "Moderate"),
+            Triple(90.0, 37.0, "Low"),
+            Triple(100.0, 37.0, "Exhausted"),
+            Triple(37.0, 100.0, "Limited"),
+            Triple(null, 90.0, null),
+        )
+        for ((globalUsed, modelUsed, expected) in cases) {
+            compose.runOnIdle {
+                sample.value = usage(status = SnapshotStatus.FAILED).let {
+                    it.copy(snapshot = it.snapshot!!.copy(windows = listOf(
+                        window(globalUsed, "Weekly").copy(id = "global"),
+                        window(modelUsed, "Model").copy(id = "model", scope = com.usagelimits.core.model.UsageScope.MODEL),
+                    )))
+                }
+            }
+            compose.waitForIdle()
+            for (label in listOf("Moderate", "Low", "Limited", "Exhausted", "Unknown")) {
+                val mark = compose.onNode(hasContentDescription(label), useUnmergedTree = true)
+                if (label == expected) mark.assertIsDisplayed() else mark.assertDoesNotExist()
+            }
+            compose.onNodeWithText("Error", useUnmergedTree = true).assertIsDisplayed()
+            if (modelUsed == 90.0 && globalUsed != 90.0) {
+                compose.onNodeWithText("10%", useUnmergedTree = true).assertIsDisplayed()
+            }
+            if (globalUsed == 37.0) {
+                compose.onNodeWithText("63%", useUnmergedTree = true).assertIsDisplayed()
+            }
+        }
+    }
+
+    @Test
     fun `overview renders an account that has never synced`() {
         // A snapshot of null is a distinct shape from a failed one, and it reaches every
         // formatter on the card.
