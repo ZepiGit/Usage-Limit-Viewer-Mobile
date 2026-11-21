@@ -37,6 +37,7 @@ import androidx.compose.ui.test.pressKey
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.TextFont
 import com.usagelimits.feature.waitDrained
 import org.junit.Assert.assertNotEquals
 import com.usagelimits.ui.theme.UsageLimitsTheme
@@ -185,6 +186,18 @@ class AppearanceSettingsTest {
         compose.onNodeWithText("Roboto Flex").performScrollTo().performClick().assertIsSelected()
         assertEquals(FontWeight(560), styleOf("Claude Pro").fontWeight)
         assertEquals(FontWeight(450), styleOf("Text font").fontWeight)
+    }
+
+    @Test
+    fun `the provider chooser title inherits the chosen text face`() {
+        compose.setContent {
+            UsageLimitsTheme(textFont = TextFont.FIGTREE) { ProviderIconSettings(emptyMap()) { _, _ -> } }
+        }
+        compose.onNodeWithText("Claude", useUnmergedTree = true).performClick()
+        val title = styleOf("Claude icon")
+        assertEquals(FontWeight(450), title.fontWeight)
+        assertNotEquals(FontFamily.SansSerif, title.fontFamily)
+        compose.onNodeWithText("Done").performClick()
     }
 
     @Test

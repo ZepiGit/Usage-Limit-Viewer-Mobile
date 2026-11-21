@@ -71,7 +71,9 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -293,9 +295,9 @@ private fun OverviewHeader(
     onPercentDisplayChange: (PercentDisplay) -> Unit,
 ) {
     val subtitle = when {
-        state.isRefreshing -> stringResource(R.string.overview_refreshing)
-        !state.loaded -> stringResource(R.string.overview_loading_usage)
-        state.accounts.isEmpty() -> stringResource(R.string.overview_no_accounts_yet)
+        state.isRefreshing -> AnnotatedString(stringResource(R.string.overview_refreshing))
+        !state.loaded -> AnnotatedString(stringResource(R.string.overview_loading_usage))
+        state.accounts.isEmpty() -> AnnotatedString(stringResource(R.string.overview_no_accounts_yet))
         else -> headerSubtitle(projection, nowMs, zone)
     }
     // The actions wrap under the title when a large font leaves no room beside it.
@@ -317,7 +319,7 @@ private fun OverviewHeader(
  * and with neither there is no subtitle. The reset uses the app's absolute stamp, in [zone].
  */
 @Composable
-private fun headerSubtitle(projection: OverviewProjection, nowMs: Long, zone: ZoneId): String? {
+private fun headerSubtitle(projection: OverviewProjection, nowMs: Long, zone: ZoneId): AnnotatedString? {
     val header = projection.header
     val claim = when (header.kind) {
         OverviewHeaderKind.ATTENTION ->
@@ -327,10 +329,14 @@ private fun headerSubtitle(projection: OverviewProjection, nowMs: Long, zone: Zo
     }
     val texts = rememberCountdownTexts()
     val stamp = header.resetAt?.let { Countdown.absoluteResetStamp(it, nowMs, zone, currentLocale(), texts) }
-    return when {
-        claim != null && stamp != null -> stringResource(R.string.overview_claim_next_reset, claim, stamp)
-        stamp != null -> stringResource(R.string.overview_next_reset, stamp)
-        else -> claim
+    if (stamp == null) return claim?.let(::AnnotatedString)
+    val subtitle = if (claim == null) stringResource(R.string.overview_next_reset, stamp)
+        else stringResource(R.string.overview_claim_next_reset, claim, stamp)
+    val stampStyle = UsageType.Stamp.toSpanStyle()
+    val start = subtitle.lastIndexOf(stamp)
+    return buildAnnotatedString {
+        append(subtitle)
+        addStyle(stampStyle, start, start + stamp.length)
     }
 }
 
