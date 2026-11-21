@@ -39,8 +39,8 @@ import com.usagelimits.ui.theme.UsageColors
  *
  * Turning the switch on while notifications are not allowed asks through [permission], the
  * same flow the notification card uses. The switch itself is stored either way; once the
- * permission is given, the screen publishes the cached state and the icons appear. The section
- * says, politely announced, whether icons can be shown. When only the "Status bar icons"
+ * permission is given, the application observer publishes the cached state and the icons appear.
+ * The section says, politely announced, whether icons can be shown. When only the "Status bar icons"
  * category is switched off in Android, it says so and leads to that category's settings;
  * switching it on there shows the icons on return, the same way a grant does.
  */

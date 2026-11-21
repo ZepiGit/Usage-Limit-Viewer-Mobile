@@ -40,12 +40,12 @@ object StatusIconRenderer {
     private const val GRID_WIDTH = 36f
     private const val GRID_HEIGHT = 24f
 
-    /** [provider] null is a provider this build does not know: it gets the neutral glyph. */
-    fun render(provider: ProviderId?, icon: StatusIcon, density: Float): Bitmap {
+    /** The repository accepts known providers only; the shared glyph file requires every one. */
+    fun render(provider: ProviderId, icon: StatusIcon, density: Float): Bitmap {
         val bitmap = createBitmap((WIDTH_DP * density).roundToInt(), (HEIGHT_DP * density).roundToInt())
         val canvas = Canvas(bitmap)
         canvas.scale(bitmap.width / GRID_WIDTH, bitmap.height / GRID_HEIGHT)
-        draw(canvas, glyphs[provider] ?: fallback, icon)
+        draw(canvas, glyphs.getValue(provider), icon)
         return bitmap
     }
 
@@ -138,10 +138,4 @@ object StatusIconRenderer {
     private val glyphs: Map<ProviderId, Path> by lazy {
         StatusIconGlyphs.shipped.paths.mapValues { (_, data) -> PathParser.createPathFromPathData(data) }
     }
-
-    /**
-     * The neutral glyph for a provider without one: a plain disc, which no provider mark and no
-     * content sign resembles.
-     */
-    private val fallback: Path by lazy { PathParser.createPathFromPathData(StatusIconGlyphs.shipped.fallback) }
 }

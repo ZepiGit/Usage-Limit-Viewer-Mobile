@@ -79,7 +79,6 @@ fun SettingsScreen(
     onProviderIconChange: (com.usagelimits.core.model.ProviderId, String) -> Unit = { _, _ -> },
     onStatusIconsChange: (Boolean) -> Unit = {},
     onPinnedChange: (accountId: String, pinned: Boolean) -> Unit = { _, _ -> },
-    onNotificationsAllowed: () -> Unit = {},
     onOverviewCreditLayoutChange: (OverviewCreditLayout) -> Unit = {},
     onOverviewShowFirstChange: (OverviewShowFirst) -> Unit = {},
     onOverviewShowCreditsChange: (Boolean) -> Unit = {},
@@ -94,11 +93,10 @@ fun SettingsScreen(
     val settings = state.settings
     val uriHandler = LocalUriHandler.current
     // One permission flow for the screen: the notification card and the status icon section ask,
-    // read and announce it the same way, and a grant from either reaches the publication.
+    // read and announce it the same way; the application observes eligibility for publication.
     val permission = rememberNotificationPermission(
         alreadyAsked = settings.notificationPermissionHandled,
         onAsked = onNotificationPermissionHandled,
-        onAllowed = onNotificationsAllowed,
     )
 
     LazyColumn(

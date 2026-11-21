@@ -28,7 +28,7 @@ class StatusIconRenderingTest {
 
     private val densities = listOf("mdpi" to 1f, "hdpi" to 1.5f, "xhdpi" to 2f, "xxhdpi" to 3f, "xxxhdpi" to 4f)
 
-    private fun render(content: StatusIconContent, outdated: Boolean = false, provider: ProviderId? = ProviderId.CLAUDE, density: Float = 3f) =
+    private fun render(content: StatusIconContent, outdated: Boolean = false, provider: ProviderId = ProviderId.CLAUDE, density: Float = 3f) =
         StatusIconRenderer.render(provider, StatusIcon(content, outdated), density)
 
     private fun figure(n: Int) = StatusIconContent.Figure(n)
@@ -126,7 +126,7 @@ class StatusIconRenderingTest {
      * The glyph part of [provider]'s icon as the status bar shows it on a 280 dpi screen: the
      * bitmap fitted into the 15 dp slot (26 × 17 px), then reduced to "ink" or "no ink" per pixel.
      */
-    private fun glyphAtStatusBarSize(provider: ProviderId?): BooleanArray {
+    private fun glyphAtStatusBarSize(provider: ProviderId): BooleanArray {
         val density = 1.75f
         val small = trueSize(StatusIconRenderer.render(provider, StatusIcon(figure(42), outdated = false), density), density)
         val columns = small.width * 16 / 36
@@ -134,8 +134,8 @@ class StatusIconRenderingTest {
     }
 
     @Test
-    fun `every provider and the unknown one keep a glyph of their own at status bar size`() {
-        val glyphs = (ProviderId.entries + null).associateWith(::glyphAtStatusBarSize)
+    fun `every provider keeps a glyph of its own at status bar size`() {
+        val glyphs = ProviderId.entries.associateWith(::glyphAtStatusBarSize)
         // Two glyphs a person can tell apart differ in a visible patch, not in a stray pixel or two:
         // the closest pairs (Codex and Devin, Codex and OpenCode) measured about 18 of 200 pixels
         // when this was written.
@@ -143,14 +143,8 @@ class StatusIconRenderingTest {
             all.indices.flatMap { i -> (i + 1 until all.size).map { j -> all[i] to all[j] } }
         }.map { (a, b) -> Triple(a.key, b.key, a.value.indices.count { a.value[it] != b.value[it] }) }
             .minBy { it.third }
-        assertTrue("${closest.first ?: "unknown"} and ${closest.second ?: "unknown"} differ in only ${closest.third} pixels",
+        assertTrue("${closest.first} and ${closest.second} differ in only ${closest.third} pixels",
             closest.third >= 12)
-    }
-
-    @Test
-    fun `a provider this build does not know still gets a glyph`() {
-        val unknown = render(figure(42), provider = null)
-        assertTrue(unknown.inked(x1 = unknown.width / 3))
     }
 
     /**
@@ -169,7 +163,7 @@ class StatusIconRenderingTest {
             "100 old" to StatusIcon(StatusIconContent.None, true), "exhausted" to StatusIcon(StatusIconContent.Exhausted, false),
             "error" to StatusIcon(StatusIconContent.Error, false), "unknown" to StatusIcon(StatusIconContent.Unknown, false),
         )
-        val providers: List<ProviderId?> = ProviderId.entries + null
+        val providers = ProviderId.entries
         val strip = listOf(
             ProviderId.CLAUDE to StatusIcon(figure(42), false),
             ProviderId.CODEX to StatusIcon(figure(7), true),
@@ -190,10 +184,10 @@ class StatusIconRenderingTest {
 
     /** Rows of providers, columns of content kinds, labelled, white ink on the dark status bar. */
     private fun sheet(
-        providers: List<ProviderId?>,
+        providers: List<ProviderId>,
         kinds: List<Pair<String, StatusIcon>>,
         strip: List<Pair<ProviderId, StatusIcon>> = emptyList(),
-        draw: (ProviderId?, StatusIcon) -> Bitmap,
+        draw: (ProviderId, StatusIcon) -> Bitmap,
     ): Bitmap {
         val sample = draw(ProviderId.CLAUDE, kinds.first().second)
         val cellWidth = maxOf(sample.width, 90) + 16
@@ -207,7 +201,7 @@ class StatusIconRenderingTest {
         for ((column, kind) in kinds.withIndex()) canvas.drawText(kind.first, labelWidth + column * cellWidth + 4f, 24f, label)
         for ((row, provider) in providers.withIndex()) {
             val top = cellHeight * (row + 1)
-            canvas.drawText(provider?.displayName ?: "unknown", 6f, top + cellHeight / 2f, label)
+            canvas.drawText(provider.displayName, 6f, top + cellHeight / 2f, label)
             for ((column, kind) in kinds.withIndex()) {
                 canvas.drawBitmap(draw(provider, kind.second), labelWidth + column * cellWidth + 4f, top + 4f, null)
             }

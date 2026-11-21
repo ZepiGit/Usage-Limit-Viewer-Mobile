@@ -103,7 +103,11 @@ android {
     }
 
     // The status icon glyphs are shared with the iOS widget; one file, packaged as a Java resource.
-    sourceSets.getByName("main").resources.srcDir("../shared/glyphs")
+    sourceSets.getByName("main").resources.apply {
+        srcDir("../shared/glyphs")
+        // AGP's DSL type hides the PatternFilterable implemented by its source directory set.
+        (this as org.gradle.api.tasks.util.PatternFilterable).include("status-icon-glyphs.json")
+    }
     sourceSets.getByName("main").res.directories.add("../third_party/fonts/android-res")
 
     packaging {

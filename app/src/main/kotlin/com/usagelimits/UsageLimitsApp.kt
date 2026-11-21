@@ -56,6 +56,19 @@ class UsageLimitsApp : Application(), Configuration.Provider {
     var startupJob: kotlinx.coroutines.Job? = null
         private set
 
+    private val statusIconEligibility by lazy {
+        com.usagelimits.statusicon.StatusIconEligibilityObserver(
+            scope = CoroutineScope(appScope.coroutineContext + Dispatchers.Main.immediate),
+            record = { container.settingsStore.recordStatusIconEligibility(it) },
+            publish = { container.publication.notificationsAllowedAgain() },
+        )
+    }
+
+    /** Captures the OS state now; the application queue persists and publishes observations in order. */
+    @androidx.annotation.MainThread
+    internal fun observeStatusIconEligibility(): kotlinx.coroutines.Job =
+        statusIconEligibility.observe(com.usagelimits.statusicon.StatusIconPublisher.canShow(this))
+
     internal val hoorayPlayback = HoorayPlayback()
     internal val mainOpening = MainAppOpening(
         scope = CoroutineScope(appScope.coroutineContext + Dispatchers.Main.immediate),

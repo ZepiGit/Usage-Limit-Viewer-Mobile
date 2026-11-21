@@ -16,7 +16,12 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.sync.NotificationPublisher
 import com.usagelimits.core.sync.resetTestWorkManager
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -41,6 +46,7 @@ import org.robolectric.shadows.ShadowLooper
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [36])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class StatusIconLifecycleTest {
 
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
@@ -177,6 +183,50 @@ class StatusIconLifecycleTest {
     }
 
     @Test
+    fun `a swipe after the active read stays dismissed during an in-flight repaint`() = runBlocking {
+        val a = account("Alpha", 42.0)
+        val b = account("Beta", 87.0)
+        turnOn(a, b)
+        reading(a, 41.0)
+        reading(b, 86.0)
+        var clock = now
+        val accounts = app.container.repository.accountUsageOnce()
+        val settings = store.settings.first()
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val publisher = StatusIconPublisher(app, store, readAccounts = { accounts }, readSettings = { settings },
+            now = { clock }, nextTick = {
+                if (!entered.isCompleted) {
+                    entered.complete(Unit)
+                    release.await()
+                }
+                clock++
+            }, monotonic = { clock })
+
+        runTest {
+            val repaint = launch { publisher.publish(restoreDismissed = false) }
+            try {
+                runCurrent()
+                assertTrue("the repaint read active groups and is waiting before its first post", entered.isCompleted && !repaint.isCompleted)
+                dismiss("Alpha")
+                release.complete(Unit)
+                repaint.join()
+            } finally {
+                release.complete(Unit)
+                repaint.cancelAndJoin()
+            }
+        }
+
+        assertEquals("the late active-group check must not undo the swipe", setOf("Beta"), showing())
+        assertEquals("the surviving group keeps both records", 2, statusRecords().size)
+        assertTrue("the group still showing receives its new reading", statusRecords().all { it.title().startsWith("86% left") })
+        publication.presentationChanged()
+        assertEquals("a later non-sync repaint also respects the dismissal", setOf("Beta"), showing())
+        publication.cacheMoved()
+        assertEquals("a real cache event restores the dismissed group", setOf("Alpha", "Beta"), showing())
+    }
+
+    @Test
     fun `switching on restores dismissed icons, an unchanged switch restores nothing`() = runBlocking {
         val a = account("Alpha", 42.0)
         val b = account("Beta", 87.0)
@@ -274,7 +324,7 @@ class StatusIconLifecycleTest {
     /**
      * What Robolectric can prove about order: Android ranks separate groups of one importance by
      * ranking time, newest first, and a `when` that is not in the future is that time. The first
-     * account must therefore carry the latest real time, and a reorder must reverse the times with
+     * account must therefore carry the latest clock reading, and a reorder must reverse the times with
      * the next publication. Whether the device draws them in that order is ticket 04's evidence.
      */
     @Test
@@ -282,22 +332,28 @@ class StatusIconLifecycleTest {
         val a = account("Alpha", 42.0)
         val b = account("Beta", 87.0)
         val c = account("Gamma", 5.0)
-        val before = System.currentTimeMillis()
-        turnOn(a, b, c)
-        val after = System.currentTimeMillis()
+        store.setPinnedAccounts(listOf(a.localId, b.localId, c.localId))
+        store.setStatusIconsEnabled(true)
+        var clock = now
+        val publisher = StatusIconPublisher(app, store, app.container.repository::accountUsageOnce,
+            now = { clock }, nextTick = { clock++ }, monotonic = { clock })
+        publisher.publish(restoreDismissed = false)
 
         fun times(): Map<String, Long> = statusRecords().groupBy { it.accountName() }.mapValues { (_, records) ->
             assertEquals("summary and child share their account's time", 1, records.map { it.notification.`when` }.toSet().size)
             records.first().notification.`when`
         }
         val first = times()
-        assertTrue("real clock readings, nothing invented", first.values.all { it in before..after })
+        assertEquals("each ranking stamp is the controlled clock reading before its next tick",
+            mapOf("Gamma" to now, "Beta" to now + 1, "Alpha" to now + 2), first)
         assertTrue("Alpha leads, then Beta, then Gamma: $first", first.getValue("Alpha") > first.getValue("Beta") && first.getValue("Beta") > first.getValue("Gamma"))
 
         app.container.repository.reorderAccounts(listOf(c.localId, a.localId, b.localId))
-        publication.presentationChanged()
+        publisher.publish(restoreDismissed = false)
 
         val second = times()
+        assertEquals("the reordered groups use the next actual controlled readings",
+            mapOf("Beta" to now + 3, "Alpha" to now + 4, "Gamma" to now + 5), second)
         assertTrue("Gamma leads after the reorder, then Alpha, then Beta: $second",
             second.getValue("Gamma") > second.getValue("Alpha") && second.getValue("Alpha") > second.getValue("Beta"))
     }
@@ -323,13 +379,12 @@ class StatusIconLifecycleTest {
         store.setPinnedAccounts(listOf(a.localId, b.localId, c.localId))
         store.setStatusIconsEnabled(true)
 
-        // The real clock, each reading noted with how many status records were posted by then.
-        // Robolectric posts synchronously, so a reading made before an account's notifications
-        // were built carries the count from before they appeared.
+        // Each controlled reading carries the record count from before the synchronous post.
+        var time = now
         val readings = mutableListOf<Pair<Long, Int>>()
-        val clock = { System.currentTimeMillis().also { readings += it to statusRecords().size } }
+        val clock = { time.also { readings += it to statusRecords().size } }
         val publisher = StatusIconPublisher(app, store, app.container.repository::accountUsageOnce, now = clock,
-            shown = object : ShownSelection {
+            nextTick = { time++ }, monotonic = { time }, shown = object : ShownSelection {
                 override fun read() = emptyList<String>()
                 override fun write(accountIds: List<String>) = Unit
             })

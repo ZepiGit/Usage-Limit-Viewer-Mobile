@@ -36,6 +36,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.usagelimits.R
+import com.usagelimits.UsageLimitsApp
 import com.usagelimits.statusicon.StatusIconPublisher
 import com.usagelimits.ui.components.OutlineButton
 import com.usagelimits.ui.components.UsageCard
@@ -70,7 +71,6 @@ internal class NotificationPermissionState(
     /** Set by [rememberNotificationPermission]; null only before its first composition. */
     internal var launch: (() -> Unit)? = null
     internal var onAsked: () -> Unit = {}
-    internal var onAllowed: () -> Unit = {}
 
     /** Whether the dialog has been shown, here or by the first launch (#27). */
     internal var asked: Boolean = alreadyAsked
@@ -96,6 +96,7 @@ internal class NotificationPermissionState(
             requesting = true
             asked = true
             onAsked()
+            observeEligibility()
             launch?.invoke()
         } else {
             openNotificationSettings(context)
@@ -106,6 +107,11 @@ internal class NotificationPermissionState(
     internal fun answered() {
         requesting = false
         reread()
+        observeEligibility()
+    }
+
+    private fun observeEligibility() {
+        (context.applicationContext as UsageLimitsApp).observeStatusIconEligibility()
     }
 
     /** Opens the "Status bar icons" category's own settings, or the app's where it has none. */
@@ -116,20 +122,11 @@ internal class NotificationPermissionState(
         context.startFirstAvailable(category, *notificationSettingsIntents(context))
     }
 
-    /**
-     * Reads the grant and the status icon category again; tells [onAllowed] when status icons
-     * have just become showable: notifications allowed and the category open, where before one
-     * of them was not. Notifications allowed while the category stays off is not that moment.
-     */
+    /** Rereads the screen's explanation; application eligibility publication is separate. */
     internal fun reread() {
-        val now = readAllowed()
-        val blocked = StatusIconPublisher.categoryBlocked(manager)
-        val wasShowable = allowed && !statusIconsBlocked
-        val showable = now && !blocked
-        allowed = now
-        statusIconsBlocked = blocked
+        allowed = readAllowed()
+        statusIconsBlocked = StatusIconPublisher.categoryBlocked(manager)
         requestable = canRequest()
-        if (!wasShowable && showable) onAllowed()
     }
 
     private val manager get() = context.getSystemService(NotificationManager::class.java)
@@ -150,15 +147,13 @@ internal class NotificationPermissionState(
 
 /**
  * Remembers the [NotificationPermissionState] for this screen. [alreadyAsked] is the stored
- * history of #27, recorded through [onAsked] before the dialog opens; [onAllowed] runs each time
- * this screen sees status icons become showable (notifications allowed and their category open),
- * wherever the person allowed it.
+ * history of #27, recorded through [onAsked] before the dialog opens. A dialog answer submits
+ * its OS state to the same application observer used by the main window's resume.
  */
 @Composable
 internal fun rememberNotificationPermission(
     alreadyAsked: Boolean,
     onAsked: () -> Unit,
-    onAllowed: () -> Unit = {},
 ): NotificationPermissionState {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -168,7 +163,6 @@ internal fun rememberNotificationPermission(
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { state.answered() }
     state.launch = { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }
     state.onAsked = onAsked
-    state.onAllowed = onAllowed
     LaunchedEffect(alreadyAsked) { if (alreadyAsked != state.asked) state.asked = alreadyAsked }
     DisposableEffect(lifecycle, state) {
         val observer = LifecycleEventObserver { _, event ->

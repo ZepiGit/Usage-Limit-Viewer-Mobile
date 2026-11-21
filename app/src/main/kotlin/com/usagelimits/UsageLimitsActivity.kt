@@ -51,7 +51,9 @@ class UsageLimitsActivity : ComponentActivity() {
         private set
 
     private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* optional */ }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            (application as UsageLimitsApp).observeStatusIconEligibility()
+        }
 
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,6 +84,7 @@ class UsageLimitsActivity : ComponentActivity() {
                 ) == PackageManager.PERMISSION_GRANTED
                 if (!settings.notificationPermissionHandled) container.settingsStore.recordNotificationPermissionHandled()
                 if (shouldAskNotificationPermission(Build.VERSION.SDK_INT, settings.notificationPermissionHandled, granted)) {
+                    (application as UsageLimitsApp).observeStatusIconEligibility()
                     notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
@@ -121,6 +124,11 @@ class UsageLimitsActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             splashScreen.setSplashScreenTheme(theme.splashStyle)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        (application as UsageLimitsApp).observeStatusIconEligibility()
     }
 
     override fun onStart() {

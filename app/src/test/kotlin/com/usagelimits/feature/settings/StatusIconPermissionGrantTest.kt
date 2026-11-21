@@ -21,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
 import com.usagelimits.UsageLimitsApp
@@ -74,16 +75,29 @@ class StatusIconPermissionGrantTest {
     private lateinit var selectedAccountId: String
     private val vm: UsageViewModel get() = owned.vm
 
-    /** How often the screen reported notifications becoming allowed. */
+    private lateinit var original: com.usagelimits.core.di.AppContainer
+    private var eligibilityJob: kotlinx.coroutines.Job? = null
+    private var observers = emptySet<kotlinx.coroutines.Job>()
     private var allowedEvents = 0
 
     @Before
     fun setUp() = runBlocking {
         app.startupJob?.join()
         WorkManager.getInstance(app).cancelAllWork().result.get()
+        original = app.container
+        val container = object : com.usagelimits.core.di.AppContainer(app) {
+            override val publication = object : com.usagelimits.core.sync.Publication by original.publication {
+                override suspend fun notificationsAllowedAgain() {
+                    allowedEvents++
+                    original.publication.notificationsAllowedAgain()
+                }
+            }
+        }
+        org.robolectric.util.ReflectionHelpers.setField(app, "container", container)
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val store = app.container.settingsStore
         store.recordNotificationPermissionHandled()
+        store.recordStatusIconEligibility(false)
         store.setStatusIconsEnabled(true)
         selectedAccountId = account().localId
         store.setPinnedAccounts(listOf(selectedAccountId))
@@ -98,8 +112,11 @@ class StatusIconPermissionGrantTest {
     /** Nothing this class started may outlive it: see `resetTestWorkManager`. */
     @After
     fun drain() {
-        // The view model's jobs end first, also after a failure, before the infrastructure under them.
+        // Both publication owners finish before the infrastructure under them is reset.
+        compose.runOnUiThread { eligibilityJob = app.observeStatusIconEligibility() }
+        compose.waitDrained { eligibilityJob?.isCompleted == true }
         owned.clear()
+        org.robolectric.util.ReflectionHelpers.setField(app, "container", original)
         WorkManager.getInstance(app).cancelAllWork().result.get()
         ShadowLooper.idleMainLooper()
         resetTestWorkManager()
@@ -132,15 +149,20 @@ class StatusIconPermissionGrantTest {
                     onNotificationPermissionHandled = vm::recordNotificationPermissionHandled,
                     onStatusIconsChange = vm::setStatusIcons,
                     onPinnedChange = vm::setPinned,
-                    onNotificationsAllowed = {
-                        allowedEvents++
-                        vm.notificationsAllowed()
-                    },
                 )
             }
         }
         // Room/DataStore results resume on the paused Android looper, not the Compose clock.
         compose.waitDrained { vm.state.value.loaded && vm.state.value.accounts.isNotEmpty() }
+        compose.runOnUiThread {
+            compose.activity.lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+                override fun onResume(owner: androidx.lifecycle.LifecycleOwner) {
+                    eligibilityJob = app.observeStatusIconEligibility()
+                }
+            })
+        }
+        compose.waitDrained { eligibilityJob?.isCompleted == true }
+        observers = vm.viewModelScope.coroutineContext[kotlinx.coroutines.Job]!!.children.toSet()
     }
 
     /**
@@ -166,7 +188,7 @@ class StatusIconPermissionGrantTest {
         compose.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         compose.waitForIdle()
-        ShadowLooper.idleMainLooper()
+        compose.waitDrained { eligibilityJob?.isCompleted == true }
     }
 
     /**
@@ -176,6 +198,8 @@ class StatusIconPermissionGrantTest {
      */
     private fun assertGrantPublishedOnlyTheIcon() {
         assertTrue("the grant must post the chosen account's icon", eventually { statusRecords().size == 2 })
+        compose.runOnUiThread { eligibilityJob = app.observeStatusIconEligibility() }
+        compose.waitDrained { eligibilityJob?.isCompleted == true }
         val records = statusRecords()
         assertEquals("one summary", 1, records.count { it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 })
         assertEquals("one child", 1, records.count { it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 })
@@ -191,6 +215,8 @@ class StatusIconPermissionGrantTest {
         resumeAgain()
         assertEquals("coming back while already allowed publishes nothing more", 1, allowedEvents)
 
+        val viewModelJob = vm.viewModelScope.coroutineContext[kotlinx.coroutines.Job]!!
+        compose.waitDrained { viewModelJob.children.none { it !in observers } && eligibilityJob?.isCompleted != false }
         runBlocking { app.container.publication.cacheMoved() }
         assertEquals("the next cache event still alerts", 1, alertRecords().size)
     }
