@@ -20,7 +20,7 @@ class ScreenshotExportTests(unittest.TestCase):
                 "iphone-overview-detail", "iphone-overview-empty",
                 "iphone-settings", "iphone-settings-layout", "iphone-settings-credits",
                 "iphone-credits-compact", "iphone-credits-expanded",
-                "iphone-claude-mood", "iphone-claude-resets-still", "iphone-claude-still-sheet",
+                "iphone-claude-mood", "iphone-claude-hooray", "iphone-claude-resets-still", "iphone-claude-still-sheet",
                 "ipad-overview", "ipad-overview-dials",
             ]
             for index, name in enumerate(names):
@@ -56,7 +56,7 @@ class ScreenshotExportTests(unittest.TestCase):
             (root / "manifest.json").write_text(json.dumps(records))
             for name in [
                 "iphone-overview-dials", "iphone-settings-layout", "ipad-overview-dials",
-                "iphone-credits-compact", "iphone-settings-credits",
+                "iphone-credits-compact", "iphone-settings-credits", "iphone-claude-hooray",
             ]:
                 with self.subTest(name=name), self.assertRaisesRegex(ValueError, "found 0"):
                     screenshots.export(root, root / "output", [name])

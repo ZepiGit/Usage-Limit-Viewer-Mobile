@@ -12,6 +12,7 @@ struct ClaudeProviderBadge: View {
     var staticSize: CGFloat? = nil
     var figureSlotSize: CGFloat? = nil
     var amplitude: Double = 0.7
+    var accountID: String? = nil
 
     static func isClaudeCode(_ choice: ProviderIconChoice) -> Bool {
         choice.id == "claudecode-color" || choice.id == "claudecode"
@@ -23,7 +24,7 @@ struct ClaudeProviderBadge: View {
             if provider == .claude && Self.isClaudeCode(choice) {
                 ClaudeCodeFigure(mood: mood, size: size,
                     ink: choice.id == "claudecode-color" ? UsageColors.data : UsageColors.ink,
-                    animate: store.settings.animateClaudeCodeIcon, amplitude: amplitude)
+                    animate: store.settings.animateClaudeCodeIcon, amplitude: amplitude, accountID: accountID)
                     .frame(width: figureSlotSize ?? size, height: figureSlotSize ?? size)
             } else {
                 ProviderBadge(provider: provider, size: staticSize ?? size)

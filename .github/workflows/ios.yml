@@ -137,7 +137,8 @@ jobs:
               -resultBundlePath "$GITHUB_WORKSPACE/rendering-$language.xcresult" \
               -testLanguage "$language" -testRegion "$region" \
               -parallel-testing-enabled NO \
-              -only-testing:UsageLimitsRenderingTests/PinnedAccountsRenderingTests
+              -only-testing:UsageLimitsRenderingTests/PinnedAccountsRenderingTests \
+              -only-testing:UsageLimitsRenderingTests/HoorayRenderingTests
           done
           find "$out" -type f | sort
       - name: Upload the renderings

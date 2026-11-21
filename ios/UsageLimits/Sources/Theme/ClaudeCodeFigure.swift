@@ -31,6 +31,46 @@ struct ClaudeCodeFigure: View {
     let ink: Color
     let animate: Bool
     var amplitude: Double = 0.7
+    var accountID: String? = nil
+    @Environment(\.hoorayPlayback) private var playback
+
+    var body: some View {
+        if let playback, let accountID {
+            ClaudeCodePlaybackFigure(playback: playback, accountID: accountID,
+                mood: mood, size: size, ink: ink, animate: animate, amplitude: amplitude)
+        } else {
+            ClaudeCodeAnimatedFigure(mood: mood, size: size, ink: ink, animate: animate, amplitude: amplitude)
+        }
+    }
+}
+
+private struct ClaudeCodePlaybackFigure: View {
+    @ObservedObject var playback: HoorayPlayback
+    let accountID: String
+    let mood: ClaudeCodeMood
+    let size: CGFloat
+    let ink: Color
+    let animate: Bool
+    let amplitude: Double
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.claudeAnimationVisible) private var visible
+    @Environment(\.hoorayViewport) private var viewport
+
+    var body: some View {
+        let start = playback.startedAt(accountID)
+        ClaudeCodeAnimatedFigure(mood: start == nil ? mood : .hooray, size: size, ink: ink,
+            animate: animate, amplitude: amplitude, presentationStart: start)
+            .hooraySlot(accountID: accountID, viewport: viewport, visible: visible && scenePhase == .active)
+    }
+}
+
+private struct ClaudeCodeAnimatedFigure: View {
+    let mood: ClaudeCodeMood
+    let size: CGFloat
+    let ink: Color
+    let animate: Bool
+    var amplitude: Double = 0.7
+    var presentationStart: TimeInterval? = nil
 
     @ReducesMotion private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -59,12 +99,12 @@ struct ClaudeCodeFigure: View {
                     let _ = SettingsTrace.figureFrame(diagnosticID)
                     #endif
                     ClaudeCodeCanvas(mood: mood, size: size, ink: ink,
-                                     elapsed: clock.elapsed(at: ProcessInfo.processInfo.systemUptime),
+                                     elapsed: elapsed,
                                      amplitude: amplitude, still: false)
                 }
             } else {
                 ClaudeCodeCanvas(mood: mood, size: size, ink: ink,
-                                 elapsed: clock.elapsed(at: ProcessInfo.processInfo.systemUptime),
+                                 elapsed: elapsed,
                                  amplitude: amplitude, still: gate.still)
             }
         }
@@ -86,6 +126,11 @@ struct ClaudeCodeFigure: View {
             clock.restart(at: ProcessInfo.processInfo.systemUptime)
             note(gate.still ? "still" : clock.isActive ? "animated" : "paused", mood: newMood)
         }
+    }
+
+    private var elapsed: TimeInterval {
+        let now = ProcessInfo.processInfo.systemUptime
+        return presentationStart.map { max(0, now - $0) } ?? clock.elapsed(at: now)
     }
 
     private func apply(_ gate: Gate) {

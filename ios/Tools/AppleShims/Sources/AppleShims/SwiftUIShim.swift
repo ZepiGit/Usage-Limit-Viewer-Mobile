@@ -174,6 +174,12 @@ extension View {
     public func refreshable(action: @escaping () async -> Void) -> Self { self }
     public func task(_ action: @escaping () async -> Void) -> Self { self }
     public func task<T: Equatable>(id: T, _ action: @escaping () async -> Void) -> Self { self }
+    public func anchorPreference<K: PreferenceKey, A>(key: K.Type = K.self,
+        value: Anchor<A>.Source, transform: @escaping (Anchor<A>) -> K.Value) -> Self { self }
+    public func transformAnchorPreference<K: PreferenceKey, A>(key: K.Type = K.self,
+        value: Anchor<A>.Source, transform: @escaping (inout K.Value, Anchor<A>) -> Void) -> Self { self }
+    public func overlayPreferenceValue<K: PreferenceKey, V: View>(_ key: K.Type = K.self,
+        @ViewBuilder _ transform: @escaping (K.Value) -> V) -> Self { self }
     public func onAppear(perform: (() -> Void)? = nil) -> Self { self }
     public func onDisappear(perform: (() -> Void)? = nil) -> Self { self }
     public func onChange<T: Equatable>(of value: T, perform: @escaping (T) -> Void) -> Self { self }

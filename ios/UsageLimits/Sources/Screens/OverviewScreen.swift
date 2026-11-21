@@ -66,6 +66,7 @@ struct OverviewScreen: View {
                 .readableWidth()
             }
             .accessibilityIdentifier("overview-scroll")
+            .hoorayViewport("overview")
             .environment(\.claudeAnimationVisible, claudeAnimationVisible && !isAdding && !isAddingCredit)
             .background(UsageColors.ground)
             .navigationTitle("Overview")
@@ -301,7 +302,8 @@ struct OverviewAccountContent: View {
         VStack(alignment: .leading, spacing: preview ? 5 : 8) {
             HStack(spacing: preview ? 8 : 10) {
                 if let provider {
-                    ClaudeProviderBadge(provider: provider, mood: claudeMood, size: preview ? 20 : 28)
+                    ClaudeProviderBadge(provider: provider, mood: claudeMood, size: preview ? 20 : 28,
+                        accountID: preview ? nil : entry.id)
                     #if DEBUG
                     .environment(\.claudeAnimationDiagnosticID, "\(preview ? "preview-list" : "list"):\(entry.id)")
                     #endif

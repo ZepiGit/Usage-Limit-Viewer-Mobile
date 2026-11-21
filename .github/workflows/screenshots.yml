@@ -44,6 +44,9 @@ jobs:
           printf 'Real iOS Simulator screenshots of Usage Limits.\nSynthetic in-memory demo accounts only; no credentials or provider requests.\nSource commit: %s\nFixture clock: 2026-09-12 09:41 UTC.\n' "$GITHUB_SHA" \
             > "$GITHUB_WORKSPACE/ios-marketing-screenshots/CAPTURE.txt"
 
+          printf 'Hooray capture: synthetic temporary account register, real dated writer and scene claim; Reduce Motion still during the normal four-second presentation. No keychain or App Group access.\n' \
+            >> "$GITHUB_WORKSPACE/ios-marketing-screenshots/CAPTURE.txt"
+
           for form in iphone ipad; do
             if [ "$form" = iphone ]; then
               udid="$iphone"
@@ -51,6 +54,7 @@ jobs:
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneScreens
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneCredits
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneClaudeMood
+                -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneClaudeHooray
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneClaudeStillSheet
               )
             else
@@ -87,7 +91,7 @@ jobs:
             iphone-overview iphone-overview-dials iphone-overview-order iphone-overview-detail iphone-overview-empty iphone-resets iphone-settings \
             iphone-settings-layout iphone-custom-layout iphone-custom-layout-restored \
             iphone-credits-compact iphone-credits-expanded iphone-settings-credits \
-            iphone-claude-mood iphone-claude-resets-still iphone-claude-still-sheet
+            iphone-claude-mood iphone-claude-hooray iphone-claude-resets-still iphone-claude-still-sheet
           python3 ../Tools/export-screenshots.py \
             "$GITHUB_WORKSPACE/ipad-attachments" "$GITHUB_WORKSPACE/ios-marketing-screenshots" \
             ipad-overview ipad-overview-dials

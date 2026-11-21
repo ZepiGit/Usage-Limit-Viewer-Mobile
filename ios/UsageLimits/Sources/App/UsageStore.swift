@@ -127,6 +127,35 @@ final class UsageStore: ObservableObject {
         return calendar
     }
     private var clock: Task<Void, Never>?
+    let hoorayPlayback = HoorayPlayback()
+    @Published private(set) var openingClaimed = false
+    private lazy var openings = AppOpeningCoordinator(
+        claim: { [weak self] in
+            guard let self else { return [] }
+            #if DEBUG
+            if let container = self.container { try await HoorayOpeningFixture.prepare(container) }
+            #endif
+            await self.load()
+            guard let container = self.container else { return [] }
+            return try await container.claimPendingResetConfirmations()
+        },
+        present: { [weak self] in
+            self?.hoorayPlayback.open($0)
+            self?.openingClaimed = true
+        },
+        refresh: { [weak self] in await self?.refresh(automatic: true) },
+        interrupt: { [weak self] in
+            self?.openingClaimed = false
+            self?.hoorayPlayback.stop()
+        },
+        failed: { [weak self] in self?.lastError = $0.localizedDescription })
+
+    func waitForOpening() async { await openings.task?.value }
+
+    func sceneChanged(_ phase: AppOpeningCoordinator.Phase) {
+        openings.sceneChanged(phase)
+        if phase == .active { updatePresentationClock() }
+    }
 
     /// Built lazily and kept, because it owns the credential store and the account cache: a
     /// second one would be a second set of in-flight refresh locks, and the whole point of that
@@ -582,6 +611,7 @@ final class UsageStore: ObservableObject {
         #if DEBUG
         // Screenshot launches must never open the keychain, cached accounts or saved settings.
         if MarketingDemo.isEnabled { return nil }
+        if let fixture = HoorayOpeningFixture.container() { return fixture }
         if let fixture = RegisterFixture.container() { return fixture }
         if let fixture = CreditRegisterFixture.container() { return fixture }
         #endif

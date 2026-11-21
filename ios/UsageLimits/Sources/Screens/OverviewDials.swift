@@ -134,7 +134,7 @@ private struct OverviewDialTile: View {
                     if let provider {
                         ClaudeProviderBadge(provider: provider, mood: ClaudeCodeMood.steady(for: row),
                             size: preview ? 16 : 34, staticSize: preview ? 16 : 30,
-                            amplitude: preview ? 0.6 : 0.7)
+                            amplitude: preview ? 0.6 : 0.7, accountID: preview ? nil : entry.id)
                         #if DEBUG
                         .environment(\.claudeAnimationDiagnosticID, "\(preview ? "preview-dial" : "dial"):\(entry.id)")
                         #endif

@@ -156,6 +156,7 @@ struct SettingsScreen: View {
                 .listRowBackground(UsageColors.surface)
             }
             .accessibilityIdentifier("settings-form")
+            .hoorayViewport("settings")
             .readableWidth()
             .usageFont(.body)
             .foregroundStyle(UsageColors.ink)
@@ -180,7 +181,9 @@ struct SettingsScreen: View {
         return NavigationLink { ProviderIconsScreen() } label: {
             HStack(spacing: 16) {
                 ClaudeProviderBadge(provider: .claude, mood: mood,
-                    size: 28, staticSize: 30, figureSlotSize: 30)
+                    size: 28, staticSize: 30, figureSlotSize: 30,
+                    accountID: store.glance.overviewOrderedAccounts(at: store.now)
+                        .first { $0.providerID == ProviderID.claude.rawValue }?.id)
                 #if DEBUG
                 .environment(\.claudeAnimationDiagnosticID, "provider:provider")
                 #endif

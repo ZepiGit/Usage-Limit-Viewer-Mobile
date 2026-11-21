@@ -37,6 +37,7 @@ struct AccountDetailScreen: View {
             .padding(16)
             .readableWidth()
         }
+        .hoorayViewport("detail")
         .background(UsageColors.ground)
         .refreshable { await store.refresh() }
     }
@@ -84,7 +85,7 @@ private struct AccountSummaryCard: View {
             HStack {
                 ClaudeProviderBadge(provider: usage.account.provider,
                     mood: ClaudeCodeMood.steady(for: snapshot?.headline(at: now)),
-                    size: 36, staticSize: 32, figureSlotSize: 34, amplitude: 0.8)
+                    size: 36, staticSize: 32, figureSlotSize: 34, amplitude: 0.8, accountID: usage.account.id)
                 #if DEBUG
                 .environment(\.claudeAnimationDiagnosticID, "detail:\(usage.account.id)")
                 #endif

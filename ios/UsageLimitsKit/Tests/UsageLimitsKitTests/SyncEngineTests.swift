@@ -150,7 +150,7 @@ final class SyncEngineTests: XCTestCase {
 
     private actor RecordingSink: SyncSink {
         private(set) var outcomes: [SyncOutcome] = []
-        func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date) async {
+        func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date, accountInstanceID: String?) async {
             outcomes.append(outcome)
         }
         func automaticSyncNotBefore(accountID: String) async -> TimeInterval? { nil }

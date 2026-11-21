@@ -72,6 +72,8 @@ struct UsageLimitsApp: App {
                             }
                     }
                     .environmentObject(store)
+                    .environment(\.hoorayPlayback, store.hoorayPlayback)
+                    .hoorayOpening(playback: store.hoorayPlayback, ready: store.hasLoaded && store.openingClaimed)
                     .environment(\.providerIconChoices, store.settings.providerIcons)
                     .environment(\.claudeAnimationVisible, true)
                     #if DEBUG
@@ -80,6 +82,8 @@ struct UsageLimitsApp: App {
                     .modifier(StoreErrorAlert(store: store))
                 }
                 .environmentObject(store)
+                .environment(\.hoorayPlayback, store.hoorayPlayback)
+                .hoorayOpening(playback: store.hoorayPlayback, ready: store.hasLoaded && store.openingClaimed && detail == nil)
                 .environment(\.providerIconChoices, store.settings.providerIcons)
                 #if DEBUG
                 .environment(\.reduceMotionOverride,
@@ -93,7 +97,7 @@ struct UsageLimitsApp: App {
                     if loaded { apply(router.accountsLoaded(store.accounts.map(\.account.id))) }
                 }
                 .onChange(of: scenePhase) { phase in
-                    if phase == .active { store.updatePresentationClock() }
+                    sceneChanged(phase)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
                     .receive(on: RunLoop.main)) { _ in
@@ -108,11 +112,9 @@ struct UsageLimitsApp: App {
                     NotificationRouter.shared.onAccountTapped = openAccount
                 }
                 .preferredColorScheme(.dark)
-                // Cached first, then the network. A cold launch that waited for the slowest
-                // provider before drawing anything would read as "you have no accounts" for as
-                // long as that took — which on a bad connection is indefinitely.
+                // The opening owns cache load, atomic claim and then the automatic refresh.
                 .task {
-                    await store.load()
+                    sceneChanged(scenePhase)
                     // Asked once, and only after the first screen is up: a permission sheet in
                     // front of an empty app asks the user to approve something they have not
                     // seen the point of yet.
@@ -122,10 +124,19 @@ struct UsageLimitsApp: App {
                     // test written to check the tab bar would fail on the alert instead, for a
                     // reason that reads as unrelated to what it was checking.
                     if !Self.isUITesting && !store.isMarketingDemo {
+                        await store.waitForOpening()
                         _ = await NotificationScheduler.requestAuthorization()
                     }
-                    await store.refresh(automatic: true)
                 }
+        }
+    }
+
+    private func sceneChanged(_ phase: ScenePhase) {
+        switch phase {
+        case .active: store.sceneChanged(.active)
+        case .inactive: store.sceneChanged(.inactive)
+        case .background: store.sceneChanged(.background)
+        @unknown default: store.sceneChanged(.inactive)
         }
     }
 

@@ -85,6 +85,27 @@ quickly tap each Settings switch ten times. Check that each tap changes its swit
 once, and watch the figure for a flash when it switches between still and live drawing.
 Simulator tests check the controls and motion decisions, not these on-device observations.
 
+## Confirmed-reset presentation
+
+The account register commits a Claude reset mark with its new reading in one atomic JSON
+replacement. A matching window must have measured figures on both sides of its advertised
+reset, and the next reset must advance beyond the new reading. Amount increases alone do
+not qualify. Several confirmations coalesce until the next opening.
+
+The first active scene, or active after background, claims and clears the marks before the
+on-open refresh. An inactive-only interruption does not claim again. The first ready layout
+starts one four-second presentation for each visible real Claude Code slot; other slots for
+that account share its elapsed time. Resets and sample previews are excluded. No eligible slot
+spends the opening without replay on later navigation. Interruption stops playback, and
+Reduce Motion or the animation switch keeps the same four-second Hooray as a still.
+Widget snapshots contain neither the pending mark nor the opening playback.
+
+`ResetConfirmationTests` reads the unchanged 24 shared reset vectors through the production
+writer and reopened claim. `AppOpeningTests` holds real provider reads and opening claims
+on gates. `HoorayRenderingTests` holds native layout readiness, injects monotonic time and
+expiry release, and captures the real figure before and after expiry or interruption. These
+test sources are not a claim that simulator or device checks have passed.
+
 ## Marketing screenshots
 
 Run the manual **Marketing screenshots** workflow to capture the actual SwiftUI app on an
@@ -99,6 +120,12 @@ The separate `UsageLimitsScreenshots` test scheme launches a Debug build with
 **Demo data** label. It does not initialize shared storage, the keychain, provider clients,
 background refresh or notification routing. Settings changes have no persistent store.
 Release builds ignore the demo argument and contain no fixtures.
+
+`iphone-claude-hooray.png` is the exception to the in-memory demo: `-ui-testing -fixture-hooray`
+uses a temporary synthetic account register, commits two dated readings through the real writer,
+and reaches Hooray through the normal initial scene claim. It never opens the keychain or the
+App Group, and its transport rejects network requests. The screenshot uses Reduce Motion to
+capture the still pose during the normal four-second window; the fixture does not extend it.
 
 To reproduce on a Mac, generate the project with XcodeGen and choose a simulator destination:
 
