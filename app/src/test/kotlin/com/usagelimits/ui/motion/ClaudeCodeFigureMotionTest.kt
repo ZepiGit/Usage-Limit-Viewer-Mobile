@@ -3,7 +3,10 @@ package com.usagelimits.ui.motion
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.offset
@@ -16,7 +19,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -64,6 +70,8 @@ class ClaudeCodeFigureMotionTest {
     private var animate by mutableStateOf(true)
     private var systemMotion by mutableStateOf(true)
     private var subjectOffset by mutableStateOf(0.dp)
+    private var clippedBy: ScrollState? = null
+    private var draws = 0
 
     private fun show() {
         compose.mainClock.autoAdvance = false
@@ -72,9 +80,18 @@ class ClaudeCodeFigureMotionTest {
                 // 60dp of ground on every side: particles draw outside the 28dp box.
                 Row(Modifier.background(UsageColors.Surface).padding(60.dp)) {
                     CompositionLocalProvider(LocalMotionEnabled provides systemMotion, LocalAnimateClaudeCodeIcon provides animate) {
-                        Box(Modifier.size(28.dp)) {
-                            ProviderLogo(ProviderId.CLAUDE, Modifier.offset(x = subjectOffset).size(28.dp).testTag("subject"),
-                                FigureSlot.LIST_ROW, mood)
+                        // The layer keeps the subject's drawing to itself, so [draws] counts its own redraws.
+                        val subject = Modifier.offset(x = subjectOffset).graphicsLayer().size(28.dp)
+                            .drawWithContent { draws++; drawContent() }.testTag("subject")
+                        val scroll = clippedBy
+                        if (scroll == null) {
+                            Box(Modifier.size(28.dp)) { ProviderLogo(ProviderId.CLAUDE, subject, FigureSlot.LIST_ROW, mood) }
+                        } else {
+                            // A clipped, scrolling parent 100dp tall, as a list is for its rows.
+                            Column(Modifier.size(28.dp, 100.dp).verticalScroll(scroll)) {
+                                ProviderLogo(ProviderId.CLAUDE, subject, FigureSlot.LIST_ROW, mood)
+                                Spacer(Modifier.height(300.dp))
+                            }
                         }
                     }
                     Spacer(Modifier.width(120.dp))
@@ -191,6 +208,34 @@ class ClaudeCodeFigureMotionTest {
             assertEquals("the first frame in view is the still pose", listOf(true), recorder.stillPoses(1))
             recorder.next(2)
             assertTrue("moving once in view", changes(recorder.subjects(10)) > 0)
+        }
+    }
+
+    @Test
+    fun `a figure scrolled out of its clipped parent stops its loop and returns from the still pose`() {
+        mood = ClaudeCodeMood.DANCING
+        val scroll = ScrollState(0)
+        clippedBy = scroll
+        show()
+        val shift = with(compose.density) { 50.dp.toPx() }
+        FrameRecorder(compose).use { recorder ->
+            recorder.next(2)
+            assertTrue("moving while in view", changes(recorder.subjects(10)) > 0)
+            region("still")
+
+            // 50dp up: the 28dp box is wholly above its parent's visible rect, still inside the window.
+            compose.change { scroll.dispatchRawDelta(shift) }
+            recorder.next(4).forEach { it.recycle() }
+            val top = compose.onNodeWithTag("subject").fetchSemanticsNode().positionInRoot.y
+            assertTrue("the hidden figure is inside the window (top at $top px)", top >= 0f)
+            val before = draws
+            recorder.next(30).forEach { it.recycle() }
+            assertEquals("redraws of the hidden figure over 30 frames", 0, draws - before)
+
+            compose.change { scroll.dispatchRawDelta(-shift) }
+            assertEquals("the first frame back in view is the still pose", listOf(true), recorder.stillPoses(1))
+            recorder.next(2)
+            assertTrue("moving again once in view", changes(recorder.subjects(10)) > 0)
         }
     }
 }

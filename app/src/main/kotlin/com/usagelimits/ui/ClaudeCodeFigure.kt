@@ -16,7 +16,8 @@ import androidx.compose.ui.draw.drawBehind
 import kotlin.coroutines.coroutineContext
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onVisibilityChanged
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.ui.semantics.Role
@@ -92,7 +93,10 @@ internal fun ClaudeCodeFigure(
                 this.contentDescription = contentDescription
                 role = Role.Image
             })
-            .onVisibilityChanged { visible = it }
+            // Visible means some of its box lies inside every ancestor's bounds and the window: a row
+            // scrolled out of its list's viewport counts as hidden (onVisibilityChanged in Compose UI
+            // 1.12.1 checks the window alone and kept such a figure running).
+            .onGloballyPositioned { visible = !it.boundsInWindow().isEmpty }
             .drawBehind {
                 val origin = Offset((size.width - sizePx) / 2f, (size.height - sizePx) / 2f)
                 art.draw(this, fill, sleepInk, origin, clock.time, slot.amplitude)
