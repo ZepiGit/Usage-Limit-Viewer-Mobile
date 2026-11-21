@@ -9,12 +9,16 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.ContextThemeWrapper
 import android.view.View
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.graphics.Canvas as ComposeCanvas
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -70,6 +74,7 @@ import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import com.usagelimits.ui.theme.UsageType
 import com.usagelimits.widget.WidgetBackground
 import com.usagelimits.widget.WidgetStyle
 import com.usagelimits.widget.WidgetUpdater
@@ -414,10 +419,16 @@ class RedesignCaptureTest {
                     if (!row.checkFonts) continue
                     when (name) {
                         "A1-overview" -> {
-                            if (row.fontScale == 1.5f) {
-                                for (token in listOf("100", "4")) {
-                                    assertTextFits(com.usagelimits.ui.text.percentFigure(token, resources))
-                                }
+                            fun figure(token: String) = com.usagelimits.ui.text.percentFigure(token, resources)
+                            val full = assertTextFits(figure("100"))
+                            val digitAdvance = full.getBoundingBox(0).width
+                            val twoDigitAdvance = full.getLineRight(0) - full.getLineLeft(0) - digitAdvance
+                            assertTextFits(figure("4"))
+                            for (token in listOf("66", "29", "12", "48")) {
+                                val layout = assertTextFits(figure(token))
+                                val advance = layout.getLineRight(0) - layout.getLineLeft(0)
+                                assertEquals("${row.suffix}: ${figure(token)} has the List figure's mono advance",
+                                    twoDigitAdvance, advance, 0.1f)
                             }
                             // Larger text can put Credits below even the tall capture's fold.
                             val amount = CreditFormat.string(BigDecimal("18.40"), "USD", row.locale)
@@ -439,6 +450,40 @@ class RedesignCaptureTest {
         }
     }
 
+    @Test
+    fun `English percentages draw distinct figure faces with equal cell advances`() {
+        val font = mutableStateOf(FigureFont.ROBOTO_MONO)
+        compose.setContent {
+            UsageLimitsTheme(textFont = TextFont.FIGTREE, figureFont = font.value) {
+                Column {
+                    Text("61%", style = UsageType.FigureLarge)
+                    Text("000", style = UsageType.FigureLarge)
+                }
+            }
+        }
+
+        val masks = FigureFont.entries.map { face ->
+            compose.runOnIdle { font.value = face }
+            val figure = assertTextFits("61%")
+            assertEquals("$face three-cell advance", assertTextFits("000").getLineRight(0), figure.getLineRight(0), 0.1f)
+            val ink = compose.runOnIdle {
+                buildList {
+                    Bitmap.createBitmap(figure.size.width, figure.size.height, Bitmap.Config.ARGB_8888).useOnce { bitmap ->
+                        figure.multiParagraph.paint(ComposeCanvas(Canvas(bitmap)), color = Color.White)
+                        for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+                            if (android.graphics.Color.alpha(bitmap.getPixel(x, y)) >= 128) add(x to y)
+                        }
+                    }
+                }
+            }
+            assertTrue("$face draws ink", ink.isNotEmpty())
+            val left = ink.minOf { it.first }
+            val top = ink.minOf { it.second }
+            ink.map { (x, y) -> (x - left) to (y - top) }
+        }
+        assertEquals("every figure face draws distinct 61% glyphs", FigureFont.entries.size, masks.toSet().size)
+    }
+
     private fun captureScreen(name: String, suffix: String) {
         val root = compose.activity.window.decorView
         Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).useOnce {
@@ -447,7 +492,7 @@ class RedesignCaptureTest {
         }
     }
 
-    private fun assertTextFits(text: String) {
+    private fun assertTextFits(text: String): TextLayoutResult {
         val node = compose.onNodeWithText(text, useUnmergedTree = true)
         val layouts = mutableListOf<TextLayoutResult>()
         node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { action -> action(layouts) }
@@ -463,6 +508,7 @@ class RedesignCaptureTest {
         assertTrue("$text has a visible size: $bounds", bounds.width > 0f && bounds.height > 0f)
         assertTrue("$text is inside the screen: $bounds in $root",
             bounds.left >= root.left && bounds.top >= root.top && bounds.right <= root.right && bounds.bottom <= root.bottom)
+        return layout
     }
 
     @Test fun `screens light`() = captureAll("light")
