@@ -35,6 +35,7 @@ import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.claudeCodeMoodAt
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.OverviewCreditLayout
+import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.core.sync.BackgroundRestrictions
@@ -81,6 +82,7 @@ fun SettingsScreen(
     onOverviewShowFirstChange: (OverviewShowFirst) -> Unit = {},
     onOverviewShowCreditsChange: (Boolean) -> Unit = {},
     onManageCredits: (() -> Unit)? = null,
+    onAppThemeChange: (AppTheme) -> Unit = {},
     onAnimateClaudeCodeIconChange: (Boolean) -> Unit = {},
     /** The instant Overview orders by; the Claude provider row follows Overview's first Claude account. */
     nowMs: Long = System.currentTimeMillis(),
@@ -103,6 +105,9 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item { ScreenTitle(stringResource(R.string.settings_title)) }
+
+        item { SectionHeader(stringResource(R.string.settings_section_appearance)) }
+        item { AppearanceSettings(settings, onAppThemeChange) }
 
         item {
             // The first Claude account in unfiltered Overview order speaks for Claude's row; none is Idle.

@@ -11,8 +11,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.ui.theme.LocalMotionEnabled
-import com.usagelimits.ui.theme.UsageColors
+import com.usagelimits.ui.theme.colors
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -48,6 +49,8 @@ import java.time.ZoneId
 @Config(sdk = [34], qualifiers = "en-rGB-w393dp-h1600dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class OverviewRowContentTest {
+    private val palette = AppTheme.PURE_BLACK.colors
+
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
     private val now = 1_757_000_000_000L // Thu 2025-09-04 15:33:20 UTC
@@ -100,8 +103,8 @@ class OverviewRowContentTest {
             for (dy in -3..3) {
                 val c = image.getPixel(x, y + dy)
                 if (c == ink) filled++
-                if (c == ink || c == UsageColors.Rule.toArgb()) track++
-                if (c == UsageColors.Ink.toArgb()) segment = true
+                if (c == ink || c == palette.Rule.toArgb()) track++
+                if (c == palette.Ink.toArgb()) segment = true
             }
         }
         image.recycle()
@@ -169,7 +172,7 @@ class OverviewRowContentTest {
         provider = ProviderId.XAI)
 
     @Test fun `a breakdown window's bar is the quota in the chosen mode, not the reported segments`() {
-        val data = UsageColors.Data.toArgb()
+        val data = palette.Data.toArgb()
         mode = PercentDisplay.LEFT
         show(xai)
         val (left, leftSegments) = bar("Monthly credits", "40%", data)
@@ -186,12 +189,12 @@ class OverviewRowContentTest {
     @Test fun `an aged breakdown reading draws a stale bar and a faint legend`() {
         // Two days after the fetch: old, so the bar is the stale ink and the legend loses its colours.
         show(xai, at = now + 48 * hour)
-        val (data, _) = bar("Monthly credits", "40%", UsageColors.Data.toArgb())
-        val (stale, segments) = bar("Monthly credits", "40%", UsageColors.StaleMark.toArgb())
+        val (data, _) = bar("Monthly credits", "40%", palette.Data.toArgb())
+        val (stale, segments) = bar("Monthly credits", "40%", palette.StaleMark.toArgb())
         assertEquals("no data ink on an aged reading", 0.0, data, 0.0)
         assertTrue("the stale ink fills the bar", stale > 0.3)
         assertTrue("no segment colour", !segments)
-        assertEquals("the legend is faint", UsageColors.Faint, legendColour("Grok 4 usage: 35%"))
+        assertEquals("the legend is faint", palette.Faint, legendColour("Grok 4 usage: 35%"))
     }
 
     /** The colour the legend text is drawn in, read from its first glyph pixels. */
@@ -201,7 +204,7 @@ class OverviewRowContentTest {
         val root = compose.activity.window.decorView
         val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
         try {
-            val surface = UsageColors.Surface.toArgb()
+            val surface = palette.Surface.toArgb()
             // The brightest pixel of the glyphs is the full text colour; edges are blended.
             var best = surface
             for (y in box.top.toInt() until box.bottom.toInt()) for (x in box.left.toInt() until box.right.toInt()) {

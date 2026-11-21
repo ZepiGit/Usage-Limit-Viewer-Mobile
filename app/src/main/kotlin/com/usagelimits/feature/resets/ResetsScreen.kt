@@ -128,6 +128,7 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
     val description = stringResource(
         R.string.resets_row_description, time, windowLabel, reset.accountLabel, statusLabel, countdown,
     )
+    val dataMark = UsageColors.Data
 
     Row(
         // The severity dot is a bare Box: it emits no semantics node, so the status was
@@ -141,7 +142,7 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
                 contentDescription = description
             }
             .drawBehind {
-                if (isNext) drawRect(UsageColors.Data, Offset(0f, 8.dp.toPx()), Size(2.dp.toPx(), size.height - 16.dp.toPx()))
+                if (isNext) drawRect(dataMark, Offset(0f, 8.dp.toPx()), Size(2.dp.toPx(), size.height - 16.dp.toPx()))
             }
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -173,7 +174,7 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
         Text(
             text = countdown,
             style = UsageType.Figure,
-            color = if (isNext) UsageColors.Data else UsageColors.Muted,
+            color = if (isNext) UsageColors.DataText else UsageColors.Muted,
             textAlign = TextAlign.End,
         )
     }

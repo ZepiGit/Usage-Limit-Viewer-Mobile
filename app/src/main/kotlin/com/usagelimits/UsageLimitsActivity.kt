@@ -5,6 +5,9 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.view.ViewTreeObserver
+import androidx.annotation.StyleRes
+import androidx.compose.runtime.SideEffect
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -16,6 +19,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.usagelimits.core.notifications.shouldAskNotificationPermission
+import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.ui.theme.colors
 import com.usagelimits.feature.settings.AppIcon
 import com.usagelimits.core.oauth.SignInKeepAliveService
 import com.usagelimits.core.sync.SyncWorker
@@ -24,6 +29,14 @@ import com.usagelimits.navigation.UsageLimitsNavigation
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+
+@get:StyleRes
+internal val AppTheme.splashStyle: Int get() = when (this) {
+    AppTheme.WARM_DARK -> R.style.Theme_UsageLimits_App_WarmDark
+    AppTheme.PURE_BLACK -> R.style.Theme_UsageLimits_App
+    AppTheme.COOL_GRAPHITE -> R.style.Theme_UsageLimits_App_CoolGraphite
+    AppTheme.LIGHT_PAPER -> R.style.Theme_UsageLimits_App_LightPaper
+}
 
 class UsageLimitsActivity : ComponentActivity() {
     /**
@@ -48,11 +61,15 @@ class UsageLimitsActivity : ComponentActivity() {
         // intent it was started with was handled before, and is not read again. Its first start
         // reads the intent.
         pending.value = if (savedInstanceState != null) ExternalRequest.readFrom(savedInstanceState) else ExternalRequest.from(intent)
-        // The app keeps its dark palette even when Android uses a light theme.
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
-        )
+        var appliedTheme: AppTheme? = null
+        val decor = window.decorView
+        decor.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (appliedTheme == null) return false
+                decor.viewTreeObserver.removeOnPreDrawListener(this)
+                return true
+            }
+        })
 
         val container = (application as UsageLimitsApp).container
 
@@ -72,17 +89,34 @@ class UsageLimitsActivity : ComponentActivity() {
         }
 
         setContent {
-            // Recomputed on every configuration change, so unfolding a foldable, entering
-            // split-screen or resizing a freeform window re-lays-out the shell immediately.
+            // DataStore loads on its own dispatcher. No default Composition or overlay is
+            // installed until it has answered, even if the account and credit stores are slower.
+            val settings = container.settingsStore.settings.collectAsState(initial = null).value ?: return@setContent
+            val theme = settings.appTheme
             val windowSizeClass = calculateWindowSizeClass(this)
-            val settings = container.settingsStore.settings.collectAsState(initial = com.usagelimits.core.settings.AppSettings()).value
-            UsageLimitsTheme(providerIcons = settings.providerIcons) {
+            UsageLimitsTheme(appTheme = theme, providerIcons = settings.providerIcons) {
                 androidx.compose.runtime.CompositionLocalProvider(
                     com.usagelimits.ui.LocalAnimateClaudeCodeIcon provides settings.animateClaudeCodeIcon,
                 ) {
                     UsageLimitsNavigation(container, windowSizeClass, pending.value, ::handled)
                 }
             }
+            SideEffect {
+                if (appliedTheme != theme) {
+                    applyAppearance(theme)
+                    appliedTheme = theme
+                }
+            }
+        }
+    }
+
+    private fun applyAppearance(theme: AppTheme) {
+        window.setBackgroundDrawableResource(theme.colors.groundRes)
+        val bars = if (theme.isLight) SystemBarStyle.light(Color.TRANSPARENT, Color.BLACK)
+            else SystemBarStyle.dark(Color.TRANSPARENT)
+        enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            splashScreen.setSplashScreenTheme(theme.splashStyle)
         }
     }
 

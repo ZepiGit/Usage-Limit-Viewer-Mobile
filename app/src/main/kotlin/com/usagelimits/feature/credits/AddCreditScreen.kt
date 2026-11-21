@@ -1,7 +1,5 @@
 package com.usagelimits.feature.credits
 
-import androidx.annotation.DrawableRes
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -107,7 +104,7 @@ fun AddCreditScreen(
                 ProviderRow(
                     name = provider.displayName, subtitle = stringResource(creditKeyHintRes(provider)),
                     selected = provider == selected, enabled = !busy,
-                    icon = creditIcon(provider), onOpen = { uriHandler.openUri(provider.consoleUrl) },
+                    provider = provider, onOpen = { uriHandler.openUri(provider.consoleUrl) },
                 ) { selected = provider }
             }
             CreditProviderId.notPossible.forEach { unavailable ->
@@ -131,7 +128,7 @@ private fun ProviderRow(
     subtitle: String,
     selected: Boolean,
     enabled: Boolean,
-    @DrawableRes icon: Int? = null,
+    provider: CreditProviderId? = null,
     onOpen: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -145,7 +142,7 @@ private fun ProviderRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (icon != null) Image(painterResource(icon), null, Modifier.size(30.dp))
+        if (provider != null) CreditArtwork(provider)
         Column(Modifier.weight(1f)) {
             Text(name, style = MaterialTheme.typography.titleMedium, color = if (enabled || selected) UsageColors.Ink else UsageColors.Muted)
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = if (enabled || selected) UsageColors.Muted else UsageColors.Faint)

@@ -49,6 +49,7 @@ import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.WidgetScope
+import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.R
 import com.usagelimits.ui.ProviderLogo
 import com.usagelimits.ui.components.ErrorBlock
@@ -97,7 +98,7 @@ class WidgetConfigActivity : ComponentActivity() {
             targetColumns ?: if (kind == "Mini Rings") 1 else 3, targetRows ?: if (kind == "Mini Rings" || kind == "Usage Summary") 1 else 2)
         setContent {
             val settings by container.settingsStore.settings.collectAsState(initial = com.usagelimits.core.settings.AppSettings())
-            UsageLimitsTheme(providerIcons = settings.providerIcons) {
+            UsageLimitsTheme(appTheme = AppTheme.WARM_DARK, providerIcons = settings.providerIcons) {
                 var initial by remember { mutableStateOf<WidgetConfigEntity?>(null) }
                 var loaded by remember { mutableStateOf(false) }
                 val accounts by container.repository.observeAccountUsage().collectAsState(emptyList())

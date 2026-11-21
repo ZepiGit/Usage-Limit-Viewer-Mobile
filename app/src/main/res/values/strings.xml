@@ -67,6 +67,19 @@
 
     <!-- Settings screen (feature/settings/SettingsScreen.kt). Thresholds are passed in as formatted figures so the percent template stays the one place a sign is laid out. -->
     <string name="settings_title">Settings</string>
+
+    <!-- Appearance: app-only theme selection and its live preview. -->
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_appearance_preview">Preview</string>
+    <string name="settings_appearance_preview_account">Claude Pro</string>
+    <string name="settings_appearance_preview_values">%1$s · %2$s · %3$s</string>
+    <string name="settings_appearance_theme">Theme</string>
+    <string name="settings_appearance_theme_subtitle">Colours of the app. Widgets keep their own panel style.</string>
+    <string name="settings_appearance_warm_dark">Warm dark</string>
+    <string name="settings_appearance_pure_black">Pure black</string>
+    <string name="settings_appearance_cool_graphite">Cool graphite</string>
+    <string name="settings_appearance_light_paper">Light paper</string>
+
     <string name="settings_section_sync">Sync</string>
     <string name="settings_interval_title">Background refresh interval</string>
     <string name="settings_interval_subtitle">Android may refresh less often in Doze or battery saver.</string>
@@ -171,7 +184,7 @@
     <string name="overview_no_credits">No prepaid balances tracked.</string>
     <string name="overview_add_credit">Add credit balance</string>
     <string name="overview_credit_collapse">Collapse</string>
-    <string name="overview_credit_expand">Expands the credit balances</string>
+    <string name="overview_credit_expand">Expand credit balances</string>
     <string name="overview_credit_low_balance">Low balance: %1$s</string>
     <string name="overview_credit_hint">%1$s %2$s</string>
     <plurals name="overview_credit_count">
@@ -203,7 +216,7 @@
     <string name="overview_filter_attention">Needs attention</string>
     <string name="overview_filter_resets_today">Resets today</string>
     <string name="overview_no_match">No accounts match this filter.</string>
-    <string name="overview_headline_caption">The brighter line is the account’s headline.</string>
+    <string name="overview_headline_caption">The emphasised line is the account’s headline.</string>
     <string name="overview_sign_in_expired">Sign-in expired · showing last known data</string>
     <!-- Spoken before the emphasised window's reading. -->
     <string name="overview_headline_spoken">Headline: %1$s</string>
