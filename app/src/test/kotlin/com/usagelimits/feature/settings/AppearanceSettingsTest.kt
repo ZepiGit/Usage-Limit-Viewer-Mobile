@@ -4,6 +4,8 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.input.key.Key
@@ -24,9 +26,11 @@ import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.AndroidFont
+import androidx.compose.ui.text.font.FontListFontFamily
 import androidx.compose.ui.text.font.FontSynthesis
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.ResourceFont
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
@@ -36,6 +40,7 @@ import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.core.settings.TextFont
+import com.usagelimits.ui.theme.face
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Assert.assertNotEquals
@@ -158,8 +163,7 @@ class AppearanceSettingsTest {
         }
         val defaultText = styleOf("Claude Pro")
         val defaultFigure = styleOf("18%")
-        assertEquals(FontFamily.SansSerif, defaultText.fontFamily)
-        assertEquals(FontWeight.Medium, defaultText.fontWeight)
+        assertEquals(FontWeight(560), defaultText.fontWeight)
         assertEquals(FontWeight.Medium, defaultFigure.fontWeight)
 
         compose.onNodeWithText("Figtree")
@@ -188,6 +192,37 @@ class AppearanceSettingsTest {
     }
 
     @Test
+    fun `text faces request their native weight and variation axis`() {
+        val font = mutableStateOf(TextFont.ROBOTO)
+        compose.setContent {
+            UsageLimitsTheme(textFont = font.value) {
+                Column {
+                    Text("Body", style = MaterialTheme.typography.bodyMedium)
+                    Text("Title", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+        for (face in TextFont.entries) {
+            compose.runOnIdle { font.value = face }
+            val variable = face != TextFont.IBM_PLEX_SANS
+            for ((label, weight) in listOf("Body" to if (variable) 450 else 400, "Title" to if (variable) 560 else 500)) {
+                val style = styleOf(label)
+                assertEquals("$face $label requested weight", FontWeight(weight), style.fontWeight)
+                assertEquals("$face $label synthesis", FontSynthesis.None, style.fontSynthesis)
+                val fontFamily = style.fontFamily as FontListFontFamily
+                val descriptor = fontFamily.single { it.weight == FontWeight(weight) }
+                val settings = when (descriptor) {
+                    is AndroidFont -> descriptor.variationSettings
+                    is ResourceFont -> descriptor.variationSettings
+                    else -> error("Unexpected font descriptor: $descriptor")
+                }
+                assertEquals("$face $label wght axis", weight.toFloat().takeIf { variable },
+                    settings.settings.singleOrNull { it.axisName == "wght" }?.toVariationValue(null))
+            }
+        }
+    }
+
+    @Test
     fun `the provider chooser title inherits the chosen text face`() {
         compose.setContent {
             UsageLimitsTheme(textFont = TextFont.FIGTREE) { ProviderIconSettings(emptyMap()) { _, _ -> } }
@@ -195,7 +230,7 @@ class AppearanceSettingsTest {
         compose.onNodeWithText("Claude", useUnmergedTree = true).performClick()
         val title = styleOf("Claude icon")
         assertEquals(FontWeight(450), title.fontWeight)
-        assertNotEquals(FontFamily.SansSerif, title.fontFamily)
+        assertEquals(TextFont.FIGTREE.face.family, title.fontFamily)
         compose.onNodeWithText("Done").performClick()
     }
 
