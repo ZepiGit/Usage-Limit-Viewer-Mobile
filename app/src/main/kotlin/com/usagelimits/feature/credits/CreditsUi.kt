@@ -22,7 +22,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.usagelimits.R
 import com.usagelimits.core.model.CreditBalance
@@ -42,6 +41,7 @@ import com.usagelimits.ui.text.creditBalanceLabelRes
 import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.ui.theme.UsageColors
+import com.usagelimits.ui.theme.UsageType
 import java.math.BigDecimal
 
 @DrawableRes
@@ -153,14 +153,14 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity, compac
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 text = CreditFormat.line(balance, locale, spentThisMonth = { resources.getString(R.string.credit_spent_this_month, it) }),
-                style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.titleLarge,
+                style = if (compact) UsageType.Stamp else UsageType.Money,
                 color = UsageColors.Ink,
             )
             balance.total?.takeIf { !balance.unlimited && balance.remainingPercent != null }?.let { total ->
                 Text(
                     text = stringResource(R.string.credit_of_total, CreditFormat.string(total, balance.currency, locale)),
                     modifier = Modifier.weight(1f).padding(bottom = 2.dp),
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    style = UsageType.Regular,
                     color = UsageColors.Muted,
                 )
             } ?: Spacer(Modifier.weight(1f))

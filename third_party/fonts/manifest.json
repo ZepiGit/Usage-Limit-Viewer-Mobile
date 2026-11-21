@@ -1,0 +1,148 @@
+{
+  "families": [
+    {
+      "family": "Roboto Flex",
+      "version": "3.200",
+      "source": "https://github.com/googlefonts/roboto-flex/releases/tag/3.200",
+      "license": {
+        "spdx": "OFL-1.1",
+        "file": "android-res/raw/font_license_roboto_flex.txt",
+        "sha256": "454ec26838f2b8f2e2588e759dd3742577e0d305d3359a7b81c86641fcab7d21",
+        "source": "https://raw.githubusercontent.com/googlefonts/roboto-flex/3.200/OFL.txt",
+        "upstream_file": "OFL.txt",
+        "copyright": "Copyright 2011 The Roboto Flex Project Authors (https://github.com/googlefonts/roboto-flex)"
+      },
+      "fonts": [
+        {
+          "file": "android-res/font/roboto_flex.ttf",
+          "upstream_file": "roboto-flex-fonts/fonts/variable/RobotoFlex[GRAD,XOPQ,XTRA,YOPQ,YTAS,YTDE,YTFI,YTLC,YTUC,opsz,slnt,wdth,wght].ttf",
+          "source": "https://github.com/googlefonts/roboto-flex/releases/download/3.200/roboto-flex-fonts.zip",
+          "sha256": "a55c1e67f6dcf27f2bb71dc3e4c03d3abcbc5054411aac943b2f94985195825e"
+        }
+      ]
+    },
+    {
+      "family": "IBM Plex Sans",
+      "version": "@ibm/plex-sans@1.3.6",
+      "source": "https://github.com/IBM/plex/releases/tag/%40ibm%2Fplex-sans%401.3.6",
+      "license": {
+        "spdx": "OFL-1.1",
+        "file": "android-res/raw/font_license_ibm_plex_sans.txt",
+        "sha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da",
+        "source": "https://github.com/IBM/plex/releases/download/%40ibm%2Fplex-sans%401.3.6/ibm-plex-sans.zip",
+        "upstream_file": "ibm-plex-sans/LICENSE.txt",
+        "copyright": "Copyright © 2017 IBM Corp. with Reserved Font Name \"Plex\""
+      },
+      "fonts": [
+        {
+          "file": "android-res/font/ibm_plex_sans_regular.ttf",
+          "upstream_file": "ibm-plex-sans/fonts/complete/ttf/IBMPlexSans-Regular.ttf",
+          "source": "https://github.com/IBM/plex/releases/download/%40ibm%2Fplex-sans%401.3.6/ibm-plex-sans.zip",
+          "sha256": "b47ebd72b5ce53b60f909033ff84d6fc12358cc147e2981f8c321ad3f36246b6"
+        },
+        {
+          "file": "android-res/font/ibm_plex_sans_medium.ttf",
+          "upstream_file": "ibm-plex-sans/fonts/complete/ttf/IBMPlexSans-Medium.ttf",
+          "source": "https://github.com/IBM/plex/releases/download/%40ibm%2Fplex-sans%401.3.6/ibm-plex-sans.zip",
+          "sha256": "a494d5a69fa094f7071a9ffbc98e86c85337d1a29f3fc1ff7c2e1c46161ddf27"
+        }
+      ]
+    },
+    {
+      "family": "Figtree",
+      "version": "v2.0.3",
+      "source": "https://github.com/erikdkennedy/figtree/releases/tag/v2.0.3",
+      "license": {
+        "spdx": "OFL-1.1",
+        "file": "android-res/raw/font_license_figtree.txt",
+        "sha256": "140d37233e7f3ce7313798befa9600893bcceaf41a55fa0fa5ad52f7f657a268",
+        "source": "https://raw.githubusercontent.com/erikdkennedy/figtree/v2.0.3/OFL.txt",
+        "upstream_file": "OFL.txt",
+        "copyright": "Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree)"
+      },
+      "fonts": [
+        {
+          "file": "android-res/font/figtree.ttf",
+          "upstream_file": "fonts/variable/Figtree[wght].ttf",
+          "source": "https://raw.githubusercontent.com/erikdkennedy/figtree/v2.0.3/fonts/variable/Figtree%5Bwght%5D.ttf",
+          "sha256": "6d7fb937ffd4ec82f3030857d910846c0d510eb1a0cb5b23f832a980de39c305"
+        }
+      ]
+    },
+    {
+      "family": "Roboto Mono",
+      "version": "v3.001",
+      "source": "https://github.com/googlefonts/RobotoMono/releases/tag/v3.001",
+      "license": {
+        "spdx": "OFL-1.1",
+        "file": "android-res/raw/font_license_roboto_mono.txt",
+        "sha256": "50ab8dd54680d3473f649c9db86fece88434d097c7834475c1c72d2f8c429215",
+        "source": "https://raw.githubusercontent.com/googlefonts/RobotoMono/v3.001/OFL.txt",
+        "upstream_file": "OFL.txt",
+        "copyright": "Copyright 2015 The Roboto Mono Project Authors (https://github.com/googlefonts/robotomono)"
+      },
+      "fonts": [
+        {
+          "file": "android-res/font/roboto_mono.ttf",
+          "upstream_file": "fonts/variable/RobotoMono[wght].ttf",
+          "source": "https://raw.githubusercontent.com/googlefonts/RobotoMono/v3.001/fonts/variable/RobotoMono%5Bwght%5D.ttf",
+          "sha256": "66a80e79d17e4c7cabd162e2916578a4cc08fd19eef6e2a643305eae9c567b2b"
+        }
+      ]
+    },
+    {
+      "family": "JetBrains Mono",
+      "version": "v2.304",
+      "source": "https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304",
+      "license": {
+        "spdx": "OFL-1.1",
+        "file": "android-res/raw/font_license_jetbrains_mono.txt",
+        "sha256": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad",
+        "source": "https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip",
+        "upstream_file": "OFL.txt",
+        "copyright": "Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)"
+      },
+      "fonts": [
+        {
+          "file": "android-res/font/jetbrains_mono.ttf",
+          "upstream_file": "fonts/variable/JetBrainsMono[wght].ttf",
+          "source": "https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip",
+          "sha256": "662a196d58f1183bf2d77428b6d5283fe3f45161ab021bea4036bc98e5cac016"
+        }
+      ]
+    },
+    {
+      "family": "IBM Plex Mono",
+      "version": "@ibm/plex-mono@2.5.0",
+      "source": "https://github.com/IBM/plex/releases/tag/%40ibm%2Fplex-mono%402.5.0",
+      "license": {
+        "spdx": "OFL-1.1",
+        "file": "android-res/raw/font_license_ibm_plex_mono.txt",
+        "sha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da",
+        "source": "https://github.com/IBM/plex/releases/download/%40ibm%2Fplex-mono%402.5.0/ibm-plex-mono.zip",
+        "upstream_file": "ibm-plex-mono/LICENSE.txt",
+        "copyright": "Copyright © 2017 IBM Corp. with Reserved Font Name \"Plex\""
+      },
+      "fonts": [
+        {
+          "file": "android-res/font/ibm_plex_mono_regular.ttf",
+          "upstream_file": "ibm-plex-mono/fonts/complete/ttf/IBMPlexMono-Regular.ttf",
+          "source": "https://github.com/IBM/plex/releases/download/%40ibm%2Fplex-mono%402.5.0/ibm-plex-mono.zip",
+          "sha256": "7c6fbddca4b700be918f5f6183d9bd4464fa427fe435f0b480d77fe2bb8c5a43"
+        },
+        {
+          "file": "android-res/font/ibm_plex_mono_medium.ttf",
+          "upstream_file": "ibm-plex-mono/fonts/complete/ttf/IBMPlexMono-Medium.ttf",
+          "source": "https://github.com/IBM/plex/releases/download/%40ibm%2Fplex-mono%402.5.0/ibm-plex-mono.zip",
+          "sha256": "98fbd727aae340b236955879dabed4d991aac9e8e90b3b2a67ce4a59221cc97c"
+        },
+        {
+          "file": "android-res/font/ibm_plex_mono_bold.ttf",
+          "upstream_file": "ibm-plex-mono/fonts/complete/ttf/IBMPlexMono-Bold.ttf",
+          "source": "https://github.com/IBM/plex/releases/download/%40ibm%2Fplex-mono%402.5.0/ibm-plex-mono.zip",
+          "sha256": "74e5eedcfa4596497d34e19023cabdabd3a8c852b903007a5654a59591a72ffb"
+        }
+      ]
+    }
+  ]
+}

@@ -33,6 +33,8 @@ import com.usagelimits.core.model.Severity
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.OverviewCreditLayout
 import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
 import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.core.sync.BackgroundRestrictions
@@ -80,6 +82,8 @@ fun SettingsScreen(
     onOverviewShowCreditsChange: (Boolean) -> Unit = {},
     onManageCredits: (() -> Unit)? = null,
     onAppThemeChange: (AppTheme) -> Unit = {},
+    onTextFontChange: (TextFont) -> Unit = {},
+    onFigureFontChange: (FigureFont) -> Unit = {},
 ) {
     val settings = state.settings
     val uriHandler = LocalUriHandler.current
@@ -101,7 +105,7 @@ fun SettingsScreen(
         item { ScreenTitle(stringResource(R.string.settings_title)) }
 
         item { SectionHeader(stringResource(R.string.settings_section_appearance)) }
-        item { AppearanceSettings(settings, onAppThemeChange) }
+        item { AppearanceSettings(settings, onTextFontChange, onFigureFontChange, onAppThemeChange) }
 
         item { ProviderIconSettings(settings.providerIcons, onProviderIconChange) }
         item { AppIconSettings() }

@@ -1,6 +1,12 @@
 package com.usagelimits.feature.settings
 
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.Role
@@ -13,16 +19,31 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.hasAnySibling
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.AndroidFont
+import androidx.compose.ui.text.font.FontListFontFamily
+import androidx.compose.ui.text.font.FontSynthesis
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.ResourceFont
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
+import com.usagelimits.R
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.TextFont
+import com.usagelimits.ui.theme.face
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import org.junit.Assert.assertNotEquals
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import com.usagelimits.feature.UsageUiState
 import org.junit.Assert.assertEquals
@@ -124,6 +145,137 @@ class AppearanceSettingsTest {
             .performKeyInput { pressKey(Key.Enter) }
         assertEquals(AppTheme.LIGHT_PAPER, chosen)
     }
+
+    @Test
+    fun `each picker updates its own preview face and uses the native weights`() {
+        val settings = mutableStateOf(AppSettings())
+        compose.setContent {
+            val state = settings.value
+            UsageLimitsTheme(textFont = state.textFont, figureFont = state.figureFont) {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    AppearanceSettings(state,
+                        onTextFontChange = { settings.value = settings.value.copy(textFont = it) },
+                        onFigureFontChange = { settings.value = settings.value.copy(figureFont = it) },
+                        onAppThemeChange = {},
+                    )
+                }
+            }
+        }
+        val defaultText = styleOf("Claude Pro")
+        val defaultFigure = styleOf("18%")
+        assertEquals(FontWeight(560), defaultText.fontWeight)
+        assertEquals(FontWeight.Medium, defaultFigure.fontWeight)
+
+        compose.onNodeWithText("Figtree")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
+            .performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithText("Roboto Mono").assertIsSelected()
+        assertEquals(defaultFigure.fontFamily, styleOf("18%").fontFamily)
+        assertNotEquals(defaultText.fontFamily, styleOf("Claude Pro").fontFamily)
+        assertEquals(FontWeight(560), styleOf("Claude Pro").fontWeight)
+        assertEquals(FontWeight(450), styleOf("Text font").fontWeight)
+
+        compose.onNodeWithText("IBM Plex Mono")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton))
+            .performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithText("Figtree").assertIsSelected()
+        assertNotEquals(defaultFigure.fontFamily, styleOf("18%").fontFamily)
+        assertEquals(FontSynthesis.None, styleOf("18%").fontSynthesis)
+        assertEquals(FontWeight(560), styleOf("Claude Pro").fontWeight)
+
+        compose.onNodeWithText("IBM Plex Sans").performScrollTo().performClick().assertIsSelected()
+        assertEquals(FontWeight.Medium, styleOf("Claude Pro").fontWeight)
+        assertEquals(FontWeight.Normal, styleOf("Text font").fontWeight)
+        compose.onNodeWithText("Roboto Flex").performScrollTo().performClick().assertIsSelected()
+        assertEquals(FontWeight(560), styleOf("Claude Pro").fontWeight)
+        assertEquals(FontWeight(450), styleOf("Text font").fontWeight)
+    }
+
+    @Test
+    fun `text faces request their native weight and variation axis`() {
+        val font = mutableStateOf(TextFont.ROBOTO)
+        compose.setContent {
+            UsageLimitsTheme(textFont = font.value) {
+                Column {
+                    Text("Body", style = MaterialTheme.typography.bodyMedium)
+                    Text("Title", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        }
+        for (face in TextFont.entries) {
+            compose.runOnIdle { font.value = face }
+            val variable = face != TextFont.IBM_PLEX_SANS
+            for ((label, weight) in listOf("Body" to if (variable) 450 else 400, "Title" to if (variable) 560 else 500)) {
+                val style = styleOf(label)
+                assertEquals("$face $label requested weight", FontWeight(weight), style.fontWeight)
+                assertEquals("$face $label synthesis", FontSynthesis.None, style.fontSynthesis)
+                val fontFamily = style.fontFamily as FontListFontFamily
+                val descriptor = fontFamily.single { it.weight == FontWeight(weight) }
+                val settings = when (descriptor) {
+                    is AndroidFont -> descriptor.variationSettings
+                    is ResourceFont -> descriptor.variationSettings
+                    else -> error("Unexpected font descriptor: $descriptor")
+                }
+                assertEquals("$face $label wght axis", weight.toFloat().takeIf { variable },
+                    settings.settings.singleOrNull { it.axisName == "wght" }?.toVariationValue(null))
+            }
+        }
+    }
+
+    @Test
+    fun `the provider chooser title inherits the chosen text face`() {
+        compose.setContent {
+            UsageLimitsTheme(textFont = TextFont.FIGTREE) { ProviderIconSettings(emptyMap()) { _, _ -> } }
+        }
+        compose.onNodeWithText("Claude", useUnmergedTree = true).performClick()
+        val title = styleOf("Claude icon")
+        assertEquals(FontWeight(450), title.fontWeight)
+        assertEquals(TextFont.FIGTREE.face.family, title.fontFamily)
+        compose.onNodeWithText("Done").performClick()
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `the font licence view shows every complete notice shipped in the app`() {
+        val readDispatcher = StandardTestDispatcher()
+        val notices = listOf(
+            "Roboto Flex" to R.raw.font_license_roboto_flex,
+            "IBM Plex Sans" to R.raw.font_license_ibm_plex_sans,
+            "Figtree" to R.raw.font_license_figtree,
+            "Roboto Mono" to R.raw.font_license_roboto_mono,
+            "JetBrains Mono" to R.raw.font_license_jetbrains_mono,
+            "IBM Plex Mono" to R.raw.font_license_ibm_plex_mono,
+        ).map { (family, raw) ->
+            family to compose.activity.resources.openRawResource(raw).bufferedReader().use { it.readText() }
+        }
+        compose.setContent {
+            UsageLimitsTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    AppearanceFonts(AppSettings(), onTextFontChange = {}, onFigureFontChange = {},
+                        licenceReadDispatcher = readDispatcher)
+                }
+            }
+        }
+        compose.onNodeWithText("Font licences").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText("Done").assertIsDisplayed()
+        val documents = compose.onNode(hasScrollToIndexAction(), useUnmergedTree = true)
+        documents.assertDoesNotExist()
+        compose.runOnIdle { readDispatcher.scheduler.runCurrent() }
+        for ((index, notice) in notices.withIndex()) {
+            val (family, fullText) = notice
+            documents.performScrollToIndex(index)
+            val heading = hasText(family) and SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)
+            compose.onNode(heading, useUnmergedTree = true).assertIsDisplayed()
+            compose.onNode(hasText(fullText) and hasAnySibling(heading), useUnmergedTree = true).assertIsDisplayed()
+        }
+        compose.onNodeWithText("Done").performClick()
+        compose.onNodeWithText("Done").assertDoesNotExist()
+    }
+
+    private fun styleOf(label: String) = mutableListOf<TextLayoutResult>().also { layouts ->
+        compose.onNodeWithText(label, useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+    }.single().layoutInput.style
 
     @Test
     @Config(qualifiers = "de")

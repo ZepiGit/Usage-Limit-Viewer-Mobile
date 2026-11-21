@@ -18,6 +18,9 @@ on:
       - 'shared/**'
       - 'tools/check_glyph_file.py'
       - 'tools/test_check_glyph_file.py'
+      - 'third_party/fonts/**'
+      - 'tools/check_font_bundle.py'
+      - 'tools/test_check_font_bundle.py'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
@@ -34,6 +37,9 @@ on:
       - 'shared/**'
       - 'tools/check_glyph_file.py'
       - 'tools/test_check_glyph_file.py'
+      - 'third_party/fonts/**'
+      - 'tools/check_font_bundle.py'
+      - 'tools/test_check_font_bundle.py'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -68,6 +74,9 @@ jobs:
         run: |
           python3 -m unittest discover -s tools -p 'test_check_glyph_file.py'
           python3 tools/check_glyph_file.py
+
+      - name: Test the font bundle integrity checker
+        run: python3 -m unittest discover -s tools -p 'test_check_font_bundle.py'
 
       # The emulator smoke's pixel logic, on synthetic frames; no device needed.
       - name: Test the runtime smoke's own checks
@@ -156,6 +165,17 @@ jobs:
           ./gradlew --no-daemon --no-configuration-cache assembleDebug assembleRelease
           mkdir -p app/build/reports
           ./gradlew --no-daemon --no-configuration-cache :app:dependencies --configuration releaseRuntimeClasspath --console=plain > app/build/reports/apk-runtime-dependencies.txt
+
+      - name: Verify debug and release font bundles
+        run: |
+          set -euo pipefail
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          for variant in debug release; do
+            apk="app/build/outputs/apk/$variant/app-$variant.apk"
+            resources="app/build/reports/apk-font-resources-$variant.txt"
+            "$build_tools/aapt2" dump resources "$apk" > "$resources"
+            python3 tools/check_font_bundle.py "$apk" --resource-table "$resources"
+          done
 
       - name: Verify APK identity and signing continuity
         env:

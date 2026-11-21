@@ -47,6 +47,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick as semanticsOnClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -72,6 +73,7 @@ import com.usagelimits.ui.percentSpokenClauseRes
 import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.text.storedMessageText
+import com.usagelimits.ui.text.textWithResetStamp
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageMotion
@@ -175,11 +177,7 @@ internal fun OverviewDialTile(
     val stamp = if (validity == ReadingValidity.RESET_DUE) texts.resetDue()
         else window?.resetAt?.let { Countdown.absoluteResetStamp(it, nowMs, zone, locale, texts) }
     val label = window?.let { windowLabel(it) }
-    val headlineLine = when {
-        label == null -> stringResource(R.string.overview_no_usage_data)
-        stamp != null -> stringResource(R.string.overview_dial_headline_line, label, stamp)
-        else -> label
-    }
+
     val validityLabel = when {
         expired -> stringResource(R.string.status_reconnect)
         window == null -> null
@@ -251,8 +249,14 @@ internal fun OverviewDialTile(
             )
             if (identityLabel != null) Text(identityLabel, style = MaterialTheme.typography.bodySmall,
                 color = UsageColors.Muted, textAlign = TextAlign.Center)
-            if (!compact && !expired) Text(headlineLine, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint,
-                textAlign = TextAlign.Center)
+            if (!compact && !expired) {
+                val headline = when {
+                    label == null -> AnnotatedString(stringResource(R.string.overview_no_usage_data))
+                    stamp == null -> AnnotatedString(label)
+                    else -> textWithResetStamp(stringResource(R.string.overview_dial_headline_line, label, stamp), stamp)
+                }
+                Text(headline, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint, textAlign = TextAlign.Center)
+            }
             if (validityLabel != null && (expired || message == null)) {
                 Text(validityLabel, style = MaterialTheme.typography.bodySmall,
                     color = if (expired) UsageColors.NegativeText else UsageColors.Muted, textAlign = TextAlign.Center)

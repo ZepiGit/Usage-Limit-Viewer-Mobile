@@ -69,8 +69,8 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -116,6 +116,7 @@ import com.usagelimits.ui.percentFlipLabelRes
 import com.usagelimits.ui.percentSpokenClauseRes
 import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.text.rememberCountdownTexts
+import com.usagelimits.ui.text.textWithResetStamp
 import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.ui.text.windowLabelRes
 import com.usagelimits.ui.theme.SeverityPalette
@@ -329,9 +330,9 @@ private fun OverviewHeader(
     onPercentDisplayChange: (PercentDisplay) -> Unit,
 ) {
     val subtitle = when {
-        state.isRefreshing -> stringResource(R.string.overview_refreshing)
-        !state.loaded -> stringResource(R.string.overview_loading_usage)
-        state.accounts.isEmpty() -> stringResource(R.string.overview_no_accounts_yet)
+        state.isRefreshing -> AnnotatedString(stringResource(R.string.overview_refreshing))
+        !state.loaded -> AnnotatedString(stringResource(R.string.overview_loading_usage))
+        state.accounts.isEmpty() -> AnnotatedString(stringResource(R.string.overview_no_accounts_yet))
         else -> headerSubtitle(projection, nowMs, zone)
     }
     // The actions wrap under the title when a large font leaves no room beside it.
@@ -353,7 +354,7 @@ private fun OverviewHeader(
  * and with neither there is no subtitle. The reset uses the app's absolute stamp, in [zone].
  */
 @Composable
-private fun headerSubtitle(projection: OverviewProjection, nowMs: Long, zone: ZoneId): String? {
+private fun headerSubtitle(projection: OverviewProjection, nowMs: Long, zone: ZoneId): AnnotatedString? {
     val header = projection.header
     val claim = when (header.kind) {
         OverviewHeaderKind.ATTENTION ->
@@ -363,11 +364,10 @@ private fun headerSubtitle(projection: OverviewProjection, nowMs: Long, zone: Zo
     }
     val texts = rememberCountdownTexts()
     val stamp = header.resetAt?.let { Countdown.absoluteResetStamp(it, nowMs, zone, currentLocale(), texts) }
-    return when {
-        claim != null && stamp != null -> stringResource(R.string.overview_claim_next_reset, claim, stamp)
-        stamp != null -> stringResource(R.string.overview_next_reset, stamp)
-        else -> claim
-    }
+    if (stamp == null) return claim?.let(::AnnotatedString)
+    val subtitle = if (claim == null) stringResource(R.string.overview_next_reset, stamp)
+        else stringResource(R.string.overview_claim_next_reset, claim, stamp)
+    return textWithResetStamp(subtitle, stamp)
 }
 
 @Composable
@@ -480,7 +480,7 @@ private fun FilterChip(label: String, count: Int?, selected: Boolean, onClick: (
             val style = if (selected) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodyMedium
             val color = if (selected) UsageColors.Ink else UsageColors.Muted
             Text(label, style = style, color = color)
-            if (count != null) Text(count.toString(), style = style.copy(fontFeatureSettings = "tnum"), color = color)
+            if (count != null) Text(count.toString(), style = if (selected) UsageType.Figure else UsageType.Regular, color = color)
         }
     }
 }
@@ -660,9 +660,6 @@ private class WindowLine(
  * whether a stamp reads "14:05" or "Thu 02:49". When that does not fit the width, the windows
  * stack instead of cutting a column (see [WindowLines]).
  */
-/** The figure cell's type: mono 13sp, as the hand-off's grid. */
-private val GridFigureStyle = UsageType.Figure.copy(fontSize = 13.sp, lineHeight = 18.sp)
-
 /** The window lines of one row, worked out once, so the card can size its columns from every row. */
 @Composable
 private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, zone: ZoneId): List<WindowLine> {
@@ -714,7 +711,7 @@ private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, 
  */
 private class GridColumns(
     val label: Int, val figure: Int, val stamp: Int, val compact: Boolean,
-    val labelStyle: TextStyle, val figureStyle: TextStyle,
+    val labelStyle: TextStyle, val headlineStyle: TextStyle, val figureStyle: TextStyle,
 ) {
     val gap = if (compact) 8.dp else 10.dp
 }
@@ -722,9 +719,12 @@ private class GridColumns(
 @Composable
 private fun rememberGridColumns(lines: Collection<List<WindowLine>>, compact: Boolean = false): GridColumns {
     val measurer = rememberTextMeasurer()
-    val stampStyle = MaterialTheme.typography.bodySmall
-    val labelStyle = if (compact) stampStyle.copy(fontSize = 11.sp, lineHeight = 14.sp) else stampStyle
-    val figureStyle = if (compact) GridFigureStyle.copy(fontSize = 11.sp, lineHeight = 14.sp) else GridFigureStyle
+    val stampStyle = UsageType.Stamp
+    val typography = MaterialTheme.typography
+    val labelStyle = if (compact) typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 14.sp) else typography.bodySmall
+    val headlineStyle = labelStyle.copy(fontWeight = typography.labelMedium.fontWeight)
+    val gridFigure = UsageType.GridFigure
+    val figureStyle = if (compact) gridFigure.copy(fontSize = 11.sp, lineHeight = 14.sp) else gridFigure
     fun widest(texts: List<String>, style: TextStyle) =
         texts.maxOfOrNull { measurer.measure(it, style, maxLines = 1, softWrap = false).size.width } ?: 0
     val all = lines.flatten()
@@ -732,12 +732,15 @@ private fun rememberGridColumns(lines: Collection<List<WindowLine>>, compact: Bo
     return with(density) {
         GridColumns(
             label = maxOf((if (compact) 50.dp else 58.dp).roundToPx(),
-                widest(all.map { it.label }, labelStyle.copy(fontWeight = FontWeight.Medium))),
+                all.maxOfOrNull { line ->
+                    measurer.measure(line.label, if (line.emphasised) headlineStyle else labelStyle,
+                        maxLines = 1, softWrap = false).size.width
+                } ?: 0),
             // Both sides' figures fit, so a mode flip cannot change the columns.
             figure = maxOf((if (compact) 34.dp else 42.dp).roundToPx(),
                 widest(all.flatMap { listOf(it.figure, it.otherFigure) }, figureStyle)),
             stamp = if (compact) 0 else maxOf(66.dp.roundToPx(), widest(all.mapNotNull { it.stamp }, stampStyle)),
-            compact = compact, labelStyle = labelStyle, figureStyle = figureStyle,
+            compact = compact, labelStyle = labelStyle, headlineStyle = headlineStyle, figureStyle = figureStyle,
         )
     }
 }
@@ -790,8 +793,7 @@ private fun WindowLines(lines: List<WindowLine>, columns: GridColumns) {
 @Composable
 private fun LineLabel(line: WindowLine, columns: GridColumns, modifier: Modifier = Modifier, maxLines: Int = 1) {
     Text(line.label, modifier.semantics(mergeDescendants = true) { contentDescription = line.spoken },
-        style = columns.labelStyle,
-        fontWeight = if (line.emphasised) FontWeight.Medium else FontWeight.Normal,
+        style = if (line.emphasised) columns.headlineStyle else columns.labelStyle,
         color = if (line.emphasised) UsageColors.Ink else UsageColors.Faint,
         maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 }
@@ -846,7 +848,7 @@ private val SilentCell = Modifier.semantics(mergeDescendants = true) { hideFromA
 /** The reset stamp: drawn as text, silent, as the label's line speaks it. */
 @Composable
 private fun LineStamp(line: WindowLine, modifier: Modifier = Modifier, align: TextAlign = TextAlign.End) {
-    Text(line.stamp ?: "", modifier.then(SilentCell), style = MaterialTheme.typography.bodySmall,
+    Text(line.stamp ?: "", modifier.then(SilentCell), style = UsageType.Stamp,
         color = UsageColors.Faint, textAlign = align, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 

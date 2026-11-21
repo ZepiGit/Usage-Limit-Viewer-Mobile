@@ -8,7 +8,6 @@ import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RippleConfiguration
 import androidx.compose.material3.Shapes
-import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material.ripple.RippleAlpha
@@ -16,15 +15,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.usagelimits.R
 import com.usagelimits.core.model.FillState
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
 import com.usagelimits.ui.LocalProviderIcons
 
 /**
@@ -113,39 +110,13 @@ private val UsageShapes = Shapes(
     extraLarge = RoundedCornerShape(12.dp),
 )
 
-private fun text(size: Int, line: Int, weight: FontWeight = FontWeight.Normal, family: FontFamily = FontFamily.SansSerif) =
-    TextStyle(fontFamily = family, fontWeight = weight, fontSize = size.sp, lineHeight = line.sp)
-
-/**
- * Six sizes (12, 14, 16, 20, 24, 30) in one text face and one figure face (monospace, so money
- * and counts read as ledger columns). Bold is for money only. A number inside a sentence stays
- * in the text face with tabular digits ([bodySmall]).
- */
-private val UsageTypography = Typography(
-    headlineLarge = text(24, 30, FontWeight.Medium).copy(letterSpacing = (-0.24).sp),
-    headlineMedium = text(30, 36, FontWeight.Medium, FontFamily.Monospace),
-    titleLarge = text(20, 26, FontWeight.Bold, FontFamily.Monospace),
-    titleMedium = text(16, 24, FontWeight.Medium),
-    bodyLarge = text(16, 24),
-    bodyMedium = text(14, 20),
-    bodySmall = text(12, 16).copy(fontFeatureSettings = "tnum"),
-    labelLarge = text(14, 20, FontWeight.Medium),
-    labelMedium = text(12, 16, FontWeight.Medium),
-    labelSmall = text(11, 14, FontWeight.Medium),
-)
-
-/** Row figures: a number standing alone in its slot (%, count, clock time). */
-object UsageType {
-    val Figure = text(14, 20, FontWeight.Medium, FontFamily.Monospace)
-    /** A figure that leads a small group: the lead strip's stats, a count on a detail screen. */
-    val FigureLarge = text(16, 24, FontWeight.Medium, FontFamily.Monospace)
-}
-
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 fun UsageLimitsTheme(
     appTheme: AppTheme = AppTheme.PURE_BLACK,
     providerIcons: Map<String, String> = emptyMap(),
+    textFont: TextFont = TextFont.ROBOTO,
+    figureFont: FigureFont = FigureFont.ROBOTO_MONO,
     content: @Composable () -> Unit,
 ) {
     val palette = appTheme.colors
@@ -154,6 +125,8 @@ fun UsageLimitsTheme(
     CompositionLocalProvider(
         LocalUsagePalette provides palette,
         LocalAppTheme provides appTheme,
+        LocalTextFont provides textFont,
+        LocalFigureFont provides figureFont,
         LocalMotionEnabled provides rememberMotionEnabled(),
         LocalProviderIcons provides providerIcons,
         LocalRippleConfiguration provides remember(palette) {
@@ -163,7 +136,7 @@ fun UsageLimitsTheme(
         MaterialTheme(
             colorScheme = scheme,
             shapes = UsageShapes,
-            typography = UsageTypography,
+            typography = textFont.face.typography,
             content = content,
         )
     }

@@ -79,6 +79,18 @@
     <string name="settings_appearance_pure_black">Reines Schwarz</string>
     <string name="settings_appearance_cool_graphite">Kühles Graphit</string>
     <string name="settings_appearance_light_paper">Helles Papier</string>
+    <string name="settings_text_font">Textschrift</string>
+    <string name="settings_text_font_subtitle">Für alle Texte in der App.</string>
+    <string name="settings_figure_font">Ziffernschrift</string>
+    <string name="settings_figure_font_subtitle">Für Prozentwerte, Zeiten und Beträge.</string>
+    <string name="settings_font_roboto">Roboto</string>
+    <string name="settings_font_roboto_flex">Roboto Flex</string>
+    <string name="settings_font_ibm_plex_sans">IBM Plex Sans</string>
+    <string name="settings_font_figtree">Figtree</string>
+    <string name="settings_font_roboto_mono">Roboto Mono</string>
+    <string name="settings_font_jetbrains_mono">JetBrains Mono</string>
+    <string name="settings_font_ibm_plex_mono">IBM Plex Mono</string>
+    <string name="settings_font_licences">Schriftlizenzen</string>
 
     <string name="settings_section_sync">Synchronisierung</string>
     <string name="settings_interval_title">Intervall der Hintergrundaktualisierung</string>

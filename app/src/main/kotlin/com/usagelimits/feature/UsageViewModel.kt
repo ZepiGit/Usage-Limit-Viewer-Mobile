@@ -325,6 +325,14 @@ class UsageViewModel(
         viewModelScope.launch { container.settingsStore.setAppTheme(theme) }
     }
 
+    fun setTextFont(font: com.usagelimits.core.settings.TextFont) {
+        viewModelScope.launch { container.settingsStore.setTextFont(font) }
+    }
+
+    fun setFigureFont(font: com.usagelimits.core.settings.FigureFont) {
+        viewModelScope.launch { container.settingsStore.setFigureFont(font) }
+    }
+
     fun setShowSubscriptionTier(enabled: Boolean) {
         viewModelScope.launch { container.settingsStore.setShowSubscriptionTier(enabled) }
     }
