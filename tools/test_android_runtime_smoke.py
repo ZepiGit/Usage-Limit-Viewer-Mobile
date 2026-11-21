@@ -657,6 +657,106 @@ class OverviewReadyTest(unittest.TestCase):
             self.assertFalse(runtime_smoke.overview_ready(root, "previous"))
 
 
+class SettingsReadinessTest(unittest.TestCase):
+    @staticmethod
+    def settings(marker):
+        return ET.fromstring(f'''<hierarchy>
+          <node package="com.usagelimits" scrollable="true" bounds="[0,150][720,1300]">
+            <node package="com.usagelimits" text="{marker}" bounds="[28,277][692,310]"/>
+          </node>
+          <node package="com.usagelimits" enabled="true" selected="true"
+                clickable="false" bounds="[489,1336][720,1476]">
+            <node package="com.usagelimits" text="Settings"/>
+          </node>
+        </hierarchy>''')
+
+    def test_current_settings_returns_to_appearance_from_a_restored_lower_position(self):
+        lower, top = self.settings("Provider icons"), self.settings("Appearance")
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "dump", side_effect=[lower, lower, lower, top, top]), \
+                    patch.object(smoke, "scroll") as scroll, patch.object(smoke, "tap") as tap, \
+                    patch.object(smoke, "capture"), patch.object(smoke, "adb", return_value="1234"):
+                smoke.navigate("Settings", "Appearance", "restored-settings")
+            scroll.assert_called_once_with(lower, up=False)
+            tap.assert_not_called()
+
+    def test_main_reaches_current_appearance_before_searching_for_the_persisted_tier(self):
+        with TemporaryDirectory() as directory:
+            directory = Path(directory)
+            aapt = directory / "build-tools" / "37.0.0" / "aapt"
+            aapt.parent.mkdir(parents=True)
+            aapt.touch()
+            checksum = directory / "sha256.txt"
+            checksum.write_text("a" * 64)
+            args = SimpleNamespace(previous_apk=Path("previous.apk"), apk=Path("current.apk"),
+                                   debug_apk=None, apk_sha256_file=checksum, evidence=directory)
+            smoke = unittest.mock.Mock(spec=Smoke)
+            navigator = Smoke(directory, "emulator-test")
+            top = self.settings("Appearance")
+            baseline = self.settings("Provider icons")
+            tier = SettingTest().setting_tree("false")
+            reached = []
+
+            def dump(name, **kwargs):
+                if name.startswith("current-persisted") and name != "current-persisted-0":
+                    return tier
+                return baseline if name.startswith("previous-") else top
+
+            def navigate(tab, marker, name, *args):
+                if tab == "Settings":
+                    navigator.navigate(tab, marker, name, *args)
+                    reached.append(name)
+
+            def adb(*args, **kwargs):
+                if args[:3] == ("shell", "getprop", "ro.kernel.qemu"):
+                    return "1"
+                if args[:3] == ("shell", "getprop", "ro.build.version.sdk"):
+                    return "37"
+                if "resolve-activity" in args:
+                    return "com.android.launcher3/.Launcher"
+                if args == ("shell", "pm", "path", "com.usagelimits"):
+                    return "package:/data/app/base.apk"
+                if args[0] == "pull":
+                    Path(args[2]).touch()
+                return "1234"
+
+            smoke.adb.side_effect = adb
+            smoke.installed.side_effect = [
+                {"versionCode": "1", "versionName": "old", "appId": "10000", "firstInstallTime": "same"},
+                {"versionCode": "2", "versionName": "new", "appId": "10000", "firstInstallTime": "same"},
+            ]
+            smoke.setting.return_value = SettingTest().setting_tree("true")[1]
+            smoke.control.return_value = tier[1]
+            smoke.navigate.side_effect = navigate
+            smoke.setting_is_disabled.side_effect = lambda name: (
+                navigator.setting_is_disabled(name) if name == "current-persisted" else None)
+            smoke.place_widgets.return_value = []
+            smoke.verify_theme_launches.return_value = []
+            smoke.seeded_steps.return_value = {}
+            metadata = [{"package": "com.usagelimits", "versionCode": code, "sha256": "a" * 64,
+                         "versionName": name} for code, name in ((1, "old"), (2, "new"))]
+            with patch.object(runtime_smoke, "Smoke", return_value=smoke), \
+                    patch.object(runtime_smoke, "argument_parser") as parser, \
+                    patch.object(runtime_smoke, "apk_metadata", side_effect=metadata), \
+                    patch.object(runtime_smoke, "digest", return_value="a" * 64), \
+                    patch.object(runtime_smoke, "run", side_effect=["commit", "List of devices attached\nemulator-test device"]), \
+                    patch.dict(os.environ, ANDROID_HOME=str(directory), GITHUB_SHA="commit", GITHUB_RUN_ID="test"), \
+                    patch.object(navigator, "dump", side_effect=dump), \
+                    patch.object(navigator, "adb", return_value="1234"), \
+                    patch.object(navigator, "capture"), patch.object(navigator, "scroll") as scroll, \
+                    patch.object(runtime_smoke.time, "sleep"):
+                parser.return_value.parse_args.return_value = args
+                runtime_smoke.main()
+            self.assertEqual(["previous-settings", "previous-relaunch-settings", "current-settings"], reached)
+            self.assertEqual([unittest.mock.call(top, up=True)], scroll.call_args_list,
+                             "Only the later tier search scrolls down; Settings readiness is already at the top")
+            calls = smoke.method_calls
+            self.assertLess(next(i for i, call in enumerate(calls) if call[0] == "navigate"
+                                 and call.args[2] == "current-settings"),
+                            calls.index(unittest.mock.call.setting_is_disabled("current-persisted")))
+
+
 class InvocationTest(unittest.TestCase):
     """#88 01b review, item 1: both workflows' invocations of the runner parse, and only Android CI seeds.
 
@@ -1286,6 +1386,8 @@ class ThemeSelectionTest(unittest.TestCase):
                     patch.object(smoke, "setting_is_disabled", side_effect=lambda *a: events.append(("setting", current["label"]))), \
                     patch.object(smoke, "capture"), patch.object(smoke, "restore_animations", return_value=True):
                 self.assertEqual(["appearance-light-paper.json", "appearance-pure-black.json"], smoke.verify_theme_launches())
+        self.assertEqual([("navigate", "Settings", "Appearance")] * 4,
+                         [event for event in events if event[0] == "navigate"])
         captures = [event for event in events if event[0] == "capture"]
         self.assertEqual([
             ("capture", "Light paper", "com.usagelimits/.ExistingAlias", (243, 240, 232), True),
@@ -1314,6 +1416,228 @@ class ThemeSelectionTest(unittest.TestCase):
                     with self.assertRaisesRegex(AssertionError, message):
                         smoke.verify_theme_launches()
                 self.assertFalse(any(call.args[:3] == ("shell", "am", "force-stop") for call in adb.call_args_list))
+
+
+class FontOptionTest(unittest.TestCase):
+    @staticmethod
+    def picker(label, checked="true", clickable="false"):
+        root = ET.fromstring(f'<hierarchy><node package="com.usagelimits" enabled="true" '
+            f'checkable="true" checked="{checked}" clickable="{clickable}" bounds="[20,200][680,300]">'
+            '<node package="com.usagelimits" text=""/></node></hierarchy>')
+        root[0][0].set("text", label)
+        return root
+
+    def test_exact_font_name_and_merged_decorative_sample_find_the_radio_parent(self):
+        for label in ("Figtree", "61%\nFigtree", "Figtree\n61%"):
+            for checked, clickable in (("true", "false"), ("false", "true")):
+                with self.subTest(label=label, checked=checked):
+                    root = self.picker(label, checked, clickable)
+                    self.assertIs(root[0], Smoke.font_option(root, "Figtree"))
+                    self.assertEqual(checked == "true", Smoke.selected(Smoke.font_option(root, "Figtree")))
+
+    def test_wrong_name_package_disabled_or_non_radio_cannot_confirm_a_font(self):
+        for label in ("figtree", "Figtree Extra", "61%"):
+            self.assertIsNone(Smoke.font_option(self.picker(label), "Figtree"))
+        for attribute, value in (("package", "com.example.other"), ("enabled", "false"),
+                                 ("checkable", "false"), ("bounds", "[20,200][20,200]")):
+            with self.subTest(attribute=attribute):
+                root = self.picker("Figtree")
+                root[0].set(attribute, value)
+                self.assertIsNone(Smoke.font_option(root, "Figtree"))
+
+    def test_duplicate_matching_radios_fail_closed(self):
+        root = self.picker("IBM Plex Mono")
+        duplicate = ET.fromstring(ET.tostring(root[0]))
+        duplicate.set("bounds", "[20,300][680,400]")
+        root.append(duplicate)
+        with self.assertRaisesRegex(AssertionError, "Ambiguous.*IBM Plex Mono"):
+            Smoke.font_option(root, "IBM Plex Mono")
+
+
+class FontDevice(FakeDevice):
+    """Release Settings at the adb boundary; no accounts or provider requests."""
+    PACKAGE = runtime_smoke.PACKAGE
+    FONT_BOXES = {"Figtree": (20, 400, 680, 500), "IBM Plex Mono": (20, 600, 680, 700),
+                  "Font licences": (20, 800, 680, 900), "Done": (500, 1100, 680, 1200)}
+
+    def __init__(self):
+        super().__init__()
+        self.screen, self.page = "Overview", 0
+        self.fonts = set()
+        self.persist = True
+        self.licence_title = "Font licences"
+        self.licence_text = "Copyright 2026 Test authors\nSIL OPEN FONT LICENSE\nVersion 1.1\nFull test licence text"
+
+    def answer(self, command):
+        if command[:3] == ("shell", "input", "swipe"):
+            self.page = max(0, min(3, self.page + (1 if int(command[4]) > int(command[6]) else -1)))
+            return b""
+        if command[:3] == ("shell", "input", "tap"):
+            x, y = int(command[3]), int(command[4])
+            for label, box in self.FONT_BOXES.items():
+                if box[0] <= x < box[2] and box[1] <= y < box[3]:
+                    if label in ("Figtree", "IBM Plex Mono"):
+                        self.fonts.add(label)
+                    elif label == "Font licences":
+                        self.screen = "Licences"
+                    else:
+                        self.screen = "Settings"
+                    return b""
+        if command[:3] == ("shell", "am", "force-stop") and not self.persist:
+            self.fonts.clear()
+        if command[:3] == ("shell", "pidof", self.PACKAGE):
+            return b"1234"
+        return super().answer(command)
+
+    def hierarchy(self):
+        if self.screen not in ("Settings", "Licences"):
+            return super().hierarchy()
+        pkg = self.PACKAGE
+        root = ET.Element("hierarchy")
+        def text(parent, label, **attributes):
+            return ET.SubElement(parent, "node", {"package": pkg, "text": label, **attributes})
+        def button(parent, label):
+            text(parent, label, enabled="true", clickable="true",
+                 bounds="[{},{}][{},{}]".format(*self.FONT_BOXES[label]))
+        if self.screen == "Licences":
+            text(root, self.licence_title)
+            text(root, self.licence_text)
+            button(root, "Done")
+        else:
+            content = text(root, "", scrollable="true", bounds="[0,150][720,1300]")
+            if self.page == 0:
+                text(content, "Appearance")
+            elif self.page in (1, 2):
+                label = "Figtree" if self.page == 1 else "IBM Plex Mono"
+                chosen = label in self.fonts
+                radio = text(content, "", enabled="true", checkable="true",
+                             checked=str(chosen).lower(), clickable=str(not chosen).lower(),
+                             bounds="[{},{}][{},{}]".format(*self.FONT_BOXES[label]))
+                text(radio, "61%\n" + label)
+            else:
+                button(content, "Font licences")
+            bar = text(root, "", bounds="[0,1400][540,1560]")
+            for label in self.TABS:
+                item = text(bar, "", enabled="true", selected=str(label == "Settings").lower(),
+                            clickable=str(label != "Settings").lower(),
+                            bounds="[{},{}][{},{}]".format(*self.BOXES[label]))
+                text(item, label)
+        return ET.tostring(root)
+
+
+class OfflineFontsTest(unittest.TestCase):
+    def journey(self, device, directory):
+        with patch.object(runtime_smoke.subprocess, "run", device.run), patch.object(runtime_smoke, "time", device):
+            Smoke(Path(directory), "test-device").verify_fonts_offline()
+
+    def test_offline_settings_pair_licence_and_saved_radios_after_force_stop(self):
+        device = FontDevice()
+        with TemporaryDirectory() as directory:
+            self.journey(device, directory)
+            report = json.loads((Path(directory) / "fonts.json").read_text())
+            self.assertEqual("passed", report["result"])
+            self.assertEqual(["Figtree", "IBM Plex Mono"], report["selectedFonts"])
+            for name in ("fonts-selected-Figtree", "fonts-selected-IBM-Plex-Mono", "fonts-licences",
+                         "fonts-persisted-Figtree", "fonts-persisted-IBM-Plex-Mono"):
+                self.assertTrue((Path(directory) / (name + ".xml")).exists())
+                self.assertTrue((Path(directory) / (name + ".png")).exists())
+        commands = [call[0] for call in device.calls]
+        stop = commands.index(("shell", "am", "force-stop", runtime_smoke.PACKAGE))
+        self.assertEqual(1, sum(command[:3] == ("shell", "am", "start") for command in commands[:stop]))
+        self.assertEqual(1, sum(command[:3] == ("shell", "am", "start") for command in commands[stop:]))
+        self.assertFalse(any("airplane-mode" in command or "set-wifi-enabled" in command for command in commands))
+        self.assertEqual({"Figtree", "IBM Plex Mono"}, device.fonts)
+
+    def test_a_pair_lost_on_process_restart_fails_the_saved_radio_assertion(self):
+        class LostFigureFont(FontDevice):
+            def answer(self, command):
+                answer = super().answer(command)
+                if command[:3] == ("shell", "am", "force-stop"):
+                    self.fonts.discard("IBM Plex Mono")
+                return answer
+        for device, lost in ((FontDevice(), "Figtree"), (LostFigureFont(), "IBM Plex Mono")):
+            device.persist = lost != "Figtree"
+            with self.subTest(lost=lost), TemporaryDirectory() as directory, \
+                    self.assertRaisesRegex(AssertionError, "Saved " + lost + " selection was lost"):
+                self.journey(device, directory)
+
+    def test_a_previously_saved_pair_is_not_toggled_off_on_upgrade(self):
+        device = FontDevice()
+        device.fonts = {"Figtree", "IBM Plex Mono"}
+        with TemporaryDirectory() as directory:
+            self.journey(device, directory)
+        font_tap_centres = {(350, 450), (350, 650)}
+        self.assertFalse(any(call[0][:3] == ("shell", "input", "tap")
+                             and (int(call[0][3]), int(call[0][4])) in font_tap_centres for call in device.calls))
+
+    def test_only_the_exact_dialog_heading_with_bundled_licence_text_counts(self):
+        for title, content in (("Font Licences", "SIL OPEN FONT LICENSE Version 1.1"),
+                               ("Font licences", "Unable to load licence while offline")):
+            with self.subTest(title=title, content=content), TemporaryDirectory() as directory:
+                device = FontDevice()
+                device.licence_title, device.licence_text = title, content
+                with self.assertRaisesRegex(AssertionError, "UI did not reach fonts-licences-loaded"):
+                    self.journey(device, directory)
+                self.assertFalse(any(call[0][:3] == ("shell", "am", "force-stop") for call in device.calls))
+
+
+class OfflineFontNetworkTest(unittest.TestCase):
+    class Device(FontDevice):
+        def __init__(self):
+            super().__init__()
+            self.airplane, self.wifi = "disabled", "enabled"
+            self.font_open_states = []
+
+        def answer(self, command):
+            if command[:4] == ("shell", "cmd", "connectivity", "airplane-mode"):
+                if len(command) == 5:
+                    self.airplane = "enabled" if command[4] == "enable" else "disabled"
+                return self.airplane.encode()
+            if command == ("shell", "cmd", "wifi", "status"):
+                return ("Wifi is " + self.wifi).encode()
+            if command[:4] == ("shell", "cmd", "wifi", "set-wifi-enabled"):
+                self.wifi = command[4]
+                return b""
+            if command == ("shell", "dumpsys", "connectivity"):
+                online = self.airplane == "disabled" and self.wifi == "enabled"
+                networks = ("  NetworkAgentInfo{network{100}  ni{WIFI CONNECTED} created=0 "
+                            " nc{[ Capabilities: INTERNET&VALIDATED UnderlyingNetworks: Null ]} "
+                            " factorySerialNumber=1}\n") if online else ""
+                return (("Active default network: 100\n" if online else "Active default network: none\n")
+                        + "Current Networks:\n" + networks + "Status for known UIDs:\n").encode()
+            if command[:3] == ("shell", "am", "start"):
+                self.font_open_states.append((self.airplane, self.wifi))
+            return super().answer(command)
+
+    def test_existing_offline_window_covers_font_check_and_restores_even_when_fonts_fail(self):
+        for persist in (True, False):
+            with self.subTest(persist=persist), TemporaryDirectory() as directory:
+                device = self.Device()
+                device.persist = persist
+                widget_states = []
+                smoke = Smoke(Path(directory), "test-device")
+                def widgets(placed, phase):
+                    widget_states.append((phase, device.airplane, device.wifi))
+                with patch.object(runtime_smoke.subprocess, "run", device.run), \
+                        patch.object(runtime_smoke, "time", device), \
+                        patch.object(smoke, "verify_widgets_after_upgrade", side_effect=widgets):
+                    if persist:
+                        smoke.verify_widget_network_lifecycle([])
+                    else:
+                        with self.assertRaisesRegex(AssertionError, "Saved Figtree selection was lost"):
+                            smoke.verify_widget_network_lifecycle([])
+                self.assertEqual(("disabled", "enabled"), (device.airplane, device.wifi))
+                self.assertEqual([("enabled", "disabled"), ("enabled", "disabled")], device.font_open_states)
+                self.assertEqual([("offline", "enabled", "disabled")]
+                                 + ([("online", "disabled", "enabled")] if persist else []), widget_states)
+                report = json.loads((Path(directory) / "widgets-network.json").read_text())
+                self.assertTrue(report["restored"]["state"]["online"])
+                if persist:
+                    self.assertEqual("fonts.json", report["offline"]["fontReport"])
+                    self.assertTrue(report["offline"]["afterFonts"]["offline"])
+                commands = [call[0] for call in device.calls]
+                self.assertEqual(2, sum(command[:4] == ("shell", "cmd", "wifi", "set-wifi-enabled")
+                                        for command in commands))
 
 
 class PngTest(unittest.TestCase):

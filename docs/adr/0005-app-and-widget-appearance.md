@@ -18,7 +18,9 @@ The widget configuration activity explicitly uses `UsageLimitsTheme(appTheme =
 AppTheme.WARM_DARK)`. Its warm ground, cards, controls and provider artwork therefore retain the
 pre-theme configuration scene, including when Light paper is saved for the app. The preview
 still paints its panel, figures and bars or rings with the selected `WidgetStyle`; its mat
-remains `#3A3936`. This is appearance protection, not the widget redesign planned for ticket 07.
+remains `#3A3936`. App text and figure preferences do not enter the editor. Represented
+figures keep the editor's original system monospace style, not the app's `UsageType`.
+This is appearance protection, not the widget redesign planned for ticket 07.
 
 ## Considered options
 
@@ -37,9 +39,11 @@ and this decision does not promise that app-theme writes cause no widget emissio
 `WidgetAppearanceRenderingTest` saves every app theme through the same settings store, applies
 Compact widget RemoteViews to a host, and checks known default/white panel pixels and known light/
 dark ink as well as unchanged text colours. `WidgetConfigActivitySaveTest` captures the real
-configuration activity with a Codex Mini Rings fixture, checks the existing warm scene colours,
-and compares its pixels across saved themes. It drives the shared display mode to Used and back
-to Left before comparison so the configuration has visibly consumed settings emissions. Passing
-`-PcaptureDir=<directory>` exports `widget-config-warm-baseline.png` and one image per app theme
-for visual inspection. These are Robolectric rendering checks, not launcher or device evidence;
-their execution and image observations belong in the ticket report.
+configuration activity with a Codex Account Rings fixture, checks the existing warm scene colours,
+and compares its pixels after changing the saved app theme and fonts. It drives the shared display
+mode to Used and back to Left before comparison so the editor has visibly consumed settings
+emissions. Passing `-PcaptureDir=<directory>` exports the baseline and variant images for visual
+inspection. Separately, `WidgetConfigPreviewTest` renders `ContentPreview` with IBM Plex Mono
+selected for app figures and checks that Account Rings and Usage Bars still request system
+monospace for their figures. These are Robolectric checks, not launcher or device evidence. The
+run results and image observations belong in the ticket report.

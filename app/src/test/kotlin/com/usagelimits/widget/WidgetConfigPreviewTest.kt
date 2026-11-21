@@ -3,9 +3,14 @@ package com.usagelimits.widget
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontFamily
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.PercentDisplay
@@ -16,6 +21,7 @@ import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.settings.FigureFont
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -63,19 +69,26 @@ class WidgetConfigPreviewTest {
         summaryLineLong = weekly,
     )
 
-    private class Shown(val snapshot: WidgetSnapshot, val kind: String, val mode: PercentDisplay)
+    private class Shown(
+        val snapshot: WidgetSnapshot, val kind: String, val mode: PercentDisplay, val figureFont: FigureFont,
+    )
 
     private var shown by mutableStateOf<Shown?>(null)
     private var composed = false
 
     /** Shows the preview; later calls re-drive the same composition, since a rule composes once. */
-    private fun preview(snapshot: WidgetSnapshot, kind: String, mode: PercentDisplay) {
-        compose.runOnIdle { shown = Shown(snapshot, kind, mode) }
+    private fun preview(
+        snapshot: WidgetSnapshot, kind: String, mode: PercentDisplay,
+        figureFont: FigureFont = FigureFont.ROBOTO_MONO,
+    ) {
+        compose.runOnIdle { shown = Shown(snapshot, kind, mode, figureFont) }
         if (!composed) {
             composed = true
             compose.setContent {
-                UsageLimitsTheme {
-                    shown?.let { ContentPreview(it.snapshot, it.kind, WidgetStyle(), it.mode) }
+                shown?.let {
+                    UsageLimitsTheme(figureFont = it.figureFont) {
+                        ContentPreview(it.snapshot, it.kind, WidgetStyle(), it.mode)
+                    }
                 }
             }
         }
@@ -143,6 +156,19 @@ class WidgetConfigPreviewTest {
             assertTrue("$mode: the other mode's '$other' must be absent", texts(other).isEmpty())
             assertTrue("$mode: bars have no one-word caption", texts("Left").isEmpty() && texts("Used").isEmpty())
         }
+    }
+
+    @Test
+    fun `account rings and usage bars keep their own figure face`() {
+        val snapshot = snapshot(account())
+        val families = listOf("Account Rings" to "60%", "Usage Bars" to "60% left").associate { (kind, figure) ->
+            preview(snapshot, kind, PercentDisplay.LEFT, FigureFont.IBM_PLEX_MONO)
+            val layouts = mutableListOf<TextLayoutResult>()
+            compose.onNodeWithText(figure, useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            kind to layouts.single().layoutInput.style.fontFamily
+        }
+        assertEquals(mapOf("Account Rings" to FontFamily.Monospace, "Usage Bars" to FontFamily.Monospace), families)
     }
 
     @Test

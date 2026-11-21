@@ -16,6 +16,9 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
@@ -33,8 +36,11 @@ import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
 import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.sync.resetTestWorkManager
+import com.usagelimits.ui.theme.face
 import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.feature.waitDrained
 import kotlinx.coroutines.CompletableDeferred
@@ -175,9 +181,14 @@ class ExternalRequestActivityTest {
         gate.complete(Unit)
         val store = container.settingsStore
         val saved = store.settings
-        val previousTheme = runBlocking { saved.first().appTheme }
+        val previous = runBlocking { saved.first() }
         val theme = com.usagelimits.core.settings.AppTheme.LIGHT_PAPER
-        runBlocking { store.setAppTheme(theme) }
+        runBlocking {
+            account("First frame")
+            store.setAppTheme(theme)
+            store.setTextFont(TextFont.FIGTREE)
+            store.setFigureFont(FigureFont.IBM_PLEX_MONO)
+        }
         val release = CompletableDeferred<Unit>()
         ReflectionHelpers.setField(store, "settings", saved.onStart { release.await() })
         try {
@@ -188,7 +199,18 @@ class ExternalRequestActivityTest {
                 decor.viewTreeObserver.dispatchOnPreDraw())
             release.complete(Unit)
             waitFor("the themed root") { onOverview() }
+            val firstTitle = mutableListOf<TextLayoutResult>()
+            compose.onNode(hasText("Usage Limits"), useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(firstTitle) }
+            assertEquals("the themed root uses the saved text weight", FontWeight(560), firstTitle.single().layoutInput.style.fontWeight)
+            assertEquals("the themed root uses the saved text face", TextFont.FIGTREE.face.family, firstTitle.single().layoutInput.style.fontFamily)
             assertFalse("the themed window must let pre-draw through", decor.viewTreeObserver.dispatchOnPreDraw())
+            waitFor("a quota reading") { shown("60%") }
+            val figure = mutableListOf<TextLayoutResult>()
+            compose.onNode(hasText("60%"), useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(figure) }
+            assertEquals("the first quota figure uses the saved figure face", FigureFont.IBM_PLEX_MONO.face.Figure.fontFamily,
+                figure.single().layoutInput.style.fontFamily)
             val bars = androidx.core.view.WindowCompat.getInsetsController(window, decor)
             assertTrue("paper requests dark status icons", bars.isAppearanceLightStatusBars)
             assertTrue("paper requests dark navigation icons", bars.isAppearanceLightNavigationBars)
@@ -196,7 +218,11 @@ class ExternalRequestActivityTest {
         } finally {
             release.complete(Unit)
             ReflectionHelpers.setField(store, "settings", saved)
-            runBlocking { store.setAppTheme(previousTheme) }
+            runBlocking {
+                store.setAppTheme(previous.appTheme)
+                store.setTextFont(previous.textFont)
+                store.setFigureFont(previous.figureFont)
+            }
         }
     }
 

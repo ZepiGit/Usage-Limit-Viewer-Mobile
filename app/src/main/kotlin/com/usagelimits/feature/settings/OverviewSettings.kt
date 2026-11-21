@@ -69,7 +69,7 @@ internal fun DisplaySettings(mode: PercentDisplay, onModeChange: (PercentDisplay
                         color = UsageColors.Muted,
                     )
                     FigureWithSide(percentFigureText(reading.token), stringResource(percentSideWordRes(reading.side)),
-                        SeverityPalette.figureColor(window.severity), UsageType.Figure.copy(fontSize = 18.sp),
+                        SeverityPalette.figureColor(window.severity), UsageType.PreviewFigure,
                         MaterialTheme.typography.bodySmall, spacing = 4.dp)
                 }
                 UsageBar(reading, Modifier.fillMaxWidth(), height = 6.dp)

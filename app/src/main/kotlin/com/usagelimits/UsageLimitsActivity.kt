@@ -94,7 +94,10 @@ class UsageLimitsActivity : ComponentActivity() {
             val settings = container.settingsStore.settings.collectAsState(initial = null).value ?: return@setContent
             val theme = settings.appTheme
             val windowSizeClass = calculateWindowSizeClass(this)
-            UsageLimitsTheme(appTheme = theme, providerIcons = settings.providerIcons) {
+            UsageLimitsTheme(
+                appTheme = theme, providerIcons = settings.providerIcons,
+                textFont = settings.textFont, figureFont = settings.figureFont,
+            ) {
                 UsageLimitsNavigation(container, windowSizeClass, pending.value, ::handled)
             }
             SideEffect {

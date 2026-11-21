@@ -41,6 +41,8 @@ import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.windowPresentation
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.ui.components.FigureWithSide
 import com.usagelimits.ui.components.UsageBar
@@ -60,7 +62,12 @@ private val PREVIEW_AMOUNT = BigDecimal("12.40")
 private val PREVIEW_TIME = LocalDate.of(2026, 1, 1).atTime(23, 31).toInstant(ZoneOffset.UTC).toEpochMilli()
 
 @Composable
-fun AppearanceSettings(settings: AppSettings, onAppThemeChange: (AppTheme) -> Unit) {
+fun AppearanceSettings(
+    settings: AppSettings,
+    onTextFontChange: (TextFont) -> Unit = {},
+    onFigureFontChange: (FigureFont) -> Unit = {},
+    onAppThemeChange: (AppTheme) -> Unit,
+) {
     UsageCard {
         AppearancePreview(settings)
         Spacer(Modifier.height(16.dp))
@@ -79,6 +86,8 @@ fun AppearanceSettings(settings: AppSettings, onAppThemeChange: (AppTheme) -> Un
                 }
             }
         }
+        Spacer(Modifier.height(16.dp))
+        AppearanceFonts(settings, onTextFontChange, onFigureFontChange)
     }
 }
 
@@ -102,7 +111,7 @@ private fun AppearancePreview(settings: AppSettings) {
                 style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
                 color = UsageColors.Ink)
             FigureWithSide(percentFigureText(presentation.token), stringResource(percentSideWordRes(presentation.side)),
-                SeverityPalette.figureColor(Severity.LOW), UsageType.Figure.copy(fontSize = 18.sp, lineHeight = 22.sp),
+                SeverityPalette.figureColor(Severity.LOW), UsageType.PreviewFigure,
                 MaterialTheme.typography.bodySmall, spacing = 8.dp)
         }
         UsageBar(presentation, Modifier.fillMaxWidth())

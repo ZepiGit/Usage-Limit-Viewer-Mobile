@@ -82,6 +82,8 @@ import com.usagelimits.ui.ConstrainedContent
 import com.usagelimits.ui.NavigationLayout
 import com.usagelimits.ui.theme.AxisShift
 import com.usagelimits.ui.theme.LocalAppTheme
+import com.usagelimits.ui.theme.LocalFigureFont
+import com.usagelimits.ui.theme.LocalTextFont
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageMotion
 import com.usagelimits.ui.theme.axisIn
@@ -456,12 +458,18 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
 
             composable(Destination.Settings.route) {
                 val appTheme = LocalAppTheme.current
+                val textFont = LocalTextFont.current
+                val figureFont = LocalFigureFont.current
+                val settings = state.settings
                 SettingsScreen(
-                    state = if (state.settings.appTheme == appTheme) state else state.copy(settings = state.settings.copy(appTheme = appTheme)),
+                    state = if (settings.appTheme == appTheme && settings.textFont == textFont && settings.figureFont == figureFont) state
+                    else state.copy(settings = settings.copy(appTheme = appTheme, textFont = textFont, figureFont = figureFont)),
                     onSyncIntervalChange = viewModel::setSyncInterval,
                     onNotificationPermissionHandled = viewModel::recordNotificationPermissionHandled,
                     onProviderIconChange = viewModel::setProviderIcon,
                     onAppThemeChange = viewModel::setAppTheme,
+                    onTextFontChange = viewModel::setTextFont,
+                    onFigureFontChange = viewModel::setFigureFont,
                     onStatusIconsChange = viewModel::setStatusIcons,
                     onPinnedChange = viewModel::setPinned,
                     onNotificationsAllowed = viewModel::notificationsAllowed,
