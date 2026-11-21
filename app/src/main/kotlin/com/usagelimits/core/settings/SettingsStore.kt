@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.map
 
 /** The stored names are independent of the labels in Settings. */
 enum class OverviewLayout { LIST, DIALS }
+enum class OverviewCreditLayout { NORMAL, COMPACT }
+enum class OverviewShowFirst { USAGE_PROVIDERS, CREDIT_ACCOUNTS }
 
 /** User-configurable preferences. */
 data class AppSettings(
@@ -72,6 +74,9 @@ data class AppSettings(
     val textFont: TextFont = TextFont.ROBOTO,
     val figureFont: FigureFont = FigureFont.ROBOTO_MONO,
     val overviewLayout: OverviewLayout = OverviewLayout.LIST,
+    val overviewCreditLayout: OverviewCreditLayout = OverviewCreditLayout.NORMAL,
+    val overviewShowFirst: OverviewShowFirst = OverviewShowFirst.USAGE_PROVIDERS,
+    val overviewShowCredits: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_SYNC_INTERVAL_MINUTES = 30
@@ -174,6 +179,18 @@ class SettingsStore(context: Context) {
 
     suspend fun setOverviewLayout(layout: OverviewLayout) = edit { it[Keys.OVERVIEW_LAYOUT] = layout.name }
 
+    suspend fun setOverviewCreditLayout(layout: OverviewCreditLayout) = edit {
+        it[Keys.OVERVIEW_CREDIT_LAYOUT] = layout.name
+    }
+
+    suspend fun setOverviewShowFirst(showFirst: OverviewShowFirst) = edit {
+        it[Keys.OVERVIEW_SHOW_FIRST] = showFirst.name
+    }
+
+    suspend fun setOverviewShowCredits(show: Boolean) = edit {
+        it[Keys.OVERVIEW_SHOW_CREDITS] = show
+    }
+
     /**
      * Counts the figures down (LEFT) or up (USED). Widgets observe this like every other setting;
      * the ViewModel additionally refreshes them so cold compositions repaint at once.
@@ -242,6 +259,13 @@ internal fun Preferences.toSettings() = AppSettings(
     overviewLayout = this[Keys.OVERVIEW_LAYOUT]?.let { stored ->
         OverviewLayout.entries.firstOrNull { it.name == stored }
     } ?: OverviewLayout.LIST,
+    overviewCreditLayout = this[Keys.OVERVIEW_CREDIT_LAYOUT]?.let { stored ->
+        OverviewCreditLayout.entries.firstOrNull { it.name == stored }
+    } ?: OverviewCreditLayout.NORMAL,
+    overviewShowFirst = this[Keys.OVERVIEW_SHOW_FIRST]?.let { stored ->
+        OverviewShowFirst.entries.firstOrNull { it.name == stored }
+    } ?: OverviewShowFirst.USAGE_PROVIDERS,
+    overviewShowCredits = this[Keys.OVERVIEW_SHOW_CREDITS] ?: true,
 )
 
 /**
@@ -279,6 +303,9 @@ private object Keys {
     val SHOW_TIER = booleanPreferencesKey("show_subscription_tier")
     val SHOW_RENEWAL = booleanPreferencesKey("show_renewal_time")
     val OVERVIEW_LAYOUT = stringPreferencesKey("overview_layout")
+    val OVERVIEW_CREDIT_LAYOUT = stringPreferencesKey("overview_credit_layout")
+    val OVERVIEW_SHOW_FIRST = stringPreferencesKey("overview_show_first")
+    val OVERVIEW_SHOW_CREDITS = booleanPreferencesKey("overview_show_credits")
     val MUTED_ACCOUNTS = stringSetPreferencesKey("muted_account_ids")
     val PERCENT_DISPLAY = stringPreferencesKey("percent_display")
     val STATUS_ICONS_ENABLED = booleanPreferencesKey("status_icons_enabled")

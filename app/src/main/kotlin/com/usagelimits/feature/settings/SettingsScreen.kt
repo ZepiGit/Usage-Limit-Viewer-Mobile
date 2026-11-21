@@ -31,10 +31,12 @@ import com.usagelimits.R
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.OverviewCreditLayout
 import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.core.settings.FigureFont
 import com.usagelimits.core.settings.TextFont
 import com.usagelimits.core.settings.OverviewLayout
+import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.core.sync.BackgroundRestrictions
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UsageUiState
@@ -75,6 +77,10 @@ fun SettingsScreen(
     onStatusIconsChange: (Boolean) -> Unit = {},
     onPinnedChange: (accountId: String, pinned: Boolean) -> Unit = { _, _ -> },
     onNotificationsAllowed: () -> Unit = {},
+    onOverviewCreditLayoutChange: (OverviewCreditLayout) -> Unit = {},
+    onOverviewShowFirstChange: (OverviewShowFirst) -> Unit = {},
+    onOverviewShowCreditsChange: (Boolean) -> Unit = {},
+    onManageCredits: (() -> Unit)? = null,
     onAppThemeChange: (AppTheme) -> Unit = {},
     onTextFontChange: (TextFont) -> Unit = {},
     onFigureFontChange: (FigureFont) -> Unit = {},
@@ -133,8 +139,11 @@ fun SettingsScreen(
 
         item(key = "display-heading") { SectionHeader(stringResource(R.string.settings_section_display)) }
         item { DisplaySettings(settings.percentDisplay, onPercentDisplayChange) }
-        item { SectionHeader(stringResource(R.string.settings_section_overview)) }
-        item { OverviewSettings(settings, onOverviewLayoutChange, onShowTier) }
+        item(key = "overview-heading") { SectionHeader(stringResource(R.string.settings_section_overview)) }
+        item {
+            OverviewSettings(settings, onOverviewLayoutChange, onShowTier, onOverviewCreditLayoutChange,
+                onOverviewShowFirstChange, onOverviewShowCreditsChange, onManageCredits)
+        }
 
         item { SectionHeader(stringResource(R.string.settings_section_notifications)) }
         item { NotificationPermissionSettings(permission) }

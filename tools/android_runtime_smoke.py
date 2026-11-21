@@ -359,6 +359,14 @@ def matches(root, label, package=PACKAGE):
             and (node.get("text") in labels or node.get("content-desc") in labels)]
 
 
+def credit_matches(root, label, package=DEBUG_PACKAGE):
+    labels = label if isinstance(label, tuple) else (label,)
+    compact_labels = ("Credits · 1 balance", "Guthaben · 1 Konto")
+    return [node for node in root.iter("node") if node.get("package") == package
+            and (node.get("text") in labels or node.get("content-desc") in labels
+                 or any(node.get("content-desc", "").startswith(value) for value in labels if value in compact_labels))]
+
+
 def navigation_target(root, label, package=PACKAGE):
     parents = {child: parent for parent in root.iter() for child in parent}
     candidates = {}
@@ -378,6 +386,39 @@ def navigation_target(root, label, package=PACKAGE):
 def selected_tab(root, label, package=PACKAGE):
     target = navigation_target(root, label, package)
     return target is not None and target.get("selected") == "true"
+
+
+def credit_selected(node, checked):
+    if node is None:
+        return False
+    checkable = node.get("checkable") == "true" or node.get("class") in (
+        "android.widget.Switch", "android.widget.RadioButton", "android.widget.CompoundButton",
+    )
+    state = node.get("checked") if checkable else node.get("selected")
+    return state in ("true", "false") and (state == "true") == checked
+
+
+def credit_checked(root, label, checked, package=DEBUG_PACKAGE):
+    parents = {child: parent for parent in root.iter() for child in parent}
+    candidates = {}
+    labels = label if isinstance(label, tuple) else (label,)
+    for node in root.iter("node"):
+        if node.get("package") != package or node.get("text") not in labels and node.get("content-desc") not in labels:
+            continue
+        while node is not None and node.get("package") == package:
+            if node.get("enabled") == "true" and bounds(node) and (
+                node.get("clickable") == "true" or node.get("checkable") == "true"
+                or node.get("class") in ("android.widget.Switch", "android.widget.RadioButton", "android.widget.CompoundButton")
+                or node.get("selected") == "true"
+            ):
+                candidates[bounds(node)] = node
+                break
+            node = parents.get(node)
+    assert len(candidates) <= 1, f"Ambiguous {package} credit selector: {label}"
+    target = next(iter(candidates.values()), None)
+    if target is None:
+        return None
+    return target if credit_selected(target, checked) else None
 
 
 def overview_ready(root, phase):
@@ -1306,11 +1347,11 @@ class Smoke:
         x1, y1, x2, y2 = bounds(node)
         self.adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2), deadline=deadline)
 
-    def launch(self, name, package=PACKAGE):
+    def launch(self, name, package=PACKAGE, tab="Overview"):
         activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", package).splitlines()[-1]
         assert activity.startswith(package + "/"), activity
         self.text(name + "-launch.txt", self.adb("shell", "am", "start", "-W", "-n", activity))
-        self.wait_for(name, lambda root: navigation_target(root, "Overview", package) is not None)
+        self.wait_for(name, lambda root: navigation_target(root, tab, package) is not None)
 
     def navigate(self, tab, marker, name, package=PACKAGE):
         root = self.dump(name + "-before")
@@ -1383,6 +1424,227 @@ class Smoke:
         return {"seededList": "passed", "seededOverviewByDriver": seeded["overview"],
                 "seededRowsShownByUi": row["shownOnScreen"], "seededRowTapped": row["tapped"],
                 "chipPress": "chip-ripple.json", "motionFrames": {"report": "motion.json"}}
+
+    def seed_credit_only(self, name, apk, locale):
+        """Replace only the throwaway debug app's usage fixture with one local synthetic credit account."""
+        self.adb("shell", "am", "force-stop", DEBUG_PACKAGE)
+        self.adb("shell", "pm", "clear", DEBUG_PACKAGE)
+        self.adb("install", "-r", str(apk), timeout=180)
+        self.adb("shell", "pm", "grant", DEBUG_PACKAGE, "android.permission.POST_NOTIFICATIONS")
+        self.adb("shell", "cmd", "locale", "set-app-locales", DEBUG_PACKAGE, "--locales", locale, "--user", "0")
+        token = uuid.uuid4().hex
+        self.text(name + "-broadcast.txt", self.adb(
+            "shell", "am", "broadcast", "-f", "0x20", "-n", DEBUG_RECEIVER,
+            "--es", "command", "seed-credits", "--es", "token", token, timeout=120))
+        state = None
+        for _ in range(90):
+            try:
+                state = json.loads(self.adb("exec-out", "run-as", DEBUG_PACKAGE, "cat",
+                                            "files/status-icon-evidence.json", timeout=8))
+            except (subprocess.SubprocessError, json.JSONDecodeError):
+                state = None
+            if state is not None and state.get("token") == token:
+                break
+            time.sleep(1)
+        assert state is not None and state.get("token") == token, "The debug build did not confirm the credit seed"
+        assert state.get("success") is True, "Credit seed failed: " + str(state.get("error"))
+        assert state.get("accounts") == [] and state.get("creditAccounts") == ["Synthetic credit"], state
+        self.text(name + "-seed.json", json.dumps(state, indent=2))
+        return state
+
+    def navigate_credit(self, tab, marker, name):
+        root = self.dump(name + "-before")
+        target = navigation_target(root, tab, DEBUG_PACKAGE)
+        assert target is not None, f"No enabled {tab} navigation item in the debug app"
+        if target.get("selected") != "true":
+            assert target.get("clickable") == "true", f"Unselected {tab} tab is not clickable"
+            self.tap(target)
+        self.wait_for(name + "-selected", lambda root: selected_tab(root, tab, DEBUG_PACKAGE))
+        for attempt in range(10):
+            root = self.dump(f"{name}-content-{attempt}")
+            if credit_matches(root, marker):
+                break
+            self.scroll(root, up=True, package=DEBUG_PACKAGE)
+        self.wait_for(name, lambda root: selected_tab(root, tab, DEBUG_PACKAGE)
+                      and bool(credit_matches(root, marker)))
+        self.capture(name)
+        assert self.adb("shell", "pidof", DEBUG_PACKAGE), "Debug app process exited after navigation"
+
+    def credit_control(self, name, label, package=DEBUG_PACKAGE, up=False, prefix=False):
+        for attempt in range(10):
+            root = self.dump(f"{name}-{attempt}")
+            target = self.control(root, package, label=label)
+            if target is None:
+                target = credit_checked(root, label, True, package) or credit_checked(root, label, False, package)
+            if target is None and prefix:
+                parents = {child: parent for parent in root.iter() for child in parent}
+                candidates = {}
+                for node in root.iter("node"):
+                    if node.get("package") != package or not node.get("content-desc", "").startswith(label):
+                        continue
+                    while node is not None and node.get("package") == package:
+                        if node.get("enabled") == "true" and node.get("clickable") == "true" and bounds(node):
+                            candidates[bounds(node)] = node
+                            break
+                        node = parents.get(node)
+                assert len(candidates) <= 1, f"Ambiguous {package} credit row: {label}"
+                target = next(iter(candidates.values()), None)
+            if target is not None:
+                return target
+            self.scroll(root, up=up, package=package)
+        raise AssertionError(f"Could not reach credit control {label}")
+
+    def credit_selection(self, name, label, checked, package=DEBUG_PACKAGE, up=True):
+        """Follow a selection moved out of view by the Settings preview or dependent controls.
+
+        Compact shrinks the preview and can move its selector above the viewport (up=False).
+        Show credits adds controls above its switch and moves it below the viewport (up=True).
+        A visible control with the old value is only waited for, never tapped again.
+        """
+        for attempt in range(12):
+            root = self.dump(f"{name}-{attempt}")
+            if credit_checked(root, label, checked, package) is not None:
+                return root
+            if credit_checked(root, label, not checked, package) is None:
+                self.scroll(root, up=up, package=package)
+            else:
+                time.sleep(1)
+        raise AssertionError(f"UI did not reach {name}")
+
+    def credit_steps(self, apk):
+        """Check the credit-only debug fixture in EN and DE after the usage evidence lane is complete."""
+        self.seed_credit_only("credits-en", apk, "en-US")
+        self.launch("credits-en-start", DEBUG_PACKAGE)
+        self.wait_for("credits-en-overview", lambda root: selected_tab(root, "Overview", DEBUG_PACKAGE)
+                      and bool(matches(root, "Synthetic credit", DEBUG_PACKAGE)))
+        root = self.dump("credits-en-normal")
+        assert matches(root, "Synthetic credit", DEBUG_PACKAGE) and matches(root, "$3.18", DEBUG_PACKAGE), \
+            "Normal credit block did not show the local synthetic balance"
+        self.capture("credits-en-normal")
+        manage = self.credit_control("credits-en-manage", "Manage credit accounts", up=True)
+        self.tap(manage)
+        self.wait_for("credits-en-management", lambda root: bool(matches(root, "Manage credit accounts", DEBUG_PACKAGE))
+                      and bool(matches(root, "Synthetic credit", DEBUG_PACKAGE))
+                      and bool(matches(root, "Add credit balance", DEBUG_PACKAGE))
+                      and navigation_target(root, "Overview", DEBUG_PACKAGE) is None)
+        self.capture("credits-en-management")
+        self.tap(self.credit_control("credits-en-add", "Add credit balance"))
+        self.wait_for("credits-en-add-screen", lambda root: bool(matches(root, "DeepSeek", DEBUG_PACKAGE)))
+        self.adb("shell", "input", "keyevent", "BACK")
+        details = self.credit_control("credits-en-details", "Synthetic credit")
+        self.tap(details)
+        detail = self.wait_for("credits-en-edit", lambda root: bool(matches(root, "Low-balance figure", DEBUG_PACKAGE))
+                               and bool(matches(root, "Save", DEBUG_PACKAGE)))
+        assert matches(detail, "Name", DEBUG_PACKAGE), "Credit edit screen omitted its existing name field"
+        self.capture("credits-en-edit")
+        self.adb("shell", "input", "keyevent", "BACK")
+        self.wait_for("credits-en-management-back", lambda root: bool(matches(root, "Manage credit accounts", DEBUG_PACKAGE)))
+        self.adb("shell", "input", "keyevent", "BACK")
+        self.wait_for("credits-en-overview-back", lambda root: bool(matches(root, "Synthetic credit", DEBUG_PACKAGE)))
+        self.navigate_credit("Settings", "Show credits", "credits-en-settings")
+        normal = self.credit_control("credits-en-normal-layout", "Normal", up=False)
+        self.tap(normal)
+        compact_option = self.credit_control("credits-en-compact-layout", "Compact", up=False)
+        self.tap(compact_option)
+        self.credit_selection("credits-en-compact-selected", "Compact", True, up=False)
+        first = self.credit_control("credits-en-show-first", "Usage providers", up=True)
+        self.tap(first)
+        credit_first = self.credit_control("credits-en-credit-first", "Credit accounts", up=True)
+        self.tap(credit_first)
+        self.wait_for("credits-en-credit-first-selected", lambda root: credit_checked(root, "Credit accounts", True, DEBUG_PACKAGE) is not None)
+        self.navigate_credit("Overview", "Credits · 1 balance", "credits-en-compact-overview")
+        compact_root = self.dump("credits-en-compact-order")
+        count_node = next(node for node in credit_matches(compact_root, "Credits · 1 balance") if bounds(node))
+        empty_node = next(node for node in matches(compact_root, "Nothing to monitor yet", DEBUG_PACKAGE) if bounds(node))
+        assert bounds(count_node)[1] < bounds(empty_node)[1], "Show first did not put Credits above usage providers"
+        assert any(node.get("package") == DEBUG_PACKAGE and "Credits · 1 balance" in (node.get("content-desc") or "")
+                   and "Low balance: Synthetic credit" in node.get("content-desc", "")
+                   and "3.18" in node.get("content-desc", "") for node in compact_root.iter("node")), \
+            "Compact credit accessibility label omitted the local under-threshold balance"
+        self.capture("credits-en-compact")
+        self.tap(self.credit_control("credits-en-expand", "Credits · 1 balance", prefix=True))
+        self.wait_for("credits-en-expanded", lambda root: bool(matches(root, "Collapse", DEBUG_PACKAGE))
+                      and bool(matches(root, "$3.18", DEBUG_PACKAGE)))
+        self.tap(self.credit_control("credits-en-collapse", "Collapse"))
+        self.wait_for("credits-en-collapsed", lambda root: bool(credit_matches(root, "Credits · 1 balance")))
+        self.navigate_credit("Settings", "Show credits", "credits-en-settings-normal")
+        self.tap(self.credit_control("credits-en-restore-normal", "Normal", up=False))
+        self.wait_for("credits-en-normal-restored", lambda root: credit_checked(root, "Normal", True, DEBUG_PACKAGE) is not None)
+        self.adb("shell", "cmd", "locale", "set-app-locales", DEBUG_PACKAGE, "--locales", "de-DE", "--user", "0")
+        self.adb("shell", "am", "force-stop", DEBUG_PACKAGE)
+        self.launch("credits-de-start", DEBUG_PACKAGE, tab="Übersicht")
+        self.wait_for("credits-de-overview", lambda root: selected_tab(root, "Übersicht", DEBUG_PACKAGE)
+                      and bool(matches(root, "Synthetic credit", DEBUG_PACKAGE)))
+        self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-settings")
+        layout = self.credit_control("credits-de-layout", "Normal", up=False)
+        self.tap(layout)
+        compact = self.credit_control("credits-de-compact", "Kompakt", up=False)
+        self.tap(compact)
+        self.credit_selection("credits-de-compact-selected", "Kompakt", True, up=False)
+        first = self.credit_control("credits-de-show-first", "Nutzungskonten", up=True)
+        self.tap(first)
+        credit_first = self.credit_control("credits-de-credit-first", "Guthabenkonten", up=True)
+        self.tap(credit_first)
+        self.wait_for("credits-de-credit-first-selected", lambda root: credit_checked(root, "Guthabenkonten", True, DEBUG_PACKAGE) is not None)
+        show = self.credit_control("credits-de-show-credits", "Guthaben anzeigen", up=True)
+        assert show.get("checkable") == "true" and show.get("checked") == "true", "Show credits did not start enabled"
+        self.capture("credits-de-settings")
+        self.navigate_credit("Übersicht", "Guthaben · 1 Konto", "credits-de-compact-overview")
+        compact_root = self.dump("credits-de-compact-order")
+        count_node = next(node for node in credit_matches(compact_root, "Guthaben · 1 Konto") if bounds(node))
+        empty_node = next(node for node in matches(compact_root, "Noch nichts zu verfolgen", DEBUG_PACKAGE) if bounds(node))
+        assert bounds(count_node)[1] < bounds(empty_node)[1], "Show first did not put Guthaben above usage providers"
+        assert any(node.get("package") == DEBUG_PACKAGE and "Guthaben · 1 Konto" in (node.get("content-desc") or "")
+                   and "Niedriges Guthaben: Synthetic credit" in node.get("content-desc", "")
+                   and "3,18" in node.get("content-desc", "") for node in compact_root.iter("node")), \
+            "German compact credit accessibility label omitted the localized synthetic balance"
+        self.capture("credits-de-compact")
+        collapse = self.credit_control("credits-de-expand", "Guthaben · 1 Konto", prefix=True)
+        self.tap(collapse)
+        self.wait_for("credits-de-expanded", lambda root: bool(matches(root, "Einklappen", DEBUG_PACKAGE))
+                      and any(node.get("package") == DEBUG_PACKAGE and "3,18" in (node.get("text") or "")
+                              for node in root.iter("node")))
+        self.capture("credits-de-expanded")
+        self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-settings-hide")
+        show = self.credit_control("credits-de-hide", "Guthaben anzeigen", up=True)
+        self.tap(show)
+        self.wait_for("credits-de-hidden-settings", lambda root:
+            credit_checked(root, "Guthaben anzeigen", False, DEBUG_PACKAGE) is not None)
+        self.credit_control("credits-de-manage-always", "Guthaben verwalten", up=True)
+        self.adb("shell", "am", "force-stop", DEBUG_PACKAGE)
+        self.launch("credits-de-relaunch", DEBUG_PACKAGE, tab="Übersicht")
+        self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-persisted-settings")
+        assert credit_checked(self.dump("credits-de-persisted-hidden"), "Guthaben anzeigen", False,
+                              DEBUG_PACKAGE) is not None, "Hidden credit choice did not persist after force-stop"
+        self.navigate_credit("Übersicht", "Noch keine Konten", "credits-de-persisted-overview")
+        assert not credit_matches(self.dump("credits-de-persisted-no-credit"), "Guthaben · 1 Konto"), \
+            "Hidden credit block returned after force-stop"
+        self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-persisted-settings-toggle")
+        show = self.credit_control("credits-de-restored-show", "Guthaben anzeigen", up=True)
+        self.tap(show)
+        self.credit_selection("credits-de-restored-visible", "Guthaben anzeigen", True)
+        layout = self.credit_control("credits-de-persisted-layout", "Kompakt", up=False)
+        assert credit_selected(layout, True), "Compact layout did not persist after force-stop"
+        first = self.credit_control("credits-de-persisted-order", "Guthabenkonten", up=True)
+        assert credit_selected(first, True), "Credit-first order did not persist after force-stop"
+        self.navigate_credit("Übersicht", "Guthaben · 1 Konto", "credits-de-persisted-compact")
+        self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-hide-again-settings")
+        self.tap(self.credit_control("credits-de-hide-again", "Guthaben anzeigen", up=True))
+        self.wait_for("credits-de-hidden-again", lambda root:
+            credit_checked(root, "Guthaben anzeigen", False, DEBUG_PACKAGE) is not None)
+        manage = self.credit_control("credits-de-manage-always", "Guthaben verwalten", up=True)
+        self.tap(manage)
+        self.wait_for("credits-de-manage-from-settings", lambda root: bool(matches(root, "Guthaben verwalten", DEBUG_PACKAGE))
+                      and bool(matches(root, "Synthetic credit", DEBUG_PACKAGE))
+                      and bool(matches(root, "Guthaben hinzufügen", DEBUG_PACKAGE))
+                      and navigation_target(root, "Übersicht", DEBUG_PACKAGE) is None)
+        self.adb("shell", "am", "force-stop", DEBUG_PACKAGE)
+        self.launch("credits-de-relaunch-final", DEBUG_PACKAGE, tab="Übersicht")
+        self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-final-settings")
+        assert credit_checked(self.dump("credits-de-final-hidden"), "Guthaben anzeigen", False,
+                              DEBUG_PACKAGE) is not None, "Hidden credit choice did not survive final relaunch"
+        return {"creditJourney": "passed", "creditSeed": "local synthetic; no provider credentials",
+                "creditLocales": ["en-US", "de-DE"], "creditRelaunch": "hidden choice persisted"}
 
     def open_seeded_row(self, name, package):
         """A tap on a List row opens that row's account without the bar, and Back returns to the List.
@@ -1909,8 +2171,8 @@ class Smoke:
             self.scroll(root, up=True)
         raise AssertionError(f"Could not reach {SETTING}")
 
-    def scroll(self, root, up):
-        scrollables = [node for node in root.iter("node") if node.get("package") == PACKAGE
+    def scroll(self, root, up, package=PACKAGE):
+        scrollables = [node for node in root.iter("node") if node.get("package") == package
                        and node.get("scrollable") == "true" and bounds(node)]
         assert scrollables, "No scrollable app content"
         x1, y1, x2, y2 = max((bounds(node) for node in scrollables), key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
@@ -2071,22 +2333,29 @@ def main():
         diagnostics_complete = smoke.diagnostics()
     assert diagnostics_complete, "Could not collect the runtime diagnostics"
     smoke.assert_no_app_failures()
+    if args.debug_apk:
+        # Preserve the existing optional motion capture after the seeded List, then isolate the credit fixture.
+        smoke.capture_motion("motion", DEBUG_PACKAGE)
+        try:
+            seeded.update(smoke.credit_steps(args.debug_apk))
+        except Exception:
+            smoke.diagnostics("credit-failure-")
+            try:
+                smoke.capture("credit-failure")
+            except (subprocess.SubprocessError, ET.ParseError, AssertionError, struct.error, zlib.error, IndexError):
+                pass
+            raise
     smoke.text("result.json", json.dumps({"result": "passed", "commit": os.environ["GITHUB_SHA"],
         "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": list(TABS), "themeLaunches": theme_launches,
         "fonts": "fonts.json", "widgets": placed_widgets, **seeded,
         "scope": "Empty-account release smoke with four launcher widgets"
-                 + (", then this run's debug build with synthetic accounts for the List and its filter chips"
-                    if args.debug_apk else "; the seeded List steps were skipped (no --debug-apk)")
-                 + "; provider-authenticated quotas were not tested."}, indent=2))
+                 + (", then the debug-only seeded List and a separate local synthetic-credit journey"
+                    if args.debug_apk else "; the seeded List and credit steps were skipped (no --debug-apk)")
+                 + "; provider-authenticated quotas and credentials were not used."}, indent=2))
     print("Release APK upgrade, persisted setting, three tabs, four widgets, Mini Rings move/resize, night mode, process loss, "
           "launcher restart, reboot and offline/online checks passed; startup observations recorded. "
-          + ("Seeded List chip press highlight and row tap passed." if args.debug_apk
-             else "Seeded List steps skipped: no --debug-apk."))
-    # Optional evidence, last: everything mandatory has passed and is on record above. It needs the
-    # seeded debug build, which has a List, filter chips and rows to push; the emulator is discarded
-    # with the job, so the debug build is not uninstalled.
-    if args.debug_apk:
-        smoke.capture_motion("motion", DEBUG_PACKAGE)
+          + ("Seeded List, chip press and row tap, then EN/DE synthetic credit and relaunch checks passed."
+             if args.debug_apk else "Seeded debug List and credit steps skipped: no --debug-apk."))
 
 
 if __name__ == "__main__":

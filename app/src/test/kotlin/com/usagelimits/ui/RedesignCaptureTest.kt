@@ -26,7 +26,9 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performScrollToNode
@@ -63,6 +65,8 @@ import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.core.settings.FigureFont
 import com.usagelimits.core.settings.TextFont
 import com.usagelimits.core.settings.OverviewLayout
+import com.usagelimits.core.settings.OverviewCreditLayout
+import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.accounts.AccountDetailScreen
@@ -284,15 +288,104 @@ class RedesignCaptureTest {
             current.value = { androidx.compose.runtime.key(name) { content() } }
             compose.waitForIdle()
             if (name.startsWith("settings-")) {
-                compose.onNode(hasScrollToNodeAction()).performScrollToKey("display-heading")
-                for (label in listOf(com.usagelimits.R.string.settings_section_display, com.usagelimits.R.string.settings_show_tier_title)) {
-                    compose.onNodeWithText(compose.activity.getString(label)).assertIsDisplayed()
-                }
+                val scroll = compose.onNode(hasScrollToNodeAction())
+                val display = compose.activity.getString(com.usagelimits.R.string.settings_section_display)
+                val showTier = compose.activity.getString(com.usagelimits.R.string.settings_show_tier_title)
+                scroll.performScrollToKey("display-heading")
+                compose.onNodeWithText(display).assertIsDisplayed()
+                scroll.performScrollToNode(hasText(showTier))
+                compose.onNodeWithText(showTier).assertIsDisplayed()
+                scroll.performScrollToKey("display-heading")
+            }
+            if (mode.endsWith("-large") && name.startsWith("overview-dials-")) {
+                val nameNode = compose.onNodeWithText("OpenRouter team", useUnmergedTree = true)
+                val age = if (mode.startsWith("de")) "OpenRouter · Aktualisiert vor 6 Min." else "OpenRouter · Updated 6m ago"
+                val ageNode = compose.onNodeWithText(age, useUnmergedTree = true)
+                ageNode.assertIsDisplayed()
+                val identity = nameNode.fetchSemanticsNode().boundsInRoot
+                val freshness = ageNode.fetchSemanticsNode().boundsInRoot
+                assertTrue("freshness takes the full-width line below the inset account label", freshness.left < identity.left)
             }
             // Not onRoot().captureToImage(): under Robolectric 4.16 + compose ui-test 1.7.6 its
             // forceRedraw never sees a frame and times out (tried sdk 34 and 28). Drawing the
             // decor view in software is what the widget captures below do, and it works.
             captureScreen(name, mode)
+        }
+    }
+
+    /** The independently named 03b credit treatments, captured through Overview's real callbacks. */
+    private fun captureOverview03b(locale: String) {
+        val current = mutableStateOf<@Composable () -> Unit>({})
+        compose.setContent { UsageLimitsTheme { current.value() } }
+        val language = if (locale == "de") "de" else "en"
+
+        for (layout in OverviewLayout.entries) {
+            val layoutName = if (layout == OverviewLayout.LIST) "list" else "dials"
+            val baseSettings = AppSettings(
+                overviewLayout = layout,
+                overviewCreditLayout = OverviewCreditLayout.NORMAL,
+                overviewShowFirst = OverviewShowFirst.USAGE_PROVIDERS,
+                overviewShowCredits = true,
+            )
+            val scenarios = listOf(
+                "normal" to baseSettings,
+                "compact" to baseSettings.copy(overviewCreditLayout = OverviewCreditLayout.COMPACT),
+                "expanded" to baseSettings.copy(overviewCreditLayout = OverviewCreditLayout.COMPACT),
+                "hidden" to baseSettings.copy(overviewShowCredits = false),
+                "credit-only" to baseSettings.copy(overviewShowFirst = OverviewShowFirst.CREDIT_ACCOUNTS),
+            )
+            for ((scenario, settings) in scenarios) {
+                val name = "overview-03b-$scenario-$layoutName-$language"
+                current.value = {
+                    androidx.compose.runtime.key(name) {
+                        val overviewState = if (scenario == "credit-only") {
+                            UsageUiState(settings = settings, credits = credits)
+                        } else {
+                            state.copy(settings = settings)
+                        }
+                        OverviewScreen(
+                            state = overviewState, nowMs = NOW, zone = utc,
+                            onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+                            onCreditClick = {}, onAddCredit = {}, onManageCredits = {},
+                        )
+                    }
+                }
+                compose.waitForIdle()
+                val compactRow = if (language == "de") "Guthaben · 3 Konten" else "Credits · 3 balances"
+                when (scenario) {
+                    "normal" -> {
+                        compose.onNodeWithText(if (language == "de") "Guthaben" else "Credits").assertIsDisplayed()
+                        compose.onNodeWithText("OpenRouter team").assertIsDisplayed()
+                    }
+                    "compact" -> {
+                        compose.onNodeWithContentDescription(compactRow, substring = true).assertIsDisplayed()
+                        compose.onNodeWithText("OpenRouter team").assertDoesNotExist()
+                    }
+                    "expanded" -> compose.onNodeWithContentDescription(compactRow, substring = true).assertIsDisplayed()
+                    "hidden" -> {
+                        compose.onNodeWithText(if (language == "de") "Guthaben" else "Credits").assertDoesNotExist()
+                        compose.onNodeWithText("OpenRouter team").assertDoesNotExist()
+                    }
+                    "credit-only" -> {
+                        compose.onNodeWithText(compose.activity.getString(com.usagelimits.R.string.overview_no_accounts_yet)).assertIsDisplayed()
+                        compose.onNodeWithText("Work").assertDoesNotExist()
+                        compose.onNodeWithText("OpenRouter team").assertIsDisplayed()
+                        compose.onNodeWithContentDescription(compactRow, substring = true).assertDoesNotExist()
+                    }
+                }
+                if (scenario == "expanded") {
+                    compose.onNodeWithText("OpenRouter team").assertDoesNotExist()
+                    compose.onNodeWithContentDescription(compactRow, substring = true).performClick()
+                    compose.waitForIdle()
+                    compose.onNodeWithText("OpenRouter team").assertIsDisplayed()
+                    compose.onNodeWithText(if (language == "de") "Einklappen" else "Collapse").assertIsDisplayed()
+                }
+                val root = compose.activity.window.decorView
+                Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).useOnce {
+                    root.draw(Canvas(it))
+                    it.save("screen-$name")
+                }
+            }
         }
     }
 
@@ -510,6 +603,11 @@ class RedesignCaptureTest {
             bounds.left >= root.left && bounds.top >= root.top && bounds.right <= root.right && bounds.bottom <= root.bottom)
         return layout
     }
+
+    @Test fun `overview credits 03b`() = captureOverview03b("en")
+
+    @Config(qualifiers = "+de")
+    @Test fun `overview credits 03b German`() = captureOverview03b("de")
 
     @Test fun `screens light`() = captureAll("light")
 

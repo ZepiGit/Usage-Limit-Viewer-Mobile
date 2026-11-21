@@ -25,6 +25,11 @@ object AppIcons {
         icon("ChevronRight", "M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z")
     }
 
+    /** Material "account_balance_wallet". */
+    val Wallet: ImageVector by lazy {
+        icon("Wallet", "M21 18v1c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V5c0-1.1.9-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h9zm-9-2h10V8H12v8zm3-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z")
+    }
+
     /** Material "schedule". */
     val Schedule: ImageVector by lazy {
         icon(

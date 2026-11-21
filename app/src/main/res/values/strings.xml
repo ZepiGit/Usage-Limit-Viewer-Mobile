@@ -195,7 +195,24 @@
     <string name="overview_section_credits">Credits</string>
     <string name="overview_no_credits">No prepaid balances tracked.</string>
     <string name="overview_add_credit">Add credit balance</string>
-    <string name="overview_add_credit_hint">Track prepaid API credit</string>
+    <string name="overview_credit_collapse">Collapse</string>
+    <string name="overview_credit_expand">Expand credit balances</string>
+    <string name="overview_credit_low_balance">Low balance: %1$s</string>
+    <string name="overview_credit_hint">%1$s %2$s</string>
+    <plurals name="overview_credit_count">
+        <item quantity="one">Credits · %1$d balance</item>
+        <item quantity="other">Credits · %1$d balances</item>
+    </plurals>
+    <string name="settings_credit_layout_title">Credit accounts</string>
+    <string name="settings_credit_layout_subtitle">Normal lists the balances. Compact shows a count and the balance furthest below its threshold.</string>
+    <string name="settings_credit_normal">Normal</string>
+    <string name="settings_credit_compact">Compact</string>
+    <string name="settings_overview_show_first_title">Show first</string>
+    <string name="settings_overview_show_first_subtitle">Which block sits at the top of Overview.</string>
+    <string name="settings_overview_usage_providers">Usage providers</string>
+    <string name="settings_show_credits_title">Show credits</string>
+    <string name="settings_show_credits_subtitle">Hide prepaid balances from Overview without removing them.</string>
+    <string name="credit_manage">Manage credit accounts</string>
     <!-- The header subtitle: a claim, then the next reset; either part may be missing. -->
     <plurals name="overview_need_attention">
         <item quantity="one">%1$d needs attention</item>

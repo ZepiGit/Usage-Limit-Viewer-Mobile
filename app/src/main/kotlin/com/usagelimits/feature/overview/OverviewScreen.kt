@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
@@ -82,6 +81,7 @@ import androidx.compose.ui.unit.sp
 import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.ConnectionStatus
+import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
@@ -99,10 +99,8 @@ import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.ui.AppIcons
 import com.usagelimits.ui.ProviderLogo
-import com.usagelimits.ui.components.EmptyBox
 import com.usagelimits.ui.components.OutlineButton
 import com.usagelimits.ui.components.RuleDivider
-import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.SkeletonBar
 import com.usagelimits.ui.components.Spinner
 import com.usagelimits.ui.components.TextAction
@@ -134,7 +132,7 @@ private val BlockGap = 12.dp
 private val CardRadius = 8.dp
 
 /**
- * Overview: a shared header and rank, a filterable List or unfiltered Dials, then Credits.
+ * Overview: a shared header and rank, a filterable List or unfiltered Dials, and optional Credits.
  *
  * The ranking, the filters and the header come from [overviewAt] at [nowMs] in [zone], so the
  * screen and the shared vectors cannot disagree. With no accounts the screen is C1: the fixed
@@ -155,8 +153,14 @@ fun OverviewScreen(
     onFilterChange: (OverviewFilter) -> Unit = {},
     onCreditClick: (String) -> Unit = {},
     onAddCredit: () -> Unit = {},
+    onManageCredits: (() -> Unit)? = null,
+    isCurrentDestination: Boolean = true,
 ) {
     val listState = rememberLazyListState()
+    val compactCredits = state.settings.showCompactCredits(state.credits)
+    var creditsExpanded by remember(isCurrentDestination, compactCredits, state.settings.overviewShowCredits) {
+        mutableStateOf(false)
+    }
     // Content arriving for the first time replaces the skeleton in one cut. It is not a list
     // change, and its fade-in would leave the list blank for the delay, right after launch.
     // Items take the list motion from the composition after that.
@@ -189,6 +193,13 @@ fun OverviewScreen(
                 return@LazyColumn
             }
 
+            fun credits() = overviewCredits(
+                state.credits, nowMs, state.staleAfterMs, compactCredits, creditsExpanded, listMotion,
+                onExpand = { creditsExpanded = true }, onCollapse = { creditsExpanded = false },
+                onAdd = onAddCredit, onManage = onManageCredits, onSelect = onCreditClick, onRetry = onRefresh,
+            )
+            if (state.settings.creditsFirst) credits()
+
             if (state.accounts.isEmpty()) {
                 item(key = "empty") { EmptyOverview(onAddAccount, onAddCredit, itemMotion(listMotion).padding(top = BlockGap)) }
             } else if (dials) {
@@ -210,28 +221,7 @@ fun OverviewScreen(
                 }
             }
 
-            // Prepaid balances sit below the usage accounts: a different kind of number (money left,
-            // no windows, no reset), so they are not mixed into the ranked list above.
-            item(key = "credits-header") {
-                SectionHeader(title = stringResource(R.string.overview_section_credits), modifier = itemMotion(listMotion))
-            }
-            if (state.credits.isEmpty()) {
-                item(key = "credits-empty") {
-                    EmptyBox(stringResource(R.string.overview_no_credits), itemMotion(listMotion).padding(top = 8.dp))
-                }
-            }
-            items(items = state.credits, key = { "credit-${it.id}" }) { entry ->
-                com.usagelimits.feature.credits.CreditCard(
-                    entry = entry, nowMs = nowMs, staleAfterMs = state.staleAfterMs,
-                    modifier = itemMotion(listMotion).padding(top = 8.dp),
-                    onClick = { onCreditClick(entry.id) },
-                    onRetry = onRefresh,
-                )
-            }
-            item(key = "add-credit") {
-                AddButton(stringResource(R.string.overview_add_credit), stringResource(R.string.overview_add_credit_hint),
-                    onAddCredit, itemMotion(listMotion).padding(top = 8.dp))
-            }
+            if (state.settings.overviewShowCredits && !state.settings.creditsFirst) credits()
             if (dials && hasAccounts) {
                 item(key = "dials-caption") {
                     Text(stringResource(R.string.overview_dials_caption), itemMotion(listMotion).padding(top = BlockGap),
@@ -246,9 +236,12 @@ private fun dialColumnCount(width: Dp, fontScale: Float): Int =
     if (width >= 280.dp && fontScale < 1.4f) 2 else 1
 
 @Composable
-internal fun OverviewLayoutPreview(accounts: List<AccountUsage>, settings: AppSettings, nowMs: Long, zone: ZoneId) {
+internal fun OverviewLayoutPreview(
+    accounts: List<AccountUsage>, credits: List<CreditEntry>, settings: AppSettings, nowMs: Long, zone: ZoneId,
+) {
     val state = UsageUiState(accounts = accounts, settings = settings)
     val entries = accounts.overviewAt(OverviewFilter.ALL, nowMs, zone, state.staleAfterMs).entries
+    if (settings.creditsFirst) OverviewCreditsPreview(credits, settings, nowMs, state.staleAfterMs)
     if (settings.overviewLayout == OverviewLayout.DIALS) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val columns = dialColumnCount(maxWidth, LocalDensity.current.fontScale)
@@ -276,6 +269,7 @@ internal fun OverviewLayoutPreview(accounts: List<AccountUsage>, settings: AppSe
             }
         }
     }
+    if (settings.overviewShowCredits && !settings.creditsFirst) OverviewCreditsPreview(credits, settings, nowMs, state.staleAfterMs)
 }
 
 @Composable
@@ -322,16 +316,6 @@ private fun LazyListScope.accountList(
             val id = entry.usage.account.localId
             OverviewAccountRow(entry, state, nowMs, lines.getValue(id), columns, shape, onRefresh) { onAccountClick(id) }
         }
-    }
-}
-
-/** A full-width secondary button with its one-line hint beneath: the "add" row of a section. */
-@Composable
-fun AddButton(label: String, hint: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        OutlineButton(label, onClick, Modifier.fillMaxWidth(),
-            leading = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)) })
-        Text(hint, style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
     }
 }
 

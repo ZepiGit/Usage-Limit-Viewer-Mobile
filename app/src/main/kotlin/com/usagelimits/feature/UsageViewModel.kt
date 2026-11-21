@@ -17,7 +17,9 @@ import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.OverviewCreditLayout
 import com.usagelimits.core.settings.OverviewLayout
+import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.core.settings.SyncDiagnostics
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.userMessage
@@ -337,6 +339,18 @@ class UsageViewModel(
 
     fun setOverviewLayout(layout: OverviewLayout) {
         viewModelScope.launch { container.settingsStore.setOverviewLayout(layout) }
+    }
+
+    fun setOverviewCreditLayout(layout: OverviewCreditLayout) {
+        viewModelScope.launch { container.settingsStore.setOverviewCreditLayout(layout) }
+    }
+
+    fun setOverviewShowFirst(showFirst: OverviewShowFirst) {
+        viewModelScope.launch { container.settingsStore.setOverviewShowFirst(showFirst) }
+    }
+
+    fun setOverviewShowCredits(show: Boolean) {
+        viewModelScope.launch { container.settingsStore.setOverviewShowCredits(show) }
     }
 
     fun setPercentDisplay(mode: PercentDisplay) {

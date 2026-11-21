@@ -7,6 +7,10 @@ import androidx.work.WorkManager
 import androidx.work.await
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.di.AppContainer
+import com.usagelimits.core.model.CreditAccount
+import com.usagelimits.core.model.CreditBalance
+import com.usagelimits.core.model.CreditProviderId
+import com.usagelimits.core.model.CreditSnapshot
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
@@ -16,6 +20,7 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WidgetScope
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.model.pinnedAccountIds
+import com.usagelimits.core.sync.RATE_LIMITED_PAUSE_MESSAGE
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.widget.WidgetDataBuilder
@@ -30,6 +35,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.math.BigDecimal
 
 /** Drives the real cache and publication seam; never constructs or cancels notifications. */
 internal class StatusIconEvidenceDriver(
@@ -48,9 +54,12 @@ internal class StatusIconEvidenceDriver(
             require(!token.isNullOrBlank()) { "A unique token is required" }
             require(command in COMMANDS) { "Unknown command: $command" }
             require(account == null || FIXTURES.any { it.alias == account }) { "Unknown account: $account" }
-            require(command == "seed" || seeded) { "Seed a clean installation first; clear app data after process restart" }
+            require(command == "seed" || command == "seed-credits" || seeded) {
+                "Seed a clean installation first; clear app data after process restart"
+            }
             when (command) {
                 "seed" -> seed()
+                "seed-credits" -> seedCredits()
                 "same-provider" -> sameProvider()
                 "enable" -> container.statusIconChanges.setEnabled(true)
                 "pin", "unpin" -> {
@@ -126,6 +135,32 @@ internal class StatusIconEvidenceDriver(
         seeded = true
     }
 
+    private suspend fun seedCredits() {
+        check(repository.accounts().isEmpty() && container.creditRepository.entriesOnce().isEmpty()) {
+            "Credit fixture requires an empty debug installation"
+        }
+        prepareEmptyInstall()
+        val now = System.currentTimeMillis()
+        val account = CreditAccount(
+            id = "evidence-credit",
+            provider = CreditProviderId.DEEPSEEK,
+            label = "Synthetic credit",
+            credentialReference = "evidence-only",
+            attributes = mapOf(CreditAccount.LOW_THRESHOLD_KEY to "5"),
+            createdAt = now,
+        )
+        container.creditRepository.upsert(account, CreditSnapshot(
+            accountId = account.id,
+            balances = listOf(CreditBalance("USD", BigDecimal("3.18"), BigDecimal("100"))),
+            fetchedAt = now,
+        ))
+        // The real app refreshes on resume. This fixture has no key; retain its usable reading
+        // through the existing automatic cooldown instead of turning it into an ordinary failure.
+        container.creditRepository.record(account.id, balances = null, error = RATE_LIMITED_PAUSE_MESSAGE,
+            at = now, backgroundNotBefore = now + 3_600_000)
+        container.publication.cacheMoved()
+    }
+
     private suspend fun sameProvider() {
         val changes = container.statusIconChanges
         changes.setEnabled(false)
@@ -194,6 +229,9 @@ internal class StatusIconEvidenceDriver(
             .put("allAccounts", aliasesOf(WidgetDataBuilder.build(usage, rankedAt, WidgetScope.ALL_ACCOUNTS, null, null)
                 .accounts.map { it.accountId }))
             .put("localIds", JSONObject(aliases.toMap()))
+        if (command == "seed-credits" && error == null) {
+            completion.put("creditAccounts", JSONArray(container.creditRepository.accounts().map { it.label }))
+        }
         if (command == "same-provider" && error == null) {
             val localIds = aliases.toMap()
             completion.put("duplicateLocalIds", JSONObject()
@@ -218,7 +256,7 @@ internal class StatusIconEvidenceDriver(
         fun observingStartup(app: UsageLimitsApp, onSnapshot: suspend (List<WorkInfo>) -> Unit) =
             StatusIconEvidenceDriver(app, prepareEmptyInstall = { quiesceStartup(app, onSnapshot) })
 
-        private val COMMANDS = setOf("seed", "enable", "pin", "unpin", "update", "rerank", "states", "reset-readings", "presentation", "cache", "same-provider")
+        private val COMMANDS = setOf("seed", "seed-credits", "enable", "pin", "unpin", "update", "rerank", "states", "reset-readings", "presentation", "cache", "same-provider")
         private val WORK_FIXTURE = Fixture("evidence-claude-work", ProviderId.CLAUDE, 87.0)
         private val FIXTURES = listOf(
             Fixture("evidence-claude", ProviderId.CLAUDE, 42.0),

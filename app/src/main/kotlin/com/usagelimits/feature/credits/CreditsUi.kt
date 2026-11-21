@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.usagelimits.R
@@ -54,9 +55,9 @@ internal fun creditIcon(id: CreditProviderId): Int = when (id) {
 }
 
 @Composable
-internal fun CreditArtwork(provider: CreditProviderId) {
+internal fun CreditArtwork(provider: CreditProviderId, size: androidx.compose.ui.unit.Dp = 30.dp) {
     val whiteInk = provider == CreditProviderId.XAI || provider == CreditProviderId.MOONSHOT
-    com.usagelimits.ui.ProviderArtwork(creditIcon(provider), whiteInk, null, Modifier.size(30.dp))
+    com.usagelimits.ui.ProviderArtwork(creditIcon(provider), whiteInk, null, Modifier.size(size))
 }
 
 /**
@@ -85,24 +86,24 @@ fun CreditCard(
     onClick: (() -> Unit)? = null,
     /** Retry beside a failed read; null hides it. */
     onRetry: (() -> Unit)? = null,
+    compact: Boolean = false,
 ) {
     val account = entry.account
     val snapshot = entry.snapshot
-    val countdownTexts = rememberCountdownTexts()
+    val freshness = if (compact) null else account.provider.displayName + " · " +
+        Countdown.freshnessLabel(snapshot?.takeIf { it.balances.isNotEmpty() }?.fetchedAt, nowMs, rememberCountdownTexts())
+    val largeText = LocalDensity.current.fontScale >= 1.4f
     val severity = CreditSeverity.of(entry, nowMs, staleAfterMs)
     val balances = CreditSeverity.worstFirst(entry)
 
-    UsageCard(modifier = modifier, onClick = onClick) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 44.dp)) {
-            CreditArtwork(account.provider)
-            Spacer(Modifier.width(12.dp))
+    UsageCard(modifier = modifier, contentPadding = androidx.compose.foundation.layout.PaddingValues(if (compact) 8.dp else 16.dp), onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = if (compact) 20.dp else 44.dp)) {
+            CreditArtwork(account.provider, if (compact) 18.dp else 30.dp)
+            Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(account.label, style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink, maxLines = 1)
-                Text(
-                    account.provider.displayName + " · " +
-                        Countdown.freshnessLabel(snapshot?.takeIf { it.balances.isNotEmpty() }?.fetchedAt, nowMs, countdownTexts),
-                    style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint, maxLines = 1,
-                )
+                Text(account.label, style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.titleMedium,
+                    color = UsageColors.Ink, maxLines = 1)
+                if (!largeText && freshness != null) CreditFreshness(freshness)
             }
             StatusMark(severity)
             if (onClick != null) {
@@ -111,7 +112,8 @@ fun CreditCard(
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
+        if (largeText && freshness != null) CreditFreshness(freshness)
+        Spacer(Modifier.height(if (compact) 4.dp else 12.dp))
         if (balances.isEmpty()) {
             if (snapshot?.error != null) {
                 ErrorBlock(storedMessageText(snapshot.error), onRetry = onRetry)
@@ -119,8 +121,8 @@ fun CreditCard(
                 Text(text = stringResource(R.string.credit_no_balance), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
             }
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                balances.forEach { balance -> BalanceRow(balance, severity) }
+            Column(verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 12.dp)) {
+                balances.forEach { balance -> BalanceRow(balance, severity, compact) }
             }
             if (snapshot?.error != null) {
                 ErrorBlock(
@@ -133,11 +135,15 @@ fun CreditCard(
     }
 }
 
+@Composable
+private fun CreditFreshness(text: String) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
+}
+
 /** The amount in ink (never severity-coloured, a real zero included), its cap, and a data bar. */
 @Composable
-private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity) {
-    // Reading the configuration is what recomposes the card when the language changes.
-    LocalConfiguration.current
+private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity, compact: Boolean) {
+    val locale = LocalConfiguration.current.locales[0]
     val resources = LocalContext.current.resources
     // The parsers' own labels are stored in English and translated here; any other label is shown as stored.
     val balanceLabel = balance.label?.let { stored -> creditBalanceLabelRes(stored)?.let { stringResource(it) } ?: stored }
@@ -146,13 +152,13 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                text = CreditFormat.line(balance, spentThisMonth = { resources.getString(R.string.credit_spent_this_month, it) }),
-                style = UsageType.Money,
+                text = CreditFormat.line(balance, locale, spentThisMonth = { resources.getString(R.string.credit_spent_this_month, it) }),
+                style = if (compact) UsageType.Stamp else UsageType.Money,
                 color = UsageColors.Ink,
             )
             balance.total?.takeIf { !balance.unlimited && balance.remainingPercent != null }?.let { total ->
                 Text(
-                    text = stringResource(R.string.credit_of_total, CreditFormat.string(total, balance.currency)),
+                    text = stringResource(R.string.credit_of_total, CreditFormat.string(total, balance.currency, locale)),
                     modifier = Modifier.weight(1f).padding(bottom = 2.dp),
                     style = UsageType.Regular,
                     color = UsageColors.Muted,
@@ -164,7 +170,7 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity) {
         }
         balance.remainingPercent?.let { percent ->
             // Money, not a quota window: the percent display mode does not apply.
-            UsageBar(percent, barSeverity, Modifier.fillMaxWidth())
+            UsageBar(percent, barSeverity, Modifier.fillMaxWidth(), height = if (compact) 3.dp else 6.dp)
         }
         // An uncapped key has no bar: its existing label says so instead.
         if (balance.unlimited) balanceLabel?.let {

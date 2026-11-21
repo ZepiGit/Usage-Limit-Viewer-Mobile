@@ -249,7 +249,7 @@ internal fun OverviewDialTile(
             )
             if (identityLabel != null) Text(identityLabel, style = MaterialTheme.typography.bodySmall,
                 color = UsageColors.Muted, textAlign = TextAlign.Center)
-            if (!compact) {
+            if (!compact && !expired) {
                 val headline = when {
                     label == null -> AnnotatedString(stringResource(R.string.overview_no_usage_data))
                     stamp == null -> AnnotatedString(label)
