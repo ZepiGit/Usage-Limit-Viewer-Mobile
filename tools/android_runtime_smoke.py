@@ -1541,19 +1541,19 @@ class Smoke:
             self.scroll(root, up=up, package=package)
         raise AssertionError(f"Could not reach credit control {label}")
 
-    def credit_switched(self, name, label, checked, package=DEBUG_PACKAGE):
-        """Wait until a switch holds the value, and look for it further down when it has left the view.
+    def credit_selection(self, name, label, checked, package=DEBUG_PACKAGE, up=True):
+        """Follow a selection moved out of view by the Settings preview or dependent controls.
 
-        Turning Show credits on adds its dependent controls above the switch, so on a long Settings
-        screen the switch itself moves below the viewport. A switch still in view with the old value
-        is only waited for.
+        Compact shrinks the preview and can move its selector above the viewport (up=False).
+        Show credits adds controls above its switch and moves it below the viewport (up=True).
+        A visible control with the old value is only waited for, never tapped again.
         """
         for attempt in range(12):
             root = self.dump(f"{name}-{attempt}")
             if credit_checked(root, label, checked, package) is not None:
                 return root
             if credit_checked(root, label, not checked, package) is None:
-                self.scroll(root, up=True, package=package)
+                self.scroll(root, up=up, package=package)
             else:
                 time.sleep(1)
         raise AssertionError(f"UI did not reach {name}")
@@ -1593,7 +1593,7 @@ class Smoke:
         self.tap(normal)
         compact_option = self.credit_control("credits-en-compact-layout", "Compact", up=False)
         self.tap(compact_option)
-        self.wait_for("credits-en-compact-selected", lambda root: credit_checked(root, "Compact", True, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-en-compact-selected", "Compact", True, up=False)
         first = self.credit_control("credits-en-show-first", "Usage providers", up=True)
         self.tap(first)
         credit_first = self.credit_control("credits-en-credit-first", "Credit accounts", up=True)
@@ -1627,7 +1627,7 @@ class Smoke:
         self.tap(layout)
         compact = self.credit_control("credits-de-compact", "Kompakt", up=False)
         self.tap(compact)
-        self.wait_for("credits-de-compact-selected", lambda root: credit_checked(root, "Kompakt", True, DEBUG_PACKAGE) is not None)
+        self.credit_selection("credits-de-compact-selected", "Kompakt", True, up=False)
         first = self.credit_control("credits-de-show-first", "Nutzungskonten", up=True)
         self.tap(first)
         credit_first = self.credit_control("credits-de-credit-first", "Guthabenkonten", up=True)
@@ -1669,7 +1669,7 @@ class Smoke:
         self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-persisted-settings-toggle")
         show = self.credit_control("credits-de-restored-show", "Guthaben anzeigen", up=True)
         self.tap(show)
-        self.credit_switched("credits-de-restored-visible", "Guthaben anzeigen", True)
+        self.credit_selection("credits-de-restored-visible", "Guthaben anzeigen", True)
         layout = self.credit_control("credits-de-persisted-layout", "Kompakt", up=False)
         assert credit_selected(layout, True), "Compact layout did not persist after force-stop"
         first = self.credit_control("credits-de-persisted-order", "Guthabenkonten", up=True)

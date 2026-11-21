@@ -889,7 +889,7 @@ class CreditHierarchyTest(unittest.TestCase):
             smoke = Smoke(Path(directory), "test-device")
             with patch.object(smoke, "dump", side_effect=[self.tree(label, "false"), gone, self.tree(label)]) as dump, \
                     patch.object(smoke, "adb") as adb, patch.object(runtime_smoke.time, "sleep") as sleep:
-                root = smoke.credit_switched("shown", label, True)
+                root = smoke.credit_selection("shown", label, True)
             self.assertIsNotNone(runtime_smoke.credit_checked(root, label, True))
             self.assertEqual(3, dump.call_count)
             self.assertEqual(1, sleep.call_count)
@@ -898,8 +898,75 @@ class CreditHierarchyTest(unittest.TestCase):
             with patch.object(smoke, "dump", return_value=self.tree(label, "false")), \
                     patch.object(smoke, "adb") as adb, patch.object(runtime_smoke.time, "sleep"):
                 with self.assertRaisesRegex(AssertionError, "UI did not reach shown"):
-                    smoke.credit_switched("shown", label, True)
+                    smoke.credit_selection("shown", label, True)
             self.assertEqual([], adb.call_args_list)
+
+    class LayoutDevice(FakeDevice):
+        """The API 37 selector ancestors and the 310px compact-preview reflow from run 44875789454."""
+
+        def __init__(self, label, outcome="compact"):
+            super().__init__()
+            self.label = label
+            self.outcome = outcome
+            self.compact = False
+            self.above_view = False
+
+        def answer(self, command):
+            if command[:3] == ("shell", "input", "tap"):
+                x, y = map(int, command[3:5])
+                if 190 <= x < 336 and 317 <= y < 401 and self.outcome != "lost":
+                    self.compact = self.outcome == "compact"
+                    self.above_view = True
+                return b""
+            if command[:3] == ("shell", "input", "swipe"):
+                if int(command[4]) < int(command[6]):
+                    self.above_view = False
+                return b""
+            return super().answer(command)
+
+        def hierarchy(self):
+            pkg = self.PACKAGE
+
+            def option(label, checked, box, text_box):
+                return (f'<node package="{pkg}" enabled="true" checkable="true" checked="{str(checked).lower()}" '
+                        f'clickable="{str(not checked).lower()}" bounds="{box}">'
+                        f'<node package="{pkg}" enabled="true" clickable="false" checkable="false" checked="false" '
+                        f'bounds="{box}"><node package="{pkg}" text="{label}" bounds="{text_box}"/></node></node>')
+
+            layout = "" if self.above_view else (
+                option("Normal", not self.compact, "[60,317][190,401]", "[85,345][165,374]")
+                + option(self.label, self.compact, "[190,317][336,401]", "[215,345][311,374]"))
+            order = (option("Guthabenkonten", True, "[285,216][511,300]", "[310,244][486,273]")
+                     if self.above_view else
+                     option("Guthabenkonten", True, "[285,526][511,610]", "[310,554][486,583]"))
+            return (f'<hierarchy><node package="{pkg}" enabled="true" scrollable="true" '
+                    f'bounds="[0,144][720,1336]">{layout}{order}</node></hierarchy>').encode()
+
+    def test_compact_selection_is_found_above_the_view_after_its_preview_reflows(self):
+        for label in ("Compact", "Kompakt"):
+            with self.subTest(label=label), TemporaryDirectory() as directory:
+                device = self.LayoutDevice(label)
+                with patch.object(runtime_smoke.subprocess, "run", device.run), \
+                        patch.object(runtime_smoke, "time", device):
+                    smoke = Smoke(Path(directory), "test-device")
+                    smoke.tap(smoke.credit_control("compact", label, up=False))
+                    root = smoke.credit_selection("compact-selected", label, True, up=False)
+                self.assertIsNotNone(runtime_smoke.credit_checked(root, label, True))
+                self.assertIsNotNone(runtime_smoke.credit_checked(root, "Normal", False))
+
+    def test_lost_taps_and_wrong_layout_still_fail_the_selected_assertion(self):
+        for outcome in ("lost", "normal"):
+            with self.subTest(outcome=outcome), TemporaryDirectory() as directory:
+                device = self.LayoutDevice("Kompakt", outcome)
+                with patch.object(runtime_smoke.subprocess, "run", device.run), \
+                        patch.object(runtime_smoke, "time", device):
+                    smoke = Smoke(Path(directory), "test-device")
+                    smoke.tap(smoke.credit_control("compact", "Kompakt", up=False))
+                    with self.assertRaisesRegex(AssertionError, "UI did not reach compact-selected"):
+                        smoke.credit_selection("compact-selected", "Kompakt", True, up=False)
+                root = ET.fromstring(device.hierarchy())
+                self.assertIsNotNone(runtime_smoke.credit_checked(root, "Kompakt", False))
+                self.assertIsNotNone(runtime_smoke.credit_checked(root, "Normal", True))
 
     def test_selected_semantics_without_checked_attribute(self):
         root = ET.fromstring(f'''<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true"
