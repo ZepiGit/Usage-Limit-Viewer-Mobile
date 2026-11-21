@@ -781,6 +781,26 @@ class CreditHierarchyTest(unittest.TestCase):
                 self.assertIsNotNone(runtime_smoke.credit_checked(self.tree(label, "false"), label, False))
                 self.assertIsNone(runtime_smoke.credit_checked(self.tree(label, package="other"), label, True))
 
+    def test_a_switch_pushed_below_the_view_is_followed_and_one_in_view_is_only_waited_for(self):
+        label = "Guthaben anzeigen"
+        gone = ET.fromstring(f'''<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}" scrollable="true"
+            bounds="[0,100][720,1500]"/></hierarchy>''')
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "dump", side_effect=[self.tree(label, "false"), gone, self.tree(label)]) as dump, \
+                    patch.object(smoke, "adb") as adb, patch.object(runtime_smoke.time, "sleep") as sleep:
+                root = smoke.credit_switched("shown", label, True)
+            self.assertIsNotNone(runtime_smoke.credit_checked(root, label, True))
+            self.assertEqual(3, dump.call_count)
+            self.assertEqual(1, sleep.call_count)
+            self.assertEqual([("shell", "input", "swipe", "360", "1150", "360", "450", "400")],
+                             [call.args for call in adb.call_args_list])
+            with patch.object(smoke, "dump", return_value=self.tree(label, "false")), \
+                    patch.object(smoke, "adb") as adb, patch.object(runtime_smoke.time, "sleep"):
+                with self.assertRaisesRegex(AssertionError, "UI did not reach shown"):
+                    smoke.credit_switched("shown", label, True)
+            self.assertEqual([], adb.call_args_list)
+
     def test_selected_semantics_without_checked_attribute(self):
         root = ET.fromstring(f'''<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true"
             selected="true" clickable="false" bounds="[0,10][300,60]">
