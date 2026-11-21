@@ -8,7 +8,17 @@ Z.ai, ChatGLM, OpenCode and the six credit marks come from [LobeHub icons v1.96.
 
 In Settings → Provider icons, choose a mark for each service. The selection applies throughout the app and its widgets on that device. Unknown choice IDs fall back to the default. Claude and Claude Code share an account identity, as do Antigravity and Gemini; changing artwork does not change authentication or quota.
 
-Credit providers each have one fixed mark: OpenRouter, DeepSeek, Moonshot, xAI, fal.ai and Novita. Packaged artwork uses transparent PNGs; monochrome marks render white for the dark interface. Vector sources remain available alongside the exported platform assets.
+Credit providers each have one fixed mark: OpenRouter, DeepSeek, Moonshot, xAI, fal.ai and Novita. Packaged artwork uses transparent PNGs. Android app artwork takes the palette's ink where the mark needs a one-color tint; color artwork retains its colors. Placed widgets use their own ink rules, not the app palette. Vector sources remain available alongside the exported platform assets.
+
+## Android Claude Code figure
+
+The **Claude Code · Color** (`claudecode-color`) and **Claude Code · Monochrome** (`claudecode`) choices use native figure art derived from LobeHub's Claude Code mark. The LobeHub MIT attribution above still applies. Mood follows each account's raw headline percentage left, with declared exhaustion taking precedence; Used does not change it. See the [mood and Hooray guide](../README.md#claude-code-mood-and-hooray) for the animation switch, reduced-motion behavior and one-shot reset rules.
+
+The picker and Add account use static artwork. The status-icon glyph below remains a separate fixed silhouette, not an animated figure. Steady-mood stills in placed widgets are pending in the documentation base; widgets never play Hooray. iOS figure and appearance redesign work is paused, not documented here as released parity.
+
+## Font notices
+
+Fonts are not provider artwork. The [canonical font manifest](../third_party/fonts/manifest.json) pins the six bundled SIL OFL 1.1 families, upstream versions, original notices and per-file checksums; [font notes](../third_party/fonts/README.md) explain the bundle. On Android, open **Settings → Appearance → Font licences** (**Einstellungen → Erscheinungsbild → Schriftlizenzen**) for the complete offline notices. App text and figure choices do not apply to placed widgets.
 
 ## Status bar glyphs
 
