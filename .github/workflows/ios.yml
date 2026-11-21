@@ -18,6 +18,11 @@ on:
       - 'tools/test_check_glyph_file.py'
       - '.github/workflows/ios.yml'
   workflow_dispatch:
+    inputs:
+      measure_settings_gaps:
+        description: Sample Settings preview display callback gaps
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,7 +41,9 @@ jobs:
       - uses: actions/checkout@v7
       # Shims catch missing declarations; real Apple SDK validation runs on macOS.
       - name: The app and widget type-check against framework shims
-        run: ./ios/Tools/typecheck-app.sh
+        run: |
+          flock /tmp/ulv-gradle.lock ./ios/Tools/typecheck-app.sh
+          flock /tmp/ulv-gradle.lock ./ios/Tools/typecheck-app.sh -D DEBUG
       - name: Test
         working-directory: ios/UsageLimitsKit
         run: swift test --parallel
@@ -140,12 +147,33 @@ jobs:
           path: pinned-widget-renderings
           if-no-files-found: error
           retention-days: 7
+      - name: Measure Settings preview display callback gaps
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.measure_settings_gaps == true }}
+        working-directory: ios/UsageLimits
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices booted --json \
+            | jq -r '[.devices[][] | select(.name | startswith("iPhone"))] | last | .udid')
+          test -n "$udid" && test "$udid" != "null"
+          xcodebuild test \
+            -scheme UsageLimits \
+            -destination "platform=iOS Simulator,id=$udid" \
+            -derivedDataPath "$GITHUB_WORKSPACE/rendering-build" \
+            -resultBundlePath "$GITHUB_WORKSPACE/settings-gaps.xcresult" \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -maximum-test-execution-time-allowance 300 \
+            -only-testing:UsageLimitsUITests/AppLaunchUITests/testMeasureSettingsPreviewMainThreadGaps \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
+
       - name: Keep the test results if rendering fails
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: pinned-widget-rendering-failure
-          path: rendering-*.xcresult
+          path: |
+            rendering-*.xcresult
+            settings-gaps.xcresult
           if-no-files-found: ignore
           retention-days: 7
 
@@ -153,7 +181,9 @@ jobs:
     name: iOS app (real SDK)
     needs: kit-linux
     runs-on: macos-latest
-    timeout-minutes: 45
+    # Debug and Release builds, 27 iPhone tests and adaptive iPad checks reached 45:07
+    # before GitHub cancelled run 44792508707, after XCTest had passed both iPad cases.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - name: Show toolchain
@@ -256,7 +286,14 @@ jobs:
             -parallel-testing-enabled NO \
             -test-timeouts-enabled YES \
             -maximum-test-execution-time-allowance 300 \
+            -skip-testing:UsageLimitsUITests/AppLaunchUITests/testMeasureSettingsPreviewMainThreadGaps \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
+
+      - name: Collect Settings trace from simulator logs
+        if: ${{ !cancelled() && steps.simulator.outcome == 'success' }}
+        run: |
+          xcrun simctl spawn '${{ steps.simulator.outputs.udid }}' log show \
+            --last 60m --style compact --predicate 'subsystem == "com.usagelimits.app" AND category == "SettingsTrace"'
 
       # Run simulators sequentially to avoid launchd conflicts; retry once on a fresh iPad.
       - name: Run adaptive UI checks on an iPad

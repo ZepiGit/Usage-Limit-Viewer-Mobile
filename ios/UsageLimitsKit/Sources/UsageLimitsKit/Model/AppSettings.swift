@@ -37,6 +37,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
     public var overviewShowFirst: OverviewShowFirst
     public var overviewShowCredits: Bool
     public var providerIcons: [String: String]
+    public var animateClaudeCodeIcon: Bool
 
     /// Whether quota figures count down what is left or up what has been used.
     public var percentDisplay: PercentDisplay
@@ -60,6 +61,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         overviewShowFirst: OverviewShowFirst = .usageProviders,
         overviewShowCredits: Bool = true,
         providerIcons: [String: String] = [:],
+        animateClaudeCodeIcon: Bool = true,
         percentDisplay: PercentDisplay = .left,
         statusIconsEnabled: Bool = false,
         pinnedAccountKeys: [String] = []
@@ -74,6 +76,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         self.overviewShowFirst = overviewShowFirst
         self.overviewShowCredits = overviewShowCredits
         self.providerIcons = providerIcons
+        self.animateClaudeCodeIcon = animateClaudeCodeIcon
         self.percentDisplay = percentDisplay
         self.statusIconsEnabled = statusIconsEnabled
         self.pinnedAccountKeys = pinnedAccountKeys
@@ -102,6 +105,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
             overviewShowFirst: (try? container.decode(OverviewShowFirst.self, forKey: .overviewShowFirst)) ?? .usageProviders,
             overviewShowCredits: (try? container.decode(Bool.self, forKey: .overviewShowCredits)) ?? true,
             providerIcons: try container.decodeIfPresent([String: String].self, forKey: .providerIcons) ?? [:],
+            animateClaudeCodeIcon: (try? container.decode(Bool.self, forKey: .animateClaudeCodeIcon)) ?? true,
             // Decoded through the raw String, so an unknown stored name reads as the default
             // instead of failing the whole decode and resetting every preference.
             percentDisplay: PercentDisplay.fromLoose(

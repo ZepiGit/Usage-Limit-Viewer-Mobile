@@ -20,6 +20,8 @@ final class UsageStore: ObservableObject {
     #if DEBUG
     /// Lets UI tests terminate only after the normal settings save has finished.
     @Published private(set) var uiTestSavedSettings: AppSettings?
+    private var settingsTraceSource = "control edit"
+    private var settingsTraceSaveID = 0
     #endif
 
     /// Writable, because the settings screen binds straight to it.
@@ -29,22 +31,69 @@ final class UsageStore: ObservableObject {
     /// through the binding chain too, since mutating a nested struct rewrites the whole value.
     @Published var settings = AppSettings() {
         didSet {
+            #if DEBUG
+            SettingsTrace.record(
+                "settings didSet source=\(settingsTraceSource) loading=\(isLoadingSettings) "
+                    + "changed={\(Self.traceSettings(settings, changedFrom: oldValue))}")
+            #endif
             if settings.staleAfter != oldValue.staleAfter { updatePresentationClock() }
-            guard settings != oldValue, !isLoadingSettings else { return }
+            guard settings != oldValue, !isLoadingSettings else {
+                #if DEBUG
+                SettingsTrace.record("settings save skipped reason=\(isLoadingSettings ? "apply" : "unchanged")")
+                #endif
+                return
+            }
             let previous = settingsWrite
+            #if DEBUG
+            settingsTraceSaveID += 1
+            let saveID = settingsTraceSaveID
+            SettingsTrace.record("settings save queued id=\(saveID)")
+            #endif
             // Queued saves also adopt pins removed while they were waiting.
             settingsWrite = Task { [weak self, container] in
+                #if DEBUG
+                SettingsTrace.record("settings save task start id=\(saveID)")
+                #endif
                 await previous?.value
-                guard let container, let value = self?.settings else { return }
+                guard let container, let value = self?.settings else {
+                    #if DEBUG
+                    SettingsTrace.record("settings save finish id=\(saveID) result=skipped missing=container-or-store")
+                    #endif
+                    return
+                }
+                #if DEBUG
+                SettingsTrace.record("settings save value read id=\(saveID) value={\(Self.traceSettings(value))}")
+                #endif
                 // Reflect the persisted value, which may clamp the sync interval, only if no newer
                 // edit has landed. An out-of-order save acknowledgement must not revert later edits.
                 if let stored = try? await container.save(settings: value) {
-                    if self?.settings == value { self?.applyLoaded(stored) }
+                    if self?.settings == value {
+                        #if DEBUG
+                        self?.settingsTraceSource = "acknowledgement apply"
+                        SettingsTrace.record("settings save acknowledgement apply id=\(saveID)")
+                        #endif
+                        self?.applyLoaded(stored)
+                        #if DEBUG
+                        self?.settingsTraceSource = "control edit"
+                        #endif
+                    } else {
+                        #if DEBUG
+                        SettingsTrace.record("settings save acknowledgement skipped id=\(saveID) reason=newer-edit-or-store-gone")
+                        #endif
+                    }
                     #if DEBUG
                     if UsageLimitsApp.isUITesting { self?.uiTestSavedSettings = stored }
+                    SettingsTrace.record("settings save persisted id=\(saveID) value={\(Self.traceSettings(stored))}")
+                    #endif
+                } else {
+                    #if DEBUG
+                    SettingsTrace.record("settings save failed id=\(saveID)")
                     #endif
                 }
                 BackgroundRefresh.schedule(after: value.syncIntervalMinutes)
+                #if DEBUG
+                SettingsTrace.record("settings save task finish id=\(saveID)")
+                #endif
             }
         }
     }
@@ -88,14 +137,23 @@ final class UsageStore: ObservableObject {
         self.container = container
 
         #if DEBUG
+        SettingsTrace.record("settings init source=defaults value={\(Self.traceSettings(settings))} container=\(container == nil ? "nil" : "present")")
         if MarketingDemo.isEnabled {
+            SettingsTrace.record("demo init delayedLoad=\(MarketingDemo.delaysLoad) compactCredits=\(MarketingDemo.startsWithCompactCredits)")
             now = MarketingDemo.now
             timeZone = TimeZone(secondsFromGMT: 0)!
-            if MarketingDemo.startsWithCompactCredits {
+            if MarketingDemo.startsWithCompactCredits || SettingsTrace.gapVariant == "still" {
                 var sampleSettings = settings
-                sampleSettings.overviewCreditLayout = .compact
-                sampleSettings.overviewShowFirst = .creditAccounts
+                if MarketingDemo.startsWithCompactCredits {
+                    sampleSettings.overviewCreditLayout = .compact
+                    sampleSettings.overviewShowFirst = .creditAccounts
+                }
+                if SettingsTrace.gapVariant == "still" {
+                    sampleSettings.animateClaudeCodeIcon = false
+                }
+                settingsTraceSource = "demo initialization"
                 applyLoaded(sampleSettings)
+                settingsTraceSource = "control edit"
             }
             if !MarketingDemo.delaysLoad { finishDemoLoad() }
             return
@@ -108,7 +166,12 @@ final class UsageStore: ObservableObject {
     deinit { clock?.cancel() }
 
     func updatePresentationClock() {
-        guard !isMarketingDemo else { return }
+        guard !isMarketingDemo else {
+            #if DEBUG
+            SettingsTrace.record("presentation clock rearm skipped reason=demo")
+            #endif
+            return
+        }
         clock?.cancel()
         timeZone = .current
         let date = Date()
@@ -116,9 +179,15 @@ final class UsageStore: ObservableObject {
         let boundary = glance.nextOverviewUpdate(after: date, in: timeZone)
         // Countdown text still ticks between presentation boundaries.
         let delay = min(30, max(0, boundary.timeIntervalSinceNow))
+        #if DEBUG
+        SettingsTrace.record("presentation clock rearm delay=\(delay) now=\(date.timeIntervalSince1970) boundary=\(boundary.timeIntervalSince1970)")
+        #endif
         clock = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(delay)) }
             catch { return }
+            #if DEBUG
+            SettingsTrace.record("presentation clock scheduled tick store=\(self == nil ? "gone" : "present")")
+            #endif
             self?.updatePresentationClock()
         }
     }
@@ -137,10 +206,15 @@ final class UsageStore: ObservableObject {
     }
 
     func finishDemoLoad() {
-        guard MarketingDemo.isEnabled, !hasLoaded else { return }
+        guard MarketingDemo.isEnabled, !hasLoaded else {
+            SettingsTrace.record("demo load skipped enabled=\(MarketingDemo.isEnabled) hasLoaded=\(hasLoaded)")
+            return
+        }
+        SettingsTrace.record("demo load begin")
         accounts = MarketingDemo.accounts
         credits = MarketingDemo.credits
         hasLoaded = true
+        SettingsTrace.record("demo load hasLoaded=true")
     }
     #endif
 
@@ -197,10 +271,22 @@ final class UsageStore: ObservableObject {
     /// render while the real answer is on its way.
     func load() async {
         #if DEBUG
-        if MarketingDemo.isEnabled { return }
+        SettingsTrace.record("load begin demo=\(MarketingDemo.isEnabled) hasLoaded=\(hasLoaded)")
+        if MarketingDemo.isEnabled {
+            SettingsTrace.record("load skipped reason=demo hasLoaded=\(hasLoaded)")
+            return
+        }
         #endif
-        defer { hasLoaded = true }
+        defer {
+            hasLoaded = true
+            #if DEBUG
+            SettingsTrace.record("load hasLoaded=true")
+            #endif
+        }
         guard let container else {
+            #if DEBUG
+            SettingsTrace.record("load skipped reason=nil-container")
+            #endif
             // Said here as well as in `refresh`, because a cold launch renders this screen before
             // anything is refreshed: without it the user sees an empty account list and the
             // explanation exists only behind a pull they have no reason to perform.
@@ -213,7 +299,18 @@ final class UsageStore: ObservableObject {
         // on the next launch — and must not stop the cache from rendering.
         try? await container.prepareForUse()
 
-        applyLoaded(await container.settings())
+        #if DEBUG
+        SettingsTrace.record("load settings read begin")
+        #endif
+        let loadedSettings = await container.settings()
+        #if DEBUG
+        SettingsTrace.record("load settings read returned value={\(Self.traceSettings(loadedSettings))}")
+        settingsTraceSource = "load apply"
+        #endif
+        applyLoaded(loadedSettings)
+        #if DEBUG
+        settingsTraceSource = "control edit"
+        #endif
 
         credits = await container.credits()
         // The checked read, because a link opened on a cold launch is resolved against this
@@ -234,10 +331,50 @@ final class UsageStore: ObservableObject {
     /// Installs settings that came from storage, without treating the assignment as a change the
     /// user made — which would save them straight back and, worse, reschedule on every launch.
     private func applyLoaded(_ stored: AppSettings) {
+        #if DEBUG
+        SettingsTrace.record("settings apply source=\(settingsTraceSource) value={\(Self.traceSettings(stored))}")
+        #endif
         isLoadingSettings = true
         settings = stored
         isLoadingSettings = false
     }
+
+    #if DEBUG
+    private static func traceSettings(_ value: AppSettings, changedFrom previous: AppSettings? = nil) -> String {
+        var fields: [String] = []
+        func field<Value: Equatable>(
+            _ name: String, _ key: KeyPath<AppSettings, Value>,
+            render: (Value) -> String = { String(describing: $0) }
+        ) {
+            if let previous, value[keyPath: key] == previous[keyPath: key] { return }
+            fields.append("\(name)=\(render(value[keyPath: key]))")
+        }
+        field("syncIntervalMinutes", \.syncIntervalMinutes)
+        field("accountsManuallyOrdered", \.accountsManuallyOrdered)
+        field("showSubscriptionTier", \.showSubscriptionTier)
+        field("showRenewalTime", \.showRenewalTime)
+        field("overviewLayout", \.overviewLayout)
+        field("overviewCreditLayout", \.overviewCreditLayout)
+        field("overviewShowFirst", \.overviewShowFirst)
+        field("overviewShowCredits", \.overviewShowCredits)
+        field("providerIcons.count", \.providerIcons) { String($0.count) }
+        field("animateClaudeCodeIcon", \.animateClaudeCodeIcon)
+        field("percentDisplay", \.percentDisplay)
+        field("statusIconsEnabled", \.statusIconsEnabled)
+        field("pinnedAccountKeys.count", \.pinnedAccountKeys) { String($0.count) }
+        field("notifications.notifyBelow20Percent", \.notifications.notifyBelow20Percent)
+        field("notifications.notifyBelow10Percent", \.notifications.notifyBelow10Percent)
+        field("notifications.notifyOnExhausted", \.notifications.notifyOnExhausted)
+        field("notifications.notifyOnResetCreditAvailable", \.notifications.notifyOnResetCreditAvailable)
+        field("notifications.notifyOnAuthExpired", \.notifications.notifyOnAuthExpired)
+        field("notifications.notifyOnResetApproaching", \.notifications.notifyOnResetApproaching)
+        field("notifications.notifyOnResetCreditExpiring", \.notifications.notifyOnResetCreditExpiring)
+        field("notifications.resetApproachingMinutes", \.notifications.resetApproachingMinutes)
+        field("notifications.resetCreditExpiryLeadMinutes", \.notifications.resetCreditExpiryLeadMinutes)
+        field("notifications.mutedAccountIDs.count", \.notifications.mutedAccountIDs) { String($0.count) }
+        return fields.isEmpty ? "none" : fields.joined(separator: " ")
+    }
+    #endif
 
     /// Serialises the passes below. A request made while one is running gets one more pass after
     /// it rather than being dropped: the running pass read its account list when it started, so
@@ -270,6 +407,9 @@ final class UsageStore: ObservableObject {
         defer { isRefreshing = false }
 
         now = Date()
+        #if DEBUG
+        SettingsTrace.record("presentation clock refresh now=\(now.timeIntervalSince1970) automatic=\(automatic)")
+        #endif
         do {
             // The container returns the usage as it stands after the sync, rather than leaving
             // this to re-read it: re-reading races the write that just happened.
@@ -362,7 +502,13 @@ final class UsageStore: ObservableObject {
                 try await container.remove(id: accountID)
                 var updated = self.settings
                 updated.pinnedAccountKeys.removeAll { $0 == pinKey }
+                #if DEBUG
+                self.settingsTraceSource = "removal apply"
+                #endif
                 self.applyLoaded(updated)
+                #if DEBUG
+                self.settingsTraceSource = "control edit"
+                #endif
                 self.accounts = await container.usage()
                 self.lastError = nil
                 return true

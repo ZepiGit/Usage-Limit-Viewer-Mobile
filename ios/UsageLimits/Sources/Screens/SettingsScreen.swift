@@ -14,6 +14,9 @@ struct SettingsScreen: View {
     private let intervals = [5, 15, 30, 60, 180]
 
     var body: some View {
+        #if DEBUG
+        let _ = SettingsTrace.settingsBody()
+        #endif
         NavigationStack {
             Form {
                 Section(header: LedgerHeader(String(localized: "Refresh"))) {
@@ -48,7 +51,11 @@ struct SettingsScreen: View {
                 .listRowBackground(UsageColors.surface)
 
                 Section {
-                    NavigationLink("Provider icons") { ProviderIconsScreen() }
+                    providerIconsLink
+                    if ClaudeProviderBadge.isClaudeCode(claudeIconChoice) {
+                        Toggle("Animate Claude Code icon", isOn: $store.settings.animateClaudeCodeIcon)
+                            .accessibilityIdentifier("settings-animate-claude-code-icon")
+                    }
                     NavigationLink("App icon") { AppIconScreen() }
                     NavigationLink("Widget layouts") { WidgetPresetsScreen() }
                 }
@@ -159,6 +166,34 @@ struct SettingsScreen: View {
         }
     }
 
+    private var claudeIconChoice: ProviderIconChoice {
+        ProviderIconCatalog.selected(for: .claude, id: store.settings.providerIcons[ProviderID.claude.rawValue])
+    }
+
+    private var providerIconsLink: some View {
+        let mood: ClaudeCodeMood = if ClaudeProviderBadge.isClaudeCode(claudeIconChoice) {
+            store.glance.overviewOrderedAccounts(at: store.now)
+                .first { $0.providerID == ProviderID.claude.rawValue }?.claudeCodeMood(at: store.now) ?? .idle
+        } else {
+            .idle
+        }
+        return NavigationLink { ProviderIconsScreen() } label: {
+            HStack(spacing: 16) {
+                ClaudeProviderBadge(provider: .claude, mood: mood,
+                    size: 28, staticSize: 30, figureSlotSize: 30)
+                #if DEBUG
+                .environment(\.claudeAnimationDiagnosticID, "provider:provider")
+                #endif
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Provider icons")
+                    Text(verbatim: DisplayText.providerIconLabel(claudeIconChoice.label))
+                        .usageFont(.small).foregroundStyle(UsageColors.muted)
+                }
+            }
+        }
+        .accessibilityIdentifier("settings-provider-icons")
+    }
+
     private var creditLayoutControl: some View {
         VStack(alignment: .leading, spacing: 4) {
             if typeSize >= .accessibility1 {
@@ -202,10 +237,11 @@ struct SettingsScreen: View {
         }
     }
 
+    @ViewBuilder
     private var overviewPreview: some View {
         let settings = store.settings
         let sample = SettingsUsagePreview.projection
-        return previewPanel(settings.overviewLayout == .list ? "settings-preview-list" : "settings-preview-dials") {
+        let preview = previewPanel(settings.overviewLayout == .list ? "settings-preview-list" : "settings-preview-dials") {
             OverviewBlocks(showCredits: settings.overviewShowCredits, showFirst: settings.overviewShowFirst) {
                 if settings.overviewLayout == .list {
                     ForEach(sample.accounts) { entry in
@@ -224,6 +260,16 @@ struct SettingsScreen: View {
                     staleAfter: SettingsUsagePreview.snapshot.staleAfter, layout: settings.overviewCreditLayout, preview: true)
             }
         }
+        #if DEBUG
+        if SettingsTrace.gapVariant == "no-figure" {
+            preview.environment(\.providerIconChoices,
+                settings.providerIcons.merging([ProviderID.claude.rawValue: "claude-color"]) { _, icon in icon })
+        } else {
+            preview
+        }
+        #else
+        preview
+        #endif
     }
 
     private func previewPanel<Content: View>(_ identifier: String, @ViewBuilder content: () -> Content) -> some View {

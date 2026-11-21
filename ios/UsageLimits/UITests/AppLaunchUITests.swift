@@ -12,6 +12,8 @@ import XCTest
 /// the real launch path.
 final class AppLaunchUITests: XCTestCase {
 
+    private let diagnosticLaunchArguments = ["-ui-testing", "-settings-trace", "-settings-touch-trace"]
+
     override func setUp() {
         super.setUp()
         // A failing assertion should stop the test at the point of failure rather than carrying
@@ -26,16 +28,29 @@ final class AppLaunchUITests: XCTestCase {
     }
 
     /// Search both ways: a lazy Form may not expose an offscreen target's frame at all.
-    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication, towardStart: Bool? = nil) -> Bool {
+    private func scrollTo(
+        _ element: XCUIElement, in app: XCUIApplication, towardStart: Bool? = nil,
+        clearOfBottomTabs tabBarFrame: CGRect = .null, requireHittable: Bool = true,
+        deadline: TimeInterval? = nil
+    ) -> Bool {
+        func overlapsTabs() -> Bool {
+            !tabBarFrame.isNull && element.frame.intersects(tabBarFrame)
+        }
+        func found() -> Bool {
+            element.exists && (!requireHittable || (element.isHittable && !overlapsTabs()))
+        }
+        if found() { return true }
+        if let deadline, ProcessInfo.processInfo.systemUptime >= deadline { return false }
         let exists = element.exists
-        if exists && element.isHittable { return true }
         let identifiers = ["provider-icons-list", "provider-picker-scroll", "settings-form", "overview-scroll"]
         let container = identifiers.lazy.map { app.descendants(matching: .any)[$0].firstMatch }
             .first { $0.exists && $0.isHittable } ?? app
         let bounds = container.frame
         let frame = bounds.intersection(app.frame)
         let firstUp: Bool
-        if let towardStart {
+        if exists && overlapsTabs() {
+            firstUp = false
+        } else if let towardStart {
             firstUp = towardStart
         } else if exists, !element.frame.isEmpty {
             firstUp = element.frame.midY < frame.midY
@@ -52,21 +67,29 @@ final class AppLaunchUITests: XCTestCase {
         let low = (frame.minY + 0.75 * frame.height - bounds.minY) / bounds.height
         let top = container.coordinate(withNormalizedOffset: CGVector(dx: x, dy: high))
         let bottom = container.coordinate(withNormalizedOffset: CGVector(dx: x, dy: low))
+        let now = ProcessInfo.processInfo.systemUptime
+        let turnAround = deadline.map { now + ($0 - now) / 2 }
         for towardStart in [firstUp, !firstUp] {
             let (start, end) = towardStart ? (top, bottom) : (bottom, top)
+            let stop = towardStart == firstUp ? turnAround : deadline
             for _ in 0..<12 {
+                if let stop, ProcessInfo.processInfo.systemUptime >= stop { break }
                 start.press(forDuration: 0.05, thenDragTo: end)
-                if element.exists && element.isHittable { return true }
+                if found() { return true }
             }
         }
-        return element.waitForExistence(timeout: 2) && element.isHittable
+        let remaining = deadline.map { $0 - ProcessInfo.processInfo.systemUptime } ?? 2
+        return remaining > 0 && element.waitForExistence(timeout: min(2, remaining)) && found()
     }
 
     private func launch(_ arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         // Read by the app to skip the notification-permission prompt, which is a system alert
         // that would otherwise sit over the UI and fail every query behind it.
-        app.launchArguments += ["-ui-testing", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"] + arguments
+        app.launchArguments += diagnosticLaunchArguments + [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"
+        ] + arguments
         app.launch()
         waitForOrientation(app, landscape: false)
         return app
@@ -86,24 +109,147 @@ final class AppLaunchUITests: XCTestCase {
         return matches.allElementsBoundByIndex.first { $0.isHittable } ?? matches.firstMatch
     }
 
-    private func selectSegment(_ option: String, in identifier: String, app: XCUIApplication, towardStart: Bool? = nil) {
-        let control = app.segmentedControls[identifier]
-        XCTAssertTrue(scrollTo(control, in: app, towardStart: towardStart), "could not reach \(identifier)")
-        let segment = control.buttons[option]
-        XCTAssertTrue(scrollTo(segment, in: app, towardStart: towardStart))
-        segment.tap()
-        XCTAssertTrue(segment.isSelected, "\(option) should be selected in \(identifier)")
+    // iOS can report a Form control under the floating tab bar as hittable.
+    private func bottomTabBarFrame(in app: XCUIApplication) -> CGRect {
+        let tabBar = app.tabBars.firstMatch
+        guard tabBar.exists else { return .null }
+        let frame = tabBar.frame
+        return frame.midY > app.frame.midY ? frame : .null
     }
 
-    private func setTier(_ enabled: Bool, in app: XCUIApplication) {
-        let toggle = app.switches["Show subscription tier"]
-        XCTAssertTrue(scrollTo(toggle, in: app, towardStart: false))
-        let expected = enabled ? "1" : "0"
-        if toggle.value as? String != expected {
-            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+    // A 120 ms press survived the confirmed 60–90 ms stalls, unlike XCUI's 67 ms tap; not a retry.
+    private func pressUptime(_ press: (TimeInterval) -> Void) -> String {
+        let started = ProcessInfo.processInfo.systemUptime
+        press(0.12)
+        return "\(started)–\(ProcessInfo.processInfo.systemUptime)"
+    }
+
+    private func reportControlFailure(_ message: String, control: XCUIElement, in app: XCUIApplication,
+                                      tapFrame: CGRect, bottomTabs: CGRect, tapPoint: CGPoint? = nil,
+                                      tapUptime: String? = nil) {
+        attachSettingsTrace(in: app)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = message
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        let point = tapPoint.map { ", tap point: \($0)" } ?? ""
+        let uptime = tapUptime.map { "; tap uptime: \($0)" } ?? ""
+        let description = control.exists ? control.debugDescription : "not exposed in accessibility"
+        XCTFail("\(message)\(uptime); tap frame: \(tapFrame)\(point), bottom tabs: \(bottomTabs), app state: \(app.state), "
+            + "Settings visible: \(app.navigationBars["Settings"].exists), control: \(description)")
+    }
+
+    private func settingsTrace(in app: XCUIApplication) -> String {
+        let probe = app.descendants(matching: .any)["settings-trace"].firstMatch
+        return probe.exists ? (probe.value as? String ?? "Settings trace has no accessibility value")
+                            : "Settings trace probe not found"
+    }
+
+    private func attachSettingsTrace(in app: XCUIApplication) {
+        let trace = XCTAttachment(string: settingsTrace(in: app))
+        trace.name = "Settings trace"
+        trace.lifetime = .keepAlways
+        add(trace)
+    }
+
+    private func waitForSetting(_ control: XCUIElement, in app: XCUIApplication, towardStart: Bool? = nil,
+                                matches: @escaping () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + 10
+        while true {
+            if !control.exists {
+                guard scrollTo(control, in: app, towardStart: towardStart,
+                               requireHittable: false, deadline: deadline) else { return false }
+                if control.exists {
+                    print("[settings-press] found after scrolling control=\(control.identifier) frame=\(control.frame)")
+                }
+            }
+            if control.exists && matches() { return true }
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { return false }
+            // Wake the waiter when the Form drops the row; an absent row has no value to check.
+            let changedOrMoved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !control.exists || matches()
+            }, object: nil)
+            guard XCTWaiter.wait(for: [changedOrMoved], timeout: remaining) == .completed else {
+                return control.exists && matches()
+            }
         }
-        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
-        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 10), .completed)
+    }
+
+    private func selectSegment(_ option: String, in identifier: String, app: XCUIApplication, towardStart: Bool? = nil) {
+        let bottomTabs = bottomTabBarFrame(in: app)
+        let control = app.segmentedControls[identifier]
+        guard scrollTo(control, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs) else {
+            reportControlFailure("Could not reach \(identifier) clear of the tab bar",
+                                 control: control, in: app, tapFrame: .null, bottomTabs: bottomTabs)
+            return
+        }
+        let segment = control.buttons[option]
+        guard scrollTo(segment, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs) else {
+            reportControlFailure("Could not reach \(option) in \(identifier) clear of the tab bar",
+                                 control: control, in: app, tapFrame: .null, bottomTabs: bottomTabs)
+            return
+        }
+        let tapFrame = segment.frame
+        let uptime = pressUptime { segment.press(forDuration: $0) }
+        guard app.navigationBars["Settings"].exists else {
+            reportControlFailure("Selecting \(option) in \(identifier) left Settings",
+                                 control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapUptime: uptime)
+            return
+        }
+        guard scrollTo(segment, in: app, requireHittable: false) else {
+            reportControlFailure("Could not find \(option) in \(identifier) after scrolling Settings",
+                                 control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapUptime: uptime)
+            return
+        }
+        if !segment.isSelected {
+            reportControlFailure("Found \(identifier), but \(option) is not selected",
+                                 control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapUptime: uptime)
+        } else {
+            print("[settings-press] acknowledged uptime=\(uptime) control=\(identifier) selected=\(option)")
+        }
+    }
+
+    private func setSwitch(_ identifier: String, to enabled: Bool, in app: XCUIApplication,
+                           initially: Bool? = nil) {
+        let toggle = app.switches[identifier]
+        let bottomTabs = bottomTabBarFrame(in: app)
+        guard scrollTo(toggle, in: app, towardStart: false, clearOfBottomTabs: bottomTabs) else {
+            reportControlFailure("Could not reach switch \(identifier) clear of the tab bar",
+                                 control: toggle, in: app, tapFrame: .null, bottomTabs: bottomTabs)
+            return
+        }
+        let before = toggle.value as? String
+        let tapFrame = toggle.frame
+        if let initially, before != (initially ? "1" : "0") {
+            reportControlFailure("\(identifier) must start \(initially ? "on" : "off")",
+                                 control: toggle, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs)
+            return
+        }
+        let expected = enabled ? "1" : "0"
+        guard before != expected else { return }
+        // XCUI exposes the whole Form row. Tap inside the trailing switch, not at the row edge.
+        let offset = CGVector(dx: 0.9, dy: 0.5)
+        let point = CGPoint(x: tapFrame.minX + tapFrame.width * offset.dx,
+                            y: tapFrame.minY + tapFrame.height * offset.dy)
+        let coordinate = toggle.coordinate(withNormalizedOffset: offset)
+        let uptime = pressUptime { coordinate.press(forDuration: $0) }
+        // Enabling Credits inserts rows above this switch; disabling it removes them.
+        let towardStart = identifier == "settings-overview-show-credits" ? !enabled : nil
+        guard waitForSetting(toggle, in: app, towardStart: towardStart, matches: {
+            (toggle.value as? String) == expected
+        }) else {
+            let actual = toggle.exists ? (toggle.value as? String ?? "unreadable") : nil
+            let message = actual.map { "Found switch \(identifier), but its value is \($0) (expected \(expected))" }
+                ?? "Could not find switch \(identifier) after scrolling Settings"
+            reportControlFailure(message, control: toggle, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapPoint: point, tapUptime: uptime)
+            return
+        }
+        print("[settings-press] acknowledged uptime=\(uptime) control=\(identifier) value=\(expected)")
     }
 
     func testTheAppLaunches() {
@@ -114,11 +260,13 @@ final class AppLaunchUITests: XCTestCase {
 
     func testProviderIconSelectionPersists() {
         var app = launch()
+        defer { app.terminate() }
         tabButton("Settings", in: app).tap()
-        XCTAssertTrue(scrollTo(app.buttons["Provider icons"], in: app, towardStart: false))
-        app.buttons["Provider icons"].tap()
+        let providerIcons = app.buttons["settings-provider-icons"]
+        XCTAssertTrue(scrollTo(providerIcons, in: app, towardStart: false))
+        providerIcons.tap()
         let alternative = app.buttons["Claude · Color"]
-        XCTAssertTrue(scrollTo(alternative, in: app))
+        XCTAssertTrue(scrollTo(alternative, in: app, towardStart: false))
         alternative.tap()
         XCTAssertEqual(alternative.value as? String, "Selected")
         let attachment = XCTAttachment(screenshot: app.screenshot())
@@ -128,14 +276,105 @@ final class AppLaunchUITests: XCTestCase {
         app.terminate()
         app = launch()
         tabButton("Settings", in: app).tap()
-        XCTAssertTrue(scrollTo(app.buttons["Provider icons"], in: app, towardStart: false))
-        app.buttons["Provider icons"].tap()
+        let restoredProviderIcons = app.buttons["settings-provider-icons"]
+        XCTAssertTrue(scrollTo(restoredProviderIcons, in: app, towardStart: false))
+        restoredProviderIcons.tap()
         let restored = app.buttons["Claude · Color"]
-        XCTAssertTrue(scrollTo(restored, in: app))
+        XCTAssertTrue(scrollTo(restored, in: app, towardStart: false))
         XCTAssertEqual(restored.value as? String, "Selected")
+        let picker = app.navigationBars["Provider icons"]
+        picker.buttons.firstMatch.tap()
+        XCTAssertTrue(scrollTo(restoredProviderIcons, in: app, towardStart: false))
+        let animation = app.switches["settings-animate-claude-code-icon"]
+        XCTAssertFalse(animation.exists)
+        restoredProviderIcons.tap()
         let defaultIcon = app.buttons["Claude Code · Color"]
-        XCTAssertTrue(scrollTo(defaultIcon, in: app))
+        XCTAssertTrue(scrollTo(defaultIcon, in: app, towardStart: true))
         defaultIcon.tap()
+        XCTAssertEqual(defaultIcon.value as? String, "Selected")
+        picker.buttons.firstMatch.tap()
+        XCTAssertTrue(scrollTo(animation, in: app, towardStart: false))
+    }
+
+    func testClaudeAnimationSwitchAndSettingsSamples() {
+        let app = launch(["-marketing-demo", "-claude-mood-demo", "-motion-log"])
+        defer { app.terminate() }
+        tabButton("Settings", in: app).tap()
+        let toggle = app.switches["settings-animate-claude-code-icon"]
+        XCTAssertTrue(scrollTo(toggle, in: app, towardStart: false))
+        XCTAssertEqual(toggle.value as? String, "1")
+        let log = app.staticTexts["motion-log"]
+        func expectDecision(_ decision: String) {
+            let observed = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label CONTAINS %@", decision), object: log)
+            XCTAssertEqual(XCTWaiter.wait(for: [observed], timeout: 10), .completed, "\(decision); \(log.label)")
+        }
+        expectDecision("claude:provider:provider:asleep animated")
+
+        setSwitch("settings-animate-claude-code-icon", to: false, in: app, initially: true)
+        expectDecision("claude:provider:provider:asleep still")
+        let list = app.descendants(matching: .any)["settings-preview-list"].firstMatch
+        XCTAssertTrue(scrollTo(list, in: app, towardStart: false))
+        expectDecision("claude:preview-list:preview-claude:tired still")
+        selectSegment("Dials", in: "settings-overview-layout", app: app, towardStart: false)
+        let dial = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
+        XCTAssertTrue(scrollTo(dial, in: app, towardStart: true))
+        expectDecision("claude:preview-dial:preview-claude:tired still")
+        tabButton("Overview", in: app).tap()
+        XCTAssertTrue(app.buttons["overview-dial-demo-claude-exhausted"].waitForExistence(timeout: 10))
+        expectDecision("claude:dial:demo-claude-exhausted:asleep still")
+    }
+
+    func testMeasureSettingsPreviewMainThreadGaps() {
+        executionTimeAllowance = 280
+        for variant in ["animated", "still", "no-figure"] {
+            let app = launch([
+                "-marketing-demo", "-claude-mood-demo", "-motion-log", "-settings-gap-mode", variant
+            ])
+            defer { app.terminate() }
+            tabButton("Settings", in: app).tap()
+            XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+            let list = app.descendants(matching: .any)["settings-preview-list"].firstMatch
+            XCTAssertTrue(scrollTo(list, in: app, towardStart: false))
+            // Anchor the Claude heading, not the potentially taller-than-screen preview panel.
+            let claude = list.staticTexts.matching(
+                NSPredicate(format: "label == %@ OR label == %@", "Claude", "Claude Pro")).firstMatch
+            XCTAssertTrue(scrollTo(claude, in: app, towardStart: true,
+                                   clearOfBottomTabs: bottomTabBarFrame(in: app)))
+            if variant != "no-figure" {
+                let decision = "claude:preview-list:preview-claude:tired \(variant == "animated" ? "animated" : "still")"
+                let log = app.staticTexts["motion-log"]
+                let observed = XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "label CONTAINS %@", decision), object: log)
+                XCTAssertEqual(XCTWaiter.wait(for: [observed], timeout: 10), .completed,
+                               "\(variant) setup must expose the Claude list preview; \(log.label)")
+            }
+
+            // Let setup settle, then sleep only in the runner: AX queries would disturb the app.
+            Thread.sleep(forTimeInterval: 2)
+            let begin = ProcessInfo.processInfo.systemUptime
+            print("[settings-gap-window] variant=\(variant) begin=\(begin)")
+            Thread.sleep(forTimeInterval: 32)
+            let end = ProcessInfo.processInfo.systemUptime
+            print("[settings-gap-window] variant=\(variant) begin=\(begin) end=\(end)")
+
+            let trace = settingsTrace(in: app)
+            let attachment = XCTAttachment(string: trace)
+            attachment.name = "Settings gaps \(variant)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            // A bucket covers [second, second + 1); exclude both boundary-straddling bins.
+            let samples = trace.components(separatedBy: "\n").filter { line in
+                guard line.contains("gap bucket variant=\(variant) "),
+                      let field = line.split(separator: " ").first(where: { $0.hasPrefix("second=") }),
+                      let second = Double(field.dropFirst("second=".count)) else { return false }
+                return second >= begin && second + 1 <= end
+            }
+            XCTAssertFalse(samples.isEmpty, "\(variant) must record complete steady-state gap buckets")
+            for sample in samples {
+                print("[settings-gap-sample] \(sample)")
+            }
+        }
     }
 
     func testAllThreeDestinationsExist() {
@@ -210,16 +449,16 @@ final class AppLaunchUITests: XCTestCase {
         selectSegment("Used", in: "settings-percent-display", app: app, towardStart: true)
         selectSegment("List", in: "settings-overview-layout", app: app, towardStart: false)
         let listPreview = app.descendants(matching: .any)["settings-preview-list"].firstMatch
-        setTier(true, in: app)
+        setSwitch("Show subscription tier", to: true, in: app)
         XCTAssertTrue(scrollTo(listPreview, in: app, towardStart: true))
         let tieredTitle = listPreview.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", "Claude Pro")).firstMatch
         XCTAssertTrue(tieredTitle.waitForExistence(timeout: 10))
-        setTier(false, in: app)
+        setSwitch("Show subscription tier", to: false, in: app)
         XCTAssertTrue(scrollTo(listPreview, in: app, towardStart: true))
         XCTAssertTrue(listPreview.staticTexts["Claude"].exists)
         XCTAssertFalse(tieredTitle.exists)
-        setTier(true, in: app)
+        setSwitch("Show subscription tier", to: true, in: app)
         selectSegment("Dials", in: "settings-overview-layout", app: app, towardStart: true)
         let dialsPreview = app.descendants(matching: .any)["settings-preview-dials"].firstMatch
         XCTAssertTrue(scrollTo(dialsPreview, in: app, towardStart: true))
@@ -233,10 +472,10 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue((previewCodex.value as? String)?.contains("56% used") == true)
         XCTAssertFalse(dialsPreview.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", "Claude Pro")).firstMatch.exists)
-        setTier(false, in: app)
+        setSwitch("Show subscription tier", to: false, in: app)
         XCTAssertTrue(scrollTo(previewClaude, in: app, towardStart: true))
         XCTAssertEqual(previewClaude.label, "Claude")
-        setTier(true, in: app)
+        setSwitch("Show subscription tier", to: true, in: app)
     }
 
     func testDialsKeepAccountActionsAndReturnToUnfilteredList() {
@@ -346,8 +585,8 @@ final class AppLaunchUITests: XCTestCase {
 
     func testAccessibilityTextReflowsDialsIntoOneColumn() {
         let app = XCUIApplication()
-        app.launchArguments += [
-            "-ui-testing", "-marketing-demo", "-overview-expired-demo",
+        app.launchArguments += diagnosticLaunchArguments + [
+            "-marketing-demo", "-overview-expired-demo",
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"
         ]
@@ -446,10 +685,7 @@ final class AppLaunchUITests: XCTestCase {
         tabButton("Settings", in: app).tap()
         selectSegment("Compact", in: "settings-overview-credit-layout", app: app, towardStart: false)
         selectMenuOption("Credit accounts", in: "settings-overview-show-first", app: app)
-        let toggle = app.switches["settings-overview-show-credits"]
-        XCTAssertTrue(scrollTo(toggle, in: app, towardStart: false))
-        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        XCTAssertEqual(toggle.value as? String, "0")
+        setSwitch("settings-overview-show-credits", to: false, in: app, initially: true)
         XCTAssertFalse(app.segmentedControls["settings-overview-credit-layout"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["settings-overview-show-first"].firstMatch.exists)
         XCTAssertFalse(app.descendants(matching: .any)["settings-credits-compact"].firstMatch.exists)
@@ -477,10 +713,7 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["overview-credits-heading"].exists)
         XCTAssertFalse(app.buttons["overview-credits-compact"].exists)
         tabButton("Settings", in: app).tap()
-        let restored = app.switches["settings-overview-show-credits"]
-        XCTAssertTrue(scrollTo(restored, in: app, towardStart: false))
-        XCTAssertEqual(restored.value as? String, "0")
-        restored.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        setSwitch("settings-overview-show-credits", to: true, in: app, initially: false)
         let layout = app.segmentedControls["settings-overview-credit-layout"]
         XCTAssertTrue(scrollTo(layout, in: app, towardStart: true))
         XCTAssertTrue(layout.buttons["Compact"].isSelected)
@@ -508,8 +741,8 @@ final class AppLaunchUITests: XCTestCase {
 
     func testGermanCompactCreditsReflowsAtLargestTextSize() {
         let app = XCUIApplication()
-        app.launchArguments += [
-            "-ui-testing", "-marketing-demo", "-overview-credits-demo", "-overview-compact-credits-demo", "-reduce-motion",
+        app.launchArguments += diagnosticLaunchArguments + [
+            "-marketing-demo", "-overview-credits-demo", "-overview-compact-credits-demo", "-reduce-motion",
             "-AppleLanguages", "(de)", "-AppleLocale", "de_DE",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"
         ]
@@ -530,11 +763,32 @@ final class AppLaunchUITests: XCTestCase {
 
     private func selectMenuOption(_ option: String, in identifier: String, app: XCUIApplication) {
         let control = app.descendants(matching: .any)[identifier].firstMatch
-        XCTAssertTrue(scrollTo(control, in: app, towardStart: false), "could not reach \(identifier)")
-        control.tap()
+        let bottomTabs = bottomTabBarFrame(in: app)
+        guard scrollTo(control, in: app, towardStart: false) else {
+            reportControlFailure("Could not reach menu \(identifier)",
+                                 control: control, in: app, tapFrame: .null, bottomTabs: bottomTabs)
+            return
+        }
+        let menuFrame = control.frame
+        let openedAt = pressUptime { control.press(forDuration: $0) }
         let choice = app.buttons.matching(identifier: option).firstMatch
-        XCTAssertTrue(choice.waitForExistence(timeout: 10), "missing menu option \(option)")
-        choice.tap()
+        guard choice.waitForExistence(timeout: 10) else {
+            reportControlFailure("Missing menu option \(option) in \(identifier)",
+                                 control: control, in: app, tapFrame: menuFrame, bottomTabs: bottomTabs,
+                                 tapUptime: openedAt)
+            return
+        }
+        print("[settings-press] acknowledged uptime=\(openedAt) control=\(identifier) opened=true")
+        let tapFrame = choice.frame
+        let selectedAt = pressUptime { choice.press(forDuration: $0) }
+        guard waitForSetting(control, in: app, matches: { control.label.contains(option) }) else {
+            let message = control.exists ? "Found menu \(identifier), but it did not select \(option)"
+                : "Could not find menu \(identifier) after scrolling Settings"
+            reportControlFailure(message, control: control, in: app, tapFrame: tapFrame, bottomTabs: bottomTabs,
+                                 tapUptime: selectedAt)
+            return
+        }
+        print("[settings-press] acknowledged uptime=\(selectedAt) control=\(identifier) selected=\(option)")
     }
 
     func testDisconnectClosesDetailAfterRemovingRealStoredAccount() {
@@ -633,7 +887,10 @@ final class AppLaunchUITests: XCTestCase {
 
     func testLandscapeAndLargeTextKeepTheProviderPickerReachable() {
         let app = XCUIApplication()
-        app.launchArguments += ["-ui-testing", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"]
+        app.launchArguments += diagnosticLaunchArguments + [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"
+        ]
         app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
         waitForOrientation(app, landscape: true)

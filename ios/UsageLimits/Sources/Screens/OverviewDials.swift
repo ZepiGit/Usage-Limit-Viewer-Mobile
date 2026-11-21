@@ -132,8 +132,12 @@ private struct OverviewDialTile: View {
                 ring(presentation, row: row)
                 VStack(spacing: preview ? 2 : 4) {
                     if let provider {
-                        ProviderBadge(provider: provider, size: preview ? 16 : 30)
-                            .accessibilityHidden(true)
+                        ClaudeProviderBadge(provider: provider, mood: ClaudeCodeMood.steady(for: row),
+                            size: preview ? 16 : 34, staticSize: preview ? 16 : 30,
+                            amplitude: preview ? 0.6 : 0.7)
+                        #if DEBUG
+                        .environment(\.claudeAnimationDiagnosticID, "\(preview ? "preview-dial" : "dial"):\(entry.id)")
+                        #endif
                     }
                     if !figureOutside { figure(presentation, severity: severity) }
                 }

@@ -139,6 +139,34 @@ final class MarketingScreenshotTests: XCTestCase {
         XCTAssertFalse(heading.exists)
     }
 
+    func testCaptureIPhoneClaudeMood() {
+        let app = launchDemo(["-claude-mood-demo", "-reduce-motion"])
+        defer { app.terminate() }
+        let asleep = app.buttons["overview-account-demo-claude-exhausted"]
+        let tired = app.buttons["overview-account-demo-claude"]
+        XCTAssertTrue(asleep.waitForExistence(timeout: 10))
+        XCTAssertTrue(asleep.isHittable && tired.isHittable)
+        XCTAssertLessThan(asleep.frame.minY, tired.frame.minY)
+        capture("iphone-claude-mood", in: app)
+
+        let resets = app.tabBars.buttons["Resets"]
+        XCTAssertTrue(resets.isHittable)
+        resets.tap()
+        XCTAssertTrue(app.navigationBars["Resets"].waitForExistence(timeout: 10))
+        let claudeReset = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Claude Max", "resets at")
+        ).firstMatch
+        XCTAssertTrue(claudeReset.waitForExistence(timeout: 10))
+        capture("iphone-claude-resets-still", in: app)
+    }
+
+    func testCaptureIPhoneClaudeStillSheet() {
+        let app = launchDemo(["-claude-still-sheet", "-reduce-motion"])
+        defer { app.terminate() }
+        XCTAssertTrue(app.staticTexts["claude-still-sheet"].waitForExistence(timeout: 10))
+        capture("iphone-claude-still-sheet", in: app, requiresDemoLabel: false)
+    }
+
     func testCaptureIPadOverview() {
         let app = launchDemo()
         capture("ipad-overview", in: app)
