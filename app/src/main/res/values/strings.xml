@@ -83,13 +83,13 @@
     <string name="settings_text_font_subtitle">Used for all text in the app.</string>
     <string name="settings_figure_font">Figure font</string>
     <string name="settings_figure_font_subtitle">Used for percentages, times and amounts.</string>
-    <string name="settings_font_roboto">Roboto</string>
-    <string name="settings_font_roboto_flex">Roboto Flex</string>
-    <string name="settings_font_ibm_plex_sans">IBM Plex Sans</string>
-    <string name="settings_font_figtree">Figtree</string>
-    <string name="settings_font_roboto_mono">Roboto Mono</string>
-    <string name="settings_font_jetbrains_mono">JetBrains Mono</string>
-    <string name="settings_font_ibm_plex_mono">IBM Plex Mono</string>
+    <string name="settings_font_roboto" translatable="false">Roboto</string>
+    <string name="settings_font_roboto_flex" translatable="false">Roboto Flex</string>
+    <string name="settings_font_ibm_plex_sans" translatable="false">IBM Plex Sans</string>
+    <string name="settings_font_figtree" translatable="false">Figtree</string>
+    <string name="settings_font_roboto_mono" translatable="false">Roboto Mono</string>
+    <string name="settings_font_jetbrains_mono" translatable="false">JetBrains Mono</string>
+    <string name="settings_font_ibm_plex_mono" translatable="false">IBM Plex Mono</string>
     <string name="settings_font_licences">Font licences</string>
 
     <string name="settings_section_sync">Sync</string>
@@ -237,6 +237,7 @@
     <string name="overview_mode_used" formatted="false">% used</string>
     <!-- C1, the empty Overview. -->
     <string name="overview_empty_title">Nothing to monitor yet</string>
+    <string name="overview_no_usage_accounts_title">No usage accounts yet</string>
     <string name="overview_empty_body">Add an AI subscription to see its limits and resets here. Sign-in details stay on this device.</string>
     <string name="overview_track_credit">Track a prepaid credit balance</string>
     <string name="overview_refreshing">Refreshing…</string>

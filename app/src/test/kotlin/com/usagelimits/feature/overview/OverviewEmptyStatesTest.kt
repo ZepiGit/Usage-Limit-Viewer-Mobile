@@ -11,6 +11,7 @@ import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.SnapshotStatus
@@ -29,7 +30,7 @@ import java.time.ZoneId
 
 /**
  * Overview's three states without a list of accounts, told apart by their own words and actions,
- * in English and German (#88 01b, third review, item 8): C1 with no accounts, loading before the
+ * in English and German (#88 01b, third review, item 8): C1 with no usage accounts, loading before the
  * store has answered, and a filter that matches nothing. Each test is one row of the table; every
  * marker is read from the resources of the app's language, so no English word stands in for German.
  * The two languages are the two subclasses below, each with its own locale qualifier.
@@ -89,12 +90,22 @@ abstract class OverviewEmptyStatesTest {
         var addAccount = 0
         var addCredit = 0
         show(UsageUiState(), onAddAccount = { addAccount++ }, onAddCredit = { addCredit++ })
-        assertEquals(mapOf("C1 title" to true, "C1 credit entry" to true, "loading" to false, "no match" to false,
+        assertEquals(mapOf("C1 title" to true, "C1 credit entry" to false, "loading" to false, "no match" to false,
             "filter chip" to false, "mode chip" to false, "add account" to true, "credits add" to true), observed())
 
         compose.onNode(hasText(word(R.string.overview_add_account)) and hasClickAction()).performClick()
-        compose.onNode(hasText(word(R.string.overview_track_credit)) and hasClickAction()).performClick()
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(word(R.string.overview_add_credit)))
+        compose.onNode(hasText(word(R.string.overview_add_credit)) and hasClickAction()).performClick()
         assertEquals("each C1 action opens its own flow, once", 1 to 1, addAccount to addCredit)
+    }
+
+    @Test fun `hidden Credits keeps the C1 credit entry and its action in both languages`() {
+        var addCredit = 0
+        show(UsageUiState(settings = AppSettings(overviewShowCredits = false)), onAddCredit = { addCredit++ })
+        assertEquals(mapOf("C1 title" to true, "C1 credit entry" to true, "loading" to false, "no match" to false,
+            "filter chip" to false, "mode chip" to false, "add account" to true, "credits add" to false), observed())
+        compose.onNode(hasText(word(R.string.overview_track_credit)) and hasClickAction()).performClick()
+        assertEquals("the only credit add path opens its flow", 1, addCredit)
     }
 
     @Test fun `while loading no state's words and no add action are shown`() {

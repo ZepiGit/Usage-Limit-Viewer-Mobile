@@ -1,9 +1,26 @@
 package com.usagelimits.feature.settings
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.graphics.toArgb
+import com.usagelimits.ui.theme.colors
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.ui.components.ScreenTitle
+import com.usagelimits.ui.components.UsageWindowRow
+import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WindowCategory
+import org.robolectric.annotation.GraphicsMode
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.onNodeWithTag
+import com.usagelimits.feature.credits.CreditArtwork
+import com.usagelimits.core.model.CreditProviderId
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
@@ -147,6 +164,72 @@ class AppearanceSettingsTest {
     }
 
     @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Config(qualifiers = "w393dp-h1600dp")
+    fun `keyboard focus paints a separate ring without changing theme selection`() {
+        val settings = AppSettings()
+        compose.setContent {
+            UsageLimitsTheme {
+                AppearanceSettings(settings, onAppThemeChange = {})
+            }
+        }
+        val tile = compose.onNodeWithText("Light paper")
+        tile.assertIsNotSelected()
+        fun outerPixel(): Int {
+            compose.waitForIdle()
+            val bounds = tile.fetchSemanticsNode().boundsInRoot
+            val density = compose.activity.resources.displayMetrics.density
+            val root = compose.activity.window.decorView
+            val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
+            return try { image.getPixel((bounds.center.x).toInt(), (bounds.top - 3 * density).toInt()) }
+                finally { image.recycle() }
+        }
+        val before = outerPixel()
+        val bounds = tile.fetchSemanticsNode().boundsInRoot
+        tile.performSemanticsAction(SemanticsActions.RequestFocus) { it() }.assertIsFocused().assertIsNotSelected()
+        assertEquals("focus does not resize the tile", bounds, tile.fetchSemanticsNode().boundsInRoot)
+        assertNotEquals("the new ring is outside the unchanged selection border", before, outerPixel())
+        assertEquals(AppTheme.PURE_BLACK.colors.Ink.toArgb(), outerPixel())
+        compose.onNodeWithText("Pure black").assertIsSelected()
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `white credit artwork takes paper ink while coloured artwork stays unchanged`() {
+        val theme = mutableStateOf(AppTheme.PURE_BLACK)
+        compose.setContent {
+            UsageLimitsTheme(appTheme = theme.value) {
+                Row {
+                    for (provider in listOf(CreditProviderId.XAI, CreditProviderId.MOONSHOT, CreditProviderId.DEEPSEEK)) {
+                        Column(Modifier.size(64.dp).testTag(provider.id)) { CreditArtwork(provider, 64.dp) }
+                    }
+                }
+            }
+        }
+        fun pixels(provider: CreditProviderId): List<Int> {
+            compose.waitForIdle()
+            val bounds = compose.onNodeWithTag(provider.id).fetchSemanticsNode().boundsInRoot
+            val root = compose.activity.window.decorView
+            val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
+            return try {
+                buildList {
+                    for (y in bounds.top.toInt() until bounds.bottom.toInt()) {
+                        for (x in bounds.left.toInt() until bounds.right.toInt()) add(image.getPixel(x, y))
+                    }
+                }
+            } finally { image.recycle() }
+        }
+        val dark = listOf(CreditProviderId.XAI, CreditProviderId.MOONSHOT, CreditProviderId.DEEPSEEK).associateWith(::pixels)
+        compose.runOnIdle { theme.value = AppTheme.LIGHT_PAPER }
+        for (provider in listOf(CreditProviderId.XAI, CreditProviderId.MOONSHOT)) {
+            val light = pixels(provider)
+            assertNotEquals("$provider changes from white artwork to paper ink", dark.getValue(provider), light)
+            org.junit.Assert.assertTrue("$provider has actual paper-ink pixels", AppTheme.LIGHT_PAPER.colors.Ink.toArgb() in light)
+        }
+        assertEquals("coloured DeepSeek art is not tinted", dark.getValue(CreditProviderId.DEEPSEEK), pixels(CreditProviderId.DEEPSEEK))
+    }
+
+    @Test
     fun `each picker updates its own preview face and uses the native weights`() {
         val settings = mutableStateOf(AppSettings())
         compose.setContent {
@@ -220,6 +303,33 @@ class AppearanceSettingsTest {
                     settings.settings.singleOrNull { it.axisName == "wght" }?.toVariationValue(null))
             }
         }
+    }
+
+    @Test
+    @Config(qualifiers = "en-w393dp-h2400dp")
+    fun `reset prose and every Material slot use the selected text face`() {
+        val now = 1_757_000_000_000L
+        compose.setContent {
+            UsageLimitsTheme(textFont = TextFont.FIGTREE, figureFont = FigureFont.IBM_PLEX_MONO) {
+                Column {
+                    ScreenTitle("Resets", stamp = "3 upcoming")
+                    UsageWindowRow(UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR, 40.0,
+                        18_000, now + 3_600_000, false), nowMs = now, mode = PercentDisplay.LEFT)
+                    val typography = MaterialTheme.typography
+                    listOf(typography.displayLarge, typography.displayMedium, typography.displaySmall,
+                        typography.headlineLarge, typography.headlineMedium, typography.headlineSmall,
+                        typography.titleLarge, typography.titleMedium, typography.titleSmall,
+                        typography.bodyLarge, typography.bodyMedium, typography.bodySmall,
+                        typography.labelLarge, typography.labelMedium, typography.labelSmall).forEachIndexed { index, style ->
+                        Text("slot-$index", style = style)
+                    }
+                }
+            }
+        }
+        assertEquals(TextFont.FIGTREE.face.family, styleOf("3 upcoming").fontFamily)
+        assertEquals(TextFont.FIGTREE.face.family, styleOf("Reset in 1h").fontFamily)
+        for (index in 0 until 15) assertEquals("slot-$index", TextFont.FIGTREE.face.family, styleOf("slot-$index").fontFamily)
+        assertNotEquals(TextFont.FIGTREE.face.family, styleOf("60%").fontFamily)
     }
 
     @Test

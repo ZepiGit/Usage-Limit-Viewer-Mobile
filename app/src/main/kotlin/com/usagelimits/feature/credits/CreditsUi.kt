@@ -4,6 +4,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -56,8 +57,7 @@ internal fun creditIcon(id: CreditProviderId): Int = when (id) {
 
 @Composable
 internal fun CreditArtwork(provider: CreditProviderId, size: androidx.compose.ui.unit.Dp = 30.dp) {
-    val whiteInk = provider == CreditProviderId.XAI || provider == CreditProviderId.MOONSHOT
-    com.usagelimits.ui.ProviderArtwork(creditIcon(provider), whiteInk, null, Modifier.size(size))
+    com.usagelimits.ui.ProviderArtwork(creditIcon(provider), null, Modifier.size(size))
 }
 
 /**
@@ -96,13 +96,13 @@ fun CreditCard(
     val severity = CreditSeverity.of(entry, nowMs, staleAfterMs)
     val balances = CreditSeverity.worstFirst(entry)
 
-    UsageCard(modifier = modifier, contentPadding = androidx.compose.foundation.layout.PaddingValues(if (compact) 8.dp else 16.dp), onClick = onClick) {
+    UsageCard(modifier = modifier, contentPadding = PaddingValues(if (compact) 8.dp else 16.dp), onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = if (compact) 20.dp else 44.dp)) {
             CreditArtwork(account.provider, if (compact) 18.dp else 30.dp)
             Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(account.label, style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.titleMedium,
-                    color = UsageColors.Ink, maxLines = 1)
+                    color = UsageColors.Ink)
                 if (!largeText && freshness != null) CreditFreshness(freshness)
             }
             StatusMark(severity)

@@ -324,6 +324,13 @@ class CheckFontBundleTests(unittest.TestCase):
                 self.manifest.write_bytes(raw)
                 self.assert_rejected("invalid manifest")
 
+    def test_only_ofl_1_1_licenses_are_accepted(self):
+        for spdx in ("MIT", "Apache-2.0", "OFL-1.0", "ofl-1.1", " OFL-1.1 "):
+            with self.subTest(spdx=spdx):
+                self.data["families"][0]["license"]["spdx"] = spdx
+                self.write_manifest()
+                self.assert_rejected("invalid manifest: license spdx must be OFL-1.1")
+
     def test_missing_manifest_is_rejected(self):
         self.manifest.unlink()
         self.assert_rejected("cannot read manifest")

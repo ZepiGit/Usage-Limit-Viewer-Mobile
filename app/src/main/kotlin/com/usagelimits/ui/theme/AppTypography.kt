@@ -34,9 +34,15 @@ internal class TextFace(val family: FontFamily, val regular: FontWeight = Regula
         type(family, if (emphasised) medium else regular, size, line)
 
     val typography = Typography(
+        displayLarge = style(57, 64),
+        displayMedium = style(45, 52),
+        displaySmall = style(36, 44),
         headlineLarge = style(24, 30, emphasised = true).copy(letterSpacing = (-0.24).sp),
+        headlineMedium = style(28, 36),
         headlineSmall = style(24, 32),
+        titleLarge = style(22, 28),
         titleMedium = style(16, 24, emphasised = true),
+        titleSmall = style(14, 20, emphasised = true),
         bodyLarge = style(16, 24),
         bodyMedium = style(14, 20),
         bodySmall = style(12, 16).copy(fontFeatureSettings = "tnum"),
