@@ -147,15 +147,21 @@ class PercentModeWidgetRenderingTest {
      * previous app mode so a failing assertion cannot leak a change into a neighbouring test.
      */
     private suspend fun TestScope.inEachMode(body: suspend (PercentDisplay) -> Unit) {
-        val originalMode = app.container.settingsStore.settings.first().percentDisplay
+        val settings = app.container.settingsStore
+        val original = settings.settings.first()
+        val provider = ProviderId.CLAUDE.id
+        val originalIcon = original.providerIcons[provider] ?: "claudecode-color"
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
+            // SDK sandboxes share DataStore with other test classes, including icon pickers.
+            settings.setProviderIcon(provider, "claudecode-color")
             for (mode in PercentDisplay.entries) {
-                app.container.settingsStore.setPercentDisplay(mode)
+                settings.setPercentDisplay(mode)
                 body(mode)
             }
         } finally {
-            app.container.settingsStore.setPercentDisplay(originalMode)
+            settings.setPercentDisplay(original.percentDisplay)
+            settings.setProviderIcon(provider, originalIcon)
             Dispatchers.resetMain()
         }
     }
