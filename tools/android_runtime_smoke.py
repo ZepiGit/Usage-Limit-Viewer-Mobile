@@ -1488,6 +1488,23 @@ class Smoke:
             self.scroll(root, up=up, package=package)
         raise AssertionError(f"Could not reach credit control {label}")
 
+    def credit_switched(self, name, label, checked, package=DEBUG_PACKAGE):
+        """Wait until a switch holds the value, and look for it further down when it has left the view.
+
+        Turning Show credits on adds its dependent controls above the switch, so on a long Settings
+        screen the switch itself moves below the viewport. A switch still in view with the old value
+        is only waited for.
+        """
+        for attempt in range(12):
+            root = self.dump(f"{name}-{attempt}")
+            if credit_checked(root, label, checked, package) is not None:
+                return root
+            if credit_checked(root, label, not checked, package) is None:
+                self.scroll(root, up=True, package=package)
+            else:
+                time.sleep(1)
+        raise AssertionError(f"UI did not reach {name}")
+
     def credit_steps(self, apk):
         """Check the credit-only debug fixture in EN and DE after the usage evidence lane is complete."""
         self.seed_credit_only("credits-en", apk, "en-US")
@@ -1599,8 +1616,7 @@ class Smoke:
         self.navigate_credit("Einstellungen", "Guthaben anzeigen", "credits-de-persisted-settings-toggle")
         show = self.credit_control("credits-de-restored-show", "Guthaben anzeigen", up=True)
         self.tap(show)
-        self.wait_for("credits-de-restored-visible", lambda root:
-            credit_checked(root, "Guthaben anzeigen", True, DEBUG_PACKAGE) is not None)
+        self.credit_switched("credits-de-restored-visible", "Guthaben anzeigen", True)
         layout = self.credit_control("credits-de-persisted-layout", "Kompakt", up=False)
         assert credit_selected(layout, True), "Compact layout did not persist after force-stop"
         first = self.credit_control("credits-de-persisted-order", "Guthabenkonten", up=True)
