@@ -321,6 +321,10 @@ class UsageViewModel(
         }
     }
 
+    fun setAppTheme(theme: com.usagelimits.core.settings.AppTheme) {
+        viewModelScope.launch { container.settingsStore.setAppTheme(theme) }
+    }
+
     fun setShowSubscriptionTier(enabled: Boolean) {
         viewModelScope.launch { container.settingsStore.setShowSubscriptionTier(enabled) }
     }

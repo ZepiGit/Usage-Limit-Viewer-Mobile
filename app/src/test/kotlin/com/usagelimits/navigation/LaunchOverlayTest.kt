@@ -17,6 +17,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.R
 import com.usagelimits.UsageLimitsActivity
+import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.splashStyle
 import com.usagelimits.feature.settings.AppIcon
 import com.usagelimits.ui.motion.FrameRecorder
 import com.usagelimits.ui.motion.change
@@ -157,6 +159,31 @@ class LaunchOverlayTest {
         assertFalse("the hourglass icon is drawn, not the default one", chosen.sameAs(default))
     }
 
+    @Test
+    fun `launcher variants use the matching ground bar flags and no system icon`() {
+        for ((theme, ground) in mapOf(
+            AppTheme.WARM_DARK to 0xFF0F0F0E.toInt(),
+            AppTheme.PURE_BLACK to 0xFF000000.toInt(),
+            AppTheme.COOL_GRAPHITE to 0xFF0E1013.toInt(),
+            AppTheme.LIGHT_PAPER to 0xFFF3F0E8.toInt(),
+        )) {
+            val themed = android.view.ContextThemeWrapper(context, theme.splashStyle)
+            val light = theme == AppTheme.LIGHT_PAPER
+            for (attr in listOf(android.R.attr.windowBackground, android.R.attr.windowSplashScreenBackground,
+                android.R.attr.windowSplashScreenIconBackgroundColor)) {
+                val a = themed.obtainStyledAttributes(intArrayOf(attr))
+                try { assertEquals(theme.name, ground, a.getColor(0, 0)) } finally { a.recycle() }
+            }
+            for (attr in listOf(android.R.attr.isLightTheme, android.R.attr.windowLightStatusBar,
+                android.R.attr.windowLightNavigationBar)) {
+                val a = themed.obtainStyledAttributes(intArrayOf(attr))
+                try { assertEquals(theme.name, light, a.getBoolean(0, false)) } finally { a.recycle() }
+            }
+            val icon = themed.obtainStyledAttributes(intArrayOf(android.R.attr.windowSplashScreenAnimatedIcon))
+            try { assertEquals(theme.name, android.R.color.transparent, icon.getResourceId(0, 0)) } finally { icon.recycle() }
+        }
+    }
+
     // Only the app's own activity has this overlay, so only it may empty the system splash screen.
     @Test
     fun `only the app activity changes the system splash screen`() {
@@ -166,7 +193,7 @@ class LaunchOverlayTest {
             return try { attributes.getResourceId(0, 0) } finally { attributes.recycle() }
         }
 
-        assertEquals(R.style.Theme_UsageLimits_App, theme(UsageLimitsActivity::class.java))
+        assertEquals(AppTheme.PURE_BLACK.splashStyle, theme(UsageLimitsActivity::class.java))
         assertEquals("the app activity's splash screen has no icon", android.R.color.transparent, splashIcon(R.style.Theme_UsageLimits_App))
         assertEquals(R.style.Theme_UsageLimits, theme(WidgetConfigActivity::class.java))
         assertTrue("the widget configuration screen keeps the system's splash icon", splashIcon(R.style.Theme_UsageLimits) == 0)

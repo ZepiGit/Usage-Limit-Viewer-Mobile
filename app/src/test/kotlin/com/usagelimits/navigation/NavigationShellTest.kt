@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.InputModeManager
 import androidx.compose.ui.input.key.Key
@@ -132,7 +133,7 @@ class NavigationShellTest {
     }
 
     private fun Bitmap.weight(region: Region): Long {
-        val ground = UsageColors.Ground.argb
+        val ground = Color.Black.argb
         var sum = 0L
         for (y in region.top until region.bottom) for (x in region.left until region.right) {
             val pixel = getPixel(x, y)

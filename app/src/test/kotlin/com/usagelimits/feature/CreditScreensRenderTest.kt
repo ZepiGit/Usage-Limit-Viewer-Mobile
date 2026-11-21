@@ -125,7 +125,13 @@ class CreditScreensRenderTest {
         }
 
         compose.onNode(hasContentDescription("Credits · 1 balance, Low balance: DeepSeek \$3.18")).assertExists()
-        compose.onNode(hasContentDescription("Credits · 1 balance", substring = true) and hasClickAction()).performClick()
+        val compactRow = compose.onNode(hasContentDescription("Credits · 1 balance", substring = true) and hasClickAction())
+        // TalkBack says "Double-tap to <label>", so the label is an imperative phrase.
+        org.junit.Assert.assertEquals(
+            "Expand credit balances",
+            compactRow.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].label,
+        )
+        compactRow.performClick()
         compose.onNode(hasText("Collapse")).assertExists()
         compose.onNode(hasText("\$3.18")).assertExists()
         compose.onNode(hasText("Manage credit accounts")).assertExists()

@@ -1,7 +1,6 @@
 package com.usagelimits.feature.credits
 
 import androidx.annotation.DrawableRes
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -54,6 +52,12 @@ internal fun creditIcon(id: CreditProviderId): Int = when (id) {
     CreditProviderId.XAI -> R.drawable.icon_credit_xai
     CreditProviderId.FAL -> R.drawable.icon_credit_fal
     CreditProviderId.NOVITA -> R.drawable.icon_credit_novita
+}
+
+@Composable
+internal fun CreditArtwork(provider: CreditProviderId, size: androidx.compose.ui.unit.Dp = 30.dp) {
+    val whiteInk = provider == CreditProviderId.XAI || provider == CreditProviderId.MOONSHOT
+    com.usagelimits.ui.ProviderArtwork(creditIcon(provider), whiteInk, null, Modifier.size(size))
 }
 
 /**
@@ -94,7 +98,7 @@ fun CreditCard(
 
     UsageCard(modifier = modifier, contentPadding = androidx.compose.foundation.layout.PaddingValues(if (compact) 8.dp else 16.dp), onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = if (compact) 20.dp else 44.dp)) {
-            Image(painterResource(creditIcon(account.provider)), null, Modifier.size(if (compact) 18.dp else 30.dp))
+            CreditArtwork(account.provider, if (compact) 18.dp else 30.dp)
             Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(account.label, style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.titleMedium,

@@ -332,7 +332,7 @@ jobs:
       - name: Require this run's debug build for the seeded List
         run: test -s runtime/debug/app-debug.apk || { echo '::error::runtime/debug/app-debug.apk is missing; the seeded List steps need it.' >&2; exit 1; }
 
-      - name: Upgrade and navigate the release APK
+      - name: Upgrade, verify themed launches and navigate the release APK
         run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-*.apk --apk runtime/apk/app-release.apk --debug-apk runtime/debug/app-debug.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
 
       - name: Upload runtime evidence

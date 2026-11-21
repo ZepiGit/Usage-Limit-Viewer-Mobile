@@ -53,10 +53,13 @@ import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.feature.waitDrained
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -211,6 +214,35 @@ class ExternalRequestActivityTest {
             val texts = compose.onAllNodes(SemanticsMatcher("any") { true }, useUnmergedTree = true).fetchSemanticsNodes()
                 .flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty().map { text -> text.text } }
             throw AssertionError("$what not reached; on screen: $texts", timeout)
+        }
+    }
+
+    @Test fun `the app window cannot draw before the saved appearance is ready`() {
+        gate.complete(Unit)
+        val store = container.settingsStore
+        val saved = store.settings
+        val previousTheme = runBlocking { saved.first().appTheme }
+        val theme = com.usagelimits.core.settings.AppTheme.LIGHT_PAPER
+        runBlocking { store.setAppTheme(theme) }
+        val release = CompletableDeferred<Unit>()
+        ReflectionHelpers.setField(store, "settings", saved.onStart { release.await() })
+        try {
+            val activity = start(launcher()).get()
+            val window = activity.window
+            val decor = window.decorView
+            assertTrue("pre-draw must be canceled while saved settings cannot arrive",
+                decor.viewTreeObserver.dispatchOnPreDraw())
+            release.complete(Unit)
+            waitFor("the themed root") { onOverview() }
+            assertFalse("the themed window must let pre-draw through", decor.viewTreeObserver.dispatchOnPreDraw())
+            val bars = androidx.core.view.WindowCompat.getInsetsController(window, decor)
+            assertTrue("paper requests dark status icons", bars.isAppearanceLightStatusBars)
+            assertTrue("paper requests dark navigation icons", bars.isAppearanceLightNavigationBars)
+            assertEquals(0xFFF3F0E8.toInt(), (decor.background as android.graphics.drawable.ColorDrawable).color)
+        } finally {
+            release.complete(Unit)
+            ReflectionHelpers.setField(store, "settings", saved)
+            runBlocking { store.setAppTheme(previousTheme) }
         }
     }
 

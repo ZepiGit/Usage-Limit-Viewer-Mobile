@@ -42,6 +42,7 @@ import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.settings.OverviewCreditLayout
 import com.usagelimits.core.settings.OverviewShowFirst
@@ -361,6 +362,49 @@ class RedesignCaptureTest {
                 Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).useOnce {
                     root.draw(Canvas(it))
                     it.save("screen-$name")
+                }
+            }
+        }
+    }
+
+    // A2 is not on this base. Keep the existing captures above and add the A1/A5 theme matrix.
+    @Test
+    fun `A1 and A5 in every app theme and display mode`() {
+        val current = mutableStateOf<@Composable () -> Unit>({})
+        val theme = mutableStateOf(AppTheme.PURE_BLACK)
+        compose.setContent { UsageLimitsTheme(appTheme = theme.value) { current.value() } }
+        for (appTheme in AppTheme.entries) {
+            theme.value = appTheme
+            for (display in PercentDisplay.entries) {
+                val themedState = state.copy(settings = state.settings.copy(appTheme = appTheme, percentDisplay = display))
+                val screens = listOf<Pair<String, @Composable () -> Unit>>(
+                    "A1-overview" to {
+                        OverviewScreen(state = themedState.copy(accounts = listOf(claude, expiredCodex, kimi)),
+                            nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                            onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
+                    },
+                    "A2-dials" to {
+                        OverviewScreen(
+                            state = themedState.copy(accounts = listOf(claude, expiredCodex, kimi),
+                                settings = themedState.settings.copy(overviewLayout = OverviewLayout.DIALS)),
+                            nowMs = NOW, zone = utc, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                            onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
+                    },
+                    "A5-settings" to {
+                        SettingsScreen(state = themedState, onSyncIntervalChange = {}, onNotificationPermissionHandled = {},
+                            onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {}, onNotifyResetCredit = {},
+                            onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {},
+                            onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {}, onAppThemeChange = {})
+                    },
+                )
+                for ((name, content) in screens) {
+                    current.value = content
+                    compose.waitForIdle()
+                    val root = compose.activity.window.decorView
+                    Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).useOnce {
+                        root.draw(Canvas(it))
+                        it.save("screen-$name-${appTheme.name.lowercase()}-${display.name.lowercase()}")
+                    }
                 }
             }
         }
