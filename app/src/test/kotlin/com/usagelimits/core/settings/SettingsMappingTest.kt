@@ -132,6 +132,28 @@ class SettingsMappingTest {
     }
 
     @Test
+    fun `saved font choices fall back independently of one another and the theme`() {
+        val text = stringPreferencesKey("appearance_text_font")
+        val figures = stringPreferencesKey("appearance_figure_font")
+        val theme = stringPreferencesKey("appearance_theme")
+        val settings = settingsFrom(text to "FIGTREE", figures to "IBM_PLEX_MONO", theme to "LIGHT_PAPER")
+        assertEquals(TextFont.FIGTREE, settings.textFont)
+        assertEquals(FigureFont.IBM_PLEX_MONO, settings.figureFont)
+        assertEquals(AppTheme.LIGHT_PAPER, settings.appTheme)
+
+        val unknownText = settingsFrom(text to "future_text", figures to "JETBRAINS_MONO")
+        assertEquals(TextFont.ROBOTO, unknownText.textFont)
+        assertEquals(FigureFont.JETBRAINS_MONO, unknownText.figureFont)
+
+        val unknownFigures = settingsFrom(text to "IBM_PLEX_SANS", figures to "future_figures")
+        assertEquals(TextFont.IBM_PLEX_SANS, unknownFigures.textFont)
+        assertEquals(FigureFont.ROBOTO_MONO, unknownFigures.figureFont)
+        assertEquals(TextFont.ROBOTO_FLEX, settingsFrom(text to "ROBOTO_FLEX").textFont)
+        assertEquals(TextFont.ROBOTO, settingsFrom().textFont)
+        assertEquals(FigureFont.ROBOTO_MONO, settingsFrom().figureFont)
+    }
+
+    @Test
     fun `status icons are off with nothing pinned until someone turns them on`() {
         val settings = settingsFrom()
 

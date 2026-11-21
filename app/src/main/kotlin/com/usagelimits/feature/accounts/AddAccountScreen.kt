@@ -58,6 +58,7 @@ import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.text.apiKeyHintRes
 import com.usagelimits.ui.text.providerRegionLabelRes
 import com.usagelimits.ui.theme.UsageColors
+import com.usagelimits.ui.theme.UsageType
 
 /**
  * Add-account flow.
@@ -179,7 +180,7 @@ fun AddAccountScreen(
                             // The sheet's lead figure: a code, so the figure face, in ink.
                             Text(
                                 text = state.userCode,
-                                style = MaterialTheme.typography.headlineMedium,
+                                style = UsageType.Code,
                                 // 0.04em, enough to read the code a character at a time.
                                 letterSpacing = 1.2.sp,
                                 color = UsageColors.Ink,

@@ -10,6 +10,8 @@ import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
 import java.io.File
 import org.junit.Assert.assertTrue
 import org.robolectric.annotation.GraphicsMode
@@ -72,7 +74,7 @@ class WidgetConfigActivitySaveTest {
 
     @Test
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    fun `configuration keeps its warm preview when saved app themes change`() {
+    fun `configuration keeps its warm preview when saved app theme and fonts change`() {
         val settings = app.container.settingsStore
         val original = runBlocking { settings.settings.first() }
         val now = System.currentTimeMillis()
@@ -87,7 +89,7 @@ class WidgetConfigActivitySaveTest {
             customAccountIdsJson = "[\"${account.localId}\"]")
         org.robolectric.Shadows.shadowOf(AppWidgetManager.getInstance(app)).addBoundWidget(config.appWidgetId,
             android.appwidget.AppWidgetProviderInfo().apply {
-                provider = android.content.ComponentName(app, MiniRingsWidgetReceiver::class.java)
+                provider = android.content.ComponentName(app, MinimalUsageWidgetReceiver::class.java)
             })
         fun capture(scenario: ActivityScenario<WidgetConfigActivity>, name: String): Bitmap {
             compose.waitForIdle()
@@ -108,13 +110,20 @@ class WidgetConfigActivitySaveTest {
         try {
             runBlocking {
                 settings.setAppTheme(AppTheme.WARM_DARK)
+                settings.setTextFont(TextFont.ROBOTO)
+                settings.setFigureFont(FigureFont.ROBOTO_MONO)
                 settings.setPercentDisplay(PercentDisplay.LEFT)
             }
             openConfigFor(config).use { scenario ->
                 compose.waitDrained {
                     compose.onAllNodesWithContentDescription("60% remaining", substring = true).fetchSemanticsNodes().isNotEmpty()
                 }
-                val baseline = capture(scenario, "warm-baseline")
+                compose.onNodeWithText("60%").assertExists()
+                val baseline = capture(scenario, "09b-warm-baseline")
+                runBlocking {
+                    settings.setTextFont(TextFont.FIGTREE)
+                    settings.setFigureFont(FigureFont.IBM_PLEX_MONO)
+                }
                 try {
                     assertEquals("configuration chrome keeps the pre-theme warm ground",
                         0xFF0F0F0E.toInt(), baseline.getPixel(2, baseline.height / 2))
@@ -140,7 +149,7 @@ class WidgetConfigActivitySaveTest {
                         compose.waitDrained {
                             compose.onAllNodesWithContentDescription("60% remaining", substring = true).fetchSemanticsNodes().isNotEmpty()
                         }
-                        val changed = capture(scenario, theme.name.lowercase())
+                        val changed = capture(scenario, "09b-${theme.name.lowercase()}-figtree-plex")
                         try {
                             assertTrue("$theme must not restyle the configuration or its preview", baseline.sameAs(changed))
                         } finally {
@@ -154,6 +163,8 @@ class WidgetConfigActivitySaveTest {
         } finally {
             runBlocking {
                 settings.setAppTheme(original.appTheme)
+                settings.setTextFont(original.textFont)
+                settings.setFigureFont(original.figureFont)
                 settings.setPercentDisplay(original.percentDisplay)
             }
         }

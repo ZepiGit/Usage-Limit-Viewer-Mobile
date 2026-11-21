@@ -4,13 +4,31 @@ import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.view.ContextThemeWrapper
 import android.view.View
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.glance.ExperimentalGlanceApi
@@ -23,6 +41,7 @@ import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.CreditAccount
 import com.usagelimits.core.model.CreditBalance
 import com.usagelimits.core.model.CreditEntry
+import com.usagelimits.core.model.CreditFormat
 import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.CreditSnapshot
 import com.usagelimits.core.model.CreditStatus
@@ -35,6 +54,8 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
 import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.accounts.AccountDetailScreen
@@ -44,6 +65,7 @@ import com.usagelimits.feature.credits.CreditDetailScreen
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
+import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import com.usagelimits.widget.WidgetBackground
 import com.usagelimits.widget.WidgetStyle
@@ -62,6 +84,10 @@ import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.notifications.NotificationEvaluator
 import com.usagelimits.feature.overview.OverviewFilter
 import java.time.ZoneId
+import java.util.Locale
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -275,6 +301,130 @@ class RedesignCaptureTest {
                 }
             }
         }
+    }
+
+    // Scoped locals keep EN/DE and larger type in this SDK 34 native-graphics sandbox.
+    @Test
+    fun `A1 including Credits and A5 with default variable and static font pairs in EN DE and larger type`() {
+        val current = mutableStateOf<@Composable () -> Unit>({})
+        val fonts = mutableStateOf(TextFont.ROBOTO to FigureFont.ROBOTO_MONO)
+        val locale = mutableStateOf(Locale.US)
+        val scale = mutableStateOf(1f)
+        val screen = mutableStateOf("A1-overview")
+        compose.setContent {
+            val baseContext = LocalContext.current
+            val baseConfiguration = LocalConfiguration.current
+            val density = LocalDensity.current.density
+            val configuration = remember(baseConfiguration, locale.value, scale.value) {
+                Configuration(baseConfiguration).apply {
+                    setLocale(locale.value)
+                    fontScale = scale.value
+                }
+            }
+            val context = remember(baseContext, configuration) {
+                ContextThemeWrapper(baseContext, 0).apply { applyOverrideConfiguration(configuration) }
+            }
+            CompositionLocalProvider(
+                LocalContext provides context,
+                LocalConfiguration provides configuration,
+                LocalResources provides context.resources,
+                LocalDensity provides Density(density, fontScale = scale.value),
+            ) {
+                UsageLimitsTheme(textFont = fonts.value.first, figureFont = fonts.value.second) {
+                    CompositionLocalProvider(LocalMotionEnabled provides false) {
+                        key(fonts.value, locale.value, scale.value, screen.value) { current.value() }
+                    }
+                }
+            }
+        }
+        val originalLocale = Locale.getDefault()
+        try {
+            for (language in listOf(Locale.US, Locale.GERMANY)) {
+                Locale.setDefault(language)
+                for ((textFont, figureFont) in listOf(
+                    TextFont.ROBOTO to FigureFont.ROBOTO_MONO,
+                    TextFont.FIGTREE to FigureFont.IBM_PLEX_MONO,
+                    TextFont.IBM_PLEX_SANS to FigureFont.JETBRAINS_MONO,
+                )) {
+                    for (fontScale in listOf(1f, 1.5f)) {
+                        val fontState = state.copy(
+                            accounts = listOf(claude, expiredCodex, kimi),
+                            settings = state.settings.copy(textFont = textFont, figureFont = figureFont),
+                        )
+                        compose.runOnIdle {
+                            fonts.value = textFont to figureFont
+                            locale.value = language
+                            scale.value = fontScale
+                            screen.value = "A1-overview"
+                            current.value = {
+                                OverviewScreen(state = fontState, nowMs = NOW, zone = utc,
+                                    onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                                    onPercentDisplayChange = {}, onCreditClick = {}, onAddCredit = {})
+                            }
+                        }
+                        compose.waitForIdle()
+                        val suffix = "fonts-${textFont.name.lowercase()}-${figureFont.name.lowercase()}-${language.language}-" +
+                            if (fontScale == 1f) "default" else "large"
+                        captureFontScreen("A1-overview", suffix)
+                        if (fontScale == 1.5f) {
+                            val resources = compose.activity.createConfigurationContext(Configuration(compose.activity.resources.configuration).apply {
+                                setLocale(language)
+                            }).resources
+                            for (token in listOf("100", "4")) {
+                                assertTextFits(com.usagelimits.ui.text.percentFigure(token, resources))
+                            }
+                        }
+
+                        // Large text may put Credits below the tall capture's fold as well.
+                        val amount = CreditFormat.string(BigDecimal("18.40"), "USD", language)
+                        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(amount))
+                        compose.waitForIdle()
+                        if (fontScale == 1.5f) assertTextFits(amount)
+                        captureFontScreen("A1-credits", suffix)
+
+                        compose.runOnIdle {
+                            screen.value = "A5-settings"
+                            current.value = {
+                                SettingsScreen(state = fontState, onSyncIntervalChange = {}, onNotificationPermissionHandled = {},
+                                    onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {}, onNotifyResetCredit = {},
+                                    onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {},
+                                    onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {}, onAppThemeChange = {})
+                            }
+                        }
+                        compose.waitForIdle()
+                        captureFontScreen("A5-settings", suffix)
+                    }
+                }
+            }
+        } finally {
+            Locale.setDefault(originalLocale)
+        }
+    }
+
+    private fun captureFontScreen(name: String, suffix: String) {
+        val root = compose.activity.window.decorView
+        Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).useOnce {
+            root.draw(Canvas(it))
+            it.save("screen-$name-$suffix")
+        }
+    }
+
+    private fun assertTextFits(text: String) {
+        val node = compose.onNodeWithText(text, useUnmergedTree = true)
+        val layouts = mutableListOf<TextLayoutResult>()
+        node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { action -> action(layouts) }
+        assertEquals("one text layout for $text", 1, layouts.size)
+        val layout = layouts.single()
+        assertEquals("$text stays on one line", 1, layout.lineCount)
+        assertFalse("$text is cut off vertically", layout.didOverflowHeight)
+        assertFalse("$text is ellipsized", layout.isLineEllipsized(0))
+        assertTrue("$text exceeds its layout width ${layout.size.width}: ${layout.getLineRight(0)}",
+            layout.getLineLeft(0) >= -0.5f && layout.getLineRight(0) <= layout.size.width + 0.5f)
+        val bounds = node.fetchSemanticsNode().boundsInRoot
+        val root = compose.onRoot(useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("$text has a visible size: $bounds", bounds.width > 0f && bounds.height > 0f)
+        assertTrue("$text is inside the screen: $bounds in $root",
+            bounds.left >= root.left && bounds.top >= root.top && bounds.right <= root.right && bounds.bottom <= root.bottom)
     }
 
     @Test fun `screens light`() = captureAll("light")

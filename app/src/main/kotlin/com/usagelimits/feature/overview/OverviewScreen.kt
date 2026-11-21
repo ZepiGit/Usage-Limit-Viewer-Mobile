@@ -72,7 +72,6 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -445,7 +444,7 @@ private fun FilterChip(label: String, count: Int?, selected: Boolean, onClick: (
             val style = if (selected) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodyMedium
             val color = if (selected) UsageColors.Ink else UsageColors.Muted
             Text(label, style = style, color = color)
-            if (count != null) Text(count.toString(), style = style.copy(fontFeatureSettings = "tnum"), color = color)
+            if (count != null) Text(count.toString(), style = if (selected) UsageType.Figure else UsageType.Regular, color = color)
         }
     }
 }
@@ -618,9 +617,6 @@ private class WindowLine(
  * whether a stamp reads "14:05" or "Thu 02:49". When that does not fit the width, the windows
  * stack instead of cutting a column (see [WindowLines]).
  */
-/** The figure cell's type: mono 13sp, as the hand-off's grid. */
-private val GridFigureStyle = UsageType.Figure.copy(fontSize = 13.sp, lineHeight = 18.sp)
-
 /** The window lines of one row, worked out once, so the card can size its columns from every row. */
 @Composable
 private fun windowLines(entry: OverviewEntry, state: UsageUiState, nowMs: Long, zone: ZoneId): List<WindowLine> {
@@ -676,15 +672,16 @@ private class GridColumns(val label: Int, val figure: Int, val stamp: Int)
 private fun rememberGridColumns(lines: Collection<List<WindowLine>>): GridColumns {
     val measurer = rememberTextMeasurer()
     // Measured in the emphasised weight, the wider of the two a label can take.
-    val labelStyle = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
-    val stampStyle = MaterialTheme.typography.bodySmall
+    val labelStyle = MaterialTheme.typography.labelMedium
+    val figureStyle = UsageType.GridFigure
+    val stampStyle = UsageType.Stamp
     fun widest(texts: List<String>, style: TextStyle) =
         texts.maxOfOrNull { measurer.measure(it, style, maxLines = 1, softWrap = false).size.width } ?: 0
     val all = lines.flatten()
     return GridColumns(
         label = widest(all.map { it.label }, labelStyle),
         // Both sides' figures, so a mode flip does not widen the column or switch the layout.
-        figure = widest(all.flatMap { listOf(it.figure, it.otherFigure) }, GridFigureStyle),
+        figure = widest(all.flatMap { listOf(it.figure, it.otherFigure) }, figureStyle),
         stamp = widest(all.mapNotNull { it.stamp }, stampStyle),
     )
 }
@@ -737,8 +734,7 @@ private fun WindowLines(lines: List<WindowLine>, columns: GridColumns) {
 @Composable
 private fun LineLabel(line: WindowLine, modifier: Modifier = Modifier, maxLines: Int = 1) {
     Text(line.label, modifier.semantics(mergeDescendants = true) { contentDescription = line.spoken },
-        style = MaterialTheme.typography.bodySmall,
-        fontWeight = if (line.emphasised) FontWeight.Medium else FontWeight.Normal,
+        style = if (line.emphasised) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodySmall,
         color = if (line.emphasised) UsageColors.Ink else UsageColors.Faint,
         maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 }
@@ -784,7 +780,7 @@ private fun LineFigure(line: WindowLine) {
     // measurement, so a mode flip stays in one key and fades, while a reading that gains or loses
     // its figure changes key and is replaced.
     key(figureFade(line.window.usedPercent != null, line.presentation.exhausted)) {
-        FadingFigure(line.figure, line.figureColor, GridFigureStyle, SilentCell)
+        FadingFigure(line.figure, line.figureColor, UsageType.GridFigure, SilentCell)
     }
 }
 
@@ -797,7 +793,7 @@ private val SilentCell = Modifier.semantics(mergeDescendants = true) { hideFromA
 /** The reset stamp: drawn as text, silent, as the label's line speaks it. */
 @Composable
 private fun LineStamp(line: WindowLine, modifier: Modifier = Modifier, align: TextAlign = TextAlign.End) {
-    Text(line.stamp ?: "", modifier.then(SilentCell), style = MaterialTheme.typography.bodySmall,
+    Text(line.stamp ?: "", modifier.then(SilentCell), style = UsageType.Stamp,
         color = UsageColors.Faint, textAlign = align, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 

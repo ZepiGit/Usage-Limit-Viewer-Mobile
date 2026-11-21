@@ -32,6 +32,8 @@ Words and the percent sign stay with the surface. Pure code that has no resource
 
 Strings live in one catalog per platform: Android's `values` and `values-de`, and iOS's `Localizable.xcstrings`, shared by the app and the widget extension. Both ship English and German. The percent sign comes from a template, so German reads “73 %”. Provider-reported window labels and model names are data and are not translated. `StringResourcesCompletenessTest` checks that every Android string exists in both languages, and `ios/Tools/check-xcstrings.py` checks the iOS catalog and the literals in the app and widget sources.
 
+Android chooses text and figure faces independently in Settings → Appearance. The app reads them with the saved theme before drawing its root. `UsageType` supplies stand-alone numbers, stamps and amounts; prose uses the text face. The six [bundled families and notices](../third_party/fonts/README.md) are available offline. Placed widgets and their configuration previews keep their own typography, as described in [ADR 0005](adr/0005-app-and-widget-appearance.md).
+
 The app's display mode is the only choice for every screen and usage widget. Android widgets and their configuration preview read the app setting; iOS widgets read it from the published snapshot. Widget configuration controls selection and appearance, never the display mode.
 
 ## Motion
