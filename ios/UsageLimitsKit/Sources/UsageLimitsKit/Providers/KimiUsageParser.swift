@@ -53,7 +53,8 @@ public enum KimiUsageParser {
     /// The duration is read from the entry rather than assumed from its position. Classifying by
     /// position is how a monthly bucket ends up labelled as a week.
     private static func rateLimitWindows(_ payload: [String: Any]) -> [UsageWindow] {
-        JSONSupport.array(payload, "limits").enumerated().compactMap { index, element in
+        var ids = StableWindowIDs()
+        return JSONSupport.array(payload, "limits").compactMap { element in
             guard let entry = element as? [String: Any] else { return nil }
             let detail = JSONSupport.object(entry, "detail") ?? entry
 
@@ -72,7 +73,7 @@ public enum KimiUsageParser {
                 ?? defaultLabel(seconds)
 
             return UsageWindow(
-                id: "kimi-limit-\(index)",
+                id: ids.next("kimi-limit:\(StableWindowIDs.text(label)):\(seconds)"),
                 label: label,
                 category: WindowCategory.from(periodSeconds: seconds),
                 usedPercent: percent,

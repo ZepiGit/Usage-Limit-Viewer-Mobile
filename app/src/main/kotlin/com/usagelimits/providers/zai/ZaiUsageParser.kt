@@ -5,6 +5,7 @@ import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.model.planLabel
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.time.Instants
+import com.usagelimits.providers.StableWindowIds
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -24,16 +25,19 @@ object ZaiUsageParser {
     private val unitMinutes = mapOf(1L to 1_440L, 3L to 60L, 5L to 1L, 6L to 10_080L)
     private const val MONTH_SECONDS = 30L * 24 * 60 * 60
 
-    fun parse(payload: JsonObject): List<UsageWindow> =
-        JsonSupport.array(JsonSupport.obj(payload, "data"), "limits").mapIndexedNotNull { index, element ->
-            val entry = element as? JsonObject ?: return@mapIndexedNotNull null
+    fun parse(payload: JsonObject): List<UsageWindow> {
+        val ids = StableWindowIds()
+        return JsonSupport.array(JsonSupport.obj(payload, "data"), "limits").mapNotNull { element ->
+            val entry = element as? JsonObject ?: return@mapNotNull null
             val type = JsonSupport.string(entry, "type").orEmpty().uppercase()
             val seconds = periodSeconds(type, entry)
             val category = WindowCategory.fromPeriodSeconds(seconds)
             val percent = usedPercent(entry)
+            val windowLabel = label(category, type)
+            val name = JsonSupport.string(entry, "name", "label") ?: windowLabel
             UsageWindow(
-                id = "zai-${type.lowercase()}-${seconds ?: index}",
-                label = label(category, type),
+                id = ids.next("zai:${StableWindowIds.text(type)}:${StableWindowIds.text(name)}:${seconds ?: "unknown"}"),
+                label = windowLabel,
                 category = category,
                 usedPercent = percent,
                 periodSeconds = seconds,
@@ -41,6 +45,7 @@ object ZaiUsageParser {
                 exhausted = percent == 100.0,
             )
         }
+    }
 
     /** The plan tier (`lite`, `pro`, `max`), as a label. */
     fun plan(payload: JsonObject): String? =
