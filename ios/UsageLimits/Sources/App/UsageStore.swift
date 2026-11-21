@@ -157,26 +157,31 @@ final class UsageStore: ObservableObject {
     private var clock: Task<Void, Never>?
     let hoorayPlayback = HoorayPlayback()
     @Published private(set) var openingClaimed = false
-    private lazy var openings = AppOpeningCoordinator(
-        claim: { [weak self] in
-            guard let self else { return [] }
-            #if DEBUG
-            if let container = self.container { try await HoorayOpeningFixture.prepare(container) }
-            #endif
-            await self.load()
-            guard let container = self.container else { return [] }
-            return try await container.claimPendingResetConfirmations()
-        },
-        present: { [weak self] in
-            self?.hoorayPlayback.open($0)
-            self?.openingClaimed = true
-        },
-        refresh: { [weak self] in await self?.refresh(automatic: true) },
-        interrupt: { [weak self] in
-            self?.openingClaimed = false
-            self?.hoorayPlayback.stop()
-        },
-        failed: { [weak self] in self?.lastError = $0.localizedDescription })
+    private lazy var openings: AppOpeningCoordinator = makeOpenings()
+
+    @MainActor
+    private func makeOpenings() -> AppOpeningCoordinator {
+        AppOpeningCoordinator(
+            claim: { [weak self] in
+                guard let self else { return [] }
+                #if DEBUG
+                if let container = self.container { try await HoorayOpeningFixture.prepare(container) }
+                #endif
+                await self.load()
+                guard let container = self.container else { return [] }
+                return try await container.claimPendingResetConfirmations()
+            },
+            present: { [weak self] in
+                self?.hoorayPlayback.open($0)
+                self?.openingClaimed = true
+            },
+            refresh: { [weak self] in await self?.refresh(automatic: true) },
+            interrupt: { [weak self] in
+                self?.openingClaimed = false
+                self?.hoorayPlayback.stop()
+            },
+            failed: { [weak self] in self?.lastError = $0.localizedDescription })
+    }
 
     func waitForOpening() async { await openings.task?.value }
 

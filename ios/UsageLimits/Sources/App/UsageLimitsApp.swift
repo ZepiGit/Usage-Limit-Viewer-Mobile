@@ -234,7 +234,9 @@ struct RootView: View {
         .claudeStillSheet()
         .overlay(alignment: .topTrailing) {
             if let stage = store.uiTestSettingsLoadStage {
-                Button("Continue settings load") { store.releaseSettingsLoadGate() }
+                Button { store.releaseSettingsLoadGate() } label: {
+                    Text(verbatim: "Continue settings load")
+                }
                     .accessibilityIdentifier("settings-load-release-\(stage)")
             }
         }
