@@ -1,6 +1,126 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Appearance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Darstellung" }
+        }
+      }
+    },
+    "Theme" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Design" }
+        }
+      }
+    },
+    "Warm dark" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Warmes Dunkel" }
+        }
+      }
+    },
+    "Pure black" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Reines Schwarz" }
+        }
+      }
+    },
+    "Cool graphite" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Kühles Graphit" }
+        }
+      }
+    },
+    "Light paper" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Helles Papier" }
+        }
+      }
+    },
+    "Text font" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Textschrift" }
+        }
+      }
+    },
+    "Figure font" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Ziffernschrift" }
+        }
+      }
+    },
+    "System" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "System" }
+        }
+      }
+    },
+    "Colours of the app. Widgets keep their own panel style." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Farben der App. Widgets behalten ihren eigenen Hintergrundstil." }
+        }
+      }
+    },
+    "Used for all text in the app." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Für alle Texte in der App." }
+        }
+      }
+    },
+    "Used for percentages, times and amounts." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Für Prozentwerte, Zeiten und Beträge." }
+        }
+      }
+    },
+    "Font licences" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Schriftlizenzen" }
+        }
+      }
+    },
+    "The bundled font notice could not be read." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Der mitgelieferte Lizenztext der Schrift konnte nicht gelesen werden." }
+        }
+      }
+    },
+    "23:31 · 1h 18m · $12.40" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "23:31 · 1 Std. 18 Min. · 12,40 $" }
+        }
+      }
+    },
     "% left" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3048,13 +3168,13 @@
         }
       }
     },
-    "The brighter line is the account’s headline." : {
+    "The emphasised line is the account’s headline." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die hellere Zeile zeigt das maßgebliche Zeitfenster des Kontos."
+            "value" : "Die hervorgehobene Zeile zeigt das maßgebliche Zeitfenster des Kontos."
           }
         }
       }

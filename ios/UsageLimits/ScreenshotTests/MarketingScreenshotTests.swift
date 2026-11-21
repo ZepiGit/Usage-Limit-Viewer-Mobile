@@ -61,6 +61,98 @@ final class MarketingScreenshotTests: XCTestCase {
         capture("iphone-overview-empty", in: empty)
     }
 
+    func testCaptureIPhoneAppearance() {
+        let demo = launchDemo(["-reduce-motion"])
+        openAppearance(in: demo)
+        chooseAppearance("settings-theme-lightPaper", in: demo)
+        capture("iphone-appearance-light", in: demo)
+        chooseAppearance("settings-theme-pureBlack", in: demo)
+        capture("iphone-appearance-black", in: demo)
+        demo.terminate()
+
+        // No marketing fixture: this exercises the real settings store and first loaded state.
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-reduce-motion", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 15))
+        openAppearance(in: app)
+        chooseAppearance("settings-theme-warmDark", in: app)
+        chooseAppearance("settings-text-font-system", in: app)
+        chooseAppearance("settings-figure-font-robotoMono", in: app)
+        chooseAppearance("settings-theme-lightPaper", in: app)
+        chooseAppearance("settings-text-font-robotoFlex", in: app)
+        chooseAppearance("settings-figure-font-jetBrainsMono", in: app)
+        let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
+        scrollToCreditControl(preview, in: app)
+        let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "saved"), object: preview)
+        XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 10), .completed)
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 15))
+        openAppearance(in: app)
+        for identifier in ["settings-theme-lightPaper", "settings-text-font-robotoFlex", "settings-figure-font-jetBrainsMono"] {
+            let choice = app.buttons[identifier]
+            scrollToCreditControl(choice, in: app)
+            XCTAssertEqual(choice.value as? String, "Selected")
+        }
+        scrollToCreditControl(preview, in: app)
+        capture("iphone-appearance-fonts", in: app, requiresDemoLabel: false)
+        let licences = app.buttons["settings-font-licences"]
+        scrollToCreditControl(licences, in: app)
+        licences.tap()
+        for family in ["roboto_flex", "ibm_plex_sans", "figtree", "roboto_mono", "jetbrains_mono", "ibm_plex_mono"] {
+            let link = app.buttons["font-licence-link-\(family)"]
+            reach(link, in: app)
+            link.tap()
+            let notice = app.staticTexts["font-licence-\(family)"]
+            XCTAssertTrue(notice.waitForExistence(timeout: 10))
+            XCTAssertTrue(notice.label.contains("SIL OPEN FONT LICENSE"))
+            XCTAssertTrue(notice.label.contains("DISCLAIMER"))
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+        app.terminate()
+    }
+
+    func testCaptureIPhoneAppearanceLargeGerman() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-reduce-motion", "-AppleLanguages", "(de)", "-AppleLocale", "de_DE",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        defer { app.terminate() }
+        let settings = app.buttons.matching(identifier: "Einstellungen")
+        let tab = settings.allElementsBoundByIndex.first { $0.isHittable } ?? settings.firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 15))
+        tab.tap()
+        for identifier in ["settings-theme-lightPaper", "settings-text-font-robotoFlex", "settings-figure-font-jetBrainsMono"] {
+            let choice = app.buttons[identifier]
+            scrollToCreditControl(choice, in: app)
+            choice.tap()
+            let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Ausgewählt"), object: choice)
+            XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed)
+        }
+        let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
+        scrollToCreditControl(preview, in: app)
+        XCTAssertTrue(preview.staticTexts["23:31 · 1 Std. 18 Min. · 12,40 $"].exists)
+        capture("iphone-appearance-fonts-de-large", in: app, requiresDemoLabel: false)
+    }
+
+    private func openAppearance(in app: XCUIApplication) {
+        let tabs = app.buttons.matching(identifier: "Settings")
+        let tab = tabs.allElementsBoundByIndex.first { $0.isHittable } ?? tabs.firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 10))
+        tab.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        scrollToCreditControl(app.buttons["settings-theme-pureBlack"], in: app)
+    }
+
+    private func chooseAppearance(_ identifier: String, in app: XCUIApplication) {
+        let choice = app.buttons[identifier]
+        scrollToCreditControl(choice, in: app)
+        choice.tap()
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Selected"), object: choice)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed)
+    }
+
     func testCaptureIPhoneCredits() {
         let app = launchDemo(["-overview-credits-demo"])
         defer { app.terminate() }

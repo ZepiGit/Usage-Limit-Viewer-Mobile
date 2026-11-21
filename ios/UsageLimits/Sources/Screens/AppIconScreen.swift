@@ -28,6 +28,8 @@ enum AppIconChoice: CaseIterable {
 }
 
 struct AppIconScreen: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @State private var selected = AppIconChoice.active
     @State private var applying = false
     @State private var showError = false
@@ -58,9 +60,9 @@ struct AppIconScreen: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
                                 .overlay {
                                     RoundedRectangle(cornerRadius: 14)
-                                        .stroke(selected == choice ? UsageColors.ink : .clear, lineWidth: 1.5)
+                                        .stroke(selected == choice ? colors.ink : .clear, lineWidth: 1.5)
                                 }
-                            Text(choice.label).usageFont(.small).foregroundStyle(UsageColors.ink)
+                            Text(choice.label).usageFont(.small).foregroundStyle(colors.ink)
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -72,7 +74,7 @@ struct AppIconScreen: View {
             }
             .padding(16)
         }
-        .background(UsageColors.ground)
+        .background(colors.ground)
         .navigationTitle("App icon")
         .alert("Could not change icon", isPresented: $showError) {
             Button("OK", role: .cancel) {}

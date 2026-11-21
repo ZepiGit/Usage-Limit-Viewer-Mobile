@@ -12,6 +12,8 @@ import UsageLimitsKit
 /// Every listed provider now has a phone-compatible sign-in flow, and the screen describes the
 /// selected flow before it starts so the browser step is predictable.
 struct AddAccountSheet: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     @EnvironmentObject private var store: UsageStore
     @Environment(\.dismiss) private var dismiss
@@ -70,7 +72,7 @@ struct AddAccountSheet: View {
                 .readableWidth()
             }
             .accessibilityIdentifier("provider-picker-scroll")
-            .background(UsageColors.ground)
+            .background(colors.ground)
             .navigationTitle("Add account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -115,17 +117,17 @@ struct AddAccountSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(provider.displayName)
                                 .usageFont(.section)
-                                .foregroundStyle(UsageColors.ink)
+                                .foregroundStyle(colors.ink)
                             // Named before the tap, not after: a user should know what the button is
                             // about to do with their account before it does it. The two flows feel
                             // different enough that saying which one is coming is worth a line.
                             Text(signInHint(for: provider))
                                 .usageFont(.body)
-                                .foregroundStyle(UsageColors.muted)
+                                .foregroundStyle(colors.muted)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .foregroundStyle(UsageColors.faint)
+                            .foregroundStyle(colors.faint)
                             .accessibilityHidden(true)
                     }
                     .padding(.horizontal, 16)
@@ -141,10 +143,10 @@ struct AddAccountSheet: View {
         UsageCard {
             Text("\(provider.displayName) region")
                 .usageFont(.section)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
             Text("Keys and sign-ins only work on the service they were issued by. Pick the one your account is on.")
                 .usageFont(.body)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
             ForEach(ProviderRegion.options(for: provider), id: \.self) { option in
                 Button(DisplayText.regionLabel(option, for: provider)) {
                     region = option
@@ -161,12 +163,12 @@ struct AddAccountSheet: View {
         UsageCard {
             Text(provider.displayName)
                 .usageFont(.section)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
             HStack(spacing: 8) {
                 ActivityMark(still: .dots)
                 Text("Asking \(provider.displayName) for a code…")
                     .usageFont(.body)
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
             }
         }
     }
@@ -175,7 +177,7 @@ struct AddAccountSheet: View {
         UsageCard {
             Text("Enter this code")
                 .usageFont(.section)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
 
             // Monospaced digits so the code does not reflow while it is being read aloud or
             // copied character by character, and selectable because typing it on another device
@@ -185,13 +187,13 @@ struct AddAccountSheet: View {
             Text(verbatim: challenge.userCode)
                 .tracking(1.2)
                 .usageFont(.lead)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
                 .textSelection(.enabled)
                 .accessibilityLabel(spelledOut(challenge.userCode))
 
             Text(verbatim: challenge.verificationURI)
                 .usageFont(.small)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
 
             HStack(spacing: 10) {
                 Button(copied ? String(localized: "Copied") : String(localized: "Copy code")) {
@@ -214,12 +216,12 @@ struct AddAccountSheet: View {
                 ActivityMark(still: .dots)
                 Text("Waiting for you to approve it…")
                     .usageFont(.body)
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
             }
 
             Text("The browser opens \(provider.displayName)'s own sign-in page. This app never sees your password.")
                 .usageFont(.small)
-                .foregroundStyle(UsageColors.faint)
+                .foregroundStyle(colors.faint)
 
             if DeviceLoginSupport.acceptsPastedKey(provider) {
                 // The flow is the default because it costs the user nothing; the key is for
@@ -249,16 +251,16 @@ struct AddAccountSheet: View {
         UsageCard {
             Text("Paste your \(provider.displayName) key")
                 .usageFont(.section)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
 
             Text("Create a key in your \(provider.displayName) console and paste it here. It is stored on this device only, in the keychain with every other account.")
                 .usageFont(.body)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
 
             if let region {
                 Text(verbatim: DisplayText.regionLabel(region, for: provider))
                     .usageFont(.small)
-                    .foregroundStyle(UsageColors.faint)
+                    .foregroundStyle(colors.faint)
             }
 
             TextField("API key", text: $pastedKey)
@@ -284,15 +286,15 @@ struct AddAccountSheet: View {
     private func failure(_ provider: ProviderID, _ message: String) -> some View {
         UsageCard {
             HStack(spacing: 8) {
-                Circle().fill(UsageColors.negative).frame(width: 8, height: 8)
+                Circle().fill(colors.negative).frame(width: 8, height: 8)
                     .accessibilityHidden(true)
                 Text("Could not add \(provider.displayName)")
                     .usageFont(.section)
-                    .foregroundStyle(UsageColors.ink)
+                    .foregroundStyle(colors.ink)
             }
             Text(verbatim: DisplayText.stored(message))
                 .usageFont(.body)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
             HStack(spacing: 10) {
                 Button("Try again") { start(provider) }
                     .buttonStyle(InkButtonStyle())

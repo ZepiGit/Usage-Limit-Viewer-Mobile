@@ -18,6 +18,8 @@ struct OverviewBlocks<Usage: View, Credits: View>: View {
 enum OverviewCreditRoute: Hashable { case manage }
 
 struct OverviewCredits: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @Environment(\.locale) private var locale
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -57,7 +59,7 @@ struct OverviewCredits: View {
                 }
                 if entries.isEmpty {
                     DashedBox {
-                        Text("No prepaid balances tracked.").usageFont(.body).foregroundStyle(UsageColors.muted)
+                        Text("No prepaid balances tracked.").usageFont(.body).foregroundStyle(colors.muted)
                     }
                 } else {
                     ForEach(entries) { entry in
@@ -76,7 +78,7 @@ struct OverviewCredits: View {
     private var heading: some View {
         Text("Credits")
             .usageFont(preview ? .smallStrong : .section)
-            .foregroundStyle(UsageColors.ink)
+            .foregroundStyle(colors.ink)
             .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier(preview ? "settings-credits-heading" : "overview-credits-heading")
     }
@@ -99,7 +101,7 @@ struct OverviewCredits: View {
         HStack(alignment: .center, spacing: preview ? 8 : 12) {
             Image(systemName: "creditcard")
                 .font(.system(size: preview ? 18 : 22))
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
                 .accessibilityHidden(true)
             if typeSize >= .accessibility1 {
                 stackedSummary(summary)
@@ -118,14 +120,14 @@ struct OverviewCredits: View {
             if !preview {
                 Image(systemName: "chevron.right")
                     .usageFont(.bodyStrong)
-                    .foregroundStyle(UsageColors.faint)
+                    .foregroundStyle(colors.faint)
                     .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, preview ? 8 : 16)
         .padding(.vertical, preview ? 6 : 12)
         .frame(minHeight: preview ? nil : 44)
-        .background(UsageColors.surface, in: RoundedRectangle(cornerRadius: 12))
+        .background(colors.surface, in: RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
     }
 
@@ -140,16 +142,16 @@ struct OverviewCredits: View {
     private func compactTitle(_ count: Int) -> some View {
         Text("Credits · \(count) balances")
             .usageFont(preview ? .smallStrong : .body)
-            .foregroundStyle(UsageColors.ink)
+            .foregroundStyle(colors.ink)
     }
 
     private func lowHint(_ winner: OverviewCreditSummary.Winner) -> some View {
         HStack(spacing: 6) {
-            Circle().fill(UsageColors.warning).frame(width: preview ? 6 : 8, height: preview ? 6 : 8)
+            Circle().fill(colors.warning).frame(width: preview ? 6 : 8, height: preview ? 6 : 8)
                 .accessibilityHidden(true)
             Text(verbatim: hint(winner))
                 .usageFont(preview ? .previewWindow : .small)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
                 .accessibilityLabel("Low balance: \(hint(winner))")
         }
     }

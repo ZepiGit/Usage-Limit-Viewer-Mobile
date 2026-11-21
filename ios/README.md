@@ -66,6 +66,26 @@ framework shims; a pass there does not establish an Xcode build or UI behavior.
 See the [release guide](../docs/release.md) for unsigned archives, distribution signing
 and the [device checklist](../docs/release.md#device-checklist).
 
+## Appearance
+
+Settings starts with Appearance: Warm dark, Pure black (default), Cool graphite and Light paper,
+then independent text and figure fonts. System uses Apple's native face. The other choices are
+bundled offline: Roboto Flex, IBM Plex Sans, Figtree, Roboto Mono, JetBrains Mono and IBM Plex Mono.
+Font licences opens each complete copyright and OFL notice without a network request.
+
+The app references the canonical `third_party/fonts/android-res` folder directly. `UIAppFonts`
+registers its nine TTF files in the app only. The iOS workflow runs
+`python3 ios/Tools/check_font_bundle.py <UsageLimits.app>` against the built bundle, checking
+manifest SHA-256 values, registrations, notices and the absence of font resources in extensions.
+Variable text requests 450/560, static and unsupported system faces use Regular/Medium, and money
+uses a real Bold face or 700 axis instance. Custom sizes scale with Dynamic Type.
+
+Saved settings are installed before themed root content becomes visible. The static launch surface
+is neutral: system-owned launch pixels and cached scenes cannot follow an app preference.
+WidgetKit and widget-styled previews keep their own palette and fixed native fonts; app appearance
+is not exported through the App Group. Native bar contrast, saved-choice cold frames and iOS 16
+behavior still require a device check; loaded simulator screenshots are not first-frame evidence.
+
 ## Motion checks
 
 `MotionUITests` launches the Debug app with synthetic accounts. `-motion-log` reports the

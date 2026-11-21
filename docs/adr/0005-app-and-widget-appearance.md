@@ -23,6 +23,27 @@ figures keep the editor's original system monospace style, not the app's `UsageT
 The widget redesign (ticket 07) changes the ring preview content and adds display-mode guidance to
 Text; neither change makes the editor follow the app's theme or fonts.
 
+## iOS app and WidgetKit
+
+The same boundary applies to iOS. `AppSettings.appearanceTheme`, `appearanceTextFont` and
+`appearanceFigureFont` belong to the app's settings JSON, not its App Group snapshot.
+`appAppearance(_:)` supplies a view-local `usageAppearance` value after the existing settings
+load gate. The root stays on the neutral launch surface until settings have been installed;
+then native light/dark appearance, app colours and fonts change together. A system launch screen
+or cached scene cannot read that file and is not promised to match the saved choice.
+
+The environment default is `UsageAppearance.widget`: the original Warm dark roles and native
+system text/monospace. `UsageColors` remains that fixed palette for WidgetKit, and `WidgetInk`
+continues to resolve its own saved panel. A widget-styled app preview explicitly installs
+`.environment(\\.usageAppearance, .widget)`. No extension target receives `UIAppFonts`, the
+canonical font folder or notices. Display mode and provider artwork remain shared as before.
+
+The app references `third_party/fonts/android-res` directly as an Xcode folder resource. Its
+nine font files and six complete notices are checked against the canonical manifest by
+`ios/Tools/check_font_bundle.py`, including the registration list and extension isolation.
+Apple's System text choice is unbundled; bundled variable faces request their actual `wght`
+axis (450/560 for text, 400/500/700 for figures), with native/static Regular and Medium fallback.
+
 ## Considered options
 
 - Let configuration inherit the app theme. Rejected: it changes the existing configuration scene

@@ -6,6 +6,8 @@ import UsageLimitsKit
 /// Reached from the Overview. Every number, severity and rule comes from `UsageLimitsKit`;
 /// this file only lays them out.
 struct CreditsScreen: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     @EnvironmentObject private var store: UsageStore
     @State private var isAdding = false
@@ -30,14 +32,14 @@ struct CreditsScreen: View {
                         .buttonStyle(OutlineButtonStyle(fullWidth: true))
                     Text("OpenRouter, DeepSeek, Moonshot, xAI, fal.ai and Novita. Keys stay in the keychain on this device.")
                         .usageFont(.small)
-                        .foregroundStyle(UsageColors.muted)
+                        .foregroundStyle(colors.muted)
                 }
                 .padding(.top, 8)
             }
             .padding(16)
             .readableWidth()
         }
-        .background(UsageColors.ground)
+        .background(colors.ground)
         .navigationTitle("Credits")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await store.refresh() }
@@ -61,6 +63,8 @@ struct CreditsScreen: View {
 
 /// One credit account: who, how much is left, and how sure we are.
 struct CreditCard: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     @EnvironmentObject private var store: UsageStore
 
@@ -98,11 +102,11 @@ struct CreditCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: entry.account.label)
                         .usageFont(preview ? .smallStrong : .section)
-                        .foregroundStyle(UsageColors.ink)
+                        .foregroundStyle(colors.ink)
                     if !preview && !subline.isEmpty {
                         Text(verbatim: subline)
                             .usageFont(.small)
-                            .foregroundStyle(UsageColors.faint)
+                            .foregroundStyle(colors.faint)
                     }
                 }
                 Spacer()
@@ -114,7 +118,7 @@ struct CreditCard: View {
                     } label: {
                         // 44pt to hit, however small the glyph.
                         Image(systemName: "ellipsis")
-                            .foregroundStyle(UsageColors.muted)
+                            .foregroundStyle(colors.muted)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
@@ -125,7 +129,7 @@ struct CreditCard: View {
             if glance.balances.isEmpty {
                 Text("No balance read yet")
                     .usageFont(.body)
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
             }
             ForEach(Array(glance.balances.enumerated()), id: \.offset) { _, balance in
                 BalanceRow(balance: balance, severity: severity, preview: preview)
@@ -133,7 +137,7 @@ struct CreditCard: View {
 
             if let error = entry.snapshot?.error {
                 NoticeLine(
-                    message: error, dot: UsageColors.negative,
+                    message: error, dot: colors.negative,
                     retry: { Task { await store.refresh() } })
             }
         }
@@ -141,6 +145,8 @@ struct CreditCard: View {
 }
 
 private struct BalanceRow: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @Environment(\.locale) private var locale
 
     let balance: CreditBalance
@@ -159,10 +165,10 @@ private struct BalanceRow: View {
             if balance.unlimited {
                 Text(verbatim: DisplayText.creditBalanceLabel(balance.label ?? "No limit"))
                     .usageFont(.body)
-                    .foregroundStyle(UsageColors.ink)
+                    .foregroundStyle(colors.ink)
                 Text("\(amount) spent this month")
                     .usageFont(.body)
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
             } else {
                 // Money is always ink — status lives on the card's mark — and a real zero
                 // prints as itself.
@@ -183,13 +189,13 @@ private struct BalanceRow: View {
     @ViewBuilder private var figures: some View {
         Text(verbatim: amount)
             .usageFont(preview ? .rowMoney : .money)
-            .foregroundStyle(UsageColors.ink)
+            .foregroundStyle(colors.ink)
         if let total = balance.total {
-            Text("of \(money(total))").usageFont(.body).foregroundStyle(UsageColors.muted)
+            Text("of \(money(total))").usageFont(.body).foregroundStyle(colors.muted)
         }
         if let label = balance.label {
             Text(verbatim: DisplayText.creditBalanceLabel(label))
-                .usageFont(.small).foregroundStyle(UsageColors.muted)
+                .usageFont(.small).foregroundStyle(colors.muted)
         }
     }
 }
@@ -197,6 +203,8 @@ private struct BalanceRow: View {
 // MARK: - Add
 
 struct AddCreditSheet: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     @EnvironmentObject private var store: UsageStore
     @Environment(\.dismiss) private var dismiss
@@ -220,7 +228,7 @@ struct AddCreditSheet: View {
                 .padding(16)
                 .readableWidth()
             }
-            .background(UsageColors.ground)
+            .background(colors.ground)
             .navigationTitle("Add credit balance")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -244,10 +252,10 @@ struct AddCreditSheet: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(verbatim: option.displayName)
                                     .usageFont(.section)
-                                    .foregroundStyle(UsageColors.ink)
+                                    .foregroundStyle(colors.ink)
                                 Text(verbatim: DisplayText.creditKeyHint(option))
                                     .usageFont(.small)
-                                    .foregroundStyle(UsageColors.muted)
+                                    .foregroundStyle(colors.muted)
                             }
                             Spacer()
                         }
@@ -267,10 +275,10 @@ struct AddCreditSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: option.displayName)
                         .usageFont(.section)
-                        .foregroundStyle(UsageColors.faint)
+                        .foregroundStyle(colors.faint)
                     Text(verbatim: DisplayText.creditUnavailableReason(option.reason))
                         .usageFont(.small)
-                        .foregroundStyle(UsageColors.faint)
+                        .foregroundStyle(colors.faint)
                 }
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
@@ -284,10 +292,10 @@ struct AddCreditSheet: View {
         UsageCard {
             Text(verbatim: provider.displayName)
                 .usageFont(.section)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
             Text(verbatim: DisplayText.creditKeyHint(provider))
                 .usageFont(.small)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
 
             TextField(provider.displayName, text: $label)
                 .ledgerField()
@@ -317,10 +325,10 @@ struct AddCreditSheet: View {
 
             Text("Checked against \(provider.displayName) before it is saved, then kept in the keychain on this device only.")
                 .usageFont(.small)
-                .foregroundStyle(UsageColors.faint)
+                .foregroundStyle(colors.faint)
 
             if let failure {
-                NoticeLine(message: failure, dot: UsageColors.negative)
+                NoticeLine(message: failure, dot: colors.negative)
             }
 
             HStack(spacing: 10) {
@@ -338,7 +346,7 @@ struct AddCreditSheet: View {
                 .buttonStyle(OutlineButtonStyle())
 
                 Button("Back") { self.provider = nil; failure = nil }
-                    .buttonStyle(TextActionStyle(label: UsageColors.muted))
+                    .buttonStyle(TextActionStyle(label: colors.muted))
                     .disabled(isWorking)
             }
         }
@@ -372,6 +380,8 @@ struct AddCreditSheet: View {
 // MARK: - Edit
 
 struct EditCreditSheet: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     @EnvironmentObject private var store: UsageStore
     @Environment(\.dismiss) private var dismiss
@@ -398,9 +408,9 @@ struct EditCreditSheet: View {
                         .keyboardType(.decimalPad)
                     Text("Compact Credits uses this threshold. For the balance status, a reported total takes precedence.")
                         .usageFont(.small)
-                        .foregroundStyle(UsageColors.faint)
+                        .foregroundStyle(colors.faint)
                     if let failure {
-                        NoticeLine(message: failure, dot: UsageColors.negative)
+                        NoticeLine(message: failure, dot: colors.negative)
                     }
                     Button("Save") {
                         guard let figure = CreditThresholdField.parse(threshold) else {
@@ -417,7 +427,7 @@ struct EditCreditSheet: View {
                 .padding(16)
                 .readableWidth()
             }
-            .background(UsageColors.ground)
+            .background(colors.ground)
             .navigationTitle("Edit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

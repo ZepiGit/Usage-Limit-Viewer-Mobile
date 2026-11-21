@@ -7,6 +7,8 @@ on:
     paths:
       - 'ios/**'
       - 'shared/**'
+      - 'third_party/fonts/**'
+      - 'tools/check_font_bundle.py'
       - 'tools/check_glyph_file.py'
       - 'tools/test_check_glyph_file.py'
       - '.github/workflows/ios.yml'
@@ -14,6 +16,8 @@ on:
     paths:
       - 'ios/**'
       - 'shared/**'
+      - 'third_party/fonts/**'
+      - 'tools/check_font_bundle.py'
       - 'tools/check_glyph_file.py'
       - 'tools/test_check_glyph_file.py'
       - '.github/workflows/ios.yml'
@@ -65,6 +69,8 @@ jobs:
           python3 tools/check_glyph_file.py
       - name: The checker's own tests
         run: python3 -m unittest discover -s ios/Tools -p 'test_check_xcstrings.py'
+      - name: Check the iOS font bundle checker
+        run: python3 -m unittest discover -s ios/Tools -p 'test_check_font_bundle.py'
       # MarketingDemo is DEBUG-only screenshot fixtures with fixed English text.
       - name: The catalog and the app and widget sources agree
         run: >-
@@ -137,7 +143,8 @@ jobs:
               -resultBundlePath "$GITHUB_WORKSPACE/rendering-$language.xcresult" \
               -testLanguage "$language" -testRegion "$region" \
               -parallel-testing-enabled NO \
-              -only-testing:UsageLimitsRenderingTests/PinnedAccountsRenderingTests
+              -only-testing:UsageLimitsRenderingTests/PinnedAccountsRenderingTests \
+              -only-testing:UsageLimitsRenderingTests/AppearanceRenderingTests
           done
           find "$out" -type f | sort
       - name: Upload the renderings
@@ -234,6 +241,7 @@ jobs:
           echo "extension point: $point"
           [ "$point" = "com.apple.widgetkit-extension" ] || {
             echo "::error::wrong NSExtensionPointIdentifier: $point" >&2; exit 1; }
+          python3 ../Tools/check_font_bundle.py "$app"
           # The status icon glyphs ship inside the extension, byte for byte the shared file. The
           # rendering test bundles its own copy, so it cannot prove this one is there.
           glyphs="$appex/status-icon-glyphs.json"

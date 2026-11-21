@@ -2,6 +2,8 @@ import SwiftUI
 import UsageLimitsKit
 
 struct OverviewScreen: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @EnvironmentObject private var store: UsageStore
     @Environment(\.claudeAnimationVisible) private var claudeAnimationVisible
     @ReducesMotion private var reduceMotion
@@ -41,9 +43,9 @@ struct OverviewScreen: View {
                         } else if layout == .list {
                             filters(attentionCount: projection.attentionCount)
                             accountList(projection.accounts, staleAfter: glance.staleAfter)
-                            Text("The brighter line is the account’s headline.")
+                            Text("The emphasised line is the account’s headline.")
                                 .usageFont(.small)
-                                .foregroundStyle(UsageColors.faint)
+                                .foregroundStyle(colors.faint)
                             addAccount.buttonStyle(OutlineButtonStyle(fullWidth: true))
                         } else {
                             OverviewDials(entries: projection.accounts, now: store.now, staleAfter: glance.staleAfter,
@@ -58,7 +60,7 @@ struct OverviewScreen: View {
                     if layout == .dials && store.hasLoaded && !glance.accounts.isEmpty {
                         Text("Each dial shows the account’s headline. Tap one for every window and its resets.")
                             .usageFont(.small)
-                            .foregroundStyle(UsageColors.faint)
+                            .foregroundStyle(colors.faint)
                     }
                 }
                 .listMotion(value: projection.accounts.map(\.id), armed: listMotionArmed && isSelected)
@@ -67,7 +69,7 @@ struct OverviewScreen: View {
             }
             .accessibilityIdentifier("overview-scroll")
             .environment(\.claudeAnimationVisible, claudeAnimationVisible && !isAdding && !isAddingCredit)
-            .background(UsageColors.ground)
+            .background(colors.ground)
             .navigationTitle("Overview")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: OverviewCreditRoute.self) { _ in CreditsScreen() }
@@ -99,17 +101,17 @@ struct OverviewScreen: View {
                 VStack(alignment: .leading, spacing: 4) { title; headerActions }
             }
             if !store.hasLoaded {
-                Text("Loading usage").usageFont(.small).foregroundStyle(UsageColors.faint)
+                Text("Loading usage").usageFont(.small).foregroundStyle(colors.faint)
             } else if store.accounts.isEmpty && !store.registerUnreadable {
-                Text("No accounts yet").usageFont(.small).foregroundStyle(UsageColors.faint)
+                Text("No accounts yet").usageFont(.small).foregroundStyle(colors.faint)
             } else if let subtitle = headerSubtitle(header, attentionCount: attentionCount) {
-                Text(verbatim: subtitle).usageFont(.small).foregroundStyle(UsageColors.faint)
+                Text(verbatim: subtitle).usageFont(.small).foregroundStyle(colors.faint)
             }
         }
     }
 
     private var title: some View {
-        Text("Usage Limits").usageFont(.title).foregroundStyle(UsageColors.ink)
+        Text("Usage Limits").usageFont(.title).foregroundStyle(colors.ink)
             .accessibilityAddTraits(.isHeader)
     }
 
@@ -120,10 +122,10 @@ struct OverviewScreen: View {
                 Button(action: toggleMode) {
                     Text(mode == .left ? String(localized: "% left") : String(localized: "% used"))
                         .usageFont(.smallStrong)
-                        .foregroundStyle(UsageColors.muted)
+                        .foregroundStyle(colors.muted)
                         .padding(.horizontal, 10)
                         .frame(minHeight: 32)
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(UsageColors.control, lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(colors.control, lineWidth: 1))
                         .padding(.vertical, 6)
                         .contentShape(Rectangle())
                 }
@@ -141,7 +143,7 @@ struct OverviewScreen: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .foregroundStyle(UsageColors.ink)
+            .foregroundStyle(colors.ink)
             .accessibilityLabel(store.isRefreshing ? String(localized: "Refreshing…") : String(localized: "Refresh"))
             .disabled(store.isRefreshing)
         }
@@ -181,12 +183,12 @@ struct OverviewScreen: View {
                     }
                 }
                 .usageFont(selected ? .bodyStrong : .body)
-                .foregroundStyle(selected ? UsageColors.ink : UsageColors.muted)
+                .foregroundStyle(selected ? colors.ink : colors.muted)
                 .padding(.horizontal, 12)
                 .frame(minHeight: 32)
-                .background(selected ? UsageColors.raised : Color.clear)
+                .background(selected ? colors.raised : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? UsageColors.muted : UsageColors.rule, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? colors.muted : colors.rule, lineWidth: 1))
                 .padding(.vertical, 6)
                 .contentShape(Rectangle())
             }
@@ -210,7 +212,7 @@ struct OverviewScreen: View {
             if rows.isEmpty {
                 Text("No accounts match this filter.")
                     .usageFont(.body)
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
                     .frame(minHeight: 56, alignment: .leading)
                     .padding(.horizontal, 16)
             }
@@ -247,9 +249,9 @@ struct OverviewScreen: View {
                 .resizable().scaledToFit().frame(width: 192, height: 192)
                 .frame(maxWidth: .infinity, minHeight: 128, maxHeight: 128)
                 .accessibilityHidden(true)
-            Text("Nothing to monitor yet").usageFont(.emptyTitle).foregroundStyle(UsageColors.ink)
+            Text("Nothing to monitor yet").usageFont(.emptyTitle).foregroundStyle(colors.ink)
             Text("Add an AI subscription to see its limits and resets here. Sign-in details stay on this device.")
-                .usageFont(.body).foregroundStyle(UsageColors.muted)
+                .usageFont(.body).foregroundStyle(colors.muted)
             addAccount.buttonStyle(InkButtonStyle(fullWidth: true))
             Button { isAddingCredit = true } label: {
                 Label("Track a prepaid credit balance", systemImage: "plus")
@@ -278,6 +280,8 @@ struct OverviewScreen: View {
 }
 
 struct OverviewAccountContent: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     let entry: OverviewProjection.Entry
     let staleAfter: TimeInterval
     let now: Date
@@ -307,16 +311,16 @@ struct OverviewAccountContent: View {
                     #endif
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: title).usageFont(preview ? .previewTitle : .accountTitle).foregroundStyle(UsageColors.ink)
+                    Text(verbatim: title).usageFont(preview ? .previewTitle : .accountTitle).foregroundStyle(colors.ink)
                     if let identity = account.subtitle {
-                        Text(verbatim: identity).usageFont(.small).foregroundStyle(UsageColors.muted)
+                        Text(verbatim: identity).usageFont(.small).foregroundStyle(colors.muted)
                     }
                 }
                 if !preview { Spacer(minLength: 0) }
                 mark
                 if !preview {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 16)).foregroundStyle(UsageColors.faint)
+                        .font(.system(size: 16)).foregroundStyle(colors.faint)
                         .accessibilityHidden(true)
                 }
             }
@@ -331,14 +335,14 @@ struct OverviewAccountContent: View {
                 }
                 if expired {
                     Text("Sign-in expired · showing last known data")
-                        .usageFont(.small).foregroundStyle(UsageColors.negativeText)
+                        .usageFont(.small).foregroundStyle(colors.negativeText)
                 }
                 if let message = account.statusMessage, !expired || message != NotificationEvaluator.signInExpiredMessage {
-                    Text(verbatim: DisplayText.stored(message)).usageFont(.small).foregroundStyle(UsageColors.muted)
+                    Text(verbatim: DisplayText.stored(message)).usageFont(.small).foregroundStyle(colors.muted)
                 }
                 if !expired && [.stale, .error, .unknown].contains(account.severity) {
                     Text(verbatim: SeverityPalette.label(account.severity))
-                        .usageFont(.small).foregroundStyle(UsageColors.muted)
+                        .usageFont(.small).foregroundStyle(colors.muted)
                 }
             }
             .padding(.leading, preview ? 28 : 38)
@@ -357,8 +361,8 @@ struct OverviewAccountContent: View {
             else { raw }
         if severity != .healthy {
             Circle()
-                .fill(severity == .medium ? Color.clear : SeverityPalette.accent(severity))
-                .overlay(Circle().stroke(SeverityPalette.accent(severity), lineWidth: severity == .medium ? 1.5 : 0))
+                .fill(severity == .medium ? Color.clear : colors.accent(severity))
+                .overlay(Circle().stroke(colors.accent(severity), lineWidth: severity == .medium ? 1.5 : 0))
                 .frame(width: 8, height: 8)
                 .accessibilityLabel(expired ? String(localized: "Reconnect") : SeverityPalette.label(severity))
         }
@@ -366,15 +370,19 @@ struct OverviewAccountContent: View {
 }
 
 private struct OverviewRowButtonStyle: ButtonStyle {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? UsageColors.raised : Color.clear)
+            .background(configuration.isPressed ? colors.raised : Color.clear)
             .pressRelease(isPressed: configuration.isPressed)
     }
 }
 
 /// One quota window: its name, what is left, a bar, and when it returns.
 struct WindowRow: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     let row: GlanceRow
     let now: Date
@@ -405,7 +413,7 @@ struct WindowRow: View {
     private var presentation: WindowPresentation {
         WindowPresentation(remaining: row.remainingPercent, severity: row.severity, validity: expired ? .stale : validity, mode: mode)
     }
-    private let segmentColors = [UsageColors.data, UsageColors.ink, UsageColors.faint, UsageColors.muted]
+    private var segmentColors: [Color] { [colors.data, colors.ink, colors.faint, colors.muted] }
 
     /// The window's name: the three horizons the app names itself are translated, a provider's
     /// own label is shown as it came.
@@ -448,7 +456,7 @@ struct WindowRow: View {
                             if !preview {
                                 Text(verbatim: stamp ?? "")
                                     .usageFont(.small)
-                                    .foregroundStyle(UsageColors.faint)
+                                    .foregroundStyle(colors.faint)
                                     .multilineTextAlignment(.trailing)
                                     .fixedSize(horizontal: false, vertical: true)
                                     .frame(width: stampWidth, alignment: .trailing)
@@ -471,19 +479,19 @@ struct WindowRow: View {
             figure
             bar
             if let stamp {
-                Text(verbatim: stamp).usageFont(.small).foregroundStyle(UsageColors.faint)
+                Text(verbatim: stamp).usageFont(.small).foregroundStyle(colors.faint)
             }
         }
     }
 
     private func displayTitle(_ title: String) -> some View {
-        Text(verbatim: title).usageFont(.previewTitle).foregroundStyle(UsageColors.muted)
+        Text(verbatim: title).usageFont(.previewTitle).foregroundStyle(colors.muted)
     }
 
     private var name: some View {
         Text(verbatim: rowLabel)
             .usageFont(preview ? (headline ? .micro : .previewWindow) : (headline ? .smallStrong : .small))
-            .foregroundStyle(headline && !expired ? UsageColors.ink : UsageColors.faint)
+            .foregroundStyle(headline && !expired ? colors.ink : colors.faint)
     }
 
     private var bar: some View {
@@ -511,7 +519,7 @@ struct WindowRow: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(verbatim: rowLabel)
                     .usageFont(.body)
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
                 Spacer()
                 figure
             }
@@ -523,17 +531,17 @@ struct WindowRow: View {
             } else {
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
-                        Rectangle().fill(UsageColors.rule)
+                        Rectangle().fill(colors.rule)
                         ForEach(row.segments.indices, id: \.self) { index in
                             let start = min(row.segments.prefix(index).reduce(0) { $0 + $1.usedPercent }, totalUsed)
                             let end = min(start + row.segments[index].usedPercent, totalUsed)
                             Rectangle().fill(validity == .current && !expired
-                                ? segmentColors[index % segmentColors.count] : UsageColors.staleMark)
+                                ? segmentColors[index % segmentColors.count] : colors.staleMark)
                                 .frame(width: geometry.size.width * CGFloat((end - start) / 100))
                                 .offset(x: geometry.size.width * CGFloat(start / 100))
                         }
                         if totalUsed - segmentTotal >= 0.5 {
-                            Rectangle().fill(UsageColors.faint)
+                            Rectangle().fill(colors.faint)
                                 .frame(width: geometry.size.width * CGFloat((totalUsed - segmentTotal) / 100))
                                 .offset(x: geometry.size.width * CGFloat(segmentTotal / 100))
                         }
@@ -542,23 +550,23 @@ struct WindowRow: View {
                 }
                 .frame(height: 6)
                 .accessibilityLabel(String(localized: "\(rowLabel): \(PercentText.spoken(figureText, mode))"))
-                Text("Usage breakdown").usageFont(.small).foregroundStyle(UsageColors.muted)
+                Text("Usage breakdown").usageFont(.small).foregroundStyle(colors.muted)
                 ForEach(row.segments.indices, id: \.self) { index in
                     HStack(spacing: 6) {
                         Circle().fill(segmentColors[index % segmentColors.count]).frame(width: 6, height: 6)
                             .accessibilityHidden(true)
                         Text(verbatim: segmentLegend(row.segments[index]))
-                            .usageFont(.small).foregroundStyle(UsageColors.muted)
+                            .usageFont(.small).foregroundStyle(colors.muted)
                     }
                 }
             }
 
             if validity == .resetDue {
-                Text("Reset due").usageFont(.small).foregroundStyle(UsageColors.faint)
+                Text("Reset due").usageFont(.small).foregroundStyle(colors.faint)
             } else if let resetAt = row.resetAt {
                 Text(verbatim: Countdown.resetsInLine(until: resetAt, from: now, texts: LocalizedCountdownTexts()))
                     .usageFont(.small)
-                    .foregroundStyle(UsageColors.faint)
+                    .foregroundStyle(colors.faint)
             }
         }
     }
@@ -574,10 +582,10 @@ struct WindowRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(figureText)
                 .usageFont(figureFont)
-                .foregroundStyle(!presentation.hasFigure || expired ? UsageColors.faint
-                    : compact && !headline ? UsageColors.muted : SeverityPalette.figureColor(shown))
+                .foregroundStyle(!presentation.hasFigure || expired ? colors.faint
+                    : compact && !headline ? colors.muted : colors.figureColor(shown))
             if presentation.hasFigure && !compact {
-                Text(sideWord).usageFont(.small).foregroundStyle(UsageColors.muted)
+                Text(sideWord).usageFont(.small).foregroundStyle(colors.muted)
             }
         }
         .figureUnit(key: presentation.hasFigure ? [figureText, sideWord] : [figureText], anchor: .trailing)

@@ -711,6 +711,7 @@ public struct Font {
     public static let largeTitle = Font()
     public static func system(size: CGFloat, weight: Weight? = nil, design: Design? = nil) -> Font { Font() }
     public static func system(_ style: TextStyle, design: Design? = nil, weight: Weight? = nil) -> Font { Font() }
+    public static func custom(_ name: String, fixedSize: CGFloat) -> Font { Font() }
     public func weight(_ value: Weight) -> Font { self }
     public func monospacedDigit() -> Font { self }
     public struct Weight { public static let regular = Weight(); public static let medium = Weight()

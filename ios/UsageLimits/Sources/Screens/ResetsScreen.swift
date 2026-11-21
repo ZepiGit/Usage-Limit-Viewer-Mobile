@@ -7,6 +7,8 @@ import UsageLimitsKit
 /// does not state is absent rather than shown with a blank — a row with no time is a row that
 /// cannot be acted on, and it would push a real one off the screen.
 struct ResetsScreen: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     @EnvironmentObject private var store: UsageStore
     @State private var listMotionArmed = false
@@ -48,17 +50,17 @@ struct ResetsScreen: View {
                         DashedBox {
                             Text("Nothing scheduled")
                                 .usageFont(.body)
-                                .foregroundStyle(UsageColors.ink)
+                                .foregroundStyle(colors.ink)
                             Text("Reset times appear here once a provider reports one.")
                                 .usageFont(.body)
-                                .foregroundStyle(UsageColors.muted)
+                                .foregroundStyle(colors.muted)
                         }
                         .listItemMotion(armed: listMotionArmed)
                     } else {
                         ForEach(visibleDays, id: \.start) { day in
                             Text(dayTitle(day.start))
                                 .usageFont(.smallStrong)
-                                .foregroundStyle(UsageColors.muted)
+                                .foregroundStyle(colors.muted)
                                 .padding(.top, 16)
                                 .accessibilityAddTraits(.isHeader)
                                 .listItemMotion(armed: listMotionArmed)
@@ -83,7 +85,7 @@ struct ResetsScreen: View {
                 .padding(16)
                 .readableWidth()
             }
-            .background(UsageColors.ground)
+            .background(colors.ground)
             .navigationTitle("Resets")
             .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
@@ -105,6 +107,8 @@ struct ResetsScreen: View {
 }
 
 private struct ResetRow: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @Environment(\.dynamicTypeSize) private var typeSize
 
     let account: ProviderAccount
@@ -142,7 +146,7 @@ private struct ResetRow: View {
         .padding(.vertical, typeSize >= .accessibility1 ? 8 : 0)
         .frame(minHeight: 56)
         .overlay(alignment: .leading) {
-            if isNext { UsageColors.data.frame(width: 2).padding(.vertical, 8) }
+            if isNext { colors.data.frame(width: 2).padding(.vertical, 8) }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
@@ -151,13 +155,13 @@ private struct ResetRow: View {
     private var clockText: some View {
         Text(clock)
             .usageFont(.figure)
-            .foregroundStyle(UsageColors.ink)
+            .foregroundStyle(colors.ink)
             .fixedSize(horizontal: true, vertical: false)
     }
 
     private var mark: some View {
         Circle()
-            .fill(window.severity == .healthy ? Color.clear : SeverityPalette.accent(window.severity))
+            .fill(window.severity == .healthy ? Color.clear : colors.accent(window.severity))
             .frame(width: 6, height: 6)
     }
 
@@ -165,10 +169,10 @@ private struct ResetRow: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(verbatim: DisplayText.windowLabel(window.label, category: window.category, scope: window.scope))
                 .usageFont(.body)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
             Text(accountLabel)
                 .usageFont(.small)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
         }
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -176,7 +180,7 @@ private struct ResetRow: View {
     private var remainingTime: some View {
         Text(countdown)
             .usageFont(.figure)
-            .foregroundStyle(isNext ? UsageColors.data : UsageColors.muted)
+            .foregroundStyle(isNext ? colors.dataText : colors.muted)
     }
 
     private var clock: String {

@@ -262,6 +262,8 @@ extension View {
 /// The app's small in-place wait: a spinner, or a still mark under Reduce Motion, where a
 /// spinning mark is exactly the motion the user asked not to see.
 struct ActivityMark: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     /// What stands in for the spinner under Reduce Motion.
     enum Still {
@@ -292,7 +294,7 @@ struct ActivityMark: View {
                     .overlay {
                         HStack(spacing: 2) {
                             ForEach(0..<3, id: \.self) { _ in
-                                Circle().fill(UsageColors.muted).frame(width: 3, height: 3)
+                                Circle().fill(colors.muted).frame(width: 3, height: 3)
                             }
                         }
                     }
@@ -302,7 +304,7 @@ struct ActivityMark: View {
     }
 
     private var spinner: some View {
-        ProgressView().tint(UsageColors.muted).controlSize(.small)
+        ProgressView().tint(colors.muted).controlSize(.small)
     }
 }
 

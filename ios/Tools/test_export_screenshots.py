@@ -20,6 +20,7 @@ class ScreenshotExportTests(unittest.TestCase):
                 "iphone-overview-detail", "iphone-overview-empty",
                 "iphone-settings", "iphone-settings-layout", "iphone-settings-credits",
                 "iphone-credits-compact", "iphone-credits-expanded",
+                "iphone-appearance-light", "iphone-appearance-black", "iphone-appearance-fonts", "iphone-appearance-fonts-de-large",
                 "iphone-claude-mood", "iphone-claude-resets-still", "iphone-claude-still-sheet",
                 "ipad-overview", "ipad-overview-dials",
             ]
@@ -57,6 +58,7 @@ class ScreenshotExportTests(unittest.TestCase):
             for name in [
                 "iphone-overview-dials", "iphone-settings-layout", "ipad-overview-dials",
                 "iphone-credits-compact", "iphone-settings-credits",
+                "iphone-appearance-light", "iphone-appearance-black", "iphone-appearance-fonts", "iphone-appearance-fonts-de-large",
             ]:
                 with self.subTest(name=name), self.assertRaisesRegex(ValueError, "found 0"):
                     screenshots.export(root, root / "output", [name])
