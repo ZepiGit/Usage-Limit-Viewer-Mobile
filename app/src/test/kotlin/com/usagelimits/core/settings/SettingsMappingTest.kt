@@ -123,6 +123,70 @@ class SettingsMappingTest {
     }
 
     @Test
+    fun `overview credit preferences default and read independent stored choices`() {
+        val defaults = settingsFrom()
+        assertEquals(OverviewCreditLayout.NORMAL, defaults.overviewCreditLayout)
+        assertEquals(OverviewShowFirst.USAGE_PROVIDERS, defaults.overviewShowFirst)
+        assertTrue(defaults.overviewShowCredits)
+
+        val chosen = settingsFrom(
+            stringPreferencesKey("overview_credit_layout") to "COMPACT",
+            stringPreferencesKey("overview_show_first") to "CREDIT_ACCOUNTS",
+            booleanPreferencesKey("overview_show_credits") to false,
+        )
+        assertEquals(OverviewCreditLayout.COMPACT, chosen.overviewCreditLayout)
+        assertEquals(OverviewShowFirst.CREDIT_ACCOUNTS, chosen.overviewShowFirst)
+        assertFalse(chosen.overviewShowCredits)
+
+        val explicitDefaults = settingsFrom(
+            stringPreferencesKey("overview_credit_layout") to "NORMAL",
+            stringPreferencesKey("overview_show_first") to "USAGE_PROVIDERS",
+            booleanPreferencesKey("overview_show_credits") to true,
+        )
+        assertEquals(OverviewCreditLayout.NORMAL, explicitDefaults.overviewCreditLayout)
+        assertEquals(OverviewShowFirst.USAGE_PROVIDERS, explicitDefaults.overviewShowFirst)
+        assertTrue(explicitDefaults.overviewShowCredits)
+    }
+
+    @Test
+    fun `missing and unknown overview choices do not reset other preferences`() {
+        val layoutKey = stringPreferencesKey("overview_credit_layout")
+        val firstKey = stringPreferencesKey("overview_show_first")
+        val showKey = booleanPreferencesKey("overview_show_credits")
+        for (stored in listOf(null, "unknown")) {
+            val withOtherChoices = mutablePreferencesOf(
+                firstKey to "CREDIT_ACCOUNTS", showKey to false,
+                booleanPreferencesKey("notify_low_usage") to false,
+                booleanPreferencesKey("show_renewal_time") to true,
+            )
+            if (stored != null) withOtherChoices[layoutKey] = stored
+            val layoutFallback = withOtherChoices.toSettings()
+            assertEquals(OverviewCreditLayout.NORMAL, layoutFallback.overviewCreditLayout)
+            assertEquals(OverviewShowFirst.CREDIT_ACCOUNTS, layoutFallback.overviewShowFirst)
+            assertFalse(layoutFallback.overviewShowCredits)
+            assertFalse(layoutFallback.notifyBelow20Percent)
+            assertFalse(layoutFallback.notifyBelow10Percent)
+            assertTrue(layoutFallback.showRenewalTime)
+
+            val withLayout = mutablePreferencesOf(
+                layoutKey to "COMPACT", showKey to false,
+                booleanPreferencesKey("accounts_manually_ordered") to true,
+            )
+            if (stored != null) withLayout[firstKey] = stored
+            val firstFallback = withLayout.toSettings()
+            assertEquals(OverviewCreditLayout.COMPACT, firstFallback.overviewCreditLayout)
+            assertEquals(OverviewShowFirst.USAGE_PROVIDERS, firstFallback.overviewShowFirst)
+            assertFalse(firstFallback.overviewShowCredits)
+            assertTrue(firstFallback.accountsManuallyOrdered)
+        }
+
+        val missingShow = settingsFrom(layoutKey to "COMPACT", firstKey to "CREDIT_ACCOUNTS")
+        assertEquals(OverviewCreditLayout.COMPACT, missingShow.overviewCreditLayout)
+        assertEquals(OverviewShowFirst.CREDIT_ACCOUNTS, missingShow.overviewShowFirst)
+        assertTrue(missingShow.overviewShowCredits)
+    }
+
+    @Test
     fun `status icons are off with nothing pinned until someone turns them on`() {
         val settings = settingsFrom()
 

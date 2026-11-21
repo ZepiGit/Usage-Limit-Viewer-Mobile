@@ -2,20 +2,34 @@ package com.usagelimits.navigation
 
 import android.Manifest
 import android.content.Intent
+import androidx.work.CoroutineWorker
+import androidx.work.ListenableWorker
+import androidx.work.WorkerFactory
+import androidx.work.WorkerParameters
+import com.usagelimits.core.model.CreditAccount
+import com.usagelimits.core.model.CreditProviderId
+import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.OverviewCreditLayout
+import kotlinx.coroutines.flow.first
+import java.math.BigDecimal
+import android.content.Context
 import android.os.Bundle
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
@@ -75,8 +89,10 @@ class ExternalRequestActivityTest {
     private val gate = CompletableDeferred<Unit>()
     private lateinit var original: AppContainer
     private lateinit var container: AppContainer
+    private lateinit var initialSettings: AppSettings
     private val controllers = mutableListOf<ActivityController<UsageLimitsActivity>>()
     private val selected = SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)
+    private val compactCredits = hasContentDescription("Credits · 1 balance", substring = true)
 
     /** Account rows wait for [gate]; snapshots and writes do not. */
     private class GatedAccounts(private val real: AccountDao, private val gate: CompletableDeferred<Unit>) : AccountDao by real {
@@ -87,7 +103,14 @@ class ExternalRequestActivityTest {
         runBlocking { app.startupJob?.join() }
         WorkManager.getInstance(app).cancelAllWork().result.get()
         resetTestWorkManager()
-        WorkManagerTestInitHelper.initializeTestWorkManager(app, Configuration.Builder().setExecutor(SynchronousExecutor()).build())
+        // Resuming the real activity requests a sync; keep that path offline in navigation tests.
+        WorkManagerTestInitHelper.initializeTestWorkManager(app, Configuration.Builder().setExecutor(SynchronousExecutor())
+            .setWorkerFactory(object : WorkerFactory() {
+                override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker? =
+                    if (workerClassName == com.usagelimits.core.sync.SyncWorker::class.java.name) object : CoroutineWorker(appContext, workerParameters) {
+                        override suspend fun doWork() = Result.success()
+                    } else null
+            }).build())
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         android.provider.Settings.Global.putFloat(app.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
         original = app.container
@@ -97,6 +120,7 @@ class ExternalRequestActivityTest {
             }
         }
         ReflectionHelpers.setField(app, "container", container)
+        initialSettings = runBlocking { container.settingsStore.settings.first() }
         runBlocking { container.settingsStore.recordNotificationPermissionHandled() }
     }
 
@@ -107,6 +131,12 @@ class ExternalRequestActivityTest {
             // thread, so the looper is pumped until they have.
             for (controller in controllers.asReversed()) stop(controller)
         } finally {
+            runBlocking {
+                container.settingsStore.setOverviewCreditLayout(initialSettings.overviewCreditLayout)
+                container.settingsStore.setOverviewShowFirst(initialSettings.overviewShowFirst)
+                container.settingsStore.setOverviewShowCredits(initialSettings.overviewShowCredits)
+                container.creditRepository.remove("credit-fal-test")
+            }
             ReflectionHelpers.setField(app, "container", original)
             WorkManager.getInstance(app).cancelAllWork().result.get()
             ShadowLooper.idleMainLooper()
@@ -137,6 +167,21 @@ class ExternalRequestActivityTest {
                 UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 40.0, 604_800, now + 3_600_000, false))))
         }
 
+    private suspend fun credit(name: String = "Synthetic credit") = CreditAccount(
+        id = "credit-fal-test", provider = CreditProviderId.FAL, label = name, credentialReference = "credit:test",
+        createdAt = System.currentTimeMillis(),
+    ).also { account ->
+        val now = System.currentTimeMillis()
+        container.creditRepository.upsert(
+            account,
+            com.usagelimits.core.model.CreditSnapshot(
+                account.id,
+                listOf(com.usagelimits.core.model.CreditBalance("USD", BigDecimal("24.50"), BigDecimal("100"))),
+                now,
+            ),
+        )
+    }
+
     private fun link(account: ProviderAccount) = Intent(app, UsageLimitsActivity::class.java)
         .putExtra(ExternalRequest.EXTRA_ACCOUNT_ID, account.localId)
 
@@ -149,6 +194,7 @@ class ExternalRequestActivityTest {
 
     private fun shown(text: String) = compose.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     private fun onDetailOf(name: String) = shown("Remove account") && shown(name)
+    private fun onCreditManagement() = !onOverview() && !onSettings() && shown("Manage credit accounts") && shown("Add credit balance")
     // The merged tree: a bar item is selected, and its label is a child merged into it.
     private fun onOverview() = compose.onAllNodes(hasText("Overview") and selected).fetchSemanticsNodes().isNotEmpty()
     private fun onSettings() = compose.onAllNodes(hasText("Settings") and selected).fetchSemanticsNodes().isNotEmpty()
@@ -262,6 +308,109 @@ class ExternalRequestActivityTest {
             waitFor("account detail from the dial") { onDetailOf("Alpha") }
         } finally {
             runBlocking { container.settingsStore.setOverviewLayout(OverviewLayout.LIST) }
+        }
+    }
+
+    @Test fun `credit-only Overview tracks from C1 and both Manage routes return compact after leaving`() {
+        gate.complete(Unit)
+        val controller = start(launcher())
+        waitFor("credit-only C1 Track action") { shown("Track a prepaid credit balance") }
+        compose.onNode(hasText("Track a prepaid credit balance") and hasClickAction()).performClick()
+        waitFor("Add credit balance") { shown("Add credit balance") }
+        back(controller)
+        waitFor("credit-only C1 Overview") { onOverview() && shown("Track a prepaid credit balance") }
+        runBlocking { credit() }
+        waitFor("credit account in Overview") { shown("Synthetic credit") }
+
+        compose.onNode(hasText("Manage credit accounts") and hasClickAction()).performClick()
+        waitFor("Credit accounts from Normal Manage") { onCreditManagement() }
+        back(controller)
+        waitFor("Normal Overview after Manage") { onOverview() && shown("Manage credit accounts") }
+
+        runBlocking { container.settingsStore.setOverviewCreditLayout(OverviewCreditLayout.COMPACT) }
+        waitFor("compact balance summary") { compose.onAllNodes(compactCredits).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(compactCredits and hasClickAction()).performClick()
+        waitFor("expanded credits") { shown("Collapse") }
+        compose.onNode(hasText("Manage credit accounts") and hasClickAction()).performClick()
+        waitFor("Credit accounts from expanded Manage") { onCreditManagement() }
+        back(controller)
+        waitFor("compact Overview after leaving expanded Manage") { onOverview() && compose.onAllNodes(compactCredits).fetchSemanticsNodes().isNotEmpty() && !shown("Collapse") }
+    }
+
+    @Test fun `hidden credits remain manageable and saved preferences restore in a new activity`() {
+        gate.complete(Unit)
+        val before = runBlocking { container.settingsStore.settings.first() }
+        runBlocking {
+            account("Usage account")
+            credit()
+            container.repository.accountUsageOnce()
+        }
+        try {
+            val first = start(launcher())
+            waitFor("initial Overview") { onOverview() }
+            compose.onNode(hasText("Settings") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).performClick()
+            waitFor("Settings tab") { onSettings() }
+            compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Compact"))
+            compose.onNode(hasText("Compact") and hasClickAction()).performSemanticsAction(SemanticsActions.OnClick) { it() }
+            waitFor("Compact selected") { compose.onAllNodes(hasText("Compact") and selected).fetchSemanticsNodes().isNotEmpty() }
+            val creditFirst = hasText("Credit accounts") and hasClickAction()
+            compose.onNode(hasScrollToNodeAction()).performScrollToNode(creditFirst)
+            compose.onNode(creditFirst).performSemanticsAction(SemanticsActions.OnClick) { it() }
+            waitFor("Credit accounts first") { compose.onAllNodes(hasText("Credit accounts") and selected).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasContentDescription("Show credits"))
+            compose.onNode(hasContentDescription("Show credits") and hasClickAction()).performSemanticsAction(SemanticsActions.OnClick) { it() }
+            compose.onNode(hasText("Overview") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).performClick()
+            waitFor("Overview with credits hidden") { onOverview() && !shown("Manage credit accounts") }
+            compose.onNode(hasText("Settings") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).performClick()
+            waitFor("Settings with credits hidden") { onSettings() }
+            val manageCredits = hasText("Manage credit accounts") and hasClickAction()
+            compose.onNode(hasScrollToNodeAction()).performScrollToNode(manageCredits)
+            compose.onNode(manageCredits).performSemanticsAction(SemanticsActions.OnClick) { it() }
+            waitFor("Credit accounts from Settings while hidden") { onCreditManagement() }
+            compose.onNode(hasText("Synthetic credit") and hasClickAction()).performClick()
+            waitFor("synthetic credit detail") { shown("Remove credit account") && shown("Synthetic credit") }
+            compose.onNode(hasContentDescription("Name") and hasSetTextAction()).performTextReplacement("Synthetic credit edited")
+            compose.onNode(hasText("Save") and hasClickAction()).performClick()
+            waitFor("saved credit edit") { onCreditManagement() && shown("Synthetic credit edited") }
+
+            stop(first)
+            val restored = start(launcher())
+            waitFor("new activity restored hidden credits") { onOverview() && !shown("Synthetic credit edited") }
+            compose.onNode(hasText("Settings") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).performClick()
+            waitFor("restored Settings") { onSettings() }
+            compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasContentDescription("Show credits"))
+            val showCredits = compose.onNode(hasContentDescription("Show credits") and hasClickAction())
+            showCredits.assertIsOff()
+            showCredits.performSemanticsAction(SemanticsActions.OnClick) { it() }
+            waitFor("restored Compact selection") {
+                compose.onAllNodes(hasText("Compact") and selected).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNode(hasText("Overview") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).performClick()
+            waitFor("restored compact and credit-first preferences") {
+                onOverview() && compose.onAllNodes(compactCredits).fetchSemanticsNodes().isNotEmpty() && shown("Usage account")
+            }
+            val creditTop = compose.onNode(compactCredits).fetchSemanticsNode().boundsInRoot.top
+            val usageTop = compose.onNode(hasText("Usage account"), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
+            org.junit.Assert.assertTrue("credit block did not precede usage providers", creditTop < usageTop)
+
+            compose.onNode(hasText("Settings") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).performClick()
+            waitFor("Settings before removal") { onSettings() }
+            compose.onNode(hasScrollToNodeAction()).performScrollToNode(manageCredits)
+            compose.onNode(manageCredits).performSemanticsAction(SemanticsActions.OnClick) { it() }
+            waitFor("Credit accounts after restore") { onCreditManagement() && shown("Synthetic credit edited") }
+            compose.onNode(hasText("Synthetic credit edited") and hasClickAction()).performClick()
+            waitFor("edited credit detail") { shown("Remove credit account") && shown("Synthetic credit edited") }
+            compose.onNode(hasText("Remove credit account") and hasClickAction()).performClick()
+            waitFor("credit removal confirmation") { shown("Remove credit account?") }
+            compose.onNode(hasText("Remove") and hasClickAction()).performClick()
+            waitFor("credit removed") { onCreditManagement() && !shown("Synthetic credit edited") }
+            stop(restored)
+        } finally {
+            runBlocking {
+                container.settingsStore.setOverviewCreditLayout(before.overviewCreditLayout)
+                container.settingsStore.setOverviewShowFirst(before.overviewShowFirst)
+                container.settingsStore.setOverviewShowCredits(before.overviewShowCredits)
+            }
         }
     }
 

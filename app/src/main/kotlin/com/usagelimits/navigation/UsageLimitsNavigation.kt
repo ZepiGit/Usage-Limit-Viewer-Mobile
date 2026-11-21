@@ -69,6 +69,7 @@ import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.feature.credits.AddCreditScreen
 import com.usagelimits.feature.credits.AddCreditViewModel
 import com.usagelimits.feature.credits.CreditDetailScreen
+import com.usagelimits.feature.credits.ManageCreditsScreen
 import com.usagelimits.feature.accounts.AccountDetailScreen
 import com.usagelimits.feature.accounts.AddAccountScreen
 import com.usagelimits.feature.accounts.AddAccountState
@@ -97,6 +98,7 @@ internal sealed class Destination(val route: String) {
     data object Settings : Destination("settings")
     data object AddAccount : Destination("add-account")
     data object AddCredit : Destination("add-credit")
+    data object ManageCredits : Destination("manage-credits")
     data object CreditDetail : Destination("credit/{creditId}") {
         fun of(creditId: String) = "credit/$creditId"
     }
@@ -410,16 +412,23 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     // next local day) when that is sooner, on returning to the app and on a time or zone change.
     val clock = rememberScreenClock(now) { at, zone ->
         val current = viewModel.state.value
-        current.accounts.nextOverviewBoundary(at, zone, current.staleAfterMs)
+        var next = current.accounts.nextOverviewBoundary(at, zone, current.staleAfterMs)
+        for (entry in current.credits) {
+            val snapshot = entry.snapshot ?: continue
+            if (snapshot.balances.isEmpty()) continue
+            val stale = snapshot.fetchedAt + current.staleAfterMs
+            if (stale > at && stale < next) next = stale
+        }
+        next
     }
     val nowMs = clock.nowMs
-    // The two inputs of the boundary: new readings bring new resets, a new sync interval a new
-    // staleness threshold. Either one reads the clock and plans the next wake-up from there.
-    LaunchedEffect(state.accounts, state.staleAfterMs) { clock.reread() }
+    // New readings and a changed staleness threshold can move the next boundary.
+    LaunchedEffect(state.accounts, state.credits, state.staleAfterMs) { clock.reread() }
     // Overview's filter is view state: never stored, and All again when another tab is chosen.
     // An account detail opened from the list, and the way back to it, keep the filter.
     var overviewFilter by rememberSaveable { mutableStateOf(OverviewFilter.ALL) }
-    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    val activeEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = activeEntry?.destination?.route
     val dials = state.settings.overviewLayout == OverviewLayout.DIALS
     LaunchedEffect(currentRoute, dials) {
         if (dials || (currentRoute != Destination.Overview.route && TABS.any { it.destination.route == currentRoute })) {
@@ -445,6 +454,8 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     onPercentDisplayChange = viewModel::setPercentDisplay,
                     onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
                     onAddCredit = { navController.navigate(Destination.AddCredit.route) },
+                    onManageCredits = { navController.navigate(Destination.ManageCredits.route) },
+                    isCurrentDestination = activeEntry?.destination?.route == Destination.Overview.route,
                 )
             }
 
@@ -471,6 +482,21 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     onShowTier = viewModel::setShowSubscriptionTier,
                     onOverviewLayoutChange = viewModel::setOverviewLayout,
                     onPercentDisplayChange = viewModel::setPercentDisplay,
+                    onOverviewCreditLayoutChange = viewModel::setOverviewCreditLayout,
+                    onOverviewShowFirstChange = viewModel::setOverviewShowFirst,
+                    onOverviewShowCreditsChange = viewModel::setOverviewShowCredits,
+                    onManageCredits = { navController.navigate(Destination.ManageCredits.route) },
+                )
+            }
+
+            composable(Destination.ManageCredits.route) {
+                ManageCreditsScreen(
+                    credits = state.credits,
+                    nowMs = nowMs,
+                    staleAfterMs = state.staleAfterMs,
+                    onAdd = { navController.navigate(Destination.AddCredit.route) },
+                    onSelect = { navController.navigate(Destination.CreditDetail.of(it)) },
+                    onRetry = viewModel::refresh,
                 )
             }
 

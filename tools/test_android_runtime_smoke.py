@@ -703,6 +703,84 @@ class InvocationTest(unittest.TestCase):
         self.assertEqual("passed", record["seededList"])
 
 
+class CreditHierarchyTest(unittest.TestCase):
+    def tree(self, label, checked="true", package=runtime_smoke.DEBUG_PACKAGE):
+        return ET.fromstring(f'''<hierarchy><node package="{package}" enabled="true"
+            clickable="true" checkable="true" checked="{checked}" bounds="[0,10][300,60]">
+            <node package="{package}" text="{label}" bounds="[10,10][200,60]"/>
+            </node></hierarchy>''')
+
+    def test_localized_credit_controls_require_the_requested_checked_state(self):
+        for label in ("Compact", "Kompakt", "Show credits", "Guthaben anzeigen",
+                      "Credit accounts", "Guthabenkonten"):
+            with self.subTest(label=label):
+                self.assertIsNotNone(runtime_smoke.credit_checked(self.tree(label), label, True))
+                self.assertIsNone(runtime_smoke.credit_checked(self.tree(label, "false"), label, True))
+                self.assertIsNotNone(runtime_smoke.credit_checked(self.tree(label, "false"), label, False))
+                self.assertIsNone(runtime_smoke.credit_checked(self.tree(label, package="other"), label, True))
+
+    def test_selected_semantics_without_checked_attribute(self):
+        root = ET.fromstring(f'''<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true"
+            selected="true" clickable="false" bounds="[0,10][300,60]">
+            <node package="{runtime_smoke.DEBUG_PACKAGE}" text="Compact" bounds="[10,10][200,60]"/>
+            </node></hierarchy>''')
+        self.assertIsNotNone(runtime_smoke.credit_checked(root, "Compact", True))
+        self.assertIsNone(runtime_smoke.credit_checked(root, "Compact", False))
+
+    def test_selected_wins_over_checked_false_on_noncheckable_node(self):
+        root = ET.fromstring(f'''<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true"
+            checkable="false" checked="false" selected="true" clickable="false" bounds="[0,10][300,60]">
+            <node package="{runtime_smoke.DEBUG_PACKAGE}" text="Compact" bounds="[10,10][200,60]"/>
+            </node></hierarchy>''')
+        self.assertIsNotNone(runtime_smoke.credit_checked(root, "Compact", True))
+        self.assertIsNone(runtime_smoke.credit_checked(root, "Compact", False))
+
+    def test_checked_radio_semantics_are_honored(self):
+        root = ET.fromstring(f'''<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}"
+            class="android.widget.RadioButton" enabled="true" checked="true" selected="false"
+            clickable="false" bounds="[0,10][300,60]"><node package="{runtime_smoke.DEBUG_PACKAGE}"
+            text="Compact" bounds="[10,10][200,60]"/></node></hierarchy>''')
+        self.assertIsNotNone(runtime_smoke.credit_checked(root, "Compact", True))
+        self.assertIsNone(runtime_smoke.credit_checked(root, "Compact", False))
+
+    def test_show_first_selection_ignores_same_text_heading(self):
+        root = ET.fromstring(f'''<hierarchy>
+          <node package="{runtime_smoke.DEBUG_PACKAGE}" text="Credit accounts" bounds="[0,0][200,40]"/>
+          <node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true" clickable="true" checkable="true"
+                checked="true" bounds="[0,50][200,100]">
+            <node package="{runtime_smoke.DEBUG_PACKAGE}" text="Credit accounts" bounds="[0,50][200,100]"/>
+          </node>
+        </hierarchy>''')
+        selected = runtime_smoke.credit_checked(root, "Credit accounts", True)
+        self.assertIsNotNone(selected)
+        self.assertEqual((0, 50, 200, 100), bounds(selected))
+
+    def test_localized_compact_labels_are_exact_and_package_scoped(self):
+        for label in ("Credits · 1 balance", "Guthaben · 1 Konto"):
+            with self.subTest(label=label):
+                self.assertTrue(runtime_smoke.matches(self.tree(label), label, runtime_smoke.DEBUG_PACKAGE))
+                self.assertFalse(runtime_smoke.matches(self.tree(label + "s"), label, runtime_smoke.DEBUG_PACKAGE))
+                self.assertFalse(runtime_smoke.matches(self.tree(label, package="other"), label, runtime_smoke.DEBUG_PACKAGE))
+                spoken = ET.fromstring(f'''<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}"
+                    content-desc="{label}, localized low-balance hint" bounds="[0,10][300,60]"/></hierarchy>''')
+                self.assertTrue(runtime_smoke.credit_matches(spoken, label, runtime_smoke.DEBUG_PACKAGE))
+                self.assertFalse(runtime_smoke.matches(spoken, label, runtime_smoke.DEBUG_PACKAGE))
+
+    def test_english_and_german_credit_journey_labels_are_exact(self):
+        expected = (
+            "Collapse", "Einklappen", "Manage credit accounts", "Guthaben verwalten",
+            "Normal", "Compact", "Kompakt", "Usage providers", "Nutzungskonten",
+            "Credit accounts", "Guthabenkonten", "Show credits", "Guthaben anzeigen",
+            "Add credit balance", "Guthaben hinzufügen", "Name", "Low-balance figure",
+            "Warnschwelle für niedriges Guthaben",
+        )
+        for label in expected:
+            with self.subTest(label=label):
+                self.assertTrue(runtime_smoke.matches(self.tree(label), label, runtime_smoke.DEBUG_PACKAGE))
+                self.assertFalse(runtime_smoke.matches(self.tree(label, package="other"), label,
+                                                       runtime_smoke.DEBUG_PACKAGE))
+
+
 class SeedListTest(unittest.TestCase):
     """#88 01b: the seeded debug build is granted notifications before its first launch.
 

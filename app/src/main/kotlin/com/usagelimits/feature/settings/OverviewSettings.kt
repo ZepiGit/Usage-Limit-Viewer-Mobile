@@ -18,6 +18,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.usagelimits.R
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.CreditAccount
+import com.usagelimits.core.model.CreditBalance
+import com.usagelimits.core.model.CreditEntry
+import com.usagelimits.core.model.CreditProviderId
+import com.usagelimits.core.model.CreditSnapshot
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
@@ -29,13 +34,16 @@ import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.model.presentation
 import com.usagelimits.core.model.title
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.OverviewCreditLayout
 import com.usagelimits.core.settings.OverviewLayout
+import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.feature.overview.OverviewLayoutPreview
 import com.usagelimits.feature.overview.windowLabel
 import com.usagelimits.ui.components.FigureWithSide
 import com.usagelimits.ui.components.RuleDivider
 import com.usagelimits.ui.components.Segment
 import com.usagelimits.ui.components.SegmentedRow
+import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
@@ -45,7 +53,9 @@ import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.theme.SeverityPalette
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageType
+import java.math.BigDecimal
 import java.time.ZoneId
+import androidx.compose.foundation.layout.heightIn
 
 @Composable
 internal fun DisplaySettings(mode: PercentDisplay, onModeChange: (PercentDisplay) -> Unit) {
@@ -83,10 +93,14 @@ internal fun OverviewSettings(
     settings: AppSettings,
     onLayoutChange: (OverviewLayout) -> Unit,
     onShowTier: (Boolean) -> Unit,
+    onCreditLayoutChange: (OverviewCreditLayout) -> Unit,
+    onShowFirstChange: (OverviewShowFirst) -> Unit,
+    onShowCredits: (Boolean) -> Unit,
+    onManageCredits: (() -> Unit)?,
 ) {
     UsageCard {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SettingsPreview { OverviewLayoutPreview(PreviewAccounts, settings, PreviewNow, PreviewZone) }
+            SettingsPreview { OverviewLayoutPreview(PreviewAccounts, PreviewCredits, settings, PreviewNow, PreviewZone) }
             SettingTitle(R.string.settings_overview_layout_title, R.string.settings_overview_layout_subtitle)
             SegmentedRow {
                 Segment(stringResource(R.string.settings_overview_list), settings.overviewLayout == OverviewLayout.LIST,
@@ -94,6 +108,31 @@ internal fun OverviewSettings(
                 Segment(stringResource(R.string.settings_overview_dials), settings.overviewLayout == OverviewLayout.DIALS,
                     { onLayoutChange(OverviewLayout.DIALS) })
             }
+            if (settings.overviewShowCredits) {
+                RuleDivider()
+                SettingTitle(R.string.settings_credit_layout_title, R.string.settings_credit_layout_subtitle)
+                SegmentedRow {
+                    Segment(stringResource(R.string.settings_credit_normal), settings.overviewCreditLayout == OverviewCreditLayout.NORMAL,
+                        { onCreditLayoutChange(OverviewCreditLayout.NORMAL) })
+                    Segment(stringResource(R.string.settings_credit_compact), settings.overviewCreditLayout == OverviewCreditLayout.COMPACT,
+                        { onCreditLayoutChange(OverviewCreditLayout.COMPACT) })
+                }
+                RuleDivider()
+                SettingTitle(R.string.settings_overview_show_first_title, R.string.settings_overview_show_first_subtitle)
+                SegmentedRow {
+                    Segment(stringResource(R.string.settings_overview_usage_providers), settings.overviewShowFirst == OverviewShowFirst.USAGE_PROVIDERS,
+                        { onShowFirstChange(OverviewShowFirst.USAGE_PROVIDERS) })
+                    Segment(stringResource(R.string.settings_credit_layout_title), settings.overviewShowFirst == OverviewShowFirst.CREDIT_ACCOUNTS,
+                        { onShowFirstChange(OverviewShowFirst.CREDIT_ACCOUNTS) })
+                }
+            }
+            RuleDivider()
+            ToggleRow(
+                title = stringResource(R.string.settings_show_credits_title),
+                subtitle = stringResource(R.string.settings_show_credits_subtitle),
+                checked = settings.overviewShowCredits,
+                onChange = onShowCredits,
+            )
             RuleDivider()
             ToggleRow(
                 title = stringResource(R.string.settings_show_tier_title),
@@ -101,6 +140,10 @@ internal fun OverviewSettings(
                 checked = settings.showSubscriptionTier,
                 onChange = onShowTier,
             )
+            if (onManageCredits != null) {
+                RuleDivider()
+                TextAction(stringResource(R.string.credit_manage), onManageCredits, Modifier.heightIn(min = 48.dp))
+            }
         }
     }
 }
@@ -131,6 +174,18 @@ private val PreviewAccounts = listOf(
     previewAccount(ProviderId.CLAUDE, "Pro", 18.0, 35, 61.0, 6070),
     previewAccount(ProviderId.CODEX, "Plus", 72.0, 128, 44.0, 4553),
 )
+
+private val PreviewCredits = listOf(
+    previewCredit(CreditProviderId.DEEPSEEK, "DeepSeek", "3.18"),
+    previewCredit(CreditProviderId.OPENROUTER, "OpenRouter", "12.40"),
+    previewCredit(CreditProviderId.MOONSHOT, "Moonshot", "25.00"),
+)
+
+private fun previewCredit(provider: CreditProviderId, label: String, amount: String): CreditEntry {
+    val id = provider.id
+    return CreditEntry(CreditAccount(id, provider, label, ""),
+        CreditSnapshot(id, listOf(CreditBalance("USD", BigDecimal(amount))), PreviewNow))
+}
 
 private fun previewAccount(provider: ProviderId, plan: String, short: Double, shortReset: Int, weekly: Double, weeklyReset: Int): AccountUsage {
     val id = provider.id

@@ -28,6 +28,12 @@ Amounts use decimal arithmetic and locale currency formatting. Positive amounts 
 
 With a known total, severity follows the percentage remaining. Otherwise the default low threshold is 5 currency units, or 35 CNY; below twice that is moderate. Zero or negative is exhausted. An account takes its worst balance's status.
 
+## Credits in Android Overview
+
+Under **Settings → Overview**, choose **Normal** to list balances or **Compact** to see the number of tracked credit accounts. Compact also names the current balance furthest below its own threshold, comparing each amount as a share of that threshold rather than comparing currencies. A still-current balance retained during a rate-limit pause can appear there; stale balances and ordinary failed reads cannot. Tap the compact row to open it. **Collapse** or leaving Overview restores the compact row.
+
+**Show first** places Credits above or below usage accounts in List and Dials. **Show credits** hides only that block; it does not remove accounts or change refresh or widget settings. **Manage credit accounts** in Settings is always available, including when the block is hidden.
+
 ## Refresh and removal
 
 Balances refresh alongside usage. Failed reads retain previous values and their age; one failed account does not block others. Credits widgets show up to one, three or six accounts, worst first, depending on size.

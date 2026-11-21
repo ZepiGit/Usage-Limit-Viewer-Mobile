@@ -170,7 +170,24 @@
     <string name="overview_section_credits">Guthaben</string>
     <string name="overview_no_credits">Keine Prepaid-Guthaben erfasst.</string>
     <string name="overview_add_credit">Guthaben hinzufügen</string>
-    <string name="overview_add_credit_hint">Prepaid-API-Guthaben verfolgen</string>
+    <string name="overview_credit_collapse">Einklappen</string>
+    <string name="overview_credit_expand">Klappt die Guthabenliste aus</string>
+    <string name="overview_credit_low_balance">Niedriges Guthaben: %1$s</string>
+    <string name="overview_credit_hint">%1$s %2$s</string>
+    <plurals name="overview_credit_count">
+        <item quantity="one">Guthaben · %1$d Konto</item>
+        <item quantity="other">Guthaben · %1$d Konten</item>
+    </plurals>
+    <string name="settings_credit_layout_title">Guthabenkonten</string>
+    <string name="settings_credit_layout_subtitle">Normal listet die Guthaben auf. Kompakt zeigt die Anzahl der Konten und das Guthaben, das im Verhältnis zu seiner Schwelle am niedrigsten ist.</string>
+    <string name="settings_credit_normal">Normal</string>
+    <string name="settings_credit_compact">Kompakt</string>
+    <string name="settings_overview_show_first_title">Zuerst anzeigen</string>
+    <string name="settings_overview_show_first_subtitle">Welcher Bereich in der Übersicht ganz oben steht.</string>
+    <string name="settings_overview_usage_providers">Nutzungskonten</string>
+    <string name="settings_show_credits_title">Guthaben anzeigen</string>
+    <string name="settings_show_credits_subtitle">Blendet Guthaben in der Übersicht aus, ohne sie zu entfernen.</string>
+    <string name="credit_manage">Guthaben verwalten</string>
     <plurals name="overview_need_attention">
         <item quantity="one">%1$d Konto benötigt Aufmerksamkeit</item>
         <item quantity="other">%1$d Konten benötigen Aufmerksamkeit</item>

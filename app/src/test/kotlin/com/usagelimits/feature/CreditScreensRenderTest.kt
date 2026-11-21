@@ -3,29 +3,47 @@ package com.usagelimits.feature
 import android.content.Context
 import android.graphics.BitmapFactory
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.hasScrollAction
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
+import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.model.CreditAccount
 import com.usagelimits.core.model.CreditBalance
 import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.CreditSnapshot
 import com.usagelimits.core.model.CreditStatus
+import com.usagelimits.core.model.ProviderAccount
+import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageSnapshot
+import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.OverviewCreditLayout
+import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.feature.credits.AddCreditScreen
 import com.usagelimits.feature.credits.AddCreditState
 import com.usagelimits.feature.credits.CreditDetailScreen
 import com.usagelimits.feature.credits.creditIcon
 import com.usagelimits.feature.overview.OverviewScreen
+import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -46,11 +64,27 @@ class CreditScreensRenderTest {
 
     private val now = 1_757_000_000_000L
 
-    private fun entry(id: String = "credit-fal-1", amount: String = "24.50", error: String? = null) = CreditEntry(
-        CreditAccount(id, CreditProviderId.FAL, "My fal", "credit:$id", createdAt = now),
+    private fun entry(
+        id: String = "credit-fal-1", amount: String = "24.50", error: String? = null,
+        provider: CreditProviderId = CreditProviderId.FAL, label: String = "My fal",
+    ) = CreditEntry(
+        CreditAccount(id, provider, label, "credit:$id", createdAt = now),
         CreditSnapshot(
             id, listOf(CreditBalance("USD", BigDecimal(amount), total = BigDecimal(100))), fetchedAt = now,
             status = if (error == null) CreditStatus.OK else CreditStatus.FAILED, error = error,
+        ),
+    )
+
+    private fun usageAccount() = AccountUsage(
+        account = ProviderAccount(
+            localId = "usage", provider = ProviderId.CODEX, externalAccountId = "usage", email = null,
+            displayName = "Usage marker", plan = null, credentialReference = "usage", createdAt = now,
+            lastSuccessfulSync = now,
+        ),
+        snapshot = UsageSnapshot(
+            accountId = "usage", fetchedAt = now, status = SnapshotStatus.OK,
+            windows = listOf(UsageWindow("weekly", "Weekly", WindowCategory.WEEKLY, 50.0, 604_800, now + 60_000, false)),
+            connectionStatus = ConnectionStatus.CONNECTED,
         ),
     )
 
@@ -76,6 +110,93 @@ class CreditScreensRenderTest {
         assertTrue(compose.onAllNodesWithText("\$24.50", substring = true).fetchSemanticsNodes().isNotEmpty())
         assertTrue(compose.onAllNodesWithText("showing last known balance", substring = true).fetchSemanticsNodes().isNotEmpty())
         assertTrue(compose.onAllNodesWithText("Automatic refresh is paused.", substring = true).fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test
+    @Config(qualifiers = "w393dp-h2400dp-xhdpi")
+    fun `compact overview speaks the low balance and can expand and collapse`() {
+        render {
+            OverviewScreen(
+                state = UsageUiState(settings = AppSettings(overviewCreditLayout = OverviewCreditLayout.COMPACT), credits = listOf(
+                    entry(id = "credit-deepseek", amount = "3.18", provider = CreditProviderId.DEEPSEEK, label = "DeepSeek"),
+                )),
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+                onCreditClick = {}, onAddCredit = {}, onManageCredits = {},
+            )
+        }
+
+        compose.onNode(hasContentDescription("Credits · 1 balance, Low balance: DeepSeek \$3.18")).assertExists()
+        compose.onNode(hasContentDescription("Credits · 1 balance", substring = true) and hasClickAction()).performClick()
+        compose.onNode(hasText("Collapse")).assertExists()
+        compose.onNode(hasText("\$3.18")).assertExists()
+        compose.onNode(hasText("Manage credit accounts")).assertExists()
+        compose.onNode(hasText("Collapse")).performClick()
+        compose.onNode(hasContentDescription("Credits · 1 balance", substring = true)).assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "w393dp-h2400dp-xhdpi")
+    fun `show first controls the semantic order of the real overview blocks`() {
+        var order by mutableStateOf(OverviewShowFirst.USAGE_PROVIDERS)
+        val usage = listOf(usageAccount())
+        val credits = listOf(entry())
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = usage, settings = AppSettings(overviewShowFirst = order), credits = credits),
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+        for (first in OverviewShowFirst.entries) {
+            compose.runOnIdle { order = first }
+            val usageTop = compose.onNodeWithText("Usage marker", substring = true).fetchSemanticsNode().boundsInRoot.top
+            val creditsTop = compose.onNodeWithText("Credits").fetchSemanticsNode().boundsInRoot.top
+            if (first == OverviewShowFirst.USAGE_PROVIDERS) assertTrue("usage is first", usageTop < creditsTop)
+            else assertTrue("credits are first", creditsTop < usageTop)
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w393dp-h2400dp-xhdpi")
+    fun `compact overview drops its low balance hint at the stale threshold`() {
+        var clock by mutableLongStateOf(now)
+        val state = UsageUiState(
+            settings = AppSettings(overviewCreditLayout = OverviewCreditLayout.COMPACT),
+            credits = listOf(entry(id = "credit-deepseek", amount = "3.18", provider = CreditProviderId.DEEPSEEK, label = "DeepSeek")),
+        )
+        compose.setContent {
+            UsageLimitsTheme {
+                OverviewScreen(
+                    state = state, nowMs = clock, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                    onPercentDisplayChange = {},
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        val hint = hasContentDescription("Credits · 1 balance, Low balance: DeepSeek \$3.18")
+        assertEquals(1, compose.onAllNodes(hint).fetchSemanticsNodes().size)
+        compose.runOnIdle { clock = now + state.staleAfterMs - 1 }
+        compose.waitForIdle()
+        assertEquals("one millisecond before stale, the hint remains", 1, compose.onAllNodes(hint).fetchSemanticsNodes().size)
+        compose.runOnIdle { clock = now + state.staleAfterMs }
+        compose.waitForIdle()
+        assertEquals("at the stale threshold, the hint disappears", 0, compose.onAllNodes(hint).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    @Config(qualifiers = "w393dp-h2400dp-xhdpi")
+    fun `empty compact credits fall back to the dashed normal entry`() {
+        render {
+            OverviewScreen(
+                state = UsageUiState(settings = AppSettings(overviewCreditLayout = OverviewCreditLayout.COMPACT)),
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+                onCreditClick = {}, onAddCredit = {},
+            )
+        }
+
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Add credit balance"))
+        compose.onNode(hasText("Add credit balance")).assertExists()
+        compose.onNode(hasText("No prepaid balances tracked.")).assertExists()
     }
 
     @Test fun `the add screen lists every provider with Anthropic and OpenAI disabled`() {
