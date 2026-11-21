@@ -30,11 +30,12 @@ fun ProviderLogo(
     modifier: Modifier = Modifier,
     figure: FigureSlot? = null,
     mood: ClaudeCodeMood = ClaudeCodeMood.IDLE,
+    accountId: String? = null,
 ) {
     val choice = ProviderIconCatalog.selected(provider, LocalProviderIcons.current[provider.id])
     val fill = if (figure != null) choice.claudeCodeFill() else null
     if (fill != null && figure != null) {
-        ClaudeCodeFigure(mood, fill, figure, modifier, contentDescription = provider.displayName)
+        ClaudeCodeFigure(mood, fill, figure, modifier, contentDescription = provider.displayName, accountId = accountId)
     } else {
         ProviderArtwork(choice, provider.displayName, modifier)
     }
@@ -57,10 +58,11 @@ fun ProviderBadge(
     size: Dp = 40.dp,
     figure: FigureSlot? = null,
     mood: ClaudeCodeMood = ClaudeCodeMood.IDLE,
+    accountId: String? = null,
 ) {
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         val figureShown = figure != null &&
             ProviderIconCatalog.selected(provider, LocalProviderIcons.current[provider.id]).claudeCodeFill() != null
-        ProviderLogo(provider, if (figureShown) Modifier.fillMaxSize() else Modifier.size(size * 0.70f), figure, mood)
+        ProviderLogo(provider, if (figureShown) Modifier.fillMaxSize() else Modifier.size(size * 0.70f), figure, mood, accountId)
     }
 }

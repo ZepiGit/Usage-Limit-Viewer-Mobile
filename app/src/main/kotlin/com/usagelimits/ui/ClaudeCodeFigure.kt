@@ -73,18 +73,31 @@ internal fun ClaudeCodeFigure(
     slot: FigureSlot,
     modifier: Modifier = Modifier,
     contentDescription: String? = null,
+    accountId: String? = null,
 ) {
     val animate = LocalMotionEnabled.current && LocalAnimateClaudeCodeIcon.current
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     var visible by remember { mutableStateOf(false) }
+    val playback = LocalHoorayPlayback.current
+    val eligible = accountId != null && slot != FigureSlot.RESETS &&
+        slot != FigureSlot.LIST_PREVIEW && slot != FigureSlot.DIAL_PREVIEW
+    val resumed = lifecycle.isAtLeast(Lifecycle.State.RESUMED)
+    androidx.compose.runtime.DisposableEffect(playback, accountId, eligible, visible, resumed) {
+        if (playback != null && accountId != null && eligible && visible && resumed) {
+            playback.visible(accountId)
+            onDispose { playback.hidden(accountId) }
+        } else onDispose { }
+    }
+    val presentationStart = if (eligible) playback?.startedAt(accountId) else null
+    val shownMood = if (presentationStart != null && resumed) ClaudeCodeMood.HOORAY else mood
     val clock = remember { FigureClock() }
-    val running = animate && visible && lifecycle.isAtLeast(Lifecycle.State.RESUMED)
-    LaunchedEffect(running, mood) {
+    val running = animate && visible && resumed
+    LaunchedEffect(running, shownMood, presentationStart) {
         clock.time = STILL
-        if (running) clock.run()
+        if (running) clock.run(presentationStart)
     }
     val sizePx = with(LocalDensity.current) { slot.size.toPx() }
-    val art = remember(mood, sizePx) { ClaudeCodeArt(mood, sizePx) }
+    val art = remember(shownMood, sizePx) { ClaudeCodeArt(shownMood, sizePx) }
     val sleepInk = UsageColors.Muted
     Spacer(
         modifier
@@ -124,10 +137,11 @@ private class FigureClock {
      * Runs until cancelled. An infinite animation by the platform's rules: a Compose test that lets
      * its clock run on its own does not run it, and the figure keeps its still pose there.
      */
-    suspend fun run() {
+    suspend fun run(presentationStart: Long? = null) {
         durationScale = coroutineContext[MotionDurationScale]
-        start = withInfiniteAnimationFrameNanos { it }
-        time = 0L
+        val firstFrame = withInfiniteAnimationFrameNanos { it }
+        start = presentationStart ?: firstFrame
+        onFrame(firstFrame)
         while (true) withInfiniteAnimationFrameNanos(onFrame)
     }
 

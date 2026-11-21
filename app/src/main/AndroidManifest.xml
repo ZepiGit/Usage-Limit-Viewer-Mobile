@@ -190,22 +190,24 @@
         <!--
           WorkManager initialises on demand, not from a content provider.
 
-          The default `InitializationProvider` runs before `Application.onCreate` and is invisible
+          WorkManager's default initializer runs before `Application.onCreate` and is invisible
           from anywhere: if it does not run, `WorkManager.getInstance` throws, the app's start-up
           scheduling fails, and nothing on screen says the background refresh will never happen.
           Removing it and declaring the Application as `Configuration.Provider` makes
           initialisation deterministic, ordered after `onCreate`, and reachable from a test — which
           is how the failure above was found in the first place.
 
-          Removing the whole provider also disables other libraries' Startup initializers.
-          UsageLimitsApp.onCreate explicitly calls OkHttp.initialize(this) before creating clients,
-          so OkHttp's Android public-suffix asset can be read. Any new Startup initializer needs
-          equivalent manual initialisation in the Application.
+          Keep only ProcessLifecycleInitializer for the process foreground signal. WorkManager
+          remains on demand, and OkHttp is initialized explicitly by UsageLimitsApp.
         -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
             android:exported="false"
-            tools:node="remove" />
+            tools:node="replace">
+            <meta-data
+                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+                android:value="androidx.startup" />
+        </provider>
     </application>
 </manifest>

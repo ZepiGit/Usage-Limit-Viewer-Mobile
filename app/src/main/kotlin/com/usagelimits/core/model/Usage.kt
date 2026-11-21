@@ -57,6 +57,8 @@ data class UsageWindow(
     val group: String? = null,
     val scope: UsageScope = UsageScope.GLOBAL,
     val segments: List<UsageSegment> = emptyList(),
+    /** False for a retained window in a partial result; it is not a new measurement. */
+    val measured: Boolean = true,
 ) {
     val remainingPercent: Double?
         get() {

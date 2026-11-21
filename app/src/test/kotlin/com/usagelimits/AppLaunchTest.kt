@@ -57,7 +57,7 @@ class AppLaunchTest {
 
     @Test
     fun `work manager is configured by the application rather than a content provider`() {
-        // The manifest removes `InitializationProvider`, so this resolving at all proves the
+        // The manifest excludes WorkManager's initializer, so this resolving at all proves the
         // Application's own `Configuration.Provider` is what supplies it.
         assertNotNull(WorkManager.getInstance(app()))
     }

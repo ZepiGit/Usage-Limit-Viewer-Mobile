@@ -156,6 +156,7 @@ dependencies {
     implementation("sh.calvin.reorderable:reorderable:3.1.0")
     implementation(libs.androidx.core)
     implementation(libs.androidx.lifecycle.runtime)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
 

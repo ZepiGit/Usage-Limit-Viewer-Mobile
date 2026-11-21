@@ -243,7 +243,7 @@ internal fun OverviewDialTile(
         // A different headline starts with its own arc and figure.
         key(account.localId, entry.headlineWindowId) {
             DialReading(account.provider, window, presentation, expired, figure, figureColor, compact,
-                snapshot.claudeCodeMoodAt(nowMs))
+                snapshot.claudeCodeMoodAt(nowMs), account.localId)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -281,6 +281,7 @@ private fun DialReading(
     figureColor: Color,
     compact: Boolean,
     mood: ClaudeCodeMood,
+    accountId: String,
 ) {
     val diameter = if (compact) 64.dp else 104.dp
     val stroke = if (compact) 5.dp else 8.dp
@@ -291,7 +292,7 @@ private fun DialReading(
             DialRing(presentation, window?.severity ?: Severity.UNKNOWN, expired, diameter, stroke)
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp)) {
                 ProviderLogo(provider, Modifier.size(if (compact) 16.dp else 30.dp),
-                    if (compact) FigureSlot.DIAL_PREVIEW else FigureSlot.DIAL, mood)
+                    if (compact) FigureSlot.DIAL_PREVIEW else FigureSlot.DIAL, mood, accountId)
                 if (!figureOutside) DialFigure(window, presentation, figure, figureColor, figureStyle)
             }
         }

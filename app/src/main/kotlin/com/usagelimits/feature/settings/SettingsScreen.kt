@@ -117,7 +117,8 @@ fun SettingsScreen(
             // The first Claude account in unfiltered Overview order speaks for Claude's row; none is Idle.
             val claude = state.accounts.inOverviewOrder(nowMs).firstOrNull { it.account.provider == ProviderId.CLAUDE }
             ProviderIconSettings(settings.providerIcons, claude?.snapshot.claudeCodeMoodAt(nowMs),
-                settings.animateClaudeCodeIcon, onAnimateClaudeCodeIconChange, onProviderIconChange)
+                settings.animateClaudeCodeIcon, onAnimateClaudeCodeIconChange,
+                claudeAccountId = claude?.account?.localId, onChoose = onProviderIconChange)
         }
         item { AppIconSettings() }
         item { SectionHeader(stringResource(R.string.settings_section_sync)) }

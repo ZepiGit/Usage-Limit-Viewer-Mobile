@@ -119,7 +119,7 @@ fun AccountDetailScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 com.usagelimits.ui.ProviderBadge(provider = usage.account.provider, size = 34.dp,
                     figure = com.usagelimits.ui.FigureSlot.DETAIL,
-                    mood = snapshot.claudeCodeMoodAt(nowMs))
+                    mood = snapshot.claudeCodeMoodAt(nowMs), accountId = usage.account.localId)
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(

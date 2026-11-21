@@ -11,6 +11,7 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.model.inOverviewOrder
+import com.usagelimits.core.model.confirmedResetWindowIds
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -91,6 +92,7 @@ class UsageRepository(
         val group: String? = null,
         val scope: String? = null,
         val segments: List<StoredSegment> = emptyList(),
+        val measured: Boolean = true,
     )
 
     @Serializable
@@ -177,6 +179,7 @@ class UsageRepository(
             ),
             // A new account joins the end of the list, not the front of it.
             sortOrder = existing?.sortOrder ?: accountDao.nextSortOrder(),
+            pendingResetConfirmationAt = existing?.pendingResetConfirmationAt,
         )
         accountDao.upsert(entity)
         // Built from a known ProviderId a moment ago, so this cannot be null.
@@ -222,7 +225,13 @@ class UsageRepository(
         // The guard and the write are one step. Apart, the account could be deleted in the gap
         // between them and the insert would raise the very constraint violation the guard
         // exists to prevent — the failure the paragraph above describes, still reachable.
-        if (accountDao.getById(snapshot.accountId) != null) {
+        val account = accountDao.getById(snapshot.accountId)
+        if (account != null) {
+            if (account.provider == ProviderId.CLAUDE.id && account.pendingResetConfirmationAt == null &&
+                snapshot.confirmedResetWindowIds(snapshotDao.getForAccount(snapshot.accountId)?.toDomain(ProviderId.CLAUDE)).isNotEmpty()
+            ) {
+                accountDao.upsert(account.copy(pendingResetConfirmationAt = snapshot.fetchedAt))
+            }
             snapshotDao.upsert(
                 UsageSnapshotEntity(
                     accountId = snapshot.accountId,
@@ -250,6 +259,13 @@ class UsageRepository(
                 accountDao.markSynced(snapshot.accountId, snapshot.fetchedAt)
             }
         }
+    }
+
+    /** Claims and clears together, ordered against every snapshot commit and account removal. */
+    suspend fun claimPendingResetConfirmations(): Set<String> = transactions.inTransaction {
+        val pending = accountDao.getAll().filter { it.pendingResetConfirmationAt != null }
+        for (account in pending) accountDao.upsert(account.copy(pendingResetConfirmationAt = null))
+        pending.mapTo(linkedSetOf()) { it.localId }
     }
 
     /**
@@ -362,10 +378,12 @@ class UsageRepository(
         group = group,
         scope = scope.name,
         segments = segments.map { StoredSegment(it.label, it.usedPercent) },
+        measured = measured,
     )
 
     private fun StoredWindow.toDomain(provider: ProviderId?, hasLegacyXaiOnDemand: Boolean) = UsageWindow(
         segments = segments.map { UsageSegment(it.label, it.usedPercent) },
+        measured = measured,
         id = id,
         label = label,
         category = runCatching { WindowCategory.valueOf(category) }

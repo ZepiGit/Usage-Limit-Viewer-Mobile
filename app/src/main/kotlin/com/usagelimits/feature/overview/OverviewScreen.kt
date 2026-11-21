@@ -536,7 +536,8 @@ private fun OverviewAccountRow(
         val logoSize = if (compact) 20.dp else 28.dp
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = logoSize)) {
             ProviderLogo(usage.account.provider, Modifier.size(logoSize),
-                if (compact) FigureSlot.LIST_PREVIEW else FigureSlot.LIST_ROW, snapshot.claudeCodeMoodAt(nowMs))
+                if (compact) FigureSlot.LIST_PREVIEW else FigureSlot.LIST_ROW, snapshot.claudeCodeMoodAt(nowMs),
+                accountId = usage.account.localId)
             Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
             // Title and mark take the free width, so the chevron ends every row at the same x.
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
