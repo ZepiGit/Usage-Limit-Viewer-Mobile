@@ -242,6 +242,43 @@ class CreditsWidgetRenderingTest {
         }
     }
 
+    @Test
+    @Config(qualifiers = "de-rDE-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `small tile displays the entire German currency amount`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            val now = System.currentTimeMillis()
+            val id = "currency-fit"
+            val account = CreditAccount(id, CreditProviderId.OPENROUTER, "Status account", "credit:$id", createdAt = now)
+            val problems = mutableListOf<String>()
+            for (failed in listOf(false, true)) {
+                val status = if (failed) CreditStatus.FAILED else CreditStatus.OK
+                app.container.creditRepository.upsert(account, CreditSnapshot(id,
+                    listOf(CreditBalance("USD", BigDecimal("20"), unlimited = failed)), fetchedAt = now,
+                    status = status, error = if (failed) "Network error" else null))
+                val view = smallTile(app)
+                capture(view, if (failed) "amount-uncapped-failed-de" else "amount-current-capped-de").recycle()
+                val amount = texts(view, "20,00").single() as TextView
+                val layout = amount.layout
+                val contentWidth = amount.width - amount.totalPaddingLeft - amount.totalPaddingRight
+                val ellipsis = layout.getEllipsisCount(0)
+                val visibleEnd = layout.getLineVisibleEnd(0)
+                val details = "$status: '${amount.text}', laid out ${layout.getLineWidth(0)} px in $contentWidth px, " +
+                    "text size ${amount.textSize} px, ellipsis start ${layout.getEllipsisStart(0)}, count $ellipsis, visible end $visibleEnd"
+                println(details)
+                if (amount.text.toString().replace('\u00a0', ' ') != "20,00 $" || layout.lineCount != 1 ||
+                    ellipsis != 0 || visibleEnd != amount.text.length || layout.getLineWidth(0) > contentWidth) {
+                    problems += details
+                }
+            }
+            assertTrue(problems.joinToString("; "), problems.isEmpty())
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test fun `composes empty and with accounts at every size`() = runTest {
         val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))

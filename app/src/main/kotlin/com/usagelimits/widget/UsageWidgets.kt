@@ -129,12 +129,16 @@ internal fun widgetText(color: Color, size: Int, weight: FontWeight = FontWeight
 internal fun fittedMonoSize(text: String, sizeSp: Float, maxWidth: Dp, resources: Resources): Float {
     val metrics = resources.displayMetrics
     val available = maxWidth.value * metrics.density
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         textSize = TypedValueCompat.spToPx(sizeSp, metrics)
     }
     val width = paint.measureText(text)
-    return if (width <= available) sizeSp else TypedValueCompat.pxToSp(paint.textSize * available / width, metrics)
+    if (width <= available) return sizeSp
+    // TextView rounds glyph advances. Check again at the smaller size rather than scaling widths linearly.
+    paint.textSize = (paint.textSize * available / width).toInt().toFloat()
+    while (paint.textSize > 1f && paint.measureText(text) > available) paint.textSize -= 1f
+    return TypedValueCompat.pxToSp(paint.textSize, metrics)
 }
 
 /** The panel's corner: the launcher's own radius where the system states it, 16dp before API 31. */
