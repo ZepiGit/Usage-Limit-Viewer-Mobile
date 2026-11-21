@@ -9,6 +9,9 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.ContextThemeWrapper
 import android.view.View
+import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.TextView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
