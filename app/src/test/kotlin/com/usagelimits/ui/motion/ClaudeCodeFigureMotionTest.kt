@@ -137,7 +137,9 @@ class ClaudeCodeFigureMotionTest {
 
             region("still")
             compose.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
-            assertEquals("still pose in every frame below RESUMED", List(30) { true }, recorder.stillPoses(30))
+            // Ten frames: each costs the test rule's idle timeout here, as it finds no composition
+            // below RESUMED; the Dancing loop redraws on every other one of them.
+            assertEquals("still pose in every frame below RESUMED", List(10) { true }, recorder.stillPoses(10))
 
             compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
             recorder.next(2)

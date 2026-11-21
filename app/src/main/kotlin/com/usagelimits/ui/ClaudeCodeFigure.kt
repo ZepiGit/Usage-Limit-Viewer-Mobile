@@ -3,7 +3,6 @@ package com.usagelimits.ui
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -52,7 +51,6 @@ enum class FigureSlot(val size: Dp, val amplitude: Float) {
 
 /** The figure's fill for this icon choice, or null when the choice keeps its static artwork. */
 @Composable
-@ReadOnlyComposable
 internal fun ProviderIconChoice.claudeCodeFill(): Color? = when (id) {
     "claudecode-color" -> ClaudeCodeBrand
     "claudecode" -> UsageColors.Ink
@@ -87,6 +85,7 @@ internal fun ClaudeCodeFigure(
     }
     val sizePx = with(LocalDensity.current) { slot.size.toPx() }
     val art = remember(mood, sizePx) { ClaudeCodeArt(mood, sizePx) }
+    val sleepInk = UsageColors.Muted
     Spacer(
         modifier
             .then(if (contentDescription == null) Modifier else Modifier.semantics {
@@ -96,7 +95,7 @@ internal fun ClaudeCodeFigure(
             .onVisibilityChanged { visible = it }
             .drawBehind {
                 val origin = Offset((size.width - sizePx) / 2f, (size.height - sizePx) / 2f)
-                art.draw(this, fill, origin, clock.time, slot.amplitude)
+                art.draw(this, fill, sleepInk, origin, clock.time, slot.amplitude)
             },
     )
 }

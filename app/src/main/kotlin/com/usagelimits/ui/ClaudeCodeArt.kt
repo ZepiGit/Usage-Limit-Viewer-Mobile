@@ -32,30 +32,40 @@ import com.usagelimits.core.model.ClaudeCodeMood
 /** The brand fill of the "Claude Code · Color" icon, as in `claudecode-color.svg`. */
 internal val ClaudeCodeBrand = Color(0xFFD97757)
 
-// The figure's own art colours (CH-3 appendix). They belong to the drawing, like the brand fill,
-// so a placed widget gets the same figure whatever the app's appearance.
-private val SleepColor = Color(0xFFB4B2A9)
+// The sweat drop and the sparkles are the figure's own art colours (CH-3 appendix), mid tones that
+// read on light and dark grounds alike. The "z" is muted text, so its colour is passed in.
 private val SweatColor = Color(0xFF9CC3E6)
 private val SparkColor = Color(0xFFE6C24A)
+
+/** The "z" of the appendix (#B4B2A9, the muted text of the dark palette): the still export's default. */
+private const val APPENDIX_SLEEP = 0xFFB4B2A9.toInt()
 
 /** The time a figure is given when it must stand still: the mood's still pose, not a frame of its loop. */
 internal const val STILL = -1L
 
 /**
  * The still of [mood] for a placed widget, drawn into a square bitmap of [bitmapPx] with the
- * figure, [figurePx] wide, in its centre. [fill] is the ink; the eyes are cut out, so whatever the
- * widget draws behind the bitmap shows through them. Nothing here reads the app's appearance.
+ * figure, [figurePx] wide, in its centre. [fill] is the ink and [sleepInk] the Asleep "z"; the eyes
+ * are cut out, so whatever the widget draws behind the bitmap shows through them. Nothing here
+ * reads the app's appearance.
  *
  * Some still particles sit outside the figure's own box (the notes up to 8 % to the side, the
  * sparkles up to 14 % above), so a bitmap about 1.3 times the figure keeps all of them.
  */
-fun claudeCodeStillBitmap(mood: ClaudeCodeMood, @ColorInt fill: Int, figurePx: Int, bitmapPx: Int = figurePx): Bitmap {
+fun claudeCodeStillBitmap(
+    mood: ClaudeCodeMood,
+    @ColorInt fill: Int,
+    figurePx: Int,
+    bitmapPx: Int = figurePx,
+    @ColorInt sleepInk: Int = APPENDIX_SLEEP,
+): Bitmap {
     require(bitmapPx >= figurePx) { "the bitmap must hold the figure" }
     val bitmap = ImageBitmap(bitmapPx, bitmapPx)
     val inset = (bitmapPx - figurePx) / 2f
     CanvasDrawScope().draw(Density(1f), LayoutDirection.Ltr, androidx.compose.ui.graphics.Canvas(bitmap),
         Size(bitmapPx.toFloat(), bitmapPx.toFloat())) {
-        ClaudeCodeArt(mood, figurePx.toFloat()).draw(this, Color(fill), Offset(inset, inset), STILL, amplitude = 0f)
+        ClaudeCodeArt(mood, figurePx.toFloat())
+            .draw(this, Color(fill), Color(sleepInk), Offset(inset, inset), STILL, amplitude = 0f)
     }
     return bitmap.asAndroidBitmap()
 }
@@ -94,11 +104,11 @@ internal class ClaudeCodeArt(private val mood: ClaudeCodeMood, sizePx: Float) {
      * Draws the figure with its box's top left at [origin]. [timeNanos] is the time since its loop
      * started, or [STILL]; [amplitude] scales the whole-figure movement for the slot.
      */
-    fun draw(scope: DrawScope, fill: Color, origin: Offset, timeNanos: Long, amplitude: Float) = with(scope) {
+    fun draw(scope: DrawScope, fill: Color, sleepInk: Color, origin: Offset, timeNanos: Long, amplitude: Float) = with(scope) {
         pose.update(mood, timeNanos, amplitude)
         translate(origin.x, origin.y) {
             drawFigure(fill)
-            drawParticles(fill, timeNanos)
+            drawParticles(fill, sleepInk, timeNanos)
         }
     }
 
@@ -136,7 +146,7 @@ internal class ClaudeCodeArt(private val mood: ClaudeCodeMood, sizePx: Float) {
         canvas.restore()
     }
 
-    private fun DrawScope.drawParticles(fill: Color, time: Long) {
+    private fun DrawScope.drawParticles(fill: Color, sleepInk: Color, time: Long) {
         val still = time == STILL
         when (mood) {
             ClaudeCodeMood.ASLEEP -> for (i in sleep.indices) {
@@ -145,13 +155,13 @@ internal class ClaudeCodeArt(private val mood: ClaudeCodeMood, sizePx: Float) {
                 val y = figurePx * (0.06f - 0.06f * i)
                 if (still) {
                     // Only the first "z" shows, at rest where its rise begins.
-                    if (i == 0) translateTo(x, y, glyph, 0f, 0f, 1f, 1f, SleepColor)
+                    if (i == 0) translateTo(x, y, glyph, 0f, 0f, 1f, 1f, sleepInk)
                     continue
                 }
                 val p = phase(time, 2_700_000_000L, 900_000_000L * i)
                 val opacity = if (p < 0.2f) segment(p, 0f, 0.2f, 0f, 1f, EaseOut) else segment(p, 0.2f, 1f, 1f, 0f, EaseOut)
                 val travel = EaseOut.transform(p)
-                translateTo(x, y, glyph, 0.7f * travel, -1.7f * travel, 0.6f + 0.4f * travel, opacity, SleepColor)
+                translateTo(x, y, glyph, 0.7f * travel, -1.7f * travel, 0.6f + 0.4f * travel, opacity, sleepInk)
             }
             ClaudeCodeMood.TIRED -> {
                 val drop = sweat ?: return

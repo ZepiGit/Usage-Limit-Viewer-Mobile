@@ -509,12 +509,19 @@ class RedesignCaptureTest {
 
     @Test fun `claude code figure stills and screens`() {
         val current = mutableStateOf<@Composable () -> Unit>({})
+        val theme = mutableStateOf(AppTheme.PURE_BLACK)
         compose.setContent {
-            UsageLimitsTheme {
+            UsageLimitsTheme(appTheme = theme.value) {
                 CompositionLocalProvider(LocalMotionEnabled provides false) { current.value() }
             }
         }
-        for ((name, content) in listOf<Pair<String, @Composable () -> Unit>>("claude-still-sheet" to { ClaudeStillSheet() }) + claudeScreens()) {
+        val cases = listOf<Pair<String, @Composable () -> Unit>>("claude-still-sheet" to { ClaudeStillSheet() }) + claudeScreens()
+        // Light paper: the Monochrome figure takes the theme's ink and the "z" its muted text.
+        val paper = cases.filter { (name, _) -> name in setOf("claude-still-sheet", "claude-overview-list", "claude-settings-monochrome") }
+        for ((index, case) in (cases + paper).withIndex()) {
+            val light = index >= cases.size
+            theme.value = if (light) AppTheme.LIGHT_PAPER else AppTheme.PURE_BLACK
+            val (name, content) = if (light) "${case.first}-light-paper" to case.second else case
             current.value = { androidx.compose.runtime.key(name) { content() } }
             compose.waitForIdle()
             if (name.startsWith("claude-settings-preview")) {
