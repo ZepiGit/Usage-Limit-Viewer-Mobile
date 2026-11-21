@@ -35,7 +35,7 @@ or cached scene cannot read that file and is not promised to match the saved cho
 The environment default is `UsageAppearance.widget`: the original Warm dark roles and native
 system text/monospace. `UsageColors` remains that fixed palette for WidgetKit, and `WidgetInk`
 continues to resolve its own saved panel. A widget-styled app preview explicitly installs
-`.environment(\\.usageAppearance, .widget)`. No extension target receives `UIAppFonts`, the
+`.environment(\.usageAppearance, .widget)`. No extension target receives `UIAppFonts`, the
 canonical font folder or notices. Display mode and provider artwork remain shared as before.
 
 The app references `third_party/fonts/android-res` directly as an Xcode folder resource. Its
