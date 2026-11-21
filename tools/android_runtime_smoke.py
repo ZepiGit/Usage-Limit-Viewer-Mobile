@@ -2,7 +2,9 @@
 """Upgrade and navigate the actual release APK on an empty API 37 CI emulator.
 
 Uses only adb and the Python standard library. No credentials or provider calls; the release app
-stays empty. With --debug-apk (Android CI), the List is then checked in this run's debug build, with
+stays empty. Its existing offline widget check also selects Figtree and IBM Plex Mono, opens the
+bundled Font licences dialog and verifies the saved pair after force-stop/reopen. With --debug-apk
+(Android CI), the List is then checked in this run's debug build, with
 synthetic accounts from its debug-only evidence receiver, installed beside the release app after
 every release check and left installed until the emulator is discarded. That lane shows the List,
 a chip's press highlight and a row opening its account; it does not observe the debug build's later
@@ -1183,6 +1185,10 @@ class Smoke:
             report["offline"]["verificationSeconds"] = time.monotonic() - started
             report["offline"]["afterVerification"] = state("widgets-network-offline-verified")
             assert is_offline(report["offline"]["afterVerification"]), "Offline state changed during widget verification"
+            self.verify_fonts_offline()
+            report["offline"]["fontReport"] = "fonts.json"
+            report["offline"]["afterFonts"] = state("fonts-network-offline-verified")
+            assert is_offline(report["offline"]["afterFonts"]), "Offline state changed during font verification"
         finally:
             try:
                 self.adb("shell", "cmd", "connectivity", "airplane-mode",
@@ -1522,6 +1528,71 @@ class Smoke:
                             "sha256": hashlib.sha256(data).hexdigest()})
             if observe is not None:
                 observe(samples[-1], data)
+
+    @staticmethod
+    def font_option(root, label):
+        """Find the font's radio, with or without its merged decorative figure sample."""
+        parents = {child: parent for parent in root.iter() for child in parent}
+        controls = {}
+        for node in root.iter("node"):
+            if node.get("package") != PACKAGE or not any(
+                " ".join(node.get(key, "").split()) in (label, "61% " + label, label + " 61%")
+                for key in ("text", "content-desc")
+            ):
+                continue
+            while node is not None and node.get("package") == PACKAGE:
+                if node.get("enabled") == "true" and node.get("checkable") == "true" and bounds(node):
+                    controls[bounds(node)] = node
+                    break
+                node = parents.get(node)
+        assert len(controls) <= 1, f"Ambiguous font radio: {label}"
+        return next(iter(controls.values()), None)
+
+    def verify_fonts_offline(self):
+        """09b: called inside the existing verified offline window, on the empty release app."""
+        def reach(label, name, radio=False):
+            for attempt in range(9):
+                root = self.dump(f"{name}-{attempt}")
+                target = self.font_option(root, label) if radio else self.control(root, PACKAGE, label=label)
+                if target is not None:
+                    return target
+                self.scroll(root, up=True)
+            raise AssertionError(f"Could not reach font setting: {label}; see {name} captures")
+
+        self.launch("fonts-start")
+        self.navigate("Settings", "Appearance", "fonts-settings")
+        labels = ("Figtree", "IBM Plex Mono")
+        for label in labels:
+            name = "fonts-selected-" + label.replace(" ", "-")
+            target = reach(label, name, radio=True)
+            if not self.selected(target):
+                assert target.get("clickable") == "true", f"Unselected {label} radio is not clickable"
+                self.tap(target)
+            self.wait_for(name + "-loaded", lambda root: (
+                (option := self.font_option(root, label)) is not None and self.selected(option)))
+            self.capture(name)
+        self.tap(reach("Font licences", "fonts-licences-entry"))
+        self.wait_for("fonts-licences-loaded", lambda root: bool(matches(root, "Font licences")) and any(
+            "SIL OPEN FONT LICENSE" in " ".join(node.get("text", "").split())
+            for node in root.iter("node") if node.get("package") == PACKAGE)
+            and self.control(root, PACKAGE, label="Done") is not None)
+        self.capture("fonts-licences")
+        self.tap(self.control(self.dump("fonts-licences-close"), PACKAGE, label="Done"))
+        self.wait_for("fonts-licences-closed", lambda root: selected_tab(root, "Settings")
+                      and self.control(root, PACKAGE, label="Done") is None)
+        self.adb("shell", "am", "force-stop", PACKAGE)
+        self.launch("fonts-relaunch")
+        self.navigate("Settings", "Appearance", "fonts-relaunch-settings")
+        for label in labels:
+            name = "fonts-persisted-" + label.replace(" ", "-")
+            target = reach(label, name, radio=True)
+            assert self.selected(target), f"Saved {label} selection was lost after force-stop/reopen"
+            self.capture(name)
+        self.text("fonts.json", json.dumps({
+            "result": "passed", "selectedFonts": labels, "licences": "fonts-licences.xml",
+            "networkEvidence": "widgets-network.json",
+            "scope": "Empty-account release Settings: selected font radios, bundled OFL text offline, and saved pair after force-stop/reopen; no provider calls or glyph-shape measurement.",
+        }, indent=2))
 
     def verify_theme_launches(self):
         """09a: Settings UI selection, stopped release launch, then the existing bounded tier search."""
@@ -2002,7 +2073,7 @@ def main():
     smoke.assert_no_app_failures()
     smoke.text("result.json", json.dumps({"result": "passed", "commit": os.environ["GITHUB_SHA"],
         "apkSha256": new["sha256"], "upgradePreservedSetting": SETTING, "tabs": list(TABS), "themeLaunches": theme_launches,
-        "widgets": placed_widgets, **seeded,
+        "fonts": "fonts.json", "widgets": placed_widgets, **seeded,
         "scope": "Empty-account release smoke with four launcher widgets"
                  + (", then this run's debug build with synthetic accounts for the List and its filter chips"
                     if args.debug_apk else "; the seeded List steps were skipped (no --debug-apk)")
