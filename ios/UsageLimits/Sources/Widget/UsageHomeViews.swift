@@ -20,6 +20,7 @@ private struct MediumAccountRow: View {
     /// From the snapshot, never from settings: the widget process cannot see them.
     let mode: PercentDisplay
     var ink: WidgetInk = .light
+    var showsProviderMark: Bool = false
 
     /// Built from the raw row — `rowSeverity` below is aged and only colours the figure.
     private var presentation: WindowPresentation {
@@ -38,6 +39,9 @@ private struct MediumAccountRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
+                if showsProviderMark {
+                    WidgetProviderMark(account: account, date: now, size: 27, ink: ink)
+                }
                 // A severity dot: the colour-blind-readable twin of the bar colour.
                 // Redundant to VoiceOver, which already hears the percentage.
                 // A healthy account is the default and keeps the slot empty, so titles align.
@@ -80,6 +84,7 @@ struct UsageWidgetSmallView: View {
     let entry: UsageEntry
     var transparent: Bool = false
     var ink: WidgetInk = .light
+    var showsProviderMark: Bool = false
 
     var body: some View {
         Group {
@@ -90,6 +95,7 @@ struct UsageWidgetSmallView: View {
             }
         }
         .widgetBackground(transparent ? nil : UsageColors.ground)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .widgetURL(DeepLink.glance)
     }
 
@@ -118,10 +124,15 @@ struct UsageWidgetSmallView: View {
             of: focus.row, at: entry.date, staleAfter: entry.snapshot.staleAfter,
             mode: entry.snapshot.percentDisplay)
         return VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: focus.account.title)
-                .usageFont(.bodyStrong)
-                .foregroundColor(ink.primary)
-                .lineLimit(1)
+            HStack(spacing: 8) {
+                if showsProviderMark {
+                    WidgetProviderMark(account: focus.account, date: entry.date, size: 27, ink: ink)
+                }
+                Text(verbatim: focus.account.title)
+                    .usageFont(.bodyStrong)
+                    .foregroundColor(ink.primary)
+                    .lineLimit(1)
+            }
 
             if let row = focus.row {
                 Text(verbatim: row.displayLabel)
@@ -183,6 +194,7 @@ struct UsageWidgetMediumView: View {
     let entry: UsageEntry
     var transparent: Bool = false
     var ink: WidgetInk = .light
+    var showsProviderMark: Bool = false
 
     /// The kit's order, untouched. See `WidgetFocus` for what re-ranking here cost.
     private var rankedAccounts: [GlanceAccount] {
@@ -217,6 +229,7 @@ struct UsageWidgetMediumView: View {
             }
         }
         .widgetBackground(transparent ? nil : UsageColors.ground)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .widgetURL(DeepLink.glance)
     }
 
@@ -231,7 +244,7 @@ struct UsageWidgetMediumView: View {
                     now: entry.date,
                     staleAfter: entry.snapshot.staleAfter,
                     mode: entry.snapshot.percentDisplay,
-                    ink: ink)
+                    ink: ink, showsProviderMark: showsProviderMark)
             }
 
             if hiddenCount > 0 {
@@ -262,6 +275,7 @@ struct UsageWidgetLargeView: View {
     let entry: UsageEntry
     let transparent: Bool
     var ink: WidgetInk = .light
+    var showsProviderMark: Bool = false
 
     /// Eight at regular sizes, five once the type is large enough that eight would clip.
     private var visibleLimit: Int { dynamicTypeSize >= .xLarge ? 5 : 8 }
@@ -289,6 +303,7 @@ struct UsageWidgetLargeView: View {
             }
         }
         .widgetBackground(transparent ? nil : UsageColors.ground)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .widgetURL(DeepLink.glance)
     }
 
@@ -303,7 +318,7 @@ struct UsageWidgetLargeView: View {
                     now: entry.date,
                     staleAfter: entry.snapshot.staleAfter,
                     mode: entry.snapshot.percentDisplay,
-                    ink: ink)
+                    ink: ink, showsProviderMark: showsProviderMark)
             }
 
             if hiddenCount > 0 {

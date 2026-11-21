@@ -77,7 +77,6 @@ struct UsageRingWidgetView: View {
             if let rowReset = focus.row?.resetAt, rowReset <= entry.date { return rowReset }
             return entry.snapshot.nextResetAt
         }()
-        let mode = entry.snapshot.percentDisplay
         // Built from the raw row; the aged `severity` above only colours the figure.
         let p = presentation(for: focus)
         return VStack(spacing: 6) {
@@ -87,19 +86,11 @@ struct UsageRingWidgetView: View {
                     lineWidth: 9,
                     ink: ink)
                 VStack(spacing: 1) {
-                    // No room beside the figure inside a ring, so the side word is a caption
-                    // under it, in the smallest face the widgets have.
                     WidgetFigure(
                         presentation: p,
                         font: .ringFigure, ink: ink, severity: severity, showsSideWord: false)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
-                    if p.hasFigure {
-                        Text(verbatim: PercentText.sideWord(mode))
-                            .usageFont(.micro)
-                            .foregroundColor(ink.secondary)
-                            .lineLimit(1)
-                    }
                     if let row = focus.row {
                         Text(verbatim: row.displayLabel)
                             .usageFont(.micro)
@@ -110,7 +101,8 @@ struct UsageRingWidgetView: View {
                 .padding(10)
             }
             .accessibilityElement()
-            .accessibilityLabel(spoken(p, focus))
+            .accessibilityLabel(WidgetRingSpeech.label(account: focus.account, row: focus.row,
+                presentation: p, date: entry.date, staleAfter: entry.snapshot.staleAfter, resetAt: shownReset))
 
             Text(verbatim: focus.account.title)
                 .usageFont(.smallStrong)
@@ -134,6 +126,7 @@ struct UsageRingWidgetView: View {
             }
         }
         .padding(10)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private func presentation(for focus: WidgetFocus) -> WindowPresentation {
@@ -142,13 +135,5 @@ struct UsageRingWidgetView: View {
             mode: entry.snapshot.percentDisplay)
     }
 
-    private func spoken(_ p: WindowPresentation, _ focus: WidgetFocus) -> String {
-        let subject = GlanceText.subject(focus.account, focus.row)
-        guard p.hasFigure else {
-            return String(localized: "\(subject): remaining unknown")
-        }
-        let said = PercentText.spoken(PercentText.figure(p), entry.snapshot.percentDisplay)
-        return String(localized: "\(subject): \(said)")
-    }
 }
 

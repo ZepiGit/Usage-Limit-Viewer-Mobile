@@ -52,6 +52,7 @@ jobs:
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneCredits
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneClaudeMood
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneClaudeStillSheet
+                -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneWidgetLayoutGuidance
               )
             else
               udid="$ipad"
@@ -87,7 +88,8 @@ jobs:
             iphone-overview iphone-overview-dials iphone-overview-order iphone-overview-detail iphone-overview-empty iphone-resets iphone-settings \
             iphone-settings-layout iphone-custom-layout iphone-custom-layout-restored \
             iphone-credits-compact iphone-credits-expanded iphone-settings-credits \
-            iphone-claude-mood iphone-claude-resets-still iphone-claude-still-sheet
+            iphone-claude-mood iphone-claude-resets-still iphone-claude-still-sheet \
+            iphone-widget-layout-guidance
           python3 ../Tools/export-screenshots.py \
             "$GITHUB_WORKSPACE/ipad-attachments" "$GITHUB_WORKSPACE/ios-marketing-screenshots" \
             ipad-overview ipad-overview-dials

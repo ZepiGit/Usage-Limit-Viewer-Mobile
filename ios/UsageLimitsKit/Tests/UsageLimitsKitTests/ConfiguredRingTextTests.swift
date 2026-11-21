@@ -72,6 +72,32 @@ final class ConfiguredRingTextTests: XCTestCase {
                        "Claude, me@example.invalid, 100 % übrig")
     }
 
+    func testBothSidesSpeakTheDrawnWindowInsteadOfAnotherLowerWindow() {
+        let passed = GlanceRow(label: "5h", category: .fiveHour, remainingPercent: 0,
+            resetAt: Date(timeIntervalSince1970: 10), severity: .exhausted)
+        let shown = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 60,
+            resetAt: Date(timeIntervalSince1970: 200), severity: .healthy)
+        let account = GlanceAccount(id: "a", title: "Claude", subtitle: nil,
+            rows: [passed, shown], severity: .healthy)
+        for mode in [PercentDisplay.left, .used] {
+            let p = account.presentation(of: shown, at: Date(timeIntervalSince1970: 100),
+                staleAfter: 3600, mode: mode)
+            XCTAssertEqual(ConfiguredRingText.spoken(account, presentation: p, texts: english),
+                mode == .left ? "Claude, 60% remaining" : "Claude, 40% used")
+            XCTAssertEqual(ConfiguredRingText.spoken(account, presentation: p, texts: german),
+                mode == .left ? "Claude, 60 % übrig" : "Claude, 40 % verbraucht")
+        }
+    }
+
+    func testUnknownSpeechDoesNotInventAZeroFigure() {
+        let account = account(remaining: nil, severity: .unknown)
+        for mode in [PercentDisplay.left, .used] {
+            let p = presentation(nil, .unknown, .current, mode)
+            XCTAssertTrue(ConfiguredRingText.spoken(account, presentation: p, texts: english).contains("—"))
+            XCTAssertFalse(ConfiguredRingText.spoken(account, presentation: p, texts: english).contains("0%"))
+        }
+    }
+
     func testAnExhaustedWindowStillSaysOneHundredPercentUsed() {
         let account = account(remaining: 0, severity: .exhausted)
         let p = presentation(0, .exhausted, .current, .used)
