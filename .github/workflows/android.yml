@@ -4,6 +4,7 @@ name: Android
 
 on:
   push:
+    branches: ['**']
     paths:
       - 'app/**'
       - 'gradle/**'
