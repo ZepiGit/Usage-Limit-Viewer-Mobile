@@ -58,7 +58,7 @@ import com.usagelimits.core.model.WidgetScope
 import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.R
 import com.usagelimits.ui.LocalProviderIcons
-import com.usagelimits.ui.ProviderIconCatalog
+import com.usagelimits.ui.providerLogoResource
 import com.usagelimits.ui.ProviderLogo
 import com.usagelimits.ui.components.ErrorBlock
 import com.usagelimits.ui.components.InkButton
@@ -182,7 +182,7 @@ internal fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetCon
     }
     val scope = WidgetScope.fromName(scopeName)
     val preview = WidgetDataBuilder.build(accounts, System.currentTimeMillis(), scope, accountId, providerId,
-        customAccountIds = currentOrder.filter { it in selected })
+        customAccountIds = currentOrder.filter { it in selected }, providerIcons = LocalProviderIcons.current)
     val valid = when (scope) {
         WidgetScope.ACCOUNT -> accounts.any { it.account.localId == accountId }
         WidgetScope.PROVIDER -> ProviderId.fromId(providerId) != null
@@ -433,8 +433,7 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                             // Account Rings the figure, through the same rule for a 100.
                             if (kind == "Mini Rings") {
                                 ProviderId.fromId(account.providerId)?.let { provider ->
-                                    val choice = ProviderIconCatalog.selected(provider, LocalProviderIcons.current[provider.id])
-                                    Image(painterResource(choice.drawable), null,
+                                    Image(painterResource(providerLogoResource(provider, account.iconChoiceId)), null,
                                         Modifier.size(miniLogoSize(ringSize, account.providerId)),
                                         colorFilter = widgetLogoTint(provider, style)?.let { ColorFilter.tint(it) })
                                 }

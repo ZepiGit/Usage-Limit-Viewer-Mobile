@@ -1,6 +1,9 @@
 package com.usagelimits.widget
 
 import android.content.Context
+import android.graphics.Paint
+import android.graphics.Typeface
+import androidx.core.util.TypedValueCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -66,8 +69,9 @@ class CreditsWidget : GlanceAppWidget() {
             val more = snapshot.rows.size - shown.size
             GlanceTheme {
                 CompositionLocalProvider(LocalWidgetStyle provides style) {
+                    val panelInset = if (size == SMALL) PANEL_INSET / context.resources.configuration.fontScale.coerceAtLeast(1f) else PANEL_INSET.toFloat()
                     Column(
-                        GlanceModifier.fillMaxSize().panelCorner().background(style.background.color).padding(PANEL_INSET.dp)
+                        GlanceModifier.fillMaxSize().panelCorner().background(style.background.color).padding(panelInset.dp)
                             .clickable(androidx.glance.appwidget.action.actionStartActivity(ExternalRequest.openOverview(context))),
                     ) {
                         when {
@@ -103,40 +107,52 @@ class CreditsWidget : GlanceAppWidget() {
 
     @Composable
     private fun SmallTile(row: CreditWidgetRow, style: WidgetStyle, texts: CreditWidgetTexts) {
-        Column(GlanceModifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SeverityDot(style.accent(row.severity))
-                Spacer(GlanceModifier.width(6.dp))
-                Text(row.title, maxLines = 1, style = widgetText(style.textSecondary, 12, FontWeight.Medium))
+        val resources = LocalContext.current.resources
+        val locale = resources.configuration.locales[0]
+        val inset = PANEL_INSET / resources.configuration.fontScale.coerceAtLeast(1f)
+        val width = SMALL.width - (2 * inset).dp
+        val amount = row.balances.firstOrNull()?.let { CreditFormat.string(it.amount, it.currency, locale) } ?: "—"
+        val amountSp = fittedMonoSize(amount, 28f, width, resources)
+        val paint = Paint().apply {
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textSize = TypedValueCompat.spToPx(amountSp, resources.displayMetrics)
+        }
+        val amountHeight = (paint.fontMetricsInt.bottom - paint.fontMetricsInt.top) / resources.displayMetrics.density
+        val failedRefresh = refreshFailed(row)
+        val status = when {
+            row.severity == Severity.ERROR -> texts.couldNotBeRead()
+            failedRefresh -> resources.getString(R.string.widget_credits_refresh_failed)
+            row.fetchedAt == null -> texts.notReadYet()
+            row.severity == Severity.STALE -> resources.getString(statusWordRes(Severity.STALE))
+            else -> {
+                val asOf = Countdown.asOfLabel(row.fetchedAt, locale = locale, nowMs = System.currentTimeMillis(), texts = texts)
+                if (row.balances.firstOrNull()?.unlimited == true) {
+                    CreditFormat.line(row.balances.first(), locale, spentThisMonth = texts::spentThisMonth).removePrefix(amount).trim() + " · " + asOf
+                } else asOf
             }
-            Column(GlanceModifier.defaultWeight().fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                val resources = LocalContext.current.resources
-                val amount = row.balances.firstOrNull()?.let {
-                    CreditFormat.string(it.amount, it.currency, resources.configuration.locales[0])
-                } ?: "—"
-                Text(amount, maxLines = 1, style = widgetText(style.textPrimary, 28, FontWeight.Bold, mono = true)
-                    .copy(fontSize = fittedMonoSize(amount, 28f, SMALL.width - (2 * PANEL_INSET).dp, resources).sp))
-                val failedRefresh = refreshFailed(row)
-                val status = when {
-                    row.severity == Severity.ERROR -> texts.couldNotBeRead()
-                    failedRefresh -> resources.getString(R.string.widget_credits_refresh_failed)
-                    row.fetchedAt == null -> texts.notReadYet()
-                    row.severity == Severity.STALE -> resources.getString(statusWordRes(Severity.STALE))
-                    else -> {
-                        val asOf = Countdown.asOfLabel(row.fetchedAt, nowMs = System.currentTimeMillis(), texts = texts)
-                        if (row.balances.firstOrNull()?.unlimited == true) {
-                            // The amount is above this line, so the label needs no amount placeholder.
-                            resources.getString(R.string.widget_credits_spent_this_month) + " · " + asOf
-                        } else asOf
-                    }
+        }
+        val freshnessOnly = row.fetchedAt != null && row.severity != Severity.ERROR && row.severity != Severity.STALE &&
+            !failedRefresh && row.balances.firstOrNull()?.unlimited != true
+        paint.typeface = Typeface.DEFAULT
+        paint.textSize = TypedValueCompat.spToPx(11f, resources.displayMetrics)
+        val statusSp = if (freshnessOnly && paint.measureText(status) > width.value * resources.displayMetrics.density) {
+            TypedValueCompat.pxToSp(
+                paint.textSize * width.value * resources.displayMetrics.density / paint.measureText(status), resources.displayMetrics)
+        } else 11f
+        Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SeverityDot(style.accent(row.severity))
+                    Spacer(GlanceModifier.width(6.dp))
+                    Text(row.title, maxLines = 1, style = widgetText(style.textSecondary, 12, FontWeight.Medium))
                 }
-                Text(
-                    status,
-                    maxLines = 2,
-                    style = widgetText(if (failedRefresh) style.textPrimary else style.textSecondary, 11)
-                        .copy(textAlign = TextAlign.Center),
-                )
+            }
+            Text(amount, maxLines = 1, style = widgetText(style.textPrimary, 28, FontWeight.Bold, mono = true)
+                .copy(fontSize = amountSp.sp))
+            Column(GlanceModifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(GlanceModifier.height(((SMALL.height.value - 2 * inset + amountHeight) / 2).dp))
+                Text(status, maxLines = 2, style = widgetText(if (failedRefresh) style.textPrimary else style.textSecondary, 11)
+                    .copy(fontSize = statusSp.sp, textAlign = TextAlign.Center))
             }
         }
     }

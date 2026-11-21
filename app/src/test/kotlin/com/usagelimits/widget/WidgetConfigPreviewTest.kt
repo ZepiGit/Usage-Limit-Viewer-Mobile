@@ -192,7 +192,7 @@ class WidgetConfigPreviewTest {
         compose.setContent {
             UsageLimitsTheme {
                 androidx.compose.runtime.CompositionLocalProvider(
-                    com.usagelimits.ui.LocalProviderIcons provides mapOf(ProviderId.CLAUDE.id to "claudecode-color"),
+                    com.usagelimits.ui.LocalProviderIcons provides mapOf(ProviderId.CLAUDE.id to "claude-color"),
                 ) {
                     if (actual.value) ContentPreview(fixture, "Mini Rings", WidgetStyle(), PercentDisplay.LEFT)
                     else androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.size(48.dp)

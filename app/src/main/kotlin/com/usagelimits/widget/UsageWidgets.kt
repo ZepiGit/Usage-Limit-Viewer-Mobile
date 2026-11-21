@@ -533,9 +533,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
         val validity = account.dataValidity
         Column(GlanceModifier.fillMaxWidth().clickable(openAccount)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (ProviderId.fromId(account.providerId) != null) {
-                    WidgetLogo(account, 26.dp, gap = 8.dp)
-                }
+                WidgetLogo(account, 26.dp, gap = 8.dp)
                 Column(GlanceModifier.defaultWeight()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(account.title, maxLines = 1, style = widgetText(style.textPrimary, 14, FontWeight.Medium))
@@ -586,17 +584,26 @@ class DetailedUsageWidget : GlanceAppWidget() {
                 rows.forEach { row ->
                     Column(GlanceModifier.fillMaxWidth()) {
                         Spacer(GlanceModifier.height(6.dp))
+                        val p = row.presentation(null, LocalPercentMode.current)
+                        val percent = percentFigure(p.token, context.resources)
+                        val shown = if (!p.hasFigure) percent
+                            else "$percent ${context.getString(percentSideWordRes(LocalPercentMode.current))}"
+                        val label = row.labelText(context.resources)
+                        val metrics = context.resources.displayMetrics
+                        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            textSize = TypedValueCompat.spToPx(12f, metrics)
+                            typeface = Typeface.DEFAULT
+                        }
+                        val labelWidth = paint.measureText(label)
+                        paint.typeface = Typeface.MONOSPACE
+                        val stacked = labelWidth + paint.measureText(shown) + 8f * metrics.density >
+                            (LocalSize.current.width.value - 20f) * metrics.density
+                        if (stacked) Text(label, GlanceModifier.fillMaxWidth(), maxLines = 2,
+                            style = widgetText(style.textSecondary, 12))
                         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                row.labelText(context.resources), GlanceModifier.defaultWeight(), maxLines = 1,
-                                style = widgetText(style.textSecondary, 12),
-                            )
-                            // The figure carries its side ("73% left" / "27% used"); a dash stays bare.
-                            val p = row.presentation(null, LocalPercentMode.current)
-                            val percent = percentFigure(p.token, context.resources)
-                            val shown = if (!p.hasFigure) percent
-                                else "$percent ${context.getString(percentSideWordRes(LocalPercentMode.current))}"
-                            Text(shown, style = if (!p.hasFigure) widgetText(style.textSecondary, 12)
+                            if (!stacked) Text(label, GlanceModifier.defaultWeight(), maxLines = 1,
+                                style = widgetText(style.textSecondary, 12))
+                            Text(shown, maxLines = 2, style = if (!p.hasFigure) widgetText(style.textSecondary, 12)
                                 else widgetText(style.barText(row, validity), 12, FontWeight.Medium, mono = true))
                         }
                         Spacer(GlanceModifier.height(3.dp))
