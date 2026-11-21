@@ -104,6 +104,7 @@ android {
 
     // The status icon glyphs are shared with the iOS widget; one file, packaged as a Java resource.
     sourceSets.getByName("main").resources.srcDir("../shared/glyphs")
+    sourceSets.getByName("main").res.srcDir("../third_party/fonts/android-res")
 
     packaging {
         resources.excludes += setOf(
