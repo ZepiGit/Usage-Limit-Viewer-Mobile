@@ -26,7 +26,7 @@ class ZaiUsageParserTest {
         )
 
         assertEquals(2, windows.size)
-        assertEquals("zai-credit_limit-18000", windows[0].id)
+        assertEquals("zai:Q1JFRElUX0xJTUlU:NWggbGltaXQ:18000", windows[0].id)
         assertEquals("5h limit", windows[0].label)
         assertEquals(WindowCategory.FIVE_HOUR, windows[0].category)
         assertEquals(20.0, windows[0].usedPercent!!, 0.0)
