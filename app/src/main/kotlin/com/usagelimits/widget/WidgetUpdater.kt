@@ -134,15 +134,19 @@ object WidgetUpdater {
      */
     suspend fun load(context: Context, glanceId: GlanceId): WidgetView = observe(context, glanceId).first()
 
-    /** The Credits widget's data: every credit account, worst first. Repository reads only. */
-    fun observeCredits(context: Context): kotlinx.coroutines.flow.Flow<CreditWidgetSnapshot> =
+    /** Every credit account, worst first, rebuilt at [now] on the same repaint input as [observe]. */
+    fun observeCredits(
+        context: Context,
+        now: () -> Long = System::currentTimeMillis,
+    ): kotlinx.coroutines.flow.Flow<CreditWidgetSnapshot> =
         kotlinx.coroutines.flow.flow {
             val container = (context.applicationContext as? UsageLimitsApp)?.container ?: return@flow
             emitAll(kotlinx.coroutines.flow.combine(
                 container.creditRepository.observeEntries(),
                 container.settingsStore.settings,
-            ) { entries, settings ->
-                CreditWidgetBuilder.build(entries, System.currentTimeMillis(), Severity.staleAfterMs(settings.syncIntervalMinutes))
+                container.settingsStore.diagnostics.map { it.lastWidgetRefreshAt }.distinctUntilChanged(),
+            ) { entries, settings, _ ->
+                CreditWidgetBuilder.build(entries, now(), Severity.staleAfterMs(settings.syncIntervalMinutes))
             })
         }
 
