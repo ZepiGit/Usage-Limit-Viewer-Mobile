@@ -66,7 +66,7 @@ final class QuotaContractTests: XCTestCase {
             (0.99, "<1%"), (1, "1%"), (37, "37%"), (99.4, "99%"),
             (99.9, ">99%"), (100, "100%"), (101, "—"), (.nan, "—")]
         for (percent, expected) in examples {
-            XCTAssertEqual(UsageWindow.percentLabel(percent), expected)
+            XCTAssertEqual(EnglishPercentTexts().figure(UsageWindow.percentToken(percent, exhausted: false, mode: .left)), expected)
         }
     }
 

@@ -119,16 +119,6 @@ public struct UsageWindow: Sendable, Codable, Equatable {
             segments: try c.decodeIfPresent([UsageSegment].self, forKey: .segments) ?? [])
     }
 
-    /// Round only for display; boundary labels must not imply exhausted or full.
-    ///
-    /// A thin wrapper over `percentToken` in the historical LEFT reading, keeping the
-    /// `%`-suffixed strings existing call sites render; new surfaces take the token and compose
-    /// it with a locale template, so the wording lives in resources rather than here.
-    public static func percentLabel(_ percent: Double?) -> String {
-        let token = percentToken(percent, exhausted: false, mode: .left)
-        return token == PercentToken.unknown ? token : "\(token)%"
-    }
-
     /// The figure token for a window in `mode`: the number only, no `%` — the UI composes it with
     /// a locale template, and tokens (not formatted strings) are the parity contract between this
     /// table and the Android one.

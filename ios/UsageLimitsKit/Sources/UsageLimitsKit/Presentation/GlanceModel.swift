@@ -94,6 +94,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     public let createdAt: Date?
     public let title: String
     public let subtitle: String?
+    public let accountLabel: String?
     public let rows: [GlanceRow]
 
     /// The severity as it stood when the app wrote this, staleness included.
@@ -101,6 +102,9 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
 
     /// The severity WITHOUT the staleness judgement — what the numbers themselves say.
     public let baseSeverity: Severity
+
+    /// Raw scope verdict for the List mark; never replaces the reading's error validity.
+    public let quotaSeverity: Severity
 
     /// `baseSeverity` as it becomes at each later reset, ascending. `UsageSnapshot` drops a
     /// window whose reset passed since the fetch (`UsageWindow.resetElapsed`), so an entry
@@ -127,6 +131,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         rows: [GlanceRow],
         severity: Severity,
         baseSeverity: Severity? = nil,
+        quotaSeverity: Severity? = nil,
         baseSeverityAfterResets: [GlanceSeverityStep] = [],
         candidates: [GlanceRow]? = nil,
         fetchedAt: Date? = nil,
@@ -135,15 +140,18 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         resetDates: [Date]? = nil,
         iconAssetName: String? = nil,
         statusMessage: String? = nil,
-        createdAt: Date? = nil
+        createdAt: Date? = nil,
+        accountLabel: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
         self.title = title
         self.subtitle = subtitle
+        self.accountLabel = accountLabel
         self.rows = rows
         self.severity = severity
         self.baseSeverity = baseSeverity ?? severity
+        self.quotaSeverity = quotaSeverity ?? baseSeverity ?? severity
         self.baseSeverityAfterResets = baseSeverityAfterResets
         self.candidates = candidates ?? rows
         self.fetchedAt = fetchedAt
@@ -156,7 +164,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, subtitle, rows, severity, baseSeverity, baseSeverityAfterResets, candidates, fetchedAt, providerID, connectionStatus, resetDates, iconAssetName, statusMessage
-        case createdAt
+        case createdAt, quotaSeverity, accountLabel
     }
 
     /// Lenient on the optional keys: a snapshot written before them must still decode, or every
@@ -167,9 +175,11 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
         title = try c.decode(String.self, forKey: .title)
         subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+        accountLabel = try c.decodeIfPresent(String.self, forKey: .accountLabel)
         rows = try c.decode([GlanceRow].self, forKey: .rows)
         severity = try c.decode(Severity.self, forKey: .severity)
         baseSeverity = try c.decodeIfPresent(Severity.self, forKey: .baseSeverity) ?? severity
+        quotaSeverity = try c.decodeIfPresent(Severity.self, forKey: .quotaSeverity) ?? baseSeverity
         baseSeverityAfterResets = try c.decodeIfPresent([GlanceSeverityStep].self, forKey: .baseSeverityAfterResets) ?? []
         candidates = try c.decodeIfPresent([GlanceRow].self, forKey: .candidates) ?? rows
         fetchedAt = try c.decodeIfPresent(Date.self, forKey: .fetchedAt)
@@ -665,6 +675,7 @@ public enum GlanceModel {
             // The unaged judgement and the instant it was made, so a widget rendering this
             // hours later can age it itself instead of repeating a verdict from write time.
             baseSeverity: usage.snapshot?.severityOfOpenWindows(at: now) ?? .stale,
+            quotaSeverity: usage.snapshot?.quotaSeverity ?? .unknown,
             baseSeverityAfterResets: afterResets,
             // Scoped ones too: which pool leads is decided at render time, among windows still open.
             candidates: allWindows.map(row),
@@ -673,7 +684,7 @@ public enum GlanceModel {
             resetDates: usage.snapshot?.windows.compactMap(\.resetAt),
             iconAssetName: ProviderIconCatalog.selected(for: usage.account.provider, id: providerIcons[usage.account.provider.rawValue]).assetName,
             statusMessage: usage.snapshot?.statusMessage,
-            createdAt: usage.account.createdAt)
+            createdAt: usage.account.createdAt, accountLabel: usage.account.label)
     }
 
     private static func row(_ window: UsageWindow) -> GlanceRow {

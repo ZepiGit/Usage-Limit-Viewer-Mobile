@@ -20,6 +20,26 @@ final class UsageStore: ObservableObject {
     #if DEBUG
     /// Lets UI tests terminate only after the normal settings save has finished.
     @Published private(set) var uiTestSavedSettings: AppSettings?
+    @Published private(set) var uiTestSettingsLoadStage: String?
+    private var settingsLoadGate: CheckedContinuation<Void, Never>?
+
+    func releaseSettingsLoadGate() {
+        uiTestSettingsLoadStage = nil
+        settingsLoadGate?.resume()
+        settingsLoadGate = nil
+    }
+
+    private func holdSettingsLoad(at stage: String) async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard UsageLimitsApp.isUITesting,
+              (stage == "cached-usage" ? arguments.contains("-fixture-retained-scoped")
+                : arguments.contains("-fixture-settings-gates")) else { return }
+        await withCheckedContinuation { continuation in
+            settingsLoadGate = continuation
+            uiTestSettingsLoadStage = stage
+            SettingsTrace.record("load gate held stage=\(stage)")
+        }
+    }
     private var settingsTraceSource = "control edit"
     private var settingsTraceSaveID = 0
     #endif
@@ -31,6 +51,13 @@ final class UsageStore: ObservableObject {
     /// through the binding chain too, since mutating a nested struct rewrites the whole value.
     @Published var settings = AppSettings() {
         didSet {
+            guard settingsLoaded || isLoadingSettings else {
+                settings = oldValue
+                #if DEBUG
+                SettingsTrace.record("settings edit rejected reason=not-loaded")
+                #endif
+                return
+            }
             #if DEBUG
             SettingsTrace.record(
                 "settings didSet source=\(settingsTraceSource) loading=\(isLoadingSettings) "
@@ -110,6 +137,7 @@ final class UsageStore: ObservableObject {
     /// Whether the cache has been read once. Until then an empty account list means "nothing has
     /// asked yet", not "no accounts", and the screens draw a skeleton instead of an empty state.
     @Published private(set) var hasLoaded = false
+    @Published private(set) var settingsLoaded = false
     @Published private(set) var lastError: String?
     /// Whether the account register is on this device and could not be read.
     ///
@@ -155,6 +183,7 @@ final class UsageStore: ObservableObject {
                 applyLoaded(sampleSettings)
                 settingsTraceSource = "control edit"
             }
+            settingsLoaded = true
             if !MarketingDemo.delaysLoad { finishDemoLoad() }
             return
         }
@@ -284,6 +313,7 @@ final class UsageStore: ObservableObject {
             #endif
         }
         guard let container else {
+            settingsLoaded = true
             #if DEBUG
             SettingsTrace.record("load skipped reason=nil-container")
             #endif
@@ -293,24 +323,33 @@ final class UsageStore: ObservableObject {
             lastError = String(localized: "This build cannot reach its shared storage.")
             return
         }
-        // Before anything reads or writes an account. Keychain items outlive the app being
-        // deleted, so a reinstall inherits every credential of the install before it; this is
-        // where that is noticed and cleaned up. A failure here is not fatal — the check retries
-        // on the next launch — and must not stop the cache from rendering.
+        // Only the first load installs preferences; subsequent cache loads cannot replace edits.
+        if !settingsLoaded {
+            #if DEBUG
+            await holdSettingsLoad(at: "before-read")
+            SettingsTrace.record("load settings read begin")
+            #endif
+            let loadedSettings = await container.settings()
+            #if DEBUG
+            SettingsTrace.record("load settings read returned value={\(Self.traceSettings(loadedSettings))}")
+            await holdSettingsLoad(at: "before-apply")
+            settingsTraceSource = "load apply"
+            #endif
+            if !settingsLoaded {
+                applyLoaded(loadedSettings)
+                settingsLoaded = true
+            }
+            #if DEBUG
+            SettingsTrace.record("load settings installed")
+            settingsTraceSource = "control edit"
+            #endif
+        }
+        // Preparation can suspend on credentials. Preferences must already be installed so an
+        // edit cannot save defaults over a previous run's choices while that work is pending.
+        #if DEBUG
+        SettingsTrace.record("load prepare begin")
+        #endif
         try? await container.prepareForUse()
-
-        #if DEBUG
-        SettingsTrace.record("load settings read begin")
-        #endif
-        let loadedSettings = await container.settings()
-        #if DEBUG
-        SettingsTrace.record("load settings read returned value={\(Self.traceSettings(loadedSettings))}")
-        settingsTraceSource = "load apply"
-        #endif
-        applyLoaded(loadedSettings)
-        #if DEBUG
-        settingsTraceSource = "control edit"
-        #endif
 
         credits = await container.credits()
         // The checked read, because a link opened on a cold launch is resolved against this
@@ -326,6 +365,12 @@ final class UsageStore: ObservableObject {
             if !isRefreshing { accounts = [] }
             registerUnreadable = true
         }
+        #if DEBUG
+        if UsageLimitsApp.isUITesting, ProcessInfo.processInfo.arguments.contains("-fixture-retained-scoped") {
+            hasLoaded = true
+            await holdSettingsLoad(at: "cached-usage")
+        }
+        #endif
     }
 
     /// Installs settings that came from storage, without treating the assignment as a change the
@@ -584,6 +629,7 @@ final class UsageStore: ObservableObject {
         if MarketingDemo.isEnabled { return nil }
         if let fixture = RegisterFixture.container() { return fixture }
         if let fixture = CreditRegisterFixture.container() { return fixture }
+        if let fixture = SettingsFixture.container() { return fixture }
         #endif
         guard let directory = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupID) else { return nil }
@@ -619,7 +665,8 @@ private enum RegisterFixture {
 
     static func container() -> UsageLimitsContainer? {
         let arguments = ProcessInfo.processInfo.arguments
-        guard UsageLimitsApp.isUITesting, isUnreadable || arguments.contains(seeded) else { return nil }
+        let retained = arguments.contains("-fixture-retained-scoped")
+        guard UsageLimitsApp.isUITesting, isUnreadable || arguments.contains(seeded) || retained else { return nil }
 
         // One fixed place, emptied on every launch: each test starts from the register written
         // below, whatever the test before it removed, and no directory is left behind per run.
@@ -628,13 +675,40 @@ private enum RegisterFixture {
 
         // Written as the file the repository reads, before anything reads it. The row is the
         // oldest shape the register has had, which the Kit's tests keep loadable.
+        let reading = retained ? """
+            ,"snapshot":{"accountID":"codex:fixture","fetchedAt":"2026-09-01T00:00:00Z",
+              "status":"failed","windows":[
+                {"id":"global","label":"Weekly","category":"weekly","usedPercent":37,"exhausted":false,"scope":"global"},
+                {"id":"model","label":"Model","category":"weekly","usedPercent":100,"exhausted":true,"scope":"model"}]}
+            """ : ""
         let register = isUnreadable ? "not json" : """
             [{"account": {"id": "codex:fixture", "provider": "codex", "externalAccountID": "fixture",
               "displayName": "Codex", "credentialReference": "codex:fixture",
-              "createdAt": "2026-09-01T00:00:00Z"}}]
+              "createdAt": "2026-09-01T00:00:00Z"}\(reading)}]
             """
         try? Data(register.utf8).write(to: registerFile)
 
+        return UsageLimitsContainer(directory: directory, credentials: InMemoryCredentialStore())
+    }
+}
+
+private enum SettingsFixture {
+    static func container() -> UsageLimitsContainer? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard UsageLimitsApp.isUITesting, arguments.contains("-fixture-settings") else { return nil }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("settings-fixture")
+        if arguments.contains("-fixture-settings-reset") {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let settings = """
+                {"syncIntervalMinutes":180,"showSubscriptionTier":false,"overviewLayout":"dials",
+                 "overviewCreditLayout":"compact","overviewShowFirst":"creditAccounts",
+                 "providerIcons":{"claude":"color"},"percentDisplay":"used",
+                 "statusIconsEnabled":true,"pinnedAccountKeys":["preserved-pin"],
+                 "notifications":{"notifyBelow20Percent":false,"mutedAccountIDs":["preserved-mute"]}}
+                """
+            try? Data(settings.utf8).write(to: directory.appendingPathComponent("settings.json"), options: .atomic)
+        }
         return UsageLimitsContainer(directory: directory, credentials: InMemoryCredentialStore())
     }
 }

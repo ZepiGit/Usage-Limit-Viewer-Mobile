@@ -40,6 +40,18 @@ it on an unthrottled success.
 Codex's optional reset-credit read is tried once per pass. On a 429 the app
 uses the credits embedded in the usage response, and usage refresh continues.
 
+Settings installs persisted preferences before credential preparation and remains inert until that
+installation finishes. The Settings Overview controls precede their live preview; Show credits
+precedes the controls it reveals so the switch stays at its tap position.
+
+Reset stamps use local calendar dates: time today, weekday and time over the next six dates,
+then date and time. `GlanceText` already delegates widget reset and freshness lines to
+`Countdown`, so those lines share this tier change. Pinned accounts' inline text remains its
+figure and side, not a reset stamp. All three Pinned accounts families use the same full spoken
+reading, adding the account label among same-provider pins and a stable account number when
+labels collide. Formatter and Kit coverage do not establish actual Lock Screen or VoiceOver
+behavior on a phone.
+
 ## Building and checking
 
 For the portable package, from the repository root:

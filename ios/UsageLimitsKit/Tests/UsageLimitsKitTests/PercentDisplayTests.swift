@@ -55,11 +55,12 @@ final class PercentDisplayTests: XCTestCase {
         }
     }
 
-    func testPercentLabelWrapsTheLeftTokenUnchanged() {
-        XCTAssertEqual("73%", UsageWindow.percentLabel(73.0))
-        XCTAssertEqual("<1%", UsageWindow.percentLabel(0.4))
-        XCTAssertEqual(">99%", UsageWindow.percentLabel(99.5))
-        XCTAssertEqual("—", UsageWindow.percentLabel(nil))
+    func testFigureComposesKnownTokensAndKeepsUnknownBare() {
+        let texts = EnglishPercentTexts()
+        XCTAssertEqual("73%", texts.figure("73"))
+        XCTAssertEqual("<1%", texts.figure(PercentToken.underOne))
+        XCTAssertEqual(">99%", texts.figure(PercentToken.overNinetyNine))
+        XCTAssertEqual("—", texts.figure(PercentToken.unknown))
     }
 
     func testDisplayPercentDerivesUsedFromRemainingAndKeepsNilNil() {

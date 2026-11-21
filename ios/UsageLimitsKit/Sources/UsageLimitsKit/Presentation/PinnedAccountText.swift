@@ -24,7 +24,15 @@ public enum PinnedAccountText {
         case .figure, .glyphOnly:
             figure = texts.spoken(texts.figure(entry.presentation.token), entry.presentation.side)
         }
-        return "\(entry.account.title), \(figure)" + (entry.content.outdated ? ", \(texts.outdated)" : "")
+        let identity: String
+        switch entry.identity {
+        case .providerOnly: identity = entry.account.title
+        case .email(let label): identity = "\(entry.account.title), \(label)"
+        case .number(let number):
+            let label = entry.account.accountLabel ?? entry.account.subtitle
+            identity = "\(entry.account.title)" + (label.map { ", \($0)" } ?? "") + ", \(texts.account(number: number))"
+        }
+        return "\(identity), \(figure)" + (entry.content.outdated ? ", \(texts.outdated)" : "")
     }
 
     /// The inline accessory's row: one glyph and one line of text, because that family shows a

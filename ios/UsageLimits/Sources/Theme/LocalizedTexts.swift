@@ -96,6 +96,7 @@ struct LocalizedPinnedAccountTexts: PinnedAccountTexts {
     var outdated: String { String(localized: "Stale") }
 
     func sideWord(_ mode: PercentDisplay) -> String { PercentText.sideWord(mode) }
+    func account(number: Int) -> String { String(localized: "Account \(number)") }
 
     func withSign(_ token: String) -> String { PercentText.figure(token: token) }
     func spoken(_ figure: String, _ mode: PercentDisplay) -> String { PercentText.spoken(figure, mode) }

@@ -176,6 +176,8 @@ private struct StoreErrorAlert: ViewModifier {
 struct RootView: View {
     enum Tab: Hashable { case overview, resets, settings }
 
+    @EnvironmentObject private var store: UsageStore
+
     @Binding var tab: Tab
     var claudeAnimationVisible = true
     let openAccount: (String) -> Void
@@ -199,6 +201,12 @@ struct RootView: View {
         #if DEBUG
         .motionLogOverlay(visible: claudeAnimationVisible)
         .claudeStillSheet()
+        .overlay(alignment: .topTrailing) {
+            if let stage = store.uiTestSettingsLoadStage {
+                Button("Continue settings load") { store.releaseSettingsLoadGate() }
+                    .accessibilityIdentifier("settings-load-release-\(stage)")
+            }
+        }
         #if !os(Linux)
         .overlay(alignment: .topLeading) {
             if SettingsTrace.isEnabled {

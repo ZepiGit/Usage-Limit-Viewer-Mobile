@@ -19,6 +19,7 @@ final class PinnedAccountInlineTests: XCTestCase {
             mode == .used ? "\(figure) verbraucht" : "\(figure) übrig"
         }
         func sideWord(_ mode: PercentDisplay) -> String { mode == .used ? "verbraucht" : "übrig" }
+        func account(number: Int) -> String { "Konto \(number)" }
     }
 
     private func entry(_ provider: String?, title: String = "Account", remaining: Double?,

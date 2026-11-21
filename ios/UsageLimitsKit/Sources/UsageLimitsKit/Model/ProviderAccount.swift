@@ -319,7 +319,11 @@ public struct UsageSnapshot: Sendable, Codable, Equatable {
 
     /// Severity ignoring age. Prefer `severity(at:)` wherever a clock is available.
     public var severity: Severity {
-        if status == .failed { return .error }
+        status == .failed ? .error : quotaSeverity
+    }
+
+    /// The retained windows' scope verdict, independent of a later refresh failure.
+    public var quotaSeverity: Severity {
         let global = windows.filter { $0.scope == .global }
         if global.contains(where: { $0.severity == .exhausted }) { return .exhausted }
         if !restrictedWindows.isEmpty {

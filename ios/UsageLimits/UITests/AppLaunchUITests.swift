@@ -237,9 +237,8 @@ final class AppLaunchUITests: XCTestCase {
                             y: tapFrame.minY + tapFrame.height * offset.dy)
         let coordinate = toggle.coordinate(withNormalizedOffset: offset)
         let uptime = pressUptime { coordinate.press(forDuration: $0) }
-        // Enabling Credits inserts rows above this switch; disabling it removes them.
-        let towardStart = identifier == "settings-overview-show-credits" ? !enabled : nil
-        guard waitForSetting(toggle, in: app, towardStart: towardStart, matches: {
+        // Dependent controls and the preview are below Show credits, so it stays at its tap site.
+        guard waitForSetting(toggle, in: app, matches: {
             (toggle.value as? String) == expected
         }) else {
             let actual = toggle.exists ? (toggle.value as? String ?? "unreadable") : nil
@@ -250,6 +249,97 @@ final class AppLaunchUITests: XCTestCase {
             return
         }
         print("[settings-press] acknowledged uptime=\(uptime) control=\(identifier) value=\(expected)")
+    }
+
+    func testShowCreditsKeepsTapBoundsWhileDependentControlsAndPreviewChange() {
+        let app = launch(["-marketing-demo", "-overview-credits-demo", "-reduce-motion"])
+        defer { app.terminate() }
+        tabButton("Settings", in: app).tap()
+        setSwitch("settings-overview-show-credits", to: false, in: app, initially: true)
+        let toggle = app.switches["settings-overview-show-credits"]
+        XCTAssertTrue(scrollTo(toggle, in: app, towardStart: true,
+            clearOfBottomTabs: bottomTabBarFrame(in: app)))
+        for enabled in [true, false] {
+            let before = toggle.frame
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            let changed = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", enabled ? "1" : "0"), object: toggle)
+            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 10), .completed)
+            // No scrolling or second tap may rescue a switch that moved away from the finger.
+            XCTAssertTrue(toggle.isHittable)
+            XCTAssertEqual(toggle.frame.minY, before.minY, accuracy: 2)
+            XCTAssertEqual(toggle.frame.height, before.height, accuracy: 2)
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "Show credits \(enabled ? "on" : "off") at stable tap bounds"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    func testFailedRetainedScopedWindowShowsLimitedMark() {
+        let app = launch(["-fixture-retained-scoped"])
+        defer { app.terminate() }
+        let release = app.buttons["settings-load-release-cached-usage"]
+        XCTAssertTrue(release.waitForExistence(timeout: 10))
+        let mark = app.descendants(matching: .any)["overview-mark-codex:fixture"].firstMatch
+        XCTAssertTrue(mark.waitForExistence(timeout: 10))
+        XCTAssertEqual(mark.label, "Limited")
+        XCTAssertNotEqual(mark.label, "Exhausted")
+        release.tap()
+    }
+
+    func testColdSettingsLoadRejectsEditsBeforeReadAndApplyAndPreservesPreferences() {
+        var app = launch(["-fixture-settings", "-fixture-settings-reset", "-fixture-settings-gates"])
+        defer { app.terminate() }
+        tabButton("Settings", in: app).tap()
+        let toggle = app.switches["Limit exhausted"]
+        for stage in ["before-read", "before-apply"] {
+            let release = app.buttons["settings-load-release-\(stage)"]
+            XCTAssertTrue(release.waitForExistence(timeout: 10))
+            XCTAssertTrue(scrollTo(toggle, in: app, towardStart: false))
+            XCTAssertFalse(toggle.isEnabled, "Settings must be inert at \(stage)")
+            let before = toggle.value as? String
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            XCTAssertEqual(toggle.value as? String, before)
+            let trace = settingsTrace(in: app)
+            XCTAssertFalse(trace.contains("settings save queued"), trace)
+            XCTAssertFalse(trace.contains("load prepare begin"), trace)
+            release.tap()
+        }
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: toggle)
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 10), .completed)
+        let trace = settingsTrace(in: app)
+        let applied = trace.range(of: "load settings installed")
+        let prepared = trace.range(of: "load prepare begin")
+        XCTAssertNotNil(applied, trace)
+        XCTAssertNotNil(prepared, trace)
+        if let applied, let prepared { XCTAssertLessThan(applied.lowerBound, prepared.lowerBound) }
+        setSwitch("Limit exhausted", to: false, in: app, initially: true)
+        let saved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.settingsTrace(in: app).contains("settings save persisted")
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 10), .completed)
+        app.terminate()
+
+        app = launch(["-fixture-settings"])
+        tabButton("Settings", in: app).tap()
+        let restored = app.switches["Limit exhausted"]
+        XCTAssertTrue(scrollTo(restored, in: app, towardStart: false))
+        XCTAssertEqual(restored.value as? String, "0")
+        let layout = app.segmentedControls["settings-overview-layout"]
+        XCTAssertTrue(scrollTo(layout, in: app, towardStart: false))
+        XCTAssertTrue(layout.buttons["Dials"].isSelected)
+        let tier = app.switches["Show subscription tier"]
+        XCTAssertTrue(scrollTo(tier, in: app, towardStart: false))
+        XCTAssertEqual(tier.value as? String, "0")
+        let restoredTrace = settingsTrace(in: app)
+        for preference in ["syncIntervalMinutes=180", "overviewCreditLayout=compact",
+                           "overviewShowFirst=creditAccounts", "percentDisplay=used",
+                           "statusIconsEnabled=true", "pinnedAccountKeys.count=1",
+                           "providerIcons.count=1", "notifications.mutedAccountIDs.count=1",
+                           "notifications.notifyBelow20Percent=false"] {
+            XCTAssertTrue(restoredTrace.contains(preference), "\(preference); \(restoredTrace)")
+        }
     }
 
     func testTheAppLaunches() {
@@ -316,9 +406,9 @@ final class AppLaunchUITests: XCTestCase {
         let list = app.descendants(matching: .any)["settings-preview-list"].firstMatch
         XCTAssertTrue(scrollTo(list, in: app, towardStart: false))
         expectDecision("claude:preview-list:preview-claude:tired still")
-        selectSegment("Dials", in: "settings-overview-layout", app: app, towardStart: false)
+        selectSegment("Dials", in: "settings-overview-layout", app: app, towardStart: true)
         let dial = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
-        XCTAssertTrue(scrollTo(dial, in: app, towardStart: true))
+        XCTAssertTrue(scrollTo(dial, in: app, towardStart: false))
         expectDecision("claude:preview-dial:preview-claude:tired still")
         tabButton("Overview", in: app).tap()
         XCTAssertTrue(app.buttons["overview-dial-demo-claude-exhausted"].waitForExistence(timeout: 10))
@@ -450,18 +540,18 @@ final class AppLaunchUITests: XCTestCase {
         selectSegment("List", in: "settings-overview-layout", app: app, towardStart: false)
         let listPreview = app.descendants(matching: .any)["settings-preview-list"].firstMatch
         setSwitch("Show subscription tier", to: true, in: app)
-        XCTAssertTrue(scrollTo(listPreview, in: app, towardStart: true))
+        XCTAssertTrue(scrollTo(listPreview, in: app, towardStart: false))
         let tieredTitle = listPreview.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", "Claude Pro")).firstMatch
         XCTAssertTrue(tieredTitle.waitForExistence(timeout: 10))
         setSwitch("Show subscription tier", to: false, in: app)
-        XCTAssertTrue(scrollTo(listPreview, in: app, towardStart: true))
+        XCTAssertTrue(scrollTo(listPreview, in: app, towardStart: false))
         XCTAssertTrue(listPreview.staticTexts["Claude"].exists)
         XCTAssertFalse(tieredTitle.exists)
         setSwitch("Show subscription tier", to: true, in: app)
         selectSegment("Dials", in: "settings-overview-layout", app: app, towardStart: true)
         let dialsPreview = app.descendants(matching: .any)["settings-preview-dials"].firstMatch
-        XCTAssertTrue(scrollTo(dialsPreview, in: app, towardStart: true))
+        XCTAssertTrue(scrollTo(dialsPreview, in: app, towardStart: false))
         let previewClaude = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
         XCTAssertTrue(scrollTo(previewClaude, in: app))
         XCTAssertEqual(previewClaude.label, "Claude")
@@ -473,7 +563,7 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertFalse(dialsPreview.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", "Claude Pro")).firstMatch.exists)
         setSwitch("Show subscription tier", to: false, in: app)
-        XCTAssertTrue(scrollTo(previewClaude, in: app, towardStart: true))
+        XCTAssertTrue(scrollTo(previewClaude, in: app, towardStart: false))
         XCTAssertEqual(previewClaude.label, "Claude")
         setSwitch("Show subscription tier", to: true, in: app)
     }
@@ -556,12 +646,12 @@ final class AppLaunchUITests: XCTestCase {
         defer {
             selectSegment("List", in: "settings-overview-layout", app: app, towardStart: false)
             XCTAssertTrue(app.descendants(matching: .any)["settings-overview-layout-saved"].firstMatch.waitForExistence(timeout: 10))
-            XCTAssertTrue(scrollTo(app.descendants(matching: .any)["settings-preview-list"].firstMatch, in: app, towardStart: true))
+            XCTAssertTrue(scrollTo(app.descendants(matching: .any)["settings-preview-list"].firstMatch, in: app, towardStart: false))
         }
         selectSegment("Dials", in: "settings-overview-layout", app: app)
         XCTAssertTrue(app.descendants(matching: .any)["settings-overview-layout-saved"].firstMatch.waitForExistence(timeout: 10))
         let preview = app.descendants(matching: .any)["settings-preview-dials"].firstMatch
-        XCTAssertTrue(scrollTo(preview, in: app, towardStart: true))
+        XCTAssertTrue(scrollTo(preview, in: app, towardStart: false))
         XCTAssertFalse(app.descendants(matching: .any)["settings-preview-list"].firstMatch.exists)
         app.terminate()
 
@@ -572,7 +662,7 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertTrue(scrollTo(restored, in: app, towardStart: false))
         XCTAssertTrue(restored.buttons["Dials"].isSelected)
         let restoredPreview = app.descendants(matching: .any)["settings-preview-dials"].firstMatch
-        XCTAssertTrue(scrollTo(restoredPreview, in: app, towardStart: true))
+        XCTAssertTrue(scrollTo(restoredPreview, in: app, towardStart: false))
         let claude = app.descendants(matching: .any)["settings-preview-dial-preview-claude"].firstMatch
         let codex = app.descendants(matching: .any)["settings-preview-dial-preview-codex"].firstMatch
         XCTAssertTrue(claude.waitForExistence(timeout: 10))
@@ -632,11 +722,11 @@ final class AppLaunchUITests: XCTestCase {
         tabButton("Settings", in: app).tap()
         selectSegment("Compact", in: "settings-overview-credit-layout", app: app, towardStart: false)
         let preview = app.descendants(matching: .any)["settings-credits-compact"].firstMatch
-        XCTAssertTrue(scrollTo(preview, in: app, towardStart: true), "the live preview must switch to Compact")
+        XCTAssertTrue(scrollTo(preview, in: app, towardStart: false), "the live preview must switch to Compact")
         let claude = app.staticTexts["Claude Pro"].firstMatch
         XCTAssertLessThan(claude.frame.minY, preview.frame.minY)
         selectMenuOption("Credit accounts", in: "settings-overview-show-first", app: app)
-        XCTAssertTrue(scrollTo(preview, in: app, towardStart: true))
+        XCTAssertTrue(scrollTo(preview, in: app, towardStart: false))
         XCTAssertLessThan(preview.frame.minY, claude.frame.minY)
 
         tabButton("Overview", in: app).tap()
@@ -709,19 +799,20 @@ final class AppLaunchUITests: XCTestCase {
         app.terminate()
 
         app = launch([fixture])
-        XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["No usage accounts yet"].firstMatch.waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["overview-credits-heading"].exists)
         XCTAssertFalse(app.buttons["overview-credits-compact"].exists)
         tabButton("Settings", in: app).tap()
         setSwitch("settings-overview-show-credits", to: true, in: app, initially: false)
         let layout = app.segmentedControls["settings-overview-credit-layout"]
-        XCTAssertTrue(scrollTo(layout, in: app, towardStart: true))
+        XCTAssertTrue(scrollTo(layout, in: app, towardStart: false))
         XCTAssertTrue(layout.buttons["Compact"].isSelected)
         tabButton("Overview", in: app).tap()
         let compact = app.buttons["overview-credits-compact"]
         XCTAssertTrue(scrollTo(compact, in: app))
-        let usageEmpty = app.staticTexts["Nothing to monitor yet"]
+        let usageEmpty = app.staticTexts["overview-usage-empty-title"]
         XCTAssertTrue(usageEmpty.exists)
+        XCTAssertEqual(usageEmpty.label, "No usage accounts yet")
         XCTAssertLessThan(compact.frame.minY, usageEmpty.frame.minY,
                           "Credit accounts must still be first after relaunch")
         XCTAssertFalse(app.staticTexts["No prepaid balances tracked."].exists)
@@ -842,11 +933,71 @@ final class AppLaunchUITests: XCTestCase {
         XCTAssertFalse(overviewError.exists)
     }
 
+    func testGermanCreditOnlyOverviewNamesUsageAccountsWithoutDuplicatingAdd() {
+        let app = XCUIApplication()
+        app.launchArguments = diagnosticLaunchArguments + [
+            "-fixture-credits", "-fixture-credits-reset",
+            "-AppleLanguages", "(de)", "-AppleLocale", "de_DE"
+        ]
+        app.launch()
+        defer { app.terminate() }
+        let title = app.staticTexts["overview-usage-empty-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        XCTAssertEqual(title.label, "Noch keine Nutzungskonten")
+        XCTAssertFalse(app.buttons["overview-add-credit"].exists)
+        XCTAssertTrue(scrollTo(app.buttons["overview-credits-add"], in: app))
+    }
+
+    func testCreditOnlyOverviewKeepsOneAddRouteAcrossNormalCompactExpandedAndHidden() {
+        let app = launch(["-fixture-credits", "-fixture-credits-reset"])
+        defer { app.terminate() }
+        let title = app.staticTexts["overview-usage-empty-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        XCTAssertEqual(title.label, "No usage accounts yet")
+        XCTAssertFalse(app.buttons["overview-add-credit"].exists)
+        let groupAdd = app.buttons["overview-credits-add"]
+        XCTAssertTrue(scrollTo(groupAdd, in: app))
+        groupAdd.tap()
+        XCTAssertTrue(app.navigationBars["Add credit balance"].waitForExistence(timeout: 10))
+        app.buttons["Cancel"].tap()
+        tabButton("Settings", in: app).tap()
+        selectSegment("Compact", in: "settings-overview-credit-layout", app: app, towardStart: false)
+        tabButton("Overview", in: app).tap()
+        let secondaryAdd = app.buttons["overview-add-credit"]
+        XCTAssertTrue(scrollTo(secondaryAdd, in: app))
+        XCTAssertFalse(groupAdd.exists)
+        secondaryAdd.tap()
+        XCTAssertTrue(app.navigationBars["Add credit balance"].waitForExistence(timeout: 10))
+        app.buttons["Cancel"].tap()
+        let compact = app.buttons["overview-credits-compact"]
+        XCTAssertTrue(scrollTo(compact, in: app, towardStart: false))
+        compact.tap()
+        XCTAssertTrue(scrollTo(groupAdd, in: app))
+        XCTAssertFalse(secondaryAdd.exists)
+        groupAdd.tap()
+        XCTAssertTrue(app.navigationBars["Add credit balance"].waitForExistence(timeout: 10))
+        app.buttons["Cancel"].tap()
+        let collapse = app.buttons["overview-credits-collapse"]
+        XCTAssertTrue(scrollTo(collapse, in: app))
+        collapse.tap()
+        XCTAssertTrue(scrollTo(secondaryAdd, in: app, towardStart: true))
+        XCTAssertFalse(groupAdd.exists)
+        tabButton("Settings", in: app).tap()
+        setSwitch("settings-overview-show-credits", to: false, in: app, initially: true)
+        tabButton("Overview", in: app).tap()
+        XCTAssertTrue(scrollTo(secondaryAdd, in: app))
+        XCTAssertFalse(compact.exists)
+        secondaryAdd.tap()
+        XCTAssertTrue(app.navigationBars["Add credit balance"].waitForExistence(timeout: 10))
+        app.buttons["Cancel"].tap()
+    }
+
     func testOverviewOpensAddCredit() {
         let app = launch()
         XCTAssertTrue(app.staticTexts["No accounts yet"].waitForExistence(timeout: 10))
         XCTAssertTrue(scrollTo(app.buttons["overview-add-account"], in: app))
-        let add = app.buttons["overview-add-credit"]
+        XCTAssertFalse(app.buttons["overview-add-credit"].exists)
+        let add = app.buttons["overview-credits-add"]
         XCTAssertTrue(scrollTo(add, in: app))
         add.tap()
         XCTAssertTrue(app.navigationBars["Add credit balance"].waitForExistence(timeout: 10))
