@@ -17,6 +17,7 @@ import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.settings.SyncDiagnostics
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.userMessage
@@ -326,8 +327,8 @@ class UsageViewModel(
         viewModelScope.launch { container.settingsStore.setShowSubscriptionTier(enabled) }
     }
 
-    fun setShowRenewalTime(enabled: Boolean) {
-        viewModelScope.launch { container.settingsStore.setShowRenewalTime(enabled) }
+    fun setOverviewLayout(layout: OverviewLayout) {
+        viewModelScope.launch { container.settingsStore.setOverviewLayout(layout) }
     }
 
     fun setPercentDisplay(mode: PercentDisplay) {

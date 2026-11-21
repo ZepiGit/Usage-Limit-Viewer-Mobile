@@ -135,7 +135,7 @@ class StatusIconBlockedTest {
                     state = state,
                     onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {},
                     onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
-                    onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {},
+                    onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {},
                     onNotificationPermissionHandled = vm::recordNotificationPermissionHandled,
                     onStatusIconsChange = vm::setStatusIcons,
                     onPinnedChange = vm::setPinned,

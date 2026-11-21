@@ -85,11 +85,16 @@
     <string name="settings_interval_subtitle">Android aktualisiert im Ruhemodus oder Energiesparmodus möglicherweise seltener.</string>
     <string name="settings_section_overview">Übersicht</string>
     <string name="settings_show_tier_title">Abo-Stufe anzeigen</string>
-    <string name="settings_show_tier_subtitle">Plus, Pro, Max – neben dem Anbieternamen</string>
-    <string name="settings_show_renewal_title">Erneuerungszeit anzeigen</string>
-    <string name="settings_show_renewal_subtitle">Wann das Wochen- oder Monatskontingent neu beginnt, im Unterschied zum nächsten Reset. Nur in der Übersicht – die Widgets zeigen weiterhin nur eine Angabe.</string>
+    <string name="settings_show_tier_subtitle">Plus, Pro, Max – neben dem Anbieternamen in der Liste</string>
+    <string name="settings_section_display">Anzeige</string>
     <string name="settings_percent_display_title">Prozente anzeigen als</string>
-    <string name="settings_percent_display_subtitle">Ob die Zahlen herunterzählen, was übrig ist, oder hochzählen, was du verbraucht hast.</string>
+    <string name="settings_percent_display_subtitle">Was noch übrig ist oder was du schon verbraucht hast. Gilt für die ganze App und alle Widgets.</string>
+    <string name="settings_preview">VORSCHAU</string>
+    <string name="settings_display_preview_sample">%1$s · %2$s</string>
+    <string name="settings_overview_layout_title">Layout</string>
+    <string name="settings_overview_layout_subtitle">Die Liste zeigt alle Zeitfenster pro Konto. Die Ringansicht zeigt wie die Ring-Widgets einen Ring pro Konto.</string>
+    <string name="settings_overview_list">Liste</string>
+    <string name="settings_overview_dials">Ringe</string>
     <string name="settings_section_notifications">Benachrichtigungen</string>
     <string name="settings_notifications_allowed">Benachrichtigungen erlaubt</string>
     <string name="settings_notifications_not_allowed">Benachrichtigungen nicht erlaubt</string>
@@ -192,7 +197,7 @@
     <string name="overview_filter_attention">Braucht Aufmerksamkeit</string>
     <string name="overview_filter_resets_today">Resets heute</string>
     <string name="overview_no_match">Keine Konten entsprechen diesem Filter.</string>
-    <string name="overview_headline_caption">Die hellere Zeile zeigt das maßgebliche Zeitfenster des Kontos.</string>
+    <string name="overview_headline_caption">Die hervorgehobene Zeile zeigt das maßgebliche Zeitfenster des Kontos.</string>
     <string name="overview_sign_in_expired">Anmeldung abgelaufen · letzte bekannte Daten</string>
     <string name="overview_headline_spoken">Maßgebliches Zeitfenster: %1$s</string>
     <string name="overview_mode_left" formatted="false">% übrig</string>
@@ -202,7 +207,9 @@
     <string name="overview_track_credit">Prepaid-Guthaben erfassen</string>
     <string name="overview_refreshing">Wird aktualisiert…</string>
     <string name="overview_refresh_usage">Nutzung aktualisieren</string>
-    <string name="overview_renews">%1$s erneuert sich in %2$s</string>
+    <string name="overview_dials_caption">Jeder Ring zeigt das maßgebliche Zeitfenster des Kontos. Tippe darauf, um alle Zeitfenster und ihre Resets zu sehen.</string>
+    <string name="overview_dial_account_number">Konto %1$d</string>
+    <string name="overview_dial_headline_line">%1$s · %2$s</string>
     <string name="overview_no_usage_data">Noch keine Nutzungsdaten</string>
     <string name="status_reconnect">Neu verbinden</string>
     <string name="restricted_windows">Eingeschränkt: %1$s</string>

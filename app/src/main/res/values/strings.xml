@@ -85,11 +85,16 @@
     <string name="settings_interval_subtitle">Android may refresh less often in Doze or battery saver.</string>
     <string name="settings_section_overview">Overview</string>
     <string name="settings_show_tier_title">Show subscription tier</string>
-    <string name="settings_show_tier_subtitle">Plus, Pro, Max — beside the provider name</string>
-    <string name="settings_show_renewal_title">Show renewal time</string>
-    <string name="settings_show_renewal_subtitle">When the weekly or monthly allowance starts over, as opposed to the next reset. Overview only — the widgets stay on one number.</string>
+    <string name="settings_show_tier_subtitle">Plus, Pro, Max — beside the provider name in List</string>
+    <string name="settings_section_display">Display</string>
     <string name="settings_percent_display_title">Show percentages as</string>
-    <string name="settings_percent_display_subtitle">Whether figures count down what is left or up what you have used.</string>
+    <string name="settings_percent_display_subtitle">What is left, or what you have used. Applies to the whole app and to every widget.</string>
+    <string name="settings_preview">PREVIEW</string>
+    <string name="settings_display_preview_sample">%1$s · %2$s</string>
+    <string name="settings_overview_layout_title">Layout</string>
+    <string name="settings_overview_layout_subtitle">List shows every window per account. Dials show one ring per account, like the ring widgets.</string>
+    <string name="settings_overview_list">List</string>
+    <string name="settings_overview_dials">Dials</string>
     <string name="settings_section_notifications">Notifications</string>
     <string name="settings_notifications_allowed">Notifications allowed</string>
     <string name="settings_notifications_not_allowed">Notifications not allowed</string>
@@ -194,7 +199,7 @@
     <string name="overview_filter_attention">Needs attention</string>
     <string name="overview_filter_resets_today">Resets today</string>
     <string name="overview_no_match">No accounts match this filter.</string>
-    <string name="overview_headline_caption">The brighter line is the account’s headline.</string>
+    <string name="overview_headline_caption">The emphasised line is the account’s headline.</string>
     <string name="overview_sign_in_expired">Sign-in expired · showing last known data</string>
     <!-- Spoken before the emphasised window's reading. -->
     <string name="overview_headline_spoken">Headline: %1$s</string>
@@ -207,7 +212,9 @@
     <string name="overview_track_credit">Track a prepaid credit balance</string>
     <string name="overview_refreshing">Refreshing…</string>
     <string name="overview_refresh_usage">Refresh usage</string>
-    <string name="overview_renews">%1$s renews %2$s</string>
+    <string name="overview_dials_caption">Each dial shows the account’s headline. Tap one for every window and its resets.</string>
+    <string name="overview_dial_account_number" tools:ignore="PluralsCandidate">Account %1$d</string>
+    <string name="overview_dial_headline_line">%1$s · %2$s</string>
     <string name="overview_no_usage_data">No usage data yet</string>
     <string name="status_reconnect">Reconnect</string>
     <string name="restricted_windows">Restricted: %1$s</string>
