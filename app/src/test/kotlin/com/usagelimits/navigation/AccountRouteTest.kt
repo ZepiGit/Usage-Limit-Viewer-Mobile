@@ -24,6 +24,12 @@ class AccountRouteTest {
         assertEquals(AccountRoute.Unavailable("gone"), AccountRoute.resolve("gone", loadedIds = emptyList()))
     }
 
+    @Test fun `an unreadable cold store is not proof that the linked account was removed`() {
+        assertEquals(AccountRoute.StorageError("a"), AccountRoute.resolve("a", loadedIds = null, unreadable = true))
+        assertEquals(AccountRoute.StorageError("a"), AccountRoute.resolve("a", loadedIds = emptyList(), unreadable = true))
+        assertEquals(AccountRoute.Detail("a"), AccountRoute.resolve("a", loadedIds = listOf("a")))
+    }
+
     @Test fun `no id routes nowhere`() {
         assertNull(AccountRoute.resolve(null, loadedIds = listOf("a")))
         assertNull(AccountRoute.resolve("", loadedIds = listOf("a")))

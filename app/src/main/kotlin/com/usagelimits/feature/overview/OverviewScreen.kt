@@ -157,6 +157,7 @@ fun OverviewScreen(
     onAddCredit: () -> Unit = {},
     onManageCredits: (() -> Unit)? = null,
     isCurrentDestination: Boolean = true,
+    onRetryStorage: () -> Unit = onRefresh,
 ) {
     val listState = rememberLazyListState()
     val compactCredits = state.settings.showCompactCredits(state.credits)
@@ -190,7 +191,7 @@ fun OverviewScreen(
 
             // Until the first emission `accounts` is empty only because nothing has arrived, so the
             // final layout is drawn in grey rather than flashing the empty state.
-            if (!state.loaded) {
+            if (!state.loaded && !state.accountStorageUnreadable) {
                 item(key = "loading") { ListSkeleton(Modifier.padding(top = BlockGap)) }
                 return@LazyColumn
             }
@@ -202,8 +203,15 @@ fun OverviewScreen(
             )
             if (state.settings.creditsFirst) credits()
 
+            if (state.accountStorageUnreadable) {
+                item(key = "storage-error") {
+                    com.usagelimits.feature.accounts.AccountStorageError(onRetryStorage, Modifier.padding(top = BlockGap))
+                }
+            }
             if (state.accounts.isEmpty()) {
-                item(key = "empty") { EmptyOverview(onAddAccount, onAddCredit, itemMotion(listMotion).padding(top = BlockGap)) }
+                if (!state.accountStorageUnreadable) {
+                    item(key = "empty") { EmptyOverview(onAddAccount, onAddCredit, itemMotion(listMotion).padding(top = BlockGap)) }
+                }
             } else if (dials) {
                 overviewDials(projection.entries, state.settings, nowMs, zone, state.staleAfterMs, dialColumns,
                     listMotion, onAccountClick, onAddAccount)
@@ -333,6 +341,7 @@ private fun OverviewHeader(
 ) {
     val subtitle = when {
         state.isRefreshing -> AnnotatedString(stringResource(R.string.overview_refreshing))
+        state.accountStorageUnreadable -> null
         !state.loaded -> AnnotatedString(stringResource(R.string.overview_loading_usage))
         state.accounts.isEmpty() -> AnnotatedString(stringResource(R.string.overview_no_accounts_yet))
         else -> headerSubtitle(projection, nowMs, zone)

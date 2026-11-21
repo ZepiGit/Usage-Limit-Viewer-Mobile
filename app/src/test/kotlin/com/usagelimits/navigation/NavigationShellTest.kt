@@ -85,7 +85,7 @@ class NavigationShellTest {
     private var layout by mutableStateOf(NavigationLayout.BOTTOM_BAR)
     private var motionOn by mutableStateOf(true)
     private val tab = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
-    private val pushed = Destination.AddAccount.route
+    private val pushed = Destination.AddAccount.of()
     private val keyboard = object : InputModeManager {
         override val inputMode = InputMode.Keyboard
         override fun requestInputMode(inputMode: InputMode) = inputMode == InputMode.Keyboard

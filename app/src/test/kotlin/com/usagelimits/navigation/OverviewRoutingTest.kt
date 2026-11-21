@@ -9,6 +9,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -24,11 +29,23 @@ import kotlinx.coroutines.Job
 import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.core.sync.Publication
 import com.usagelimits.core.di.AppContainer
+import com.usagelimits.core.auth.OAuthCredentials
+import com.usagelimits.core.credits.MemoryCredentialStore
+import com.usagelimits.core.database.ControlledAccountReads
+import com.usagelimits.core.database.UsageRepository
+import com.usagelimits.core.model.ConnectionStatus
+import com.usagelimits.core.model.ProviderAccount
+import com.usagelimits.providers.LoginChallenge
+import com.usagelimits.providers.ProviderProfile
+import com.usagelimits.providers.ProviderRegistry
+import com.usagelimits.providers.UsageProvider
+import com.usagelimits.providers.UsageResult
 import androidx.lifecycle.viewModelScope
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.Configuration
 import com.usagelimits.UsageLimitsApp
+import com.usagelimits.R
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
@@ -72,6 +89,23 @@ class OverviewRoutingTest {
     private var request by mutableStateOf<ExternalRequest?>(null)
     private val tab = SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)
     private lateinit var container: AppContainer
+    private lateinit var accountReads: ControlledAccountReads
+    private var controlAccountReads = false
+    private val signInBegins = java.util.concurrent.atomic.AtomicInteger()
+    private val loginChallenge: LoginChallenge = LoginChallenge.ApiKey("https://example.test", "Synthetic key")
+    private lateinit var initialSettings: com.usagelimits.core.settings.AppSettings
+
+    private fun provider(id: ProviderId) = object : UsageProvider {
+        override val providerId = id
+        override suspend fun beginLogin(): LoginChallenge {
+            signInBegins.incrementAndGet()
+            return loginChallenge
+        }
+        override suspend fun completeLogin(challenge: LoginChallenge, userInput: String?) = OAuthCredentials("synthetic", null, null, null)
+        override suspend fun refresh(credentials: OAuthCredentials) = credentials
+        override suspend fun fetchProfile(credentials: OAuthCredentials) = ProviderProfile("different-identity", null, "Second identity", "Plus")
+        override suspend fun fetchUsage(account: ProviderAccount, credentials: OAuthCredentials) = UsageResult(emptyList())
+    }
     /** Presentation publications asked for since the test began. */
     private val presentations = java.util.concurrent.atomic.AtomicInteger()
 
@@ -81,19 +115,27 @@ class OverviewRoutingTest {
         resetTestWorkManager()
         WorkManagerTestInitHelper.initializeTestWorkManager(app, Configuration.Builder().setExecutor(SynchronousExecutor()).build())
         container = object : AppContainer(app) {
+            override val repository by lazy {
+                accountReads = ControlledAccountReads(database.accountDao())
+                UsageRepository(if (controlAccountReads) accountReads else database.accountDao(), database.usageSnapshotDao(), transactions = transactions)
+            }
+            override val credentialStore = MemoryCredentialStore()
+            override val providerRegistry = ProviderRegistry(listOf(ProviderId.CODEX, ProviderId.ZAI, ProviderId.OPENCODE)
+                .associateWith { provider(it) })
             override val publication: Publication = object : Publication {
                 override suspend fun cacheMoved() = Unit
                 override suspend fun presentationChanged() { presentations.incrementAndGet() }
                 override suspend fun notificationsAllowedAgain() = Unit
             }
         }
+        initialSettings = runBlocking { container.settingsStore.settings.first() }
     }
 
     @After fun tearDown() {
         try {
             // The navigation's view model ends with the store; its cancelled jobs finish on this
             // thread, so the looper is pumped until they have, before WorkManager goes.
-            val jobs = store.keys().mapNotNull { store[it] as? UsageViewModel }.map { it.viewModelScope.coroutineContext[Job]!! }
+            val jobs = store.keys().mapNotNull { store[it] }.map { it.viewModelScope.coroutineContext[Job]!! }
             compose.runOnUiThread { store.clear() }
             val deadline = System.currentTimeMillis() + 10_000
             while (jobs.any { !it.isCompleted }) {
@@ -102,6 +144,13 @@ class OverviewRoutingTest {
                 runBlocking { kotlinx.coroutines.yield() }
             }
         } finally {
+            lateinit var observer: Job
+            compose.runOnUiThread { observer = app.observeStatusIconEligibility() }
+            compose.waitDrained { observer.isCompleted }
+            runBlocking {
+                container.settingsStore.setOverviewLayout(initialSettings.overviewLayout)
+                container.settingsStore.setSyncInterval(initialSettings.syncIntervalMinutes)
+            }
             WorkManager.getInstance(app).cancelAllWork().result.get()
             ShadowLooper.idleMainLooper()
             resetTestWorkManager()
@@ -112,11 +161,12 @@ class OverviewRoutingTest {
         request = ExternalRequest.OpenAccount(accountId)
     }
 
-    private suspend fun account(name: String, left: Double) = container.repository
-        .upsertFromLogin(ProviderId.CODEX, "$name-${System.nanoTime()}", null, name, "Plus", emptyMap()).also {
+    private suspend fun account(name: String, left: Double, provider: ProviderId = ProviderId.CODEX, expired: Boolean = false) = container.repository
+        .upsertFromLogin(provider, name, null, name, "Plus", emptyMap()).also {
             val now = System.currentTimeMillis()
             container.repository.saveSnapshot(UsageSnapshot(it.localId, now, SnapshotStatus.OK, listOf(
-                UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 100.0 - left, 604_800, now + 3_600_000, false))))
+                UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 100.0 - left, 604_800, now + 3_600_000, false)),
+                connectionStatus = if (expired) ConnectionStatus.RECONNECT_REQUIRED else ConnectionStatus.CONNECTED))
         }
 
     private fun showShell(now: () -> Long = System::currentTimeMillis) {
@@ -250,6 +300,122 @@ class OverviewRoutingTest {
         advance(10_000 - (compose.mainClock.currentTime - start) + 200)
         settle()
         assertTrue("stale at the new boundary, not at the tick 25 s later", shown("Stale"))
+    }
+
+    @Test fun `Overview says the account store is unreadable and its retry resumes the live account flow`() {
+        controlAccountReads = true
+        val alpha = runBlocking { account("Alpha", 60.0) }
+        runBlocking { accountReads.fail() }
+        showShell()
+        compose.waitDrained { shown("Can't read accounts") }
+        assertEquals(false, shown("Nothing to monitor yet"))
+        assertEquals(false, shown("No accounts yet"))
+        compose.onNodeWithText("Try again").performClick()
+        runBlocking { accountReads.succeed() }
+        compose.waitDrained { shown("Alpha") && shown("Needs attention") }
+        assertEquals(false, shown("Can't read accounts"))
+        compose.runOnUiThread { open(alpha.localId) }
+        compose.waitDrained { shown("Remove account") }
+        assertEquals(alpha.localId, runBlocking { container.repository.accounts().single().localId })
+    }
+
+    @Test fun `a cold account link shows storage failure not removal and recovers in the same detail`() {
+        controlAccountReads = true
+        val alpha = runBlocking { account("Alpha", 60.0) }
+        runBlocking { accountReads.fail() }
+        open(alpha.localId)
+        showShell()
+        compose.waitDrained { shown("Can't read accounts") && shown("Back to Overview") }
+        assertEquals("the unreadable request is handled once", null, request)
+        assertEquals(false, shown("This account is no longer available."))
+        compose.onNodeWithText("Try again").performClick()
+        runBlocking { accountReads.succeed() }
+        compose.waitDrained { shown("Remove account") && shown("Alpha") }
+        assertEquals(false, shown("Can't read accounts"))
+    }
+
+    @Test fun `ordinary Add account still opens the provider picker`() {
+        showShell()
+        val add = app.getString(R.string.overview_add_account)
+        compose.waitDrained { shown(add) }
+        compose.onNodeWithText(add).performClick()
+        compose.waitDrained { shown(app.getString(R.string.add_pick_intro)) }
+        assertEquals(0, signInBegins.get())
+    }
+
+    @Test fun `Reconnect starts the provider key step and a different identity adds a second account`() = reconnectWithKey()
+
+    @Test
+    @Config(qualifiers = "de-w393dp-h1600dp-xhdpi")
+    fun `Reconnect has the same provider route in German and leaves the old identity intact`() = reconnectWithKey()
+
+    private fun reconnectWithKey() {
+        val original = runBlocking { account("Original identity", 60.0, ProviderId.OPENCODE, expired = true) }
+        open(original.localId)
+        showShell()
+        val reconnect = app.getString(R.string.account_reconnect)
+        compose.waitDrained { shown(reconnect) }
+        compose.onNodeWithText(reconnect).performClick()
+        val keyTitle = app.getString(R.string.add_paste_key_title, ProviderId.OPENCODE.displayName)
+        compose.waitDrained { shown(keyTitle) }
+        assertEquals("Reconnect must not show the provider picker", false, shown(app.getString(R.string.add_pick_intro)))
+        assertEquals(1, signInBegins.get())
+        compose.onNode(hasSetTextAction()).performTextReplacement("synthetic-key")
+        compose.onNodeWithText(app.getString(R.string.add_connect)).performClick()
+        compose.waitDrained { shown(app.getString(R.string.add_connected)) }
+        val accounts = runBlocking { container.repository.accounts() }
+        assertEquals("a different sign-in is a second account, not a replacement by provider", 2, accounts.size)
+        val kept = accounts.single { it.localId == original.localId }
+        assertEquals(original.externalAccountId, kept.externalAccountId)
+        assertEquals(original.credentialReference, kept.credentialReference)
+        assertEquals(original.createdAt, kept.createdAt)
+        assertEquals(setOf(original.externalAccountId, "different-identity"), accounts.map { it.externalAccountId }.toSet())
+        assertEquals(setOf(ProviderId.OPENCODE), accounts.map { it.provider }.toSet())
+        compose.onNodeWithText(app.getString(R.string.action_done)).performClick()
+        compose.waitDrained { shown(reconnect) }
+    }
+
+    @Test fun `Reconnect starts a regional provider at its region choice not the provider picker`() {
+        val original = runBlocking { account("Regional identity", 60.0, ProviderId.ZAI, expired = true) }
+        open(original.localId)
+        showShell()
+        compose.waitDrained { shown("Reconnect account") }
+        compose.onNodeWithText("Reconnect account").performClick()
+        compose.waitDrained { shown(app.getString(R.string.add_region_title, ProviderId.ZAI.displayName)) }
+        assertEquals(0, signInBegins.get())
+        assertEquals(false, shown(app.getString(R.string.add_pick_intro)))
+        compose.onNodeWithText("International (z.ai)").performClick()
+        compose.waitDrained { shown(app.getString(R.string.add_paste_key_title, ProviderId.ZAI.displayName)) }
+        assertEquals(1, signInBegins.get())
+        compose.onNodeWithText("Cancel").performClick()
+        compose.waitDrained { shown("Reconnect account") }
+    }
+
+    @Test fun `changing the saved Overview layout List to Dials to List resets a filtered list to All`() {
+        runBlocking { account("Alpha", 60.0) }
+        showShell()
+        compose.waitDrained { shown("Needs attention") }
+        compose.onNodeWithText("Needs attention").performClick()
+        compose.waitDrained { shown("No accounts match this filter.") }
+        compose.onNode(hasText("Settings") and tab).performClick()
+        compose.waitDrained { compose.onAllNodes(hasScrollToNodeAction()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Dials"))
+        compose.onNode(hasText("Dials") and hasClickAction()).performClick()
+        compose.waitDrained { compose.onAllNodes(hasText("Dials") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasText("Overview") and tab).performClick()
+        compose.waitDrained { shown("Each dial shows the account’s headline. Tap one for every window and its resets.") }
+        assertEquals(false, shown("Needs attention"))
+        compose.onNode(hasText("Settings") and tab).performClick()
+        compose.waitDrained { compose.onAllNodes(hasScrollToNodeAction()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("List"))
+        compose.onNode(hasText("List") and hasClickAction()).performClick()
+        compose.waitDrained { compose.onAllNodes(hasText("List") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasText("Overview") and tab).performClick()
+        compose.waitDrained { shown("Alpha") && compose.onAllNodes(hasText("All") and
+            SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(false, shown("No accounts match this filter."))
     }
 
     @Test fun `choosing another tab and coming back restores All`() {

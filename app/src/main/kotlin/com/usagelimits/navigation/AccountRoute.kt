@@ -12,14 +12,18 @@ internal sealed interface AccountRoute {
     /** The store answered and the account is not in it: its detail says so, with a way back. */
     data class Unavailable(val accountId: String) : AccountRoute
 
+    /** Storage has not answered whether this account exists; its detail offers a retry. */
+    data class StorageError(val accountId: String) : AccountRoute
+
     companion object {
         /**
          * The route for [requested] given what the store has said: [loadedIds] is null until its
          * first answer (loading), then the ids it holds (present or missing). The caller consumes
          * the request once it gets a route, so a later change does not open it again.
          */
-        fun resolve(requested: String?, loadedIds: Collection<String>?): AccountRoute? = when {
+        fun resolve(requested: String?, loadedIds: Collection<String>?, unreadable: Boolean = false): AccountRoute? = when {
             requested.isNullOrEmpty() -> null
+            unreadable -> StorageError(requested)
             loadedIds == null -> null
             requested in loadedIds -> Detail(requested)
             else -> Unavailable(requested)
