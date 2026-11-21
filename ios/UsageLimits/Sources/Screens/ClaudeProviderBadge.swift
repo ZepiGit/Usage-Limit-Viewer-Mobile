@@ -3,6 +3,8 @@ import UsageLimitsKit
 
 /// Only app slots replace the selected Claude Code image; the picker and widgets remain static.
 struct ClaudeProviderBadge: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @EnvironmentObject private var store: UsageStore
     @Environment(\.providerIconChoices) private var choices
 
@@ -22,7 +24,7 @@ struct ClaudeProviderBadge: View {
         Group {
             if provider == .claude && Self.isClaudeCode(choice) {
                 ClaudeCodeFigure(mood: mood, size: size,
-                    ink: choice.id == "claudecode-color" ? UsageColors.data : UsageColors.ink,
+                    ink: choice.id == "claudecode-color" ? UsageColors.data : colors.ink,
                     animate: store.settings.animateClaudeCodeIcon, amplitude: amplitude)
                     .frame(width: figureSlotSize ?? size, height: figureSlotSize ?? size)
             } else {

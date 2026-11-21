@@ -45,6 +45,10 @@ targets:
       # so a widget whose bundle lacked the catalog would show English in every language.
       - path: Sources/Resources/Localizable.xcstrings
         buildPhase: resources
+      # Folder reference preserves byte-identical canonical files without a copied asset tree.
+      - path: ../../third_party/fonts/android-res
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: UsageLimitsKit
       # The widget must be EMBEDDED, not merely built. Listing both targets in the scheme
@@ -68,12 +72,20 @@ targets:
       properties:
         CFBundleShortVersionString: '$(MARKETING_VERSION)'
         CFBundleVersion: '$(CURRENT_PROJECT_VERSION)'
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchNeutral
+        UIAppFonts:
+          - android-res/font/roboto_flex.ttf
+          - android-res/font/ibm_plex_sans_regular.ttf
+          - android-res/font/ibm_plex_sans_medium.ttf
+          - android-res/font/figtree.ttf
+          - android-res/font/roboto_mono.ttf
+          - android-res/font/jetbrains_mono.ttf
+          - android-res/font/ibm_plex_mono_regular.ttf
+          - android-res/font/ibm_plex_mono_medium.ttf
+          - android-res/font/ibm_plex_mono_bold.ttf
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        # Dark-only by design: a half-finished light palette would look worse than a deliberate
-        # dark one, and the reference design is dark.
-        UIUserInterfaceStyle: Dark
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

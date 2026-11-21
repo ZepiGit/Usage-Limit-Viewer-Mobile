@@ -4,11 +4,7 @@ import SwiftUI
 // looked fine failed to build in two targets at once.
 import UsageLimitsKit
 
-/// The palette, kept numerically identical to the Android one.
-///
-/// Same product, same colours: a user with the app on both a phone and an iPad should not see
-/// two different shades of "running low". The hex values are copied from
-/// `app/src/main/kotlin/com/usagelimits/ui/theme/Color.kt`, and any change belongs in both.
+/// The fixed Warm dark widget palette. App views resolve a local `UsagePalette` from the environment.
 ///
 /// Roles, not hues. Chrome (tabs, buttons, switches, links, focus) is `ink`. `data` is the one
 /// hue that means "quota": a bar fill, a ring arc, the next-reset countdown. Severity is a small
@@ -179,9 +175,8 @@ extension Color {
 
 /// The type scale: six sizes in the app (12/14/16/20/24/30), 11 in widgets and one 22 lead.
 ///
-/// One text face and one figure face, both system. A figure is a number standing alone in its
-/// slot (a %, money, a count, a clock time) and is set in the monospaced design so a column of
-/// them lines up; a number inside a sentence stays in the text face with fixed-width digits.
+/// App faces come from the scoped appearance; the widget context keeps native fixed type.
+/// A standalone percentage, amount or clock uses the figure face; prose keeps fixed-width digits.
 /// 700 is for money only.
 ///
 /// Sizes scale with Dynamic Type relative to the text style named beside each.
@@ -191,7 +186,7 @@ enum UsageFont {
     case small, smallStrong, micro, compactFigure, accountTitle, emptyTitle
     case dialFigure, previewTitle, previewFigure, displayPreviewFigure, previewWindow
 
-    fileprivate var spec: (size: CGFloat, weight: Font.Weight, design: Font.Design, style: Font.TextStyle) {
+    var spec: (size: CGFloat, weight: Font.Weight, design: Font.Design, style: Font.TextStyle) {
         switch self {
         case .title: return (24, .medium, .default, .title2)
         case .lead: return (30, .medium, .monospaced, .largeTitle)
@@ -221,6 +216,7 @@ enum UsageFont {
 }
 
 private struct UsageFontModifier: ViewModifier {
+    @Environment(\.usageAppearance) private var appearance
     @ScaledMetric private var size: CGFloat
     private let font: UsageFont
 
@@ -232,7 +228,7 @@ private struct UsageFontModifier: ViewModifier {
     func body(content: Content) -> some View {
         // Fixed-width digits on every token: the sentences that carry a countdown or a time
         // ("Resets in 2h 12m") must not shimmy as the digits change.
-        content.font(Font.system(size: size, weight: font.spec.weight, design: font.spec.design).monospacedDigit())
+        content.font(UsageTypography.font(font, size: size, appearance: appearance))
     }
 }
 
@@ -246,6 +242,8 @@ extension View {
 
 /// A panel on the app's dark ground: a tone step, no border, no shadow.
 struct UsageCard<Content: View>: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     var padding: CGFloat = 16
     var spacing: CGFloat = 12
     @ViewBuilder var content: Content
@@ -254,22 +252,26 @@ struct UsageCard<Content: View>: View {
         VStack(alignment: .leading, spacing: spacing) { content }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(padding)
-            .background(UsageColors.surface)
+            .background(colors.surface)
             .clipShape(RoundedRectangle(cornerRadius: UsageRadius.card, style: .continuous))
     }
 }
 
 /// A 1pt hairline between the rows of one card, inset from the card's left edge.
 struct LedgerDivider: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     var inset: CGFloat = 16
 
     var body: some View {
-        UsageColors.rule.frame(height: 1).padding(.leading, inset)
+        colors.rule.frame(height: 1).padding(.leading, inset)
     }
 }
 
 /// An empty list: one sentence in a dashed box, where a card would be.
 struct DashedBox<Content: View>: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -279,31 +281,35 @@ struct DashedBox<Content: View>: View {
             .padding(.vertical, 12)
             .overlay(
                 RoundedRectangle(cornerRadius: UsageRadius.card, style: .continuous)
-                    .stroke(UsageColors.control, style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
+                    .stroke(colors.control, style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
     }
 }
 
 /// A section title between groups of cards.
 struct SectionTitle: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     let text: String
 
     var body: some View {
         Text(text)
             .usageFont(.section)
-            .foregroundStyle(UsageColors.ink)
+            .foregroundStyle(colors.ink)
             .accessibilityAddTraits(.isHeader)
     }
 }
 
 /// A placeholder bar at a real element's size, for a screen that has not loaded yet.
 struct SkeletonBar: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     var width: CGFloat = 1
     var height: CGFloat = 14
 
     var body: some View {
         GeometryReader { geometry in
             RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous)
-                .fill(UsageColors.raised)
+                .fill(colors.raised)
                 .frame(width: geometry.size.width * width, height: height)
         }
         .frame(height: height)
@@ -333,17 +339,19 @@ struct AccountSkeletonCard: View {
 /// A status as a dot and a word, with no fill. Drawn only when something is worth saying:
 /// a healthy account is the default and needs no mark.
 struct StatusMark: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     let severity: Severity
     var label: String? = nil
 
     var body: some View {
         if severity != .healthy || label != nil {
             HStack(spacing: 6) {
-                Circle().fill(SeverityPalette.accent(severity)).frame(width: 8, height: 8)
+                Circle().fill(colors.accent(severity)).frame(width: 8, height: 8)
                     .accessibilityHidden(true)
                 Text(label ?? SeverityPalette.label(severity))
                     .usageFont(.smallStrong)
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
             }
             .accessibilityElement(children: .combine)
         }
@@ -352,19 +360,21 @@ struct StatusMark: View {
 
 /// A dot and a sentence — and, for a failure, the way to try again.
 struct NoticeLine: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     let message: String
-    var dot: Color = UsageColors.warning
+    var dot: Color? = nil
     var retry: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Circle().fill(dot).frame(width: 6, height: 6).accessibilityHidden(true)
+                Circle().fill(dot ?? colors.warning).frame(width: 6, height: 6).accessibilityHidden(true)
                 // The kit's own failure sentences are stored in English; this reads one in the
                 // current language and shows anything else exactly as it came.
                 Text(verbatim: DisplayText.stored(message))
                     .usageFont(.body)
-                    .foregroundStyle(retry == nil ? UsageColors.muted : UsageColors.ink)
+                    .foregroundStyle(retry == nil ? colors.muted : colors.ink)
             }
             if let retry {
                 Button("Retry", action: retry).buttonStyle(TextActionStyle())
@@ -377,18 +387,20 @@ struct NoticeLine: View {
 
 /// The one filled button a screen gets: `ink` fill, dark label.
 struct InkButtonStyle: ButtonStyle {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @Environment(\.isEnabled) private var isEnabled
     var fullWidth = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .usageFont(.bodyStrong)
-            .foregroundStyle(isEnabled ? UsageColors.onInk : UsageColors.muted)
+            .foregroundStyle(isEnabled ? colors.onInk : colors.muted)
             .padding(.horizontal, 16)
             .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: 44)
             .background(
                 RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous)
-                    .fill(isEnabled ? UsageColors.ink.opacity(configuration.isPressed ? 0.85 : 1) : UsageColors.raised))
+                    .fill(isEnabled ? colors.ink.opacity(configuration.isPressed ? 0.85 : 1) : colors.raised))
             .pressRelease(isPressed: configuration.isPressed)
     }
 }
@@ -396,35 +408,39 @@ struct InkButtonStyle: ButtonStyle {
 /// Secondary: a 1pt `control` border and an `ink` label. Also the destructive button, with a
 /// `negativeText` label.
 struct OutlineButtonStyle: ButtonStyle {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @Environment(\.isEnabled) private var isEnabled
-    var label: Color = UsageColors.ink
+    var label: Color? = nil
     var fullWidth = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .usageFont(.bodyStrong)
-            .foregroundStyle(isEnabled ? label : UsageColors.muted)
+            .foregroundStyle(isEnabled ? (label ?? colors.ink) : colors.muted)
             .padding(.horizontal, 16)
             .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: 44)
             .background(
                 RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous)
-                    .fill(configuration.isPressed ? UsageColors.raised : Color.clear))
+                    .fill(configuration.isPressed ? colors.raised : Color.clear))
             .overlay(
                 RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous)
-                    .stroke(UsageColors.control, lineWidth: 1))
+                    .stroke(colors.control, lineWidth: 1))
             .pressRelease(isPressed: configuration.isPressed)
     }
 }
 
 /// Tertiary: text only, 44pt to hit.
 struct TextActionStyle: ButtonStyle {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @Environment(\.isEnabled) private var isEnabled
-    var label: Color = UsageColors.ink
+    var label: Color? = nil
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .usageFont(.bodyStrong)
-            .foregroundStyle(isEnabled ? label : UsageColors.muted)
+            .foregroundStyle(isEnabled ? (label ?? colors.ink) : colors.muted)
             .frame(minHeight: 44)
             .opacity(configuration.isPressed ? 0.7 : 1)
             .pressRelease(isPressed: configuration.isPressed)
@@ -434,21 +450,23 @@ struct TextActionStyle: ButtonStyle {
 /// A text field in the ledger's own skin: 48pt, `surface` fill, 1pt `control` border, 1.5pt
 /// `ink` while focused. Replaces `.roundedBorder`, which paints a light field on a dark app.
 private struct LedgerFieldModifier: ViewModifier {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @FocusState private var focused: Bool
 
     func body(content: Content) -> some View {
         content
             .focused($focused)
             .usageFont(.body)
-            .foregroundStyle(UsageColors.ink)
-            .tint(UsageColors.ink)
+            .foregroundStyle(colors.ink)
+            .tint(colors.ink)
             .padding(.horizontal, 12)
             .frame(minHeight: 48)
-            .background(UsageColors.surface)
+            .background(colors.surface)
             .clipShape(RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous)
-                    .stroke(focused ? UsageColors.ink : UsageColors.control, lineWidth: focused ? 1.5 : 1))
+                    .stroke(focused ? colors.ink : colors.control, lineWidth: focused ? 1.5 : 1))
     }
 }
 
@@ -460,20 +478,29 @@ extension View {
     /// A stock `List`/`Form` re-skinned: ground behind, `surface` rows, `ink` switches and
     /// pickers. Section titles are `LedgerHeader`s.
     func ledgerList() -> some View {
-        self
-            .scrollContentBackground(.hidden)
-            .background(UsageColors.ground)
-            .tint(UsageColors.ink)
+        modifier(LedgerListModifier())
+    }
+}
+
+private struct LedgerListModifier: ViewModifier {
+    @Environment(\.usageAppearance) private var appearance
+
+    func body(content: Content) -> some View {
+        content.scrollContentBackground(.hidden)
+            .background(appearance.colors.ground)
+            .tint(appearance.colors.ink)
     }
 }
 
 /// A `Form` section header: sentence case, 14pt medium, `muted` — not the system's uppercase.
 struct LedgerHeader: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     let text: String
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text).usageFont(.bodyStrong).foregroundStyle(UsageColors.muted).textCase(nil)
+        Text(text).usageFont(.bodyStrong).foregroundStyle(colors.muted).textCase(nil)
     }
 }
 
@@ -488,6 +515,8 @@ struct SegmentOption: Identifiable {
 /// A row of 36pt cells in a `rule` frame, in place of capsule chips. Scrolls sideways when it
 /// overflows and never wraps; each cell is padded to a 44pt touch target.
 struct SegmentedRow: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     let options: [SegmentOption]
 
     var body: some View {
@@ -497,12 +526,12 @@ struct SegmentedRow: View {
                     Button(action: option.action) {
                         Text(option.title)
                             .usageFont(option.selected ? .bodyStrong : .body)
-                            .foregroundStyle(option.selected ? UsageColors.ink : UsageColors.muted)
+                            .foregroundStyle(option.selected ? colors.ink : colors.muted)
                             .padding(.horizontal, 14)
                             .frame(height: 36)
                             .background(
                                 RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous)
-                                    .fill(option.selected ? UsageColors.raised : Color.clear))
+                                    .fill(option.selected ? colors.raised : Color.clear))
                             .padding(.vertical, 4)
                             .contentShape(Rectangle())
                     }
@@ -512,7 +541,7 @@ struct SegmentedRow: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: UsageRadius.control, style: .continuous)
-                    .stroke(UsageColors.rule, lineWidth: 1)
+                    .stroke(colors.rule, lineWidth: 1)
                     .padding(.vertical, 4))
             // On the row, not on each cell: the selected label is heavier and so a little wider,
             // and its neighbours and the frame have to move with it while the fill changes hands.
@@ -531,6 +560,8 @@ struct SegmentedRow: View {
 /// and the corner radius all have to match the Android rendering exactly, and the system style
 /// gives up control of all three.
 struct UsageBar: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     /// What the bar draws: its fill and how that fill is painted come from the Kit, so the bar
     /// cannot disagree with the figure beside it.
     let presentation: WindowPresentation
@@ -555,13 +586,13 @@ struct UsageBar: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: height / 2, style: .continuous).fill(UsageColors.dataTrack)
+                RoundedRectangle(cornerRadius: height / 2, style: .continuous).fill(colors.dataTrack)
                 // Always drawn, in clear ink when the presentation paints no fill, so the rectangle
                 // keeps its identity and its length: a bar that starts or stops being painted
                 // (an exhausted window on a mode flip, a failed reading that recovers) grows from
                 // or shrinks to its figure instead of being inserted or removed whole.
                 RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-                    .fill((SeverityPalette.fill(presentation.fillState) ?? Color.clear).opacity(emphasis))
+                    .fill((colors.fill(presentation.fillState) ?? Color.clear).opacity(emphasis))
                     // An unknown percentage draws nothing rather than a full or empty bar:
                     // either would state a fact the provider did not report.
                     .frame(width: geometry.size.width * fraction)
@@ -598,11 +629,21 @@ struct ProviderBadge: View {
 /// `tint` renders the artwork as a single-colour silhouette: the white logos vanish on a light
 /// wallpaper, so a widget on one asks for its ink.
 struct ProviderMark: View {
+    @Environment(\.usageAppearance) private var appearance
     let assetName: String
     var tint: Color? = nil
 
+    private static let whiteArtwork: Set<String> = [
+        "ProviderIconOpenai", "ProviderIconOpenaiText", "ProviderIconGrok", "ProviderIconGrokText",
+        "ProviderIconKimi", "ProviderIconKimiText", "ProviderIconClaude", "ProviderIconClaudeText",
+        "ProviderIconClaudecode", "ProviderIconClaudecodeText", "ProviderIconGemini", "ProviderIconGeminiText",
+        "ProviderIconAntigravity", "ProviderIconAntigravityText", "ProviderIconDevin", "ProviderIconMeta",
+        "ProviderIconZai", "ProviderIconZaiText", "ProviderIconOpencode", "ProviderIconOpencodeText"
+    ]
+
     var body: some View {
-        if let tint {
+        if let tint = tint ?? (appearance.isApp && appearance.theme.isLight && Self.whiteArtwork.contains(assetName)
+            ? appearance.colors.ink : nil) {
             Image(assetName).resizable().renderingMode(.template).scaledToFit().foregroundStyle(tint)
         } else {
             Image(assetName).resizable().scaledToFit()

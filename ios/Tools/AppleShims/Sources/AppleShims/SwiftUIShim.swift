@@ -141,6 +141,7 @@ extension View {
     public func tint(_ value: Any?) -> Self { self }
     public func tabItem(@ViewBuilder content: () -> any View) -> Self { self }
     public func preferredColorScheme(_ value: ColorScheme?) -> Self { self }
+    public func ignoresSafeArea() -> Self { self }
     public func badge(_ value: Any?) -> Self { self }
     public func accessibilityLabel(_ value: Any) -> Self { self }
     public func accessibilityHint(_ value: Any) -> Self { self }

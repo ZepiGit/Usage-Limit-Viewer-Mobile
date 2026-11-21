@@ -7,6 +7,8 @@ import UsageLimitsKit
 /// the point of the second is that an account already warned at 18 % should still say something
 /// at 8 % — a single slider cannot express "warn once, then escalate once".
 struct SettingsScreen: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     @EnvironmentObject private var store: UsageStore
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -19,6 +21,8 @@ struct SettingsScreen: View {
         #endif
         NavigationStack {
             Form {
+                AppearanceSettings(settings: $store.settings)
+
                 Section(header: LedgerHeader(String(localized: "Refresh"))) {
                     Picker("Every", selection: $store.settings.syncIntervalMinutes) {
                         ForEach(intervals, id: \.self) { minutes in
@@ -27,12 +31,12 @@ struct SettingsScreen: View {
                     }
                     Text("iOS decides when to refresh and may refresh less often.")
                         .usageFont(.small)
-                        .foregroundStyle(UsageColors.muted)
+                        .foregroundStyle(colors.muted)
                     Text(stalenessNote)
                         .usageFont(.small)
-                        .foregroundStyle(UsageColors.muted)
+                        .foregroundStyle(colors.muted)
                 }
-                .listRowBackground(UsageColors.surface)
+                .listRowBackground(colors.surface)
 
                 Section(header: LedgerHeader(String(localized: "Notifications"))) {
                     // Titles follow the display mode; the thresholds do not move. "Below 20% left"
@@ -45,10 +49,10 @@ struct SettingsScreen: View {
                         "Unused reset credit expires soon",
                         isOn: $store.settings.notifications.notifyOnResetCreditExpiring)
                     Text("Notify me when an unused Codex reset credit expires within 24 hours. A credit lets you reset an eligible usage limit.")
-                        .usageFont(.small).foregroundStyle(UsageColors.muted)
+                        .usageFont(.small).foregroundStyle(colors.muted)
                     Toggle("Sign-in expired", isOn: $store.settings.notifications.notifyOnAuthExpired)
                 }
-                .listRowBackground(UsageColors.surface)
+                .listRowBackground(colors.surface)
 
                 Section {
                     providerIconsLink
@@ -59,13 +63,13 @@ struct SettingsScreen: View {
                     NavigationLink("App icon") { AppIconScreen() }
                     NavigationLink("Widget layouts") { WidgetPresetsScreen() }
                 }
-                .listRowBackground(UsageColors.surface)
+                .listRowBackground(colors.surface)
 
                 Section(header: LedgerHeader(String(localized: "Display"))) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Show percentages as").accessibilityHidden(true)
                         Text("What is left, or what you have used. Applies to the whole app and to every widget.")
-                            .usageFont(.small).foregroundStyle(UsageColors.muted)
+                            .usageFont(.small).foregroundStyle(colors.muted)
                         Picker("Show percentages as", selection: $store.settings.percentDisplay) {
                             Text("Left").tag(PercentDisplay.left)
                             Text("Used").tag(PercentDisplay.used)
@@ -75,14 +79,14 @@ struct SettingsScreen: View {
                     }
                     displayPreview
                 }
-                .listRowBackground(UsageColors.surface)
+                .listRowBackground(colors.surface)
 
                 Section(header: LedgerHeader(String(localized: "Overview"))) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Layout").accessibilityHidden(true)
                         Text("List shows every window per account. Dials show one ring per account, like the ring widgets.")
                             .usageFont(.small)
-                            .foregroundStyle(UsageColors.muted)
+                            .foregroundStyle(colors.muted)
                             #if DEBUG
                             .accessibilityIdentifier(layoutHelpIdentifier)
                             #endif
@@ -97,7 +101,7 @@ struct SettingsScreen: View {
                         Toggle("Show credits", isOn: $store.settings.overviewShowCredits)
                             .accessibilityIdentifier("settings-overview-show-credits")
                         Text("Hide prepaid balances from Overview without removing them.")
-                            .usageFont(.small).foregroundStyle(UsageColors.muted)
+                            .usageFont(.small).foregroundStyle(colors.muted)
                             #if DEBUG
                             .accessibilityIdentifier(creditHelpIdentifier)
                             #endif
@@ -112,21 +116,22 @@ struct SettingsScreen: View {
                             .pickerStyle(.menu)
                             .accessibilityIdentifier("settings-overview-show-first")
                             Text("Which block sits at the top of Overview.")
-                                .usageFont(.small).foregroundStyle(UsageColors.muted)
+                                .usageFont(.small).foregroundStyle(colors.muted)
                         }
                     }
+
                     Toggle("Show subscription tier", isOn: $store.settings.showSubscriptionTier)
                     NavigationLink("Manage credit accounts") { CreditsScreen() }
                         .accessibilityIdentifier("settings-manage-credit-accounts")
                     overviewPreview
                 }
-                .listRowBackground(UsageColors.surface)
+                .listRowBackground(colors.surface)
 
                 Section(header: LedgerHeader(String(localized: "Pinned accounts"))) {
                     Toggle("Show pinned accounts", isOn: $store.settings.statusIconsEnabled)
                     Text("Show up to three pinned usage accounts in the Lock Screen widget.")
                         .usageFont(.small)
-                        .foregroundStyle(UsageColors.muted)
+                        .foregroundStyle(colors.muted)
                     let pinnedKeys = selectedPinKeys
                     ForEach(store.accounts, id: \.account.id) { usage in
                         Toggle(isOn: pinBinding(for: usage.account.pinKey)) {
@@ -138,28 +143,28 @@ struct SettingsScreen: View {
                     }
                     Text("\(pinnedKeys.count) of \(PinnedAccounts.limit) pinned")
                         .usageFont(.small)
-                        .foregroundStyle(UsageColors.muted)
+                        .foregroundStyle(colors.muted)
                 }
-                .listRowBackground(UsageColors.surface)
+                .listRowBackground(colors.surface)
 
                 Section(header: LedgerHeader(String(localized: "Privacy"))) {
                     Text("Tokens are stored in the keychain and excluded from backups and device transfer. Moving to a new phone means signing in again.")
                         .usageFont(.small)
-                        .foregroundStyle(UsageColors.muted)
+                        .foregroundStyle(colors.muted)
                 }
-                .listRowBackground(UsageColors.surface)
+                .listRowBackground(colors.surface)
                 Section {
                     Link(destination: URL(string: "https://github.com/ZepiGit")!) {
                         Text(verbatim: "GitHub · ZepiGit")
                     }
                 }
-                .listRowBackground(UsageColors.surface)
+                .listRowBackground(colors.surface)
             }
             .disabled(!store.settingsLoaded)
             .accessibilityIdentifier("settings-form")
             .readableWidth()
             .usageFont(.body)
-            .foregroundStyle(UsageColors.ink)
+            .foregroundStyle(colors.ink)
             .ledgerList()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -188,7 +193,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Provider icons")
                     Text(verbatim: DisplayText.providerIconLabel(claudeIconChoice.label))
-                        .usageFont(.small).foregroundStyle(UsageColors.muted)
+                        .usageFont(.small).foregroundStyle(colors.muted)
                 }
             }
         }
@@ -204,7 +209,7 @@ struct SettingsScreen: View {
                 creditLayoutPicker.pickerStyle(.segmented)
             }
             Text("Normal lists the balances. Compact shows a count and the balance furthest below its threshold.")
-                .usageFont(.small).foregroundStyle(UsageColors.muted)
+                .usageFont(.small).foregroundStyle(colors.muted)
         }
     }
 
@@ -276,13 +281,13 @@ struct SettingsScreen: View {
     private func previewPanel<Content: View>(_ identifier: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(verbatim: String(localized: "Preview").localizedUppercase)
-                .usageFont(.micro).tracking(0.66).foregroundStyle(UsageColors.faint)
+                .usageFont(.micro).tracking(0.66).foregroundStyle(colors.faint)
                 .accessibilityAddTraits(.isHeader)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(UsageColors.ground, in: RoundedRectangle(cornerRadius: UsageRadius.card))
+        .background(colors.ground, in: RoundedRectangle(cornerRadius: UsageRadius.card))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)
     }

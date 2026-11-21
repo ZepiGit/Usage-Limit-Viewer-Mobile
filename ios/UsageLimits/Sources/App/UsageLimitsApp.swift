@@ -72,6 +72,7 @@ struct UsageLimitsApp: App {
                             }
                     }
                     .environmentObject(store)
+                    .appAppearance(store.settings)
                     .environment(\.providerIconChoices, store.settings.providerIcons)
                     .environment(\.claudeAnimationVisible, true)
                     #if DEBUG
@@ -107,7 +108,7 @@ struct UsageLimitsApp: App {
                     guard !store.isMarketingDemo else { return }
                     NotificationRouter.shared.onAccountTapped = openAccount
                 }
-                .preferredColorScheme(.dark)
+                .appAppearance(store.settings)
                 // Cached first, then the network. A cold launch that waited for the slowest
                 // provider before drawing anything would read as "you have no accounts" for as
                 // long as that took — which on a bad connection is indefinitely.
@@ -174,15 +175,34 @@ private struct StoreErrorAlert: ViewModifier {
 }
 
 struct RootView: View {
-    enum Tab: Hashable { case overview, resets, settings }
-
+    @Environment(\.usageAppearance) private var appearance
     @EnvironmentObject private var store: UsageStore
+
+    private var mayDrawAppContent: Bool {
+        #if DEBUG
+        if UsageLimitsApp.isUITesting && ProcessInfo.processInfo.arguments.contains("-fixture-settings-gates") {
+            return true
+        }
+        #endif
+        return store.settingsLoaded
+    }
+    enum Tab: Hashable { case overview, resets, settings }
 
     @Binding var tab: Tab
     var claudeAnimationVisible = true
     let openAccount: (String) -> Void
 
     var body: some View {
+        Group {
+            if mayDrawAppContent {
+                tabs
+            } else {
+                Color("LaunchNeutral").ignoresSafeArea()
+            }
+        }
+    }
+
+    private var tabs: some View {
         TabView(selection: $tab) {
             OverviewScreen(isSelected: tab == .overview, openAccount: openAccount)
                 .environment(\.claudeAnimationVisible, claudeAnimationVisible && tab == .overview)
@@ -197,7 +217,7 @@ struct RootView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(Tab.settings)
         }
-        .tint(UsageColors.ink)
+        .tint(appearance.colors.ink)
         #if DEBUG
         .motionLogOverlay(visible: claudeAnimationVisible)
         .claudeStillSheet()
@@ -229,6 +249,7 @@ private extension View {
 
 /// Observed separately so publishing a note never re-evaluates the screens being logged.
 private struct MotionLogOverlay: View {
+    @Environment(\.usageAppearance) private var appearance
     @ObservedObject private var log = MotionLog.shared
 
     var body: some View {
@@ -238,7 +259,7 @@ private struct MotionLogOverlay: View {
             .accessibilityIdentifier("motion-log")
             .padding(4)
             .frame(maxWidth: .infinity)
-            .background(UsageColors.ground)
+            .background(appearance.colors.ground)
             .allowsHitTesting(false)
     }
 }

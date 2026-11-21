@@ -2,6 +2,8 @@ import SwiftUI
 import UsageLimitsKit
 
 struct OverviewDials: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .headline) private var appColumnWidth: Double = 140
     @ScaledMetric(relativeTo: .caption) private var previewColumnWidth: Double = 100
@@ -57,7 +59,7 @@ struct OverviewDials: View {
                     Image(systemName: "plus").font(.system(size: 28)).accessibilityHidden(true)
                     Text("Add account").usageFont(.body)
                 }
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
                 .padding(12)
                 .frame(maxWidth: .infinity, minHeight: 178)
                 .contentShape(RoundedRectangle(cornerRadius: 16))
@@ -70,6 +72,8 @@ struct OverviewDials: View {
 }
 
 private struct OverviewDialTile: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let entry: OverviewProjection.Entry
@@ -117,7 +121,7 @@ private struct OverviewDialTile: View {
                 .accessibilityIdentifier("overview-dial-\(entry.id)")
         } else {
             tile
-                .background(UsageColors.surface, in: RoundedRectangle(cornerRadius: 16))
+                .background(colors.surface, in: RoundedRectangle(cornerRadius: 16))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(label)
                 .accessibilityValue(value)
@@ -148,15 +152,15 @@ private struct OverviewDialTile: View {
             VStack(spacing: 4) {
                 Text(verbatim: name)
                     .usageFont(preview ? .smallStrong : .bodyStrong)
-                    .foregroundStyle(UsageColors.ink)
+                    .foregroundStyle(colors.ink)
                 if let identity {
-                    Text(verbatim: identity).usageFont(.small).foregroundStyle(UsageColors.muted)
+                    Text(verbatim: identity).usageFont(.small).foregroundStyle(colors.muted)
                 }
                 if expired {
-                    Text("Reconnect").usageFont(.small).foregroundStyle(UsageColors.negativeText)
+                    Text("Reconnect").usageFont(.small).foregroundStyle(colors.negativeText)
                 } else if let row {
                     Text(verbatim: windowStamp(row, validity: validity))
-                        .usageFont(.small).foregroundStyle(UsageColors.faint)
+                        .usageFont(.small).foregroundStyle(colors.faint)
                 }
             }
         }
@@ -171,7 +175,7 @@ private struct OverviewDialTile: View {
 
     private func ring(_ presentation: WindowPresentation, row: GlanceRow?) -> some View {
         ZStack {
-            Circle().stroke(UsageColors.rule, style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+            Circle().stroke(colors.rule, style: StrokeStyle(lineWidth: stroke, lineCap: .round))
             Circle()
                 .trim(from: 0, to: presentation.fill ?? 0)
                 .stroke(arcColor(presentation, row: row), style: StrokeStyle(lineWidth: stroke, lineCap: .round))
@@ -184,10 +188,10 @@ private struct OverviewDialTile: View {
     }
 
     private func arcColor(_ presentation: WindowPresentation, row: GlanceRow?) -> Color {
-        guard presentation.fill != nil, let fill = SeverityPalette.fill(presentation.fillState) else { return .clear }
-        if expired { return UsageColors.faint }
+        guard presentation.fill != nil, let fill = colors.fill(presentation.fillState) else { return .clear }
+        if expired { return colors.faint }
         if presentation.fillState == .data, row?.severity == .low || row?.severity == .exhausted {
-            return UsageColors.warning
+            return colors.warning
         }
         return fill
     }
@@ -196,7 +200,7 @@ private struct OverviewDialTile: View {
         let text = PercentText.figure(presentation)
         return Text(verbatim: text)
             .usageFont(preview ? .compactFigure : .dialFigure)
-            .foregroundStyle(expired || !presentation.hasFigure ? UsageColors.faint : SeverityPalette.figureColor(severity))
+            .foregroundStyle(expired || !presentation.hasFigure ? colors.faint : colors.figureColor(severity))
             .fixedSize(horizontal: true, vertical: true)
             .figureUnit(key: [text, mode.rawValue], anchor: .center)
             .subject(entry.headlineWindowID)
@@ -247,16 +251,18 @@ private struct OverviewDialTile: View {
 }
 
 private struct OverviewDialButtonStyle: ButtonStyle {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     var dashed = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? UsageColors.raised : dashed ? Color.clear : UsageColors.surface,
+            .background(configuration.isPressed ? colors.raised : dashed ? Color.clear : colors.surface,
                 in: RoundedRectangle(cornerRadius: 16))
             .overlay {
                 if dashed {
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(UsageColors.control, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                        .stroke(colors.control, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
                 }
             }
             .pressRelease(isPressed: configuration.isPressed)

@@ -2,6 +2,8 @@ import SwiftUI
 import UsageLimitsKit
 
 struct AccountDetailScreen: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @EnvironmentObject private var store: UsageStore
 
     let accountID: String
@@ -27,38 +29,42 @@ struct AccountDetailScreen: View {
                     UsageCard {
                         Text("Account unavailable")
                             .usageFont(.section)
-                            .foregroundStyle(UsageColors.ink)
+                            .foregroundStyle(colors.ink)
                         Text("This account is no longer on this device.")
                             .usageFont(.body)
-                            .foregroundStyle(UsageColors.muted)
+                            .foregroundStyle(colors.muted)
                     }
                 }
             }
             .padding(16)
             .readableWidth()
         }
-        .background(UsageColors.ground)
+        .background(colors.ground)
         .refreshable { await store.refresh() }
     }
 }
 
 struct UnreadableAccountRegister: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     let identifier: String
 
     var body: some View {
         UsageCard {
             Text("Can't read accounts")
                 .usageFont(.section)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
                 .accessibilityIdentifier(identifier)
             Text("The accounts stored on this device could not be read. Pull down to try again.")
                 .usageFont(.body)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
         }
     }
 }
 
 private struct AccountSummaryCard: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @State private var reconnecting = false
 
     @EnvironmentObject private var store: UsageStore
@@ -91,7 +97,7 @@ private struct AccountSummaryCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(usage.account.label)
                         .usageFont(.section)
-                        .foregroundStyle(UsageColors.ink)
+                        .foregroundStyle(colors.ink)
                         .accessibilityIdentifier("account-title-\(usage.account.id)")
                     // Through the shared `planLabel`, so "claude_max_20x" reads as "Claude Max
                     // 20×" here exactly as it does on Android, rather than as the raw value
@@ -99,7 +105,7 @@ private struct AccountSummaryCard: View {
                     if let subtitle = planLabel(usage.account.plan) ?? usage.account.maskedEmail {
                         Text(subtitle)
                             .usageFont(.small)
-                            .foregroundStyle(UsageColors.faint)
+                            .foregroundStyle(colors.faint)
                     }
                 }
                 Spacer()
@@ -108,7 +114,7 @@ private struct AccountSummaryCard: View {
                 // to notify rather than as the user having asked it not to.
                 if !notificationsEnabled {
                     Image(systemName: "bell.slash.fill")
-                        .foregroundStyle(UsageColors.faint)
+                        .foregroundStyle(colors.faint)
                         .accessibilityLabel("Notifications muted")
                 }
                 StatusMark(
@@ -132,7 +138,7 @@ private struct AccountSummaryCard: View {
                 } label: {
                     // 44pt to hit, however small the glyph.
                     Image(systemName: "ellipsis")
-                        .foregroundStyle(UsageColors.muted)
+                        .foregroundStyle(colors.muted)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
@@ -171,7 +177,7 @@ private struct AccountSummaryCard: View {
                 let isPausedReading: Bool = if snapshot?.status == .ok,
                     case .rateLimited? = StoredMessage.classify(message) { true } else { false }
                 NoticeLine(
-                    message: message, dot: isPausedReading ? UsageColors.warning : UsageColors.negative,
+                    message: message, dot: isPausedReading ? colors.warning : colors.negative,
                     retry: isPausedReading || snapshot?.connectionStatus == .reconnectRequired
                         ? nil : { Task { await store.refresh() } })
             }
@@ -183,7 +189,7 @@ private struct AccountSummaryCard: View {
                 if let group = window.group, group != window.label {
                     Text(verbatim: group)
                         .usageFont(.small)
-                        .foregroundStyle(UsageColors.faint)
+                        .foregroundStyle(colors.faint)
                 }
                 WindowRow(
                     row: GlanceRow(
@@ -214,12 +220,12 @@ private struct AccountSummaryCard: View {
     @ViewBuilder
     private var resetCredits: some View {
         if let snapshot, snapshot.heldResetCredits > 0 {
-            UsageColors.rule.frame(height: 1)
+            colors.rule.frame(height: 1)
 
             HStack {
                 Text("\(snapshot.heldResetCredits) reset credits")
                     .usageFont(.body)
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
                 Spacer()
                 if snapshot.spendableResetCredits(at: now) > 0 {
                     Button("Reset limit") { isConfirmingRedeem = true }
@@ -227,7 +233,7 @@ private struct AccountSummaryCard: View {
                 } else {
                     Text("None applies to this limit")
                         .usageFont(.small)
-                        .foregroundStyle(UsageColors.faint)
+                        .foregroundStyle(colors.faint)
                 }
             }
             // A confirmation, because this is the only irreversible thing the app can do. The

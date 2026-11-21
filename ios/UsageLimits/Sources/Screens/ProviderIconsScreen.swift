@@ -2,6 +2,8 @@ import SwiftUI
 import UsageLimitsKit
 
 struct ProviderIconsScreen: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @EnvironmentObject private var store: UsageStore
 
     var body: some View {
@@ -15,14 +17,14 @@ struct ProviderIconsScreen: View {
                         } label: {
                             HStack(spacing: 16) {
                                 ProviderMark(assetName: choice.assetName).frame(width: 36, height: 36)
-                                Text(verbatim: DisplayText.providerIconLabel(choice.label)).foregroundStyle(UsageColors.ink)
+                                Text(verbatim: DisplayText.providerIconLabel(choice.label)).foregroundStyle(colors.ink)
                                 Spacer()
-                                if selected { Image(systemName: "checkmark").foregroundStyle(UsageColors.ink) }
+                                if selected { Image(systemName: "checkmark").foregroundStyle(colors.ink) }
                             }.padding(.vertical, 6)
                         }.accessibilityLabel(DisplayText.providerIconLabel(choice.label)).accessibilityValue(DisplayText.selection(selected))
                     }
                 }
-                .listRowBackground(UsageColors.surface)
+                .listRowBackground(colors.surface)
             }
         }
         .ledgerList()

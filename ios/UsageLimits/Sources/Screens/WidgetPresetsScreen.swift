@@ -3,6 +3,8 @@ import WidgetKit
 import UsageLimitsKit
 
 struct WidgetPresetsScreen: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @EnvironmentObject private var store: UsageStore
     @State private var presets: [WidgetPreset] = []
     @State private var editing: WidgetPreset?
@@ -12,26 +14,26 @@ struct WidgetPresetsScreen: View {
         List {
             Section {
                 Text("Choose Custom when editing a widget, then select one of these layouts. Each layout keeps its own account selection and order.")
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
                 Text("Left or used follows Settings › Display, like Overview. Ring widgets keep the side in VoiceOver, not as a visible caption.")
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
                     .accessibilityIdentifier("widget-mode-guidance")
                 WidgetLayoutArtwork(mode: store.settings.percentDisplay)
                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 Text("Static artwork. Add a widget from the Home Screen gallery; touch and hold it to edit its content. System tint, size and update timing are controlled by WidgetKit.")
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
             }
-            .listRowBackground(UsageColors.surface)
+            .listRowBackground(colors.surface)
             Section(header: LedgerHeader(String(localized: "Custom layouts"))) {
                 ForEach(presets) { preset in
                     Button { editing = preset } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(preset.name).foregroundStyle(UsageColors.ink)
-                                Text("\(preset.accountIDs.count) accounts").usageFont(.small).foregroundStyle(UsageColors.muted)
+                                Text(preset.name).foregroundStyle(colors.ink)
+                                Text("\(preset.accountIDs.count) accounts").usageFont(.small).foregroundStyle(colors.muted)
                             }
                             Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(UsageColors.faint)
+                            Image(systemName: "chevron.right").foregroundStyle(colors.faint)
                         }
                     }
                 }
@@ -39,8 +41,8 @@ struct WidgetPresetsScreen: View {
                     editing = WidgetPreset(name: String(localized: "Custom \(presets.count + 1)"), accountIDs: [])
                 }
             }
-            .listRowBackground(UsageColors.surface)
-            if let error { Section { NoticeLine(message: error, dot: UsageColors.negative) }.listRowBackground(UsageColors.surface) }
+            .listRowBackground(colors.surface)
+            if let error { Section { NoticeLine(message: error, dot: colors.negative) }.listRowBackground(colors.surface) }
         }
         .usageFont(.body)
         .ledgerList().navigationTitle("Widget layouts")
@@ -101,6 +103,8 @@ private struct WidgetLayoutArtwork: View {
 }
 
 private struct WidgetPresetEditor: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
     @Environment(\.dismiss) private var dismiss
     let preset: WidgetPreset
     let accounts: [AccountUsage]
@@ -124,7 +128,7 @@ private struct WidgetPresetEditor: View {
         NavigationStack {
             List {
                 Section(header: LedgerHeader(String(localized: "Layout name"))) { TextField("Name", text: $name) }
-                    .listRowBackground(UsageColors.surface)
+                    .listRowBackground(colors.surface)
                 Section(header: LedgerHeader(String(localized: "Preview"))) {
                     HStack(spacing: 12) {
                         ForEach(order.filter { selected.contains($0) }.prefix(5), id: \.self) { id in
@@ -132,11 +136,11 @@ private struct WidgetPresetEditor: View {
                                 ProviderBadge(provider: account.account.provider)
                             }
                         }
-                        if selected.isEmpty { Text("Select accounts below").foregroundStyle(UsageColors.muted) }
+                        if selected.isEmpty { Text("Select accounts below").foregroundStyle(colors.muted) }
                     }
                     .environment(\.usageAppearance, .widget)
                 }
-                .listRowBackground(UsageColors.surface)
+                .listRowBackground(colors.surface)
                 Section(header: LedgerHeader(String(localized: "Accounts · drag to reorder"))) {
                     ForEach(order, id: \.self) { id in
                         if let usage = accounts.first(where: { $0.account.id == id }) {
@@ -145,20 +149,20 @@ private struct WidgetPresetEditor: View {
                                     if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
                                 } label: {
                                     Image(systemName: selected.contains(id) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(selected.contains(id) ? UsageColors.ink : UsageColors.faint)
+                                        .foregroundStyle(selected.contains(id) ? colors.ink : colors.faint)
                                 }.buttonStyle(.plain).accessibilityLabel("Show \(usage.account.label)")
                                     .accessibilityValue(DisplayText.selection(selected.contains(id)))
                                 ProviderBadge(provider: usage.account.provider)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(usage.account.label).foregroundStyle(UsageColors.ink)
-                                    Text(usage.account.provider.displayName).usageFont(.small).foregroundStyle(UsageColors.muted)
+                                    Text(usage.account.label).foregroundStyle(colors.ink)
+                                    Text(usage.account.provider.displayName).usageFont(.small).foregroundStyle(colors.muted)
                                 }
                             }
                         }
                     }.onMove { offsets, destination in order.move(fromOffsets: offsets, toOffset: destination) }
                 }
-                .listRowBackground(UsageColors.surface)
-                if let error { NoticeLine(message: error, dot: UsageColors.negative).listRowBackground(UsageColors.surface) }
+                .listRowBackground(colors.surface)
+                if let error { NoticeLine(message: error, dot: colors.negative).listRowBackground(colors.surface) }
             }
             .environment(\.editMode, $editMode)
             .usageFont(.body)

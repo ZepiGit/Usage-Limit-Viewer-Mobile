@@ -38,6 +38,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
     public var overviewShowCredits: Bool
     public var providerIcons: [String: String]
     public var animateClaudeCodeIcon: Bool
+    public var appearanceTheme: AppearanceTheme
+    public var appearanceTextFont: AppearanceTextFont
+    public var appearanceFigureFont: AppearanceFigureFont
 
     /// Whether quota figures count down what is left or up what has been used.
     public var percentDisplay: PercentDisplay
@@ -62,6 +65,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
         overviewShowCredits: Bool = true,
         providerIcons: [String: String] = [:],
         animateClaudeCodeIcon: Bool = true,
+        appearanceTheme: AppearanceTheme = .pureBlack,
+        appearanceTextFont: AppearanceTextFont = .system,
+        appearanceFigureFont: AppearanceFigureFont = .robotoMono,
         percentDisplay: PercentDisplay = .left,
         statusIconsEnabled: Bool = false,
         pinnedAccountKeys: [String] = []
@@ -77,6 +83,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
         self.overviewShowCredits = overviewShowCredits
         self.providerIcons = providerIcons
         self.animateClaudeCodeIcon = animateClaudeCodeIcon
+        self.appearanceTheme = appearanceTheme
+        self.appearanceTextFont = appearanceTextFont
+        self.appearanceFigureFont = appearanceFigureFont
         self.percentDisplay = percentDisplay
         self.statusIconsEnabled = statusIconsEnabled
         self.pinnedAccountKeys = pinnedAccountKeys
@@ -106,6 +115,9 @@ public struct AppSettings: Sendable, Equatable, Codable {
             overviewShowCredits: (try? container.decode(Bool.self, forKey: .overviewShowCredits)) ?? true,
             providerIcons: try container.decodeIfPresent([String: String].self, forKey: .providerIcons) ?? [:],
             animateClaudeCodeIcon: (try? container.decode(Bool.self, forKey: .animateClaudeCodeIcon)) ?? true,
+            appearanceTheme: (try? container.decode(AppearanceTheme.self, forKey: .appearanceTheme)) ?? .pureBlack,
+            appearanceTextFont: (try? container.decode(AppearanceTextFont.self, forKey: .appearanceTextFont)) ?? .system,
+            appearanceFigureFont: (try? container.decode(AppearanceFigureFont.self, forKey: .appearanceFigureFont)) ?? .robotoMono,
             // Decoded through the raw String, so an unknown stored name reads as the default
             // instead of failing the whole decode and resetting every preference.
             percentDisplay: PercentDisplay.fromLoose(
