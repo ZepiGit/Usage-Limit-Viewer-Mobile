@@ -1902,7 +1902,7 @@ class Smoke:
         }, indent=2))
 
     def verify_theme_launches(self):
-        """09a: Settings UI selection, stopped release launch, then the existing bounded tier search."""
+        """09a: Settings selection, observed Home, stopped release launch, then the bounded tier search."""
         reports = []
         scale_touched = False
         restore = {}
@@ -1934,6 +1934,8 @@ class Smoke:
                     raise AssertionError(f"Selected {label} did not apply both bar styles; see {name}-selection.json")
                 activity = self.adb("shell", "cmd", "package", "resolve-activity", "--brief", PACKAGE).splitlines()[-1]
                 assert activity.startswith(PACKAGE + "/"), activity
+                # Finish Settings' Home transition before slowing motion and stopping the background app.
+                self.widget_home(name + "-home")
                 scale_touched = True
                 self.adb("shell", "settings", "put", "global", "animator_duration_scale", str(MOTION_SCALE))
                 read_back = self.adb("shell", "settings", "get", "global", "animator_duration_scale")
