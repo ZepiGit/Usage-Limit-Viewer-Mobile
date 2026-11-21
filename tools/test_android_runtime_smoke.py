@@ -1334,16 +1334,34 @@ class CreditHierarchyTest(unittest.TestCase):
                     self.assertEqual(1, len(device.state["taps"]))
                     self.assertFalse(device.state["checked"])
 
+    def test_credit_settings_restarts_from_appearance_before_finding_controls_above_restored_position(self):
+        package = runtime_smoke.DEBUG_PACKAGE
+        for tab, heading in (("Settings", "Appearance"), ("Einstellungen", "Erscheinungsbild")):
+            with self.subTest(tab=tab), TemporaryDirectory() as directory:
+                smoke = Smoke(Path(directory), "test-device")
+                bottom = ET.fromstring(f'<hierarchy><node package="{package}" text="Manage credit accounts"/></hierarchy>')
+                top = ET.fromstring(f'<hierarchy><node package="{package}" text="{heading}"/></hierarchy>')
+                reached = ET.fromstring(f'<hierarchy><node package="{package}" text="Show credits"/></hierarchy>')
+                target = ET.fromstring('<node selected="true"/>')
+                with patch.object(runtime_smoke, "navigation_target", return_value=target), \
+                        patch.object(smoke, "dump", side_effect=[bottom, bottom, top, top, reached]), \
+                        patch.object(smoke, "wait_for"), patch.object(smoke, "capture"), \
+                        patch.object(smoke, "scroll") as scroll, patch.object(smoke, "adb", return_value="1234"):
+                    smoke.navigate_credit(tab, "Show credits", "settings")
+                self.assertEqual([unittest.mock.call(bottom, up=False, package=package),
+                                  unittest.mock.call(top, up=True, package=package)], scroll.call_args_list)
+
     def test_navigation_reaches_required_layout_below_show_credits_before_returning(self):
         package = runtime_smoke.DEBUG_PACKAGE
-        first = ET.fromstring(f'<hierarchy><node package="{package}" text="Show credits"/></hierarchy>')
+        first = ET.fromstring(f'<hierarchy><node package="{package}" text="Appearance"/>'
+                              f'<node package="{package}" text="Show credits"/></hierarchy>')
         reached = ET.fromstring(f'<hierarchy><node package="{package}" text="Show credits"/>'
                                 f'<node package="{package}" text="Normal"/></hierarchy>')
         with TemporaryDirectory() as directory:
             smoke = Smoke(Path(directory), "test-device")
             target = ET.fromstring('<node selected="true"/>')
             with patch.object(runtime_smoke, "navigation_target", return_value=target), \
-                    patch.object(smoke, "dump", side_effect=[first, first, reached]), \
+                    patch.object(smoke, "dump", side_effect=[first, first, first, reached]), \
                     patch.object(smoke, "wait_for") as wait, patch.object(smoke, "capture"), \
                     patch.object(smoke, "scroll") as scroll, patch.object(smoke, "adb", return_value="1234"):
                 smoke.navigate_credit("Settings", "Show credits", "settings", required_label="Normal")

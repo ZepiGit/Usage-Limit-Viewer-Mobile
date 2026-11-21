@@ -1559,6 +1559,13 @@ class Smoke:
             assert target.get("clickable") == "true", f"Unselected {tab} tab is not clickable"
             self.tap(target)
         self.wait_for(name + "-selected", lambda root: selected_tab(root, tab, DEBUG_PACKAGE))
+        heading = {"Settings": "Appearance", "Einstellungen": "Erscheinungsbild"}.get(tab)
+        if heading:
+            for attempt in range(9):
+                root = self.dump(f"{name}-top-{attempt}")
+                if matches(root, heading, DEBUG_PACKAGE):
+                    break
+                self.scroll(root, up=False, package=DEBUG_PACKAGE)
         for attempt in range(10):
             root = self.dump(f"{name}-content-{attempt}")
             if credit_matches(root, required_label):
