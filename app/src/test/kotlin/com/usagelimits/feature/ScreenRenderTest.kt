@@ -1,17 +1,22 @@
 package com.usagelimits.feature
 
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.OverviewLayout
+import com.usagelimits.feature.overview.OverviewFilter
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
@@ -263,7 +268,7 @@ class ScreenRenderTest {
                 onNotifyResetApproaching = {},
                 onNotifyCreditExpiring = {},
                 onShowTier = {},
-                onShowRenewal = {},
+                onOverviewLayoutChange = {},
                 onPercentDisplayChange = {},
             )
         }
@@ -275,7 +280,7 @@ class ScreenRenderTest {
             .fetchSemanticsNodes()
             .let { assertTrue("the 20% toggle should be reachable", it.isNotEmpty()) }
 
-        // The two display switches, which decide what the overview shows per account.
+        // Only the tier remains configurable; reset stamps are part of the layout.
         compose.onNode(hasScrollToNodeAction())
             .performScrollToNode(hasText("Show subscription tier", substring = true))
         compose.onAllNodesWithText("Show subscription tier", substring = true)
@@ -283,7 +288,7 @@ class ScreenRenderTest {
             .let { assertTrue("the tier switch should be reachable", it.isNotEmpty()) }
         compose.onAllNodesWithText("Show renewal time", substring = true)
             .fetchSemanticsNodes()
-            .let { assertTrue("the renewal switch should be reachable", it.isNotEmpty()) }
+            .let { assertTrue("the stored renewal preference no longer has a switch", it.isEmpty()) }
 
         // The percent-display control, with both modes reachable.
         compose.onNode(hasScrollToNodeAction())
@@ -325,7 +330,7 @@ class ScreenRenderTest {
             onNotifyResetApproaching = {},
             onNotifyCreditExpiring = {},
             onShowTier = {},
-            onShowRenewal = {},
+            onOverviewLayoutChange = {},
             onPercentDisplayChange = {},
         )
     }
@@ -370,6 +375,68 @@ class ScreenRenderTest {
     }
 
     @Test
+    @Config(qualifiers = "en-rGB-w393dp-h1600dp")
+    fun `settings previews change with layout display mode and tier`() {
+        val settings = mutableStateOf(AppSettings())
+        render {
+            SettingsScreen(
+                state = UsageUiState(settings = settings.value),
+                onSyncIntervalChange = {}, onNotificationPermissionHandled = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
+                onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
+                onNotifyCreditExpiring = {}, onShowTier = { settings.value = settings.value.copy(showSubscriptionTier = it) },
+                onOverviewLayoutChange = { settings.value = settings.value.copy(overviewLayout = it) },
+                onPercentDisplayChange = { settings.value = settings.value.copy(percentDisplay = it) },
+            )
+        }
+        val scroll = compose.onNode(hasScrollToNodeAction())
+        scroll.performScrollToNode(hasText("Layout"))
+        compose.onNodeWithText("OpenAI Codex Plus", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("61%", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNode(hasContentDescription("Show subscription tier") and hasClickAction())
+            .performSemanticsAction(SemanticsActions.OnClick) { it() }
+        compose.onNodeWithText("OpenAI Codex Plus", useUnmergedTree = true).assertDoesNotExist()
+        compose.onAllNodesWithText("OpenAI Codex", useUnmergedTree = true).onLast().assertIsDisplayed()
+
+        scroll.performScrollToNode(hasText("Used"))
+        compose.onNode(hasText("Used") and hasClickAction()).performSemanticsAction(SemanticsActions.OnClick) { it() }
+        compose.onNodeWithText("used", useUnmergedTree = true).assertIsDisplayed()
+        scroll.performScrollToNode(hasText("Dials"))
+        compose.onNode(hasText("Dials") and hasClickAction()).performSemanticsAction(SemanticsActions.OnClick) { it() }
+        compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and
+            hasContentDescription("56%", substring = true)).assertIsDisplayed()
+        compose.onNodeWithText("39%", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "en-rGB-w393dp-h1600dp", fontScale = 1.6f)
+    fun `large Dials keep the headline and ignore the List filter`() {
+        val codex = usage()
+        val claude = codex.copy(account = account("claude", ProviderId.CLAUDE, "Pro"))
+        var opened: String? = null
+        var add = false
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(codex, claude), settings = AppSettings(overviewLayout = OverviewLayout.DIALS)),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"), filter = OverviewFilter.NEEDS_ATTENTION,
+                onRefresh = {}, onAccountClick = { opened = it }, onAddAccount = { add = true }, onPercentDisplayChange = {},
+            )
+        }
+        val codexTile = compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and hasClickAction())
+        val claudeTile = compose.onNode(hasContentDescription("Claude", substring = true) and hasClickAction())
+        codexTile.assertIsDisplayed()
+        claudeTile.assertIsDisplayed()
+        val boxes = listOf(codexTile, claudeTile).map { it.fetchSemanticsNode().boundsInRoot }.sortedBy { it.top }
+        assertTrue("a large font puts the dials on separate rows", boxes[0].bottom <= boxes[1].top)
+        assertEquals(boxes[0].left, boxes[1].left)
+        compose.onNodeWithText("Needs attention").assertDoesNotExist()
+        compose.onNodeWithText("OpenAI Codex Plus", useUnmergedTree = true).assertDoesNotExist()
+        codexTile.performClick()
+        assertEquals(codex.account.localId, opened)
+        compose.onNode(hasContentDescription("Add account") and hasClickAction()).performClick()
+        assertTrue(add)
+    }
+
+    @Test
     fun `the percent display control reports its choice`() {
         var chosen: PercentDisplay? = null
         render {
@@ -385,7 +452,7 @@ class ScreenRenderTest {
                 onNotifyResetApproaching = {},
                 onNotifyCreditExpiring = {},
                 onShowTier = {},
-                onShowRenewal = {},
+                onOverviewLayoutChange = {},
                 onPercentDisplayChange = { chosen = it },
             )
         }
