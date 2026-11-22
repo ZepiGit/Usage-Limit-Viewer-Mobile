@@ -28,7 +28,7 @@ data class AccountEntity(
     val lastSuccessfulSync: Long?,
     /** Non-secret provider extras (e.g. Antigravity project id), serialised as JSON. */
     val attributesJson: String = "{}",
-    /** Sort position in the account list, adjustable by the user. */
+    /** Stored account order retained for Provider widgets; Overview uses automatic ranking. */
     val sortOrder: Int = 0,
     /** Confirming reading's instant, coalesced until the next main-app opening claims it. */
     val pendingResetConfirmationAt: Long? = null,
