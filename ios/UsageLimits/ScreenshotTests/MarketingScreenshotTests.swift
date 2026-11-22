@@ -201,11 +201,15 @@ final class MarketingScreenshotTests: XCTestCase {
         layout.buttons["Compact"].tap()
         XCTAssertTrue(layout.buttons["Compact"].isSelected)
         scrollToCreditControl(showFirst, in: app)
+        XCTAssertTrue(captureViewport(in: app).contains(showFirst.frame))
         showFirst.tap()
         let creditsFirst = app.buttons["Credit accounts"]
         XCTAssertTrue(creditsFirst.waitForExistence(timeout: 10))
         XCTAssertTrue(creditsFirst.isHittable)
         creditsFirst.tap()
+        let selected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "Credit accounts"), object: showFirst)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed)
         scrollToCreditControl(showCredits, in: app)
         XCTAssertTrue(showCredits.isHittable)
         XCTAssertEqual(showCredits.value as? String, "1")
@@ -377,10 +381,10 @@ final class MarketingScreenshotTests: XCTestCase {
                                        towardStart: Bool? = nil, requireHittable: Bool = true) {
         func found() -> Bool {
             guard element.exists else { return false }
-            if requireHittable { return element.isHittable }
             let frame = element.frame
             let viewport = captureViewport(in: app)
             return !frame.isEmpty && !viewport.isEmpty && viewport.contains(frame)
+                && (!requireHittable || element.isHittable)
         }
         if found() { return }
         let container = ["settings-form", "overview-scroll"].lazy
