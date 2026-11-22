@@ -3,8 +3,9 @@ package com.usagelimits.widget
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
-import android.os.SystemClock
 import android.text.Spanned
+import android.text.TextPaint
+import android.text.style.MetricAffectingSpan
 import android.text.style.TypefaceSpan
 import android.view.View
 import android.view.ViewGroup
@@ -12,6 +13,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.core.util.TypedValueCompat
 import androidx.glance.ExperimentalGlanceApi
 import androidx.glance.appwidget.ExperimentalGlanceRemoteViewsApi
 import androidx.glance.appwidget.compose
@@ -22,6 +24,8 @@ import com.usagelimits.core.model.CreditBalance
 import com.usagelimits.core.model.CreditProviderId
 import com.usagelimits.core.model.CreditSnapshot
 import com.usagelimits.core.model.CreditStatus
+import com.usagelimits.core.model.SharedVectors
+import kotlinx.serialization.Serializable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
@@ -77,6 +81,7 @@ class CreditsWidgetRenderingTest {
 
     @Test
     @Config(qualifiers = "en-rUS-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun `small tile puts centered title above 28sp monospace balance and status`() = runTest {
         val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
@@ -186,43 +191,134 @@ class CreditsWidgetRenderingTest {
         }
     }
 
-    private suspend fun checkStatuses(app: UsageLimitsApp, language: String, prefixes: List<List<String>>) {
-        val now = 1_750_000_000_000L
-        val previousTime = System.currentTimeMillis()
-        SystemClock.setCurrentTimeMillis(now)
-        try {
-            val id = "status-fixture"
-            val account = CreditAccount(id, CreditProviderId.OPENROUTER, "Status account", "credit:$id", createdAt = now)
-            val uncapped = CreditBalance("USD", BigDecimal("20"), unlimited = true)
-            val fixtures = listOf(
-                "not-read" to null,
-                "stale" to CreditSnapshot(id, listOf(uncapped), fetchedAt = now - 30L * 24 * 60 * 60 * 1000),
-                "failed" to CreditSnapshot(id, emptyList(), fetchedAt = now, status = CreditStatus.FAILED, error = null),
-                "uncapped-failed" to CreditSnapshot(id, listOf(uncapped), fetchedAt = now, status = CreditStatus.FAILED, error = "Network error"),
-            )
-            val views = fixtures.map { (name, snapshot) ->
-                app.container.creditRepository.remove(id)
-                app.container.creditRepository.upsert(account, snapshot)
-                smallTile(app).also { capture(it, "S3-$name-$language").recycle() }
+    private fun boundsIn(root: View, child: View) = Rect(0, 0, child.width, child.height).also {
+        (root as ViewGroup).offsetDescendantRectToMyCoords(child, it)
+    }
+
+    private fun inkIn(root: View, view: TextView): Rect {
+        val styled = view.layout.text
+        val text = styled.toString()
+        val result = Rect()
+        val runInk = Rect()
+        val paint = TextPaint()
+        for (line in 0 until view.layout.lineCount) {
+            val end = view.layout.getLineVisibleEnd(line)
+            val baseline = view.baseline + view.layout.getLineBaseline(line) - view.layout.getLineBaseline(0)
+            var start = view.layout.getLineStart(line)
+            while (start < end) {
+                paint.set(view.paint)
+                val runEnd = if (styled is Spanned) {
+                    val transition = styled.nextSpanTransition(start, end, MetricAffectingSpan::class.java)
+                    styled.getSpans(start, transition, MetricAffectingSpan::class.java).forEach { it.updateDrawState(paint) }
+                    transition
+                } else end
+                paint.getTextBounds(text, start, runEnd, runInk)
+                runInk.offset(view.totalPaddingLeft + view.layout.getPrimaryHorizontal(start).toInt(), baseline)
+                result.union(runInk)
+                start = runEnd
             }
-            val clipped = views.zip(prefixes).mapNotNull { (view, alternatives) ->
-                val status = alternatives.flatMap { texts(view, it) }.distinct().single() as TextView
-                val phrase = alternatives.first { it in status.text }
-                val start = status.text.indexOf(phrase)
-                val layout = status.layout
-                val contentHeight = status.height - status.totalPaddingTop - status.totalPaddingBottom
-                val hidden = phrase.indices.firstOrNull { index ->
-                    val offset = start + index
-                    val line = layout.getLineForOffset(offset)
-                    val ellipsisStart = layout.getLineStart(line) + layout.getEllipsisStart(line)
-                    !phrase[index].isWhitespace() && (offset in ellipsisStart until ellipsisStart + layout.getEllipsisCount(line) ||
-                        offset >= layout.getLineVisibleEnd(line) || layout.getLineBottom(line) > contentHeight)
-                }
-                hidden?.let { "'$phrase' clipped at character $it in '${status.text}'" }
+        }
+        val bounds = boundsIn(root, view)
+        result.offset(bounds.left, bounds.top)
+        return result
+    }
+
+    @Serializable
+    private data class CompactStatusFile(val description: String, val vectors: List<CompactStatusVector>)
+
+    @Serializable
+    private data class CompactStatusVector(val state: String, val en: String, val de: String)
+
+    private fun compactStatuses(app: UsageLimitsApp, german: Boolean): Map<String, String> {
+        val file = SharedVectors.file("credit-widget-compact-status.json")
+        val vectors = SharedVectors.parse(file.readText(), CompactStatusFile.serializer()).vectors
+        val resources = mapOf(
+            "unread" to com.usagelimits.R.string.widget_credits_compact_not_read,
+            "unreadable" to com.usagelimits.R.string.widget_credits_compact_unreadable,
+            "refreshFailed" to com.usagelimits.R.string.widget_credits_compact_refresh_failed,
+        )
+        assertEquals(resources.keys, vectors.map { it.state }.toSet())
+        return vectors.associate { vector ->
+            val expected = if (german) vector.de else vector.en
+            assertEquals(vector.state, expected, app.getString(resources.getValue(vector.state)))
+            vector.state to expected
+        }
+    }
+
+    private suspend fun clippedStatuses(
+        app: UsageLimitsApp,
+        language: String,
+        prefixes: List<List<String>>,
+        compact: Map<String, String> = emptyMap(),
+    ): List<String> {
+        val now = System.currentTimeMillis()
+        val id = "status-fixture"
+        val account = CreditAccount(id, CreditProviderId.OPENROUTER, "Status account", "credit:$id", createdAt = now)
+        val uncapped = CreditBalance("USD", BigDecimal("20"), unlimited = true)
+        val fixtures = listOf(
+            "unread" to null,
+            "stale" to CreditSnapshot(id, listOf(uncapped), fetchedAt = now - 30L * 24 * 60 * 60 * 1000),
+            "unreadable" to CreditSnapshot(id, emptyList(), fetchedAt = now, status = CreditStatus.FAILED, error = null),
+            "refreshFailed" to CreditSnapshot(id, listOf(uncapped), fetchedAt = now, status = CreditStatus.FAILED, error = "Network error"),
+        )
+        return fixtures.zip(prefixes).mapNotNull { (fixture, alternatives) ->
+            val (state, snapshot) = fixture
+            app.container.creditRepository.remove(id)
+            app.container.creditRepository.upsert(account, snapshot)
+            val view = smallTile(app)
+            capture(view, "S3-$state-$language").recycle()
+            val short = compact[state]
+            val candidates = alternatives + listOfNotNull(short)
+            val status = candidates.flatMap { texts(view, it) }.distinct().single() as TextView
+            val text = status.text.toString()
+            if (language == "de-1_6x" && short != null) {
+                assertEquals("$state uses the approved compact word", short, text)
+            } else {
+                assertTrue("$state at $language: expected an exact visible label from $candidates, got '$text'",
+                    text in candidates)
             }
-            assertTrue(clipped.joinToString("; "), clipped.isEmpty())
-        } finally {
-            SystemClock.setCurrentTimeMillis(previousTime)
+            // Read the accessibility label delivered by RemoteViews to the actual host TextView.
+            val speech = status.contentDescription?.toString()
+            assertTrue("$state at $language: full accessibility label, got '$speech'", speech in alternatives)
+            val title = texts(view, account.label).single() as TextView
+            val hasBalance = snapshot?.balances?.isNotEmpty() == true
+            val amountText = when {
+                !hasBalance -> "—"
+                language.startsWith("de") -> "20,00"
+                else -> "20.00"
+            }
+            val amount = texts(view, amountText).single() as TextView
+            val titleInk = inkIn(view, title)
+            val amountInk = inkIn(view, amount)
+            val statusInk = inkIn(view, status)
+            val host = Rect(0, 0, view.width, view.height)
+            assertTrue("$state at $language: title $titleInk, amount $amountInk and status $statusInk ink stay in order",
+                titleInk.bottom <= amountInk.top && amountInk.bottom <= statusInk.top)
+            for (ink in listOf(titleInk, amountInk, statusInk)) {
+                assertTrue("$state at $language: text ink $ink is visible inside $host", !ink.isEmpty && host.contains(ink))
+            }
+            assertTrue("$state at $language: amount fits without an ellipsis",
+                amount.layout.getEllipsisCount(0) == 0 && amount.layout.getLineVisibleEnd(0) == amount.text.length)
+            if (!hasBalance) assertEquals("the placeholder still uses 28sp", TypedValueCompat.spToPx(28f, app.resources.displayMetrics),
+                amount.textSize, 0.01f)
+            val layout = status.layout
+            val visible = Rect()
+            val ink = Rect()
+            assertTrue("'$text' is visible in $language", status.getLocalVisibleRect(visible))
+            assertEquals("'$text' uses the full 11sp at $language", TypedValueCompat.spToPx(11f, app.resources.displayMetrics),
+                status.textSize, 0.01f)
+            val hidden = text.indices.firstOrNull { offset ->
+                if (text[offset].isWhitespace()) return@firstOrNull false
+                val line = layout.getLineForOffset(offset)
+                val ellipsisStart = layout.getLineStart(line) + layout.getEllipsisStart(line)
+                // The host clips ink, not the font's full line box (which can extend past descenders).
+                status.paint.getTextBounds(text, offset, offset + 1, ink)
+                ink.offset(status.totalPaddingLeft + layout.getPrimaryHorizontal(offset).toInt(),
+                    status.baseline + layout.getLineBaseline(line) - layout.getLineBaseline(0))
+                offset in ellipsisStart until ellipsisStart + layout.getEllipsisCount(line) ||
+                    offset >= layout.getLineVisibleEnd(line) || !visible.contains(ink)
+            }
+            hidden?.let { "'$text' clipped at character $it in $language (ink $ink, visible $visible, ${status.textSize}px)" }
         }
     }
 
@@ -233,7 +329,8 @@ class CreditsWidgetRenderingTest {
         val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
-            checkStatuses(app, "en", listOf(listOf("Not read yet"), listOf("Out of date", "Stale"), listOf("Could not be read"), listOf("Refresh failed")))
+            checkStatusScales(app, "en", listOf(listOf("Not read yet"), listOf("Out of date", "Stale"),
+                listOf("Could not be read"), listOf("Refresh failed")))
         } finally {
             Dispatchers.resetMain()
         }
@@ -246,9 +343,28 @@ class CreditsWidgetRenderingTest {
         val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
-            checkStatuses(app, "de", listOf(listOf("Noch nicht gelesen"), listOf("Veraltet"), listOf("Konnte nicht gelesen werden"), listOf("Aktualisierung fehlgeschlagen")))
+            checkStatusScales(app, "de", listOf(listOf("Noch nicht gelesen"), listOf("Veraltet"),
+                listOf("Konnte nicht gelesen werden"), listOf("Aktualisierung fehlgeschlagen")))
         } finally {
             Dispatchers.resetMain()
+        }
+    }
+
+    private suspend fun checkStatusScales(app: UsageLimitsApp, language: String, prefixes: List<List<String>>) {
+        val compact = compactStatuses(app, language == "de")
+        val originalScale = app.resources.configuration.fontScale
+        try {
+            val problems = buildList {
+                org.robolectric.RuntimeEnvironment.setFontScale(1f)
+                addAll(clippedStatuses(app, language, prefixes))
+                org.robolectric.RuntimeEnvironment.setFontScale(1.6f)
+                addAll(clippedStatuses(app, "$language-1_6x", prefixes, compact))
+                org.robolectric.RuntimeEnvironment.setFontScale(2f)
+                addAll(clippedStatuses(app, "$language-2x", prefixes, compact))
+            }
+            assertTrue(problems.joinToString("; "), problems.isEmpty())
+        } finally {
+            org.robolectric.RuntimeEnvironment.setFontScale(originalScale)
         }
     }
 
@@ -321,9 +437,18 @@ class CreditsWidgetRenderingTest {
             fun bounds(child: View) = Rect(0, 0, child.width, child.height).also {
                 (view as ViewGroup).offsetDescendantRectToMyCoords(child, it)
             }
-            assertEquals("amount itself stays at the tile's center", view.height / 2f, bounds(amount).exactCenterY(), 1f)
-            assertTrue("freshness hangs below the amount", bounds(status).top >= bounds(amount).bottom)
-            assertTrue("freshness remains at least the default 11sp size", status.textSize >= 11f * app.resources.displayMetrics.density)
+            val amountBounds = bounds(amount)
+            val statusBounds = bounds(status)
+            val title = texts(view, "Guthaben").single()
+            val bottomMargin = (5f * app.resources.displayMetrics.density / app.resources.configuration.fontScale).toInt()
+            val centeredAmountBottom = (view.height + amountBounds.height()) / 2
+            if (centeredAmountBottom + statusBounds.height() + bottomMargin <= view.height) {
+                assertEquals("amount stays centered when freshness fits below it", view.height / 2f, amountBounds.exactCenterY(), 1f)
+            }
+            assertTrue("title remains above the amount", bounds(title).bottom <= amountBounds.top)
+            assertTrue("freshness hangs below the amount", statusBounds.top >= amountBounds.bottom)
+            assertEquals("freshness keeps the full requested 11sp", TypedValueCompat.spToPx(11f, app.resources.displayMetrics),
+                status.textSize, 0.01f)
             for (text in listOf(amount, status)) {
                 val layout = text.layout
                 assertEquals("${text.text} retains the complete text", text.text.length, layout.getLineEnd(layout.lineCount - 1))
@@ -356,6 +481,41 @@ class CreditsWidgetRenderingTest {
                 texts(view, "diesen Monat ausgegeben").size)
             assertEquals("the balance remains separate", 1, texts(view, "20,00").size)
         } finally { Dispatchers.resetMain() }
+    }
+
+    @Test
+    @Config(qualifiers = "de-rDE-mdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun `uncapped Credits at 2x keeps the amount and speaks complete freshness`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        val originalScale = app.resources.configuration.fontScale
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            org.robolectric.RuntimeEnvironment.setFontScale(2f)
+            val now = System.currentTimeMillis()
+            val id = "uncapped-large"
+            app.container.creditRepository.upsert(
+                CreditAccount(id, CreditProviderId.OPENROUTER, "Guthaben", "credit:$id", createdAt = now),
+                CreditSnapshot(id, listOf(CreditBalance("USD", BigDecimal("20"), unlimited = true)), fetchedAt = now),
+            )
+            val view = smallTile(app)
+            capture(view, "uncapped-de-2x").recycle()
+            val title = texts(view, "Guthaben").single() as TextView
+            val amount = texts(view, "20,00").single() as TextView
+            val status = texts(view, "diesen Monat ausgegeben").single() as TextView
+            assertEquals("complete spending and freshness label", true,
+                status.contentDescription?.matches(Regex("diesen Monat ausgegeben · Stand .+")))
+            assertTrue("ancillary freshness still has at most two visible lines", status.layout.lineCount in 1..2)
+            assertEquals("freshness keeps the full 11sp", TypedValueCompat.spToPx(11f, app.resources.displayMetrics), status.textSize, 0.01f)
+            assertEquals("amount retains its complete currency figure", 0, amount.layout.getEllipsisCount(0))
+            val ink = listOf(title, amount, status).map { inkIn(view, it) }
+            val host = Rect(0, 0, view.width, view.height)
+            assertTrue("all lettering $ink fits in $host", ink.all { !it.isEmpty && host.contains(it) })
+            assertTrue("title, amount and status ink stay in order: $ink", ink.zipWithNext().all { (a, b) -> a.bottom <= b.top })
+        } finally {
+            org.robolectric.RuntimeEnvironment.setFontScale(originalScale)
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun `composes empty and with accounts at every size`() = runTest {

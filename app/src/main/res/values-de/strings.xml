@@ -425,6 +425,9 @@
     <string name="widget_credits_unreadable">Konnte nicht gelesen werden</string>
     <string name="widget_credits_refresh_failed_reason">Aktualisierung fehlgeschlagen: %1$s</string>
     <string name="widget_credits_not_read">Noch nicht gelesen</string>
+    <string name="widget_credits_compact_not_read">Ungelesen</string>
+    <string name="widget_credits_compact_unreadable">Lesefehler</string>
+    <string name="widget_credits_compact_refresh_failed">Updatefehler</string>
     <string name="widget_credits_out_of_date">Veraltet · %1$s</string>
     <string name="credit_spent_this_month">%1$s diesen Monat ausgegeben</string>
 

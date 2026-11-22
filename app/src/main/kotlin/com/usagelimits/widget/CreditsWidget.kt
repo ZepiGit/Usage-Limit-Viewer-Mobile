@@ -2,7 +2,12 @@ package com.usagelimits.widget
 
 import android.content.Context
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.Typeface
+import android.os.Build
+import android.text.StaticLayout
+import android.text.TextPaint
+import android.text.TextUtils
 import androidx.core.util.TypedValueCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -31,6 +36,8 @@ import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.width
+import androidx.glance.semantics.contentDescription
+import androidx.glance.semantics.semantics
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
@@ -71,7 +78,8 @@ class CreditsWidget : GlanceAppWidget() {
                 CompositionLocalProvider(LocalWidgetStyle provides style) {
                     val panelInset = if (size == SMALL) PANEL_INSET / context.resources.configuration.fontScale.coerceAtLeast(1f) else PANEL_INSET.toFloat()
                     Column(
-                        GlanceModifier.fillMaxSize().panelCorner().background(style.background.color).padding(panelInset.dp)
+                        GlanceModifier.fillMaxSize().panelCorner().background(style.background.color)
+                            .padding(if (size == SMALL && shown.isNotEmpty()) 0.dp else panelInset.dp)
                             .clickable(androidx.glance.appwidget.action.actionStartActivity(ExternalRequest.openOverview(context))),
                     ) {
                         when {
@@ -113,11 +121,23 @@ class CreditsWidget : GlanceAppWidget() {
         val width = SMALL.width - (2 * inset).dp
         val amount = row.balances.firstOrNull()?.let { CreditFormat.string(it.amount, it.currency, locale) } ?: "—"
         val amountSp = fittedMonoSize(amount, 28f, width, resources)
-        val paint = Paint().apply {
+        val metrics = resources.displayMetrics
+        val density = metrics.density
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            textSize = TypedValueCompat.spToPx(amountSp, resources.displayMetrics)
+            textSize = TypedValueCompat.spToPx(amountSp, metrics)
         }
-        val amountHeight = (paint.fontMetricsInt.bottom - paint.fontMetricsInt.top) / resources.displayMetrics.density
+        val amountMetrics = paint.fontMetricsInt
+        val amountInk = Rect().also {
+            paint.getTextBounds(amount, 0, amount.length, it)
+            it.offset(0, -amountMetrics.top)
+        }
+        val amountHeight = (amountMetrics.bottom - amountMetrics.top) / density
+        val statusTop = (SMALL.height.value + amountHeight) / 2
+        val tileWidth = (SMALL.width.value * density).toInt()
+        val tileHeight = (SMALL.height.value * density).toInt()
+        val paddedWidth = tileWidth - 2 * (inset * density).toInt()
+        val statusBudget = tileHeight - (statusTop * density).toInt() - (inset / 2 * density).toInt()
         val failedRefresh = refreshFailed(row)
         val status = when {
             row.severity == Severity.ERROR -> texts.couldNotBeRead()
@@ -131,28 +151,83 @@ class CreditsWidget : GlanceAppWidget() {
                 } else asOf
             }
         }
-        val freshnessOnly = row.fetchedAt != null && row.severity != Severity.ERROR && row.severity != Severity.STALE &&
-            !failedRefresh && row.balances.firstOrNull()?.unlimited != true
         paint.typeface = Typeface.DEFAULT
-        paint.textSize = TypedValueCompat.spToPx(11f, resources.displayMetrics)
-        val statusSp = if (freshnessOnly && paint.measureText(status) > width.value * resources.displayMetrics.density) {
-            TypedValueCompat.pxToSp(
-                paint.textSize * width.value * resources.displayMetrics.density / paint.measureText(status), resources.displayMetrics)
-        } else 11f
-        Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SeverityDot(style.accent(row.severity))
-                    Spacer(GlanceModifier.width(6.dp))
-                    Text(row.title, maxLines = 1, style = widgetText(style.textSecondary, 12, FontWeight.Medium))
+        paint.textLocale = locale
+        paint.textSize = TypedValueCompat.spToPx(11f, metrics)
+        fun layout(text: String, maxWidth: Int, maxLines: Int = Int.MAX_VALUE): StaticLayout =
+            StaticLayout.Builder.obtain(text, 0, text.length, paint, maxWidth).apply {
+                if (maxLines != Int.MAX_VALUE) setMaxLines(maxLines).setEllipsize(TextUtils.TruncateAt.END)
+            }.build()
+        val full = layout(status, paddedWidth)
+        val compactRes = when {
+            row.severity == Severity.ERROR -> R.string.widget_credits_compact_unreadable
+            failedRefresh -> R.string.widget_credits_compact_refresh_failed
+            row.fetchedAt == null -> R.string.widget_credits_compact_not_read
+            else -> null
+        }
+        val fullFits = full.lineCount <= 2 && full.height <= statusBudget
+        val shownStatus = if (!fullFits && compactRes != null) resources.getString(compactRes) else status
+        val statusInset = if (fullFits) inset.dp else 0.dp
+        val statusLayout = if (fullFits) full else layout(shownStatus, tileWidth, if (compactRes == null) 2 else Int.MAX_VALUE)
+        val statusHeight = statusLayout.height
+        val statusFirstInk = Rect().also {
+            paint.getTextBounds(shownStatus, 0, statusLayout.getLineVisibleEnd(0), it)
+        }.top + statusLayout.getLineBaseline(0)
+        paint.typeface = if (Build.VERSION.SDK_INT >= 29) Typeface.create(Typeface.DEFAULT, 500, false) else Typeface.DEFAULT_BOLD
+        paint.textSize = TypedValueCompat.spToPx(12f, metrics)
+        val titleMetrics = paint.fontMetricsInt
+        val titleHeight = titleMetrics.bottom - titleMetrics.top
+        val titleInkBottom = Rect().also { paint.getTextBounds(row.title, 0, row.title.length, it) }.bottom - titleMetrics.top
+        val centerTitleFits = (inset * density).toInt() + titleInkBottom <= (tileHeight - amountHeight * density) / 2 + amountInk.top
+        val statusInkTop = tileHeight - statusHeight + statusFirstInk
+        val tightlyStackedFits = statusInkTop - titleInkBottom >= amountInk.height()
+        val titleContent: @Composable () -> Unit = {
+            Row(GlanceModifier.padding(horizontal = inset.dp), verticalAlignment = Alignment.CenterVertically) {
+                SeverityDot(style.accent(row.severity))
+                Spacer(GlanceModifier.width(6.dp))
+                Text(row.title, maxLines = 1, style = widgetText(style.textSecondary, 12, FontWeight.Medium))
+            }
+        }
+        val amountContent: @Composable () -> Unit = {
+            Box(GlanceModifier.padding(horizontal = inset.dp), contentAlignment = Alignment.Center) {
+                Text(amount, maxLines = 1, style = widgetText(style.textPrimary, 28, FontWeight.Bold, mono = true)
+                    .copy(fontSize = amountSp.sp))
+            }
+        }
+        val statusContent: @Composable () -> Unit = {
+            Text(shownStatus, modifier = GlanceModifier.padding(horizontal = statusInset)
+                .semantics { contentDescription = status }, maxLines = statusLayout.lineCount,
+                style = widgetText(if (failedRefresh) style.textPrimary else style.textSecondary, 11)
+                    .copy(textAlign = TextAlign.Center))
+        }
+        if (centerTitleFits && statusHeight <= statusBudget) {
+            Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(GlanceModifier.fillMaxSize().padding(top = inset.dp), contentAlignment = Alignment.TopCenter) {
+                    titleContent()
+                }
+                amountContent()
+                Column(GlanceModifier.fillMaxSize().padding(bottom = (inset / 2).dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Spacer(GlanceModifier.height(statusTop.dp))
+                    statusContent()
                 }
             }
-            Text(amount, maxLines = 1, style = widgetText(style.textPrimary, 28, FontWeight.Bold, mono = true)
-                .copy(fontSize = amountSp.sp))
+        } else if (titleHeight + amountHeight * density + statusHeight <= tileHeight || !tightlyStackedFits) {
             Column(GlanceModifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(GlanceModifier.height(((SMALL.height.value - 2 * inset + amountHeight) / 2).dp))
-                Text(status, maxLines = 2, style = widgetText(if (failedRefresh) style.textPrimary else style.textSecondary, 11)
-                    .copy(fontSize = statusSp.sp, textAlign = TextAlign.Center))
+                titleContent()
+                amountContent()
+                statusContent()
+            }
+        } else {
+            // Use the space inside the fonts' empty padding without overlapping the lettering.
+            val amountTop = ((titleInkBottom + statusInkTop - amountInk.top - amountInk.bottom) / 2).coerceAtLeast(0)
+            Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                titleContent()
+                Box(GlanceModifier.fillMaxSize().padding(top = (amountTop / density).dp), contentAlignment = Alignment.TopCenter) {
+                    amountContent()
+                }
+                Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    statusContent()
+                }
             }
         }
     }

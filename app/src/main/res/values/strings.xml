@@ -441,6 +441,9 @@
     <string name="widget_credits_unreadable">Could not be read</string>
     <string name="widget_credits_refresh_failed_reason">Refresh failed: %1$s</string>
     <string name="widget_credits_not_read">Not read yet</string>
+    <string name="widget_credits_compact_not_read">Not read</string>
+    <string name="widget_credits_compact_unreadable">Read error</string>
+    <string name="widget_credits_compact_refresh_failed">Update error</string>
     <string name="widget_credits_out_of_date">Out of date · %1$s</string>
     <string name="credit_spent_this_month">%1$s spent this month</string>
 
