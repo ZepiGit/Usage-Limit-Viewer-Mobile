@@ -335,7 +335,8 @@ final class AppLaunchUITests: XCTestCase {
     }
 
     func testColdSettingsLoadRejectsEditsBeforeReadAndApplyAndPreservesPreferences() {
-        var app = launch(["-fixture-settings", "-fixture-settings-reset", "-fixture-settings-gates"])
+        var app = launch(["-fixture-settings", "-fixture-settings-reset", "-fixture-settings-gates",
+                          "-settings-native-control-trace"])
         defer { app.terminate() }
         tabButton("Settings", in: app).tap()
         let form = app.descendants(matching: .any)["settings-form"].firstMatch
@@ -882,7 +883,7 @@ final class AppLaunchUITests: XCTestCase {
     func testAccessibilityTextReflowsDialsIntoOneColumn() {
         let app = XCUIApplication()
         app.launchArguments += diagnosticLaunchArguments + [
-            "-marketing-demo", "-overview-expired-demo",
+            "-marketing-demo", "-overview-expired-demo", "-settings-native-control-trace",
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"
         ]
