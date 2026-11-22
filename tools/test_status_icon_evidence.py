@@ -1024,6 +1024,65 @@ class ReleaseIsolationTest(unittest.TestCase):
             verify(self.build, self.evidence)
 
 
+class StatusVisibilityDiagnosticsTest(unittest.TestCase):
+    def test_preinstall_native_snapshots_are_bracketed_readonly_and_failures_are_not_passes(self):
+        import shlex
+        from types import SimpleNamespace
+        import status_icon_evidence as subject
+        commands = [
+            ("dumpsys", "window"), ("exec-out", "screencap", "-p"), ("dumpsys", "window"),
+            ("dumpsys", "SurfaceFlinger", "--list"), ("dumpsys", "SurfaceFlinger"),
+            ("dumpsys", "activity", "service", "com.android.systemui/.SystemUIService"),
+        ]
+        home = 'mCurrentFocus=Window{abc u0 example.launcher/example.launcher.Home}'
+        root = ET.fromstring('<hierarchy><node package="example.launcher" enabled="true" '
+                            'resource-id="example.launcher:id/workspace" bounds="[0,0][720,1560]"/></hierarchy>')
+        for failure in (False, True):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                evidence = Evidence(directory)
+                clock = SimpleNamespace(now=1000.0)
+                clock.monotonic = lambda: clock.now
+                observed, timeouts = [], []
+                def run(args, **kwargs):
+                    command = tuple(shlex.split(args[2])) if args[1] == "shell" else tuple(args[1:])
+                    observed.append(command)
+                    timeouts.append(kwargs["timeout"])
+                    clock.now += 0.1
+                    if command == ("dumpsys", "window"):
+                        value = home
+                    elif command == ("dumpsys", "activity", "lastanr"):
+                        value = '<no ANR has occurred since boot>'
+                    elif command[:3] == ("cmd", "package", "resolve-activity"):
+                        value = 'example.launcher/.Home'
+                    elif command[:2] == ("dumpsys", "SurfaceFlinger"):
+                        value = 'Permission Denial: diagnostic unavailable' if failure else 'StatusBar layer=1 alpha=0 display=0'
+                    elif command == ("exec-out", "screencap", "-p"):
+                        return SimpleNamespace(stdout=png_bytes(2, 100, 4, [bytes([0, 0, 0, 255]) * 2] * 100))
+                    else:
+                        value = 'SystemUI native snapshot'
+                    return SimpleNamespace(stdout=value.encode())
+                with patch.dict(subject.os.environ, {"ANDROID_SERIAL": ""}), \
+                        patch.object(subject.subprocess, "run", side_effect=run), \
+                        patch.object(subject, "time", clock), patch.object(evidence, "xml", return_value=root):
+                    if failure:
+                        with self.assertRaisesRegex(RuntimeError, "diagnostic collection failed"):
+                            evidence.preflight(collect_visibility=True)
+                        self.assertNotIn("preflight", evidence.report)
+                    else:
+                        evidence.preflight(collect_visibility=True)
+                        self.assertTrue(evidence.report["preflight"]["focusedHOME"])
+                self.assertEqual(commands, observed[-6:])
+                self.assertTrue(all(value == 12 for value in timeouts[-6:]))
+                report = json.loads((Path(directory) / 'preflight-status-visibility-visibility.json').read_text())
+                self.assertEqual("failed" if failure else "collected", report["result"])
+                self.assertIn("unknown", report["visibility"])
+                self.assertIn("Pending human inspection", evidence.report["visualAcceptance"])
+                for step in report["steps"]:
+                    self.assertLess(step["startSeconds"], step["endSeconds"])
+                    self.assertTrue((Path(directory) / step["file"]).exists())
+                self.assertEqual(2 if failure else 0, len(report["errors"]))
+
+
 class PreflightEvidenceTest(unittest.TestCase):
     def test_clean_lastanr_requires_exact_dialog_and_dropbox_process_proof(self):
         # Captured issue66 startup ANR: lastanr stays clean while DropBox retains it.
