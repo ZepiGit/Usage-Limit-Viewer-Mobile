@@ -1688,7 +1688,7 @@ class Smoke:
         self.navigate_credit("Overview", "Credits · 1 balance", "credits-en-compact-overview")
         compact_root = self.dump("credits-en-compact-order")
         count_node = next(node for node in credit_matches(compact_root, "Credits · 1 balance") if bounds(node))
-        empty_node = next(node for node in matches(compact_root, "Nothing to monitor yet", DEBUG_PACKAGE) if bounds(node))
+        empty_node = next(node for node in matches(compact_root, "No usage accounts yet", DEBUG_PACKAGE) if bounds(node))
         assert bounds(count_node)[1] < bounds(empty_node)[1], "Show first did not put Credits above usage providers"
         assert any(node.get("package") == DEBUG_PACKAGE and "Credits · 1 balance" in (node.get("content-desc") or "")
                    and "Low balance: Synthetic credit" in node.get("content-desc", "")
@@ -1727,7 +1727,7 @@ class Smoke:
         self.navigate_credit("Übersicht", "Guthaben · 1 Konto", "credits-de-compact-overview")
         compact_root = self.dump("credits-de-compact-order")
         count_node = next(node for node in credit_matches(compact_root, "Guthaben · 1 Konto") if bounds(node))
-        empty_node = next(node for node in matches(compact_root, "Noch nichts zu verfolgen", DEBUG_PACKAGE) if bounds(node))
+        empty_node = next(node for node in matches(compact_root, "Noch keine Nutzungskonten", DEBUG_PACKAGE) if bounds(node))
         assert bounds(count_node)[1] < bounds(empty_node)[1], "Show first did not put Guthaben above usage providers"
         assert any(node.get("package") == DEBUG_PACKAGE and "Guthaben · 1 Konto" in (node.get("content-desc") or "")
                    and "Niedriges Guthaben: Synthetic credit" in node.get("content-desc", "")
