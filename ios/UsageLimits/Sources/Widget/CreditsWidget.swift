@@ -130,7 +130,6 @@ private struct CreditBar: View {
 struct CreditsSmallView: View {
     let entry: CreditsEntry
     var ink: WidgetInk = .light
-    // Die feste Small-Familie braucht auch bei AX5 Platz für Titel, Betrag und Status.
     @ScaledMetric(relativeTo: .title2) private var amountSize: Double = 28
     @ScaledMetric(relativeTo: .subheadline) private var titleSize: Double = 14
     @ScaledMetric(relativeTo: .caption2) private var statusSize: Double = 11
@@ -140,48 +139,73 @@ struct CreditsSmallView: View {
         Group {
             if let credit = entry.credits.first {
                 let severity = credit.severity(at: entry.date, staleAfter: entry.staleAfter)
-                VStack(alignment: .center, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(verbatim: credit.title)
-                            .font(.system(size: min(titleSize, 20), weight: .medium))
-                            .foregroundColor(ink.primary).lineLimit(1).minimumScaleFactor(0.7)
-                        if severity != .healthy {
-                            Circle().fill(SeverityPalette.accent(severity)).frame(width: 6, height: 6)
-                                .accessibilityLabel(SeverityPalette.label(severity))
-                        }
+                let status = statusLine(credit, severity)
+                // Measure the complete wording in both layouts before considering a shorter label.
+                ViewThatFits(in: .vertical) {
+                    reading(credit, severity: severity, status: status, label: status, reflow: false)
+                    reading(credit, severity: severity, status: status, label: status, reflow: true)
+                    if let compact = Self.compactStatus(for: credit) {
+                        reading(credit, severity: severity, status: compact, label: status, reflow: true)
                     }
-                    if dynamicTypeSize < .xLarge, let name = credit.providerName, name != credit.title {
-                        Text(verbatim: name).usageFont(.small).foregroundColor(ink.secondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                    // Money is the one figure that stays bold, and it stays ink: a balance does
-                    // not change colour with its severity. A missing amount is a small dash.
-                    VStack(spacing: 4) {
-                        Text(verbatim: credit.headlineText)
-                            .font(.system(size: credit.balances.isEmpty ? 12 : min(amountSize, 40),
-                                          weight: credit.balances.isEmpty ? .regular : .bold, design: .monospaced))
-                            .foregroundColor(credit.balances.isEmpty ? ink.secondary : ink.primary)
-                            .minimumScaleFactor(0.5)
-                            .lineLimit(1)
-                        Text(verbatim: statusLine(credit, severity))
-                            .font(.system(size: min(statusSize, 14), weight: .medium))
-                            .foregroundColor(ink.secondary).lineLimit(2)
-                            .multilineTextAlignment(.center)
-                        if dynamicTypeSize < .xLarge, let extra = credit.extraText {
-                            Text(verbatim: extra).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: 4)
-                    CreditBar(remainingPercent: credit.balances.first?.remainingPercent, severity: severity, ink: ink)
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .center)
             } else {
                 CreditsEmptyView(state: entry.state, ink: ink)
             }
         }
         .widgetBackground(UsageColors.ground)
         .widgetURL(DeepLink.glance)
+    }
+
+    private func reading(
+        _ credit: GlanceCredit, severity: Severity, status: String, label: String, reflow: Bool
+    ) -> some View {
+        let spacing = reflow ? 2.0 : 4.0
+        return VStack(alignment: .center, spacing: spacing) {
+            HStack(spacing: 6) {
+                Text(verbatim: credit.title)
+                    .font(.system(size: min(titleSize, 20), weight: .medium))
+                    .foregroundColor(ink.primary).lineLimit(1).minimumScaleFactor(0.7)
+                if severity != .healthy {
+                    Circle().fill(SeverityPalette.accent(severity)).frame(width: 6, height: 6)
+                        .accessibilityLabel(SeverityPalette.label(severity))
+                }
+            }
+            if dynamicTypeSize < .xLarge, let name = credit.providerName, name != credit.title {
+                Text(verbatim: name).usageFont(.small).foregroundColor(ink.secondary).lineLimit(1)
+            }
+            if !reflow { Spacer(minLength: 4) }
+            // A known balance stays ink regardless of severity. The dash is not a zero.
+            VStack(spacing: spacing) {
+                Text(verbatim: credit.headlineText)
+                    .font(.system(size: credit.balances.isEmpty ? 12 : min(amountSize, 40),
+                                  weight: credit.balances.isEmpty ? .regular : .bold, design: .monospaced))
+                    .foregroundColor(credit.balances.isEmpty ? ink.secondary : ink.primary)
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                Text(verbatim: status)
+                    .font(.system(size: min(statusSize, 14), weight: .medium))
+                    .foregroundColor(ink.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(label)
+                    .accessibilityIdentifier("credit-widget-status")
+                if dynamicTypeSize < .xLarge, let extra = credit.extraText {
+                    Text(verbatim: extra).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(1)
+                }
+            }
+            if !reflow { Spacer(minLength: 4) }
+            CreditBar(remainingPercent: credit.balances.first?.remainingPercent, severity: severity, ink: ink)
+        }
+        .padding(reflow ? 0 : 12)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    static func compactStatus(for credit: GlanceCredit) -> String? {
+        // A retained failed reading is still coloured by its balance or age, not .error.
+        if credit.statusMessage != nil || credit.baseSeverity == .error {
+            return credit.balances.isEmpty ? String(localized: "Read error") : String(localized: "Update error")
+        }
+        return credit.balances.isEmpty && credit.baseSeverity == .unknown ? String(localized: "Not read") : nil
     }
 
     private func statusLine(_ credit: GlanceCredit, _ severity: Severity) -> String {

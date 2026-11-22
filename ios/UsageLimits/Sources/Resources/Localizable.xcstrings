@@ -2225,6 +2225,18 @@
         }
       }
     },
+    "Not read" : {
+      "comment" : "Compact status for a Credits widget account that has never been read.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ungelesen"
+          }
+        }
+      }
+    },
     "Not selected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2657,6 +2669,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zu viele Anfragen. Versuche es später erneut."
+          }
+        }
+      }
+    },
+    "Read error" : {
+      "comment" : "Compact status for a failed Credits widget account read with no stored balance.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lesefehler"
           }
         }
       }
@@ -3527,6 +3551,18 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ungenutzter Reset-Credit läuft bald ab"
+          }
+        }
+      }
+    },
+    "Update error" : {
+      "comment" : "Compact status for a Credits widget account whose refresh failed but still has a balance.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updatefehler"
           }
         }
       }

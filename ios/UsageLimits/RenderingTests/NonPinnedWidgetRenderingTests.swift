@@ -202,6 +202,102 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
         }
     }
 
+    func testSmallCreditCompactStatusesKeepTheirOriginalAccessibilityLabels() async throws {
+        let language = try XCTUnwrap(ProcessInfo.processInfo.environment["NON_PINNED_LANGUAGE"])
+        XCTAssertEqual(String(localized: "Locked"), language == "de" ? "Gesperrt" : "Locked")
+        let fixtureURL = try XCTUnwrap(Bundle(for: NonPinnedWidgetRenderingTests.self)
+            .url(forResource: "credit-widget-compact-status", withExtension: "json"))
+        let fixture = try JSONDecoder().decode(CompactCreditStatuses.self, from: Data(contentsOf: fixtureURL))
+        XCTAssertEqual(fixture.vectors.count, CompactCreditStatuses.State.allCases.count)
+        XCTAssertEqual(Set(fixture.vectors.map(\.state)), Set(CompactCreditStatuses.State.allCases))
+
+        try await Self.activateNativeRenderingScene()
+        let size = CGSize(width: 158, height: 158)
+        // Long at the existing iOS font caps, even without a cached amount or outer padding.
+        let detail = "The prepaid balance, its currency, and the account's billing details were missing from the provider response. The remaining fields did not identify a paid balance or provide a timestamp that could be used to verify when the remaining amount was reported."
+        let failure = try XCTUnwrap(CreditError.malformed(detail).errorDescription)
+        let localizedFailure = language == "de"
+            ? "Der Anbieter hat in einem Format geantwortet, das diese App nicht versteht (\(detail))."
+            : "The provider answered in a shape this app does not understand (\(detail))."
+        for vector in fixture.vectors {
+            let retained = vector.state == .refreshFailed
+            let unread = vector.state == .unread
+            // A retained failure is stale, not .error: its message must still win over age.
+            let balance = CreditBalance(currency: "USD", amount: Decimal(318) / 100, total: 20)
+            let entry = creditReading(balances: retained ? [balance] : [], failure: unread ? nil : failure)
+            let compact = language == "de" ? vector.de : vector.en
+            let original = unread ? (language == "de" ? "Unbekannt" : "Unknown") : localizedFailure
+            let credit = try XCTUnwrap(entry.credits.first)
+            XCTAssertEqual(CreditsSmallView.compactStatus(for: credit), compact, "\(vector.state)")
+
+            let view = CreditsSmallView(entry: entry)
+            let image = try render(view, size: size, typeSize: .accessibility5)
+            let recognized = try words(image).sorted { $0.bounds.midY > $1.bounds.midY }
+            let visible = recognized.map(\.text).joined(separator: " ")
+            let expected = unread ? original : compact
+            XCTAssertTrue(visible.localizedCaseInsensitiveContains("DeepSeek"),
+                "\(vector.state) must keep the account title visible: \(visible)")
+            XCTAssertTrue(visible.localizedCaseInsensitiveContains(expected),
+                "\(vector.state) must render \(expected): \(visible)")
+            if retained {
+                XCTAssertTrue(visible.contains("3.18") || visible.contains("3,18"),
+                    "the cached balance must still render beside the failure: \(visible)")
+            }
+            let (window, _) = try await presentNativeRendering(view.frame(width: size.width, height: size.height)
+                .environment(\.dynamicTypeSize, .accessibility5))
+            defer { window.isHidden = true; window.rootViewController = nil }
+            XCTAssertEqual(creditStatusLabels(in: window), [original],
+                "\(vector.state) must expose the full status on the status element")
+        }
+    }
+
+    func testSmallCreditUsesOriginalStatusWhenItFits() throws {
+        let entry = creditReading(balances: [], failure: "The provider could not be reached.")
+        let image = try render(CreditsSmallView(entry: entry), size: CGSize(width: 158, height: 158))
+        let lines = try words(image).sorted { $0.bounds.midY > $1.bounds.midY }
+        let visible = lines.map(\.text).joined(separator: " ")
+        XCTAssertTrue(visible.localizedCaseInsensitiveContains(String(localized: "The provider could not be reached.")),
+            "a fitting warning must retain its full wording: \(visible)")
+    }
+
+    private struct CompactCreditStatuses: Decodable {
+        enum State: String, Decodable, CaseIterable { case unread, unreadable, refreshFailed }
+        struct Vector: Decodable {
+            let state: State
+            let en: String
+            let de: String
+        }
+        let vectors: [Vector]
+    }
+
+    private func creditReading(balances: [CreditBalance], failure: String?) -> CreditsEntry {
+        let account = CreditAccount(id: "deepseek", provider: .deepseek, label: "DeepSeek",
+            credentialReference: "unused", sortOrder: 0, createdAt: now.addingTimeInterval(-10800))
+        let snapshot = failure.map { CreditSnapshot(accountID: account.id, balances: balances,
+            fetchedAt: now.addingTimeInterval(-7200), lastAttemptAt: now, status: .failed, error: $0) }
+        let credit = GlanceCredit(entry: CreditEntry(account: account, snapshot: snapshot), now: now, staleAfter: staleAfter)
+        return CreditsEntry(date: now, credits: [credit], staleAfter: staleAfter, updatedAt: credit.fetchedAt, state: .ready)
+    }
+
+    private func creditStatusLabels(in object: NSObject) -> [String] {
+        guard !object.accessibilityElementsHidden else { return [] }
+        if let view = object as? UIView, view.isHidden || view.alpha == 0 { return [] }
+        if object.isAccessibilityElement {
+            guard (object as? UIAccessibilityIdentification)?.accessibilityIdentifier == "credit-widget-status",
+                  let label = object.accessibilityLabel else { return [] }
+            return [label]
+        }
+        if let children = object.accessibilityElements {
+            return children.compactMap { $0 as? NSObject }.flatMap { creditStatusLabels(in: $0) }
+        }
+        let count = object.accessibilityElementCount()
+        if count > 0, count < 1_000 {
+            return (0..<count).compactMap { object.accessibilityElement(at: $0) as? NSObject }
+                .flatMap { creditStatusLabels(in: $0) }
+        }
+        return (object as? UIView)?.subviews.flatMap { creditStatusLabels(in: $0) } ?? []
+    }
+
     private func account(_ provider: String, remaining: Double?, fetchedAgo: TimeInterval = 60,
                          reconnect: Bool = false, icon: String? = nil) -> GlanceAccount {
         let severity = remaining.map { Severity.from(remainingPercent: $0) } ?? .unknown

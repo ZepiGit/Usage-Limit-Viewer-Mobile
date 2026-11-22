@@ -193,6 +193,8 @@ targets:
       - path: Sources/Widget
       - path: ../../shared/glyphs/status-icon-glyphs.json
         buildPhase: resources
+      - path: ../../shared/test-vectors/credit-widget-compact-status.json
+        buildPhase: resources
     dependencies:
       - target: UsageLimits
       - package: UsageLimitsKit
