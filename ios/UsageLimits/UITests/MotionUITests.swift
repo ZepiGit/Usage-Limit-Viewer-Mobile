@@ -1,6 +1,6 @@
 import XCTest
 
-/// Checks real modifier decisions and reachable UI state, not applied transactions or rendered motion.
+/// Checks motion decisions and the app's public accessibility tree. Hosted rendering tests check frames.
 final class MotionUITests: XCTestCase {
     override func setUp() {
         super.setUp()
@@ -60,6 +60,74 @@ final class MotionUITests: XCTestCase {
         XCTAssertTrue(filter.waitForExistence(timeout: 10))
         filter.tap()
         waitUntil("Needs attention selected", in: app) { filter.value as? String == "Selected" }
+    }
+
+    private func launchSignInFixture(reduced: Bool = false) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-fixture-sign-in-motion", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        if reduced { app.launchArguments.append("-reduce-motion") }
+        app.launch()
+        return app
+    }
+
+    private func kimiButton(in picker: XCUIElement) -> XCUIElement {
+        picker.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Kimi")).firstMatch
+    }
+
+    func testLeavingSignInChooserRejectsAXAndTouchThenRestoresItsAction() {
+        let app = launchSignInFixture()
+        defer { app.terminate() }
+        let picker = app.scrollViews["provider-picker-scroll"]
+        let kimi = kimiButton(in: picker)
+        let key = picker.staticTexts["Paste your OpenCode Go key"]
+        let region = picker.staticTexts["Kimi region"]
+        let request = app.buttons["Request key step"]
+        let release = app.buttons["Release exit"]
+        let retained = app.buttons["Activate retained Kimi"]
+        let restore = app.buttons["Restore chooser"]
+        XCTAssertTrue(kimi.waitForExistence(timeout: 5))
+        XCTAssertTrue(kimi.isEnabled)
+        XCTAssertTrue(kimi.isHittable)
+        let oldFrame = kimi.frame
+        let oldPoint = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: oldFrame.midX - app.frame.minX, dy: oldFrame.midY - app.frame.minY))
+        XCTAssertTrue(request.waitForExistence(timeout: 5), "the real Kimi button action has been retained")
+        request.tap()
+        XCTAssertTrue(release.waitForExistence(timeout: 5))
+        XCTAssertTrue(retained.exists)
+        XCTAssertFalse(kimi.exists, "the still-visible outgoing card is already hidden from AX")
+        XCTAssertFalse(key.exists, "the destination has not yet replaced the outgoing card")
+        XCTAssertTrue(app.buttons["Cancel"].exists, "AX is active outside the outgoing card")
+        oldPoint.tap()
+        XCTAssertFalse(region.exists)
+        retained.tap()
+        XCTAssertFalse(region.exists)
+        release.tap()
+        XCTAssertTrue(key.waitForExistence(timeout: 5), "neither old action may replace the requested destination")
+        XCTAssertFalse(kimi.exists)
+        XCTAssertFalse(picker.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Shows a code")).firstMatch.exists)
+
+        restore.tap()
+        XCTAssertTrue(kimi.waitForExistence(timeout: 5))
+        XCTAssertTrue(kimi.isEnabled)
+        kimi.tap()
+        XCTAssertTrue(region.waitForExistence(timeout: 5), "the restored real button opens the Kimi region choice")
+    }
+
+    func testReducedSignInPublishesOnlyTheNewStepToAccessibility() {
+        let app = launchSignInFixture(reduced: true)
+        defer { app.terminate() }
+        let picker = app.scrollViews["provider-picker-scroll"]
+        let kimi = kimiButton(in: picker)
+        let key = picker.staticTexts["Paste your OpenCode Go key"]
+        XCTAssertTrue(kimi.waitForExistence(timeout: 5))
+        XCTAssertFalse(key.exists)
+        let request = app.buttons["Request key step"]
+        XCTAssertTrue(request.waitForExistence(timeout: 5))
+        request.tap()
+        XCTAssertTrue(key.waitForExistence(timeout: 5), "the new step is exposed without releasing the normal-motion hold")
+        XCTAssertFalse(kimi.exists)
+        XCTAssertTrue(app.buttons["Cancel"].exists)
     }
 
     func testOverviewFilterLogsAnimatedDecisionInNormalMotion() {

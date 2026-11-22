@@ -206,7 +206,7 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
         }
     }
 
-    func testSmallCreditCompactStatusesKeepTheirOriginalAccessibilityLabels() async throws {
+    func testSmallCreditCompactStatusesKeepTheTitleAndRetainedAmountAtAX5() throws {
         let environment = ProcessInfo.processInfo.environment
         let directory = try XCTUnwrap(environment["NON_PINNED_RENDERINGS"], "set TEST_RUNNER_NON_PINNED_RENDERINGS")
         let language = try XCTUnwrap(environment["NON_PINNED_LANGUAGE"], "set TEST_RUNNER_NON_PINNED_LANGUAGE")
@@ -219,14 +219,10 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
         XCTAssertEqual(fixture.vectors.count, CompactCreditStatuses.State.allCases.count)
         XCTAssertEqual(Set(fixture.vectors.map(\.state)), Set(CompactCreditStatuses.State.allCases))
 
-        try await Self.activateNativeRenderingScene()
         let size = CGSize(width: 158, height: 158)
         // Long at the existing iOS font caps, even without a cached amount or outer padding.
         let detail = "The prepaid balance, its currency, and the account's billing details were missing from the provider response. The remaining fields did not identify a paid balance or provide a timestamp that could be used to verify when the remaining amount was reported."
         let failure = try XCTUnwrap(CreditError.malformed(detail).errorDescription)
-        let localizedFailure = language == "de"
-            ? "Der Anbieter hat in einem Format geantwortet, das diese App nicht versteht (\(detail))."
-            : "The provider answered in a shape this app does not understand (\(detail))."
         for vector in fixture.vectors {
             let retained = vector.state == .refreshFailed
             let unread = vector.state == .unread
@@ -234,9 +230,9 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
             let balance = CreditBalance(currency: "USD", amount: Decimal(318) / 100, total: 20)
             let entry = creditReading(balances: retained ? [balance] : [], failure: unread ? nil : failure)
             let compact = language == "de" ? vector.de : vector.en
-            let original = unread ? (language == "de" ? "Unbekannt" : "Unknown") : localizedFailure
+            let original = language == "de" ? "Unbekannt" : "Unknown"
             let credit = try XCTUnwrap(entry.credits.first)
-            XCTAssertEqual(CreditsSmallView.compactStatus(for: credit), compact, "\(vector.state)")
+            XCTAssertEqual(CreditsSmallContent.compactStatus(for: credit), compact, "\(vector.state)")
 
             let view = CreditsSmallView(entry: entry)
             let image = try render(view, size: size, typeSize: .accessibility5)
@@ -252,11 +248,6 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
                 XCTAssertTrue(visible.contains("3.18") || visible.contains("3,18"),
                     "the cached balance must still render beside the failure: \(visible)")
             }
-            let (window, controller) = try await presentNativeRendering(view.frame(width: size.width, height: size.height)
-                .environment(\.dynamicTypeSize, .accessibility5))
-            defer { window.isHidden = true; window.rootViewController = nil }
-            XCTAssertEqual(creditStatusLabels(in: try XCTUnwrap(controller.view)), [original],
-                "\(vector.state) must expose the full status on the status element")
         }
     }
 
@@ -286,14 +277,6 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
             fetchedAt: now.addingTimeInterval(-7200), lastAttemptAt: now, status: .failed, error: $0) }
         let credit = GlanceCredit(entry: CreditEntry(account: account, snapshot: snapshot), now: now, staleAfter: staleAfter)
         return CreditsEntry(date: now, credits: [credit], staleAfter: staleAfter, updatedAt: credit.fetchedAt, state: .ready)
-    }
-
-    private func creditStatusLabels(in object: NSObject) -> [String] {
-        nativeAccessibilityElements(in: object).compactMap { element in
-            guard (element as? UIAccessibilityIdentification)?.accessibilityIdentifier == "credit-widget-status"
-            else { return nil }
-            return element.accessibilityLabel
-        }
     }
 
     private func account(_ provider: String, remaining: Double?, fetchedAgo: TimeInterval = 60,

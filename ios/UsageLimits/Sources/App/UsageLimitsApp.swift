@@ -54,82 +54,99 @@ struct UsageLimitsApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(tab: $tab, claudeAnimationVisible: detail == nil, openAccount: openAccount)
-                .fullScreenCover(item: $detail) { route in
-                    NavigationStack {
-                        AccountDetailScreen(
-                            accountID: route.id, unavailable: route.unavailable,
-                            // Only the detail that asked closes. A removal can finish after the
-                            // user has gone on to another account, and must not close that one.
-                            onDisconnected: { if detail?.id == route.id { detail = nil } })
-                            .navigationTitle("Account details")
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    Button("Close") { detail = nil }
-                                        .accessibilityIdentifier("overview-close-detail")
-                                }
-                            }
-                    }
+            #if DEBUG
+            if Self.isUITesting && ProcessInfo.processInfo.arguments.contains("-fixture-sign-in-motion") {
+                AddAccountSheet.motionAccessibilityFixture()
                     .environmentObject(store)
                     .appAppearance(store.settings)
-                    .environment(\.hoorayPlayback, store.hoorayPlayback)
-                    .hoorayOpening(playback: store.hoorayPlayback, ready: store.hasLoaded && store.openingClaimed)
-                    .environment(\.providerIconChoices, store.settings.providerIcons)
-                    .environment(\.claudeAnimationVisible, true)
-                    #if DEBUG
-                    .motionLogOverlay()
-                    #endif
-                    .modifier(StoreErrorAlert(store: store))
+                    .environment(\.reduceMotionOverride, ProcessInfo.processInfo.arguments.contains("-reduce-motion"))
+            } else if Self.isUITesting && ProcessInfo.processInfo.arguments.contains("-fixture-credits-widget") {
+                CreditsWidgetFixture()
+            } else {
+                appContent
+            }
+            #else
+            appContent
+            #endif
+        }
+    }
+
+    private var appContent: some View {
+        RootView(tab: $tab, claudeAnimationVisible: detail == nil, openAccount: openAccount)
+            .fullScreenCover(item: $detail) { route in
+                NavigationStack {
+                    AccountDetailScreen(
+                        accountID: route.id, unavailable: route.unavailable,
+                        // Only the detail that asked closes. A removal can finish after the
+                        // user has gone on to another account, and must not close that one.
+                        onDisconnected: { if detail?.id == route.id { detail = nil } })
+                        .navigationTitle("Account details")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Close") { detail = nil }
+                                    .accessibilityIdentifier("overview-close-detail")
+                            }
+                        }
                 }
                 .environmentObject(store)
-                .environment(\.hoorayPlayback, store.hoorayPlayback)
-                .hoorayOpening(playback: store.hoorayPlayback, ready: store.hasLoaded && store.openingClaimed && detail == nil)
-                .environment(\.providerIconChoices, store.settings.providerIcons)
-                #if DEBUG
-                .environment(\.reduceMotionOverride,
-                    ProcessInfo.processInfo.arguments.contains("-reduce-motion") ? true : nil)
-                #endif
-                .modifier(StoreErrorAlert(store: store, enabled: detail == nil))
-                .onOpenURL { url in
-                    apply(router.open(url, loadedAccountIDs: loadedAccountIDs))
-                }
-                .onChange(of: store.hasLoaded) { loaded in
-                    if loaded { apply(router.accountsLoaded(store.accounts.map(\.account.id))) }
-                }
-                .onChange(of: scenePhase) { phase in
-                    sceneChanged(phase)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
-                    .receive(on: RunLoop.main)) { _ in
-                    store.updatePresentationClock()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)
-                    .receive(on: RunLoop.main)) { _ in
-                    store.updatePresentationClock()
-                }
-                .task {
-                    guard !store.isMarketingDemo else { return }
-                    NotificationRouter.shared.onAccountTapped = openAccount
-                }
                 .appAppearance(store.settings)
-                // The opening owns cache load, atomic claim and then the automatic refresh.
-                .task {
-                    sceneChanged(scenePhase)
-                    // Asked once, and only after the first screen is up: a permission sheet in
-                    // front of an empty app asks the user to approve something they have not
-                    // seen the point of yet.
-                    //
-                    // Never asked under UI test. The permission prompt is a SYSTEM alert, which
-                    // sits above the app's own window and fails every query behind it — so a
-                    // test written to check the tab bar would fail on the alert instead, for a
-                    // reason that reads as unrelated to what it was checking.
-                    if !Self.isUITesting && !store.isMarketingDemo {
-                        await store.waitForOpening()
-                        _ = await NotificationScheduler.requestAuthorization()
-                    }
+                .environment(\.hoorayPlayback, store.hoorayPlayback)
+                .hoorayOpening(playback: store.hoorayPlayback, ready: store.hasLoaded && store.openingClaimed)
+                .environment(\.providerIconChoices, store.settings.providerIcons)
+                .environment(\.claudeAnimationVisible, true)
+                #if DEBUG
+                .motionLogOverlay()
+                #endif
+                .modifier(StoreErrorAlert(store: store))
+            }
+            .environmentObject(store)
+            .environment(\.hoorayPlayback, store.hoorayPlayback)
+            .hoorayOpening(playback: store.hoorayPlayback, ready: store.hasLoaded && store.openingClaimed && detail == nil)
+            .environment(\.providerIconChoices, store.settings.providerIcons)
+            #if DEBUG
+            .environment(\.reduceMotionOverride,
+                ProcessInfo.processInfo.arguments.contains("-reduce-motion") ? true : nil)
+            #endif
+            .modifier(StoreErrorAlert(store: store, enabled: detail == nil))
+            .onOpenURL { url in
+                apply(router.open(url, loadedAccountIDs: loadedAccountIDs))
+            }
+            .onChange(of: store.hasLoaded) { loaded in
+                if loaded { apply(router.accountsLoaded(store.accounts.map(\.account.id))) }
+            }
+            .onChange(of: scenePhase) { phase in
+                sceneChanged(phase)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
+                .receive(on: RunLoop.main)) { _ in
+                store.updatePresentationClock()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)
+                .receive(on: RunLoop.main)) { _ in
+                store.updatePresentationClock()
+            }
+            .task {
+                guard !store.isMarketingDemo else { return }
+                NotificationRouter.shared.onAccountTapped = openAccount
+            }
+            .appAppearance(store.settings)
+            // The opening owns cache load, atomic claim and then the automatic refresh.
+            .task {
+                sceneChanged(scenePhase)
+                // Asked once, and only after the first screen is up: a permission sheet in
+                // front of an empty app asks the user to approve something they have not
+                // seen the point of yet.
+                //
+                // Never asked under UI test. The permission prompt is a SYSTEM alert, which
+                // sits above the app's own window and fails every query behind it — so a
+                // test written to check the tab bar would fail on the alert instead, for a
+                // reason that reads as unrelated to what it was checking.
+                if !Self.isUITesting && !store.isMarketingDemo {
+                    await store.waitForOpening()
+                    _ = await NotificationScheduler.requestAuthorization()
                 }
-        }
+            }
     }
 
     private func sceneChanged(_ phase: ScenePhase) {

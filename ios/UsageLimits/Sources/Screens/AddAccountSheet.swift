@@ -1,3 +1,6 @@
+#if DEBUG
+import Combine
+#endif
 import SwiftUI
 import UIKit
 import UsageLimitsKit
@@ -55,6 +58,8 @@ struct AddAccountSheet: View {
     #if DEBUG
     private var drivenStage: Binding<Stage>?
     private var captureStep: ((Double, Bool) -> Void)?
+    private var holdExit = false
+    private var retainChooserAction: ((@escaping @MainActor () -> Void) -> Void)?
     #endif
     @State private var login: Task<Void, Never>?
     @State private var loopback = LoopbackSignIn()
@@ -77,17 +82,27 @@ struct AddAccountSheet: View {
             .environment(\.reduceMotionOverride, reduceMotion)
     }
 
-    private init(stage: Binding<Stage>, captureStep: @escaping (Double, Bool) -> Void) {
+    private init(stage: Binding<Stage>, captureStep: ((Double, Bool) -> Void)? = nil,
+                 holdExit: Bool = false, retainChooserAction: ((@escaping @MainActor () -> Void) -> Void)? = nil) {
         initialProvider = nil
         drivenStage = stage
         self.captureStep = captureStep
+        self.holdExit = holdExit
+        self.retainChooserAction = retainChooserAction
         _displayedStage = State(initialValue: stage.wrappedValue)
+    }
+
+    static func motionAccessibilityFixture() -> some View {
+        SignInMotionAccessibilityFixture()
     }
     #endif
 
     private struct StepTarget: Equatable {
         let stage: Stage
         let reduceMotion: Bool
+        #if DEBUG
+        let holdExit: Bool
+        #endif
     }
 
     private var acceptsInput: Bool { reduceMotion || (displayedStage == stage && stepOpacity == 1) }
@@ -101,7 +116,11 @@ struct AddAccountSheet: View {
     }
 
     var body: some View {
+        #if DEBUG
+        let target = StepTarget(stage: stage, reduceMotion: reduceMotion, holdExit: holdExit)
+        #else
         let target = StepTarget(stage: stage, reduceMotion: reduceMotion)
+        #endif
         // A cut must paint the requested card in this update, not in a later onChange update.
         let visibleStage = target.reduceMotion ? target.stage : displayedStage
         let opacity = target.reduceMotion ? 1 : stepOpacity
@@ -174,6 +193,9 @@ struct AddAccountSheet: View {
             }
             return
         }
+        #if DEBUG
+        if target.holdExit { return }
+        #endif
         let returning = displayedStage == target.stage
         guard returning || stepOpacity != 0 else { return }
         stepRevision += 1
@@ -208,7 +230,8 @@ struct AddAccountSheet: View {
         UsageCard(padding: 0, spacing: 0) {
             ForEach(Array(ProviderID.allCases.enumerated()), id: \.offset) { index, provider in
                 if index > 0 { LedgerDivider() }
-                Button { if stage == .choosing, acceptsInput { select(provider) } } label: {
+                let action: @MainActor () -> Void = { if stage == .choosing, acceptsInput { select(provider) } }
+                Button { action() } label: {
                     HStack(spacing: 12) {
                         ProviderBadge(provider: provider)
                         VStack(alignment: .leading, spacing: 2) {
@@ -232,6 +255,9 @@ struct AddAccountSheet: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                #if DEBUG
+                .onAppear { if provider == .kimi { retainChooserAction?(action) } }
+                #endif
             }
         }
     }
@@ -514,6 +540,43 @@ struct AddAccountSheet: View {
             }
         }
     }
+
+    #if DEBUG
+    private struct SignInMotionAccessibilityFixture: View {
+        @State private var stage: Stage = .choosing
+        @State private var holdExit = false
+        @StateObject private var retained = RetainedAction()
+
+        @MainActor
+        private final class RetainedAction: ObservableObject {
+            @Published var call: (@MainActor () -> Void)?
+        }
+
+        var body: some View {
+            VStack(spacing: 8) {
+                AddAccountSheet(stage: $stage, holdExit: holdExit) { [weak retained] action in
+                    Task { @MainActor in retained?.call = action }
+                }
+                HStack {
+                    if holdExit {
+                        Button { holdExit = false } label: { Text(verbatim: "Release exit") }
+                        if let action = retained.call { Button { action() } label: { Text(verbatim: "Activate retained Kimi") } }
+                    } else {
+                        if retained.call != nil {
+                            Button {
+                                holdExit = true
+                                stage = .awaitingKey(.opencode)
+                            } label: { Text(verbatim: "Request key step") }
+                        }
+                        Button { stage = .choosing } label: { Text(verbatim: "Restore chooser") }
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+            .onDisappear { retained.call = nil }
+        }
+    }
+    #endif
 }
 
 /// iOS 16 meldet das Ende einer Animation über ihren tatsächlichen Animatable-Wert.

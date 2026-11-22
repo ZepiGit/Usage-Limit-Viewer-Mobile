@@ -85,134 +85,21 @@ struct CreditsProvider: TimelineProvider {
 
 // MARK: - Views
 
-private extension GlanceCredit {
-    /// The figure a row leads with. Unlimited has no balance, only a spend.
-    var headlineText: String {
-        guard let balance = balances.first else { return "—" }
-        return balance.unlimited ? String(localized: "No limit") : CreditFormat.string(balance.amount, currency: balance.currency)
-    }
-
-    /// Other currencies, for the second line ("¥110.00 · $5.00" leads with the worse one).
-    var extraText: String? {
-        guard balances.count > 1 else { return nil }
-        return CreditFormat.summary(Array(balances.dropFirst()))
-    }
-
-    var providerName: String? {
-        CreditProviderID(rawValue: providerID)?.displayName
-    }
-}
-
-/// A balance bar, drawn only when the provider states a total.
-private struct CreditBar: View {
-    let remainingPercent: Double?
-    let severity: Severity
-    var ink: WidgetInk = .light
-
-    @ScaledMetric(relativeTo: .caption) private var barHeight = 4
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(ink.track)
-                if let remainingPercent, let fill = ink.bar(severity) {
-                    Capsule()
-                        .fill(fill)
-                        .frame(width: proxy.size.width * QuotaFormatting.fraction(remainingPercent))
-                }
-            }
-        }
-        .frame(height: barHeight)
-    }
-}
-
 /// systemSmall: the account that most needs topping up.
 struct CreditsSmallView: View {
     let entry: CreditsEntry
     var ink: WidgetInk = .light
-    @ScaledMetric(relativeTo: .title2) private var amountSize: Double = 28
-    @ScaledMetric(relativeTo: .subheadline) private var titleSize: Double = 14
-    @ScaledMetric(relativeTo: .caption2) private var statusSize: Double = 11
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         Group {
             if let credit = entry.credits.first {
-                let severity = credit.severity(at: entry.date, staleAfter: entry.staleAfter)
-                let status = statusLine(credit, severity)
-                // Measure the complete wording in both layouts before considering a shorter label.
-                ViewThatFits(in: .vertical) {
-                    reading(credit, severity: severity, status: status, label: status, reflow: false)
-                    reading(credit, severity: severity, status: status, label: status, reflow: true)
-                    if let compact = Self.compactStatus(for: credit) {
-                        reading(credit, severity: severity, status: compact, label: status, reflow: true)
-                    }
-                }
+                CreditsSmallContent(credit: credit, date: entry.date, staleAfter: entry.staleAfter, ink: ink)
             } else {
                 CreditsEmptyView(state: entry.state, ink: ink)
             }
         }
         .widgetBackground(UsageColors.ground)
         .widgetURL(DeepLink.glance)
-    }
-
-    private func reading(
-        _ credit: GlanceCredit, severity: Severity, status: String, label: String, reflow: Bool
-    ) -> some View {
-        let spacing = reflow ? 2.0 : 4.0
-        return VStack(alignment: .center, spacing: spacing) {
-            HStack(spacing: 6) {
-                Text(verbatim: credit.title)
-                    .font(.system(size: min(titleSize, 20), weight: .medium))
-                    .foregroundColor(ink.primary).lineLimit(1).minimumScaleFactor(0.7)
-                if severity != .healthy {
-                    Circle().fill(SeverityPalette.accent(severity)).frame(width: 6, height: 6)
-                        .accessibilityLabel(SeverityPalette.label(severity))
-                }
-            }
-            if dynamicTypeSize < .xLarge, let name = credit.providerName, name != credit.title {
-                Text(verbatim: name).usageFont(.small).foregroundColor(ink.secondary).lineLimit(1)
-            }
-            if !reflow { Spacer(minLength: 4) }
-            // A known balance stays ink regardless of severity. The dash is not a zero.
-            VStack(spacing: spacing) {
-                Text(verbatim: credit.headlineText)
-                    .font(.system(size: credit.balances.isEmpty ? 12 : min(amountSize, 40),
-                                  weight: credit.balances.isEmpty ? .regular : .bold, design: .monospaced))
-                    .foregroundColor(credit.balances.isEmpty ? ink.secondary : ink.primary)
-                    .minimumScaleFactor(0.5)
-                    .lineLimit(1)
-                Text(verbatim: status)
-                    .font(.system(size: min(statusSize, 14), weight: .medium))
-                    .foregroundColor(ink.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(label)
-                    .accessibilityIdentifier("credit-widget-status")
-                if dynamicTypeSize < .xLarge, let extra = credit.extraText {
-                    Text(verbatim: extra).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(1)
-                }
-            }
-            if !reflow { Spacer(minLength: 4) }
-            CreditBar(remainingPercent: credit.balances.first?.remainingPercent, severity: severity, ink: ink)
-        }
-        .padding(reflow ? 0 : 12)
-        .frame(maxWidth: .infinity, alignment: .center)
-    }
-
-    static func compactStatus(for credit: GlanceCredit) -> String? {
-        // A retained failed reading is still coloured by its balance or age, not .error.
-        if credit.statusMessage != nil || credit.baseSeverity == .error {
-            return credit.balances.isEmpty ? String(localized: "Read error") : String(localized: "Update error")
-        }
-        return credit.balances.isEmpty && credit.baseSeverity == .unknown ? String(localized: "Not read") : nil
-    }
-
-    private func statusLine(_ credit: GlanceCredit, _ severity: Severity) -> String {
-        if let message = credit.statusMessage { return DisplayText.stored(message) }
-        // Stale, failed or unread: say so rather than dating a number that cannot be trusted.
-        if severity == .stale || severity == .error || severity == .unknown { return SeverityPalette.label(severity) }
-        return GlanceText.asOfLine(updatedAt: credit.fetchedAt, now: entry.date) ?? SeverityPalette.label(severity)
     }
 }
 
