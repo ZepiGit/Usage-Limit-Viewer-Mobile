@@ -426,16 +426,17 @@ final class MarketingScreenshotTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
 
         let display = app.segmentedControls["settings-percent-display"]
-        reach(display, in: app)
+        scrollToCreditControl(display, in: app)
         display.buttons["Used"].tap()
         XCTAssertTrue(display.buttons["Used"].isSelected)
-        let displayPreview = app.otherElements["settings-display-preview"]
+        let displayPreview = app.descendants(matching: .any)["settings-display-preview"].firstMatch
+        scrollToCreditControl(displayPreview, in: app, requireHittable: false)
         XCTAssertTrue(displayPreview.waitForExistence(timeout: 10))
         XCTAssertTrue(displayPreview.staticTexts["82%"].waitForExistence(timeout: 10))
         XCTAssertTrue(displayPreview.staticTexts["used"].exists)
 
         let layout = app.segmentedControls["settings-overview-layout"]
-        reach(layout, in: app)
+        scrollToCreditControl(layout, in: app)
         XCTAssertTrue(layout.buttons["List"].isSelected)
         layout.buttons["Dials"].tap()
         XCTAssertTrue(layout.buttons["Dials"].isSelected)
