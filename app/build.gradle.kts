@@ -140,6 +140,8 @@ ksp {
 // Robolectric's native font zip filesystem is process-wide on Windows, while
 // Android sandboxes are not. A fresh worker avoids sharing that native state.
 tasks.withType<Test>().configureEach {
+    // Robolectric resolves Android SDK jars outside Gradle; use the same endpoint as mavenCentral().
+    systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
     // Measured on b575d1b, in a 512 MiB heap: 183 full collections, the live set 277 MiB after the
     // first and 505 MiB after the last. One possible cause is the framework's sandbox cache; no heap
     // dump was taken. 1 GiB is the owner's upper limit, the same on CI and on a workstation. If this
