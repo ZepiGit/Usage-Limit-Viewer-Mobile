@@ -10,12 +10,11 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import com.usagelimits.core.model.ProviderId
-import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.feature.accounts.AddAccountScreen
 import com.usagelimits.feature.accounts.AddAccountState
 import com.usagelimits.ui.theme.LocalMotionEnabled
 import com.usagelimits.ui.theme.UsageLimitsTheme
-import com.usagelimits.ui.theme.colors
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -36,7 +35,6 @@ class SignInMotionTest {
     private val next = AddAccountState.Success(ProviderId.KIMI, "New account")
     private var state by mutableStateOf<AddAccountState>(old)
     private var retries = 0
-    private val surface = AppTheme.PURE_BLACK.colors.Surface.argb
 
     private fun show(motion: Boolean) {
         compose.mainClock.autoAdvance = false
@@ -57,21 +55,37 @@ class SignInMotionTest {
 
     private fun messageBox() = compose.onNodeWithText(old.message).fetchSemanticsNode().boundsInWindow.toRegion()
 
-    private fun probes(before: Bitmap, settled: Bitmap, box: Region): Pair<Pair<Int, Int>, Pair<Int, Int>> {
+    // The crop starts in the card padding, just above and left of the message. The entire
+    // card fades, so its painted fill (not the theme's opaque surface) is bare in each frame.
+    private val Bitmap.cardFill: Int get() = at(0, 0)
+
+    private fun probes(before: Bitmap, settled: Bitmap): Pair<Pair<Int, Int>, Pair<Int, Int>> {
         var leaving: Pair<Int, Int>? = null
         var arriving: Pair<Int, Int>? = null
         var oldContrast = 0
         var newContrast = 0
-        fun contrast(pixel: Int) = kotlin.math.abs((pixel and 255) - (surface and 255)) +
-            kotlin.math.abs((pixel shr 8 and 255) - (surface shr 8 and 255)) +
-            kotlin.math.abs((pixel shr 16 and 255) - (surface shr 16 and 255))
-        for (y in box.top until box.bottom) for (x in box.left until box.right) {
-            val old = contrast(before.at(x, y))
-            val new = contrast(settled.at(x, y))
+        fun contrast(pixel: Int, fill: Int) = abs((pixel and 255) - (fill and 255)) +
+            abs((pixel shr 8 and 255) - (fill shr 8 and 255)) +
+            abs((pixel shr 16 and 255) - (fill shr 16 and 255))
+        val oldFill = before.cardFill
+        val newFill = settled.cardFill
+        for (y in 0 until before.height) for (x in 0 until before.width) {
+            val old = contrast(before.at(x, y), oldFill)
+            val new = contrast(settled.at(x, y), newFill)
             if (old > oldContrast && new == 0) { leaving = x to y; oldContrast = old }
             if (old == 0 && new > newContrast) { arriving = x to y; newContrast = new }
         }
         return checkNotNull(leaving) { "no leaving text probe" } to checkNotNull(arriving) { "no arriving text probe" }
+    }
+
+    private fun Bitmap.inkOutsideCardText(reference: Bitmap): Int {
+        val fill = cardFill
+        val referenceFill = reference.cardFill
+        var count = 0
+        for (y in 0 until height) for (x in 0 until width) {
+            if (at(x, y) != fill && reference.at(x, y) == referenceFill) count++
+        }
+        return count
     }
 
     @Test fun `the next step waits for the leaving card and queued input is rejected`() {
@@ -81,29 +95,39 @@ class SignInMotionTest {
             .config[SemanticsActions.OnClick].action!!
         FrameRecorder(compose).use { recorder ->
             val before = recorder.frame().cropAndRelease(box)
-            changeTo(next)
-            val frames = List(20) { index ->
-                compose.mainClock.advanceTimeByFrame()
-                recorder.frame().also { it.saveFrame("sign-in-fade-through", index) }.cropAndRelease(box)
-            }
-            val settled = recorder.frame().cropAndRelease(box)
+            val frames = ArrayList<Bitmap>(21)
             try {
-                val (leaving, arriving) = probes(before, settled, box.atOrigin())
+                changeTo(next)
+                repeat(20) { index ->
+                    compose.mainClock.advanceTimeByFrame()
+                    val frame = recorder.frame().also { it.saveFrame("sign-in-fade-through", index) }.cropAndRelease(box)
+                    frames += frame
+                    if (index == 2) {
+                        // Dispatch at 48 ms while the faded Retry node is still attached but hidden from semantics.
+                        assertTrue("the leaving card is still visibly fading",
+                            frame.cardFill != before.cardFill && frame.ink(box.atOrigin(), frame.cardFill) > 0)
+                        compose.onNodeWithText("Try again").assertDoesNotExist()
+                        compose.runOnIdle { assertTrue("the queued action was dispatched", queuedClick()) }
+                    }
+                }
+                val settled = recorder.frame().cropAndRelease(box).also { frames += it }
+                val transition = frames.subList(0, frames.lastIndex)
+                val (leaving, arriving) = probes(before, settled)
                 fun Bitmap.pixel(probe: Pair<Int, Int>) = at(probe.first, probe.second)
-                assertFalse("no frame draws both steps", frames.any {
-                    it.pixel(leaving) != surface && it.pixel(arriving) != surface
+                assertFalse("no frame draws both steps", transition.any {
+                    it.pixel(leaving) != it.cardFill && it.pixel(arriving) != it.cardFill
                 })
-                assertTrue("the old card really fades", frames.any {
-                    it.pixel(leaving) != surface && it.pixel(leaving) != before.pixel(leaving)
+                assertTrue("the old card really fades", transition.any {
+                    it.pixel(leaving) != it.cardFill && it.pixel(leaving) != before.pixel(leaving)
                 })
-                assertTrue("the new card really fades", frames.any {
-                    it.pixel(arriving) != surface && it.pixel(arriving) != settled.pixel(arriving)
+                assertTrue("the new card really fades", transition.any {
+                    it.pixel(arriving) != it.cardFill && it.pixel(arriving) != settled.pixel(arriving)
                 })
-                compose.runOnIdle { queuedClick(); assertEquals(0, retries) }
+                compose.runOnIdle { assertEquals(0, retries) }
                 compose.onNodeWithText("Try again").assertDoesNotExist()
                 compose.onNodeWithText("Done").assertExists()
             } finally {
-                before.recycle(); settled.recycle(); frames.forEach(Bitmap::recycle)
+                before.recycle(); frames.forEach(Bitmap::recycle)
             }
         }
     }
@@ -123,9 +147,12 @@ class SignInMotionTest {
             compose.mainClock.advanceTimeBy(1_000)
             val settled = recorder.frame().cropAndRelease(box)
             try {
+                assertTrue("the interrupted exit still shows text", leaving.ink(box.atOrigin(), leaving.cardFill) > 0)
                 assertFalse("the interrupted exit was visibly between its endpoints", leaving.sameAs(full))
+                assertTrue("reversing still shows text", reversed.ink(box.atOrigin(), reversed.cardFill) > 0)
                 assertFalse("reversing does not jump to full opacity", reversed.sameAs(full))
-                assertTrue("reversing keeps the old card, not new text underneath it", reversed.inkOutside(full, box.atOrigin(), surface) == 0)
+                assertEquals("reversing keeps the old card, not new text underneath it", 0,
+                    reversed.inkOutsideCardText(full))
                 assertTrue("the old card returns exactly", settled.sameAs(full))
                 compose.onNodeWithText("Try again").assertExists()
                 compose.onNodeWithText("Done").assertDoesNotExist()
@@ -151,10 +178,12 @@ class SignInMotionTest {
             compose.mainClock.advanceTimeBy(1_000)
             val fullNext = recorder.frame().cropAndRelease(box)
             try {
+                assertTrue("the entrance already shows text", entering.ink(box.atOrigin(), entering.cardFill) > 0)
                 assertFalse("the entrance was not already settled", entering.sameAs(fullNext))
+                assertTrue("an interrupted entrance still shows text", interrupted.ink(box.atOrigin(), interrupted.cardFill) > 0)
                 assertFalse("an interrupted entrance never jumps to full", interrupted.sameAs(fullNext))
                 assertEquals("the old step is not drawn over the exiting new step", 0,
-                    interrupted.inkOutside(fullNext, box.atOrigin(), surface))
+                    interrupted.inkOutsideCardText(fullNext))
                 assertFalse("the requested old step eventually returns", returned.sameAs(fullNext))
             } finally {
                 entering.recycle(); interrupted.recycle(); returned.recycle(); fullNext.recycle()
