@@ -239,6 +239,30 @@ def dump_section(text, heading, *, end_heading=None):
     return "\n".join(lines)
 
 
+def keyguard_is_nonsecure(text):
+    """The unique registered SystemUI controller, never another dumpable's mSecure field."""
+    # Android 11 TransferPipe can lose a line's prefix at a read boundary. DumpManager's
+    # registered-name/separator framing survives that outdent; field indentation does not.
+    headings = list(re.finditer(r"(?m)^[ \t]*(\S+):[ \t]*\n[ \t]*-+[ \t]*(?:\n|\Z)", text))
+    controllers = [index for index, heading in enumerate(headings) if heading[1] in (
+        "com.android.systemui.statusbar.policy.KeyguardStateControllerImpl", "KeyguardStateControllerImpl")]
+    if len(controllers) != 1 or len(re.findall(r"(?m)^[ \t]*KeyguardStateController:[ \t]*$", text)) != 1:
+        return False
+    index = controllers[0]
+    section = text[headings[index].end():headings[index + 1].start() if index + 1 < len(headings) else len(text)]
+    footer = re.search(r"(?m)^[ \t]*(?:CRITICAL|NORMAL) dump took \d+ms -- " + re.escape(headings[index][1])
+                       + r"(?: -- warning: individual dump time exceeds 5% of total CRITICAL dump time!)?[ \t]*$", section)
+    if footer:
+        if section[footer.end():].strip():
+            return False
+        section = section[:footer.start()]
+    controller = re.fullmatch(r"[ \t\n]*KeyguardStateController:[ \t]*\n(.*)", section, re.S)
+    if controller is None or any(line.strip() and not re.fullmatch(
+        r"(?:m|is)[A-Z]\w*: (?:true|false)", line.strip()) for line in controller[1].splitlines()):
+        return False
+    return re.findall(r"(?m)^[ \t]*mSecure:[ \t]*(true|false)[ \t]*$", controller[1]) == ["false"]
+
+
 # The section SystemUI dumps right after the heads-up manager's, per image. Each image can
 # outdent the heading or a field independently of its siblings (API 30 wrote `mUser=0` two
 # columns out in run 44586152463), so the section ends at this heading, never at an indent.
@@ -802,8 +826,7 @@ class Evidence:
         assert disabled in ("true", "false"), "Unrecognized original keyguard disabled state"
         before = self.adb("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")
         self.save(name + "-before-systemui.txt", before)
-        security = dump_section(before, r"KeyguardStateController:")
-        assert re.findall(r"(?m)^\s*mSecure: (true|false)\s*$", security) == ["false"], "SystemUI must report non-secure keyguard before capture"
+        assert keyguard_is_nonsecure(before), "SystemUI must report non-secure keyguard before capture"
         changed = disabled == "true"
         try:
             if changed:
@@ -837,8 +860,7 @@ class Evidence:
                 self.save(name + "-" + suffix + ".txt", text)
             delegate = dump_section(policy["window"], r"KeyguardServiceDelegate")
             assert re.search(r"(?m)^\s*showing=true\s*$", delegate), "Keyguard stopped showing during capture"
-            security = dump_section(policy["systemui"], r"KeyguardStateController:")
-            assert re.findall(r"(?m)^\s*mSecure: (true|false)\s*$", security) == ["false"], "Keyguard security changed during emulator capture"
+            assert keyguard_is_nonsecure(policy["systemui"]), "Keyguard security changed during emulator capture"
             records = parse_notifications(policy["notification"])
             result = assert_snapshot(records, [self.state["localIds"][account] for account in expected], baseline=baseline)
             result.update(label="Emulator non-secure swipe keyguard only; normal PRIVATE notification policy, no AOD/secure-phone claim",

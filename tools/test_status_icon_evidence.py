@@ -509,7 +509,7 @@ class DefaultEvidenceParserTest(unittest.TestCase):
                         state = args[3]
                         return "Lock screen disabled set to " + state
                     if args == ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService"):
-                        return "    KeyguardStateController:\n      mSecure: false\n"
+                        return KeyguardEvidenceTest.CONTROLLER
                     if args == ("shell", "dumpsys", "window"):
                         return "    KeyguardServiceDelegate\n      showing=true\n      occluded=false\n      secure=false\n"
                     return ""
@@ -525,10 +525,160 @@ class DefaultEvidenceParserTest(unittest.TestCase):
             def adb(*args, **kwargs):
                 if args == ("shell", "locksettings", "get-disabled"):
                     return "true"
-                return "    KeyguardStateController:\n      mSecure: true\n"
+                return KeyguardEvidenceTest.CONTROLLER.replace("mSecure: false", "mSecure: true")
             with patch.object(evidence, "adb", side_effect=adb) as calls, self.assertRaisesRegex(AssertionError, "non-secure"):
                 evidence.lockscreen([])
             self.assertFalse(any(call.args[:3] == ("shell", "locksettings", "set-disabled") for call in calls.call_args_list))
+
+
+class KeyguardEvidenceTest(unittest.TestCase):
+    # Run 44971264856 / API 30 / artifact 14733534086, the complete registered controller.
+    # 03-enabled-lockscreen-before-systemui.txt has six spaces before mSecure;
+    # 14-same-provider-lockscreen-before-systemui.txt has two. Other fields are identical.
+    CONTROLLER = """    com.android.systemui.statusbar.policy.KeyguardStateControllerImpl:
+    ----------------------------------------------------------------------------
+    KeyguardStateController:
+      mSecure: false
+      mCanDismissLockScreen: true
+      mTrustManaged: false
+      mTrusted: false
+      mDebugUnlocked: false
+      mFaceAuthEnabled: false
+
+    com.android.systemui.statusbar.StatusBarStateControllerImpl:
+    ----------------------------------------------------------------------------
+    StatusBarStateController:
+     mState=0 (SHD)
+"""
+    OUTDENTED = CONTROLLER.replace("      mSecure:", "  mSecure:")
+    QUIET = """    HeadsUpManagerPhone state:
+      mTouchAcceptanceDelay=700
+      mSnoozeLengthMs=60000
+      now=123
+      mUser=0
+      snoozed packages: 0
+    StatusBarTouchableRegionManager state:
+      mTouchableRegion=SkRegion()
+"""
+
+    def replay(self, before, during=None, error=None):
+        import shlex
+        from types import SimpleNamespace
+        import status_icon_evidence as subject
+        clock = SimpleNamespace(now=1000.0)
+        clock.monotonic = lambda: clock.now
+        def sleep(seconds):
+            clock.now += seconds
+        clock.sleep = sleep
+        calls, captures = [], []
+        state, reads = "true", 0
+        def run(args, **kwargs):
+            nonlocal state, reads
+            command = tuple(shlex.split(args[2])) if args[1] == "shell" else tuple(args[1:])
+            calls.append(command)
+            clock.now += 0.1
+            response = ""
+            if command == ("locksettings", "get-disabled"):
+                response = state
+            elif command[:2] == ("locksettings", "set-disabled"):
+                state = command[2]
+            elif command == ("dumpsys", "activity", "service", "com.android.systemui/.SystemUIService"):
+                response = before if reads == 0 else (during if during is not None else before)
+                reads += 1
+            elif command == ("dumpsys", "window"):
+                response = "    KeyguardServiceDelegate\n      showing=true\n      occluded=false\n      secure=false\n"
+            elif command == ("dumpsys", "notification", "--noredact"):
+                response = dump()
+            return SimpleNamespace(stdout=response.encode())
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Evidence(directory)
+            evidence.report["api"] = 30
+            evidence.state = {"localIds": {subject.ACCOUNTS[0]: "uuid-claude"}}
+            with patch.dict(subject.os.environ, {"ANDROID_SERIAL": ""}), \
+                    patch.object(subject.subprocess, "run", side_effect=run), \
+                    patch.object(subject, "time", clock), \
+                    patch.object(evidence, "screen", side_effect=lambda name: captures.append(name)), \
+                    patch.object(evidence, "xml", return_value=ET.fromstring('<hierarchy/>')):
+                if error:
+                    with self.assertRaisesRegex(AssertionError, error):
+                        evidence.lockscreen(parse_notifications(dump()), expected=subject.ACCOUNTS[:1])
+                else:
+                    evidence.lockscreen(parse_notifications(dump()), expected=subject.ACCOUNTS[:1])
+                    result = evidence.report["lockscreens"]["03-enabled-lockscreen"]
+                    self.assertFalse(result["secure"])
+                    self.assertTrue(result["keyguardShowing"])
+                    self.assertEqual(2, result["statusCount"])
+                    self.assertEqual([], result["headsUp"]["activeStatusKeys"])
+            self.assertEqual("true", state)
+            changes = [call for call in calls if call[:2] == ("locksettings", "set-disabled")]
+            if reads > 1:
+                self.assertEqual([("locksettings", "set-disabled", "false"), ("locksettings", "set-disabled", "true")], changes)
+                self.assertEqual(["03-enabled-lockscreen"], captures)
+            else:
+                self.assertEqual([], changes)
+                self.assertEqual([], captures)
+        return calls
+
+    def test_actual_api30_outdented_security_reaches_lockscreen_capture(self):
+        for before, during in ((self.OUTDENTED, self.CONTROLLER), (self.CONTROLLER, self.OUTDENTED),
+                               (self.OUTDENTED, self.OUTDENTED)):
+            with self.subTest(before=before, during=during):
+                self.replay(before + self.QUIET, during + self.QUIET)
+
+    def test_security_identity_true_unknown_duplicates_and_foreign_values_fail_closed(self):
+        invalid = {
+            "secure": self.OUTDENTED.replace("mSecure: false", "mSecure: true"),
+            "unknown": self.OUTDENTED.replace("mSecure: false", "mSecure: unknown"),
+            "missing": self.OUTDENTED.replace("  mSecure: false\n", ""),
+            "duplicate field": self.OUTDENTED.replace("  mSecure: false\n", "  mSecure: false\n  mSecure: false\n"),
+            "duplicate controller": self.OUTDENTED + self.CONTROLLER,
+            "foreign owner": self.OUTDENTED.replace("com.android.systemui.statusbar.policy.KeyguardStateControllerImpl:", "com.example.foreign.Controller:"),
+            "foreign false": self.OUTDENTED.replace("  mSecure: false\n", "") + "      mSecure: false\n",
+            "secure plus foreign false": self.OUTDENTED.replace("mSecure: false", "mSecure: true") + "      mSecure: false\n",
+            "mixed controller": self.OUTDENTED + "    com.example.foreign.Controller:\n    ----\n    KeyguardStateController:\n      mSecure: false\n",
+            "nested foreign section": self.OUTDENTED.replace("  mSecure: false\n", "  ForeignController:\n  mSecure: false\n"),
+            "unframed sibling": self.OUTDENTED.replace("    com.android.systemui.statusbar.StatusBarStateControllerImpl:\n    ----------------------------------------------------------------------------", "    ForeignController:"),
+        }
+        for name, security in invalid.items():
+            for during in (False, True):
+                with self.subTest(name=name, during=during):
+                    self.replay((self.CONTROLLER if during else security) + self.QUIET,
+                                (security if during else self.CONTROLLER) + self.QUIET,
+                                error="security changed" if during else "non-secure keyguard before capture")
+
+    def test_passing_api36_and37_controller_completion_remains_supported(self):
+        # Run 44971264856, artifacts 14734605029 (API36) / 14734291364 (API37):
+        # the same registered block before each capture; during capture only mShowing is true.
+        modern = """    KeyguardStateControllerImpl:
+    ----------------------------------------------------------------------------
+    KeyguardStateController:
+      mShowing: false
+      mOccluded: false
+      mSecure: false
+      mCanDismissLockScreen: true
+      mTrustManaged: false
+      mTrusted: false
+      mDebugUnlocked: false
+      mFaceEnrolled: false
+      isKeyguardFadingAway: false
+      isKeyguardGoingAway: false
+      isLaunchTransitionFadingAway: false
+
+    CRITICAL dump took 0ms -- KeyguardStateControllerImpl
+
+    LauncherProxyService:
+    ----------------------------------------------------------------------------
+    LauncherProxyService state:
+      isConnected=true
+"""
+        self.replay(modern + self.QUIET, modern.replace("mShowing: false", "mShowing: true") + self.QUIET)
+        for broken in (
+            modern.replace("-- KeyguardStateControllerImpl", "-- ForeignController"),
+            modern.replace("    CRITICAL dump took", "      mSecure: false\n    CRITICAL dump took"),
+            modern.replace("    LauncherProxyService:", "      mSecure: false\n    LauncherProxyService:"),
+        ):
+            with self.subTest(broken=broken):
+                self.replay(broken + self.QUIET, error="non-secure keyguard before capture")
 
 
 class SwipeEvidenceTest(unittest.TestCase):
