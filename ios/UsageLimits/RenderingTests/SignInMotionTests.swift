@@ -108,8 +108,6 @@ final class SignInMotionTests: XCTestCase {
     private struct Capture {
         let image: UIImage
         let labels: [String]
-        let opacity: Double
-        let leaving: Bool
     }
 
     private func present(
@@ -120,7 +118,12 @@ final class SignInMotionTests: XCTestCase {
     }
 
     private func elements(_ object: NSObject) -> [NSObject] {
+        guard !object.accessibilityElementsHidden else { return [] }
+        if let view = object as? UIView, view.isHidden || view.alpha == 0 { return [] }
         if object.isAccessibilityElement { return [object] }
+        if let children = object.accessibilityElements {
+            return children.compactMap { $0 as? NSObject }.flatMap(elements)
+        }
         let count = object.accessibilityElementCount()
         if count > 0, count < 1_000 {
             return (0..<count).flatMap { index in
@@ -134,12 +137,20 @@ final class SignInMotionTests: XCTestCase {
         elements(view).compactMap(\.accessibilityLabel)
     }
 
-    private func capture(_ view: UIView, opacity: Double, leaving: Bool) -> Capture {
-        let image = UIGraphicsImageRenderer(bounds: view.bounds).image { _ in
-            XCTAssertTrue(view.drawHierarchy(in: view.bounds, afterScreenUpdates: false),
-                "the committed native sheet must remain renderable during the captured step")
+    private func kimiButton(in window: UIWindow) throws -> NSObject {
+        let nodes = elements(window)
+        return try XCTUnwrap(nodes.first {
+            $0.accessibilityTraits.contains(.button) && $0.accessibilityLabel?.contains("Kimi") == true
+        }, "the real chooser exposes the provider action; labels: \(nodes.compactMap(\.accessibilityLabel))")
+    }
+
+    private func capture(_ window: UIWindow, commitUpdates: Bool = false) -> Capture {
+        if commitUpdates { window.layoutIfNeeded() }
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: commitUpdates),
+                "the native sheet must remain renderable during the captured step")
         }
-        return Capture(image: image, labels: labels(view), opacity: opacity, leaving: leaving)
+        return Capture(image: image, labels: labels(window))
     }
 
     func testLeavingChooserIsNotAccessibleOrActionableAndNeverDrawsOverTheKeyStep() async throws {
@@ -150,17 +161,17 @@ final class SignInMotionTests: XCTestCase {
         var exit: Capture?
         var entrance: Capture?
         var staleButton: NSObject?
-        var hostView: UIView?
+        var testWindow: UIWindow?
         var finished = false
-        let (window, host) = try await present(driver) { opacity, leaving in
-            guard let hostView else { return }
+        let (window, _) = try await present(driver) { opacity, leaving in
+            guard let testWindow else { return }
             if leaving, opacity > 0.15, opacity < 0.85, exit == nil {
-                exit = self.capture(hostView, opacity: opacity, leaving: leaving)
+                exit = self.capture(testWindow)
                 _ = staleButton?.accessibilityActivate()
                 reachedExit.fulfill()
             }
-            if !leaving, opacity > 0.15, opacity < 0.85, entrance == nil {
-                entrance = self.capture(hostView, opacity: opacity, leaving: leaving)
+            if !leaving, opacity > 0.3, opacity < 0.85, entrance == nil {
+                entrance = self.capture(testWindow)
                 reachedEntrance.fulfill()
             }
             if !leaving, opacity == 1, entrance != nil, !finished {
@@ -169,29 +180,25 @@ final class SignInMotionTests: XCTestCase {
             }
         }
         defer { window.isHidden = true; window.rootViewController = nil }
-        hostView = host.view
-        // Layout alone need not have published the hosting view's accessibility nodes yet.
-        await nextFrame(in: host.view)
-        staleButton = elements(host.view).first { $0.accessibilityLabel?.contains("Kimi") == true }
-        XCTAssertNotNil(staleButton, "the real chooser exposes the provider action")
-        let before = capture(host.view, opacity: 1, leaving: false)
+        testWindow = window
+        let before = capture(window, commitUpdates: true)
+        let region = try cardRegion(in: window)
+        staleButton = try kimiButton(in: window)
         driver.stage = .awaitingKey(.opencode)
         await fulfillment(of: [reachedExit, reachedEntrance, settled], timeout: 5, enforceOrder: true)
         let leaving = try XCTUnwrap(exit)
         let arriving = try XCTUnwrap(entrance)
         XCTAssertFalse(leaving.labels.contains { $0.contains("Kimi") || $0.contains("OpenCode") },
                        "leaving content is absent from VoiceOver; the native toolbar remains")
-        let after = capture(host.view, opacity: 1, leaving: false)
-        let beforePixels = try pixels(before.image)
-        let afterPixels = try pixels(after.image)
-        let leavingPixels = try pixels(leaving.image)
-        let arrivingPixels = try pixels(arriving.image)
+        let after = capture(window, commitUpdates: true)
+        let beforePixels = try cardPixels(before.image, in: region)
+        let afterPixels = try cardPixels(after.image, in: region)
+        let leavingPixels = try cardPixels(leaving.image, in: region)
+        let arrivingPixels = try cardPixels(arriving.image, in: region)
         // Probe pure-ink centres, not antialiased edges or the sheet's native toolbar.
         var oldOnly: [Int] = []
         var newOnly: [Int] = []
-        let imageWidth = try XCTUnwrap(before.image.cgImage).width
-        let imageScale = before.image.scale
-        for index in beforePixels.indices where CGFloat(index / imageWidth) / imageScale > 120 {
+        for index in beforePixels.indices {
             let oldInk = brightness(beforePixels[index])
             let newInk = brightness(afterPixels[index])
             if oldInk > 550, newInk < 150 { oldOnly.append(index) }
@@ -199,16 +206,21 @@ final class SignInMotionTests: XCTestCase {
         }
         XCTAssertFalse(oldOnly.isEmpty, "the chooser has independent ink probes")
         XCTAssertFalse(newOnly.isEmpty, "the key card has independent ink probes")
-        XCTAssertFalse(newOnly.contains { brightness(leavingPixels[$0]) > 300 },
+        XCTAssertTrue(oldOnly.contains { brightness(leavingPixels[$0]) > 150 },
+                      "the committed exit still shows chooser ink")
+        XCTAssertTrue(newOnly.contains { brightness(arrivingPixels[$0]) > 150 },
+                      "the committed entrance already shows key-card ink")
+        XCTAssertFalse(newOnly.contains { brightness(leavingPixels[$0]) > 150 },
                        "the key step never draws over the leaving chooser")
-        XCTAssertFalse(oldOnly.contains { brightness(arrivingPixels[$0]) > 300 },
+        XCTAssertFalse(oldOnly.contains { brightness(arrivingPixels[$0]) > 150 },
                        "the chooser has gone before the key step appears")
         XCTAssertEqual(driver.stage, .awaitingKey(.opencode), "a retained outgoing accessibility action cannot select Kimi")
+        XCTAssertTrue(leaving.labels.contains("Cancel"), "the outgoing card is hidden, not the entire accessibility tree")
         XCTAssertFalse(arriving.labels.contains { $0.contains("Kimi") })
-        XCTAssertTrue(arriving.labels.contains { $0.contains("Paste your OpenCode Go key") })
-        // In the native sheet there is one card slot: the leaving chooser is taller than the
-        // key card. No provider rows may remain in the final frame, even outside the new card.
-        XCTAssertFalse(labels(host.view).contains { $0.contains("Shows a code") })
+        XCTAssertTrue(arriving.labels.contains { $0.contains("Paste your OpenCode Go key") },
+                      "the real entering key step is exposed; labels: \(arriving.labels)")
+        XCTAssertTrue(after.labels.contains { $0.contains("Paste your OpenCode Go key") })
+        XCTAssertFalse(after.labels.contains { $0.contains("Shows a code") })
         attach(leaving.image, name: "sign-in-exit")
         attach(arriving.image, name: "sign-in-enter")
     }
@@ -221,18 +233,16 @@ final class SignInMotionTests: XCTestCase {
         var didComplete = false
         var exitOpacity: Double?
         var resumedOpacity: Double?
-        var view: UIView?
-        let (window, host) = try await present(driver) { opacity, leaving in
+        var reversal: Capture?
+        var testWindow: UIWindow?
+        let (window, _) = try await present(driver) { opacity, leaving in
             if leaving, opacity > 0.2, opacity < 0.8, exitOpacity == nil {
                 exitOpacity = opacity
                 driver.stage = .choosing
                 reversed.fulfill()
             } else if !leaving, opacity < 0.95, opacity > 0, exitOpacity != nil, resumedOpacity == nil {
                 resumedOpacity = opacity
-                if let view {
-                    XCTAssertFalse(self.labels(view).contains { $0.contains("Paste your") })
-                    self.attach(self.capture(view, opacity: opacity, leaving: false).image, name: "sign-in-reverse")
-                }
+                if let testWindow { reversal = self.capture(testWindow) }
                 resumed.fulfill()
             }
             if !leaving, opacity == 1, resumedOpacity != nil, !didComplete {
@@ -241,36 +251,66 @@ final class SignInMotionTests: XCTestCase {
             }
         }
         defer { window.isHidden = true; window.rootViewController = nil }
-        view = host.view
-        await nextFrame(in: host.view)
+        testWindow = window
         driver.stage = .awaitingKey(.opencode)
         await fulfillment(of: [reversed, resumed, completed], timeout: 5, enforceOrder: true)
         XCTAssertNotNil(exitOpacity)
         XCTAssertLessThan(try XCTUnwrap(resumedOpacity), 0.95, "reversal must not jump to full opacity")
+        let returning = try XCTUnwrap(reversal)
+        XCTAssertFalse(returning.labels.contains { $0.contains("Paste your") })
         XCTAssertEqual(driver.stage, .choosing)
+        _ = capture(window, commitUpdates: true)
+        let restoredButton = try kimiButton(in: window)
+        XCTAssertTrue(restoredButton.accessibilityActivate())
+        XCTAssertEqual(driver.stage, .choosingRegion(.kimi), "the restored chooser action opens the region step")
+        attach(returning.image, name: "sign-in-reverse")
     }
 
     func testReducedMotionCutsWithoutAnyIntermediateNativeOpacity() async throws {
         let driver = Driver()
         var intermediate: [Double] = []
-        let (window, host) = try await present(driver, reduced: true) { opacity, _ in
+        let (window, _) = try await present(driver, reduced: true) { opacity, _ in
             if opacity > 0, opacity < 1 { intermediate.append(opacity) }
         }
         defer { window.isHidden = true; window.rootViewController = nil }
-        await nextFrame(in: host.view)
+        let before = capture(window, commitUpdates: true)
+        let region = try cardRegion(in: window)
+        XCTAssertTrue(before.labels.contains { $0.contains("Kimi") })
         driver.stage = .awaitingKey(.opencode)
-        await nextFrame(in: host.view)
-        let first = capture(host.view, opacity: 1, leaving: false)
-        await nextFrame(in: host.view)
-        let settled = capture(host.view, opacity: 1, leaving: false)
-        XCTAssertEqual(first.image.pngData(), settled.image.pngData(), "the next frame is already settled")
-        XCTAssertTrue(first.labels.contains { $0.contains("Paste your OpenCode Go key") })
+        // A display link fires before the next update. Ask UIKit for the first committed change.
+        let first = capture(window, commitUpdates: true)
+        await FrameGate().next()
+        let settled = capture(window, commitUpdates: true)
+        attach(first.image, name: "sign-in-reduced-first-commit")
+        attach(settled.image, name: "sign-in-reduced-settled")
+        let firstPixels = try cardPixels(first.image, in: region)
+        let settledPixels = try cardPixels(settled.image, in: region)
+        XCTAssertTrue(firstPixels == settledPixels, "the first updated frame already paints the settled key card")
+        let beforePixels = try cardPixels(before.image, in: region)
+        XCTAssertFalse(beforePixels == settledPixels, "the key card actually replaces the chooser pixels")
+        XCTAssertTrue(first.labels.contains { $0.contains("Paste your OpenCode Go key") },
+                      "first-frame accessibility labels: \(first.labels)")
         XCTAssertFalse(first.labels.contains { $0.contains("Kimi") })
-        XCTAssertTrue(intermediate.isEmpty)
+        XCTAssertTrue(intermediate.isEmpty, "unexpected interpolated opacity: \(intermediate)")
     }
 
-    private func pixels(_ image: UIImage) throws -> [UInt32] {
-        let image = try XCTUnwrap(image.cgImage)
+    private func cardRegion(in window: UIWindow) throws -> CGRect {
+        func scrollView(in view: UIView) -> UIScrollView? {
+            if let scroll = view as? UIScrollView, !scroll.isHidden, !scroll.bounds.isEmpty { return scroll }
+            return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+        }
+        let host = try XCTUnwrap(window.rootViewController?.view)
+        let scroll = try XCTUnwrap(scrollView(in: host), "the native sign-in card must have a scroll viewport")
+        let bounds = scroll.bounds.inset(by: scroll.adjustedContentInset)
+        let region = scroll.convert(bounds, to: window).intersection(window.bounds)
+        XCTAssertFalse(region.isEmpty)
+        return region.offsetBy(dx: -window.bounds.minX, dy: -window.bounds.minY)
+    }
+
+    private func cardPixels(_ snapshot: UIImage, in region: CGRect) throws -> [UInt32] {
+        let source = try XCTUnwrap(snapshot.cgImage)
+        let rect = region.applying(CGAffineTransform(scaleX: snapshot.scale, y: snapshot.scale))
+        let image = try XCTUnwrap(source.cropping(to: rect))
         var result = [UInt32](repeating: 0, count: image.width * image.height)
         try result.withUnsafeMutableBytes { bytes in
             let context = try XCTUnwrap(CGContext(
@@ -291,13 +331,6 @@ final class SignInMotionTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
-    }
-
-    /// A display callback is a capture gate, not an elapsed-time assumption about an animation.
-    private func nextFrame(in view: UIView) async {
-        let gate = FrameGate()
-        await gate.next()
-        view.layoutIfNeeded()
     }
 
     @MainActor

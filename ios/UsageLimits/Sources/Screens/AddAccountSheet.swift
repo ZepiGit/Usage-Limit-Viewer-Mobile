@@ -78,7 +78,12 @@ struct AddAccountSheet: View {
     }
     #endif
 
-    private var acceptsInput: Bool { displayedStage == stage && stepOpacity == 1 }
+    private struct StepTarget: Equatable {
+        let stage: Stage
+        let reduceMotion: Bool
+    }
+
+    private var acceptsInput: Bool { reduceMotion || (displayedStage == stage && stepOpacity == 1) }
 
     private var capturesStepFrames: Bool {
         #if DEBUG
@@ -89,10 +94,14 @@ struct AddAccountSheet: View {
     }
 
     var body: some View {
+        let target = StepTarget(stage: stage, reduceMotion: reduceMotion)
+        // A cut must paint the requested card in this update, not in a later onChange update.
+        let visibleStage = target.reduceMotion ? target.stage : displayedStage
+        let opacity = target.reduceMotion ? 1 : stepOpacity
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    switch displayedStage {
+                    switch visibleStage {
                     case .choosing:
                         chooser
                     case .starting(let provider):
@@ -107,17 +116,20 @@ struct AddAccountSheet: View {
                         failure(provider, message)
                     }
                 }
-                .id(stageIdentity)
+                .id(stageIdentity(visibleStage))
                 .disabled(!acceptsInput)
                 .allowsHitTesting(acceptsInput)
                 .accessibilityHidden(!acceptsInput)
-                .modifier(SignInStepOpacity(value: stepOpacity, capturesFrames: capturesStepFrames) { [revision = stepRevision] value in
+                .modifier(SignInStepOpacity(value: opacity, capturesFrames: capturesStepFrames) { [revision = stepRevision] value in
                     guard revision == stepRevision else { return }
                     #if DEBUG
-                    captureStep?(value, displayedStage != stage)
+                    captureStep?(value, !target.reduceMotion && displayedStage != stage)
                     #endif
                     if value == 0, stepOpacity == 0 { finishExit() }
                 })
+                // Switching the preference must also discard an in-flight interpolation to 1.
+                .id(target.reduceMotion)
+                .transaction { if target.reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
                 .padding(16)
                 .readableWidth()
             }
@@ -140,23 +152,22 @@ struct AddAccountSheet: View {
         .onAppear {
             if let initialProvider, stage == .choosing { select(initialProvider) }
         }
-        .onChange(of: stage) { _ in retargetStep() }
-        .onChange(of: reduceMotion) { _ in retargetStep() }
+        .onChange(of: target) { retargetStep($0) }
         .onDisappear { login?.cancel() }
     }
 
-    private func retargetStep() {
-        guard !reduceMotion else {
+    private func retargetStep(_ target: StepTarget) {
+        guard !target.reduceMotion else {
             stepRevision += 1
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
             withTransaction(transaction) {
-                displayedStage = stage
+                displayedStage = target.stage
                 stepOpacity = 1
             }
             return
         }
-        let returning = displayedStage == stage
+        let returning = displayedStage == target.stage
         guard returning || stepOpacity != 0 else { return }
         stepRevision += 1
         withAnimation(returning ? Motion.enterFromHidden(reduceMotion: false) : Motion.exit.animation(reduceMotion: false)) {
@@ -172,8 +183,8 @@ struct AddAccountSheet: View {
         withAnimation(Motion.enterFromHidden(reduceMotion: reduceMotion)) { stepOpacity = 1 }
     }
 
-    private var stageIdentity: Int {
-        switch displayedStage {
+    private func stageIdentity(_ stage: Stage) -> Int {
+        switch stage {
         case .choosing: return 0
         case .starting: return 1
         case .waiting: return 2
@@ -190,7 +201,7 @@ struct AddAccountSheet: View {
         UsageCard(padding: 0, spacing: 0) {
             ForEach(Array(ProviderID.allCases.enumerated()), id: \.offset) { index, provider in
                 if index > 0 { LedgerDivider() }
-                Button { if acceptsInput { select(provider) } } label: {
+                Button { if stage == .choosing, acceptsInput { select(provider) } } label: {
                     HStack(spacing: 12) {
                         ProviderBadge(provider: provider)
                         VStack(alignment: .leading, spacing: 2) {

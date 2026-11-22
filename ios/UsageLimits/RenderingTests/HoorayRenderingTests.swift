@@ -15,12 +15,20 @@ final class HoorayRenderingTests: XCTestCase {
     private final class Controls: ObservableObject {
         @Published var ready = false
         @Published var showSlot = true
-        var figureBounds = CGRect.zero
+        weak var figureView: UIView?
     }
 
-    private struct FigureBounds: PreferenceKey {
-        static let defaultValue = CGRect.zero
-        static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+    private struct FigureBounds: UIViewRepresentable {
+        let controls: Controls
+
+        func makeUIView(context: Context) -> UIView {
+            let view = UIView()
+            view.isUserInteractionEnabled = false
+            controls.figureView = view
+            return view
+        }
+
+        func updateUIView(_ uiView: UIView, context: Context) {}
     }
 
     private actor Gate {
@@ -41,10 +49,7 @@ final class HoorayRenderingTests: XCTestCase {
                 if controls.showSlot {
                     ClaudeCodeFigure(mood: .idle, size: 36, ink: .white, animate: false,
                         accountID: "claude")
-                        .background(GeometryReader { geometry in
-                            Color.clear.preference(key: FigureBounds.self,
-                                value: geometry.frame(in: .named("hooray-stage")))
-                        })
+                        .background(FigureBounds(controls: controls))
                         .frame(width: 64, height: 64)
                 }
             }
@@ -52,8 +57,6 @@ final class HoorayRenderingTests: XCTestCase {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
             .ignoresSafeArea()
-            .coordinateSpace(name: "hooray-stage")
-            .onPreferenceChange(FigureBounds.self) { controls.figureBounds = $0 }
             .environment(\.scenePhase, .active)
             .environment(\.claudeAnimationVisible, true)
             .environment(\.hoorayPlayback, playback)
@@ -82,13 +85,10 @@ final class HoorayRenderingTests: XCTestCase {
         subscription.cancel()
         XCTAssertEqual(playback.startedAt("claude"), 130, "opening time did not spend the four seconds")
         let hooray = capture(window, name: "native-hooray-still")
-        XCTAssertEqual(controls.figureBounds.size, CGSize(width: 36, height: 36))
-        // Independent ink probes inside the raised and idle arms of the real 36pt figure.
-        let raisedArm = CGPoint(x: controls.figureBounds.minX + 1, y: controls.figureBounds.minY + 10)
-        let idleArm = CGPoint(x: controls.figureBounds.minX + 1, y: controls.figureBounds.minY + 18)
-        XCTAssertGreaterThan(try luminance(hooray, at: raisedArm), 0.9,
+        let arms = try armProbes(in: window, controls: controls)
+        XCTAssertGreaterThan(try luminance(hooray, at: arms.raised), 0.9,
             "the real 36pt Hooray left arm is raised above the Idle arm")
-        XCTAssertLessThan(try luminance(hooray, at: idleArm), 0.1)
+        XCTAssertLessThan(try luminance(hooray, at: arms.idle), 0.1)
         time = 134
         await expiry.release()
         await playback.expiry?.value
@@ -96,13 +96,16 @@ final class HoorayRenderingTests: XCTestCase {
         controller.view.layoutIfNeeded()
         XCTAssertNil(playback.startedAt("claude"))
         let steady = capture(window, name: "native-hooray-expired-idle")
-        XCTAssertLessThan(try luminance(steady, at: raisedArm), 0.1)
-        XCTAssertGreaterThan(try luminance(steady, at: idleArm), 0.9)
-        XCTAssertNotEqual(hooray.pngData(), steady.pngData(), "actual visible arms must return from Hooray to Idle")
+        XCTAssertLessThan(try luminance(steady, at: arms.raised), 0.1)
+        XCTAssertGreaterThan(try luminance(steady, at: arms.idle), 0.9)
         controls.showSlot = false
-        _ = capture(window, name: "native-hooray-expired-slot-removed")
+        let removed = capture(window, name: "native-hooray-expired-slot-removed")
+        XCTAssertLessThan(try luminance(removed, at: arms.idle), 0.1)
         controls.showSlot = true
-        _ = capture(window, name: "native-hooray-expired-slot-recreated")
+        let recreated = capture(window, name: "native-hooray-expired-slot-recreated")
+        let recreatedArms = try armProbes(in: window, controls: controls)
+        XCTAssertLessThan(try luminance(recreated, at: recreatedArms.raised), 0.1)
+        XCTAssertGreaterThan(try luminance(recreated, at: recreatedArms.idle), 0.9)
         XCTAssertNil(playback.startedAt("claude"), "a recreated native slot cannot replay")
     }
 
@@ -127,22 +130,33 @@ final class HoorayRenderingTests: XCTestCase {
         await expiryTask?.value
         XCTAssertNil(playback.startedAt("claude"))
         let idle = capture(window, name: "native-hooray-interrupted-idle")
-        XCTAssertLessThan(try luminance(idle,
-            at: CGPoint(x: controls.figureBounds.minX + 1, y: controls.figureBounds.minY + 10)), 0.1)
-        XCTAssertGreaterThan(try luminance(idle,
-            at: CGPoint(x: controls.figureBounds.minX + 1, y: controls.figureBounds.minY + 18)), 0.9)
+        let arms = try armProbes(in: window, controls: controls)
+        XCTAssertLessThan(try luminance(idle, at: arms.raised), 0.1)
+        XCTAssertGreaterThan(try luminance(idle, at: arms.idle), 0.9)
+    }
+
+    private func armProbes(in window: UIWindow, controls: Controls) throws -> (raised: CGPoint, idle: CGPoint) {
+        let marker = try XCTUnwrap(controls.figureView)
+        XCTAssertTrue(marker.window === window)
+        // The screenshot starts at window.bounds, not at the SwiftUI layout origin.
+        let bounds = marker.convert(marker.bounds, to: window)
+            .offsetBy(dx: -window.bounds.minX, dy: -window.bounds.minY)
+        XCTAssertEqual(bounds.size, CGSize(width: 36, height: 36))
+        return (CGPoint(x: bounds.minX + 1, y: bounds.minY + 10),
+                CGPoint(x: bounds.minX + 1, y: bounds.minY + 18))
     }
 
     private func luminance(_ image: UIImage, at point: CGPoint) throws -> Double {
         let cgImage = try XCTUnwrap(image.cgImage)
-        var pixels = [UInt8](repeating: 0, count: cgImage.width * cgImage.height * 4)
-        return try pixels.withUnsafeMutableBytes { buffer in
-            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: cgImage.width,
-                height: cgImage.height, bitsPerComponent: 8, bytesPerRow: cgImage.width * 4,
+        let rect = CGRect(x: floor(point.x * image.scale), y: floor(point.y * image.scale), width: 1, height: 1)
+        let sample = try XCTUnwrap(cgImage.cropping(to: rect), "arm probe is outside the window: \(rect)")
+        var pixel = [UInt8](repeating: 0, count: 4)
+        return try pixel.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: 1,
+                height: 1, bitsPerComponent: 8, bytesPerRow: 4,
                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
-            let offset = (Int(point.y * image.scale) * cgImage.width + Int(point.x * image.scale)) * 4
-            return Double(buffer[offset]) / 255
+            context.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return Double(buffer[0]) / 255
         }
     }
 
