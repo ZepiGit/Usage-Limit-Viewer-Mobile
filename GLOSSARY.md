@@ -75,3 +75,11 @@ _Avoid_: Notification icon, status bar item
 **Provider glyph**:
 The one-colour silhouette that stands for a provider in a status icon; not the provider artwork chosen under Provider icons.
 _Avoid_: Logo, provider icon
+
+**App theme**:
+The app's palette, chosen under Settings → Appearance: **Warm dark**, **Pure black** (the default), **Cool graphite** or **Light paper**. It colours the app, and on Android also its launch presentation. Placed widgets and the Android widget editor keep their own panel style.
+_Avoid_: Widget theme, dark mode
+
+**Panel style**:
+How one placed usage widget paints its background and text, saved with that widget and independent of the app theme. On Android it is a panel colour (Charcoal by default), its opacity and a text tone; on iOS, the widget's own palette or a transparent background with light or dark text. A transparent panel shows the wallpaper; Android's automatic text tone follows the panel colour, never the wallpaper.
+_Avoid_: Widget theme, background colour
