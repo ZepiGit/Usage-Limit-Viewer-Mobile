@@ -21,6 +21,11 @@ import androidx.work.await
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.sync.resetTestWorkManager
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.jvm.internal.CoroutineStackFrame
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -65,6 +70,13 @@ class NotificationPermissionSettingsTest {
         try {
             compose.waitDrained { preparation.isCompleted }
             preparation.getCompleted()
+        } catch (failure: Throwable) {
+            try {
+                dumpSettingsWait(preparation)
+            } catch (diagnosticFailure: Exception) {
+                failure.addSuppressed(diagnosticFailure)
+            }
+            throw failure
         } finally {
             preparation.cancel()
             compose.waitDrained { preparation.isCompleted }
@@ -85,6 +97,89 @@ class NotificationPermissionSettingsTest {
             fixtureJob.cancel()
             compose.waitDrained { fixtureJob.isCompleted }
         }
+    }
+
+    /** Read-only diagnostics pinned to DataStore 1.3 and coroutines 1.11. No preference entries or coroutine locals. */
+    private fun dumpSettingsWait(preparation: Job) {
+        val prefix = "NotificationPermissionSettingsTest ${testName.methodName} WAIT"
+        fun field(owner: Any, name: String): Any = owner.javaClass.getDeclaredField(name).run {
+            isAccessible = true
+            checkNotNull(get(owner))
+        }
+        fun identity(value: Any?): String =
+            if (value == null) "none" else "${value.javaClass.name}@${System.identityHashCode(value)}"
+
+        System.err.println("$prefix sdk=${android.os.Build.VERSION.SDK_INT} main=${identity(Dispatchers.Main)} " +
+            "fixture=${identity(fixtureDispatcher)} scheduler=${System.identityHashCode(fixtureDispatcher.scheduler)} " +
+            "composeScheduler=${System.identityHashCode(compose.mainClock.scheduler)}")
+        var store = field(app.container.settingsStore, "dataStore")
+        var wrappers = 0
+        while (wrappers < 4 && store.javaClass.name == "androidx.datastore.preferences.core.PreferenceDataStore") {
+            store = field(store, "delegate")
+            wrappers++
+        }
+        check(store.javaClass.name == "androidx.datastore.core.DataStoreImpl") {
+            "Expected DataStoreImpl after $wrappers PreferenceDataStore delegates, got ${store.javaClass.name}"
+        }
+        System.err.println("$prefix datastore=${identity(store)} wrappers=$wrappers")
+        val storeContext = (field(store, "scope") as CoroutineScope).coroutineContext
+        val appContext = (field(app, "appScope") as CoroutineScope).coroutineContext
+        System.err.println("$prefix datastoreDispatcher=${identity(storeContext[ContinuationInterceptor])} " +
+            "applicationDispatcher=${identity(appContext[ContinuationInterceptor])}")
+        val remaining = field(field(store, "writeActor"), "remainingMessages")
+        System.err.println("$prefix actorRemaining=${remaining.javaClass.getMethod("get").invoke(remaining)}")
+
+        // A transform can run under an external caller job or be queued before it registers a continuation.
+        System.err.println("$prefix continuationCoverage=bounded-known-job-trees " +
+            "scopes=datastore,application,preparation externalOrQueuedCallers=not-covered " +
+            "callerContext=UNRESOLVED callerDispatcher=UNRESOLVED")
+        val stateMethod = Class.forName("kotlinx.coroutines.JobSupport").getMethod("getState\$kotlinx_coroutines_core")
+        val incomplete = Class.forName("kotlinx.coroutines.Incomplete")
+        val listMethod = incomplete.getMethod("getList")
+        val nextNode = Class.forName("kotlinx.coroutines.internal.LockFreeLinkedListNode").getMethod("getNextNode")
+        val continuationDelegate = Class.forName("kotlinx.coroutines.CancellableContinuationImpl")
+            .getDeclaredField("delegate").apply { isAccessible = true }
+        var scopeJobs = 0
+        var recoveredContinuations = 0
+        fun scan(label: String, job: Job, depth: Int = 0) {
+            if (scopeJobs >= 8) return
+            scopeJobs++
+            val dispatcher = (job as? CoroutineScope)?.coroutineContext?.get(ContinuationInterceptor)
+            System.err.println("$prefix $label job=${identity(job)} active=${job.isActive} " +
+                "completed=${job.isCompleted} cancelled=${job.isCancelled} dispatcher=${identity(dispatcher)}")
+            val state = checkNotNull(stateMethod.invoke(job))
+            if (incomplete.isInstance(state)) {
+                val head = listMethod.invoke(state)
+                var node: Any = head ?: state
+                for (index in 0 until 16) {
+                    if (node.javaClass.name == "kotlinx.coroutines.ChildContinuation") {
+                        val child = field(node, "child")
+                        val delegate = continuationDelegate.get(child) as Continuation<*>
+                        recoveredContinuations++
+                        System.err.println("$prefix $label continuationDispatcher=${identity(delegate.context[ContinuationInterceptor])}")
+                        var frame = delegate as? CoroutineStackFrame
+                        for (index in 0 until 20) {
+                            val current = frame ?: break
+                            current.getStackTraceElement()?.let { System.err.println("$prefix at $it") }
+                            frame = current.callerFrame
+                        }
+                    }
+                    if (head == null) break
+                    node = nextNode.invoke(node) ?: break
+                    if (node === head) break
+                }
+            }
+            if (depth < 3) job.children.take(8).forEachIndexed { index, child ->
+                scan("$label/$index", child, depth + 1)
+            }
+        }
+
+        for ((label, job) in listOf("datastore" to storeContext[Job], "application" to appContext[Job], "preparation" to preparation)) {
+            scopeJobs = 0
+            if (job != null) scan(label, job)
+            System.err.println("$prefix continuationScope=$label scannedJobs=$scopeJobs")
+        }
+        System.err.println("$prefix recoveredContinuations=$recoveredContinuations")
     }
 
     // The CI test START event precedes setup; paired markers locate its first unfinished wait.
