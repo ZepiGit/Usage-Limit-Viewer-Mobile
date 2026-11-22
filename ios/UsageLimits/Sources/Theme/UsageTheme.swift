@@ -117,7 +117,7 @@ enum SeverityPalette {
 /// Kit free of UI strings.
 enum PercentText {
 
-    /// The figure with its `%` sign; the unknown dash stays bare, never "—%".
+    /// The localized figure used in the app and in speech; the unknown dash stays bare.
     ///
     /// The sign comes from the catalog's one template, `"%@%%"`, so a language that sets a space
     /// before it ("73 %") changes it in one place.

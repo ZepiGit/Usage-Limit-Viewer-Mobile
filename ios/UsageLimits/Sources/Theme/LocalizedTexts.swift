@@ -80,8 +80,7 @@ struct LocalizedNotificationTexts: NotificationTexts {
     }
 }
 
-/// A percentage's words from the catalog, for the kit's ring text; see `PercentTexts`. The keys
-/// are `PercentText`'s own, so a ring says a figure exactly as every other surface does.
+/// The kit's spoken ring wording uses the app's catalog-backed `PercentText`.
 struct LocalizedPercentTexts: PercentTexts {
 
     func withSign(_ token: String) -> String { PercentText.figure(token: token) }

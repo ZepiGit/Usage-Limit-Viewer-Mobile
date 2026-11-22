@@ -51,7 +51,7 @@ public enum PinnedAccountText {
     /// The inline row: the first pinned account only, or nil when nothing is pinned.
     ///
     /// The glyph names the account, so the text is its figure with the side ("42% left",
-    /// "42 % übrig"), or the word for a state without a number ("Exhausted", "Error",
+    /// "42% übrig"), or the word for a state without a number ("Exhausted", "Error",
     /// "Sign-in expired", "Unknown"). The system sets this family in its own font and drops
     /// styling, so an outdated figure cannot be underlined; it says so in the word VoiceOver uses
     /// ("42% left · Stale"), which reads plainly where a sign such as "~" would read as "about".
@@ -64,7 +64,7 @@ public enum PinnedAccountText {
         case .exhausted: text = texts.exhausted
         case .unknown: text = texts.unknown
         case .figure, .glyphOnly:
-            let figure = "\(texts.figure(entry.presentation.token)) \(texts.sideWord(entry.presentation.side))"
+            let figure = "\(WidgetPercentText.figure(entry.presentation.token)) \(texts.sideWord(entry.presentation.side))"
             text = entry.content.outdated ? "\(figure) · \(texts.outdated)" : figure
         }
         return InlineRow(glyphProviderID: entry.account.providerID, text: text)

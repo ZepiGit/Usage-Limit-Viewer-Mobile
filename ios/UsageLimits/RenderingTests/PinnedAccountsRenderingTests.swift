@@ -47,8 +47,14 @@ final class PinnedAccountsRenderingTests: XCTestCase {
             StatusIconContent(content: .glyphOnly, outdated: false),
         ])
         XCTAssertEqual(scenarios[1].capture.accounts.map(\.content.content), [.exhausted, .error, .unknown])
-        let staleUsed = try XCTUnwrap(scenarios.first { $0.name == "first-stale-used" }?.capture.accounts.first)
+        let staleAccounts = try XCTUnwrap(scenarios.first { $0.name == "first-stale-used" }?.capture.accounts)
+        let staleUsed = try XCTUnwrap(staleAccounts.first)
         XCTAssertEqual(staleUsed.content, StatusIconContent(content: .figure(58), outdated: true))
+        let texts = LocalizedPinnedAccountTexts()
+        XCTAssertEqual(PinnedAccountText.inlineRow(staleAccounts, texts: texts)?.text,
+            language == "de" ? "58% verbraucht · Veraltet" : "58% used · Stale")
+        XCTAssertEqual(PinnedAccountText.spoken(entry: staleUsed, texts: texts),
+            language == "de" ? "Claude Max, 58 % verbraucht, Veraltet" : "Claude Max, 58% used, Stale")
 
         var rows: [SheetRow] = []
         var spoken: [String] = []
@@ -95,7 +101,7 @@ final class PinnedAccountsRenderingTests: XCTestCase {
         let figure = account("claude", title: "Claude Max", remaining: 42)
         let outdated = account("codex", title: "OpenAI Codex Plus", remaining: 7, fetchedAgo: 2 * 3600)
         // Stale and first, in Used, so the inline row shows the longest figure text it can:
-        // "58% used · Stale" / "58 % verbraucht · Veraltet".
+        // "58% used · Stale" / "58% verbraucht · Veraltet".
         let outdatedFirst = account("claude", title: "Claude Max", remaining: 42, fetchedAgo: 2 * 3600)
         let full = account("kimi", title: "Kimi Code", remaining: 100)
         let exhausted = account("devin", title: "Devin", remaining: 0, severity: .exhausted)

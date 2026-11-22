@@ -55,6 +55,23 @@ final class PercentDisplayTests: XCTestCase {
         }
     }
 
+    func testVisibleWidgetFiguresMatchSharedVectors() throws {
+        struct Table: Decodable {
+            let vectors: [Vector]
+
+            struct Vector: Decodable {
+                let token: String
+                let expected: String
+            }
+        }
+        let data = try Data(contentsOf: SharedVectors.file("widget-percent-format.json"))
+        let table = try SharedVectors.parse(Table.self, from: data)
+        XCTAssertFalse(table.vectors.isEmpty)
+        for vector in table.vectors {
+            XCTAssertEqual(WidgetPercentText.figure(vector.token), vector.expected, "Token: \(vector.token)")
+        }
+    }
+
     func testFigureComposesKnownTokensAndKeepsUnknownBare() {
         let texts = EnglishPercentTexts()
         XCTAssertEqual("73%", texts.figure("73"))

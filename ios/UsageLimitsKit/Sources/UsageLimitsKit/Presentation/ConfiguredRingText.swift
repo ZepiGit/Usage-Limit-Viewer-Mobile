@@ -4,7 +4,7 @@ import Foundation
 /// and what VoiceOver hears for Account Rings and Mini Rings alike.
 ///
 /// Composed here rather than in the widget view so the Linux tests reach the very strings the
-/// widget shows and speaks; the widget passes its catalog-backed `PercentTexts`.
+/// widget shows and speaks. Only speech uses the widget's catalog-backed `PercentTexts`.
 public enum ConfiguredRingText {
 
     /// Whether the ring paints its arc for `p`: it needs a fill, and a fill state that has ink.
@@ -15,9 +15,9 @@ public enum ConfiguredRingText {
     }
 
     /// The centre text, or nil when the ring writes nothing (`RingCentre`).
-    public static func centre(_ p: WindowPresentation, texts: any PercentTexts) -> String? {
+    public static func centre(_ p: WindowPresentation) -> String? {
         switch RingCentre.of(token: p.token, side: p.side, arcDrawn: arcDrawn(p)) {
-        case .signed: return texts.figure(p.token)
+        case .signed: return WidgetPercentText.figure(p.token)
         case .bare: return p.token
         case .nothing: return nil
         }

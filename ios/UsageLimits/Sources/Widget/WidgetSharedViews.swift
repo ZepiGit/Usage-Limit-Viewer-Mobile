@@ -137,16 +137,15 @@ struct WidgetEmptyStateView: View {
 /// WidgetKit animates only when a timeline value changes; no timer or background task is added.
 struct WidgetPercentage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The composed figure ("45%", "—"), already decided for the snapshot's mode by `PercentText`.
-    let text: String
+    let token: String
 
     var body: some View {
+        let figure = Text(verbatim: WidgetPercentText.figure(token))
+            .accessibilityLabel(PercentText.figure(token: token))
         if #available(iOS 17.0, *), !reduceMotion {
-            Text(verbatim: text)
-                .contentTransition(ContentTransition.numericText())
+            figure.contentTransition(ContentTransition.numericText())
         } else {
-            Text(verbatim: text)
-                .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
+            figure.transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
         }
     }
 }
@@ -165,18 +164,14 @@ struct WidgetFigure: View {
     /// Bars show the side beside the figure; rings retain it in their spoken label only.
     var showsSideWord: Bool = true
 
-    private var text: String {
-        PercentText.figure(presentation)
-    }
-
     var body: some View {
         if !presentation.hasFigure {
-            Text(verbatim: text)
+            Text(verbatim: presentation.token)
                 .usageFont(.small)
                 .foregroundColor(ink.secondary)
         } else if showsSideWord {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                WidgetPercentage(text: text)
+                WidgetPercentage(token: presentation.token)
                     .usageFont(font)
                     .foregroundColor(ink.figure(severity))
                 Text(verbatim: PercentText.sideWord(presentation.side))
@@ -184,7 +179,7 @@ struct WidgetFigure: View {
                     .foregroundColor(ink.secondary)
             }
         } else {
-            WidgetPercentage(text: text)
+            WidgetPercentage(token: presentation.token)
                 .usageFont(font)
                 .foregroundColor(ink.figure(severity))
         }

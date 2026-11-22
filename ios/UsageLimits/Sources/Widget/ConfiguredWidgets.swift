@@ -261,7 +261,7 @@ struct ConfiguredRingGrid: View {
                                         // Only room for the logo: the figure is the arc.
                                         WidgetProviderMark(account: account, date: entry.date,
                                             size: 38 * (account.providerID == ProviderID.claude.rawValue ? 0.575 : 0.46), ink: ink)
-                                    } else if let centre = ConfiguredRingText.centre(p, texts: LocalizedPercentTexts()) {
+                                    } else if let centre = ConfiguredRingText.centre(p) {
                                         // A ring this size reads best with its number inside; the
                                         // logo goes beside the name instead. A full allowance under
                                         // its arc writes nothing, and a 100 the arc does not show

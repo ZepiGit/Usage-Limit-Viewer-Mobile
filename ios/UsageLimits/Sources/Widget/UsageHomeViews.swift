@@ -103,7 +103,7 @@ struct UsageWidgetSmallView: View {
         // The snapshot's next reset is the LEAD's soonest FUTURE reset. When the row this
         // tile actually displays has a reset that has already passed, that row's instant is
         // the truthful one: the reading above it predates its own rollover, and naming some
-        // other, still-future window's reset beside it — "0 %, Resets Friday" — is exactly
+        // other, still-future window's reset beside it — "0%, Resets Friday" — is exactly
         // the pairing that made a pre-reset reading look explained. resetLine renders the
         // passed instant as "Reset · refresh pending"; nothing synthesises post-reset
         // availability from clock arithmetic.

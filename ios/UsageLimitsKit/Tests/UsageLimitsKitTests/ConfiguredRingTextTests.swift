@@ -2,9 +2,8 @@ import XCTest
 @testable import UsageLimitsKit
 
 /// What an iOS Account Rings ring writes in its centre and what VoiceOver hears for it (#38),
-/// through the same composition the widget calls. English is the kit's default texts; German is
-/// a test stand-in in the catalog's wording ("%@ %%", "%@ übrig", "%@ verbraucht"), proving the
-/// words come through `PercentTexts` rather than from literals in the kit.
+/// through the same composition the widget calls. The centre is compact in every language;
+/// speech uses `PercentTexts` with the catalog's wording, including the German space.
 final class ConfiguredRingTextTests: XCTestCase {
 
     private struct GermanTestPercentTexts: PercentTexts {
@@ -41,24 +40,21 @@ final class ConfiguredRingTextTests: XCTestCase {
             ("error", presentation(100, .healthy, .error, .left), "100"),
         ]
         for (name, p, expected) in cases {
-            XCTAssertEqual(ConfiguredRingText.centre(p, texts: english), expected, name)
-            XCTAssertEqual(ConfiguredRingText.centre(p, texts: german), expected, "\(name), German")
+            XCTAssertEqual(ConfiguredRingText.centre(p), expected, name)
         }
     }
 
     // MARK: - Centre text
 
-    func testAnExhaustedWindowInUsedWritesABare100InBothLanguages() {
+    func testAnExhaustedWindowInUsedWritesABare100() {
         let p = presentation(0, .exhausted, .current, .used)
-        XCTAssertEqual(ConfiguredRingText.centre(p, texts: english), "100")
-        XCTAssertEqual(ConfiguredRingText.centre(p, texts: german), "100")
+        XCTAssertEqual(ConfiguredRingText.centre(p), "100")
     }
 
-    func testOtherFiguresKeepTheirSignAndTheDashStays() {
-        XCTAssertEqual(ConfiguredRingText.centre(presentation(42, .healthy, .current, .left), texts: english), "42%")
-        XCTAssertEqual(ConfiguredRingText.centre(presentation(42, .healthy, .current, .left), texts: german), "42 %")
-        XCTAssertEqual(ConfiguredRingText.centre(presentation(1, .low, .current, .used), texts: english), "99%")
-        XCTAssertEqual(ConfiguredRingText.centre(presentation(nil, .unknown, .current, .left), texts: english), "—")
+    func testOtherFiguresKeepTheirAttachedSignAndTheDashStays() {
+        XCTAssertEqual(ConfiguredRingText.centre(presentation(42, .healthy, .current, .left)), "42%")
+        XCTAssertEqual(ConfiguredRingText.centre(presentation(1, .low, .current, .used)), "99%")
+        XCTAssertEqual(ConfiguredRingText.centre(presentation(nil, .unknown, .current, .left)), "—")
     }
 
     // MARK: - Spoken text is the full figure

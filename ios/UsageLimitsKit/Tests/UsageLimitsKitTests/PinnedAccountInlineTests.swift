@@ -46,9 +46,9 @@ final class PinnedAccountInlineTests: XCTestCase {
 
     func testTheRowIsTheFirstAccountsGlyphAndItsFullFigureWithSide() {
         XCTAssertEqual(english([entry("claude", remaining: 42)]), .init(glyphProviderID: "claude", text: "42% left"))
-        XCTAssertEqual(german([entry("claude", remaining: 42)]), .init(glyphProviderID: "claude", text: "42 % übrig"))
+        XCTAssertEqual(german([entry("claude", remaining: 42)]), .init(glyphProviderID: "claude", text: "42% übrig"))
         XCTAssertEqual(english([entry("claude", remaining: 42, mode: .used)])?.text, "58% used")
-        XCTAssertEqual(german([entry("claude", remaining: 42, mode: .used)])?.text, "58 % verbraucht")
+        XCTAssertEqual(german([entry("claude", remaining: 42, mode: .used)])?.text, "58% verbraucht")
         XCTAssertEqual(english([entry("codex", remaining: 0.4)])?.text, "<1% left")
         XCTAssertEqual(english([entry("codex", remaining: 99.6)])?.text, ">99% left")
         XCTAssertEqual(english([entry("kimi", remaining: 100)])?.text, "100% left")
@@ -59,7 +59,7 @@ final class PinnedAccountInlineTests: XCTestCase {
     func testFurtherAccountsAreLeftOut() {
         let three = [entry("claude", remaining: 42), entry("codex", remaining: 7), entry("kimi", remaining: 100)]
         XCTAssertEqual(english(three), .init(glyphProviderID: "claude", text: "42% left"))
-        XCTAssertEqual(german(three), .init(glyphProviderID: "claude", text: "42 % übrig"))
+        XCTAssertEqual(german(three), .init(glyphProviderID: "claude", text: "42% übrig"))
     }
 
     func testStatesWithoutANumberAreWords() {
@@ -77,7 +77,7 @@ final class PinnedAccountInlineTests: XCTestCase {
 
     func testAnOutdatedFigureSaysSoInWordsBecauseInlineDropsTheUnderline() {
         XCTAssertEqual(english([entry("claude", remaining: 42, validity: .stale)])?.text, "42% left · Stale")
-        XCTAssertEqual(german([entry("claude", remaining: 42, validity: .resetDue)])?.text, "42 % übrig · Veraltet")
+        XCTAssertEqual(german([entry("claude", remaining: 42, validity: .resetDue)])?.text, "42% übrig · Veraltet")
         XCTAssertEqual(english([entry("kimi", remaining: 100, validity: .stale)])?.text, "100% left · Stale")
     }
 

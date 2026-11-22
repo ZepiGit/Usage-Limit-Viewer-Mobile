@@ -32,7 +32,7 @@ struct UsageAccessoryRectangularView: View {
 
             let p = presentation(for: focus)
             HStack(spacing: 4) {
-                WidgetPercentage(text: PercentText.figure(p))
+                WidgetPercentage(token: p.token)
                     .font(.system(.title3, design: .monospaced).weight(.semibold))
                     .lineLimit(1)
                 // Names the side the figure counts; a bare dash for an unknown figure stays bare.
@@ -100,7 +100,6 @@ struct UsageAccessoryCircularView: View {
         let p = focus?.account.presentation(
             of: focus?.row, at: entry.date, staleAfter: entry.snapshot.staleAfter, mode: mode)
             ?? WindowPresentation.absent(mode)
-        let text = PercentText.figure(p)
         return ZStack {
             Circle()
                 .stroke(.tertiary, style: StrokeStyle(lineWidth: 5, lineCap: .round))
@@ -113,7 +112,7 @@ struct UsageAccessoryCircularView: View {
                     .rotationEffect(Angle.degrees(-90))
             }
             VStack(spacing: 1) {
-                WidgetPercentage(text: text)
+                WidgetPercentage(token: p.token)
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)

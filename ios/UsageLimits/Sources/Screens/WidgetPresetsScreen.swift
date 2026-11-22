@@ -75,7 +75,7 @@ private struct WidgetLayoutArtwork: View {
                     Text(verbatim: "Claude").font(.system(size: 13, weight: .medium))
                     Spacer(minLength: 0)
                 }
-                Text(verbatim: PercentText.figure(presentation))
+                Text(verbatim: WidgetPercentText.figure(presentation.token))
                     .font(.system(size: 18, weight: .medium, design: .monospaced))
                 Text(verbatim: PercentText.sideWord(mode)).font(.system(size: 11))
                 Capsule().fill(UsageColors.data).frame(height: 4)
