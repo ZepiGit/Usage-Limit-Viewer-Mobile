@@ -64,7 +64,7 @@ open class AppContainer(context: Context) {
         ProviderRegistry(httpClient, ResourceLoopbackPageTexts(appContext.resources))
     }
 
-    val settingsStore: SettingsStore by lazy { SettingsStore(appContext) }
+    open val settingsStore: SettingsStore by lazy { SettingsStore(appContext) }
 
     val syncEngine: SyncEngine by lazy {
         SyncEngine(repository, credentialStore, providerRegistry)

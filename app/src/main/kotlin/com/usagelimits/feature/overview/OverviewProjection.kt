@@ -3,6 +3,7 @@ package com.usagelimits.feature.overview
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.database.inOverviewOrder
 import com.usagelimits.core.model.ConnectionStatus
+import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.UsageWindow
@@ -93,11 +94,11 @@ fun List<AccountUsage>.overviewAt(
 }
 
 /**
- * The next instant at which [overviewAt] can answer differently without a new reading: a reset
- * falling due, a reading turning stale, or the next local day starting. Overview wakes then, not
- * at its next countdown tick.
+ * The next instant at which Overview can change without a new reading: a reset falling due, a
+ * usage or credit reading turning stale, or the next local day starting. Overview wakes then,
+ * not at its next countdown tick.
  */
-fun List<AccountUsage>.nextOverviewBoundary(nowMs: Long, zone: ZoneId, staleAfterMs: Long): Long {
+fun List<AccountUsage>.nextOverviewBoundary(nowMs: Long, zone: ZoneId, staleAfterMs: Long, credits: List<CreditEntry>): Long {
     var next = nextLocalDayStart(nowMs, zone)
     for (usage in this) {
         val snapshot = usage.snapshot ?: continue
@@ -107,6 +108,12 @@ fun List<AccountUsage>.nextOverviewBoundary(nowMs: Long, zone: ZoneId, staleAfte
             val reset = window.resetAt ?: continue
             if (reset in (nowMs + 1) until next) next = reset
         }
+    }
+    for (entry in credits) {
+        val snapshot = entry.snapshot ?: continue
+        if (snapshot.balances.isEmpty()) continue
+        val stale = snapshot.fetchedAt + staleAfterMs
+        if (stale > nowMs && stale < next) next = stale
     }
     return next
 }

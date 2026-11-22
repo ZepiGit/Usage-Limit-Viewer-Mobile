@@ -32,6 +32,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
 import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
@@ -50,6 +53,7 @@ import com.usagelimits.core.model.SnapshotStatus
 import com.usagelimits.core.model.UsageSnapshot
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.settings.SettingsStore
 import com.usagelimits.core.settings.FigureFont
 import com.usagelimits.core.settings.TextFont
 import com.usagelimits.core.settings.OverviewLayout
@@ -58,6 +62,9 @@ import com.usagelimits.ui.theme.face
 import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.feature.waitDrained
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onStart
@@ -69,6 +76,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -99,6 +107,9 @@ class ExternalRequestActivityTest {
     private lateinit var original: AppContainer
     private lateinit var container: AppContainer
     private lateinit var initialSettings: AppSettings
+    private lateinit var settingsJob: Job
+    private lateinit var settingsData: GatedSettingsData
+    @get:Rule val settingsFiles = TemporaryFolder()
     private var controlAccountReads = false
     private lateinit var accountReads: ControlledAccountReads
     private val controllers = mutableListOf<ActivityController<UsageLimitsActivity>>()
@@ -108,6 +119,32 @@ class ExternalRequestActivityTest {
     /** Account rows wait for [gate]; snapshots and writes do not. */
     private class GatedAccounts(private val real: AccountDao, private val gate: CompletableDeferred<Unit>) : AccountDao by real {
         override fun observeAll() = real.observeAll().onStart { gate.await() }
+    }
+
+    private class GatedSettingsData(
+        private val real: DataStore<Preferences>,
+    ) : DataStore<Preferences> by real {
+        private var release: CompletableDeferred<Unit>? = null
+        var readStarted = CompletableDeferred<Unit>()
+            private set
+
+        fun hold() {
+            check(release == null)
+            readStarted = CompletableDeferred()
+            release = CompletableDeferred()
+        }
+
+        fun open() {
+            release?.complete(Unit)
+            release = null
+        }
+
+        override val data = real.data.onStart {
+            release?.let {
+                readStarted.complete(Unit)
+                it.await()
+            }
+        }
     }
 
     @Before fun setUp() {
@@ -125,7 +162,13 @@ class ExternalRequestActivityTest {
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         android.provider.Settings.Global.putFloat(app.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
         original = app.container
+        settingsJob = SupervisorJob()
+        settingsData = GatedSettingsData(PreferenceDataStoreFactory.create(
+            scope = CoroutineScope(Dispatchers.IO + settingsJob),
+            produceFile = { settingsFiles.root.resolve("settings.preferences_pb") },
+        ))
         container = object : AppContainer(app) {
+            override val settingsStore = SettingsStore(settingsData)
             override val repository: UsageRepository by lazy {
                 accountReads = ControlledAccountReads(database.accountDao())
                 UsageRepository(object : AccountDao by database.accountDao() {
@@ -141,6 +184,7 @@ class ExternalRequestActivityTest {
 
     @After fun tearDown() {
         gate.complete(Unit)
+        settingsData.open()
         try {
             // The activities end first: their view model's jobs are cancelled and run out on this
             // thread, so the looper is pumped until they have.
@@ -156,6 +200,7 @@ class ExternalRequestActivityTest {
                 container.creditRepository.remove("credit-fal-test")
             }
             ReflectionHelpers.setField(app, "container", original)
+            runBlocking { settingsJob.cancel(); settingsJob.join() }
             WorkManager.getInstance(app).cancelAllWork().result.get()
             ShadowLooper.idleMainLooper()
             resetTestWorkManager()
@@ -244,15 +289,16 @@ class ExternalRequestActivityTest {
             store.setTextFont(TextFont.FIGTREE)
             store.setFigureFont(FigureFont.IBM_PLEX_MONO)
         }
-        val release = CompletableDeferred<Unit>()
-        ReflectionHelpers.setField(store, "settings", saved.onStart { release.await() })
+        settingsData.hold()
         try {
             val activity = start(launcher()).get()
+            compose.waitDrained { settingsData.readStarted.isCompleted }
+            assertFalse("no default-themed root is composed while the saved settings read is held", shown("Usage Limits"))
             val window = activity.window
             val decor = window.decorView
             assertTrue("pre-draw must be canceled while saved settings cannot arrive",
                 decor.viewTreeObserver.dispatchOnPreDraw())
-            release.complete(Unit)
+            settingsData.open()
             waitFor("the themed root") { onOverview() }
             val firstTitle = mutableListOf<TextLayoutResult>()
             compose.onNode(hasText("Usage Limits"), useUnmergedTree = true)
@@ -271,8 +317,7 @@ class ExternalRequestActivityTest {
             assertTrue("paper requests dark navigation icons", bars.isAppearanceLightNavigationBars)
             assertEquals(0xFFF3F0E8.toInt(), (decor.background as android.graphics.drawable.ColorDrawable).color)
         } finally {
-            release.complete(Unit)
-            ReflectionHelpers.setField(store, "settings", saved)
+            settingsData.open()
             runBlocking {
                 store.setAppTheme(previous.appTheme)
                 store.setTextFont(previous.textFont)

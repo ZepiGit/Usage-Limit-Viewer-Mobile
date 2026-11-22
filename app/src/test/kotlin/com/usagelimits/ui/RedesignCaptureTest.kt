@@ -275,7 +275,7 @@ class RedesignCaptureTest {
             SettingsScreen(state = state, onSyncIntervalChange = {}, onNotificationPermissionHandled = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
                 onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {},
                 onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {},
-                onPercentDisplayChange = {})
+                onPercentDisplayChange = {}, onAppThemeChange = {})
         },
         "credit-detail" to {
             CreditDetailScreen(entry = credits[0], nowMs = NOW, staleAfterMs = state.staleAfterMs,
@@ -296,7 +296,7 @@ class RedesignCaptureTest {
                     SettingsScreen(state.copy(settings = settings.copy(overviewLayout = layout)), onSyncIntervalChange = {},
                         onNotificationPermissionHandled = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {},
                         onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {},
-                        onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {})
+                        onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {}, onAppThemeChange = {})
                 })
             }
         }
@@ -661,7 +661,7 @@ class RedesignCaptureTest {
             SettingsScreen(twoClaudes.copy(settings = settings), onSyncIntervalChange = {}, onNotificationPermissionHandled = {},
                 onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {}, onNotifyResetCredit = {},
                 onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {},
-                onOverviewLayoutChange = {}, onPercentDisplayChange = {}, nowMs = NOW)
+                onOverviewLayoutChange = {}, onPercentDisplayChange = {}, onAppThemeChange = {}, nowMs = NOW)
         }
         return listOf(
             "claude-overview-list" to {

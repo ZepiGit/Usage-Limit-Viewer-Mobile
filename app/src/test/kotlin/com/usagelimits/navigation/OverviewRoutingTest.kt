@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasClickAction
@@ -34,6 +35,12 @@ import com.usagelimits.core.credits.MemoryCredentialStore
 import com.usagelimits.core.database.ControlledAccountReads
 import com.usagelimits.core.database.UsageRepository
 import com.usagelimits.core.model.ConnectionStatus
+import com.usagelimits.core.model.CreditAccount
+import com.usagelimits.core.model.CreditBalance
+import com.usagelimits.core.model.CreditProviderId
+import com.usagelimits.core.model.CreditSnapshot
+import com.usagelimits.core.settings.OverviewCreditLayout
+import java.math.BigDecimal
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.providers.LoginChallenge
 import com.usagelimits.providers.ProviderProfile
@@ -151,6 +158,8 @@ class OverviewRoutingTest {
             runBlocking {
                 container.settingsStore.setOverviewLayout(initialSettings.overviewLayout)
                 container.settingsStore.setSyncInterval(initialSettings.syncIntervalMinutes)
+                container.settingsStore.setOverviewCreditLayout(initialSettings.overviewCreditLayout)
+                container.settingsStore.setOverviewShowCredits(initialSettings.overviewShowCredits)
             }
             WorkManager.getInstance(app).cancelAllWork().result.get()
             ShadowLooper.idleMainLooper()
@@ -183,6 +192,17 @@ class OverviewRoutingTest {
     }
 
     private fun shown(text: String) = compose.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+
+    /** Drains main-looper results and draws controlled frames; real time only bounds a hung read. */
+    private fun settle(condition: () -> Boolean = { true }) {
+        val deadline = System.currentTimeMillis() + 10_000
+        do {
+            ShadowLooper.idleMainLooper()
+            compose.mainClock.advanceTimeByFrame()
+            if (condition()) return
+        } while (System.currentTimeMillis() < deadline)
+        throw AssertionError("not reached")
+    }
 
     @Test fun `the shell has Overview, Resets and Settings and no Accounts tab`() {
         showShell()
@@ -268,16 +288,6 @@ class OverviewRoutingTest {
             base + compose.mainClock.currentTime - start
         }
 
-        /** Lets results posted to the main looper land and draws one frame, until [condition] or 10 s of real time. */
-        fun settle(condition: () -> Boolean = { true }) {
-            val deadline = System.currentTimeMillis() + 10_000
-            do {
-                ShadowLooper.idleMainLooper()
-                compose.mainClock.advanceTimeByFrame()
-                if (condition()) return
-            } while (System.currentTimeMillis() < deadline)
-            throw AssertionError("not reached")
-        }
         fun advance(ms: Long) {
             compose.mainClock.advanceTimeBy(ms)
             ShadowLooper.idleMainLooper()
@@ -301,6 +311,52 @@ class OverviewRoutingTest {
         advance(10_000 - (compose.mainClock.currentTime - start) + 200)
         settle()
         assertTrue("stale at the new boundary, not at the tick 25 s later", shown("Stale"))
+    }
+
+    @Test fun `compact credits drop the low balance hint at the re-planned stale boundary without a sync`() {
+        compose.mainClock.autoAdvance = false
+        val fetched = 1_800_000_000_000L
+        val base = fetched + 45 * 60_000L - 10_000L
+        val start = compose.mainClock.currentTime
+        val creditId = "credit-stale-boundary-test"
+        runBlocking {
+            container.settingsStore.setSyncInterval(30)
+            container.settingsStore.setOverviewCreditLayout(OverviewCreditLayout.COMPACT)
+            container.settingsStore.setOverviewShowCredits(true)
+            container.creditRepository.upsert(
+                CreditAccount(creditId, CreditProviderId.FAL,
+                    "Boundary credit", "credit:synthetic", createdAt = fetched),
+                CreditSnapshot(creditId,
+                    listOf(CreditBalance("USD", BigDecimal("1"))), fetched),
+            )
+        }
+        val clockThreshold = java.util.concurrent.atomic.AtomicLong(-1)
+        val lowHint = hasContentDescription("Low balance: Boundary credit", substring = true)
+        fun hasLowHint() = compose.onAllNodes(lowHint).fetchSemanticsNodes().isNotEmpty()
+        try {
+            showShell {
+                store.keys().mapNotNull { store[it] as? UsageViewModel }.singleOrNull()?.let {
+                    clockThreshold.set(it.state.value.staleAfterMs)
+                }
+                base + compose.mainClock.currentTime - start
+            }
+            settle { hasLowHint() && clockThreshold.get() == 60 * 60_000L }
+            compose.mainClock.advanceTimeBy(5_000 - (compose.mainClock.currentTime - start))
+            runBlocking { container.settingsStore.setSyncInterval(15) }
+            settle {
+                check(compose.mainClock.currentTime - start < 10_000) { "credit boundary was not re-planned in time" }
+                clockThreshold.get() == 45 * 60_000L
+            }
+            settle()
+            assertTrue("the current low balance remains visible before the new boundary", hasLowHint())
+            compose.mainClock.advanceTimeBy(10_000 - (compose.mainClock.currentTime - start) + 200)
+            settle()
+            assertEquals("the hint expires at the credit boundary, before the old countdown tick", false, hasLowHint())
+            assertTrue("the credit account remains counted", compose.onAllNodes(
+                hasContentDescription("Credits · 1 balance", substring = true)).fetchSemanticsNodes().isNotEmpty())
+        } finally {
+            runBlocking { container.creditRepository.remove(creditId) }
+        }
     }
 
     @Test fun `Overview says the account store is unreadable and its retry resumes the live account flow`() {

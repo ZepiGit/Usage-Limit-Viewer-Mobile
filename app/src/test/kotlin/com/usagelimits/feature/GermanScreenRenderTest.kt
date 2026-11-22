@@ -116,7 +116,7 @@ class GermanScreenRenderTest {
         SettingsScreen(
             state = UsageUiState(accounts = listOf(usage), settings = AppSettings(percentDisplay = mode)),
             onSyncIntervalChange = {},
-            onNotificationPermissionHandled = {},
+            onNotificationPermissionHandled = {}, onAppThemeChange = {},
             onNotifyBelow20 = {},
             onNotifyBelow10 = {},
             onNotifyExhausted = {},

@@ -125,7 +125,7 @@ class CreditSettingsRenderTest {
                     onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {},
                     onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {},
                     onOverviewLayoutChange = {}, onPercentDisplayChange = {},
-                    onNotificationPermissionHandled = {},
+                    onNotificationPermissionHandled = {}, onAppThemeChange = {},
                     onOverviewCreditLayoutChange = { settings = settings.copy(overviewCreditLayout = it) },
                     onOverviewShowFirstChange = { settings = settings.copy(overviewShowFirst = it) },
                     onOverviewShowCreditsChange = { settings = settings.copy(overviewShowCredits = it) },
