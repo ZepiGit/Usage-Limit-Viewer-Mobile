@@ -440,39 +440,35 @@ class PercentModeWidgetRenderingTest {
     }
 
     @Test fun `both hosted ring kinds speak stale failed and reconnect readings without losing the window`() = runTest {
-        val now = 1_800_000_000_000L
-        val previousTime = System.currentTimeMillis()
-        android.os.SystemClock.setCurrentTimeMillis(now)
-        try {
-            val window = UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 63.0, 604_800,
-                now + 86_400_000, false)
-            val cases = listOf(
-                Triple("Stale speech", SnapshotStatus.OK, "Data is out of date"),
-                Triple("Failed speech", SnapshotStatus.FAILED, "Update failed · last known data"),
-                Triple("Reconnect speech", SnapshotStatus.OK, "reconnect required"),
-            ).map { (name, status, clause) ->
-                val id = seedNamedAccount("speech-$name", name, listOf(window))
-                app.container.repository.saveSnapshot(UsageSnapshot(id,
-                    if (name == "Stale speech") now - 2 * 86_400_000L else now,
-                    status, windows = listOf(window),
-                    connectionStatus = if (name == "Reconnect speech") ConnectionStatus.RECONNECT_REQUIRED else ConnectionStatus.CONNECTED))
-                id to clause
-            }
-            inEachMode { mode ->
-                for ((id, clause) in cases) for (kind in listOf("MinimalUsageWidget", "MiniRingsWidget")) {
-                    inspect(kind, listOf(id), DpSize(180.dp, 110.dp)) { root ->
-                        val speech = ringImages(root).single().contentDescription.toString()
-                        assertTrue("$kind $mode keeps the reading's validity: $speech", clause in speech)
-                        assertTrue("$kind $mode names the actual window and reset: $speech", "Weekly, Resets " in speech)
-                        val figure = if (mode == PercentDisplay.USED) "63% used" else "37% remaining"
-                        assertTrue("$kind $mode retains the cached figure: $speech", figure in speech)
-                        for ((_, other) in cases.filter { it.second != clause }) {
-                            assertTrue("$kind does not confuse $clause with $other: $speech", other !in speech)
-                        }
+        val now = System.currentTimeMillis()
+        val window = UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 63.0, 604_800,
+            now + 86_400_000, false)
+        val cases = listOf(
+            Triple("Stale speech", SnapshotStatus.OK, "Data is out of date"),
+            Triple("Failed speech", SnapshotStatus.FAILED, "Update failed · last known data"),
+            Triple("Reconnect speech", SnapshotStatus.OK, "reconnect required"),
+        ).map { (name, status, clause) ->
+            val id = seedNamedAccount("speech-$name", name, listOf(window))
+            app.container.repository.saveSnapshot(UsageSnapshot(id,
+                if (name == "Stale speech") now - 2 * 86_400_000L else now,
+                status, windows = listOf(window),
+                connectionStatus = if (name == "Reconnect speech") ConnectionStatus.RECONNECT_REQUIRED else ConnectionStatus.CONNECTED))
+            id to clause
+        }
+        inEachMode { mode ->
+            for ((id, clause) in cases) for (kind in listOf("MinimalUsageWidget", "MiniRingsWidget")) {
+                inspect(kind, listOf(id), DpSize(180.dp, 110.dp)) { root ->
+                    val speech = ringImages(root).single().contentDescription.toString()
+                    assertTrue("$kind $mode keeps '$clause': $speech", clause in speech)
+                    assertTrue("$kind $mode names the actual window and reset: $speech", "Weekly, Resets " in speech)
+                    val figure = if (mode == PercentDisplay.USED) "63% used" else "37% remaining"
+                    assertTrue("$kind $mode retains the cached figure: $speech", figure in speech)
+                    for ((_, other) in cases.filter { it.second != clause }) {
+                        assertTrue("$kind does not confuse $clause with $other: $speech", other !in speech)
                     }
                 }
             }
-        } finally { android.os.SystemClock.setCurrentTimeMillis(previousTime) }
+        }
     }
 
     // endregion

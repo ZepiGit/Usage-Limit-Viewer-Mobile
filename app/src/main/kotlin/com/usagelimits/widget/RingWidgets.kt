@@ -26,6 +26,7 @@ import com.usagelimits.UsageLimitsActivity
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.WindowPresentation
+import com.usagelimits.core.model.withPercentSign
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.ui.percentSpokenClauseRes
 import com.usagelimits.ui.text.ResourceCountdownTexts
@@ -141,17 +142,17 @@ private const val FULL_RING_TOKEN = "100"
 
 /**
  * What an Android ring writes in its centre for [p], or null for nothing. A ring adopts
- * [ringCentre] by calling this instead of [percentFigure].
+ * [ringCentre] before deciding whether to show a sign.
  *
  * [UsageRing.draw] paints the presentation's fill whatever its fill state says (the grey of an
  * aged or failed reading is [ringAccent]'s), so the arc is drawn whenever there is a fill. A full
  * allowance therefore always writes nothing here, even where the presentation reads "no fill".
  * An unknown figure writes nothing: an Android ring centre has never shown the dash.
  */
-internal fun ringCentreFigure(resources: android.content.res.Resources, p: WindowPresentation): String? {
+internal fun ringCentreFigure(p: WindowPresentation): String? {
     if (!p.hasFigure) return null
     return when (ringCentre(p.token, p.side, arcDrawn = p.fill != null)) {
-        RingCentre.SIGNED -> percentFigure(p.token, resources)
+        RingCentre.SIGNED -> withPercentSign(p.token)
         RingCentre.BARE -> p.token
         RingCentre.NOTHING -> null
     }
@@ -216,7 +217,7 @@ private fun RingMark(account: WidgetAccount, size: androidx.compose.ui.unit.Dp, 
             GlanceModifier.fillMaxSize())
         if (mini) {
             WidgetLogo(account, miniLogoSize(size, account.providerId))
-        } else ringCentreFigure(resources, p)?.let {
+        } else ringCentreFigure(p)?.let {
             // Leave room for rounded text advances and for the arc above and below the centreline.
             val clearWidth = size * (1f - 2f * UsageRing.STROKE_FRACTION) - 5.dp
             val figureStyle = widgetText(style.textPrimary, 12, FontWeight.Bold, mono = true)

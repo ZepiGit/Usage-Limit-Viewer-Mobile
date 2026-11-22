@@ -58,6 +58,7 @@ import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.model.claudeCodeMood
+import com.usagelimits.core.model.withPercentSign
 import com.usagelimits.ui.ClaudeCodeBrand
 import com.usagelimits.ui.ProviderIconCatalog
 import com.usagelimits.ui.ProviderIconChoice
@@ -67,7 +68,6 @@ import com.usagelimits.core.time.CountdownTexts
 import com.usagelimits.ui.percentSideCaptionRes
 import com.usagelimits.ui.percentSideWordRes
 import com.usagelimits.ui.text.ResourceCountdownTexts
-import com.usagelimits.ui.text.percentFigure
 import kotlinx.coroutines.flow.first
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -124,7 +124,7 @@ internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier,
  */
 @Composable
 private fun percentText(row: WidgetRow): String =
-    percentFigure(row.presentation(null, LocalPercentMode.current).token, androidx.glance.LocalContext.current.resources)
+    withPercentSign(row.presentation(null, LocalPercentMode.current).token)
 
 /** Text on a widget, with figures in the system monospace face. */
 internal fun widgetText(color: Color, size: Int, weight: FontWeight = FontWeight.Normal, mono: Boolean = false) = TextStyle(
@@ -585,7 +585,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
                     Column(GlanceModifier.fillMaxWidth()) {
                         Spacer(GlanceModifier.height(6.dp))
                         val p = row.presentation(null, LocalPercentMode.current)
-                        val percent = percentFigure(p.token, context.resources)
+                        val percent = withPercentSign(p.token)
                         val shown = if (!p.hasFigure) percent
                             else "$percent ${context.getString(percentSideWordRes(LocalPercentMode.current))}"
                         val label = row.labelText(context.resources)

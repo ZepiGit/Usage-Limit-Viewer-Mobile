@@ -52,15 +52,19 @@ import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowLooper
 import java.io.File
 import java.math.BigDecimal
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
+import java.util.TimeZone
 
 /**
  * The placed widgets under the German locale (R4).
  *
  * [PercentModeWidgetRenderingTest] and [CreditsWidgetRenderingTest] pin the English words; this
  * pins that every widget reads them from resources, so a German phone sees the glossary — Übrig,
- * Verbraucht, übrig, verbraucht — and the percent sign set off by a space. Same fixture as the
- * English suite: a 5h window with 40 % used and a Weekly window with 63 % used, so the two modes
- * never print the same digits.
+ * Verbraucht, übrig, verbraucht — with compact figures on screen and localized figures in ring
+ * speech. Same fixture as the English suite: a 5h window with 40% used and a Weekly window with
+ * 63% used, so the two modes never print the same digits.
  *
  * Native graphics are enabled for the ring fit tests, which measure and capture rendered text.
  */
@@ -143,9 +147,9 @@ class GermanWidgetRenderTest {
     }
 
     private fun modeWord(mode: PercentDisplay) = if (mode == PercentDisplay.USED) "Verbraucht" else "Übrig"
-    private fun figures(mode: PercentDisplay) = if (mode == PercentDisplay.USED) listOf("40 %", "63 %") else listOf("60 %", "37 %")
+    private fun figures(mode: PercentDisplay) = if (mode == PercentDisplay.USED) listOf("40%", "63%") else listOf("60%", "37%")
 
-    @Test fun `compact tiles lead with the German mode word, the app's window label and a spaced figure`() = runTest {
+    @Test fun `compact tiles lead with the German mode word, the app's window label and a compact figure`() = runTest {
         val id = seedFixture()
         inEachMode { mode ->
             inspect("CompactUsageWidget", id, DpSize(420.dp, 130.dp)) { view ->
@@ -162,7 +166,7 @@ class GermanWidgetRenderTest {
         }
     }
 
-    @Test fun `detailed rows say the side in German after a spaced figure`() = runTest {
+    @Test fun `detailed rows say the side in German after a compact figure`() = runTest {
         val id = seedFixture()
         inEachMode { mode ->
             inspect("DetailedUsageWidget", id, DpSize(300.dp, 260.dp)) { view ->
@@ -184,7 +188,7 @@ class GermanWidgetRenderTest {
                 assertTrue("$mode: no side captions, got $text", "Verbraucht" !in text && "Übrig" !in text)
                 val centre = figures(mode).last()
                 assertTrue("$mode: centre figure $centre present, got $text", centre in text)
-                val spoken = "$centre ${if (mode == PercentDisplay.USED) "verbraucht" else "übrig"}"
+                val spoken = if (mode == PercentDisplay.USED) "63 % verbraucht" else "37 % übrig"
                 assertTrue("$mode: the ring says '$spoken', got $descriptions", descriptions.any { spoken in it })
                 assertTrue("$mode: the status line names the window in German, got $text",
                     text.any { it.startsWith("Wöchentlich · ") })
@@ -193,13 +197,14 @@ class GermanWidgetRenderTest {
     }
 
     @Test fun `both ring hosts name the German headline and exact reset clause`() = runTest {
-        val now = java.time.Instant.parse("2027-01-15T12:00:00Z").toEpochMilli()
-        val previousTime = System.currentTimeMillis()
-        val zone = java.util.TimeZone.getDefault()
-        android.os.SystemClock.setCurrentTimeMillis(now)
-        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"))
+        val now = System.currentTimeMillis()
+        val instant = Instant.ofEpochMilli(now)
+        // Put the host's actual wall time in the local noon hour, well clear of midnight and reset.
+        val zone = ZoneOffset.ofHours(12 - instant.atOffset(ZoneOffset.UTC).hour)
+        val previousZone = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone(zone))
         try {
-            val reset = java.time.Instant.parse("2027-01-15T18:00:00Z").toEpochMilli()
+            val reset = instant.atOffset(zone).truncatedTo(ChronoUnit.DAYS).plusHours(18).toInstant().toEpochMilli()
             val window = UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 63.0, 604_800, reset, false)
             val id = seed(window)
             val cases = listOf(
@@ -230,8 +235,7 @@ class GermanWidgetRenderTest {
                 }
             }
         } finally {
-            java.util.TimeZone.setDefault(zone)
-            android.os.SystemClock.setCurrentTimeMillis(previousTime)
+            TimeZone.setDefault(previousZone)
         }
     }
 
@@ -279,12 +283,12 @@ class GermanWidgetRenderTest {
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun `account ring fits German 71 percent used at 1_6x`() = runTest {
-        assertGermanRingCentreFits(71.0, "71 %", 1.6f, "german-ring-71-used-1_6x")
+        assertGermanRingCentreFits(71.0, "71%", 1.6f, "german-ring-71-used-1_6x")
     }
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun `account ring fits German over 99 percent used at 1x`() = runTest {
-        assertGermanRingCentreFits(99.6, ">99 %", 1f, "german-ring-over-99-used-1x")
+        assertGermanRingCentreFits(99.6, ">99%", 1f, "german-ring-over-99-used-1x")
     }
 
     private suspend fun TestScope.assertGermanRingCentreFits(used: Double, figure: String, scale: Float, capture: String) {
@@ -341,9 +345,9 @@ class GermanWidgetRenderTest {
             inspect("MinimalUsageWidget", id, DpSize(180.dp, 240.dp)) { view ->
                 val text = textViews(view).map { it.text.toString() }
                 assertTrue("$mode: the status line is German, got $text", "Kontingent unbekannt" in text)
-                // An exhausted 100 has no sign in a ring's centre (#38), so no locale's spacing either.
+                // An exhausted 100 has no sign in a ring's centre (#38).
                 if (mode == PercentDisplay.USED) assertTrue("USED: the centre reads a bare 100, got $text",
-                    "100" in text && "100 %" !in text)
+                    "100" in text && "100%" !in text && "100 %" !in text)
             }
         }
     }

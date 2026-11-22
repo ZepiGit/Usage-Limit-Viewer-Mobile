@@ -1,0 +1,12 @@
+{
+  "description": "Visible widget percentage formatting on Android and iOS, in every supported locale. Attach the percent sign directly to the presentation token; the unknown dash stays bare. These examples do not change app formatting, spoken wording, percentage rounding, or the ring-centre rule that may omit a full allowance or its sign.",
+  "vectors": [
+    { "token": "0", "expected": "0%" },
+    { "token": "1", "expected": "1%" },
+    { "token": "70", "expected": "70%" },
+    { "token": "100", "expected": "100%" },
+    { "token": "<1", "expected": "<1%" },
+    { "token": ">99", "expected": ">99%" },
+    { "token": "—", "expected": "—" }
+  ]
+}

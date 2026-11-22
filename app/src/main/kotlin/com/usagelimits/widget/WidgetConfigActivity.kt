@@ -55,6 +55,7 @@ import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.WidgetScope
+import com.usagelimits.core.model.withPercentSign
 import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.R
 import com.usagelimits.ui.LocalProviderIcons
@@ -72,7 +73,6 @@ import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.percentSideWordRes
-import com.usagelimits.ui.text.percentFigure
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import kotlinx.coroutines.launch
@@ -437,7 +437,7 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                                         Modifier.size(miniLogoSize(ringSize, account.providerId)),
                                         colorFilter = widgetLogoTint(provider, style)?.let { ColorFilter.tint(it) })
                                 }
-                            } else ringCentreFigure(resources, p)?.let { Text(it, style = WidgetPreviewFigure, color = style.textPrimary) }
+                            } else ringCentreFigure(p)?.let { Text(it, style = WidgetPreviewFigure, color = style.textPrimary) }
                         }
                     }
                 }
@@ -445,7 +445,7 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                 Text(account.title, style = MaterialTheme.typography.titleMedium, color = style.textPrimary)
                 account.rows.take(2).forEach { row ->
                     val p = row.presentation(account.dataValidity, mode)
-                    val percent = percentFigure(p.token, resources)
+                    val percent = withPercentSign(p.token)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(row.labelText(resources), Modifier.width(64.dp), style = MaterialTheme.typography.bodySmall, color = style.textSecondary)
                         PreviewBar(

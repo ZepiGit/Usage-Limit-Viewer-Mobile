@@ -85,14 +85,14 @@ class GermanWidgetConfigRenderTest {
     fun `the bar preview counts the German title and puts the German side word after the figure`() {
         preview("Usage Bars", PercentDisplay.LEFT)
         assertEquals(1, texts("Vorschau · 1 ausgewählt").size)
-        assertEquals(1, texts("60 % übrig").size)
+        assertEquals(1, texts("60% übrig").size)
     }
 
     @Test
     fun `the ring preview omits side captions and has a German spoken description`() {
         preview("Account Rings", PercentDisplay.USED)
         assertTrue(texts("Verbraucht").isEmpty() && texts("Übrig").isEmpty())
-        assertEquals(1, texts("40 %").size)
+        assertEquals(1, texts("40%").size)
         assertEquals(1, compose.onAllNodesWithContentDescription("Claude, fixture@example.invalid, 40 % verbraucht",
             substring = true).fetchSemanticsNodes().size)
     }
