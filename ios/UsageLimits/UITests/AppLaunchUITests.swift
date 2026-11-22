@@ -30,26 +30,45 @@ final class AppLaunchUITests: XCTestCase {
     /// Search both ways: a lazy Form may not expose an offscreen target's frame at all.
     private func scrollTo(
         _ element: XCUIElement, in app: XCUIApplication, towardStart: Bool? = nil,
-        clearOfBottomTabs tabBarFrame: CGRect = .null, requireHittable: Bool = true,
+        requireFullyVisible: Bool = false, requireHittable: Bool = true,
         deadline: TimeInterval? = nil
     ) -> Bool {
-        func overlapsTabs() -> Bool {
-            !tabBarFrame.isNull && element.frame.intersects(tabBarFrame)
-        }
-        func found() -> Bool {
-            element.exists && (!requireHittable || (element.isHittable && !overlapsTabs()))
-        }
-        if found() { return true }
+        if !requireFullyVisible && element.exists && (!requireHittable || element.isHittable) { return true }
         if let deadline, ProcessInfo.processInfo.systemUptime >= deadline { return false }
-        let exists = element.exists
         let identifiers = ["provider-icons-list", "provider-picker-scroll", "settings-form", "overview-scroll"]
         let container = identifiers.lazy.map { app.descendants(matching: .any)[$0].firstMatch }
             .first { $0.exists && $0.isHittable } ?? app
+        func visibleFrame() -> CGRect {
+            var frame = container.frame.intersection(app.frame)
+            for bar in app.navigationBars.allElementsBoundByIndex + app.tabBars.allElementsBoundByIndex {
+                guard bar.exists, bar.frame.intersects(frame) else { continue }
+                if bar.frame.midY < app.frame.midY {
+                    let bottom = frame.maxY
+                    frame.origin.y = max(frame.minY, bar.frame.maxY)
+                    frame.size.height = max(0, bottom - frame.minY)
+                } else {
+                    frame.size.height = max(0, min(frame.maxY, bar.frame.minY) - frame.minY)
+                }
+            }
+            return frame
+        }
+        func found() -> Bool {
+            guard element.exists, !requireHittable || element.isHittable else { return false }
+            guard requireFullyVisible else { return true }
+            let target = element.frame
+            let viewport = visibleFrame()
+            return !target.isEmpty && !viewport.isEmpty && viewport.contains(target)
+        }
+        if found() { return true }
+        let exists = element.exists
         let bounds = container.frame
-        let frame = bounds.intersection(app.frame)
+        let frame = requireFullyVisible ? visibleFrame() : bounds.intersection(app.frame)
+        guard !frame.isEmpty else { return false }
         let firstUp: Bool
-        if exists && overlapsTabs() {
+        if exists && requireFullyVisible && element.frame.maxY > frame.maxY {
             firstUp = false
+        } else if exists && requireFullyVisible && element.frame.minY < frame.minY {
+            firstUp = true
         } else if let towardStart {
             firstUp = towardStart
         } else if exists, !element.frame.isEmpty {
@@ -183,13 +202,13 @@ final class AppLaunchUITests: XCTestCase {
         }
         let bottomTabs = bottomTabBarFrame(in: app)
         let control = app.segmentedControls[identifier]
-        guard scrollTo(control, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs) else {
+        guard scrollTo(control, in: app, towardStart: towardStart, requireFullyVisible: true) else {
             reportControlFailure("Could not reach \(identifier) clear of the tab bar",
                                  control: control, in: app, tapFrame: .null, bottomTabs: bottomTabs)
             return
         }
         let segment = control.buttons[option]
-        guard scrollTo(segment, in: app, towardStart: towardStart, clearOfBottomTabs: bottomTabs) else {
+        guard scrollTo(segment, in: app, towardStart: towardStart, requireFullyVisible: true) else {
             reportControlFailure("Could not reach \(option) in \(identifier) clear of the tab bar",
                                  control: control, in: app, tapFrame: .null, bottomTabs: bottomTabs)
             return
@@ -228,7 +247,7 @@ final class AppLaunchUITests: XCTestCase {
                            initially: Bool? = nil) {
         let toggle = app.switches[identifier]
         let bottomTabs = bottomTabBarFrame(in: app)
-        guard scrollTo(toggle, in: app, towardStart: false, clearOfBottomTabs: bottomTabs) else {
+        guard scrollTo(toggle, in: app, towardStart: false, requireFullyVisible: true) else {
             reportControlFailure("Could not reach switch \(identifier) clear of the tab bar",
                                  control: toggle, in: app, tapFrame: .null, bottomTabs: bottomTabs)
             return
@@ -269,7 +288,7 @@ final class AppLaunchUITests: XCTestCase {
         setSwitch("settings-overview-show-credits", to: false, in: app, initially: true)
         let toggle = app.switches["settings-overview-show-credits"]
         XCTAssertTrue(scrollTo(toggle, in: app, towardStart: true,
-            clearOfBottomTabs: bottomTabBarFrame(in: app)))
+            requireFullyVisible: true))
         for enabled in [true, false] {
             let before = toggle.frame
             toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
@@ -500,7 +519,7 @@ final class AppLaunchUITests: XCTestCase {
         tabButton("Settings", in: app).tap()
         let toggle = app.switches["settings-animate-claude-code-icon"]
         let bottomTabs = bottomTabBarFrame(in: app)
-        XCTAssertTrue(scrollTo(toggle, in: app, towardStart: false, clearOfBottomTabs: bottomTabs))
+        XCTAssertTrue(scrollTo(toggle, in: app, towardStart: false, requireFullyVisible: true))
         XCTAssertEqual(toggle.value as? String, "1")
         let log = app.staticTexts["motion-log"]
         let animated = XCTNSPredicateExpectation(
@@ -553,7 +572,7 @@ final class AppLaunchUITests: XCTestCase {
         tabButton("Settings", in: app).tap()
         let layout = app.segmentedControls["settings-overview-credit-layout"]
         XCTAssertTrue(scrollTo(layout, in: app, towardStart: false,
-                               clearOfBottomTabs: bottomTabBarFrame(in: app)))
+                               requireFullyVisible: true))
         XCTAssertTrue(layout.buttons["Normal"].isSelected)
         selectSegment("Compact", in: "settings-overview-credit-layout", app: app,
                       towardStart: false, quickTap: true)
@@ -637,7 +656,7 @@ final class AppLaunchUITests: XCTestCase {
             let claude = list.staticTexts.matching(
                 NSPredicate(format: "label == %@ OR label == %@", "Claude", "Claude Pro")).firstMatch
             XCTAssertTrue(scrollTo(claude, in: app, towardStart: true,
-                                   clearOfBottomTabs: bottomTabBarFrame(in: app)))
+                                   requireFullyVisible: true))
             if variant != "no-figure" {
                 let decision = "claude:preview-list:preview-claude:tired \(variant == "animated" ? "animated" : "still")"
                 let log = app.staticTexts["motion-log"]
@@ -1066,7 +1085,7 @@ final class AppLaunchUITests: XCTestCase {
         }
         let control = app.descendants(matching: .any)[identifier].firstMatch
         let bottomTabs = bottomTabBarFrame(in: app)
-        guard scrollTo(control, in: app, towardStart: false) else {
+        guard scrollTo(control, in: app, towardStart: false, requireFullyVisible: true) else {
             reportControlFailure("Could not reach menu \(identifier)",
                                  control: control, in: app, tapFrame: .null, bottomTabs: bottomTabs)
             return
