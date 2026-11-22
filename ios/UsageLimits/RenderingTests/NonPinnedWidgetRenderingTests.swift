@@ -248,10 +248,10 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
                 XCTAssertTrue(visible.contains("3.18") || visible.contains("3,18"),
                     "the cached balance must still render beside the failure: \(visible)")
             }
-            let (window, _) = try await presentNativeRendering(view.frame(width: size.width, height: size.height)
+            let (window, controller) = try await presentNativeRendering(view.frame(width: size.width, height: size.height)
                 .environment(\.dynamicTypeSize, .accessibility5))
             defer { window.isHidden = true; window.rootViewController = nil }
-            XCTAssertEqual(creditStatusLabels(in: window), [original],
+            XCTAssertEqual(creditStatusLabels(in: try XCTUnwrap(controller.view)), [original],
                 "\(vector.state) must expose the full status on the status element")
         }
     }

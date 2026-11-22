@@ -98,10 +98,9 @@ final class SignInMotionTests: XCTestCase {
         let capture: (Double, Bool) -> Void
 
         var body: some View {
-            AddAccountSheet(stage: $driver.stage, captureStep: capture)
+            AddAccountSheet.rendering(stage: $driver.stage, reduceMotion: reduced, captureStep: capture)
                 .environmentObject(driver.store)
                 .environment(\.colorScheme, .dark)
-                .environment(\.reduceMotionOverride, reduced)
         }
     }
 
@@ -121,57 +120,66 @@ final class SignInMotionTests: XCTestCase {
         guard !object.accessibilityElementsHidden else { return [] }
         if let view = object as? UIView, view.isHidden || view.alpha == 0 { return [] }
         if object.isAccessibilityElement { return [object] }
-        if let children = object.accessibilityElements {
+        if let children = object.accessibilityElements, !children.isEmpty {
             return children.compactMap { $0 as? NSObject }.flatMap(elements)
         }
         let count = object.accessibilityElementCount()
-        if count > 0, count < 1_000 {
-            return (0..<count).flatMap { index in
-                (object.accessibilityElement(at: index) as? NSObject).map(elements) ?? []
-            }
+        if count > 0, count != NSNotFound {
+            return (0..<count).compactMap { object.accessibilityElement(at: $0) as? NSObject }.flatMap(elements)
         }
         return (object as? UIView)?.subviews.flatMap(elements) ?? []
     }
 
-    private func labels(_ view: UIView) -> [String] {
-        elements(view).compactMap(\.accessibilityLabel)
+    private func accessibilityTree(_ view: UIView, depth: Int = 0) -> String {
+        let entry = "\(String(repeating: "  ", count: depth))\(type(of: view)) "
+            + "hidden=\(view.isHidden) alpha=\(view.alpha) axHidden=\(view.accessibilityElementsHidden) "
+            + "leaf=\(view.isAccessibilityElement) array=\(view.accessibilityElements?.count.description ?? "nil") "
+            + "indexed=\(view.accessibilityElementCount()) frame=\(view.frame)"
+        return ([entry] + view.subviews.map { accessibilityTree($0, depth: depth + 1) }).joined(separator: "\n")
     }
 
-    private func kimiButton(in window: UIWindow) throws -> NSObject {
-        let nodes = elements(window)
-        return try XCTUnwrap(nodes.first {
+    private func kimiButton(in view: UIView) throws -> NSObject {
+        let nodes = elements(view)
+        let button = nodes.first {
             $0.accessibilityTraits.contains(.button) && $0.accessibilityLabel?.contains("Kimi") == true
-        }, "the real chooser exposes the provider action; labels: \(nodes.compactMap(\.accessibilityLabel))")
+        }
+        if button == nil {
+            let attachment = XCTAttachment(string: accessibilityTree(view))
+            attachment.name = "sign-in-accessibility-hierarchy"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        return try XCTUnwrap(button, "the real chooser exposes the provider action; labels: \(nodes.compactMap(\.accessibilityLabel))")
     }
 
-    private func capture(_ window: UIWindow, commitUpdates: Bool = false) -> Capture {
+    private func capture(_ window: UIWindow, in view: UIView, commitUpdates: Bool = false) -> Capture {
         if commitUpdates { window.layoutIfNeeded() }
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: commitUpdates),
                 "the native sheet must remain renderable during the captured step")
         }
-        return Capture(image: image, labels: labels(window))
+        return Capture(image: image, labels: elements(view).compactMap(\.accessibilityLabel))
     }
 
     func testLeavingChooserIsNotAccessibleOrActionableAndNeverDrawsOverTheKeyStep() async throws {
         let driver = Driver()
-        let reachedExit = expectation(description: "real intermediate exit")
-        let reachedEntrance = expectation(description: "real intermediate entrance")
-        let settled = expectation(description: "native entrance completed")
+        let reachedExit = XCTestExpectation(description: "real intermediate exit")
+        let reachedEntrance = XCTestExpectation(description: "real intermediate entrance")
+        let settled = XCTestExpectation(description: "native entrance completed")
         var exit: Capture?
         var entrance: Capture?
         var staleButton: NSObject?
-        var testWindow: UIWindow?
+        var host: (window: UIWindow, view: UIView)?
         var finished = false
-        let (window, _) = try await present(driver) { opacity, leaving in
-            guard let testWindow else { return }
+        let (window, controller) = try await present(driver) { opacity, leaving in
+            guard let host else { return }
             if leaving, opacity > 0.15, opacity < 0.85, exit == nil {
-                exit = self.capture(testWindow)
+                exit = self.capture(host.window, in: host.view)
                 _ = staleButton?.accessibilityActivate()
                 reachedExit.fulfill()
             }
             if !leaving, opacity > 0.3, opacity < 0.85, entrance == nil {
-                entrance = self.capture(testWindow)
+                entrance = self.capture(host.window, in: host.view)
                 reachedEntrance.fulfill()
             }
             if !leaving, opacity == 1, entrance != nil, !finished {
@@ -180,17 +188,18 @@ final class SignInMotionTests: XCTestCase {
             }
         }
         defer { window.isHidden = true; window.rootViewController = nil }
-        testWindow = window
-        let before = capture(window, commitUpdates: true)
+        let view = try XCTUnwrap(controller.view)
+        host = (window, view)
+        let before = capture(window, in: view, commitUpdates: true)
         let region = try cardRegion(in: window)
-        staleButton = try kimiButton(in: window)
+        staleButton = try kimiButton(in: view)
         driver.stage = .awaitingKey(.opencode)
         await fulfillment(of: [reachedExit, reachedEntrance, settled], timeout: 5, enforceOrder: true)
         let leaving = try XCTUnwrap(exit)
         let arriving = try XCTUnwrap(entrance)
         XCTAssertFalse(leaving.labels.contains { $0.contains("Kimi") || $0.contains("OpenCode") },
                        "leaving content is absent from VoiceOver; the native toolbar remains")
-        let after = capture(window, commitUpdates: true)
+        let after = capture(window, in: view, commitUpdates: true)
         let beforePixels = try cardPixels(before.image, in: region)
         let afterPixels = try cardPixels(after.image, in: region)
         let leavingPixels = try cardPixels(leaving.image, in: region)
@@ -234,15 +243,15 @@ final class SignInMotionTests: XCTestCase {
         var exitOpacity: Double?
         var resumedOpacity: Double?
         var reversal: Capture?
-        var testWindow: UIWindow?
-        let (window, _) = try await present(driver) { opacity, leaving in
+        var host: (window: UIWindow, view: UIView)?
+        let (window, controller) = try await present(driver) { opacity, leaving in
             if leaving, opacity > 0.2, opacity < 0.8, exitOpacity == nil {
                 exitOpacity = opacity
                 driver.stage = .choosing
                 reversed.fulfill()
             } else if !leaving, opacity < 0.95, opacity > 0, exitOpacity != nil, resumedOpacity == nil {
                 resumedOpacity = opacity
-                if let testWindow { reversal = self.capture(testWindow) }
+                if let host { reversal = self.capture(host.window, in: host.view) }
                 resumed.fulfill()
             }
             if !leaving, opacity == 1, resumedOpacity != nil, !didComplete {
@@ -251,7 +260,8 @@ final class SignInMotionTests: XCTestCase {
             }
         }
         defer { window.isHidden = true; window.rootViewController = nil }
-        testWindow = window
+        let view = try XCTUnwrap(controller.view)
+        host = (window, view)
         driver.stage = .awaitingKey(.opencode)
         await fulfillment(of: [reversed, resumed, completed], timeout: 5, enforceOrder: true)
         XCTAssertNotNil(exitOpacity)
@@ -259,8 +269,8 @@ final class SignInMotionTests: XCTestCase {
         let returning = try XCTUnwrap(reversal)
         XCTAssertFalse(returning.labels.contains { $0.contains("Paste your") })
         XCTAssertEqual(driver.stage, .choosing)
-        _ = capture(window, commitUpdates: true)
-        let restoredButton = try kimiButton(in: window)
+        _ = capture(window, in: view, commitUpdates: true)
+        let restoredButton = try kimiButton(in: view)
         XCTAssertTrue(restoredButton.accessibilityActivate())
         XCTAssertEqual(driver.stage, .choosingRegion(.kimi), "the restored chooser action opens the region step")
         attach(returning.image, name: "sign-in-reverse")
@@ -269,18 +279,19 @@ final class SignInMotionTests: XCTestCase {
     func testReducedMotionCutsWithoutAnyIntermediateNativeOpacity() async throws {
         let driver = Driver()
         var intermediate: [Double] = []
-        let (window, _) = try await present(driver, reduced: true) { opacity, _ in
+        let (window, controller) = try await present(driver, reduced: true) { opacity, _ in
             if opacity > 0, opacity < 1 { intermediate.append(opacity) }
         }
         defer { window.isHidden = true; window.rootViewController = nil }
-        let before = capture(window, commitUpdates: true)
+        let view = try XCTUnwrap(controller.view)
+        let before = capture(window, in: view, commitUpdates: true)
         let region = try cardRegion(in: window)
         XCTAssertTrue(before.labels.contains { $0.contains("Kimi") })
         driver.stage = .awaitingKey(.opencode)
         // A display link fires before the next update. Ask UIKit for the first committed change.
-        let first = capture(window, commitUpdates: true)
+        let first = capture(window, in: view, commitUpdates: true)
         await FrameGate().next()
-        let settled = capture(window, commitUpdates: true)
+        let settled = capture(window, in: view, commitUpdates: true)
         attach(first.image, name: "sign-in-reduced-first-commit")
         attach(settled.image, name: "sign-in-reduced-settled")
         let firstPixels = try cardPixels(first.image, in: region)

@@ -70,7 +70,14 @@ struct AddAccountSheet: View {
     }
 
     #if DEBUG
-    init(stage: Binding<Stage>, captureStep: @escaping (Double, Bool) -> Void) {
+    static func rendering(stage: Binding<Stage>, reduceMotion: Bool,
+                          captureStep: @escaping (Double, Bool) -> Void) -> some View {
+        // Apply the app's environment key, not the rendering target's copy of UsageMotion.
+        AddAccountSheet(stage: stage, captureStep: captureStep)
+            .environment(\.reduceMotionOverride, reduceMotion)
+    }
+
+    private init(stage: Binding<Stage>, captureStep: @escaping (Double, Bool) -> Void) {
         initialProvider = nil
         drivenStage = stage
         self.captureStep = captureStep

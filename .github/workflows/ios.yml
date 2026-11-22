@@ -161,6 +161,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Render non-pinned Home Screen and accessory views in English and German
+        if: ${{ !cancelled() }}
         working-directory: ios/UsageLimits
         run: |
           set -euo pipefail
