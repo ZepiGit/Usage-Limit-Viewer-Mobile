@@ -1456,7 +1456,7 @@ class CreditHierarchyTest(unittest.TestCase):
 
     def unrelated_credit_screens(self):
         labels = ("Synthetic credit", "$3.18", "Name", "Compact", "Kompakt", "Guthabenkonten",
-                  "Credits · 1 balance", "Nothing to monitor yet", "Guthaben · 1 Konto", "Noch nichts zu verfolgen",
+                  "Credits · 1 balance", "No usage accounts yet", "Guthaben · 1 Konto", "Noch keine Nutzungskonten",
                   "Normal", "Usage providers", "Nutzungskonten", "Credit accounts")
         return ET.fromstring('<hierarchy>' + ''.join(
             f'<node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true" checkable="true" checked="true" '
@@ -1580,6 +1580,62 @@ class CreditHierarchyTest(unittest.TestCase):
                     content-desc="{label}, localized low-balance hint" bounds="[0,10][300,60]"/></hierarchy>''')
                 self.assertTrue(runtime_smoke.credit_matches(spoken, label, runtime_smoke.DEBUG_PACKAGE))
                 self.assertFalse(runtime_smoke.matches(spoken, label, runtime_smoke.DEBUG_PACKAGE))
+
+    def compact_order_journey(self, directory, wrong_order=None, old_label=None, foreign=None):
+        """Keep credit_steps' actual EN/DE C1 lookup, geometry and balance accessibility checks."""
+        device = FakeDevice()
+        smoke = Smoke(Path(directory), "test-device")
+        unrelated = self.unrelated_credit_screens()
+        compact = []
+        def observe(name, **kwargs):
+            if name in ("credits-de-persisted-hidden", "credits-de-final-hidden"):
+                return self.tree("Guthaben anzeigen", "false")
+            if name == "credits-de-persisted-no-credit":
+                return ET.fromstring('<hierarchy/>')
+            if name in ("credits-en-compact-order", "credits-de-compact-order"):
+                locale = "en" if "-en-" in name else "de"
+                compact.append(locale)
+                label = ("No usage accounts yet" if locale == "en" else "Noch keine Nutzungskonten")
+                if old_label == locale:
+                    label = "Nothing to monitor yet" if locale == "en" else "Noch nichts zu verfolgen"
+                title = "Credits · 1 balance" if locale == "en" else "Guthaben · 1 Konto"
+                hint = "Low balance: Synthetic credit $3.18" if locale == "en" else "Niedriges Guthaben: Synthetic credit 3,18"
+                # Run 44971270130/artifact 14736240076, credits-en-compact-order.xml:
+                # the credit header [28,277][692,361] precedes C1 [28,634][389,675].
+                y = 800 if wrong_order == locale else 277
+                package = "other.package" if foreign == locale else runtime_smoke.DEBUG_PACKAGE
+                return ET.fromstring(f'<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}" '
+                    f'content-desc="{title}, {hint}" bounds="[28,{y}][692,{y + 84}]"/>'
+                    f'<node package="{package}" text="{label}" bounds="[28,634][389,675]"/></hierarchy>')
+            return unrelated
+        with patch.object(runtime_smoke.subprocess, "run", device.run), patch.object(runtime_smoke, "time", device), \
+                patch.object(smoke, "seed_credit_only"), patch.object(smoke, "launch"), \
+                patch.object(smoke, "navigate_credit"), patch.object(smoke, "capture"), \
+                patch.object(smoke, "credit_control", side_effect=lambda name, label, **kwargs: self.tree(label)[0]), \
+                patch.object(smoke, "credit_selection"), patch.object(smoke, "dump", side_effect=observe), \
+                patch.object(smoke, "wait_for", return_value=unrelated):
+            result = smoke.credit_steps(Path("fixture.apk"))
+        return result, compact
+
+    def test_credit_only_c1_titles_reach_both_real_compact_order_assertions(self):
+        with TemporaryDirectory() as directory:
+            result, compact = self.compact_order_journey(directory)
+        self.assertEqual(["en", "de"], compact)
+        self.assertEqual(["en-US", "de-DE"], result["creditLocales"])
+        self.assertEqual("hidden choice persisted", result["creditRelaunch"])
+
+    def test_credit_only_c1_geometric_order_remains_required_in_both_locales(self):
+        for locale, title in (("en", "Credits"), ("de", "Guthaben")):
+            with self.subTest(locale=locale), TemporaryDirectory() as directory:
+                with self.assertRaisesRegex(AssertionError, "Show first did not put " + title + " above usage providers"):
+                    self.compact_order_journey(directory, wrong_order=locale)
+
+    def test_obsolete_or_foreign_c1_titles_cannot_satisfy_the_credit_consumer(self):
+        for locale in ("en", "de"):
+            for option in ("old_label", "foreign"):
+                with self.subTest(locale=locale, option=option), TemporaryDirectory() as directory:
+                    with self.assertRaises(StopIteration):
+                        self.compact_order_journey(directory, **{option: locale})
 
     def test_english_and_german_credit_journey_labels_are_exact(self):
         expected = (
