@@ -17,6 +17,9 @@ import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
 import com.usagelimits.core.settings.OverviewCreditLayout
 import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.core.settings.OverviewShowFirst
@@ -339,15 +342,15 @@ class UsageViewModel internal constructor(
         }
     }
 
-    fun setAppTheme(theme: com.usagelimits.core.settings.AppTheme) {
+    fun setAppTheme(theme: AppTheme) {
         viewModelScope.launch { container.settingsStore.setAppTheme(theme) }
     }
 
-    fun setTextFont(font: com.usagelimits.core.settings.TextFont) {
+    fun setTextFont(font: TextFont) {
         viewModelScope.launch { container.settingsStore.setTextFont(font) }
     }
 
-    fun setFigureFont(font: com.usagelimits.core.settings.FigureFont) {
+    fun setFigureFont(font: FigureFont) {
         viewModelScope.launch { container.settingsStore.setFigureFont(font) }
     }
 

@@ -809,13 +809,7 @@ private fun LineBar(line: WindowLine, columns: GridColumns, modifier: Modifier =
 }
 
 /**
- * The figure: hidden from a screen reader (the label speaks the line) but still drawn as text, and
- * it fades through like every other figure. A pure mode change fades with the chip, including a
- * blocked window whose figure is "—" in one mode and "100%" in the other: keyed on the reading,
- * the node survives the flip. A new reading that gains or loses its figure is a different node and
- * replaces the old one at once.
- *
- * What the figure's fade is keyed on, from the reading and not from the display mode:
+ * The figure's fade is keyed on the reading, not the display mode:
  * - [FigureFade.MEASURED]: the window has a figure, whether or not it is blocked;
  * - [FigureFade.BLOCKED]: blocked and without a measurement, so one mode shows "—" and the other "100%";
  * - [FigureFade.UNKNOWN]: neither.

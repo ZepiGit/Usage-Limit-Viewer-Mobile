@@ -942,6 +942,13 @@ class RedesignWidgetCaptureTest {
         view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
         view.layout(0, 0, width, height)
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { view.draw(Canvas(it)) }
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        try {
+            view.draw(Canvas(bitmap))
+            return bitmap
+        } catch (error: Throwable) {
+            bitmap.recycle()
+            throw error
+        }
     }
 }
