@@ -148,6 +148,38 @@ tasks.withType<Test>().configureEach {
     if (System.getProperty("os.name").startsWith("Windows")) forkEvery = 1
     // RedesignCaptureTest writes PNGs only when -PcaptureDir=<abs path> is given.
     providers.gradleProperty("captureDir").orNull?.let { systemProperty("capture.dir", it) }
+    // Unlike Gradle's buffered binary results, this opt-in journal retains a test's start even
+    // when its worker never completes. Columns: event, task, class, method, start ms, end ms, outcome.
+    providers.gradleProperty("testEventLog").orNull?.let { logPath ->
+        val eventLog = file(logPath)
+        val taskPath = path
+        doFirst {
+            try {
+                eventLog.parentFile.mkdirs()
+                eventLog.writeText("event\ttask\tclass\tmethod\tstartMs\tendMs\toutcome\n")
+            } catch (error: java.io.IOException) {
+                logger.warn("Could not initialize the test event journal", error)
+            }
+        }
+        addTestListener(object : org.gradle.api.tasks.testing.TestListener {
+            private fun record(event: String, test: org.gradle.api.tasks.testing.TestDescriptor,
+                start: Long, end: Long?, outcome: String) {
+                val line = listOf(event, taskPath, test.className.orEmpty(), test.name,
+                    start.toString(), end?.toString().orEmpty(), outcome)
+                    .joinToString("\t") { it.replace('\t', ' ').replace('\r', ' ').replace('\n', ' ') }
+                try {
+                    eventLog.appendText("$line\n")
+                } catch (error: java.io.IOException) {
+                    logger.warn("Could not append to the test event journal", error)
+                }
+            }
+            override fun beforeTest(test: org.gradle.api.tasks.testing.TestDescriptor) =
+                record("START", test, System.currentTimeMillis(), null, "RUNNING")
+            override fun afterTest(test: org.gradle.api.tasks.testing.TestDescriptor,
+                result: org.gradle.api.tasks.testing.TestResult) =
+                record("END", test, result.startTime, result.endTime, result.resultType.name)
+        })
+    }
     // Off by default. -PtestGcLog=<abs path> writes the test worker's GC log there, with the heap
     // after each collection, to measure the live set across the suite. It changes no heap size.
     providers.gradleProperty("testGcLog").orNull?.let { jvmArgs("-Xlog:gc*,gc+heap=debug:file=$it:uptime,tags") }
