@@ -6,6 +6,11 @@ import UsageLimitsKit
 
 @MainActor
 final class HoorayRenderingTests: XCTestCase {
+    nonisolated override func setUp() async throws {
+        try await super.setUp()
+        try await activateNativeRenderingScene()
+    }
+
     @MainActor
     private final class Controls: ObservableObject {
         @Published var ready = false
