@@ -24,6 +24,8 @@ On Windows, use `gradlew.bat`. The debug APK is `app/build/outputs/apk/debug/app
 
 CI runs `:app:testDebugUnitTest :app:lintDebug`. Lint aborts on errors and writes HTML and XML reports under `app/build/reports/`. Existing warnings remain warnings, with no baseline hiding them.
 
+For interrupted test jobs, `android-verification-evidence` includes `test-diagnostics/test-events.tsv`, with each test's start and finish flushed independently of Gradle's buffered results. CI also takes one thread snapshot after ten minutes, limited to test workers descended from that Gradle invocation. This is diagnostic evidence, not a longer test deadline or a claim that a stalled test has been fixed.
+
 The debug-build Credits smoke checks English and German selections, block order, localized balances and saved choices after force-stop. Show credits now precedes its dependent controls, with the changing Overview preview below all controls so it does not push the switch away from the finger. The smoke still requires a fully visible original target before its single tap and reads the requested selection afterward; a visible control with the wrong state fails. Historical clipped/reflow geometries remain regression cases. The Python harness tests cover hierarchy and input behavior, not the installed emulator journey.
 
 Android 17 omits `mLastAppearance` from its window dump when the appearance mask is zero. The theme smoke accepts that encoding only inside a complete, unambiguous primary-display policy owned by the visible app or starting window; status-bar regions and navigation appearance are still checked independently. Missing, foreign or incomplete policy remains unknown rather than silently passing as a dark theme.
