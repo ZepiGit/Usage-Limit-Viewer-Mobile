@@ -3,6 +3,7 @@ package com.usagelimits.statusicon
 import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
+import android.provider.Settings
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
@@ -59,8 +60,12 @@ class StatusIconOverviewReturnTest {
     private var restorations = 0
     private var cacheEvents = 0
     private lateinit var accountId: String
+    private var originalAnimatorDurationScale: String? = null
 
     @Before fun setUp() {
+        originalAnimatorDurationScale = Settings.Global.getString(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE)
+        // Status eligibility is under test, not motion: visible() must not drain unrelated animation frames.
+        Settings.Global.putFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
         runBlocking { app.startupJob?.join() }
         WorkManager.getInstance(app).cancelAllWork().result.get()
         resetTestWorkManager()
@@ -113,10 +118,14 @@ class StatusIconOverviewReturnTest {
             compose.runOnUiThread { barrier = app.observeStatusIconEligibility() }
             compose.waitDrained { barrier.isCompleted }
         } finally {
-            ReflectionHelpers.setField(app, "container", original)
-            WorkManager.getInstance(app).cancelAllWork().result.get()
-            ShadowLooper.idleMainLooper()
-            resetTestWorkManager()
+            try {
+                ReflectionHelpers.setField(app, "container", original)
+                WorkManager.getInstance(app).cancelAllWork().result.get()
+                ShadowLooper.idleMainLooper()
+                resetTestWorkManager()
+            } finally {
+                Settings.Global.putString(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, originalAnimatorDurationScale)
+            }
         }
     }
 
@@ -126,6 +135,8 @@ class StatusIconOverviewReturnTest {
         SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).fetchSemanticsNodes().isNotEmpty()
 
     private fun start() {
+        assertEquals("system motion is disabled before the real activity is created", 0f,
+            Settings.Global.getFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f), 0f)
         activity = Robolectric.buildActivity(UsageLimitsActivity::class.java)
         activity!!.create().start().resume().visible()
         compose.waitDrained { overview() && app.mainOpening.job?.isCompleted != false }
