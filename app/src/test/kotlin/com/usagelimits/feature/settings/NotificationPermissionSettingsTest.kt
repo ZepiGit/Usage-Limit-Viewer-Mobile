@@ -55,6 +55,7 @@ class NotificationPermissionSettingsTest {
 
     @Before fun prepare() {
         // The v2 rule queues composition work; setup must let that same scheduler run while suspended.
+        val preparation = fixtureScope.async {
             boundary("prepare.startup") { app.startupJob?.join() }
             boundary("prepare.cancelWork") { WorkManager.getInstance(app).cancelAllWork().await() }
             boundary("prepare.statusIconsEnabled") { app.container.settingsStore.setStatusIconsEnabled(false) }
