@@ -17,9 +17,14 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkManager
+import androidx.work.await
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.sync.resetTestWorkManager
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Before
 import org.junit.After
 import org.robolectric.shadows.ShadowLooper
@@ -37,32 +42,48 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(application = UsageLimitsApp::class, sdk = [34])
+@OptIn(ExperimentalCoroutinesApi::class)
 class NotificationPermissionSettingsTest {
+    private val fixtureDispatcher = StandardTestDispatcher()
+    private val fixtureJob = SupervisorJob()
+    private val fixtureScope = CoroutineScope(fixtureJob + fixtureDispatcher)
     @get:Rule
-    val compose = createAndroidComposeRule<ComponentActivity>()
+    val compose = createAndroidComposeRule<ComponentActivity>(effectContext = fixtureDispatcher)
     @get:Rule
     val testName = org.junit.rules.TestName()
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
 
-    @Before fun prepare(): Unit = runBlocking {
-        boundary("prepare.startup") { app.startupJob?.join() }
-        boundary("prepare.cancelWork") { WorkManager.getInstance(app).cancelAllWork().result.get() }
-        boundary("prepare.settings") {
-            app.container.settingsStore.setStatusIconsEnabled(false)
-            app.container.settingsStore.setPinnedAccounts(emptyList())
-            app.container.settingsStore.recordStatusIconEligibility(true)
+    @Before fun prepare() {
+        // The v2 rule queues composition work; setup must let that same scheduler run while suspended.
+            boundary("prepare.startup") { app.startupJob?.join() }
+            boundary("prepare.cancelWork") { WorkManager.getInstance(app).cancelAllWork().await() }
+            boundary("prepare.statusIconsEnabled") { app.container.settingsStore.setStatusIconsEnabled(false) }
+            boundary("prepare.pinnedAccounts") { app.container.settingsStore.setPinnedAccounts(emptyList()) }
+            boundary("prepare.eligibility") { app.container.settingsStore.recordStatusIconEligibility(true) }
+        }
+        try {
+            compose.waitDrained { preparation.isCompleted }
+            preparation.getCompleted()
+        } finally {
+            preparation.cancel()
+            compose.waitDrained { preparation.isCompleted }
         }
     }
 
     @After fun drain() {
-        lateinit var barrier: kotlinx.coroutines.Job
-        boundary("drain.observeEligibility") {
-            compose.runOnUiThread { barrier = app.observeStatusIconEligibility() }
+        try {
+            lateinit var barrier: kotlinx.coroutines.Job
+            boundary("drain.observeEligibility") {
+                compose.runOnUiThread { barrier = app.observeStatusIconEligibility() }
+            }
+            boundary("drain.awaitEligibility") { compose.waitDrained { barrier.isCompleted } }
+            boundary("drain.cancelWork") { WorkManager.getInstance(app).cancelAllWork().result.get() }
+            boundary("drain.idleMain") { ShadowLooper.idleMainLooper() }
+            boundary("drain.resetWorkManager") { resetTestWorkManager() }
+        } finally {
+            fixtureJob.cancel()
+            compose.waitDrained { fixtureJob.isCompleted }
         }
-        boundary("drain.awaitEligibility") { compose.waitDrained { barrier.isCompleted } }
-        boundary("drain.cancelWork") { WorkManager.getInstance(app).cancelAllWork().result.get() }
-        boundary("drain.idleMain") { ShadowLooper.idleMainLooper() }
-        boundary("drain.resetWorkManager") { resetTestWorkManager() }
     }
 
     // The CI test START event precedes setup; paired markers locate its first unfinished wait.
