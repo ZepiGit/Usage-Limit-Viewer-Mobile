@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -134,11 +135,12 @@ class StatusIconOverviewReturnTest {
     private fun overview() = compose.onAllNodes(hasText("Overview") and
         SemanticsMatcher.expectValue(SemanticsProperties.Selected, true)).fetchSemanticsNodes().isNotEmpty()
 
-    private fun start() {
+    private fun start(): WorkInfo {
         assertEquals("system motion is disabled before the real activity is created", 0f,
             Settings.Global.getFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f), 0f)
         val controller = Robolectric.buildActivity(UsageLimitsActivity::class.java).also { activity = it }
         controller.create().start().resume()
+        val opening = checkNotNull(app.mainOpening.job) { "the real activity start did not request opening work" }
         val wasPaused = ShadowChoreographer.isPaused()
         val looper = ShadowLooper.shadowMainLooper()
         val frameDelay = ShadowChoreographer.getFrameDelay()
@@ -168,7 +170,8 @@ class StatusIconOverviewReturnTest {
     private enum class Block { APP, PERMISSION, CATEGORY }
 
     @Test fun `an offline Overview return restores only a known effective eligibility edge, not an ordinary resume`() {
-        start()
+        val opening = start()
+        val openingJob = app.mainOpening.job
         val store = app.container.settingsStore
         for (block in Block.entries) {
             val before = restorations
