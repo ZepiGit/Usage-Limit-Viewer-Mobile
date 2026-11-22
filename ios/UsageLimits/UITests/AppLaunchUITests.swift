@@ -116,7 +116,8 @@ final class AppLaunchUITests: XCTestCase {
 
     private func waitForOrientation(_ app: XCUIApplication, landscape: Bool) {
         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            landscape ? app.frame.width > app.frame.height : app.frame.height > app.frame.width
+            let frame = app.frame
+            return landscape ? frame.width > frame.height : frame.height > frame.width
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 10), .completed)
     }
