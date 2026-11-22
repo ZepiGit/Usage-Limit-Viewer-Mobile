@@ -77,6 +77,22 @@ extension XCTestCase {
     }
 }
 
+@MainActor
+func nativeAccessibilityElements(in object: NSObject) -> [NSObject] {
+    guard !object.accessibilityElementsHidden else { return [] }
+    if let view = object as? UIView, view.isHidden || view.alpha == 0 { return [] }
+    if object.isAccessibilityElement { return [object] }
+    if let children = object.accessibilityElements, !children.isEmpty {
+        return children.compactMap { $0 as? NSObject }.flatMap { nativeAccessibilityElements(in: $0) }
+    }
+    let count = object.accessibilityElementCount()
+    if count > 0, count != NSNotFound {
+        return (0..<count).compactMap { object.accessibilityElement(at: $0) as? NSObject }
+            .flatMap { nativeAccessibilityElements(in: $0) }
+    }
+    return (object as? UIView)?.subviews.flatMap { nativeAccessibilityElements(in: $0) } ?? []
+}
+
 /// Native hosted sheet, not a timing-vector or modifier-wiring test. Captures are gated by
 /// SwiftUI reporting a real intermediate opacity; the timeout only fails a missing gate.
 @MainActor
@@ -116,20 +132,6 @@ final class SignInMotionTests: XCTestCase {
         try await presentNativeRendering(Host(driver: driver, reduced: reduced, capture: capture))
     }
 
-    private func elements(_ object: NSObject) -> [NSObject] {
-        guard !object.accessibilityElementsHidden else { return [] }
-        if let view = object as? UIView, view.isHidden || view.alpha == 0 { return [] }
-        if object.isAccessibilityElement { return [object] }
-        if let children = object.accessibilityElements, !children.isEmpty {
-            return children.compactMap { $0 as? NSObject }.flatMap(elements)
-        }
-        let count = object.accessibilityElementCount()
-        if count > 0, count != NSNotFound {
-            return (0..<count).compactMap { object.accessibilityElement(at: $0) as? NSObject }.flatMap(elements)
-        }
-        return (object as? UIView)?.subviews.flatMap(elements) ?? []
-    }
-
     private func accessibilityTree(_ view: UIView, depth: Int = 0) -> String {
         let entry = "\(String(repeating: "  ", count: depth))\(type(of: view)) "
             + "hidden=\(view.isHidden) alpha=\(view.alpha) axHidden=\(view.accessibilityElementsHidden) "
@@ -139,7 +141,7 @@ final class SignInMotionTests: XCTestCase {
     }
 
     private func kimiButton(in view: UIView) throws -> NSObject {
-        let nodes = elements(view)
+        let nodes = nativeAccessibilityElements(in: view)
         let button = nodes.first {
             $0.accessibilityTraits.contains(.button) && $0.accessibilityLabel?.contains("Kimi") == true
         }
@@ -158,7 +160,7 @@ final class SignInMotionTests: XCTestCase {
             XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: commitUpdates),
                 "the native sheet must remain renderable during the captured step")
         }
-        return Capture(image: image, labels: elements(view).compactMap(\.accessibilityLabel))
+        return Capture(image: image, labels: nativeAccessibilityElements(in: view).compactMap(\.accessibilityLabel))
     }
 
     func testLeavingChooserIsNotAccessibleOrActionableAndNeverDrawsOverTheKeyStep() async throws {
@@ -187,7 +189,12 @@ final class SignInMotionTests: XCTestCase {
                 settled.fulfill()
             }
         }
-        defer { window.isHidden = true; window.rootViewController = nil }
+        defer {
+            host = nil
+            staleButton = nil
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         let view = try XCTUnwrap(controller.view)
         host = (window, view)
         let before = capture(window, in: view, commitUpdates: true)
@@ -245,13 +252,14 @@ final class SignInMotionTests: XCTestCase {
         var reversal: Capture?
         var host: (window: UIWindow, view: UIView)?
         let (window, controller) = try await present(driver) { opacity, leaving in
+            guard let host else { return }
             if leaving, opacity > 0.2, opacity < 0.8, exitOpacity == nil {
                 exitOpacity = opacity
                 driver.stage = .choosing
                 reversed.fulfill()
             } else if !leaving, opacity < 0.95, opacity > 0, exitOpacity != nil, resumedOpacity == nil {
                 resumedOpacity = opacity
-                if let host { reversal = self.capture(host.window, in: host.view) }
+                reversal = self.capture(host.window, in: host.view)
                 resumed.fulfill()
             }
             if !leaving, opacity == 1, resumedOpacity != nil, !didComplete {
@@ -259,7 +267,11 @@ final class SignInMotionTests: XCTestCase {
                 completed.fulfill()
             }
         }
-        defer { window.isHidden = true; window.rootViewController = nil }
+        defer {
+            host = nil
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         let view = try XCTUnwrap(controller.view)
         host = (window, view)
         driver.stage = .awaitingKey(.opencode)

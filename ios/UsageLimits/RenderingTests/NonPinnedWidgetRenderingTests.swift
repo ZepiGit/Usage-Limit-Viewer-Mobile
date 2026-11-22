@@ -285,22 +285,11 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
     }
 
     private func creditStatusLabels(in object: NSObject) -> [String] {
-        guard !object.accessibilityElementsHidden else { return [] }
-        if let view = object as? UIView, view.isHidden || view.alpha == 0 { return [] }
-        if object.isAccessibilityElement {
-            guard (object as? UIAccessibilityIdentification)?.accessibilityIdentifier == "credit-widget-status",
-                  let label = object.accessibilityLabel else { return [] }
-            return [label]
+        nativeAccessibilityElements(in: object).compactMap { element in
+            guard (element as? UIAccessibilityIdentification)?.accessibilityIdentifier == "credit-widget-status"
+            else { return nil }
+            return element.accessibilityLabel
         }
-        if let children = object.accessibilityElements {
-            return children.compactMap { $0 as? NSObject }.flatMap { creditStatusLabels(in: $0) }
-        }
-        let count = object.accessibilityElementCount()
-        if count > 0, count < 1_000 {
-            return (0..<count).compactMap { object.accessibilityElement(at: $0) as? NSObject }
-                .flatMap { creditStatusLabels(in: $0) }
-        }
-        return (object as? UIView)?.subviews.flatMap { creditStatusLabels(in: $0) } ?? []
     }
 
     private func account(_ provider: String, remaining: Double?, fetchedAgo: TimeInterval = 60,
