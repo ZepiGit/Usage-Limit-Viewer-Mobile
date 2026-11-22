@@ -606,10 +606,8 @@ class ThreeTabsTest(unittest.TestCase):
 
 
 class BootReadinessTest(unittest.TestCase):
-    # Dialog text/IDs transcribed from runs 44012206579 attempt 2 and 44055226886 (#66).
-    DIALOG = '''<hierarchy><node package="android" resource-id="android:id/alertTitle"
-        text="System UI isn't responding"/><node package="android" resource-id="android:id/aerr_close"
-        text="Close app"/><node package="android" resource-id="android:id/aerr_wait" text="Wait"/></hierarchy>'''
+    # Exact captured XML from run 44012206579 attempt 2, artifact 14304625757 (#66).
+    DIALOG = (Path(__file__).parent / "fixtures/systemui-startup-anr-44012206579.xml").read_text()
     ANR = ("ACTIVITY MANAGER LAST ANR (dumpsys activity lastanr)\nANR in com.android.systemui\n"
            "PID: 1061\nReason: Process com.android.systemui failed to complete startup\n")
     CLEAN = "ACTIVITY MANAGER LAST ANR (dumpsys activity lastanr)\n  <no ANR has occurred since boot>"
