@@ -282,19 +282,38 @@ final class AppLaunchUITests: XCTestCase {
     }
 
     func testShowCreditsKeepsTapBoundsWhileDependentControlsAndPreviewChange() {
-        let app = launch(["-marketing-demo", "-overview-credits-demo", "-reduce-motion"])
+        let app = launch(["-marketing-demo", "-overview-credits-demo", "-reduce-motion",
+                          "-settings-native-control-trace"])
         defer { app.terminate() }
         tabButton("Settings", in: app).tap()
         setSwitch("settings-overview-show-credits", to: false, in: app, initially: true)
         let toggle = app.switches["settings-overview-show-credits"]
         XCTAssertTrue(scrollTo(toggle, in: app, towardStart: true,
             requireFullyVisible: true))
+        let offset = CGVector(dx: 0.9, dy: 0.5)
         for enabled in [true, false] {
             let before = toggle.frame
-            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            let began = ProcessInfo.processInfo.systemUptime
+            toggle.coordinate(withNormalizedOffset: offset).tap()
+            let ended = ProcessInfo.processInfo.systemUptime
+            let expected = enabled ? "1" : "0"
             let changed = XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "value == %@", enabled ? "1" : "0"), object: toggle)
-            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 10), .completed)
+                predicate: NSPredicate(format: "value == %@", expected), object: toggle)
+            let result = XCTWaiter.wait(for: [changed], timeout: 10)
+            if result != .completed {
+                attachSettingsTrace(in: app)
+                let point = CGPoint(x: before.minX + before.width * offset.dx,
+                                    y: before.minY + before.height * offset.dy)
+                let hierarchy = XCTAttachment(string:
+                    "Expected Show credits value \(expected); tap uptime: \(began)–\(ended); "
+                    + "AX frame before tap: \(before), requested tap point: \(point); "
+                    + "app frame at failure: \(app.frame), bottom tabs: \(bottomTabBarFrame(in: app))\n"
+                    + app.debugDescription)
+                hierarchy.name = "Show credits tap and accessibility hierarchy"
+                hierarchy.lifetime = .keepAlways
+                add(hierarchy)
+            }
+            XCTAssertEqual(result, .completed)
             // No scrolling or second tap may rescue a switch that moved away from the finger.
             XCTAssertTrue(toggle.isHittable)
             XCTAssertEqual(toggle.frame.minY, before.minY, accuracy: 2)
