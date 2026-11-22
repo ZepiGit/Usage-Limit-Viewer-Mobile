@@ -203,8 +203,12 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
     }
 
     func testSmallCreditCompactStatusesKeepTheirOriginalAccessibilityLabels() async throws {
-        let language = try XCTUnwrap(ProcessInfo.processInfo.environment["NON_PINNED_LANGUAGE"])
+        let environment = ProcessInfo.processInfo.environment
+        let directory = try XCTUnwrap(environment["NON_PINNED_RENDERINGS"], "set TEST_RUNNER_NON_PINNED_RENDERINGS")
+        let language = try XCTUnwrap(environment["NON_PINNED_LANGUAGE"], "set TEST_RUNNER_NON_PINNED_LANGUAGE")
         XCTAssertEqual(String(localized: "Locked"), language == "de" ? "Gesperrt" : "Locked")
+        let output = URL(fileURLWithPath: directory).appendingPathComponent(language)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let fixtureURL = try XCTUnwrap(Bundle(for: NonPinnedWidgetRenderingTests.self)
             .url(forResource: "credit-widget-compact-status", withExtension: "json"))
         let fixture = try JSONDecoder().decode(CompactCreditStatuses.self, from: Data(contentsOf: fixtureURL))
@@ -232,6 +236,7 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
 
             let view = CreditsSmallView(entry: entry)
             let image = try render(view, size: size, typeSize: .accessibility5)
+            try write(image, name: "credit-compact-\(vector.state.rawValue)-ax5", to: output)
             let recognized = try words(image).sorted { $0.bounds.midY > $1.bounds.midY }
             let visible = recognized.map(\.text).joined(separator: " ")
             let expected = unread ? original : compact
