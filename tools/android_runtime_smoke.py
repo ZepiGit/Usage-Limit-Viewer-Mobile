@@ -1757,7 +1757,7 @@ class Smoke:
         show = self.credit_control("credits-de-restored-show", "Guthaben anzeigen", up=True)
         self.tap(show)
         self.credit_selection("credits-de-restored-visible", "Guthaben anzeigen", True)
-        layout = self.credit_control("credits-de-persisted-layout", "Kompakt", up=False)
+        layout = self.credit_control("credits-de-persisted-layout", "Kompakt", up=True)
         assert credit_selected(layout, True), "Compact layout did not persist after force-stop"
         first = self.credit_control("credits-de-persisted-order", "Guthabenkonten", up=True)
         assert credit_selected(first, True), "Credit-first order did not persist after force-stop"

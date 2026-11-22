@@ -1534,6 +1534,86 @@ class CreditHierarchyTest(unittest.TestCase):
                         ET.fromstring(device.hierarchy()), "Guthaben anzeigen", True))
                     self.assertTrue(device.checked)
 
+    class RestoredCreditDevice(FakeDevice):
+        """Run 44999291762: restored Show credits at y1201; its layout is below the fold."""
+        def __init__(self, checked=True):
+            super().__init__()
+            self.show = False
+            self.layout_checked = checked
+            self.offset = 0
+            self.taps = []
+
+        def answer(self, command):
+            if command[:3] == ("shell", "input", "tap"):
+                self.taps.append(command[3:])
+                self.show = True
+                return b""
+            if command[:3] == ("shell", "input", "swipe"):
+                self.offset += 596 if int(command[4]) > int(command[6]) else -596
+                return b""
+            return super().answer(command)
+
+        def hierarchy(self):
+            pkg = self.PACKAGE
+            toggle = (f'<node package="{pkg}" enabled="true" clickable="true" checkable="true" '
+                      f'checked="{str(self.show).lower()}" bounds="[573,1201][664,1285]">'
+                      f'<node package="{pkg}" content-desc="Guthaben anzeigen" bounds="[573,1215][664,1271]"/></node>')
+            layout = ""
+            if self.show and self.offset > 0:
+                # Captured layout y1185 plus the unchanged switch's y1201-895 offset = y1491.
+                # One existing 596px upward swipe brings that below-fold row fully into view.
+                top = 1491 - self.offset
+                layout = (f'<node package="{pkg}" enabled="true" checkable="true" '
+                          f'checked="{str(self.layout_checked).lower()}" clickable="{str(not self.layout_checked).lower()}" '
+                          f'bounds="[190,{top}][337,{top + 84}]">'
+                          f'<node package="{pkg}" text="Kompakt" bounds="[214,{top + 28}][311,{top + 57}]"/></node>')
+            heading = (f'<node package="{pkg}" text="Guthabenkonten" bounds="[56,1334][265,1336]"/>'
+                       if self.show and self.offset == 0 else "")
+            return (f'<hierarchy><node package="{pkg}" scrollable="true" enabled="true" '
+                    f'bounds="[0,144][720,1336]">{toggle}{heading}{layout}</node></hierarchy>').encode()
+
+    def restored_layout_journey(self, directory, checked=True):
+        device = self.RestoredCreditDevice(checked)
+        smoke = Smoke(Path(directory), "test-device")
+        original_control, original_dump, original_selection = smoke.credit_control, smoke.dump, smoke.credit_selection
+        unrelated = self.unrelated_credit_screens()
+        def reach(name, label, **kwargs):
+            if name in ("credits-de-restored-show", "credits-de-persisted-layout"):
+                return original_control(name, label, **kwargs)
+            return self.tree(label)[0]
+        def observe(name, **kwargs):
+            if name.startswith(("credits-de-restored-show-", "credits-de-restored-visible-", "credits-de-persisted-layout-")):
+                return original_dump(name, **kwargs)
+            if name in ("credits-de-persisted-hidden", "credits-de-final-hidden"):
+                return self.tree("Guthaben anzeigen", "false")
+            if name == "credits-de-persisted-no-credit":
+                return ET.fromstring('<hierarchy/>')
+            return unrelated
+        with patch.object(runtime_smoke.subprocess, "run", device.run), patch.object(runtime_smoke, "time", device), \
+                patch.object(smoke, "seed_credit_only"), patch.object(smoke, "launch"), \
+                patch.object(smoke, "navigate_credit"), patch.object(smoke, "capture"), \
+                patch.object(smoke, "tap", side_effect=lambda node: Smoke.tap(smoke, node)
+                             if node.get("checkable") == "true" and node.get("bounds") == "[573,1201][664,1285]" else None), \
+                patch.object(smoke, "credit_control", side_effect=reach), \
+                patch.object(smoke, "credit_selection", side_effect=lambda name, *args, **kwargs:
+                             original_selection(name, *args, **kwargs) if name == "credits-de-restored-visible" else unrelated), \
+                patch.object(smoke, "dump", side_effect=observe), patch.object(smoke, "wait_for", return_value=unrelated):
+            result = smoke.credit_steps(Path("fixture.apk"))
+        return result, device
+
+    def test_restored_show_reaches_persisted_layout_below_the_unchanged_switch(self):
+        with TemporaryDirectory() as directory:
+            result, device = self.restored_layout_journey(directory)
+        self.assertEqual("hidden choice persisted", result["creditRelaunch"])
+        self.assertEqual([("618", "1243")], device.taps)
+        swipes = [command for command, _, _ in device.calls if command[:3] == ("shell", "input", "swipe")]
+        self.assertEqual([("shell", "input", "swipe", "360", "1038", "360", "442", "400")], swipes)
+
+    def test_restored_visible_wrong_layout_still_fails_its_persistence_assertion(self):
+        with TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(AssertionError, "Compact layout did not persist after force-stop"):
+                self.restored_layout_journey(directory, checked=False)
+
     def test_selected_semantics_without_checked_attribute(self):
         root = ET.fromstring(f'''<hierarchy><node package="{runtime_smoke.DEBUG_PACKAGE}" enabled="true"
             selected="true" clickable="false" bounds="[0,10][300,60]">
