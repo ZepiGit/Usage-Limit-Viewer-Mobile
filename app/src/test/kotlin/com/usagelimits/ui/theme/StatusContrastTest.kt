@@ -23,8 +23,8 @@ import kotlin.math.pow
  *
  * The StatusMark word, the row figure and the stamp are 12-14sp: normal text, so 4.5:1, not the
  * 3:1 large-text allowance. Severity hues are dots now, so they are held to the 3:1 graphic floor
- * instead; only the figure tones and the greys are text. Faint is not text ink on Raised:
- * that surface uses Muted. Grounds are resolved from the palette's actual colour resources.
+ * instead; only the figure tones and the greys are text. Faint does not clear AA on Raised
+ * across all palettes, so that surface uses Muted. Grounds use the actual colour resources.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -56,11 +56,11 @@ class StatusContrastTest {
 
     @Test
     fun `text roles and status marks meet their floors on every palette surface`() {
+        assertTrue("Faint is not safe text ink on Raised across all palettes",
+            AppTheme.entries.minOf { contrast(it.colors.Faint, it.colors.Raised) } < AA_NORMAL_TEXT)
         for (theme in AppTheme.entries) {
             val palette = theme.colors
             val ground = Color(resources.getColor(palette.groundRes, null))
-            assertTrue("$theme Faint is not AA text ink on Raised",
-                contrast(palette.Faint, palette.Raised) < AA_NORMAL_TEXT)
             val surfaces = mapOf("ground" to ground, "surface" to palette.Surface, "raised" to palette.Raised)
             for ((surface, background) in surfaces) {
                 val quiet = if (surface == "raised") palette.Muted else palette.Faint
