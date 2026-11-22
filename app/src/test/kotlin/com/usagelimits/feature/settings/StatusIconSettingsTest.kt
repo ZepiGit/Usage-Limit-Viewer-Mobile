@@ -49,7 +49,7 @@ class StatusIconSettingsTest {
     val compose = createAndroidComposeRule<ComponentActivity>()
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
 
-    @Before fun prepare() = runBlocking {
+    @Before fun prepare(): Unit = runBlocking {
         app.startupJob?.join()
         WorkManager.getInstance(app).cancelAllWork().result.get()
         app.container.settingsStore.setStatusIconsEnabled(false)
