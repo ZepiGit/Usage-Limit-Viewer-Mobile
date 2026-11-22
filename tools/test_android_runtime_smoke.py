@@ -2295,34 +2295,54 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
 
 
 class ThemeLaunchCaptureTest(unittest.TestCase):
-    def capture(self, transform=lambda phase, data, window: (data, window), fail_start=False, fail_capture=False):
-        events, frame_number = [], 0
+    def capture(self, transform=lambda phase, data, window: (data, window), start_failure=None, fail_capture=False):
+        events = []
         clock = FakeDevice()
+        launch_requested = None
         with TemporaryDirectory() as directory:
             smoke = Smoke(Path(directory), "test-device")
+
             def phase():
-                return "system" if frame_number < 3 else "app"
+                # PR 45023095449: a capture requested before launch dispatch returned launcher
+                # pixels ~2 s later. The app was drawn before the next WM probe could start.
+                elapsed = clock.now - launch_requested if launch_requested is not None else 0
+                return "home" if elapsed < 0.10 else "system" if elapsed < 0.80 else "app"
+
             def adb(*args, **kwargs):
-                nonlocal frame_number
-                clock.now += 0.25
+                observed = phase()
                 events.append(args)
                 if args[:2] == ("exec-out", "screencap"):
                     if fail_capture:
                         raise subprocess.CalledProcessError(1, args)
-                    frame_number += 1
-                    data = ThemeLaunchTest.pixels(artwork=phase() == "app")
-                    return transform(phase(), data, ThemeLaunchTest.window(phase()))[0]
+                    if observed == "home":
+                        clock.now += 1.996
+                        return ThemeLaunchTest.pixels((60, 70, 90), settled=True)
+                    clock.now += 0.12
+                    data = ThemeLaunchTest.pixels(artwork=observed == "app")
+                    return transform(observed, data, ThemeLaunchTest.window(observed))[0]
                 if args == ("shell", "dumpsys", "window", "-a"):
-                    return transform(phase(), b"", ThemeLaunchTest.window(phase()))[1]
+                    clock.now += 0.12
+                    if observed == "home":
+                        return ThemeLaunchTest.window("app").replace("com.usagelimits", "com.android.launcher3")
+                    return transform(observed, b"", ThemeLaunchTest.window(observed))[1]
                 return ""
+
             class Start:
-                returncode = 1 if fail_start else 0
+                returncode = 1 if start_failure == "exit" else 0
+
                 def communicate(self, timeout):
                     events.append(("joined",))
-                    return b"Starting: Intent", b"failed" if fail_start else b""
+                    if start_failure == "timeout" and ("killed",) not in events:
+                        raise subprocess.TimeoutExpired("am start", timeout)
+                    clock.now = max(clock.now, launch_requested + 0.14)
+                    return b"Starting: Intent", b"failed" if start_failure else b""
+
                 def kill(self):
                     events.append(("killed",))
+
             def popen(*args, **kwargs):
+                nonlocal launch_requested
+                launch_requested = clock.now
                 events.append(("start", args[0]))
                 return Start()
             with patch.object(smoke, "adb", side_effect=adb), \
@@ -2334,23 +2354,27 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
                     result = error
             report = json.loads((Path(directory) / "theme.json").read_text())
             self.assertTrue(all((Path(directory) / item["file"]).exists() for item in report["frames"]))
+            self.assertEqual("Starting: Intent\n" + ("failed" if start_failure else "") + "\n",
+                             (Path(directory) / "theme-launch.txt").read_text())
             return result, report, events
 
-    def test_sampling_is_armed_before_async_start_and_both_phases_are_mandatory(self):
+    def test_launch_dispatch_precedes_the_bracket_for_the_first_system_frame(self):
         result, report, events = self.capture()
         self.assertEqual("passed", report["result"], result)
         self.assertEqual("passed", result)
-        self.assertEqual(("shell", "dumpsys", "window", "-a"), events[0])
-        self.assertEqual("start", events[1][0])
-        self.assertNotIn("-W", events[1][1])
-        self.assertEqual(("exec-out", "screencap", "-p"), events[2])
-        self.assertLess(events.index(events[2]), events.index(("joined",)))
-        self.assertTrue(report["systemFrames"])
+        self.assertEqual("start", events[0][0])
+        self.assertNotIn("-W", events[0][1])
+        self.assertEqual([("joined",), ("shell", "dumpsys", "window", "-a"),
+                          ("exec-out", "screencap", "-p"), ("shell", "dumpsys", "window", "-a")], events[1:5])
+        self.assertEqual(report["frames"][0]["file"], report["systemFrames"][0])
+        measured = report["frames"][0]["measurement"]
+        self.assertEqual(["system", "system"], [measured[side]["phase"] for side in ("before", "after")])
         self.assertTrue(report["appFrames"])
+        self.assertEqual([], report["wrongFrames"])
         self.assertEqual({"status": "dark", "navigation": "dark"}, report["expectedIcons"])
         self.assertTrue(all("measurement" in sample for sample in report["frames"]))
 
-    def test_wrong_theme_missing_phases_either_wrong_bar_and_failed_start_fail_with_measurements(self):
+    def test_wrong_theme_missing_phases_and_either_wrong_bar_fail_with_measurements(self):
         cases = {
             "wrong theme": lambda phase, data, window: (ThemeLaunchTest.pixels((15, 15, 14), artwork=phase == "app"), window),
             "only settled app": lambda phase, data, window: (ThemeLaunchTest.pixels(settled=True), ThemeLaunchTest.window("app")),
@@ -2383,15 +2407,23 @@ class ThemeLaunchCaptureTest(unittest.TestCase):
         self.assertIsInstance(result, AssertionError)
         self.assertIn("Wrong themed launch frame", report["error"])
         self.assertTrue(report["systemFrames"], "A later fitting system frame must not excuse the wrong first frame")
-        result, report, _ = self.capture(fail_start=True)
-        self.assertIsInstance(result, AssertionError)
-        self.assertIn("Launch command failed", report["error"])
-        self.assertTrue(report["frames"])
         result, report, events = self.capture(fail_capture=True)
         self.assertIsInstance(result, subprocess.CalledProcessError)
         self.assertEqual("failed", report["result"])
         self.assertEqual([], report["frames"])
         self.assertIn(("joined",), events)
+
+    def test_launch_exit_and_timeout_do_not_sample_unrelated_frames(self):
+        for failure, message in [("exit", "Launch command failed (1)"),
+                                 ("timeout", "Launch command did not finish within the capture deadline")]:
+            with self.subTest(failure=failure):
+                result, report, events = self.capture(start_failure=failure)
+                self.assertIsInstance(result, AssertionError)
+                self.assertIn(message, report["error"])
+                self.assertEqual("failed", report["result"])
+                self.assertEqual([], report["frames"])
+                self.assertEqual(["start", "joined"] + (["killed", "joined"] if failure == "timeout" else []),
+                                 [event[0] for event in events])
 
 
 class ThemeSelectionTest(unittest.TestCase):

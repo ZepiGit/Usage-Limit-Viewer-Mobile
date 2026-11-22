@@ -2046,7 +2046,7 @@ class Smoke:
         return reports
 
     def capture_theme_launch(self, name, activity, ground, dark_icons):
-        """Mandatory release evidence, sampled while am start runs, never after start -W settles.
+        """Mandatory release evidence after launch dispatch, not after the app's first draw.
 
         One window probe per frame brackets adjacent screenshots. Keep pixel analysis out of the
         burst so Python cannot consume the short system-starting interval between captures.
@@ -2056,15 +2056,26 @@ class Smoke:
                   "expectedIcons": {bar: "dark" if dark_icons else "light" for bar in ("status", "navigation")},
                   "frames": [], "systemFrames": [], "appFrames": [],
                   "scope": "Bare system starting window, then app-owned overlay artwork; the same drawn surface and WindowManager bar appearance bracket each accepted screenshot, including the Shell handoff."}
-        start = None
-        previous = None
         failure = None
+        launch_output = None
         try:
-            previous = name + "-window-before.txt"
-            self.text(previous, self.adb("shell", "dumpsys", "window", "-a", deadline=deadline))
+            # Without -W, am start returns after dispatch, not after first draw. A racing
+            # screenshot can capture Home and block the next probe past the short starting phase.
             start = subprocess.Popen(["adb", "-s", self.serial, "shell", "am", "start", "--splashscreen-show-icon",
                                       "-n", activity, "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER"],
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                launch_output = start.communicate(timeout=max(0.1, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired as error:
+                start.kill()
+                launch_output = start.communicate(timeout=10)
+                raise AssertionError("Launch command did not finish within the capture deadline") from error
+            if start.returncode != 0:
+                raise AssertionError(f"Launch command failed ({start.returncode}); see {name}-launch.txt")
+
+            previous = name + "-window-before.txt"
+            self.text(previous, self.adb("shell", "dumpsys", "window", "-a", deadline=deadline))
+
             def observe(sample, data):
                 nonlocal previous
                 after = sample["file"].removesuffix(".png") + "-window.txt"
@@ -2075,17 +2086,8 @@ class Smoke:
         except BaseException as error:
             failure = error
         finally:
-            if start is not None:
-                try:
-                    output, error = start.communicate(timeout=max(0.1, deadline - time.monotonic()))
-                except subprocess.TimeoutExpired:
-                    start.kill()
-                    output, error = start.communicate(timeout=10)
-                    if failure is None:
-                        failure = AssertionError("Launch command did not finish within the capture deadline")
-                self.text(name + "-launch.txt", output.decode(errors="replace") + "\n" + error.decode(errors="replace"))
-                if start.returncode != 0 and failure is None:
-                    failure = AssertionError(f"Launch command failed ({start.returncode}); see {name}-launch.txt")
+            if launch_output is not None:
+                self.text(name + "-launch.txt", "\n".join(item.decode(errors="replace") for item in launch_output))
             try:
                 for sample in report["frames"]:
                     if "windowAfter" not in sample:
