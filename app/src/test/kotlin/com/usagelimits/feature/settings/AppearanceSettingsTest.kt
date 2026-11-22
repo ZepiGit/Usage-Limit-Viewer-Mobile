@@ -24,8 +24,12 @@ import com.usagelimits.core.model.CreditProviderId
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.InputModeManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -75,6 +79,11 @@ import org.robolectric.annotation.Config
 class AppearanceSettingsTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
+
+    private val keyboard = object : InputModeManager {
+        override val inputMode = InputMode.Keyboard
+        override fun requestInputMode(inputMode: InputMode) = inputMode == InputMode.Keyboard
+    }
 
     @Test
     fun `each theme is a mutually exclusive native choice and reports its exact value`() {
@@ -153,7 +162,9 @@ class AppearanceSettingsTest {
         var chosen: AppTheme? = null
         compose.setContent {
             UsageLimitsTheme {
-                AppearanceSettings(AppSettings(), onAppThemeChange = { chosen = it })
+                CompositionLocalProvider(LocalInputModeManager provides keyboard) {
+                    AppearanceSettings(AppSettings(), onAppThemeChange = { chosen = it })
+                }
             }
         }
         compose.onNodeWithText("Light paper")
@@ -168,16 +179,19 @@ class AppearanceSettingsTest {
     @Config(qualifiers = "w393dp-h1600dp")
     fun `keyboard focus paints a separate ring without changing theme selection`() {
         val settings = AppSettings()
+        var chosen: AppTheme? = null
         compose.setContent {
             UsageLimitsTheme {
-                AppearanceSettings(settings, onAppThemeChange = {})
+                CompositionLocalProvider(LocalInputModeManager provides keyboard) {
+                    AppearanceSettings(settings, onAppThemeChange = { chosen = it })
+                }
             }
         }
         val tile = compose.onNodeWithText("Light paper")
         tile.assertIsNotSelected()
         fun outerPixel(): Int {
             compose.waitForIdle()
-            val bounds = tile.fetchSemanticsNode().boundsInRoot
+            val bounds = tile.fetchSemanticsNode().boundsInWindow
             val density = compose.activity.resources.displayMetrics.density
             val root = compose.activity.window.decorView
             val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
@@ -185,11 +199,12 @@ class AppearanceSettingsTest {
                 finally { image.recycle() }
         }
         val before = outerPixel()
-        val bounds = tile.fetchSemanticsNode().boundsInRoot
+        val bounds = tile.fetchSemanticsNode().boundsInWindow
         tile.performSemanticsAction(SemanticsActions.RequestFocus) { it() }.assertIsFocused().assertIsNotSelected()
-        assertEquals("focus does not resize the tile", bounds, tile.fetchSemanticsNode().boundsInRoot)
+        assertEquals("focus does not resize the tile", bounds, tile.fetchSemanticsNode().boundsInWindow)
         assertNotEquals("the new ring is outside the unchanged selection border", before, outerPixel())
         assertEquals(AppTheme.PURE_BLACK.colors.Ink.toArgb(), outerPixel())
+        assertEquals("focus does not request a theme change", null, chosen)
         compose.onNodeWithText("Pure black").assertIsSelected()
     }
 

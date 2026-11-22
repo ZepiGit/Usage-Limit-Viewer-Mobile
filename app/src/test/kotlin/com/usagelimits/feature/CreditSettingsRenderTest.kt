@@ -43,6 +43,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w393dp-h2400dp-xhdpi")
@@ -81,6 +82,7 @@ class CreditSettingsRenderTest {
     }
 
     @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Config(qualifiers = "w320dp-h2400dp-xhdpi", fontScale = 1.6f)
     fun `large Show first radio choices wrap without losing either action`() {
         var settings by mutableStateOf(AppSettings())
@@ -114,6 +116,7 @@ class CreditSettingsRenderTest {
     @Test
     fun `settings preview follows layout and show first and hiding credits preserves manage`() {
         var settings by mutableStateOf(AppSettings())
+        var manageRequests = 0
         compose.setContent {
             UsageLimitsTheme {
                 SettingsScreen(
@@ -126,7 +129,7 @@ class CreditSettingsRenderTest {
                     onOverviewCreditLayoutChange = { settings = settings.copy(overviewCreditLayout = it) },
                     onOverviewShowFirstChange = { settings = settings.copy(overviewShowFirst = it) },
                     onOverviewShowCreditsChange = { settings = settings.copy(overviewShowCredits = it) },
-                    onManageCredits = {},
+                    onManageCredits = { manageRequests++ },
                 )
             }
         }
@@ -139,32 +142,34 @@ class CreditSettingsRenderTest {
         val layoutTop = compose.onNodeWithText("Layout").fetchSemanticsNode().boundsInRoot.top
         val showFirstTop = compose.onNodeWithText("Show first").fetchSemanticsNode().boundsInRoot.top
         assertTrue("Layout precedes Show first", layoutTop < showFirstTop)
-        val usageTop = compose.onNodeWithText("Claude Pro").fetchSemanticsNode().boundsInRoot.top
+        val usageTop = compose.onNodeWithText("OpenAI Codex Plus").assertIsDisplayed().fetchSemanticsNode().boundsInRoot.top
         val creditTop = compose.onNodeWithText("Credits").fetchSemanticsNode().boundsInRoot.top
         assertTrue("usage providers lead by default", usageTop < creditTop)
-        compose.onNodeWithText("DeepSeek").assertExists()
+        compose.onNodeWithText("DeepSeek").assertIsDisplayed()
         val lowBalance = hasContentDescription("Credits · 3 balances, Low balance: DeepSeek \$3.18")
         compose.onNode(lowBalance).assertDoesNotExist()
 
-        compose.onNode(hasText("Compact")).performScrollTo().performClick()
+        compose.onNode(hasText("Compact")).performScrollTo().assertIsDisplayed().performClick()
         compose.waitForIdle()
-        compose.onNodeWithText("Compact").assertExists()
-        compose.onNode(lowBalance).assertExists()
+        compose.onNodeWithText("Compact").assertIsSelected()
+        compose.onNode(lowBalance).performScrollTo().assertIsDisplayed()
 
         compose.onNode(
             hasText("Credit accounts") and SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton),
-        ).performScrollTo().performClick()
+        ).performScrollTo().assertIsDisplayed().performClick().assertIsSelected()
         compose.waitForIdle()
-        val reorderedUsageTop = compose.onNodeWithText("Claude Pro").fetchSemanticsNode().boundsInRoot.top
-        val reorderedCreditTop = compose.onNode(lowBalance).fetchSemanticsNode().boundsInRoot.top
+        compose.onNodeWithText("OpenAI Codex Plus").performScrollTo().assertIsDisplayed()
+        val reorderedUsageTop = compose.onNodeWithText("OpenAI Codex Plus").fetchSemanticsNode().boundsInRoot.top
+        val reorderedCreditTop = compose.onNode(lowBalance).assertIsDisplayed().fetchSemanticsNode().boundsInRoot.top
         assertTrue("credit accounts lead when selected", reorderedCreditTop < reorderedUsageTop)
 
-        compose.onNodeWithContentDescription("Show credits").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Show credits").performScrollTo().assertIsDisplayed().performClick()
         compose.waitForIdle()
         compose.onNodeWithText("Show first").assertDoesNotExist()
         compose.onNode(lowBalance).assertDoesNotExist()
         compose.onNodeWithText("DeepSeek").assertDoesNotExist()
         compose.onNodeWithText("Compact").assertDoesNotExist()
-        compose.onNodeWithText("Manage credit accounts").assertExists()
+        compose.onNodeWithText("Manage credit accounts").performScrollTo().assertIsDisplayed().performClick()
+        assertEquals(1, manageRequests)
     }
 }

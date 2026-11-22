@@ -58,6 +58,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import java.math.BigDecimal
 
 /** The credit screens, actually drawn: overview section, add sheet, detail. */
@@ -370,6 +371,7 @@ class CreditScreensRenderTest {
     }
 
     @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Config(qualifiers = "en-w300dp-h873dp", fontScale = 1.6f)
     fun `a long credit identity and its freshness remain readable at large text`() {
         val label = "Personal OpenRouter development balance"

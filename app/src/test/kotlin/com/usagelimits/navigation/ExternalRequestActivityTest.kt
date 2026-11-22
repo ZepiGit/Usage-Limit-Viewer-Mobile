@@ -18,6 +18,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasScrollToNodeAction
@@ -398,25 +399,36 @@ class ExternalRequestActivityTest {
 
     @Test fun `credit-only Overview tracks from C1 and both Manage routes return compact after leaving`() {
         gate.complete(Unit)
+        runBlocking {
+            container.settingsStore.setOverviewCreditLayout(OverviewCreditLayout.COMPACT)
+            container.settingsStore.setOverviewShowCredits(true)
+            credit()
+        }
         val controller = start(launcher())
         waitFor("credit-only C1 Track action") { shown("Track a prepaid credit balance") }
-        compose.onNode(hasText("Track a prepaid credit balance") and hasClickAction()).performClick()
+        val trackCredit = hasText("Track a prepaid credit balance") and hasClickAction()
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(trackCredit)
+        compose.onNode(trackCredit).assertIsDisplayed().performClick()
         waitFor("Add credit balance") { shown("Add credit balance") }
         back(controller)
         waitFor("credit-only C1 Overview") { onOverview() && shown("Track a prepaid credit balance") }
-        runBlocking { credit() }
+        runBlocking { container.settingsStore.setOverviewCreditLayout(OverviewCreditLayout.NORMAL) }
         waitFor("credit account in Overview") { shown("Synthetic credit") }
 
-        compose.onNode(hasText("Manage credit accounts") and hasClickAction()).performClick()
+        val manageCredits = hasText("Manage credit accounts") and hasClickAction()
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(manageCredits)
+        compose.onNode(manageCredits).assertIsDisplayed().performClick()
         waitFor("Credit accounts from Normal Manage") { onCreditManagement() }
         back(controller)
         waitFor("Normal Overview after Manage") { onOverview() && shown("Manage credit accounts") }
 
         runBlocking { container.settingsStore.setOverviewCreditLayout(OverviewCreditLayout.COMPACT) }
         waitFor("compact balance summary") { compose.onAllNodes(compactCredits).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNode(compactCredits and hasClickAction()).performClick()
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(compactCredits)
+        compose.onNode(compactCredits and hasClickAction()).assertIsDisplayed().performClick()
         waitFor("expanded credits") { shown("Collapse") }
-        compose.onNode(hasText("Manage credit accounts") and hasClickAction()).performClick()
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(manageCredits)
+        compose.onNode(manageCredits).assertIsDisplayed().performClick()
         waitFor("Credit accounts from expanded Manage") { onCreditManagement() }
         back(controller)
         waitFor("compact Overview after leaving expanded Manage") { onOverview() && compose.onAllNodes(compactCredits).fetchSemanticsNodes().isNotEmpty() && !shown("Collapse") }

@@ -442,21 +442,30 @@ class ScreenRenderTest {
             )
         }
         val scroll = compose.onNode(hasScrollToNodeAction())
-        scroll.performScrollToNode(hasText("Layout"))
+        scroll.performScrollToNode(hasText("OpenAI Codex Plus"))
         compose.onNodeWithText("OpenAI Codex Plus", useUnmergedTree = true).assertIsDisplayed()
+        scroll.performScrollToNode(hasText("61%"))
         compose.onNodeWithText("61%", useUnmergedTree = true).assertIsDisplayed()
+        scroll.performScrollToNode(hasContentDescription("Show subscription tier"))
         compose.onNode(hasContentDescription("Show subscription tier") and hasClickAction())
-            .performSemanticsAction(SemanticsActions.OnClick) { it() }
+            .assertIsDisplayed().performClick()
         compose.onNodeWithText("OpenAI Codex Plus", useUnmergedTree = true).assertDoesNotExist()
-        compose.onAllNodesWithText("OpenAI Codex", useUnmergedTree = true).onLast().assertIsDisplayed()
+        val untieredPreview = hasText("OpenAI Codex") and !hasClickAction()
+        scroll.performScrollToNode(untieredPreview)
+        compose.onNode(untieredPreview).assertIsDisplayed()
 
-        scroll.performScrollToNode(hasText("Used"))
-        compose.onNode(hasText("Used") and hasClickAction()).performSemanticsAction(SemanticsActions.OnClick) { it() }
-        compose.onNodeWithText("used", useUnmergedTree = true).assertIsDisplayed()
-        scroll.performScrollToNode(hasText("Dials"))
-        compose.onNode(hasText("Dials") and hasClickAction()).performSemanticsAction(SemanticsActions.OnClick) { it() }
-        compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and
-            hasContentDescription("56%", substring = true)).assertIsDisplayed()
+        scroll.performScrollToNode(hasText("Used") and hasClickAction())
+        compose.onNode(hasText("Used") and hasClickAction()).assertIsDisplayed().performClick()
+        val usedWindow = hasContentDescription("39% used", substring = true)
+        scroll.performScrollToNode(usedWindow)
+        compose.onNode(usedWindow).assertIsDisplayed()
+        compose.onNodeWithText("39%", useUnmergedTree = true).assertIsDisplayed()
+        scroll.performScrollToNode(hasText("Dials") and hasClickAction())
+        compose.onNode(hasText("Dials") and hasClickAction()).assertIsDisplayed().performClick()
+        val usedDial = hasContentDescription("OpenAI Codex", substring = true) and
+            hasContentDescription("56%", substring = true)
+        scroll.performScrollToNode(usedDial)
+        compose.onNode(usedDial).assertIsDisplayed()
         compose.onNodeWithText("39%", useUnmergedTree = true).assertDoesNotExist()
     }
 
