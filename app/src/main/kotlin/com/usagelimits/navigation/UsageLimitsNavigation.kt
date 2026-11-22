@@ -421,14 +421,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
     // next local day) when that is sooner, on returning to the app and on a time or zone change.
     val clock = rememberScreenClock(now) { at, zone ->
         val current = viewModel.state.value
-        var next = current.accounts.nextOverviewBoundary(at, zone, current.staleAfterMs)
-        for (entry in current.credits) {
-            val snapshot = entry.snapshot ?: continue
-            if (snapshot.balances.isEmpty()) continue
-            val stale = snapshot.fetchedAt + current.staleAfterMs
-            if (stale > at && stale < next) next = stale
-        }
-        next
+        current.accounts.nextOverviewBoundary(at, zone, current.staleAfterMs, current.credits)
     }
     val nowMs = clock.nowMs
     // New readings and a changed staleness threshold can move the next boundary.
@@ -481,6 +474,7 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                 val textFont = LocalTextFont.current
                 val figureFont = LocalFigureFont.current
                 val settings = state.settings
+                // The root loads appearance separately; keep it until the combined view-model state catches up.
                 SettingsScreen(
                     state = if (settings.appTheme == appTheme && settings.textFont == textFont && settings.figureFont == figureFont) state
                     else state.copy(settings = settings.copy(appTheme = appTheme, textFont = textFont, figureFont = figureFont)),

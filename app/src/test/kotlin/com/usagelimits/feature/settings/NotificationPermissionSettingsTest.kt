@@ -247,7 +247,7 @@ class NotificationPermissionSettingsTest {
                 SettingsScreen(
                     state = UsageUiState(settings = settings),
                     onSyncIntervalChange = {},
-                    onNotificationPermissionHandled = onNotificationPermissionHandled,
+                    onNotificationPermissionHandled = onNotificationPermissionHandled, onAppThemeChange = {},
                     onNotifyBelow20 = onNotifyBelow20,
                     onNotifyBelow10 = {},
                     onNotifyExhausted = {},

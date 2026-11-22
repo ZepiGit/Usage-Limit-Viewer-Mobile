@@ -1,6 +1,7 @@
 package com.usagelimits.core.settings
 
 import android.content.Context
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -115,9 +116,8 @@ private val Context.dataStore by preferencesDataStore(name = "usage_limits_setti
  * directly, and writes are transactional. Nothing sensitive is stored here — credentials live
  * in the Keystore-backed store.
  */
-class SettingsStore(context: Context) {
-
-    private val dataStore = context.applicationContext.dataStore
+class SettingsStore internal constructor(private val dataStore: DataStore<Preferences>) {
+    constructor(context: Context) : this(context.applicationContext.dataStore)
 
     // Distinct, because the diagnostics below share this file: a timestamp written after
     // every sync would otherwise re-emit an unchanged AppSettings into every collector,

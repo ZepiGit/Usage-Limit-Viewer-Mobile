@@ -312,7 +312,7 @@ class ScreenRenderTest {
             SettingsScreen(
                 state = state(usage()),
                 onSyncIntervalChange = {},
-                onNotificationPermissionHandled = {},
+                onNotificationPermissionHandled = {}, onAppThemeChange = {},
                 onNotifyBelow20 = { toggled = true },
                 onNotifyBelow10 = {},
                 onNotifyExhausted = {},
@@ -374,7 +374,7 @@ class ScreenRenderTest {
         SettingsScreen(
             state = UsageUiState(accounts = listOf(usage()), settings = AppSettings(percentDisplay = mode)),
             onSyncIntervalChange = onSyncIntervalChange,
-            onNotificationPermissionHandled = {},
+            onNotificationPermissionHandled = {}, onAppThemeChange = {},
             onNotifyBelow20 = {},
             onNotifyBelow10 = {},
             onNotifyExhausted = {},
@@ -434,7 +434,7 @@ class ScreenRenderTest {
         render {
             SettingsScreen(
                 state = UsageUiState(settings = settings.value),
-                onSyncIntervalChange = {}, onNotificationPermissionHandled = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
+                onSyncIntervalChange = {}, onNotificationPermissionHandled = {}, onAppThemeChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
                 onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
                 onNotifyCreditExpiring = {}, onShowTier = { settings.value = settings.value.copy(showSubscriptionTier = it) },
                 onOverviewLayoutChange = { settings.value = settings.value.copy(overviewLayout = it) },
@@ -642,7 +642,7 @@ class ScreenRenderTest {
             SettingsScreen(
                 state = state(usage()),
                 onSyncIntervalChange = {},
-                onNotificationPermissionHandled = {},
+                onNotificationPermissionHandled = {}, onAppThemeChange = {},
                 onNotifyBelow20 = {},
                 onNotifyBelow10 = {},
                 onNotifyExhausted = {},

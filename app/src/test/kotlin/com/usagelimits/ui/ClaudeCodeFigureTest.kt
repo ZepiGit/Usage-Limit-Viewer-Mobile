@@ -152,7 +152,7 @@ class ClaudeCodeFigureTest {
                 SettingsScreen(state = UsageUiState(settings = AppSettings(providerIcons = mapOf(ProviderId.CLAUDE.id to icon))),
                     onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {},
                     onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {},
-                    onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {}, onNotificationPermissionHandled = {},
+                    onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {}, onNotificationPermissionHandled = {}, onAppThemeChange = {},
                     onAnimateClaudeCodeIconChange = { changedTo = it }, nowMs = MOTION_NOW)
             }
         }
@@ -184,7 +184,7 @@ class ClaudeCodeFigureTest {
                         settings = AppSettings(providerIcons = mapOf(ProviderId.CLAUDE.id to "claudecode-color"))),
                         onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {},
                         onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {}, onNotifyCreditExpiring = {},
-                        onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {}, onNotificationPermissionHandled = {},
+                        onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {}, onNotificationPermissionHandled = {}, onAppThemeChange = {},
                         nowMs = MOTION_NOW)
                 }
             }

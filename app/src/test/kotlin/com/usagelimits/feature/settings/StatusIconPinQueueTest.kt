@@ -148,7 +148,7 @@ class StatusIconPinQueueTest {
                     onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {},
                     onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
                     onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {},
-                    onNotificationPermissionHandled = {},
+                    onNotificationPermissionHandled = {}, onAppThemeChange = vm::setAppTheme,
                     onStatusIconsChange = vm::setStatusIcons,
                     onPinnedChange = vm::setPinned,
                 )

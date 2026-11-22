@@ -146,7 +146,7 @@ class StatusIconPermissionGrantTest {
                     onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {},
                     onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
                     onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {},
-                    onNotificationPermissionHandled = vm::recordNotificationPermissionHandled,
+                    onNotificationPermissionHandled = vm::recordNotificationPermissionHandled, onAppThemeChange = vm::setAppTheme,
                     onStatusIconsChange = vm::setStatusIcons,
                     onPinnedChange = vm::setPinned,
                 )

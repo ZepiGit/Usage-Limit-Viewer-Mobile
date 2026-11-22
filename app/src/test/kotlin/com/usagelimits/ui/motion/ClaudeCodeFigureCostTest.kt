@@ -107,7 +107,7 @@ class ClaudeCodeFigureCostTest {
         SettingsScreen(state = state, onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
             onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
             onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {},
-            onNotificationPermissionHandled = {}, nowMs = MOTION_NOW)
+            onNotificationPermissionHandled = {}, onAppThemeChange = {}, nowMs = MOTION_NOW)
     }
 
     @Test
