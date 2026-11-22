@@ -563,6 +563,123 @@ class FakeDevice:
         return [index for index, call in enumerate(self.calls) if call[0] == self.SCALE + ("0.0",)]
 
 
+class WidgetTonePressTest(unittest.TestCase):
+    class Device(FakeDevice):
+        PACKAGE = runtime_smoke.PACKAGE
+        BOXES = {"White background": (20, 110, 100, 175), "Auto": (12, 200, 100, 284),
+                 "Light": (100, 200, 400, 284), "All accounts": (20, 286, 400, 320),
+                 "Save widget": (20, 326, 115, 330)}
+        REST_PNG = png_bytes(WIDTH, HEIGHT, 4, REST[2])
+
+        def __init__(self, capture_seconds=0.25, clipped=False):
+            super().__init__()
+            self.tone, self.holding, self.finished = "Auto", False, False
+            self.BOXES = dict(self.BOXES)
+            if clipped:
+                self.BOXES["Light"] = (100, 200, 400, 279)
+            # This literal edge pixel is within 1px of a 6dp outline, but not of an 8dp outline.
+            self.pressed = png_bytes(WIDTH, HEIGHT, 4, frame(lambda x, y: (x, y) in {(102, 216), (200, 240)})[2])
+            self.seconds = lambda command: capture_seconds if self.holding and command == (
+                "exec-out", "screencap", "-p") else 0.25
+
+        def popen(self, args, **kwargs):
+            self.assert_hold(args[3:])
+            self.holding = True
+            return SimpleNamespace(communicate=self.release, returncode=0)
+
+        def assert_hold(self, command):
+            assert command == ["shell", "input", "swipe", "250", "242", "250", "242", "4000"], command
+
+        def release(self, timeout):
+            self.holding, self.tone = False, "Light"
+            return None, b""
+
+        def answer(self, command):
+            if command == ("shell", "wm", "density"):
+                return b"Physical density: 280"
+            if command == ("exec-out", "screencap", "-p"):
+                return self.pressed if self.holding else self.REST_PNG
+            if command[:3] == ("shell", "input", "tap"):
+                x, y = map(int, command[3:])
+                if in_box(self.BOXES["Auto"])(x, y):
+                    self.tone = "Auto"
+                elif in_box(self.BOXES["Save widget"])(x, y):
+                    assert self.tone == "Auto", "Widget saved a changed tone"
+                    self.finished = True
+                else:
+                    raise AssertionError(f"Unexpected widget tap: {command}")
+                return b""
+            return super().answer(command)
+
+        def hierarchy(self):
+            if self.finished:
+                return b'<hierarchy><node resource-id="launcher:id/workspace"/></hierarchy>'
+            pkg = self.PACKAGE
+            controls = "".join(
+                f'<node package="{pkg}" text="{label}" class="android.widget.RadioButton" enabled="true" '
+                f'clickable="true" checkable="true" checked="{str(label not in ("Auto", "Light") or label == self.tone).lower()}" '
+                f'bounds="[{x1},{y1}][{x2},{y2}]"/>'
+                for label, (x1, y1, x2, y2) in self.BOXES.items())
+            return (f'<hierarchy><node package="{pkg}" scrollable="true" bounds="[0,100][480,326]">'
+                    f'{controls}<node package="{pkg}" text="Opacity · 100 %" bounds="[20,177][230,195]"/>'
+                    f'</node><node package="{pkg}" text="Usage Bars"/>'
+                    '</hierarchy>').encode()
+
+    def configure(self, directory, device):
+        smoke = Smoke(directory, "test-device")
+        smoke.launcher = "launcher"
+        with patch.object(runtime_smoke.subprocess, "run", device.run), \
+                patch.object(runtime_smoke.subprocess, "Popen", device.popen), \
+                patch.object(runtime_smoke, "time", device):
+            smoke.widget_configuration("widget-config", "Usage Bars", "White", save=False, verify_tone=True)
+
+    def test_current_configuration_records_the_6dp_press_and_restores_auto_before_exit(self):
+        with TemporaryDirectory() as directory:
+            directory = Path(directory)
+            device = self.Device()
+            self.configure(directory, device)
+            artifact = directory / "widget-config-tone-ripple.json"
+            report = json.loads(artifact.read_text())
+            self.assertEqual("passed", report["result"])
+            self.assertEqual(10.5, report["attempts"][0]["radiusPx"])
+            self.assertEqual(1, report["attempts"][0]["changedInFringe"])
+            self.assertEqual(device.pressed, (directory / "widget-config-tone-pressed.png").read_bytes())
+            self.assertTrue((directory / "widget-config-tone-pressed-crop.png").exists())
+            self.assertTrue(device.finished)
+            self.assertEqual("Auto", device.tone)
+
+    def test_frame_finishing_after_release_is_rejected_without_another_hold(self):
+        with TemporaryDirectory() as directory:
+            directory = Path(directory)
+            device = self.Device(capture_seconds=3.5)
+            with self.assertRaisesRegex(AssertionError, "capture ended too close to the release"):
+                self.configure(directory, device)
+            report = json.loads((directory / "widget-config-tone-ripple.json").read_text())
+            self.assertEqual("no accepted press frame", report["result"])
+            self.assertEqual(1, len(report["attempts"]))
+            self.assertEqual("Auto", device.tone)
+            self.assertFalse(device.finished)
+
+    def test_unchanged_pressed_frame_cannot_pass_as_a_highlight(self):
+        with TemporaryDirectory() as directory:
+            device = self.Device()
+            device.pressed = device.REST_PNG
+            with self.assertRaisesRegex(AssertionError, "no visible press"):
+                self.configure(Path(directory), device)
+            self.assertEqual("Auto", device.tone)
+            self.assertFalse(device.finished)
+
+    def test_clipped_48dp_target_is_never_pressed(self):
+        with TemporaryDirectory() as directory:
+            directory = Path(directory)
+            device = self.Device(clipped=True)
+            with self.assertRaisesRegex(AssertionError, "not a fully visible 48dp touch target"):
+                self.configure(directory, device)
+            self.assertFalse((directory / "widget-config-tone-pressed-0.png").exists())
+            self.assertEqual("Auto", device.tone)
+            self.assertFalse(device.finished)
+
+
 class ThreeTabsTest(unittest.TestCase):
     """#88 01b: the bar has Overview, Resets and Settings, and an Accounts item is a failure, not an extra."""
 
@@ -1364,6 +1481,7 @@ class CreditHierarchyTest(unittest.TestCase):
                 patch.object(runtime_smoke, "time", device), \
                 patch.object(smoke, "seed_credit_only"), patch.object(smoke, "launch"), \
                 patch.object(smoke, "navigate_credit"), patch.object(smoke, "capture"), \
+                patch.object(smoke, "verify_credit_region"), \
                 patch.object(smoke, "credit_control", side_effect=reach), \
                 patch.object(smoke, "dump", side_effect=observe), \
                 patch.object(smoke, "wait_for", side_effect=wait):
@@ -1559,6 +1677,7 @@ class CreditHierarchyTest(unittest.TestCase):
                 patch.object(runtime_smoke, "time", device), \
                 patch.object(smoke, "seed_credit_only"), patch.object(smoke, "launch"), \
                 patch.object(smoke, "navigate_credit"), patch.object(smoke, "capture"), \
+                patch.object(smoke, "verify_credit_region"), \
                 patch.object(smoke, "credit_control", side_effect=reach), \
                 patch.object(smoke, "dump", side_effect=observe), \
                 patch.object(smoke, "wait_for", side_effect=wait):
@@ -1654,6 +1773,7 @@ class CreditHierarchyTest(unittest.TestCase):
         with patch.object(runtime_smoke.subprocess, "run", device.run), patch.object(runtime_smoke, "time", device), \
                 patch.object(smoke, "seed_credit_only"), patch.object(smoke, "launch"), \
                 patch.object(smoke, "navigate_credit"), patch.object(smoke, "capture"), \
+                patch.object(smoke, "verify_credit_region"), \
                 patch.object(smoke, "tap", side_effect=lambda node: Smoke.tap(smoke, node)
                              if node.get("checkable") == "true" and node.get("bounds") == "[573,1201][664,1285]" else None), \
                 patch.object(smoke, "credit_control", side_effect=reach), \
@@ -1753,6 +1873,7 @@ class CreditHierarchyTest(unittest.TestCase):
         with patch.object(runtime_smoke.subprocess, "run", device.run), patch.object(runtime_smoke, "time", device), \
                 patch.object(smoke, "seed_credit_only"), patch.object(smoke, "launch"), \
                 patch.object(smoke, "navigate_credit"), patch.object(smoke, "capture"), \
+                patch.object(smoke, "verify_credit_region"), \
                 patch.object(smoke, "credit_control", side_effect=lambda name, label, **kwargs: self.tree(label)[0]), \
                 patch.object(smoke, "credit_selection"), patch.object(smoke, "dump", side_effect=observe), \
                 patch.object(smoke, "wait_for", return_value=unrelated):

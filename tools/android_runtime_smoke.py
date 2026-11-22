@@ -788,7 +788,7 @@ class Smoke:
     def selected(node):
         return any(child.get("checked") == "true" or child.get("selected") == "true" for child in node.iter("node"))
 
-    def widget_configuration(self, name, label, color, save):
+    def widget_configuration(self, name, label, color, save, verify_tone=False):
         self.wait_for(name + "-loaded", lambda root: bool(matches(root, label)) and bool(matches(root, "Save widget")))
         for control_label in [color + " background", "Auto", "All accounts"]:
             target = self.widget_control(name + "-" + control_label.replace(" ", "-"), PACKAGE,
@@ -803,7 +803,9 @@ class Smoke:
             self.widget_capture(name + "-verified-" + control_label.replace(" ", "-"))
             if control_label == color + " background":
                 self.widget_control(name + "-opacity", PACKAGE, label="Opacity · 100 %", scroll=True, text_only=True)
-        button = "Save widget" if save else "Cancel"
+            if control_label == "Auto" and verify_tone:
+                self.verify_segment_press(name + "-tone", PACKAGE, "Light", "Auto")
+        button = "Save widget" if save or verify_tone else "Cancel"
         self.tap(self.widget_control(name + "-finish", PACKAGE, label=button))
         self.wait_for(name + "-returned", lambda root: not matches(root, "Save widget")
                       and not matches(root, "Saving…") and any(
@@ -898,7 +900,8 @@ class Smoke:
             x, y = str((x1 + x2) // 2), str((y1 + y2) // 2)
             self.adb("shell", "input", "swipe", x, y, x, y, "1000")
             self.tap(self.widget_control(name + "-edit", self.launcher, label="Settings"))
-            self.widget_configuration(name + "-config", item["label"], item["color"], save=False)
+            self.widget_configuration(name + "-config", item["label"], item["color"], save=False,
+                                      verify_tone=phase == "current" and item["label"] == "Usage Bars")
             assert self.widget_bindings(name + "-verified") == expected, "Reconfigure replaced a widget ID"
         self.text(phase + "-widgets-verified.json", json.dumps({"result": "passed", "phase": phase, "widgets": verified,
                   "retainedWidgetIds": expected,
@@ -1444,6 +1447,16 @@ class Smoke:
         self.capture(name)
         assert self.adb("shell", "pidof", package), "App process exited after navigation"
 
+    def verify_settings_segments(self):
+        for site, held, original in (
+            ("interval", "15m", "30m"),
+            ("display-percent", "Used", "Left"),
+            ("overview-layout", "Dials", "List"),
+            ("credit-layout", "Compact", "Normal"),
+            ("show-first", "Credit accounts", "Usage providers"),
+        ):
+            self.verify_segment_press("segment-settings-" + site, PACKAGE, held, original)
+
     def seed_list(self, name, apk):
         """Installs this run's debug build beside the release app and gives it the synthetic accounts.
 
@@ -1651,6 +1664,12 @@ class Smoke:
                 time.sleep(1)
         raise AssertionError(f"UI did not reach {name}")
 
+    def verify_credit_region(self):
+        provider = "Moonshot (Kimi API)"
+        self.tap(self.credit_control("credits-en-moonshot", provider, up=True))
+        self.verify_segment_press("segment-credit-region", DEBUG_PACKAGE,
+                                  "China (moonshot.cn, CNY)", "International (moonshot.ai, USD)", horizontal=True)
+
     def credit_steps(self, apk):
         """Check the credit-only debug fixture in EN and DE after the usage evidence lane is complete."""
         self.seed_credit_only("credits-en", apk, "en-US")
@@ -1670,6 +1689,7 @@ class Smoke:
         self.capture("credits-en-management")
         self.tap(self.credit_control("credits-en-add", "Add credit balance"))
         self.wait_for("credits-en-add-screen", lambda root: bool(matches(root, "DeepSeek", DEBUG_PACKAGE)))
+        self.verify_credit_region()
         self.adb("shell", "input", "keyevent", "BACK")
         details = self.credit_control("credits-en-details", "Synthetic credit")
         self.tap(details)
@@ -1823,7 +1843,51 @@ class Smoke:
         point selects the held chip, so every attempt restores the default filter. The held chip is "Resets
         today", the one without a count, so its label is the whole of its text.
         """
-        held, default = "Resets today", "All"
+        self.navigate("Overview", "All", name + "-overview", package)
+        self._verify_press(name, package, "Resets today", "All", radius_dp=8, delays=(0.7, 1.0, 1.4))
+
+    def verify_segment_press(self, name, package, held, original, horizontal=False):
+        self._verify_press(name, package, held, original, radius_dp=6, delays=(0.7,), horizontal=horizontal)
+
+    def _segment_controls(self, name, package, held, original, minimum, horizontal):
+        for attempt in range(10):
+            root = self.dump(f"{name}-controls-{attempt}")
+            target = self.control(root, package, label=held)
+            idle = self.control(root, package, label=original)
+            parents = {child: parent for parent in root.iter() for child in parent}
+            node = target if target is not None else idle
+            cursor, scrollables = node, []
+            while cursor in parents:
+                cursor = parents[cursor]
+                if cursor.get("scrollable") == "true" and bounds(cursor):
+                    scrollables.append(bounds(cursor))
+            box = bounds(node) if node is not None else None
+            # Moonshot's second button can be clipped horizontally; the row's 2dp end padding
+            # leaves a gap at the viewport edge once the entire button is visible.
+            if horizontal and len(scrollables) >= 2 and (target is None or box[2] >= scrollables[0][2]):
+                x1, y1, x2, y2 = scrollables[0]
+                y = str((box[1] + box[3]) // 2)
+                if scrollables[-1][1] < int(y) < scrollables[-1][3]:
+                    self.adb("shell", "input", "swipe", str(x1 + (x2 - x1) * 3 // 4), y,
+                             str(x1 + (x2 - x1) // 4), y, "400")
+                    continue
+            if target is not None and idle is not None:
+                if scrollables:
+                    x1, y1, x2, y2 = scrollables[-1]
+                    if box[1] < y1 or box[3] > y2 or (box[3] - box[1] < minimum and (box[1] == y1 or box[3] == y2)):
+                        self.scroll(root, up=box[3] >= y2, package=package)
+                        continue
+                    assert x1 <= box[0] < box[2] <= x2, f"{held} is outside its horizontal viewport"
+                assert all(x1 <= box[0] < box[2] <= x2 and y1 <= box[1] < box[3] <= y2
+                           for x1, y1, x2, y2 in scrollables), f"{held} is not fully visible"
+                assert box[3] - box[1] >= minimum and box[2] - box[0] >= minimum, \
+                    f"{held} is not a fully visible 48dp touch target: {box}"
+                return target, idle, scrollables[-1] if scrollables else None
+            self.scroll(root, up=True, package=package)
+        raise AssertionError(f"Could not reach a fully visible {held} beside {original}")
+
+    def _verify_press(self, name, package, held, default, radius_dp, delays, horizontal=False):
+        shared_segment = radius_dp == 6
         density = self.adb("shell", "wm", "density")
         densities = dict(re.findall(r"^(Physical|Override) density: (\d+)$", density, re.M))
         assert "Physical" in densities, f"Unrecognized density report: {density}"
@@ -1832,47 +1896,70 @@ class Smoke:
         def dp(value):
             return round(value * px)
 
-        # The chip's shape is the app's medium one, radius 8dp; the target adds 8dp above and below.
-        radius, hold_ms, margin_ms = 8 * px, 4000, 500
+        radius, hold_ms, margin_ms = radius_dp * px, 4000, 500
         report = {"result": "incomplete", "held": held, "restored": default, "pxPerDp": px, "attempts": [],
-                  "scope": "Overview filter row of the seeded List (debug build, synthetic accounts); the pill is "
-                           "the touch target inset by 8dp vertically."}
+                  "package": package, "site": name, "radiusDp": radius_dp,
+                  "scope": "Shared Segment" if shared_segment else "Overview filter row of the seeded List"}
 
         def record():
             self.text(name + "-ripple.json", json.dumps(report, indent=2))
 
-        self.navigate("Overview", default, name + "-overview", package)
-        # Capture delays after the hold starts; an emulator frame can lag the press.
-        for attempt, delay in enumerate([0.7, 1.0, 1.4]):
-            root = self.capture(f"{name}-rest-{attempt}")
-            target, original = self.control(root, package, label=held), self.control(root, package, label=default)
-            assert target is not None and original is not None, "Missing the Overview filter chips"
-            assert self.selected(original) and not self.selected(target), "The Overview filter is not at its default"
+        record()
+        for attempt, delay in enumerate(delays):
+            rest_name = f"{name}-rest-{attempt}"
+            viewport = None
+            if shared_segment:
+                target, original, viewport = self._segment_controls(name, package, held, default, dp(48), horizontal)
+                rest = self.adb("exec-out", "screencap", "-p", binary=True)
+                self.write_screenshot(rest_name, rest)
+            else:
+                root = self.capture(rest_name)
+                target, original = self.control(root, package, label=held), self.control(root, package, label=default)
+                assert target is not None and original is not None, "Missing the Overview filter chips"
+                rest = (self.directory / (rest_name + ".png")).read_bytes()
+            assert self.selected(original) and not self.selected(target), f"Expected {default} selected and {held} unselected"
             node, other = bounds(target), bounds(original)
-            assert (node[1], node[3]) == (other[1], other[3]), "The filter chips are not in one row"
-            rest = (self.directory / f"{name}-rest-{attempt}.png").read_bytes()
+            assert (node[1], node[3]) == (other[1], other[3]), f"{held} and {default} are not in one row"
+            assert node[3] - node[1] >= dp(48) and node[2] - node[0] >= dp(48), f"{held} is smaller than 48dp"
+            frame_width, frame_height = struct.unpack_from(">II", rest, 16)
+            assert 0 <= node[0] < node[2] <= frame_width and 0 <= node[1] < node[3] <= frame_height, \
+                f"{held} is not fully visible in the screenshot: {node}"
 
             x, y = str((node[0] + node[2]) // 2), str((node[1] + node[3]) // 2)
-            # adb starts the hold no earlier than Popen returns, so it releases no earlier than hold_ms after
-            # swipe_start. A capture that ends inside the margin before that point cannot show the release.
+            # Start the clock before adb: DOWN cannot precede it, nor UP precede the hold duration.
             swipe_start = time.monotonic()
             hold = subprocess.Popen(["adb", "-s", self.serial, "shell", "input", "swipe", x, y, x, y, str(hold_ms)],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            capture_error = None
             try:
                 time.sleep(delay)
                 capture_start = time.monotonic()
                 pressed = self.adb("exec-out", "screencap", "-p", binary=True)
                 capture_end = time.monotonic()
                 self.write_screenshot(f"{name}-pressed-{attempt}", pressed)
+            except Exception as error:
+                capture_error = error
             finally:
-                _, error = hold.communicate(timeout=30)
-            assert hold.returncode == 0, f"Held press failed: {error.decode().strip()}"
-            released = self.control(self.capture(f"{name}-released-{attempt}"), package, label=held)
-            self.tap(original)
-            self.wait_for(f"{name}-restored-{attempt}", lambda root: (
-                (restored := self.control(root, package, label=default)) is not None and self.selected(restored)
-                and (other_node := self.control(root, package, label=held)) is not None
-                and not self.selected(other_node)))
+                _, input_error = hold.communicate(timeout=30)
+
+            try:
+                assert hold.returncode == 0, f"Held press failed: {input_error.decode().strip()}"
+                release_name = f"{name}-released-{attempt}"
+                released_root = self.dump(release_name) if shared_segment else self.capture(release_name)
+                released = self.control(released_root, package, label=held)
+                restore = self.control(released_root, package, label=default) if shared_segment else original
+                assert restore is not None, f"Could not find {default} to restore"
+                self.tap(restore)
+                self.wait_for(f"{name}-restored-{attempt}", lambda root: (
+                    (restored := self.control(root, package, label=default)) is not None and self.selected(restored)
+                    and (other_node := self.control(root, package, label=held)) is not None
+                    and not self.selected(other_node)))
+            except Exception as restore_error:
+                if capture_error is not None:
+                    raise capture_error from restore_error
+                raise
+            if capture_error is not None:
+                raise capture_error
 
             row = (min(node[0], other[0]) - dp(2), node[1], max(node[2], other[2]) + dp(2), node[3])
             pill = (node[0], node[1] + dp(8), node[2], node[3] - dp(8))
@@ -1882,20 +1969,26 @@ class Smoke:
             assert before[0] == after[0] and len(before[2]) == len(after[2]), "Rest and pressed frames differ in size"
             region = (max(0, row[0] - dp(24)), max(0, row[1] - dp(24)),
                       min(before[0], row[2] + dp(24)), min(len(before[2]), row[3] + dp(24)))
+            if viewport is not None:
+                region = (max(region[0], viewport[0]), max(region[1], viewport[1]),
+                          min(region[2], viewport[2]), min(region[3], viewport[3]))
             changed = changed_pixels(before, after, region)
             measured = {
                 "attempt": attempt, "holdSeconds": hold_ms / 1000, "captureDelaySeconds": delay,
                 "captureStartSeconds": capture_start - swipe_start, "captureEndSeconds": capture_end - swipe_start,
                 "latestCaptureEndSeconds": (hold_ms - margin_ms) / 1000,
-                "nodeBounds": node, "rowBounds": row, "pill": pill, "idlePill": idle_pill, "radiusPx": radius,
-                "fringePx": 1, "comparedRegion": region, "changedInRegion": len(changed),
+                "nodeBounds": node, "targetDp": ((node[2] - node[0]) / px, (node[3] - node[1]) / px),
+                "rowBounds": row, "pill": pill, "idlePill": idle_pill, "radiusPx": radius,
+                "fringePx": 1, "contentViewport": viewport, "comparedRegion": region, "changedInRegion": len(changed),
                 **judge_press(changed, pill, radius, idle_pill),
                 "heldSegmentSelectedAfterRelease": released is not None and self.selected(released),
             }
             if measured["captureEndSeconds"] > measured["latestCaptureEndSeconds"]:
                 measured["rejected"] = "capture ended too close to the release"
             elif measured["changedInIdlePill"]:
-                measured["rejected"] = "the selected chip changed, so the frame follows a release"
+                measured["rejected"] = "the selected segment changed, so the frame follows a release"
+            elif shared_segment and not measured["heldSegmentSelectedAfterRelease"]:
+                measured["rejected"] = "the held segment was not selected on release"
             elif measured["changedInPill"] == 0:
                 measured["rejected"] = "no visible press"
             report["attempts"].append(measured)
@@ -2457,6 +2550,7 @@ def main():
         smoke.wait_for("current-three-tabs", three_tabs)
         for tab, marker in [("Overview", EMPTY_OVERVIEW), ("Resets", "No upcoming resets"), ("Settings", "Appearance")]:
             smoke.navigate(tab, marker, "current-" + tab.lower())
+        smoke.verify_settings_segments()
         smoke.setting_is_disabled("current-persisted")
         smoke.capture("current-persisted")
         theme_launches = smoke.verify_theme_launches()
