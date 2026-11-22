@@ -110,21 +110,23 @@ jobs:
             wait "$child_pid"
             child_pid=
             kill -0 "$gradle_pid" 2>/dev/null || exit 0
-            # Only test workers descended from this invocation, never another build or all Java.
+            # Retain this invocation's process tree even when no worker identity matches.
             ps -eo pid=,ppid=,args= | awk -v root="$gradle_pid" '
-              {
-                parent[$1] = $2
-                if ($0 ~ /(^|[[:space:]])worker[.]org[.]gradle[.]process[.]internal[.]worker[.]GradleWorkerMain([[:space:]]|$)/ &&
-                    $0 ~ /Gradle Test Executor [0-9]+([[:space:]]|$)/) worker[$1] = 1
-              }
+              { parent[$1] = $2; command[$1] = $0 }
               END {
-                for (pid in worker) {
+                for (pid in parent) {
                   ancestor = pid
                   while (ancestor in parent && ancestor != root && ancestor > 1) ancestor = parent[ancestor]
-                  if (ancestor == root) print pid
+                  if (ancestor == root) print command[pid]
                 }
               }
-            ' > "$diagnostics/worker-pids.txt" || exit 0
+            ' > "$diagnostics/processes.txt" || exit 0
+            # Gradle passes literal quotes around its worker display name, not shell quoting.
+            worker_pattern='(^|[[:space:]/])worker[.]org[.]gradle[.]process[.]internal[.]worker[.]GradleWorkerMain([[:space:]]|$)'
+            name_pattern='(^|[[:space:]])Gradle Test Executor [0-9]+([[:space:]]|$)'
+            awk -v worker="$worker_pattern" -v name="$name_pattern" '
+              { gsub(/[\047"]/, " "); if ($0 ~ worker && $0 ~ name) print $1 }
+            ' "$diagnostics/processes.txt" > "$diagnostics/worker-pids.txt"
             while read -r pid; do
               timeout --kill-after=5s 20s "$JAVA_HOME/bin/jcmd" "$pid" Thread.print -l \
                 > "$diagnostics/worker-$pid-threads.txt" 2>&1 &
