@@ -508,6 +508,39 @@ class Evidence:
             (self.directory / (name + "-statusbar.png")).write_bytes(png_bytes(width, 96, channels, rows))
             (self.directory / (name + "-statusbar-x4.png")).write_bytes(scaled_crop(frame, (0, 0, width, 96), 4))
 
+    def status_visibility_diagnostics(self, name):
+        """Two diagnostic snapshots only; collection is not proof of visible status-bar pixels."""
+        report = {"result": "incomplete", "visibility": "unknown; inspect PNG and native dumps",
+                  "scope": "Sequential WM bracket around PNG, then compositor/SystemUI snapshots; not atomic or a pixel-presence gate",
+                  "steps": [], "errors": {}}
+        self.report.setdefault("statusVisibilityDiagnostics", {})[name] = report
+        for suffix, command in (
+            ("-window-before.txt", ("shell", "dumpsys", "window")),
+            (".png", ("exec-out", "screencap", "-p")),
+            ("-window-after.txt", ("shell", "dumpsys", "window")),
+            ("-surfaceflinger-list.txt", ("shell", "dumpsys", "SurfaceFlinger", "--list")),
+            ("-surfaceflinger.txt", ("shell", "dumpsys", "SurfaceFlinger")),
+            ("-systemui.txt", ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService")),
+        ):
+            step = {"file": name + suffix, "command": command, "startSeconds": time.monotonic()}
+            report["steps"].append(step)
+            try:
+                if suffix == ".png":
+                    self.screen(name, crop=True)
+                else:
+                    data = self.adb(*command, timeout=12)
+                    self.save(step["file"], data)
+                    assert data and not re.search(r"Permission Denial|Permission denied|Unknown command", data), "Empty/denied diagnostic output"
+            except (OSError, subprocess.SubprocessError, AssertionError) as error:
+                report["errors"][step["file"]] = str(error)
+            finally:
+                step["endSeconds"] = time.monotonic()
+                self.save(name + "-visibility.json", json.dumps(report, indent=2))
+        report["result"] = "failed" if report["errors"] else "collected"
+        self.save(name + "-visibility.json", json.dumps(report, indent=2))
+        if report["errors"]:
+            raise RuntimeError("Status visibility diagnostic collection failed; see " + name + "-visibility.json")
+
     def diagnostics(self, name):
         errors = {}
         commands = {
@@ -545,7 +578,7 @@ class Evidence:
         if re.search(r"Application (?:Not Responding|not responding|Error):", window):
             raise SystemDialog("System error window; not dismissed")
 
-    def preflight(self):
+    def preflight(self, collect_visibility=False):
         deadline = time.monotonic() + 120
         self.ready_deadline = deadline
         last_error = "No HOME observation"
@@ -580,6 +613,8 @@ class Evidence:
                     if "<no ANR has occurred since boot>" not in ready_anr:
                         raise SystemDialog("Unexpected ANR during final HOME observation")
                     self.ready_deadline = None
+                    if collect_visibility:
+                        self.status_visibility_diagnostics("preflight-status-visibility")
                     self.report["preflight"] = {"result": "passed", "component": component, "focusedHOME": True, "workspace": True}
                     return
                 last_error = "Waiting for focused HOME plus enabled workspace"
@@ -641,6 +676,8 @@ class Evidence:
         self.settled()
         time.sleep(1)
         self.screen(name + "-home", crop=True)
+        if name == "03-enabled":
+            self.status_visibility_diagnostics(name + "-status-visibility")
         self.xml(name + "-home")
         notification = self.adb("shell", "dumpsys", "notification", "--noredact")
         self.save(name + "-notification.txt", notification)
@@ -1108,7 +1145,7 @@ def main():
     evidence = Evidence(args.evidence)
     status = 1
     try:
-        evidence.preflight()
+        evidence.preflight(collect_visibility=args.preflight)
         if not args.preflight:
             evidence.scenario(args.apk)
         evidence.report["result"] = "passed"
