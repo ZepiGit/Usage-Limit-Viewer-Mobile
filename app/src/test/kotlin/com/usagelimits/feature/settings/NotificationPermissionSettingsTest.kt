@@ -25,11 +25,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.jvm.internal.CoroutineStackFrame
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
 import org.junit.Before
 import org.junit.After
 import org.robolectric.shadows.ShadowLooper
@@ -99,7 +101,7 @@ class NotificationPermissionSettingsTest {
         }
     }
 
-    /** Read-only diagnostics pinned to DataStore 1.3 and coroutines 1.11. No preference entries or coroutine locals. */
+    // DataStore 1.3 / coroutines 1.11 shortcut: the actor's frame owns the update; a queue entry or ack waiter does not.
     private fun dumpSettingsWait(preparation: Job) {
         val prefix = "NotificationPermissionSettingsTest ${testName.methodName} WAIT"
         fun field(owner: Any, name: String): Any = owner.javaClass.getDeclaredField(name).run {
@@ -129,39 +131,62 @@ class NotificationPermissionSettingsTest {
         val remaining = field(field(store, "writeActor"), "remainingMessages")
         System.err.println("$prefix actorRemaining=${remaining.javaClass.getMethod("get").invoke(remaining)}")
 
-        // A transform can run under an external caller job or be queued before it registers a continuation.
-        System.err.println("$prefix continuationCoverage=bounded-known-job-trees " +
-            "scopes=datastore,application,preparation externalOrQueuedCallers=not-covered " +
-            "callerContext=UNRESOLVED callerDispatcher=UNRESOLVED")
+        System.err.println("$prefix continuationCoverage=bounded-job-trees " +
+            "scopes=datastore,application,preparation,active-caller-children queue=not-inspected")
         val stateMethod = Class.forName("kotlinx.coroutines.JobSupport").getMethod("getState\$kotlinx_coroutines_core")
         val incomplete = Class.forName("kotlinx.coroutines.Incomplete")
         val listMethod = incomplete.getMethod("getList")
         val nextNode = Class.forName("kotlinx.coroutines.internal.LockFreeLinkedListNode").getMethod("getNextNode")
         val continuationDelegate = Class.forName("kotlinx.coroutines.CancellableContinuationImpl")
             .getDeclaredField("delegate").apply { isAccessible = true }
+        fun status(job: Job?) = "${identity(job)} active=${job?.isActive} " +
+            "completed=${job?.isCompleted} cancelled=${job?.isCancelled}"
+
+        fun walkFrames(start: CoroutineStackFrame?, limit: Int, visit: (CoroutineStackFrame) -> Unit): Int {
+            var frame = start
+            var visited = 0
+            while (visited < limit) {
+                val current = frame ?: break
+                visit(current)
+                visited++
+                if (visited < limit) frame = current.callerFrame
+            }
+            return visited
+        }
+
+        val storeClass = store.javaClass.name
+        var handleUpdate: CoroutineStackFrame? = null
+        var jobsLeft = 24
         var scopeJobs = 0
         var recoveredContinuations = 0
-        fun scan(label: String, job: Job, depth: Int = 0) {
-            if (scopeJobs >= 8) return
+        fun scan(label: String, job: Job, actorTree: Boolean, depth: Int = 0) {
+            if (scopeJobs >= 8 || jobsLeft == 0) return
             scopeJobs++
+            jobsLeft--
             val dispatcher = (job as? CoroutineScope)?.coroutineContext?.get(ContinuationInterceptor)
-            System.err.println("$prefix $label job=${identity(job)} active=${job.isActive} " +
-                "completed=${job.isCompleted} cancelled=${job.isCancelled} dispatcher=${identity(dispatcher)}")
+            System.err.println("$prefix $label job=${status(job)} dispatcher=${identity(dispatcher)}")
+            var framesLeft = 20
+            if (actorTree && job.isActive) {
+                framesLeft -= walkFrames(job as? CoroutineStackFrame, framesLeft) { frame ->
+                    frame.getStackTraceElement()?.let { System.err.println("$prefix $label actorFrame=$it") }
+                    if (handleUpdate == null && frame.javaClass.name == "$storeClass\$handleUpdate\$2") {
+                        handleUpdate = frame
+                    }
+                }
+            }
             val state = checkNotNull(stateMethod.invoke(job))
             if (incomplete.isInstance(state)) {
                 val head = listMethod.invoke(state)
                 var node: Any = head ?: state
                 for (index in 0 until 16) {
+                    if (framesLeft == 0) break
                     if (node.javaClass.name == "kotlinx.coroutines.ChildContinuation") {
                         val child = field(node, "child")
                         val delegate = continuationDelegate.get(child) as Continuation<*>
                         recoveredContinuations++
                         System.err.println("$prefix $label continuationDispatcher=${identity(delegate.context[ContinuationInterceptor])}")
-                        var frame = delegate as? CoroutineStackFrame
-                        for (index in 0 until 20) {
-                            val current = frame ?: break
-                            current.getStackTraceElement()?.let { System.err.println("$prefix at $it") }
-                            frame = current.callerFrame
+                        framesLeft -= walkFrames(delegate as? CoroutineStackFrame, framesLeft) { frame ->
+                            frame.getStackTraceElement()?.let { System.err.println("$prefix at $it") }
                         }
                     }
                     if (head == null) break
@@ -169,17 +194,53 @@ class NotificationPermissionSettingsTest {
                     if (node === head) break
                 }
             }
-            if (depth < 3) job.children.take(8).forEachIndexed { index, child ->
-                scan("$label/$index", child, depth + 1)
+            if (depth < 3) job.children.take(minOf(8 - scopeJobs, jobsLeft)).forEachIndexed { index, child ->
+                scan("$label/$index", child, actorTree, depth + 1)
             }
         }
 
         for ((label, job) in listOf("datastore" to storeContext[Job], "application" to appContext[Job], "preparation" to preparation)) {
             scopeJobs = 0
-            if (job != null) scan(label, job)
+            if (job != null) scan(label, job, actorTree = label == "datastore")
             System.err.println("$prefix continuationScope=$label scannedJobs=$scopeJobs")
         }
         System.err.println("$prefix recoveredContinuations=$recoveredContinuations")
+
+        val updateFrame = handleUpdate
+        if (updateFrame != null) {
+            try {
+                val update = field(updateFrame, "\$update")
+                if (update.javaClass.name == "androidx.datastore.core.Message\$Update") {
+                    val callerContext = update.javaClass.getMethod("getCallerContext").invoke(update) as CoroutineContext
+                    val ack = update.javaClass.getMethod("getAck").invoke(update) as Job
+                    if (!ack.isCompleted) {
+                        val callerJob = callerContext[Job]
+                        val dispatcher = callerContext[ContinuationInterceptor]
+                        val scheduler = (dispatcher as? TestDispatcher)?.scheduler
+                        val inTransform = callerJob?.children?.take(jobsLeft)?.any { child ->
+                            var transform = false
+                            var sameUpdate = false
+                            walkFrames(child as? CoroutineStackFrame, 20) { frame ->
+                                if (frame.javaClass.name == "$storeClass\$transformAndWrite\$2\$1" &&
+                                    frame.getStackTraceElement()?.lineNumber == 435
+                                ) transform = true
+                                if (frame === updateFrame) sameUpdate = true
+                            }
+                            child.isActive && transform && sameUpdate
+                        } == true
+                        val phase = if (inTransform) "transformAndWrite.withContext" else "UNRESOLVED"
+                        System.err.println("$prefix actorOwner=${identity(update)} actorPhase=$phase " +
+                            "callerContext=${identity(callerContext)} callerJob=${status(callerJob)} " +
+                            "callerDispatcher=${identity(dispatcher)} callerScheduler=${identity(scheduler)} ack=${status(ack)}")
+                        return
+                    }
+                }
+            } catch (failure: ReflectiveOperationException) {
+                System.err.println("$prefix actorProbeError=${failure.javaClass.name}")
+            }
+        }
+        System.err.println("$prefix actorOwner=UNRESOLVED actorPhase=UNRESOLVED " +
+            "callerContext=UNRESOLVED callerDispatcher=UNRESOLVED")
     }
 
     // The CI test START event precedes setup; paired markers locate its first unfinished wait.
