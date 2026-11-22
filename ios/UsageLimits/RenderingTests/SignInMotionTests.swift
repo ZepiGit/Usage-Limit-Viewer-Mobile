@@ -228,33 +228,35 @@ final class SignInMotionTests: XCTestCase {
         let returning = try XCTUnwrap(reversal)
         attach(returning, name: "sign-in-reverse")
         let chooserCard = try cardImage(before, in: region)
-        let restoredCard = try cardImage(restored, in: region)
         let chooserPixels = try cardPixels(chooserCard)
-        let restoredPixels = try cardPixels(restoredCard)
-        let matches = chooserPixels == restoredPixels
-        if !matches {
-            attach(before, name: "sign-in-reverse-before")
-            attach(restored, name: "sign-in-reverse-restored")
-            let width = chooserCard.width, height = chooserCard.height
-            let sameSize = width == restoredCard.width && height == restoredCard.height
-            var mismatch = "not comparable: crop dimensions differ"
-            if sameSize {
-                var count = 0, minX = width, minY = height, maxX = -1, maxY = -1
-                for index in chooserPixels.indices where chooserPixels[index] != restoredPixels[index] {
-                    let x = index % width, y = index / width
-                    count += 1
-                    minX = min(minX, x); minY = min(minY, y)
-                    maxX = max(maxX, x); maxY = max(maxY, y)
+        XCTAssertTrue(try {
+            let restoredCard = try cardImage(restored, in: region)
+            let restoredPixels = try cardPixels(restoredCard)
+            let matches = chooserPixels == restoredPixels
+            if !matches {
+                attach(before, name: "sign-in-reverse-before")
+                attach(restored, name: "sign-in-reverse-restored")
+                let width = chooserCard.width, height = chooserCard.height
+                let sameSize = width == restoredCard.width && height == restoredCard.height
+                var mismatch = "not comparable: crop dimensions differ"
+                if sameSize {
+                    var count = 0, minX = width, minY = height, maxX = -1, maxY = -1
+                    for index in chooserPixels.indices where chooserPixels[index] != restoredPixels[index] {
+                        let x = index % width, y = index / width
+                        count += 1
+                        minX = min(minX, x); minY = min(minY, y)
+                        maxX = max(maxX, x); maxY = max(maxY, y)
+                    }
+                    mismatch = "\(count) pixels; inclusive crop-buffer bounds (column,row)=(\(minX),\(minY))–(\(maxX),\(maxY))"
                 }
-                mismatch = "\(count) pixels; inclusive crop-buffer bounds (column,row)=(\(minX),\(minY))–(\(maxX),\(maxY))"
+                print("""
+                    [SignInReversal] \(mismatch); crop pt=\(region), before=\(width)x\(height) px @\(before.scale), restored=\(restoredCard.width)x\(restoredCard.height) px @\(restored.scale)
+                    [SignInReversal] window bounds \(beforeBounds) → \(window.bounds), safe area \(beforeInsets) → \(window.safeAreaInsets)
+                    [SignInReversal] driver=\(driver.stage), exit=\(String(describing: exitOpacity)), resumed=\(String(describing: resumedOpacity)), completion opacity callback at 1=\(didComplete)
+                    """)
             }
-            print("""
-                [SignInReversal] \(mismatch); crop pt=\(region), before=\(width)x\(height) px @\(before.scale), restored=\(restoredCard.width)x\(restoredCard.height) px @\(restored.scale)
-                [SignInReversal] window bounds \(beforeBounds) → \(window.bounds), safe area \(beforeInsets) → \(window.safeAreaInsets)
-                [SignInReversal] driver=\(driver.stage), exit=\(String(describing: exitOpacity)), resumed=\(String(describing: resumedOpacity)), completion opacity callback at 1=\(didComplete)
-                """)
-        }
-        XCTAssertTrue(matches, "the original chooser pixels return after reversal")
+            return matches
+        }(), "the original chooser pixels return after reversal")
 
         let keyDriver = Driver()
         keyDriver.stage = .awaitingKey(.opencode)
