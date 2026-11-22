@@ -106,6 +106,15 @@ real modifiers' decisions; `-reduce-motion` overrides the preference, and
 are absent from Release. The tests drive the loading gate, filter selection, display-mode changes
 and account deep links. They do not observe the applied animation or rendered frames.
 
+Two Debug fixture flags with `-ui-testing` serve the external accessibility checks. With
+`-fixture-sign-in-motion`, `MotionUITests` checks that the outgoing sign-in card refuses
+accessibility and touch, and that Reduce Motion exposes only the new step. With
+`-fixture-credits-widget`, `CreditsWidgetUITests` shows the small Credits widget's production
+content at AX5, reads its full English and German statuses from accessibility and finds the
+short words by text recognition. Hosted rendering tests check pixels; in this iOS 26 host their
+in-process view tree exposed no readable elements. These tests require the Apple SDK; Linux
+shims are not runtime proof.
+
 Kit tests cover the selected source window ID and the unchanged widget export. No iOS motion
 has been visually verified. Device checks include same-label window replacement (first frame
 and VoiceOver), list and figure transitions, deep-link cuts, live Reduce Motion changes and the
