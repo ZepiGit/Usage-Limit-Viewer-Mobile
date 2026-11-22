@@ -16,7 +16,7 @@ private final class NativeRenderingController<Content: View>: UIHostingControlle
 
 extension XCTestCase {
     @MainActor
-    func activateNativeRenderingScene() async throws {
+    static func activateNativeRenderingScene() async throws {
         let application = UIApplication.shared
         func states() -> String {
             let scenes = application.connectedScenes.map {
@@ -40,7 +40,8 @@ extension XCTestCase {
                     XCTFail("native test host scene activation was rejected: \(error); requested from \(initialStates)")
                 }
             }
-            await fulfillment(of: [activated], timeout: 5)
+            let result = await XCTWaiter.fulfillment(of: [activated], timeout: 5)
+            XCTAssertEqual(result, .completed, "native host scene activation did not complete; \(states())")
         }
         print("[NativeRenderingHost] after activation: \(states())")
         _ = try XCTUnwrap(scene.activationState == .foregroundActive ? scene : nil,
@@ -82,7 +83,7 @@ extension XCTestCase {
 final class SignInMotionTests: XCTestCase {
     nonisolated override func setUp() async throws {
         try await super.setUp()
-        try await activateNativeRenderingScene()
+        try await XCTestCase.activateNativeRenderingScene()
     }
 
     @MainActor
