@@ -325,12 +325,14 @@ def launch_window_state(text):
     AOSP services/core/java/com/android/server/wm/{DisplayPolicy,WindowState}.java and
     core/java/com/android/internal/view/AppearanceRegion.java define these dumps. LIGHT_*
     means dark foreground icons. A missing policy/region is unknown, never dark.
+    DisplayPolicy.dump omits mLastAppearance only when its mask is zero; accept that
+    encoding only inside a complete live policy, not a missing or truncated dump.
     """
     # A verbose dump also contains historical ANR windows and their policy state.
     displays = text.partition("WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)\n")[2].partition("\nWINDOW MANAGER ")[0]
     primary = re.search(r"(?ms)^ +Display: mDisplayId=0\b[^\n]*\n(.*?)(?=^ +Display: mDisplayId=|\Z)", displays)
-    policy = primary[1] if primary else ""
-    policies = re.findall(r"(?m)^ +DisplayPolicy *$", policy)
+    policies = re.findall(r"(?m)^  DisplayPolicy *\n((?:^    [^\n]*(?:\n|\Z)|^\n)*)", primary[1] if primary else "")
+    policy = policies[0] if len(policies) == 1 else ""
     regions = re.findall(r"(?m)^\s*mLastStatusBarAppearanceRegions=\n((?:[ \t]+AppearanceRegion\{[^\n]*\}\n?)+)", policy)
     status = re.findall(r"AppearanceRegion\{(.*?) bounds=", regions[0]) if len(regions) == 1 else []
     appearances = re.findall(r"(?m)^\s*mLastAppearance=(.*)$", policy)
@@ -358,7 +360,15 @@ def launch_window_state(text):
             phase, owner = candidate_phase, candidate
     handoff = len(own) == 2 and len(owners) == 2 and top == nav and len(top) == 1 and top[0] in owners.values()
     status_icons = {"LIGHT_STATUS_BARS" in value.split() for value in status}
-    known = len(policies) == 1 and len(appearances) == 1 and len(status_icons) == 1
+    # API 37 DisplayPolicy.dump prints this field iff nonzero; surrounding unconditional
+    # fields distinguish its zero encoding from an incomplete/foreign policy dump.
+    if not appearances and re.search(
+        r"(?ms)\A    mCarDockEnablesAccelerometer=(?:true|false) mDeskDockEnablesAccelerometer=(?:true|false)\n"
+        r".*^    mHdmiPlugged=(?:true|false)\n.*^    mShowingDream=(?:true|false) mDreamingLockscreen=(?:true|false)\n"
+        r".*^    mDecorInsetsInfo:\n      ROTATION_", policy
+    ):
+        appearances = [""]
+    known = (phase is not None or handoff) and len(policies) == 1 and len(appearances) == 1 and len(status_icons) == 1
     return {"phase": phase, "owner": owner, "handoff": handoff,
             "systemWindow": owners.get("system") if phase == "system" or (handoff and top == [owners["system"]]) else None,
             "appWindow": owners.get("app") if phase == "app" or handoff else None, "appearanceKnown": known,

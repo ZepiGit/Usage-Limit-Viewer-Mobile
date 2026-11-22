@@ -1955,6 +1955,65 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
 """
 
     @staticmethod
+    def captured_window(dark=False):
+        # Run 44939973373, artifact 14721373919: the two selected DisplayPolicy/MainActivity dumps,
+        # with unrelated display and window fields removed. Pure black omits the zero appearance.
+        owner = "Window{" + ("1930eae" if dark else "e4068a") + " u0 com.usagelimits/com.usagelimits.MainActivity}"
+        appearance = "    mLastAppearance=LIGHT_STATUS_BARS LIGHT_NAVIGATION_BARS\n" if dark else ""
+        return f"""WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)
+  Display: mDisplayId=0 (organized)
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_OPEN
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=true mWindowManagerDrawComplete=true
+    mHdmiPlugged=false
+{appearance}    mLastBehavior=DEFAULT
+    mShowingDream=false mDreamingLockscreen=false
+    mStatusBar=Window{{a53cf43 u0 StatusBar}}
+    mExpandedPanel=Window{{f56cc52 u0 NotificationShade}}
+    isKeyguardShowing=false
+    mNavigationBar=Window{{14bc325 u0 Taskbar}}
+    mNavBarOpacityMode=0
+    mNavigationBarCanMove=true
+    mHasBottomNavigationBar=true
+    mTopGestureHost=Window{{a53cf43 u0 StatusBar}}
+    mBottomGestureHost=Window{{14bc325 u0 Taskbar}}
+    mFocusedWindow={owner}
+    mTopFullscreenOpaqueWindowState={owner}
+    mSystemUiControllingWindow={owner}
+    mNavBarColorWindowCandidate={owner}
+    mNavBarBackgroundWindowCandidate={owner}
+    mLastStatusBarAppearanceRegions=
+      AppearanceRegion{{{'LIGHT_STATUS_BARS' if dark else ''} bounds=[0,0][720,1560]}}
+    mLastLetterboxDetails=
+    mStatusBarBackgroundWindows=
+      {owner}
+    mImeInsetsConsumed=false
+    mForceShowNavigationBarEnabled=false mAllowLockscreenWhenOn=false
+    mAllowsSystemBarRemoteInsetsController=false
+    mDecorInsetsInfo:
+      ROTATION_0={{overrideNonDecorInsets=[0,144][0,84], overrideConfigInsets=[0,144][0,84], overrideNonDecorFrame=[0,144][720,1476], overrideConfigFrame=[0,144][720,1476]}}
+  DisplayRotation
+    mRotation=0 mDeferredRotationPauseCount=0
+WINDOW MANAGER TOKENS (dumpsys window tokens)
+WINDOW MANAGER WINDOWS (dumpsys window windows)
+  Window #7 {owner}:
+    mDisplayId=0
+    mOwnerUid=10156 showForAllUsers=false package=com.usagelimits appop=NONE
+    mAttrs={{(0,0)(fillxfill) sim={{adjust=pan}} layoutInDisplayCutoutMode=always ty=BASE_APPLICATION wanim=0x103030d
+      fl=LAYOUT_IN_SCREEN LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=NO_MOVE_ANIMATION EDGE_TO_EDGE_ENFORCED FIT_INSETS_CONTROLLED
+      bhv=DEFAULT}}
+    mViewVisibility=0x0 mHaveFrame=true mObscured=false
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+      Surface: shown=true      mDrawState=HAS_DRAWN       mLastHidden=false
+    isOnScreen=true
+    isVisible=true
+  mCurrentFocus={owner}
+"""
+
+    @staticmethod
     def pixels(ground=(243, 240, 232), artwork=False, settled=False):
         def pixel(x, y):
             if artwork and 44 <= x < 56 and 85 <= y < 115:
@@ -2033,6 +2092,50 @@ WINDOW MANAGER WINDOWS (dumpsys window windows)
             "bounds=[0,0][50,200]}\n      AppearanceRegion{LIGHT_STATUS_BARS bounds=[50,0][100,200]}")
         self.assertIsNone(runtime_smoke.launch_window_state(mixed)["statusDarkIcons"])
         self.assertFalse(runtime_smoke.theme_launch_frame(self.pixels((0, 0, 0)), (0, 0, 0), mixed, mixed, False)["systemEvidence"])
+
+    def test_captured_zero_policy_decodes_status_and_navigation_independently(self):
+        zero = self.captured_window()
+        for window, status, navigation in (
+            (zero, False, False),
+            (zero.replace("AppearanceRegion{ bounds=", "AppearanceRegion{LIGHT_STATUS_BARS bounds="), True, False),
+            (zero.replace("    mLastBehavior=", "    mLastAppearance=LIGHT_NAVIGATION_BARS\n    mLastBehavior="), False, True),
+        ):
+            with self.subTest(status=status, navigation=navigation):
+                state = runtime_smoke.launch_window_state(window)
+                self.assertTrue(state["appearanceKnown"])
+                self.assertIs(status, state["statusDarkIcons"])
+                self.assertIs(navigation, state["navigationDarkIcons"])
+                measured = runtime_smoke.theme_launch_frame(
+                    self.pixels((0, 0, 0), artwork=True), (0, 0, 0), window, window, False)
+                self.assertEqual(not status and not navigation, measured["appEvidence"])
+
+    def test_missing_foreign_duplicate_or_truncated_zero_policy_stays_unknown(self):
+        zero = self.captured_window()
+        for window in (
+            "",
+            zero.replace("mDisplayId=0", "mDisplayId=1"),
+            zero.replace("com.usagelimits", "com.example.foreign"),
+            zero.replace("  DisplayPolicy\n", "  MissingPolicy\n"),
+            zero.replace("    mHdmiPlugged=false\n", ""),
+            zero.replace("    mDecorInsetsInfo:\n", ""),
+            zero.replace("mLastStatusBarAppearanceRegions=", "missingRegions="),
+            zero.replace("    mDecorInsetsInfo:\n", "  DisplayPolicy\n    mDecorInsetsInfo:\n"),
+            zero.partition("    mDecorInsetsInfo:")[0],
+        ):
+            with self.subTest(window=window):
+                state = runtime_smoke.launch_window_state(window)
+                self.assertFalse(state["appearanceKnown"])
+                self.assertIsNone(state["statusDarkIcons"])
+                self.assertIsNone(state["navigationDarkIcons"])
+
+    def test_another_display_or_neighbouring_section_cannot_supply_missing_appearance(self):
+        zero = self.captured_window()
+        for extra in ("  Display: mDisplayId=1 (organized)\n  DisplayPolicy\n    mLastAppearance=LIGHT_NAVIGATION_BARS\n",
+                      "  DisplayRotation\n    mLastAppearance=LIGHT_NAVIGATION_BARS\n"):
+            window = zero.replace("WINDOW MANAGER TOKENS", extra + "WINDOW MANAGER TOKENS")
+            state = runtime_smoke.launch_window_state(window)
+            self.assertTrue(state["appearanceKnown"])
+            self.assertIs(False, state["navigationDarkIcons"])
 
     def test_missing_navigation_appearance_is_unknown_even_on_pure_black(self):
         window = self.window(dark=False).replace("    mLastAppearance=OPAQUE_NAVIGATION_BARS\n", "")
@@ -2305,6 +2408,100 @@ class ThemeSelectionTest(unittest.TestCase):
             for name in reports:
                 report = json.loads((Path(directory) / name).read_text())
                 self.assertEqual("passed", report["result"], report.get("error"))
+                self.assertTrue(report["systemFrames"])
+                self.assertTrue(report["appFrames"])
+                self.assertEqual([], report["wrongFrames"])
+
+    def test_api_37_zero_appearance_reaches_both_launches_through_real_selection(self):
+        self.replay_captured_selection()
+
+    def test_captured_selection_rejects_each_wrong_bar_and_unknown_policy(self):
+        for name, transform in {
+            "status": lambda text: text.replace("AppearanceRegion{ bounds=", "AppearanceRegion{LIGHT_STATUS_BARS bounds="),
+            "navigation": lambda text: text.replace("    mLastBehavior=", "    mLastAppearance=LIGHT_NAVIGATION_BARS\n    mLastBehavior="),
+            "missing display": lambda text: text.replace("mDisplayId=0", "mDisplayId=1"),
+            "foreign owner": lambda text: text.replace("com.usagelimits", "com.example.foreign"),
+            "missing region": lambda text: text.replace("mLastStatusBarAppearanceRegions=", "missingRegions="),
+            "incomplete policy": lambda text: text.replace("    mDecorInsetsInfo:", "    missingDecorInsetsInfo:"),
+        }.items():
+            with self.subTest(name=name):
+                self.replay_captured_selection(transform, rejected=True)
+
+    def replay_captured_selection(self, transform=lambda text: text, rejected=False):
+        clock = FakeDevice()
+        current = {"label": None, "selected": False, "launching": False, "frame": -1}
+        launches, taps, stopped = [], [], []
+
+        def navigate(tab, marker, name):
+            current["launching"] = False
+            if not name.endswith("-relaunch-settings"):
+                current.update(label="Light paper" if current["label"] is None else "Pure black", selected=False)
+
+        def answer(command):
+            if command[:2] == ("exec-out", "cat"):
+                if current["launching"]:
+                    return ET.tostring(OverviewReadyTest.overview("Nothing to monitor yet"))
+                root = self.picker(current["label"], current["selected"])
+                # The actual Pure black tile is fully visible at [374,635][657,719].
+                root[0].set("bounds", "[374,635][657,719]")
+                return ET.tostring(root)
+            if command[:3] == ("shell", "input", "tap"):
+                taps.append((current["label"], command[3:]))
+                current["selected"] = True
+            elif command == ("shell", "dumpsys", "window", "-a"):
+                text = ThemeLaunchTest.captured_window(current["label"] == "Light paper")
+                if current["launching"] and current["frame"] < 2:
+                    text = text.replace("com.usagelimits/com.usagelimits.MainActivity", "Splash Screen com.usagelimits").replace(
+                        "ty=BASE_APPLICATION", "ty=APPLICATION_STARTING")
+                return (transform(text) if current["label"] == "Pure black" else text).encode()
+            elif command[:2] == ("exec-out", "screencap"):
+                current["frame"] += 1
+                ground = (243, 240, 232) if current["label"] == "Light paper" else (0, 0, 0)
+                return ThemeLaunchTest.pixels(ground, artwork=current["frame"] >= 2)
+            elif "resolve-activity" in command:
+                return b"com.usagelimits/.MainActivity"
+            elif command[:-1] == clock.SCALE:
+                clock.scale = command[-1]
+            elif command[:3] == ("shell", "settings", "get"):
+                return clock.scale.encode()
+            elif command == ("shell", "am", "force-stop", runtime_smoke.PACKAGE):
+                stopped.append(current["label"])
+            return b""
+
+        class Start:
+            returncode = 0
+            def communicate(self, timeout):
+                return b"Starting: Intent", b""
+
+        def popen(*args, **kwargs):
+            launches.append(current["label"])
+            current.update(launching=True, frame=-1)
+            return Start()
+
+        clock.answer = answer
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "navigate", side_effect=navigate), patch.object(smoke, "widget_home"), \
+                    patch.object(smoke, "setting_is_disabled"), patch.object(smoke, "capture"), \
+                    patch.object(runtime_smoke.subprocess, "run", side_effect=clock.run), \
+                    patch.object(runtime_smoke.subprocess, "Popen", side_effect=popen), \
+                    patch.object(runtime_smoke, "time", clock):
+                if rejected:
+                    with self.assertRaisesRegex(AssertionError, "Selected Pure black did not apply both bar styles"):
+                        smoke.verify_theme_launches()
+                else:
+                    self.assertEqual(["appearance-light-paper.json", "appearance-pure-black.json"], smoke.verify_theme_launches())
+            self.assertEqual([("Light paper", ("515", "677")), ("Pure black", ("515", "677"))], taps)
+            self.assertEqual(["Light paper"] if rejected else ["Light paper", "Pure black"], stopped)
+            self.assertEqual(stopped, launches)
+            selection = json.loads((Path(directory) / "appearance-pure-black-selection.json").read_text())
+            self.assertEqual(12 if rejected else 1, len(selection["attempts"]))
+            if not rejected:
+                self.assertTrue(selection["attempts"][0]["appearanceKnown"])
+                self.assertIs(False, selection["attempts"][0]["statusDarkIcons"])
+                self.assertIs(False, selection["attempts"][0]["navigationDarkIcons"])
+                report = json.loads((Path(directory) / "appearance-pure-black.json").read_text())
+                self.assertEqual("passed", report["result"])
                 self.assertTrue(report["systemFrames"])
                 self.assertTrue(report["appFrames"])
                 self.assertEqual([], report["wrongFrames"])
