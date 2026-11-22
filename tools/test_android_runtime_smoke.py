@@ -568,17 +568,39 @@ class WidgetTonePressTest(unittest.TestCase):
         PACKAGE = runtime_smoke.PACKAGE
         BOXES = {"White background": (20, 110, 100, 175), "Auto": (12, 200, 100, 284),
                  "Light": (100, 200, 400, 284), "All accounts": (20, 286, 400, 320),
-                 "Save widget": (20, 326, 115, 330)}
+                 "Cancel": (20, 326, 115, 330), "Save widget": (125, 326, 285, 330)}
         REST_PNG = png_bytes(WIDTH, HEIGHT, 4, REST[2])
+        # At 280 dpi the radii are 10.5px and 14px. These are the first inside pixel columns
+        # from the corner, row by row, worked out at pixel centres. Mirror for the other edges.
+        ROUND_6DP = (7, 5, 4, 3, 2, 1, 1)
+        ROUND_8DP = (10, 8, 6, 5, 4, 3, 2, 2, 1, 1)
+        ROUND_8DP_WITH_FRINGE = (7, 6, 4, 3, 2, 2, 1)
 
-        def __init__(self, capture_seconds=0.25, clipped=False):
+        @staticmethod
+        def highlight(insets):
+            def lit(x, y):
+                if not (100 <= x < 400 and 214 <= y < 270):
+                    return False
+                row = min(y - 214, 269 - y)
+                inset = insets[row] if row < len(insets) else 0
+                return 100 + inset <= x < 400 - inset
+
+            return png_bytes(WIDTH, HEIGHT, 4, frame(lit)[2])
+
+        def __init__(self, capture_seconds=0.25, clipped=False, delayed_writes=0, hold_selects=True):
             super().__init__()
             self.tone, self.holding, self.finished = "Auto", False, False
+            self.pending_tone, self.stale_dumps = None, 0
+            self.delayed_writes, self.hold_selects = delayed_writes, hold_selects
+            self.restore_attempted = False
             self.BOXES = dict(self.BOXES)
+            self.content_bottom = 326
             if clipped:
-                self.BOXES["Light"] = (100, 200, 400, 279)
-            # This literal edge pixel is within 1px of a 6dp outline, but not of an 8dp outline.
-            self.pressed = png_bytes(WIDTH, HEIGHT, 4, frame(lambda x, y: (x, y) in {(102, 216), (200, 240)})[2])
+                # The taller row continues off-screen, but its exposed 86px still exceed 48dp.
+                self.content_bottom = 286
+                self.BOXES["Auto"] = (12, 200, 100, 286)
+                self.BOXES["Light"] = (100, 200, 400, 286)
+            self.pressed = self.highlight(self.ROUND_6DP)
             self.seconds = lambda command: capture_seconds if self.holding and command == (
                 "exec-out", "screencap", "-p") else 0.25
 
@@ -590,8 +612,13 @@ class WidgetTonePressTest(unittest.TestCase):
         def assert_hold(self, command):
             assert command == ["shell", "input", "swipe", "250", "242", "250", "242", "4000"], command
 
+        def select(self, tone):
+            self.pending_tone, self.stale_dumps = tone, self.delayed_writes
+
         def release(self, timeout):
-            self.holding, self.tone = False, "Light"
+            self.holding = False
+            if self.hold_selects:
+                self.select("Light")
             return None, b""
 
         def answer(self, command):
@@ -599,13 +626,22 @@ class WidgetTonePressTest(unittest.TestCase):
                 return b"Physical density: 280"
             if command == ("exec-out", "screencap", "-p"):
                 return self.pressed if self.holding else self.REST_PNG
+            if command[:3] == ("shell", "input", "swipe") and self.content_bottom == 286:
+                assert command == ("shell", "input", "swipe", "240", "239", "240", "146", "400")
+                # The viewport is already at its limit; it cannot expose the rest of the row.
+                return b""
             if command[:3] == ("shell", "input", "tap"):
                 x, y = map(int, command[3:])
                 if in_box(self.BOXES["Auto"])(x, y):
-                    self.tone = "Auto"
-                elif in_box(self.BOXES["Save widget"])(x, y):
-                    assert self.tone == "Auto", "Widget saved a changed tone"
+                    assert not self.restore_attempted, "Widget retried the restore tap"
+                    assert self.pending_tone != "Light", "Restore raced the held selection"
+                    self.restore_attempted = True
+                    self.select("Auto")
+                elif in_box(self.BOXES["Cancel"])(x, y):
+                    assert self.tone == "Auto" and self.pending_tone is None, "Widget cancelled before restoring Auto"
                     self.finished = True
+                elif in_box(self.BOXES["Save widget"])(x, y):
+                    raise AssertionError("Proof-only widget visit must not save")
                 else:
                     raise AssertionError(f"Unexpected widget tap: {command}")
                 return b""
@@ -614,13 +650,18 @@ class WidgetTonePressTest(unittest.TestCase):
         def hierarchy(self):
             if self.finished:
                 return b'<hierarchy><node resource-id="launcher:id/workspace"/></hierarchy>'
+            if self.pending_tone is not None:
+                if self.stale_dumps:
+                    self.stale_dumps -= 1
+                else:
+                    self.tone, self.pending_tone = self.pending_tone, None
             pkg = self.PACKAGE
             controls = "".join(
                 f'<node package="{pkg}" text="{label}" class="android.widget.RadioButton" enabled="true" '
                 f'clickable="true" checkable="true" checked="{str(label not in ("Auto", "Light") or label == self.tone).lower()}" '
                 f'bounds="[{x1},{y1}][{x2},{y2}]"/>'
                 for label, (x1, y1, x2, y2) in self.BOXES.items())
-            return (f'<hierarchy><node package="{pkg}" scrollable="true" bounds="[0,100][480,326]">'
+            return (f'<hierarchy><node package="{pkg}" scrollable="true" bounds="[0,100][480,{self.content_bottom}]">'
                     f'{controls}<node package="{pkg}" text="Opacity · 100 %" bounds="[20,177][230,195]"/>'
                     f'</node><node package="{pkg}" text="Usage Bars"/>'
                     '</hierarchy>').encode()
@@ -642,16 +683,54 @@ class WidgetTonePressTest(unittest.TestCase):
             report = json.loads(artifact.read_text())
             self.assertEqual("passed", report["result"])
             self.assertEqual(10.5, report["attempts"][0]["radiusPx"])
-            self.assertEqual(1, report["attempts"][0]["changedInFringe"])
+            self.assertEqual(8, report["attempts"][0]["segmentContourPixels"])
+            self.assertEqual(8, report["attempts"][0]["changedInSegmentContour"])
             self.assertEqual(device.pressed, (directory / "widget-config-tone-pressed.png").read_bytes())
             self.assertTrue((directory / "widget-config-tone-pressed-crop.png").exists())
             self.assertTrue(device.finished)
             self.assertEqual("Auto", device.tone)
 
-    def test_frame_finishing_after_release_is_rejected_without_another_hold(self):
+    def test_waits_for_both_queued_selections_before_cancelling(self):
         with TemporaryDirectory() as directory:
             directory = Path(directory)
-            device = self.Device(capture_seconds=3.5)
+            device = self.Device(delayed_writes=2)
+            self.configure(directory, device)
+            released = ET.parse(directory / "widget-config-tone-released-0.xml").getroot()
+            restored = ET.parse(directory / "widget-config-tone-restored-0.xml").getroot()
+            self.assertEqual("true", released.find(".//node[@text='Light']").get("checked"))
+            self.assertEqual("true", restored.find(".//node[@text='Auto']").get("checked"))
+            self.assertTrue(device.finished)
+
+    def test_unchanged_selection_after_release_fails_even_when_cleanup_restores_auto(self):
+        with TemporaryDirectory() as directory:
+            device = self.Device(hold_selects=False)
+            with self.assertRaisesRegex(AssertionError, "UI did not reach widget-config-tone-released-0"):
+                self.configure(Path(directory), device)
+            self.assertTrue(device.restore_attempted)
+            self.assertEqual("Auto", device.tone)
+            self.assertFalse(device.finished)
+
+    def test_unavailable_capture_and_failed_restore_keep_the_capture_error(self):
+        with TemporaryDirectory() as directory:
+            device = self.Device()
+
+            def fail_capture_then_restore(command):
+                if device.holding and command == ("exec-out", "screencap", "-p"):
+                    raise OSError("held screenshot unavailable")
+                if command[:3] == ("shell", "input", "tap"):
+                    raise AssertionError("restore tap failed")
+
+            device.before = fail_capture_then_restore
+            with self.assertRaisesRegex(OSError, "held screenshot unavailable") as failure:
+                self.configure(Path(directory), device)
+            self.assertEqual("restore tap failed", str(failure.exception.__cause__))
+            self.assertFalse(device.holding)
+            self.assertFalse(device.finished)
+
+    def test_frame_crossing_capture_cutoff_is_rejected_without_another_hold(self):
+        with TemporaryDirectory() as directory:
+            directory = Path(directory)
+            device = self.Device(capture_seconds=3.0)
             with self.assertRaisesRegex(AssertionError, "capture ended too close to the release"):
                 self.configure(directory, device)
             report = json.loads((directory / "widget-config-tone-ripple.json").read_text())
@@ -659,6 +738,20 @@ class WidgetTonePressTest(unittest.TestCase):
             self.assertEqual(1, len(report["attempts"]))
             self.assertEqual("Auto", device.tone)
             self.assertFalse(device.finished)
+
+    def test_eight_dp_highlight_including_its_fringe_cannot_pass_the_six_dp_collector(self):
+        for insets in (self.Device.ROUND_8DP, self.Device.ROUND_8DP_WITH_FRINGE):
+            with self.subTest(insets=insets), TemporaryDirectory() as directory:
+                directory = Path(directory)
+                device = self.Device()
+                device.pressed = device.highlight(insets)
+                with self.assertRaisesRegex(AssertionError, "no change in the 6dp contour beyond the 8dp fringe"):
+                    self.configure(directory, device)
+                measured = json.loads((directory / "widget-config-tone-ripple.json").read_text())["attempts"][0]
+                self.assertGreater(measured["changedInPill"], 0)
+                self.assertEqual(0, measured["changedOutsidePill"])
+                self.assertEqual(0, measured["changedInSegmentContour"])
+                self.assertEqual("Auto", device.tone)
 
     def test_unchanged_pressed_frame_cannot_pass_as_a_highlight(self):
         with TemporaryDirectory() as directory:
@@ -669,12 +762,13 @@ class WidgetTonePressTest(unittest.TestCase):
             self.assertEqual("Auto", device.tone)
             self.assertFalse(device.finished)
 
-    def test_clipped_48dp_target_is_never_pressed(self):
+    def test_edge_clipped_target_over_48dp_is_never_pressed(self):
         with TemporaryDirectory() as directory:
             directory = Path(directory)
             device = self.Device(clipped=True)
-            with self.assertRaisesRegex(AssertionError, "not a fully visible 48dp touch target"):
+            with self.assertRaisesRegex(AssertionError, "Could not reach a fully visible Light beside Auto"):
                 self.configure(directory, device)
+            self.assertFalse((directory / "widget-config-tone-rest-0.png").exists())
             self.assertFalse((directory / "widget-config-tone-pressed-0.png").exists())
             self.assertEqual("Auto", device.tone)
             self.assertFalse(device.finished)

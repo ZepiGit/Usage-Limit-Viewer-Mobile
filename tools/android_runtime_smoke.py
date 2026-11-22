@@ -805,7 +805,7 @@ class Smoke:
                 self.widget_control(name + "-opacity", PACKAGE, label="Opacity · 100 %", scroll=True, text_only=True)
             if control_label == "Auto" and verify_tone:
                 self.verify_segment_press(name + "-tone", PACKAGE, "Light", "Auto")
-        button = "Save widget" if save or verify_tone else "Cancel"
+        button = "Save widget" if save else "Cancel"
         self.tap(self.widget_control(name + "-finish", PACKAGE, label=button))
         self.wait_for(name + "-returned", lambda root: not matches(root, "Save widget")
                       and not matches(root, "Saving…") and any(
@@ -1849,40 +1849,53 @@ class Smoke:
     def verify_segment_press(self, name, package, held, original, horizontal=False):
         self._verify_press(name, package, held, original, radius_dp=6, delays=(0.7,), horizontal=horizontal)
 
-    def _segment_controls(self, name, package, held, original, minimum, horizontal):
+    def _segment_controls(self, name, package, held, original, minimum, inset, horizontal):
         for attempt in range(10):
             root = self.dump(f"{name}-controls-{attempt}")
             target = self.control(root, package, label=held)
             idle = self.control(root, package, label=original)
-            parents = {child: parent for parent in root.iter() for child in parent}
             node = target if target is not None else idle
-            cursor, scrollables = node, []
+            if node is None:
+                self.scroll(root, up=True, package=package)
+                continue
+
+            parents = {child: parent for parent in root.iter() for child in parent}
+            content = row_viewport = None
+            cursor = node
             while cursor in parents:
                 cursor = parents[cursor]
-                if cursor.get("scrollable") == "true" and bounds(cursor):
-                    scrollables.append(bounds(cursor))
-            box = bounds(node) if node is not None else None
-            # Moonshot's second button can be clipped horizontally; the row's 2dp end padding
-            # leaves a gap at the viewport edge once the entire button is visible.
-            if horizontal and len(scrollables) >= 2 and (target is None or box[2] >= scrollables[0][2]):
-                x1, y1, x2, y2 = scrollables[0]
-                y = str((box[1] + box[3]) // 2)
-                if scrollables[-1][1] < int(y) < scrollables[-1][3]:
-                    self.adb("shell", "input", "swipe", str(x1 + (x2 - x1) * 3 // 4), y,
-                             str(x1 + (x2 - x1) // 4), y, "400")
+                if cursor.get("package") != package or not bounds(cursor):
+                    continue
+                if cursor.get("class") == "android.widget.HorizontalScrollView":
+                    row_viewport = bounds(cursor)
+                elif cursor.get("scrollable") == "true":
+                    content = bounds(cursor)
+            assert content is not None, f"No observed app content viewport for {held}"
+            x1, y1, x2, y2 = content
+            box = bounds(node)
+            # Accessibility can report a clipped target that still measures 48dp. Require
+            # clearance from the content edges and from the row's horizontal clipping edges.
+            if box[1] < y1 + inset or box[3] > y2 - inset:
+                self.scroll(root, up=box[3] > y2 - inset, package=package)
+                continue
+            if horizontal and row_viewport is not None:
+                left, _, right, _ = row_viewport
+                if target is None or idle is None or box[0] < left + inset or box[2] > right - inset:
+                    y = str((box[1] + box[3]) // 2)
+                    start, end = left + (right - left) * 3 // 4, left + (right - left) // 4
+                    if target is not None and (idle is None or box[0] < left + inset):
+                        start, end = end, start
+                    self.adb("shell", "input", "swipe", str(start), y, str(end), y, "400")
                     continue
             if target is not None and idle is not None:
-                if scrollables:
-                    x1, y1, x2, y2 = scrollables[-1]
-                    if box[1] < y1 or box[3] > y2 or (box[3] - box[1] < minimum and (box[1] == y1 or box[3] == y2)):
-                        self.scroll(root, up=box[3] >= y2, package=package)
-                        continue
-                    assert x1 <= box[0] < box[2] <= x2, f"{held} is outside its horizontal viewport"
-                assert all(x1 <= box[0] < box[2] <= x2 and y1 <= box[1] < box[3] <= y2
-                           for x1, y1, x2, y2 in scrollables), f"{held} is not fully visible"
+                if row_viewport is not None:
+                    left, top, right, bottom = row_viewport
+                    assert left + inset <= box[0] < box[2] <= right - inset and top <= box[1] < box[3] <= bottom, \
+                        f"{held} is not fully visible in the segmented row"
+                assert x1 + inset <= box[0] < box[2] <= x2 - inset, f"{held} is outside its horizontal viewport"
                 assert box[3] - box[1] >= minimum and box[2] - box[0] >= minimum, \
                     f"{held} is not a fully visible 48dp touch target: {box}"
-                return target, idle, scrollables[-1] if scrollables else None
+                return target, idle, content
             self.scroll(root, up=True, package=package)
         raise AssertionError(f"Could not reach a fully visible {held} beside {original}")
 
@@ -1909,7 +1922,7 @@ class Smoke:
             rest_name = f"{name}-rest-{attempt}"
             viewport = None
             if shared_segment:
-                target, original, viewport = self._segment_controls(name, package, held, default, dp(48), horizontal)
+                target, original, viewport = self._segment_controls(name, package, held, default, dp(48), dp(2), horizontal)
                 rest = self.adb("exec-out", "screencap", "-p", binary=True)
                 self.write_screenshot(rest_name, rest)
             else:
@@ -1939,27 +1952,50 @@ class Smoke:
                 self.write_screenshot(f"{name}-pressed-{attempt}", pressed)
             except Exception as error:
                 capture_error = error
-            finally:
-                _, input_error = hold.communicate(timeout=30)
+            capture_late = capture_error is None and capture_end - swipe_start > (hold_ms - margin_ms) / 1000
 
+            released_root = release_error = None
             try:
+                _, input_error = hold.communicate(timeout=30)
                 assert hold.returncode == 0, f"Held press failed: {input_error.decode().strip()}"
                 release_name = f"{name}-released-{attempt}"
-                released_root = self.dump(release_name) if shared_segment else self.capture(release_name)
-                released = self.control(released_root, package, label=held)
-                restore = self.control(released_root, package, label=default) if shared_segment else original
-                assert restore is not None, f"Could not find {default} to restore"
-                self.tap(restore)
-                self.wait_for(f"{name}-restored-{attempt}", lambda root: (
-                    (restored := self.control(root, package, label=default)) is not None and self.selected(restored)
-                    and (other_node := self.control(root, package, label=held)) is not None
-                    and not self.selected(other_node)))
-            except Exception as restore_error:
-                if capture_error is not None:
-                    raise capture_error from restore_error
-                raise
+                if shared_segment:
+                    released_root = self.wait_for(release_name, lambda root: (
+                        credit_checked(root, held, True, package) is not None
+                        and credit_checked(root, default, False, package) is not None))
+                else:
+                    released_root = self.capture(release_name)
+            except Exception as error:
+                release_error = error
+
+            restore_error = None
+            try:
+                restored_name = f"{name}-restored-{attempt}"
+                if shared_segment:
+                    if released_root is None:
+                        released_root = self.dump(f"{name}-restore-target-{attempt}")
+                    restore = self.control(released_root, package, label=default)
+                    assert restore is not None, f"Could not find {default} to restore"
+                    self.tap(restore)
+                    self.wait_for(restored_name, lambda root: (
+                        credit_checked(root, default, True, package) is not None
+                        and credit_checked(root, held, False, package) is not None))
+                else:
+                    self.tap(original)
+                    self.wait_for(restored_name, lambda root: (
+                        (restored := self.control(root, package, label=default)) is not None and self.selected(restored)
+                        and (other_node := self.control(root, package, label=held)) is not None
+                        and not self.selected(other_node)))
+            except Exception as error:
+                restore_error = error
             if capture_error is not None:
-                raise capture_error
+                raise capture_error from (restore_error or release_error)
+            # A late Segment frame remains a rejected capture even if cleanup also fails.
+            if not (shared_segment and capture_late):
+                if release_error is not None:
+                    raise release_error from restore_error
+                if restore_error is not None:
+                    raise restore_error
 
             row = (min(node[0], other[0]) - dp(2), node[1], max(node[2], other[2]) + dp(2), node[3])
             pill = (node[0], node[1] + dp(8), node[2], node[3] - dp(8))
@@ -1973,24 +2009,42 @@ class Smoke:
                 region = (max(region[0], viewport[0]), max(region[1], viewport[1]),
                           min(region[2], viewport[2]), min(region[3], viewport[3]))
             changed = changed_pixels(before, after, region)
+            fringe = 1.0
+            released = self.control(released_root, package, label=held) if released_root is not None else None
             measured = {
                 "attempt": attempt, "holdSeconds": hold_ms / 1000, "captureDelaySeconds": delay,
                 "captureStartSeconds": capture_start - swipe_start, "captureEndSeconds": capture_end - swipe_start,
                 "latestCaptureEndSeconds": (hold_ms - margin_ms) / 1000,
                 "nodeBounds": node, "targetDp": ((node[2] - node[0]) / px, (node[3] - node[1]) / px),
                 "rowBounds": row, "pill": pill, "idlePill": idle_pill, "radiusPx": radius,
-                "fringePx": 1, "contentViewport": viewport, "comparedRegion": region, "changedInRegion": len(changed),
-                **judge_press(changed, pill, radius, idle_pill),
-                "heldSegmentSelectedAfterRelease": released is not None and self.selected(released),
+                "fringePx": fringe, "contentViewport": viewport, "comparedRegion": region, "changedInRegion": len(changed),
+                **judge_press(changed, pill, radius, idle_pill, fringe),
+                "heldSegmentSelectedAfterRelease": release_error is None and released is not None and self.selected(released),
             }
-            if measured["captureEndSeconds"] > measured["latestCaptureEndSeconds"]:
+            if shared_segment:
+                radius8 = 8 * px
+                # An 8dp highlight fits inside the 6dp mask; only count pixels beyond its AA fringe.
+                contour = {(x, y) for x in range(pill[0], pill[2]) for y in range(pill[1], pill[3])
+                           if min(x - pill[0], pill[2] - 1 - x) < radius8
+                           and min(y - pill[1], pill[3] - 1 - y) < radius8
+                           and rounded_rect_distance(pill, radius, x, y) <= 0
+                           and rounded_rect_distance(pill, radius8, x, y) > fringe}
+                measured["segmentContourPixels"] = len(contour)
+                measured["changedInSegmentContour"] = sum(point in contour for point in changed)
+                if release_error is not None:
+                    measured["releaseError"] = str(release_error)
+                if restore_error is not None:
+                    measured["restoreError"] = str(restore_error)
+            if capture_late:
                 measured["rejected"] = "capture ended too close to the release"
             elif measured["changedInIdlePill"]:
                 measured["rejected"] = "the selected segment changed, so the frame follows a release"
-            elif shared_segment and not measured["heldSegmentSelectedAfterRelease"]:
-                measured["rejected"] = "the held segment was not selected on release"
             elif measured["changedInPill"] == 0:
                 measured["rejected"] = "no visible press"
+            elif shared_segment and not measured["segmentContourPixels"]:
+                measured["rejected"] = "no pixels distinguish the 6dp contour from the 8dp fringe"
+            elif shared_segment and not measured["changedInSegmentContour"]:
+                measured["rejected"] = "no change in the 6dp contour beyond the 8dp fringe"
             report["attempts"].append(measured)
             record()
             (self.directory / (name + "-rest.png")).write_bytes(rest)
