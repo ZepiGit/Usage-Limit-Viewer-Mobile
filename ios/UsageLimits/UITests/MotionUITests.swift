@@ -95,15 +95,19 @@ final class MotionUITests: XCTestCase {
         request.tap()
         XCTAssertTrue(release.waitForExistence(timeout: 5))
         XCTAssertTrue(retained.exists)
+        XCTAssertTrue(picker.exists, "the outgoing picker is still mounted")
         XCTAssertFalse(kimi.exists, "the still-visible outgoing card is already hidden from AX")
         XCTAssertFalse(key.exists, "the destination has not yet replaced the outgoing card")
         XCTAssertTrue(app.buttons["Cancel"].exists, "AX is active outside the outgoing card")
+        let held = XCTAttachment(screenshot: app.screenshot())
+        held.name = "sign-in-opaque-outgoing-picker"
+        held.lifetime = .keepAlways
+        add(held)
         oldPoint.tap()
-        XCTAssertFalse(region.exists)
         retained.tap()
-        XCTAssertFalse(region.exists)
         release.tap()
         XCTAssertTrue(key.waitForExistence(timeout: 5), "neither old action may replace the requested destination")
+        XCTAssertFalse(region.exists)
         XCTAssertFalse(kimi.exists)
         XCTAssertFalse(picker.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Shows a code")).firstMatch.exists)
 
@@ -112,6 +116,25 @@ final class MotionUITests: XCTestCase {
         XCTAssertTrue(kimi.isEnabled)
         kimi.tap()
         XCTAssertTrue(region.waitForExistence(timeout: 5), "the restored real button opens the Kimi region choice")
+    }
+
+    func testInterruptedSignInRestoresTheRealChooserAction() {
+        let app = launchSignInFixture()
+        defer { app.terminate() }
+        let picker = app.scrollViews["provider-picker-scroll"]
+        let kimi = kimiButton(in: picker)
+        XCTAssertTrue(kimi.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Request key step"].waitForExistence(timeout: 5))
+        let reverse = app.buttons["Reverse at intermediate"]
+        XCTAssertTrue(reverse.isEnabled)
+        reverse.tap()
+        XCTAssertTrue(app.buttons["Reversal settled"].waitForExistence(timeout: 5),
+                      "a real exit and resumed entrance must finish before testing the restored action")
+        XCTAssertFalse(picker.staticTexts["Paste your OpenCode Go key"].exists)
+        XCTAssertTrue(kimi.exists)
+        XCTAssertTrue(kimi.isEnabled)
+        kimi.tap()
+        XCTAssertTrue(picker.staticTexts["Kimi region"].waitForExistence(timeout: 5))
     }
 
     func testReducedSignInPublishesOnlyTheNewStepToAccessibility() {

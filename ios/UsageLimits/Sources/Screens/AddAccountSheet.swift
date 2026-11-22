@@ -545,7 +545,25 @@ struct AddAccountSheet: View {
     private struct SignInMotionAccessibilityFixture: View {
         @State private var stage: Stage = .choosing
         @State private var holdExit = false
+        @State private var reversal = Reversal.idle
         @StateObject private var retained = RetainedAction()
+
+        private enum Reversal: Equatable {
+            case idle, exiting, returning(from: Double), resumed, settled
+        }
+
+        private func observeReversal(_ opacity: Double, leaving: Bool) {
+            switch reversal {
+            case .exiting where leaving && opacity > 0.2 && opacity < 0.8:
+                reversal = .returning(from: opacity)
+                stage = .choosing
+            case .returning(let exit) where !leaving && opacity > exit && opacity < 0.95:
+                reversal = .resumed
+            case .resumed where !leaving && opacity == 1:
+                reversal = .settled
+            default: break
+            }
+        }
 
         @MainActor
         private final class RetainedAction: ObservableObject {
@@ -554,7 +572,8 @@ struct AddAccountSheet: View {
 
         var body: some View {
             VStack(spacing: 8) {
-                AddAccountSheet(stage: $stage, holdExit: holdExit) { [weak retained] action in
+                AddAccountSheet(stage: $stage, captureStep: { observeReversal($0, leaving: $1) },
+                                holdExit: holdExit) { [weak retained] action in
                     Task { @MainActor in retained?.call = action }
                 }
                 HStack {
@@ -571,6 +590,13 @@ struct AddAccountSheet: View {
                         Button { stage = .choosing } label: { Text(verbatim: "Restore chooser") }
                     }
                 }
+                Button {
+                    reversal = .exiting
+                    stage = .awaitingKey(.opencode)
+                } label: {
+                    Text(verbatim: reversal == .settled ? "Reversal settled" : "Reverse at intermediate")
+                }
+                .disabled(holdExit || reversal != .idle || stage != .choosing || retained.call == nil)
                 .padding(.bottom, 8)
             }
             .onDisappear { retained.call = nil }

@@ -223,9 +223,25 @@ final class SignInMotionTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(resumedOpacity), 0.95, "reversal must not jump to full opacity")
         XCTAssertEqual(driver.stage, .choosing)
         let restored = capture(window, commitUpdates: true)
-        XCTAssertTrue(try cardPixels(restored, in: region) == cardPixels(before, in: region),
+        let returning = try XCTUnwrap(reversal)
+        attach(returning, name: "sign-in-reverse")
+        let chooserPixels = try cardPixels(before, in: region)
+        XCTAssertTrue(try cardPixels(restored, in: region) == chooserPixels,
                       "the original chooser pixels return after reversal")
-        attach(try XCTUnwrap(reversal), name: "sign-in-reverse")
+
+        let keyDriver = Driver()
+        keyDriver.stage = .awaitingKey(.opencode)
+        let (keyWindow, _) = try await present(keyDriver) { _, _ in }
+        defer { keyWindow.isHidden = true; keyWindow.rootViewController = nil }
+        let keyPixels = try cardPixels(capture(keyWindow, commitUpdates: true), in: region)
+        let returningPixels = try cardPixels(returning, in: region)
+        let keyOnly = chooserPixels.indices.filter { brightness(chooserPixels[$0]) < 150 && brightness(keyPixels[$0]) > 550 }
+        XCTAssertFalse(keyOnly.isEmpty, "the real key card has ink independent of the chooser")
+        XCTAssertTrue(chooserPixels.indices.contains {
+            brightness(chooserPixels[$0]) > 550 && brightness(keyPixels[$0]) < 150 && brightness(returningPixels[$0]) > 150
+        }, "the reversing frame shows independent chooser ink")
+        XCTAssertFalse(keyOnly.contains { brightness(returningPixels[$0]) > 150 },
+                       "the key card never flashes during the interrupted reversal")
     }
 
     func testReducedMotionCutsWithoutAnyIntermediateNativeOpacity() async throws {
