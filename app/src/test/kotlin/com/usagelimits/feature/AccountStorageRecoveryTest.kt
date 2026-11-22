@@ -37,6 +37,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -174,7 +175,12 @@ class AccountStorageRecoveryTest {
         val failure = IllegalStateException("Synthetic credit read failure")
         creditReads.send(Result.failure(failure))
         runCurrent()
-        assertEquals("the independent failure is not swallowed", listOf(failure), reported)
+        val reportedFailure = reported.single()
+        assertEquals(failure.javaClass, reportedFailure.javaClass)
+        assertEquals(failure.message, reportedFailure.message)
+        // Coroutine stack-trace recovery can copy the exception, keeping the original as its cause.
+        assertSame("the independent failure is not swallowed", failure,
+            generateSequence(reportedFailure) { it.cause }.last())
         assertFalse(vm.state.value.accountStorageUnreadable)
         assertEquals(known, vm.state.value)
     }
