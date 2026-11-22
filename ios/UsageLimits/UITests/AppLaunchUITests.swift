@@ -338,28 +338,55 @@ final class AppLaunchUITests: XCTestCase {
         var app = launch(["-fixture-settings", "-fixture-settings-reset", "-fixture-settings-gates"])
         defer { app.terminate() }
         tabButton("Settings", in: app).tap()
-        let toggle = app.switches["Limit exhausted"]
+        let form = app.descendants(matching: .any)["settings-form"].firstMatch
+        let choice = app.buttons["settings-theme-warmDark"]
+        let originalTheme = app.buttons["settings-theme-pureBlack"]
         for stage in ["before-read", "before-apply"] {
             let release = app.buttons["settings-load-release-\(stage)"]
             XCTAssertTrue(release.waitForExistence(timeout: 10))
-            XCTAssertTrue(scrollTo(toggle, in: app, towardStart: false))
-            XCTAssertFalse(toggle.isEnabled, "Settings must be inert at \(stage)")
-            let before = toggle.value as? String
-            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-            XCTAssertEqual(toggle.value as? String, before)
+            // The disabled Form cannot scroll; exercise a real choice already on its first page.
+            XCTAssertTrue(choice.exists)
+            let frame = choice.frame
+            XCTAssertFalse(frame.isEmpty)
+            XCTAssertTrue(form.frame.intersection(app.frame).contains(frame))
+            XCTAssertFalse(frame.intersects(app.navigationBars["Settings"].frame))
+            XCTAssertFalse(frame.intersects(bottomTabBarFrame(in: app)))
+            XCTAssertFalse(form.isEnabled, "Settings must be inert at \(stage)")
+            XCTAssertFalse(choice.isEnabled, "Appearance must be inert at \(stage)")
+            XCTAssertEqual(choice.value as? String, "Not selected")
+            XCTAssertEqual(originalTheme.value as? String, "Selected")
+            choice.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            XCTAssertEqual(choice.value as? String, "Not selected")
+            XCTAssertEqual(originalTheme.value as? String, "Selected")
             let trace = settingsTrace(in: app)
+            XCTAssertTrue(trace.contains("load gate held stage=\(stage)"), trace)
             XCTAssertFalse(trace.contains("settings save queued"), trace)
             XCTAssertFalse(trace.contains("load prepare begin"), trace)
+            if stage == "before-read" {
+                XCTAssertFalse(trace.contains("load settings read begin"), trace)
+            }
+            attachSettingsTrace(in: app)
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Disabled appearance choice at \(stage)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
             release.tap()
         }
-        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: toggle)
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: choice)
         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 10), .completed)
+        XCTAssertEqual(choice.value as? String, "Not selected")
+        XCTAssertEqual(originalTheme.value as? String, "Selected")
         let trace = settingsTrace(in: app)
-        let applied = trace.range(of: "load settings installed")
-        let prepared = trace.range(of: "load prepare begin")
-        XCTAssertNotNil(applied, trace)
-        XCTAssertNotNil(prepared, trace)
-        if let applied, let prepared { XCTAssertLessThan(applied.lowerBound, prepared.lowerBound) }
+        let events = ["load gate held stage=before-read", "load settings read begin",
+                      "load settings read returned", "load gate held stage=before-apply",
+                      "load settings installed", "load prepare begin"]
+        for (earlier, later) in zip(events, events.dropFirst()) {
+            let first = trace.range(of: earlier)
+            let second = trace.range(of: later)
+            XCTAssertNotNil(first, trace)
+            XCTAssertNotNil(second, trace)
+            if let first, let second { XCTAssertLessThan(first.lowerBound, second.lowerBound, trace) }
+        }
         setSwitch("Limit exhausted", to: false, in: app, initially: true)
         let saved = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             self.settingsTrace(in: app).contains("settings save persisted")
@@ -369,6 +396,9 @@ final class AppLaunchUITests: XCTestCase {
 
         app = launch(["-fixture-settings"])
         tabButton("Settings", in: app).tap()
+        XCTAssertTrue(scrollTo(app.buttons["settings-theme-pureBlack"], in: app, towardStart: true))
+        XCTAssertEqual(app.buttons["settings-theme-pureBlack"].value as? String, "Selected")
+        XCTAssertEqual(app.buttons["settings-theme-warmDark"].value as? String, "Not selected")
         let restored = app.switches["Limit exhausted"]
         XCTAssertTrue(scrollTo(restored, in: app, towardStart: false))
         XCTAssertEqual(restored.value as? String, "0")
