@@ -25,6 +25,7 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.sync.NotificationPublisher
 import com.usagelimits.core.sync.Publication
+import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.resetTestWorkManager
 import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.feature.waitDrained
@@ -72,6 +73,7 @@ class StatusIconOverviewReturnTest {
         resetTestWorkManager()
         WorkManagerTestInitHelper.initializeTestWorkManager(app,
             Configuration.Builder().setExecutor(SynchronousExecutor()).build())
+        app.mainOpening.processStopped()
         // The test driver never marks the connected constraint met; no provider request can run.
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         shadowOf(manager).setNotificationsEnabled(true)
@@ -114,6 +116,7 @@ class StatusIconOverviewReturnTest {
             val jobs = window?.viewModelStore?.keys()?.mapNotNull { window.viewModelStore[it] as? UsageViewModel }
                 .orEmpty().mapNotNull { it.viewModelScope.coroutineContext[Job] } + listOfNotNull(app.mainOpening.job, window?.notificationPermissionCheck)
             activity?.pause()?.stop()?.destroy()
+            app.mainOpening.processStopped()
             compose.waitDrained { jobs.all { it.isCompleted } }
             lateinit var barrier: Job
             compose.runOnUiThread { barrier = app.observeStatusIconEligibility() }
@@ -140,6 +143,8 @@ class StatusIconOverviewReturnTest {
             Settings.Global.getFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f), 0f)
         val controller = Robolectric.buildActivity(UsageLimitsActivity::class.java).also { activity = it }
         controller.create().start().resume()
+        // The activity controller drives onStart; supply the separate process callback explicitly.
+        app.mainOpening.processStarted()
         val opening = checkNotNull(app.mainOpening.job) { "the real activity start did not request opening work" }
         val wasPaused = ShadowChoreographer.isPaused()
         val looper = ShadowLooper.shadowMainLooper()
@@ -157,7 +162,14 @@ class StatusIconOverviewReturnTest {
             ShadowChoreographer.setPaused(wasPaused)
         }
         looper.idleFor(frameDelay)
-        compose.waitDrained { overview() && app.mainOpening.job?.isCompleted != false }
+        compose.waitDrained { overview() && opening.isCompleted }
+        return pendingOpeningSync()
+    }
+
+    private fun pendingOpeningSync(): WorkInfo {
+        val work = WorkManager.getInstance(app).getWorkInfosForUniqueWork(SyncWorker.ONE_SHOT_WORK_NAME).get()
+        assertEquals("one opening sync stays offline behind its constraint", listOf(WorkInfo.State.ENQUEUED), work.map { it.state })
+        return work.single()
     }
 
     /** Pause/resume is enough for Android's settings and never requests a second opening sync. */
@@ -208,8 +220,8 @@ class StatusIconOverviewReturnTest {
             assertEquals("$block: no duplicate edge publication", before + 1, restorations)
         }
         assertEquals("no cache event or provider sync restored these icons", 0, cacheEvents)
-        val work = WorkManager.getInstance(app).getWorkInfosForUniqueWork("usage_sync_now").get()
-        assertTrue("the ordinary opening sync stays offline behind its constraint", work.isNotEmpty() && work.all { it.state == WorkInfo.State.ENQUEUED })
+        assertSame("returns do not request another opening sync", openingJob, app.mainOpening.job)
+        assertEquals("returns do not replace the opening sync", opening.id, pendingOpeningSync().id)
         runBlocking { app.container.publication.cacheMoved() }
         assertEquals("restoration did not consume the pending usage alert", 1, alerts().size)
     }
