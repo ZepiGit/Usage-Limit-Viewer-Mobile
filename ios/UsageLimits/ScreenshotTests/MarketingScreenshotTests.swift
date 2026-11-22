@@ -83,7 +83,7 @@ final class MarketingScreenshotTests: XCTestCase {
         chooseAppearance("settings-text-font-robotoFlex", in: app)
         chooseAppearance("settings-figure-font-jetBrainsMono", in: app)
         let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
-        scrollToCreditControl(preview, in: app)
+        scrollToCreditControl(preview, in: app, towardStart: true, requireHittable: false)
         let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "saved"), object: preview)
         XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 10), .completed)
         app.terminate()
@@ -95,7 +95,8 @@ final class MarketingScreenshotTests: XCTestCase {
             scrollToCreditControl(choice, in: app)
             XCTAssertEqual(choice.value as? String, "Selected")
         }
-        scrollToCreditControl(preview, in: app)
+        scrollToCreditControl(preview, in: app, towardStart: true, requireHittable: false)
+        assertAppearancePreview(in: app)
         capture("iphone-appearance-fonts", in: app, requiresDemoLabel: false)
         let licences = app.buttons["settings-font-licences"]
         scrollToCreditControl(licences, in: app)
@@ -131,9 +132,23 @@ final class MarketingScreenshotTests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed)
         }
         let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
-        scrollToCreditControl(preview, in: app)
-        XCTAssertTrue(preview.staticTexts["23:31 · 1 Std. 18 Min. · 12,40 $"].exists)
+        scrollToCreditControl(preview, in: app, towardStart: true, requireHittable: false)
+        assertAppearancePreview(in: app, german: true)
         capture("iphone-appearance-fonts-de-large", in: app, requiresDemoLabel: false)
+    }
+
+    private func assertAppearancePreview(in app: XCUIApplication, german: Bool = false) {
+        let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
+        let viewport = captureViewport(in: app)
+        let figure = preview.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@",
+            german ? "18 %" : "18%", german ? "82 %" : "82%")).firstMatch
+        let details = preview.staticTexts[german ? "23:31 · 1 Std. 18 Min. · 12,40 $" : "23:31 · 1h 18m · $12.40"]
+        for element in [preview, preview.staticTexts["Claude Pro"], figure, details] {
+            XCTAssertTrue(element.exists, "Appearance preview content must be rendered: \(element)")
+            let frame = element.frame
+            XCTAssertFalse(frame.isEmpty, "Appearance preview content needs visible bounds: \(element)")
+            XCTAssertTrue(viewport.contains(frame), "Appearance preview content must fit the capture viewport: \(element); \(viewport)")
+        }
     }
 
     private func openAppearance(in app: XCUIApplication) {
@@ -339,8 +354,35 @@ final class MarketingScreenshotTests: XCTestCase {
         XCTAssertTrue(element.exists && element.isHittable)
     }
 
-    private func scrollToCreditControl(_ element: XCUIElement, in app: XCUIApplication) {
-        if element.exists && element.isHittable { return }
+    private func captureViewport(in app: XCUIApplication) -> CGRect {
+        let container = ["settings-form", "overview-scroll"].lazy
+            .map { app.descendants(matching: .any)[$0].firstMatch }
+            .first { $0.exists && $0.isHittable }
+        guard let container else { return .null }
+        var frame = container.frame.intersection(app.frame)
+        for bar in app.navigationBars.allElementsBoundByIndex + app.tabBars.allElementsBoundByIndex {
+            guard bar.exists, bar.frame.intersects(frame) else { continue }
+            if bar.frame.midY < app.frame.midY {
+                let bottom = frame.maxY
+                frame.origin.y = max(frame.minY, bar.frame.maxY)
+                frame.size.height = max(0, bottom - frame.minY)
+            } else {
+                frame.size.height = max(0, min(frame.maxY, bar.frame.minY) - frame.minY)
+            }
+        }
+        return frame
+    }
+
+    private func scrollToCreditControl(_ element: XCUIElement, in app: XCUIApplication,
+                                       towardStart: Bool? = nil, requireHittable: Bool = true) {
+        func found() -> Bool {
+            guard element.exists else { return false }
+            if requireHittable { return element.isHittable }
+            let frame = element.frame
+            let viewport = captureViewport(in: app)
+            return !frame.isEmpty && !viewport.isEmpty && viewport.contains(frame)
+        }
+        if found() { return }
         let container = ["settings-form", "overview-scroll"].lazy
             .map { app.descendants(matching: .any)[$0].firstMatch }
             .first { $0.exists && $0.isHittable }
@@ -350,7 +392,7 @@ final class MarketingScreenshotTests: XCTestCase {
         }
         let bounds = container.frame
         let frame = bounds.intersection(app.frame)
-        let firstUp = element.exists && element.frame.maxY < frame.minY + 60
+        let firstUp = towardStart ?? (element.exists && element.frame.maxY < frame.minY + 60)
         let firstButton = container.buttons.firstMatch
         let gutterX = firstButton.exists ? max(frame.minX + 4, firstButton.frame.minX - 8) : frame.minX + 16
         let x = (gutterX - bounds.minX) / bounds.width
@@ -362,10 +404,14 @@ final class MarketingScreenshotTests: XCTestCase {
             let (start, end) = towardStart ? (top, bottom) : (bottom, top)
             for _ in 0..<12 {
                 start.press(forDuration: 0.05, thenDragTo: end)
-                if element.exists && element.isHittable { return }
+                if found() { return }
             }
         }
-        XCTAssertTrue(element.exists && element.isHittable, "Credit capture control must be visible: \(element)")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Unreachable capture element \(element.identifier)"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        XCTAssertTrue(found(), "Capture element must be visible: \(element); viewport: \(captureViewport(in: app))")
     }
 
     private func selectDials(in app: XCUIApplication, captureSettings: Bool) {
