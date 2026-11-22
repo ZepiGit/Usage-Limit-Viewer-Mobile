@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -103,7 +104,7 @@ class CreditSettingsRenderTest {
         assertTrue("the second full label wraps below the first", creditsBox.top >= usageBox.bottom)
         for (label in listOf("Usage providers", "Credit accounts")) {
             val layouts = mutableListOf<TextLayoutResult>()
-            val text = compose.onNodeWithText(label, useUnmergedTree = true).assertIsDisplayed()
+            val text = compose.onNode(hasText(label) and hasAnyAncestor(radio), useUnmergedTree = true).assertIsDisplayed()
             text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             val layout = layouts.single()
             val bounds = text.fetchSemanticsNode().boundsInRoot
