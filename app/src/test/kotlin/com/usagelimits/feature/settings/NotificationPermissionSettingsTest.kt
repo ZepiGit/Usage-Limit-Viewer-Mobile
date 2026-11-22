@@ -40,23 +40,37 @@ import org.robolectric.annotation.Config
 class NotificationPermissionSettingsTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule
+    val testName = org.junit.rules.TestName()
     private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
 
     @Before fun prepare(): Unit = runBlocking {
-        app.startupJob?.join()
-        WorkManager.getInstance(app).cancelAllWork().result.get()
-        app.container.settingsStore.setStatusIconsEnabled(false)
-        app.container.settingsStore.setPinnedAccounts(emptyList())
-        app.container.settingsStore.recordStatusIconEligibility(true)
+        boundary("prepare.startup") { app.startupJob?.join() }
+        boundary("prepare.cancelWork") { WorkManager.getInstance(app).cancelAllWork().result.get() }
+        boundary("prepare.settings") {
+            app.container.settingsStore.setStatusIconsEnabled(false)
+            app.container.settingsStore.setPinnedAccounts(emptyList())
+            app.container.settingsStore.recordStatusIconEligibility(true)
+        }
     }
 
     @After fun drain() {
         lateinit var barrier: kotlinx.coroutines.Job
-        compose.runOnUiThread { barrier = app.observeStatusIconEligibility() }
-        compose.waitDrained { barrier.isCompleted }
-        WorkManager.getInstance(app).cancelAllWork().result.get()
-        ShadowLooper.idleMainLooper()
-        resetTestWorkManager()
+        boundary("drain.observeEligibility") {
+            compose.runOnUiThread { barrier = app.observeStatusIconEligibility() }
+        }
+        boundary("drain.awaitEligibility") { compose.waitDrained { barrier.isCompleted } }
+        boundary("drain.cancelWork") { WorkManager.getInstance(app).cancelAllWork().result.get() }
+        boundary("drain.idleMain") { ShadowLooper.idleMainLooper() }
+        boundary("drain.resetWorkManager") { resetTestWorkManager() }
+    }
+
+    // The CI test START event precedes setup; paired markers locate its first unfinished wait.
+    private inline fun <T> boundary(name: String, action: () -> T): T {
+        System.err.println("NotificationPermissionSettingsTest ${testName.methodName} START $name nanoTime=${System.nanoTime()}")
+        return action().also {
+            System.err.println("NotificationPermissionSettingsTest ${testName.methodName} END $name nanoTime=${System.nanoTime()}")
+        }
     }
 
     @Test
@@ -106,19 +120,23 @@ class NotificationPermissionSettingsTest {
         var permissionAsked = false
         render(AppSettings(notificationPermissionHandled = true), onNotificationPermissionHandled = { permissionAsked = true })
         scrollTo("Allow notifications")
-        compose.onNodeWithText("Allow notifications").performClick()
+        boundary("request.click") { compose.onNodeWithText("Allow notifications").performClick() }
         org.junit.Assert.assertTrue(permissionAsked)
-        compose.waitDrained { shadowOf(compose.activity).lastRequestedPermission != null }
+        boundary("request.awaitDialog") { compose.waitDrained { shadowOf(compose.activity).lastRequestedPermission != null } }
         val request = shadowOf(compose.activity).lastRequestedPermission
-        compose.onNodeWithText("Allow notifications").assertIsNotEnabled()
+        boundary("request.assertPending") { compose.onNodeWithText("Allow notifications").assertIsNotEnabled() }
         org.junit.Assert.assertArrayEquals(arrayOf(Manifest.permission.POST_NOTIFICATIONS), request.requestedPermissions)
-        compose.runOnIdle {
-            shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
-            compose.activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
-                intArrayOf(android.content.pm.PackageManager.PERMISSION_GRANTED))
+        boundary("answer.runOnIdle") {
+            compose.runOnIdle {
+                shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+                boundary("answer.permissionCallback") {
+                    compose.activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                        intArrayOf(android.content.pm.PackageManager.PERMISSION_GRANTED))
+                }
+            }
         }
-        compose.onNodeWithText("Notifications allowed").assertIsDisplayed()
-        compose.onNodeWithText("Allow notifications").assertDoesNotExist()
+        boundary("answer.assertAllowed") { compose.onNodeWithText("Notifications allowed").assertIsDisplayed() }
+        boundary("answer.assertNoRequest") { compose.onNodeWithText("Allow notifications").assertDoesNotExist() }
     }
 
     @Test
@@ -242,28 +260,30 @@ class NotificationPermissionSettingsTest {
         onNotifyBelow20: (Boolean) -> Unit = {},
         onNotificationPermissionHandled: () -> Unit = {},
     ) {
-        compose.setContent {
-            UsageLimitsTheme {
-                SettingsScreen(
-                    state = UsageUiState(settings = settings),
-                    onSyncIntervalChange = {},
-                    onNotificationPermissionHandled = onNotificationPermissionHandled, onAppThemeChange = {},
-                    onNotifyBelow20 = onNotifyBelow20,
-                    onNotifyBelow10 = {},
-                    onNotifyExhausted = {},
-                    onNotifyResetCredit = {},
-                    onNotifyAuthExpired = {},
-                    onNotifyResetApproaching = {},
-                    onNotifyCreditExpiring = {},
-                    onShowTier = {},
-                    onOverviewLayoutChange = {},
-                    onPercentDisplayChange = {},
-                )
+        boundary("render.setContent") {
+            compose.setContent {
+                UsageLimitsTheme {
+                    SettingsScreen(
+                        state = UsageUiState(settings = settings),
+                        onSyncIntervalChange = {},
+                        onNotificationPermissionHandled = onNotificationPermissionHandled, onAppThemeChange = {},
+                        onNotifyBelow20 = onNotifyBelow20,
+                        onNotifyBelow10 = {},
+                        onNotifyExhausted = {},
+                        onNotifyResetCredit = {},
+                        onNotifyAuthExpired = {},
+                        onNotifyResetApproaching = {},
+                        onNotifyCreditExpiring = {},
+                        onShowTier = {},
+                        onOverviewLayoutChange = {},
+                        onPercentDisplayChange = {},
+                    )
+                }
             }
         }
     }
 
     private fun scrollTo(text: String) {
-        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text))
+        boundary("scrollTo") { compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText(text)) }
     }
 }
