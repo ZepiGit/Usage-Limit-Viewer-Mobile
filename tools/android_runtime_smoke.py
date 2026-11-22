@@ -629,6 +629,14 @@ class Smoke:
                 report["attempts"] += 1
                 try:
                     check_anr(attempt + "-last-anr.txt")
+                    # FallbackHome can resolve before the installed launcher finishes booting.
+                    resolved = probe("shell", "cmd", "package", "resolve-activity", "--brief", "-a",
+                                     "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
+                    self.text(attempt + "-resolved-home.txt", resolved)
+                    component = resolved.splitlines()[-1] if resolved.splitlines() else ""
+                    assert re.fullmatch(r"[^\s/]+/[^\s/]+", component), "Unrecognized resolved HOME component"
+                    launcher = component.split("/", 1)[0]
+                    report["component"] = component
                     remote = "/sdcard/usage-runtime-boot.xml"
                     probe("shell", "rm", "-f", remote)
                     probe("shell", "uiautomator", "dump", remote)
@@ -642,12 +650,13 @@ class Smoke:
                     focus = re.findall(r"^\s*mCurrentFocus=(.+)$", window, re.M)
                     focused = re.fullmatch(r"Window\{[0-9a-f]+ u\d+ ([^\s{}]+/[^\s{}]+)\}", focus[0]) if len(focus) == 1 else None
                     workspace = [node for node in root.iter("node")
-                                 if node.get("package") == self.launcher
-                                 and node.get("resource-id") == self.launcher + ":id/workspace"
+                                 if node.get("package") == launcher
+                                 and node.get("resource-id") == launcher + ":id/workspace"
                                  and node.get("enabled") == "true" and bounds(node)]
                     self.write_screenshot(attempt, probe("exec-out", "screencap", "-p", binary=True))
                     if focused and expanded(focused[1]) == expanded(component) and len(workspace) == 1:
                         check_anr(attempt + "-ready-last-anr.txt")
+                        self.launcher = launcher
                         report["result"] = "passed"
                         return
                 except (subprocess.SubprocessError, ET.ParseError) as error:

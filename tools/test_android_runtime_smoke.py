@@ -644,6 +644,70 @@ class BootReadinessTest(unittest.TestCase):
             files = {path.name: path.read_bytes() for path in Path(directory).iterdir()}
             return result, files
 
+    class TransientHomeDevice(Device):
+        """Run 45067548057: early FallbackHome resolution, then the real Quickstep workspace."""
+        QUICKSTEP = "com.android.launcher3/.uioverrides.QuickstepLauncher"
+
+        def __init__(self, workspace="ready", resolved_home=True, focused=True):
+            super().__init__(None, BootReadinessTest.CLEAN, focused)
+            self.workspace = workspace
+            self.resolved_home = resolved_home
+            self.resolutions = 0
+
+        def hierarchy(self):
+            # Minimized initial-home-30.xml: the real launcher-owned, enabled workspace.
+            node = ('<node package="com.android.launcher3" enabled="true" '
+                    'resource-id="com.android.launcher3:id/workspace" bounds="[0,0][720,1560]"/>')
+            if self.workspace == "missing":
+                node = ""
+            elif self.workspace == "foreign":
+                node = node.replace("com.android.launcher3", "com.example.foreign")
+            elif self.workspace == "duplicate":
+                node += node
+            elif self.workspace == "disabled":
+                node = node.replace('enabled="true"', 'enabled="false"')
+            return ("<hierarchy>" + node + "</hierarchy>").encode()
+
+        def answer(self, command):
+            if "resolve-activity" in command:
+                self.resolutions += 1
+                # The boot_readiness resolution and first probe precede launcher handover.
+                return (self.QUICKSTEP if self.resolved_home and self.resolutions > 2
+                        else "com.android.settings/.FallbackHome").encode()
+            if command == ("shell", "dumpsys", "window"):
+                owner = ("com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher"
+                         if self.focused else "com.example.foreign/.Activity")
+                return (f"mCurrentFocus=Window{{b2f7ad7 u0 {owner}}}\n"
+                        "mFocusedApp=ActivityRecord{90329105 u0 com.android.launcher3/.uioverrides.QuickstepLauncher t8}").encode()
+            return super().answer(command)
+
+    def test_transient_fallback_home_is_refreshed_before_accepting_actual_quickstep_workspace(self):
+        device = self.TransientHomeDevice()
+        code, files = self.preflight(device)
+        self.assertEqual(0, code)
+        report = json.loads(files["initial-home.json"])
+        self.assertEqual("passed", report["result"])
+        self.assertEqual(self.TransientHomeDevice.QUICKSTEP, report["component"])
+        self.assertEqual(2, report["attempts"])
+        self.assertEqual(3, device.resolutions)
+        self.assertIn(b"com.android.settings/.FallbackHome", files["initial-home-0-resolved-home.txt"])
+        self.assertIn(self.TransientHomeDevice.QUICKSTEP.encode(), files["initial-home-1-resolved-home.txt"])
+        self.assertIn(b"<no ANR has occurred since boot>", files["initial-home-1-ready-last-anr.txt"])
+        self.assertFalse(any(command[0] == "install" or command[:2] == ("shell", "input")
+                             for command, _, _ in device.calls))
+
+    def test_refreshed_home_still_requires_exact_focus_and_one_owned_enabled_workspace(self):
+        for options in ({"resolved_home": False}, {"focused": False},
+                        *({"workspace": state} for state in ("missing", "foreign", "duplicate", "disabled"))):
+            with self.subTest(options=options):
+                device = self.TransientHomeDevice(**options)
+                code, files = self.preflight(device)
+                self.assertEqual(1, code)
+                self.assertEqual("failed", json.loads(files["initial-home.json"])["result"])
+                self.assertNotIn("summary.md", files)
+                self.assertFalse(any(command[0] == "install" or command[:2] == ("shell", "input")
+                                     for command, _, _ in device.calls))
+
     def test_only_proven_systemui_startup_anr_requests_a_clean_boot(self):
         device = self.Device(self.DIALOG, self.ANR)
         code, files = self.preflight(device)
