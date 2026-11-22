@@ -1,7 +1,6 @@
 package com.usagelimits.ui.components
 
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -15,6 +14,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasClickAction
@@ -35,6 +35,7 @@ import com.usagelimits.feature.UsageUiState
 import com.usagelimits.feature.credits.AddCreditScreen
 import com.usagelimits.feature.credits.AddCreditState
 import com.usagelimits.feature.settings.SettingsScreen
+import com.usagelimits.ui.motion.softwareFrame
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import com.usagelimits.widget.WidgetConfigScreen
@@ -78,11 +79,6 @@ class SegmentPressTest {
                 }
             }
         }
-    }
-
-    private fun frame(): Bitmap {
-        val root = compose.activity.window.decorView
-        return Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
     }
 
     private val radioButton = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)
@@ -141,48 +137,47 @@ class SegmentPressTest {
         val pillTop = top + (8 * px).roundToInt()
         val pillBottom = bottom - (8 * px).roundToInt()
         val radius = 6 * px
-        val rest = frame()
+        val rest = compose.softwareFrame()
+        var pressedFrame: Bitmap? = null
         try {
             segment.performTouchInput { down(center) }
-            val pressed = try {
+            try {
                 settleRipple()
-                frame()
+                pressedFrame = compose.softwareFrame()
             } finally {
                 segment.performTouchInput { up() }
             }
-            try {
-                if (captureName != null) {
-                    rest.saveFrame("$captureName-rest")
-                    pressed.saveFrame("$captureName-pressed")
-                }
-                val insideX = left + radius.roundToInt()
-                val insideY = (pillTop + pillBottom) / 2
-                assertTrue("$site: the pressed pill shows a highlight at ($insideX, $insideY)",
-                    rest.getPixel(insideX, insideY) != pressed.getPixel(insideX, insideY))
+            val pressed = checkNotNull(pressedFrame)
+            if (captureName != null) {
+                rest.saveFrame("$captureName-rest")
+                pressed.saveFrame("$captureName-pressed")
+            }
+            val insideX = left + radius.roundToInt()
+            val insideY = (pillTop + pillBottom) / 2
+            assertTrue("$site: the pressed pill shows a highlight at ($insideX, $insideY)",
+                rest.getPixel(insideX, insideY) != pressed.getPixel(insideX, insideY))
 
-                val restRow = IntArray(rest.width)
-                val pressedRow = IntArray(rest.width)
-                var spill = 0
-                val firstSpill = mutableListOf<Pair<Int, Int>>()
-                for (y in 0 until rest.height) {
-                    rest.getPixels(restRow, 0, rest.width, 0, y, rest.width, 1)
-                    pressed.getPixels(pressedRow, 0, rest.width, 0, y, rest.width, 1)
-                    for (x in restRow.indices) {
-                        if (restRow[x] == pressedRow[x]) continue
-                        // At the rounded edge, a pixel is inside if any of its area is covered.
-                        val dx = max(0f, max(left + radius - (x + 1), x - (right - radius)))
-                        val dy = max(0f, max(pillTop + radius - (y + 1), y - (pillBottom - radius)))
-                        if (x !in left until right || y !in pillTop until pillBottom || dx * dx + dy * dy >= radius * radius) {
-                            spill++
-                            if (firstSpill.size < 4) firstSpill += x to y
-                        }
+            val restRow = IntArray(rest.width)
+            val pressedRow = IntArray(rest.width)
+            var spill = 0
+            val firstSpill = mutableListOf<Pair<Int, Int>>()
+            for (y in 0 until rest.height) {
+                rest.getPixels(restRow, 0, rest.width, 0, y, rest.width, 1)
+                pressed.getPixels(pressedRow, 0, rest.width, 0, y, rest.width, 1)
+                for (x in restRow.indices) {
+                    if (restRow[x] == pressedRow[x]) continue
+                    // At the rounded edge, a pixel is inside if any of its area is covered.
+                    val dx = max(0f, max(left + radius - (x + 1), x - (right - radius)))
+                    val dy = max(0f, max(pillTop + radius - (y + 1), y - (pillBottom - radius)))
+                    if (x !in left until right || y !in pillTop until pillBottom || dx * dx + dy * dy >= radius * radius) {
+                        spill++
+                        if (firstSpill.size < 4) firstSpill += x to y
                     }
                 }
-                assertEquals("$site: pixels changed outside the rounded pill, first: $firstSpill", 0, spill)
-            } finally {
-                pressed.recycle()
             }
+            assertEquals("$site: pixels changed outside the rounded pill, first: $firstSpill", 0, spill)
         } finally {
+            pressedFrame?.recycle()
             rest.recycle()
         }
         settleRipple()
@@ -255,7 +250,8 @@ class SegmentPressTest {
     @Test
     fun `a segment keeps its 48dp touch target and reads as a radio button with its state`() {
         setRow()
-        compose.onNode(hasText("All") and radioButton).assertHeightIsAtLeast(48.dp).assertIsSelected()
+        compose.onNode(hasText("All") and radioButton)
+            .assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp).assertIsSelected()
         compose.onNode(hasText("Needs attention") and radioButton).assertHeightIsAtLeast(48.dp).assertIsNotSelected()
     }
 }
