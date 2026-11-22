@@ -254,7 +254,7 @@ struct AddAccountSheet: View {
                     .frame(minHeight: 56)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ProviderPickerRowStyle())
                 #if DEBUG
                 .onAppear { if provider == .kimi { retainChooserAction?(action) } }
                 #endif
@@ -603,6 +603,15 @@ struct AddAccountSheet: View {
         }
     }
     #endif
+}
+
+// PlainButtonStyle can fade the enabled state independently of the card's fade.
+private struct ProviderPickerRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .pressRelease(isPressed: configuration.isPressed)
+    }
 }
 
 /// iOS 16 meldet das Ende einer Animation über ihren tatsächlichen Animatable-Wert.
