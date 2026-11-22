@@ -138,7 +138,11 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
         let image = try render(WidgetProviderMark(account: tired, date: now, size: size, ink: .dark),
             size: CGSize(width: size, height: size), background: .clear)
         let raster = try Raster(image)
-        XCTAssertLessThan(raster.pixel(x: 6.7 / 24, y: 10.2 / 24).alpha, 10, "tired eye must be an alpha cut-out")
+        // CH-3 eye centers on the 24-unit grid of the untransformed Tired still pose.
+        for (side, x) in [("left", 6.744), ("right", 17.254)] {
+            XCTAssertLessThan(raster.pixel(x: x / 24, y: 10.275 / 24).alpha, 10,
+                "tired \(side) eye must be an alpha cut-out")
+        }
         let body = raster.pixel(x: 12.0 / 24, y: 12.0 / 24)
         XCTAssertGreaterThan(body.alpha, 245)
         XCTAssertLessThan(body.red, 40, "monochrome uses dark widget ink, not white app artwork")
@@ -378,8 +382,7 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
                 let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: pixelWidth, height: pixelHeight,
                     bitsPerComponent: 8, bytesPerRow: pixelWidth * 4, space: CGColorSpaceCreateDeviceRGB(),
                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
-                context.translateBy(x: 0, y: CGFloat(pixelHeight))
-                context.scaleBy(x: 1, y: -1)
+                // An untransformed CGImage draw preserves row order; a Y-flip mirrors the bitmap.
                 context.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
             }
             self.bytes = bytes
