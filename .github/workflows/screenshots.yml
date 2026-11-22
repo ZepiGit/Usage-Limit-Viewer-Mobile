@@ -53,6 +53,7 @@ jobs:
               test_selection=(
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneScreens
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneAppearance
+                -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneAppearanceFonts
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneAppearanceLargeGerman
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneCredits
                 -only-testing:UsageLimitsScreenshotTests/MarketingScreenshotTests/testCaptureIPhoneClaudeMood

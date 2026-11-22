@@ -69,7 +69,9 @@ final class MarketingScreenshotTests: XCTestCase {
         chooseAppearance("settings-theme-pureBlack", in: demo)
         capture("iphone-appearance-black", in: demo)
         demo.terminate()
+    }
 
+    func testCaptureIPhoneAppearanceFonts() {
         // No marketing fixture: this exercises the real settings store and first loaded state.
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-reduce-motion", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -169,7 +171,8 @@ final class MarketingScreenshotTests: XCTestCase {
     }
 
     func testCaptureIPhoneCredits() {
-        let app = launchDemo(["-overview-credits-demo"])
+        let app = launchDemo(["-overview-credits-demo", "-settings-trace", "-settings-touch-trace",
+                              "-settings-native-control-trace"])
         defer { app.terminate() }
         let settings = app.buttons.matching(identifier: "Settings")
         let settingsTab = settings.allElementsBoundByIndex.first { $0.isHittable } ?? settings.firstMatch
@@ -185,10 +188,32 @@ final class MarketingScreenshotTests: XCTestCase {
         let manage = app.buttons["settings-manage-credit-accounts"]
         for enabled in [false, true] {
             scrollToCreditControl(showCredits, in: app)
-            showCredits.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+            let frame = showCredits.frame
+            let offset = CGVector(dx: 0.95, dy: 0.5)
+            let tap = showCredits.coordinate(withNormalizedOffset: offset)
+            let tapStarted = ProcessInfo.processInfo.systemUptime
+            tap.tap()
+            let tapEnded = ProcessInfo.processInfo.systemUptime
+            let expected = enabled ? "1" : "0"
             let changed = XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "value == %@", enabled ? "1" : "0"), object: showCredits)
-            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 10), .completed)
+                predicate: NSPredicate(format: "value == %@", expected), object: showCredits)
+            let result = XCTWaiter.wait(for: [changed], timeout: 10)
+            if result != .completed {
+                let probe = app.descendants(matching: .any)["settings-trace"].firstMatch
+                let trace = XCTAttachment(string: (probe.value as? String ?? "Settings trace unavailable")
+                    + "\n\n" + showCredits.debugDescription)
+                trace.name = "Show credits input and accessibility trace"
+                trace.lifetime = .keepAlways
+                add(trace)
+                let screenshot = XCTAttachment(screenshot: app.screenshot())
+                screenshot.name = "Show credits after unsuccessful tap"
+                screenshot.lifetime = .keepAlways
+                add(screenshot)
+            }
+            XCTAssertEqual(result, .completed,
+                "Show credits expected \(expected), got \(showCredits.value as? String ?? "unavailable"); "
+                    + "tap uptime \(tapStarted)–\(tapEnded), frame \(frame), offset \(offset), "
+                    + "viewport \(captureViewport(in: app))")
             if !enabled {
                 XCTAssertFalse(layout.exists)
                 XCTAssertFalse(showFirst.exists)
