@@ -417,8 +417,11 @@ class DefaultEvidenceParserTest(unittest.TestCase):
                     evidence = Evidence(directory)
                     evidence.report["api"] = 36
                     evidence.state = {"localIds": {alias: "uuid-" + account for alias, (account, _, _) in zip(expected, accounts)}}
-                    with patch.object(evidence, "adb", side_effect=lambda *args: {
+                    with patch.object(evidence, "adb", side_effect=lambda *args, **kwargs: {
                              ("shell", "dumpsys", "notification", "--noredact"): dump(notification),
+                             ("shell", "dumpsys", "window"): "StatusBar window snapshot",
+                             ("shell", "dumpsys", "SurfaceFlinger", "--list"): "StatusBar layer",
+                             ("shell", "dumpsys", "SurfaceFlinger"): "StatusBar composition snapshot",
                              ("shell", "dumpsys", "activity", "service", "com.android.systemui/.SystemUIService"): systemui,
                          }.get(args, "")), patch.object(evidence, "xml", return_value=ET.fromstring(xml)), \
                             patch.object(evidence, "screen"), patch.object(evidence, "home"), patch("status_icon_evidence.time.sleep"):
