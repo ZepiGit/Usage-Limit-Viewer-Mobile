@@ -382,11 +382,34 @@ class CreditScreensRenderTest {
         compose.onNodeWithText(label).assertIsDisplayed()
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         val layout = layouts.single()
-        assertTrue("the identity wraps rather than clipping", layout.lineCount > 1 && !layout.hasVisualOverflow)
+        val identityMetrics = "size=${layout.size}, paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}, " +
+            "constraints=${layout.layoutInput.constraints}, fontScale=${layout.layoutInput.density.fontScale}"
+        assertEquals("the identity uses the requested large text: $identityMetrics", 1.6f, layout.layoutInput.density.fontScale, 0f)
+        assertTrue("the identity wraps rather than clipping: $identityMetrics", layout.lineCount > 1 && !layout.hasVisualOverflow)
+        val freshnessText = "OpenRouter · Updated just now"
         val freshness = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithText("OpenRouter · Updated just now").assertIsDisplayed()
-            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(freshness) }
-        assertTrue("the provider and update age remain complete", !freshness.single().hasVisualOverflow)
+        val freshnessNode = compose.onNodeWithText(freshnessText, useUnmergedTree = true).assertIsDisplayed()
+        freshnessNode.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(freshness) }
+        val age = freshness.single()
+        val bounds = freshnessNode.fetchSemanticsNode().boundsInRoot
+        val metrics = "size=${age.size}, bounds=$bounds, paragraph=${age.multiParagraph.width}x${age.multiParagraph.height}, " +
+            "maxIntrinsic=${age.multiParagraph.intrinsics.maxIntrinsicWidth}, constraints=${age.layoutInput.constraints}, " +
+            "fontScale=${age.layoutInput.density.fontScale}"
+        assertEquals("freshness uses the requested large text: $metrics", 1.6f, age.layoutInput.density.fontScale, 0f)
+        assertEquals("the full freshness width is visible: $metrics", age.size.width.toFloat(), bounds.width, 0f)
+        assertEquals("the full freshness height is visible: $metrics", age.size.height.toFloat(), bounds.height, 0f)
+        assertTrue("the provider and update age remain complete: $metrics", !age.didOverflowHeight)
+        assertEquals("freshness retains its ending: $metrics", freshnessText.length, age.getLineEnd(age.lineCount - 1, visibleEnd = true))
+        // Compose 1.12 reconstructs a wider paragraph for String semantics; only the line geometry describes its ink.
+        for (line in 0 until age.lineCount) {
+            val lineMetrics = "line $line=${age.getLineLeft(line)},${age.getLineTop(line)}.." +
+                "${age.getLineRight(line)},${age.getLineBottom(line)}; $metrics"
+            assertTrue("freshness is not ellipsized: $lineMetrics", !age.isLineEllipsized(line))
+            assertTrue("freshness fits horizontally: $lineMetrics",
+                age.getLineLeft(line) >= 0f && age.getLineRight(line) <= bounds.width)
+            assertTrue("freshness fits vertically: $lineMetrics",
+                age.getLineTop(line) >= 0f && age.getLineBottom(line) <= bounds.height)
+        }
     }
 
     @Test fun `the detail screen offers edit and remove`() {

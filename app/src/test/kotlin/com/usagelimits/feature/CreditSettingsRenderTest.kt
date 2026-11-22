@@ -103,9 +103,28 @@ class CreditSettingsRenderTest {
         assertTrue("the second full label wraps below the first", creditsBox.top >= usageBox.bottom)
         for (label in listOf("Usage providers", "Credit accounts")) {
             val layouts = mutableListOf<TextLayoutResult>()
-            compose.onNodeWithText(label, useUnmergedTree = true)
-                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            assertTrue("$label is not clipped", !layouts.single().hasVisualOverflow)
+            val text = compose.onNodeWithText(label, useUnmergedTree = true).assertIsDisplayed()
+            text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            val layout = layouts.single()
+            val bounds = text.fetchSemanticsNode().boundsInRoot
+            val metrics = "size=${layout.size}, bounds=$bounds, paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}, " +
+                "maxIntrinsic=${layout.multiParagraph.intrinsics.maxIntrinsicWidth}, constraints=${layout.layoutInput.constraints}, " +
+                "fontScale=${layout.layoutInput.density.fontScale}"
+            assertEquals("$label uses the requested large text: $metrics", 1.6f, layout.layoutInput.density.fontScale, 0f)
+            assertEquals("$label has its full visible width: $metrics", layout.size.width.toFloat(), bounds.width, 0f)
+            assertEquals("$label has its full visible height: $metrics", layout.size.height.toFloat(), bounds.height, 0f)
+            assertTrue("$label is not clipped vertically: $metrics", !layout.didOverflowHeight)
+            assertEquals("$label retains its ending: $metrics", label.length, layout.getLineEnd(layout.lineCount - 1, visibleEnd = true))
+            // String semantics can report the unused paragraph width as overflow, unlike the actual lines.
+            for (line in 0 until layout.lineCount) {
+                val lineMetrics = "line $line=${layout.getLineLeft(line)},${layout.getLineTop(line)}.." +
+                    "${layout.getLineRight(line)},${layout.getLineBottom(line)}; $metrics"
+                assertTrue("$label is not ellipsized: $lineMetrics", !layout.isLineEllipsized(line))
+                assertTrue("$label fits horizontally: $lineMetrics",
+                    layout.getLineLeft(line) >= 0f && layout.getLineRight(line) <= bounds.width)
+                assertTrue("$label fits vertically: $lineMetrics",
+                    layout.getLineTop(line) >= 0f && layout.getLineBottom(line) <= bounds.height)
+            }
         }
         credits.performClick().assertIsSelected()
         assertEquals(OverviewShowFirst.CREDIT_ACCOUNTS, settings.overviewShowFirst)
