@@ -10,6 +10,12 @@ final class HoorayRenderingTests: XCTestCase {
     private final class Controls: ObservableObject {
         @Published var ready = false
         @Published var showSlot = true
+        var figureBounds = CGRect.zero
+    }
+
+    private struct FigureBounds: PreferenceKey {
+        static let defaultValue = CGRect.zero
+        static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
     }
 
     private actor Gate {
@@ -30,12 +36,19 @@ final class HoorayRenderingTests: XCTestCase {
                 if controls.showSlot {
                     ClaudeCodeFigure(mood: .idle, size: 36, ink: .white, animate: false,
                         accountID: "claude")
+                        .background(GeometryReader { geometry in
+                            Color.clear.preference(key: FigureBounds.self,
+                                value: geometry.frame(in: .named("hooray-stage")))
+                        })
                         .frame(width: 64, height: 64)
                 }
             }
             .frame(width: 160, height: 160)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
             .ignoresSafeArea()
+            .coordinateSpace(name: "hooray-stage")
+            .onPreferenceChange(FigureBounds.self) { controls.figureBounds = $0 }
             .environment(\.scenePhase, .active)
             .environment(\.claudeAnimationVisible, true)
             .environment(\.hoorayPlayback, playback)
@@ -49,14 +62,8 @@ final class HoorayRenderingTests: XCTestCase {
         let playback = HoorayPlayback(now: { time }, waitForExpiry: { await expiry.hold() })
         let controls = Controls()
         playback.open(["claude"])
-        let controller = UIHostingController(rootView: Stage(playback: playback, controls: controls))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 160, height: 160))
-        window.rootViewController = controller
-        window.isHidden = false
+        let (window, controller) = try await presentNativeRendering(Stage(playback: playback, controls: controls))
         defer { window.isHidden = true; window.rootViewController = nil }
-        controller.view.backgroundColor = .black
-        controller.view.frame = window.bounds
-        controller.view.layoutIfNeeded()
         XCTAssertNil(playback.startedAt("claude"), "holding readiness must hold the real placed consumer")
         time = 130
         let started = expectation(description: "real eligible slot placement")
@@ -70,9 +77,13 @@ final class HoorayRenderingTests: XCTestCase {
         subscription.cancel()
         XCTAssertEqual(playback.startedAt("claude"), 130, "opening time did not spend the four seconds")
         let hooray = capture(window, name: "native-hooray-still")
-        XCTAssertGreaterThan(try luminance(hooray, at: CGPoint(x: 63, y: 72)), 0.9,
+        XCTAssertEqual(controls.figureBounds.size, CGSize(width: 36, height: 36))
+        // Independent ink probes inside the raised and idle arms of the real 36pt figure.
+        let raisedArm = CGPoint(x: controls.figureBounds.minX + 1, y: controls.figureBounds.minY + 10)
+        let idleArm = CGPoint(x: controls.figureBounds.minX + 1, y: controls.figureBounds.minY + 18)
+        XCTAssertGreaterThan(try luminance(hooray, at: raisedArm), 0.9,
             "the real 36pt Hooray left arm is raised above the Idle arm")
-        XCTAssertLessThan(try luminance(hooray, at: CGPoint(x: 63, y: 80)), 0.1)
+        XCTAssertLessThan(try luminance(hooray, at: idleArm), 0.1)
         time = 134
         await expiry.release()
         await playback.expiry?.value
@@ -80,17 +91,17 @@ final class HoorayRenderingTests: XCTestCase {
         controller.view.layoutIfNeeded()
         XCTAssertNil(playback.startedAt("claude"))
         let steady = capture(window, name: "native-hooray-expired-idle")
-        XCTAssertLessThan(try luminance(steady, at: CGPoint(x: 63, y: 72)), 0.1)
-        XCTAssertGreaterThan(try luminance(steady, at: CGPoint(x: 63, y: 80)), 0.9)
+        XCTAssertLessThan(try luminance(steady, at: raisedArm), 0.1)
+        XCTAssertGreaterThan(try luminance(steady, at: idleArm), 0.9)
         XCTAssertNotEqual(hooray.pngData(), steady.pngData(), "actual visible arms must return from Hooray to Idle")
         controls.showSlot = false
-        controller.view.layoutIfNeeded()
+        _ = capture(window, name: "native-hooray-expired-slot-removed")
         controls.showSlot = true
-        controller.view.layoutIfNeeded()
+        _ = capture(window, name: "native-hooray-expired-slot-recreated")
         XCTAssertNil(playback.startedAt("claude"), "a recreated native slot cannot replay")
     }
 
-    func testNativeInterruptionClearsSharedPlaybackWithoutLaterSlotReplay() async {
+    func testNativeInterruptionClearsSharedPlaybackWithoutLaterSlotReplay() async throws {
         let expiry = Gate()
         let playback = HoorayPlayback(now: { 10 }, waitForExpiry: { await expiry.hold() })
         let controls = Controls()
@@ -98,26 +109,23 @@ final class HoorayRenderingTests: XCTestCase {
         let started = expectation(description: "eligible native layout")
         playback.open(["claude"])
         let subscription = playback.$presentation.sink { if $0.startedAt["claude"] != nil { started.fulfill() } }
-        let controller = UIHostingController(rootView: Stage(playback: playback, controls: controls))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 160, height: 160))
-        window.rootViewController = controller
-        window.isHidden = false
+        let (window, _) = try await presentNativeRendering(Stage(playback: playback, controls: controls))
         defer { window.isHidden = true; window.rootViewController = nil }
-        controller.view.backgroundColor = .black
-        controller.view.frame = window.bounds
-        controller.view.layoutIfNeeded()
         await fulfillment(of: [started], timeout: 5)
         subscription.cancel()
         let expiryTask = playback.expiry
         playback.stop()
         controls.showSlot = false
-        controller.view.layoutIfNeeded()
+        _ = capture(window, name: "native-hooray-interrupted-slot-removed")
         controls.showSlot = true
-        controller.view.layoutIfNeeded()
         await expiry.release()
         await expiryTask?.value
         XCTAssertNil(playback.startedAt("claude"))
-        _ = capture(window, name: "native-hooray-interrupted-idle")
+        let idle = capture(window, name: "native-hooray-interrupted-idle")
+        XCTAssertLessThan(try luminance(idle,
+            at: CGPoint(x: controls.figureBounds.minX + 1, y: controls.figureBounds.minY + 10)), 0.1)
+        XCTAssertGreaterThan(try luminance(idle,
+            at: CGPoint(x: controls.figureBounds.minX + 1, y: controls.figureBounds.minY + 18)), 0.9)
     }
 
     private func luminance(_ image: UIImage, at point: CGPoint) throws -> Double {

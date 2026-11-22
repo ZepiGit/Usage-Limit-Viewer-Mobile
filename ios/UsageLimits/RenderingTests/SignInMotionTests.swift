@@ -3,6 +3,47 @@ import UIKit
 import XCTest
 @testable import UsageLimits
 
+@MainActor
+private final class NativeRenderingController<Content: View>: UIHostingController<Content> {
+    var appeared: (() -> Void)?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        appeared?()
+        appeared = nil
+    }
+}
+
+extension XCTestCase {
+    /// UIKit cannot render a detached window, even after layout or a display-link callback.
+    @MainActor
+    func presentNativeRendering<Content: View>(
+        _ content: Content
+    ) async throws -> (UIWindow, UIHostingController<Content>) {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = try XCTUnwrap(scenes.first { $0.activationState == .foregroundActive },
+            "native rendering requires a foreground-active scene; observed states: \(scenes.map(\.activationState))")
+        let controller = NativeRenderingController(rootView: content)
+        let appeared = expectation(description: "scene-attached hosting controller appeared")
+        controller.appeared = { appeared.fulfill() }
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        await fulfillment(of: [appeared], timeout: 5)
+        controller.view.layoutIfNeeded()
+        XCTAssertTrue(window.isKeyWindow)
+        XCTAssertTrue(controller.view.window === window)
+        XCTAssertEqual(window.windowScene?.activationState, .foregroundActive)
+        // The first committed render is a precondition, not a guessed number of display frames.
+        _ = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true),
+                "the scene-attached host must commit a real initial frame")
+        }
+        return (window, controller)
+    }
+}
+
 /// Native hosted sheet, not a timing-vector or modifier-wiring test. Captures are gated by
 /// SwiftUI reporting a real intermediate opacity; the timeout only fails a missing gate.
 @MainActor
@@ -36,13 +77,8 @@ final class SignInMotionTests: XCTestCase {
     private func present(
         _ driver: Driver, reduced: Bool = false,
         capture: @escaping (Double, Bool) -> Void
-    ) -> (UIWindow, UIHostingController<Host>) {
-        let host = UIHostingController(rootView: Host(driver: driver, reduced: reduced, capture: capture))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
-        window.rootViewController = host
-        window.makeKeyAndVisible()
-        host.view.layoutIfNeeded()
-        return (window, host)
+    ) async throws -> (UIWindow, UIHostingController<Host>) {
+        try await presentNativeRendering(Host(driver: driver, reduced: reduced, capture: capture))
     }
 
     private func elements(_ object: NSObject) -> [NSObject] {
@@ -62,7 +98,8 @@ final class SignInMotionTests: XCTestCase {
 
     private func capture(_ view: UIView, opacity: Double, leaving: Bool) -> Capture {
         let image = UIGraphicsImageRenderer(bounds: view.bounds).image { _ in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+            XCTAssertTrue(view.drawHierarchy(in: view.bounds, afterScreenUpdates: false),
+                "the committed native sheet must remain renderable during the captured step")
         }
         return Capture(image: image, labels: labels(view), opacity: opacity, leaving: leaving)
     }
@@ -77,7 +114,7 @@ final class SignInMotionTests: XCTestCase {
         var staleButton: NSObject?
         var hostView: UIView?
         var finished = false
-        let (window, host) = present(driver) { opacity, leaving in
+        let (window, host) = try await present(driver) { opacity, leaving in
             guard let hostView else { return }
             if leaving, opacity > 0.15, opacity < 0.85, exit == nil {
                 exit = self.capture(hostView, opacity: opacity, leaving: leaving)
@@ -147,7 +184,7 @@ final class SignInMotionTests: XCTestCase {
         var exitOpacity: Double?
         var resumedOpacity: Double?
         var view: UIView?
-        let (window, host) = present(driver) { opacity, leaving in
+        let (window, host) = try await present(driver) { opacity, leaving in
             if leaving, opacity > 0.2, opacity < 0.8, exitOpacity == nil {
                 exitOpacity = opacity
                 driver.stage = .choosing
@@ -178,7 +215,7 @@ final class SignInMotionTests: XCTestCase {
     func testReducedMotionCutsWithoutAnyIntermediateNativeOpacity() async throws {
         let driver = Driver()
         var intermediate: [Double] = []
-        let (window, host) = present(driver, reduced: true) { opacity, _ in
+        let (window, host) = try await present(driver, reduced: true) { opacity, _ in
             if opacity > 0, opacity < 1 { intermediate.append(opacity) }
         }
         defer { window.isHidden = true; window.rootViewController = nil }
