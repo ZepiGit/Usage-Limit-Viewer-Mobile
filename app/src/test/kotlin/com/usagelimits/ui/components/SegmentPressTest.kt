@@ -10,15 +10,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
+import com.usagelimits.R
+import com.usagelimits.core.model.CreditProviderId
+import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.feature.UsageUiState
+import com.usagelimits.feature.credits.AddCreditScreen
+import com.usagelimits.feature.credits.AddCreditState
+import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import com.usagelimits.widget.WidgetConfigScreen
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -28,10 +47,13 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowLooper
+import java.io.File
+import java.util.concurrent.TimeUnit
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * A pressed segment lights its rounded 32dp pill, not the 48dp touch target around it (#26).
+ * A pressed segment lights its rounded pill, not the at-least-48dp touch target around it (#26).
  *
  * The frames are the decor view drawn in software, as RedesignCaptureTest does it:
  * `captureToImage()` never sees a frame under Robolectric.
@@ -64,55 +86,170 @@ class SegmentPressTest {
     }
 
     private val radioButton = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.RadioButton)
+    private val verticalScroll = hasScrollAction() and SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)
+    private val horizontalScroll = hasScrollAction() and SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange)
+    private val captureDir = System.getProperty("capture.dir")?.takeIf { it.isNotBlank() }?.let(::File)
 
-    @Config(sdk = [30])
-    @Test
-    fun `the press highlight stays inside the rounded pill`() {
-        setRow()
+    private fun setSettings() = compose.setContent {
+        UsageLimitsTheme {
+            SettingsScreen(
+                state = UsageUiState(settings = AppSettings(syncIntervalMinutes = 30, overviewShowCredits = true)),
+                onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
+                onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {},
+                onNotifyResetApproaching = {}, onNotifyCreditExpiring = {}, onShowTier = {},
+                onOverviewLayoutChange = {}, onPercentDisplayChange = {},
+                onNotificationPermissionHandled = {}, onAppThemeChange = {},
+            )
+        }
+    }
+
+    private fun revealSegment(label: String, horizontal: Boolean = true): SemanticsNodeInteraction {
+        val choice = hasText(label) and radioButton
+        // Reveal the row vertically before scrolling the choice into that row's horizontal viewport.
+        val row = horizontalScroll and hasAnyDescendant(choice)
+        compose.onNode(verticalScroll).performScrollToNode(if (horizontal) row else choice)
+        val segment = compose.onNode(if (horizontal) choice and hasAnyAncestor(row) else choice)
+        if (horizontal) segment.performScrollTo()
+        return segment.assertIsDisplayed()
+    }
+
+    private fun settleRipple() {
+        compose.mainClock.advanceTimeBy(1_000)
+        ShadowLooper.idleMainLooper(1, TimeUnit.SECONDS)
         compose.waitForIdle()
-        val segment = compose.onNode(hasText("Needs attention") and radioButton, useUnmergedTree = false)
-        val bounds = segment.fetchSemanticsNode().boundsInWindow
+    }
+
+    private fun Bitmap.saveFrame(name: String) {
+        val dir = captureDir ?: return
+        dir.mkdirs()
+        File(dir, "segment-$name.png").outputStream().use { compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    private fun assertPressedPill(segment: SemanticsNodeInteraction, captureName: String? = null) {
+        settleRipple()
+        val site = captureName ?: "standalone segment"
+        val node = segment.assertHeightIsAtLeast(48.dp).assertIsNotSelected().fetchSemanticsNode()
+        val bounds = node.boundsInWindow
         val px = compose.density.density
         val left = bounds.left.roundToInt()
         val right = bounds.right.roundToInt()
         val top = bounds.top.roundToInt()
         val bottom = bounds.bottom.roundToInt()
-        // The pill is the touch target less 8dp top and bottom; it fills the width for a label this long.
+        assertEquals("$site: full target width is visible", node.size.width, right - left)
+        assertEquals("$site: full target height is visible", node.size.height, bottom - top)
+        // The pill can grow with the text; only the top and bottom padding stay fixed.
         val pillTop = top + (8 * px).roundToInt()
         val pillBottom = bottom - (8 * px).roundToInt()
-        val before = frame()
+        val radius = 6 * px
+        val rest = frame()
+        try {
+            segment.performTouchInput { down(center) }
+            val pressed = try {
+                settleRipple()
+                frame()
+            } finally {
+                segment.performTouchInput { up() }
+            }
+            try {
+                if (captureName != null) {
+                    rest.saveFrame("$captureName-rest")
+                    pressed.saveFrame("$captureName-pressed")
+                }
+                val insideX = left + radius.roundToInt()
+                val insideY = (pillTop + pillBottom) / 2
+                assertTrue("$site: the pressed pill shows a highlight at ($insideX, $insideY)",
+                    rest.getPixel(insideX, insideY) != pressed.getPixel(insideX, insideY))
 
-        segment.performTouchInput { down(center) }
-        compose.mainClock.advanceTimeBy(1_000)
-        ShadowLooper.idleMainLooper(1, java.util.concurrent.TimeUnit.SECONDS)
-        compose.waitForIdle()
-        val pressed = frame()
-        segment.performTouchInput { up() }
-
-        fun changed(x: Int, y: Int) = before.getPixel(x, y) != pressed.getPixel(x, y)
-        val margin = (2 * px).roundToInt()
-
-        // Inside the pill, clear of the label's 14dp side padding: the highlight is there.
-        val insideX = left + (6 * px).roundToInt()
-        val insideY = (pillTop + pillBottom) / 2
-        assertTrue("the pressed pill shows a highlight at ($insideX, $insideY)", changed(insideX, insideY))
-
-        // Above and below the pill, the touch padding and the row's frame line stay as they were.
-        val outside = mutableListOf<Pair<Int, Int>>()
-        for (x in (left + margin) until (right - margin) step 2) {
-            for (y in top until pillTop) outside += x to y
-            for (y in pillBottom until bottom) outside += x to y
+                val restRow = IntArray(rest.width)
+                val pressedRow = IntArray(rest.width)
+                var spill = 0
+                val firstSpill = mutableListOf<Pair<Int, Int>>()
+                for (y in 0 until rest.height) {
+                    rest.getPixels(restRow, 0, rest.width, 0, y, rest.width, 1)
+                    pressed.getPixels(pressedRow, 0, rest.width, 0, y, rest.width, 1)
+                    for (x in restRow.indices) {
+                        if (restRow[x] == pressedRow[x]) continue
+                        // At the rounded edge, a pixel is inside if any of its area is covered.
+                        val dx = max(0f, max(left + radius - (x + 1), x - (right - radius)))
+                        val dy = max(0f, max(pillTop + radius - (y + 1), y - (pillBottom - radius)))
+                        if (x !in left until right || y !in pillTop until pillBottom || dx * dx + dy * dy >= radius * radius) {
+                            spill++
+                            if (firstSpill.size < 4) firstSpill += x to y
+                        }
+                    }
+                }
+                assertEquals("$site: pixels changed outside the rounded pill, first: $firstSpill", 0, spill)
+            } finally {
+                pressed.recycle()
+            }
+        } finally {
+            rest.recycle()
         }
-        // The pill's four corners, outside the 6dp rounding.
-        val inset = (px / 2).roundToInt().coerceAtLeast(0)
-        outside += listOf(
-            left + inset to pillTop + inset,
-            right - 1 - inset to pillTop + inset,
-            left + inset to pillBottom - 1 - inset,
-            right - 1 - inset to pillBottom - 1 - inset,
-        )
-        val spilled = outside.filter { (x, y) -> changed(x, y) }
-        assertEquals("pixels the highlight changed outside the pill, first: ${spilled.take(4)}", 0, spilled.size)
+        settleRipple()
+    }
+
+    @Config(sdk = [30])
+    @Test
+    fun `the press highlight stays inside the rounded pill`() {
+        setRow()
+        assertPressedPill(compose.onNode(hasText("Needs attention") and radioButton))
+    }
+
+    @Config(sdk = [30], qualifiers = "en-w393dp-h873dp-xhdpi")
+    @Test
+    fun `Settings selectors confine the held highlight to their pills`() {
+        setSettings()
+        for ((site, label) in listOf(
+            "sync-interval" to compose.activity.getString(R.string.countdown_minutes, 15),
+            "display-mode" to compose.activity.getString(R.string.percent_caption_used),
+            "overview-layout" to compose.activity.getString(R.string.settings_overview_dials),
+            "credit-layout" to compose.activity.getString(R.string.settings_credit_compact),
+            "show-first" to compose.activity.getString(R.string.settings_credit_layout_title),
+        )) {
+            assertPressedPill(revealSegment(label), "settings-$site-en-393dp-font1.0")
+        }
+    }
+
+    @Config(sdk = [30], qualifiers = "de-w320dp-h873dp-xhdpi", fontScale = 1.6f)
+    @Test
+    fun `the wrapped German Show first choice confines its held highlight`() {
+        setSettings()
+        val credits = revealSegment(compose.activity.getString(R.string.settings_credit_layout_title), horizontal = false)
+        val usage = compose.onNode(hasText(compose.activity.getString(R.string.settings_overview_usage_providers)) and radioButton)
+            .assertIsDisplayed().assertIsSelected()
+        assertTrue("the second Show first choice wraps below the first",
+            credits.fetchSemanticsNode().boundsInWindow.top >= usage.fetchSemanticsNode().boundsInWindow.bottom)
+        assertPressedPill(credits, "settings-show-first-de-320dp-font1.6")
+    }
+
+    @Config(sdk = [30], qualifiers = "en-w393dp-h873dp-xhdpi")
+    @Test
+    fun `the Moonshot region selector confines its held highlight`() {
+        compose.setContent {
+            UsageLimitsTheme {
+                AddCreditScreen(state = AddCreditState.Idle,
+                    onSubmit = { _, _, _, _, _, _ -> error("A region choice must not submit credentials") },
+                    onCancel = {}, onDone = {})
+            }
+        }
+        compose.onNode(hasText(CreditProviderId.MOONSHOT.displayName) and hasClickAction())
+            .performScrollTo().assertIsDisplayed().performClick()
+        assertPressedPill(revealSegment(compose.activity.getString(R.string.credit_region_china)),
+            "add-credit-moonshot-region-en-393dp-font1.0")
+    }
+
+    @Config(sdk = [30], qualifiers = "en-w393dp-h873dp-xhdpi")
+    @Test
+    fun `the widget text tone selector confines its held highlight`() {
+        compose.setContent {
+            UsageLimitsTheme(appTheme = AppTheme.WARM_DARK) {
+                WidgetConfigScreen(accounts = emptyList(), initial = null, kind = "Usage Bars", saving = false,
+                    error = null, percentDisplay = PercentDisplay.LEFT, onCancel = {},
+                    onSave = { _, _, _, _, _ -> error("A text tone choice must not save the widget") })
+            }
+        }
+        assertPressedPill(revealSegment(compose.activity.getString(R.string.widget_config_tone_light)),
+            "widget-config-text-tone-en-393dp-font1.0")
     }
 
     @Test
