@@ -1,5 +1,6 @@
 """Runtime smoke pixel, picker geometry, host focus and setting checks: python3 -m unittest discover -s tools"""
 
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -587,9 +588,10 @@ class WidgetTonePressTest(unittest.TestCase):
 
             return png_bytes(WIDTH, HEIGHT, 4, frame(lit)[2])
 
-        def __init__(self, capture_seconds=0.25, clipped=False, delayed_writes=0, hold_selects=True):
+        def __init__(self, capture_seconds=0.25, clipped=False, delayed_writes=0, hold_selects=True, hold_error=None):
             super().__init__()
             self.tone, self.holding, self.finished = "Auto", False, False
+            self.hold_error, self.host_terminated = hold_error, False
             self.pending_tone, self.stale_dumps = None, 0
             self.delayed_writes, self.hold_selects = delayed_writes, hold_selects
             self.restore_attempted = False
@@ -607,7 +609,17 @@ class WidgetTonePressTest(unittest.TestCase):
         def popen(self, args, **kwargs):
             self.assert_hold(args[3:])
             self.holding = True
-            return SimpleNamespace(communicate=self.release, returncode=0)
+            self.hold = SimpleNamespace(communicate=self.release, returncode=None, terminate=self.terminate_hold,
+                                        wait=self.reap_hold, stderr=BytesIO())
+            return self.hold
+
+        def terminate_hold(self):
+            self.host_terminated = True
+
+        def reap_hold(self, timeout):
+            assert self.host_terminated, "Host wait did not follow termination"
+            self.hold.returncode = -15
+            return self.hold.returncode
 
         def assert_hold(self, command):
             assert command == ["shell", "input", "swipe", "250", "242", "250", "242", "4000"], command
@@ -616,6 +628,9 @@ class WidgetTonePressTest(unittest.TestCase):
             self.pending_tone, self.stale_dumps = tone, self.delayed_writes
 
         def release(self, timeout):
+            if self.hold_error is not None:
+                raise self.hold_error
+            self.hold.returncode = 0
             self.holding = False
             if self.hold_selects:
                 self.select("Light")
@@ -710,22 +725,59 @@ class WidgetTonePressTest(unittest.TestCase):
             self.assertEqual("Auto", device.tone)
             self.assertFalse(device.finished)
 
-    def test_unavailable_capture_and_failed_restore_keep_the_capture_error(self):
+    def test_unavailable_capture_keeps_the_capture_error_after_restore_attempt(self):
+        for restore_fails in (False, True):
+            with self.subTest(restore_fails=restore_fails), TemporaryDirectory() as directory:
+                device = self.Device()
+
+                def fail_capture_then_maybe_restore(command):
+                    if device.holding and command == ("exec-out", "screencap", "-p"):
+                        raise OSError("held screenshot unavailable")
+                    if restore_fails and command[:3] == ("shell", "input", "tap"):
+                        raise AssertionError("restore tap failed")
+
+                device.before = fail_capture_then_maybe_restore
+                with self.assertRaisesRegex(OSError, "held screenshot unavailable") as failure:
+                    self.configure(Path(directory), device)
+                if restore_fails:
+                    self.assertEqual("restore tap failed", str(failure.exception.__cause__))
+                else:
+                    self.assertTrue(device.restore_attempted)
+                    self.assertEqual("Auto", device.tone)
+                self.assertFalse(device.holding)
+                self.assertFalse(device.finished)
+
+    def test_hold_timeout_reaps_host_without_restoring_unconfirmed_release(self):
         with TemporaryDirectory() as directory:
+            failure = subprocess.TimeoutExpired("adb shell input swipe", 30)
+            device = self.Device(capture_seconds=3.0, hold_error=failure)
+            with self.assertRaises(subprocess.TimeoutExpired) as raised:
+                try:
+                    self.configure(Path(directory), device)
+                finally:
+                    self.assertFalse(any(command[:3] == ("shell", "input", "tap") for command, _, _ in device.calls))
+            self.assertIs(failure, raised.exception)
+            self.assertTrue(device.host_terminated)
+            self.assertIsNotNone(device.hold.returncode)
+            self.assertTrue(device.holding)
+
+    def test_capture_interrupt_reaps_host_without_restoring_unconfirmed_release(self):
+        with TemporaryDirectory() as directory:
+            failure = KeyboardInterrupt()
             device = self.Device()
 
-            def fail_capture_then_restore(command):
+            def interrupt_capture(command):
                 if device.holding and command == ("exec-out", "screencap", "-p"):
-                    raise OSError("held screenshot unavailable")
-                if command[:3] == ("shell", "input", "tap"):
-                    raise AssertionError("restore tap failed")
+                    raise failure
 
-            device.before = fail_capture_then_restore
-            with self.assertRaisesRegex(OSError, "held screenshot unavailable") as failure:
+            device.before = interrupt_capture
+            with self.assertRaises(KeyboardInterrupt) as raised:
                 self.configure(Path(directory), device)
-            self.assertEqual("restore tap failed", str(failure.exception.__cause__))
-            self.assertFalse(device.holding)
-            self.assertFalse(device.finished)
+            self.assertIs(failure, raised.exception)
+            self.assertTrue(device.host_terminated)
+            self.assertIsNotNone(device.hold.returncode)
+            self.assertTrue(device.holding)
+            self.assertFalse(any(command[:3] == ("shell", "input", "tap") for command, _, _ in device.calls))
 
     def test_frame_crossing_capture_cutoff_is_rejected_without_another_hold(self):
         with TemporaryDirectory() as directory:

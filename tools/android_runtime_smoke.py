@@ -1839,9 +1839,9 @@ class Smoke:
 
         Compares a frame during a held press with the frame at rest, only around Overview's filter row so the
         status-bar clock cannot interfere. A frame counts only if its capture ended well before the hold could
-        release and the still-selected chip is unchanged; other attempts are retried. Releasing on the same
-        point selects the held chip, so every attempt restores the default filter. The held chip is "Resets
-        today", the one without a count, so its label is the whole of its text.
+        release and the still-selected chip is unchanged; rejected frames can be retried. Releasing on the same
+        point selects the held chip, so the default filter is restored after a confirmed release. The held chip
+        is "Resets today", the one without a count, so its label is the whole of its text.
         """
         self.navigate("Overview", "All", name + "-overview", package)
         self._verify_press(name, package, "Resets today", "All", radius_dp=8, delays=(0.7, 1.0, 1.4))
@@ -1943,21 +1943,46 @@ class Smoke:
             swipe_start = time.monotonic()
             hold = subprocess.Popen(["adb", "-s", self.serial, "shell", "input", "swipe", x, y, x, y, str(hold_ms)],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            capture_error = None
+            capture_error = input_failure = cleanup_error = None
             try:
                 time.sleep(delay)
                 capture_start = time.monotonic()
                 pressed = self.adb("exec-out", "screencap", "-p", binary=True)
                 capture_end = time.monotonic()
                 self.write_screenshot(f"{name}-pressed-{attempt}", pressed)
-            except Exception as error:
+            except BaseException as error:
                 capture_error = error
+            finally:
+                try:
+                    if capture_error is None or isinstance(capture_error, Exception):
+                        _, input_error = hold.communicate(timeout=30)
+                        if hold.returncode != 0:
+                            raise AssertionError(f"Held press failed: {input_error.decode().strip()}")
+                except BaseException as error:
+                    input_failure = error
+                finally:
+                    if hold.returncode is None:
+                        try:
+                            try:
+                                hold.terminate()
+                                hold.wait(timeout=10)
+                            except subprocess.TimeoutExpired:
+                                hold.kill()
+                                hold.wait(timeout=10)
+                            finally:
+                                hold.stderr.close()
+                        except BaseException as error:
+                            cleanup_error = error
+
+            # Reaping adb cannot confirm that Android delivered the swipe's UP event.
+            if input_failure is not None or (capture_error is not None and not isinstance(capture_error, Exception)):
+                if capture_error is not None:
+                    raise capture_error from (input_failure or cleanup_error)
+                raise input_failure from cleanup_error
             capture_late = capture_error is None and capture_end - swipe_start > (hold_ms - margin_ms) / 1000
 
             released_root = release_error = None
             try:
-                _, input_error = hold.communicate(timeout=30)
-                assert hold.returncode == 0, f"Held press failed: {input_error.decode().strip()}"
                 release_name = f"{name}-released-{attempt}"
                 if shared_segment:
                     released_root = self.wait_for(release_name, lambda root: (
