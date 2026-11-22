@@ -15,6 +15,38 @@ private final class NativeRenderingController<Content: View>: UIHostingControlle
 }
 
 extension XCTestCase {
+    @MainActor
+    func activateNativeRenderingScene() async throws {
+        let application = UIApplication.shared
+        func states() -> String {
+            let scenes = application.connectedScenes.map {
+                "\($0.session.persistentIdentifier)=\($0.activationState.rawValue)"
+            }.sorted().joined(separator: ", ")
+            return "app=\(application.applicationState.rawValue), scenes=[\(scenes)]"
+        }
+        let scene = try XCTUnwrap(application.connectedScenes.compactMap { $0 as? UIWindowScene }.first,
+            "native test host has no connected window scene; \(states())")
+        // Subscribe before checking state so activation cannot fall between the check and wait.
+        let activated = XCTestExpectation(description: "native host scene became foreground-active")
+        let observer = NotificationCenter.default.addObserver(
+            forName: UIScene.didActivateNotification, object: scene, queue: .main
+        ) { _ in activated.fulfill() }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let initialStates = states()
+        print("[NativeRenderingHost] before activation: \(initialStates)")
+        if scene.activationState != .foregroundActive {
+            if scene.activationState == .background {
+                application.requestSceneSessionActivation(scene.session, userActivity: nil, options: nil) { error in
+                    XCTFail("native test host scene activation was rejected: \(error); requested from \(initialStates)")
+                }
+            }
+            await fulfillment(of: [activated], timeout: 5)
+        }
+        print("[NativeRenderingHost] after activation: \(states())")
+        _ = try XCTUnwrap(scene.activationState == .foregroundActive ? scene : nil,
+            "native rendering requires actual foreground activation; \(states())")
+    }
+
     /// UIKit cannot render a detached window, even after layout or a display-link callback.
     @MainActor
     func presentNativeRendering<Content: View>(
@@ -22,7 +54,7 @@ extension XCTestCase {
     ) async throws -> (UIWindow, UIHostingController<Content>) {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let scene = try XCTUnwrap(scenes.first { $0.activationState == .foregroundActive },
-            "native rendering requires a foreground-active scene; observed states: \(scenes.map(\.activationState))")
+            "native rendering requires a foreground-active scene; app=\(UIApplication.shared.applicationState.rawValue), scene states=\(scenes.map { $0.activationState.rawValue })")
         let controller = NativeRenderingController(rootView: content)
         let appeared = expectation(description: "scene-attached hosting controller appeared")
         controller.appeared = { appeared.fulfill() }
@@ -48,6 +80,11 @@ extension XCTestCase {
 /// SwiftUI reporting a real intermediate opacity; the timeout only fails a missing gate.
 @MainActor
 final class SignInMotionTests: XCTestCase {
+    nonisolated override func setUp() async throws {
+        try await super.setUp()
+        try await activateNativeRenderingScene()
+    }
+
     @MainActor
     private final class Driver: ObservableObject {
         @Published var stage: AddAccountSheet.Stage = .choosing

@@ -211,6 +211,9 @@ schemes:
         UsageLimits: all
     test:
       config: Debug
+      # The host must not put a notification permission alert over native rendering tests.
+      commandLineArguments:
+        "-ui-testing": true
       targets:
         - UsageLimitsRenderingTests
   UsageLimitsScreenshots:
