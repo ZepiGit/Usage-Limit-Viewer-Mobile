@@ -44,6 +44,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowChoreographer
 import org.robolectric.shadows.ShadowLooper
 import org.robolectric.util.ReflectionHelpers
 
@@ -64,7 +65,6 @@ class StatusIconOverviewReturnTest {
 
     @Before fun setUp() {
         originalAnimatorDurationScale = Settings.Global.getString(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE)
-        // Status eligibility is under test, not motion: visible() must not drain unrelated animation frames.
         Settings.Global.putFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 0f)
         runBlocking { app.startupJob?.join() }
         WorkManager.getInstance(app).cancelAllWork().result.get()
@@ -137,8 +137,24 @@ class StatusIconOverviewReturnTest {
     private fun start() {
         assertEquals("system motion is disabled before the real activity is created", 0f,
             Settings.Global.getFloat(app.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f), 0f)
-        activity = Robolectric.buildActivity(UsageLimitsActivity::class.java)
-        activity!!.create().start().resume().visible()
+        val controller = Robolectric.buildActivity(UsageLimitsActivity::class.java).also { activity = it }
+        controller.create().start().resume()
+        val wasPaused = ShadowChoreographer.isPaused()
+        val looper = ShadowLooper.shadowMainLooper()
+        val frameDelay = ShadowChoreographer.getFrameDelay()
+        // Rejected pre-draws otherwise spin inside visible() before the Compose clock can apply the saved theme.
+        ShadowChoreographer.setPaused(true)
+        try {
+            controller.visible()
+            val decor = controller.get().window.decorView
+            compose.waitUntil("the main window allows its first draw", 10_000) {
+                looper.idleFor(frameDelay)
+                !decor.viewTreeObserver.dispatchOnPreDraw()
+            }
+        } finally {
+            ShadowChoreographer.setPaused(wasPaused)
+        }
+        looper.idleFor(frameDelay)
         compose.waitDrained { overview() && app.mainOpening.job?.isCompleted != false }
     }
 
