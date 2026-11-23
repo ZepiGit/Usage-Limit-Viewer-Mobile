@@ -72,6 +72,7 @@ final class MarketingScreenshotTests: XCTestCase {
         demo.terminate()
     }
 
+    @MainActor
     func testCaptureIPhoneAppearanceFonts() async {
         // No marketing fixture: this exercises the real settings store and first loaded state.
         let app = XCUIApplication()
@@ -88,8 +89,7 @@ final class MarketingScreenshotTests: XCTestCase {
         let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
         scrollToCreditControl(preview, in: app, towardStart: true, requireHittable: false)
         let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "saved"), object: preview)
-        let savedResult = await XCTWaiter.fulfillment(of: [saved], timeout: 10)
-        XCTAssertEqual(savedResult, .completed)
+        await fulfillment(of: [saved], timeout: 10)
         app.terminate()
         app.launch()
         XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 15))
@@ -118,6 +118,7 @@ final class MarketingScreenshotTests: XCTestCase {
         app.terminate()
     }
 
+    @MainActor
     func testCaptureIPhoneAppearanceLargeGerman() async {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-reduce-motion", "-AppleLanguages", "(de)", "-AppleLocale", "de_DE",
@@ -133,8 +134,7 @@ final class MarketingScreenshotTests: XCTestCase {
             scrollToCreditControl(choice, in: app)
             choice.tap()
             let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Ausgewählt"), object: choice)
-            let selectedResult = await XCTWaiter.fulfillment(of: [selected], timeout: 10)
-            XCTAssertEqual(selectedResult, .completed)
+            await fulfillment(of: [selected], timeout: 10)
         }
         let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
         scrollToCreditControl(preview, in: app, towardStart: true, requireHittable: false)
@@ -142,6 +142,7 @@ final class MarketingScreenshotTests: XCTestCase {
         capture("iphone-appearance-fonts-de-large", in: app, requiresDemoLabel: false)
     }
 
+    @MainActor
     private func assertAppearancePreview(in app: XCUIApplication, german: Bool = false) async {
         func previewElements() -> [XCUIElement] {
             let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
