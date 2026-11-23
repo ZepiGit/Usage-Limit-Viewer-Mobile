@@ -313,29 +313,57 @@ final class MarketingScreenshotTests: XCTestCase {
         capture("iphone-claude-resets-still", in: app)
     }
 
-    func testCaptureIPhoneClaudeHooray() {
+    func testCaptureIPhoneClaudeHooray() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-ui-testing", "-fixture-hooray", "-reduce-motion", "-motion-log",
+        app.launchArguments = ["-ui-testing", "-fixture-hooray", "-hooray-capture-hold", "-reduce-motion", "-motion-log",
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
         defer { app.terminate() }
-        XCTAssertTrue(app.buttons["overview-account-fixture-claude"].waitForExistence(timeout: 10))
-        let log = app.staticTexts["motion-log"]
+        let claude = app.buttons["overview-account-fixture-claude"]
+        XCTAssertTrue(claude.waitForExistence(timeout: 10))
+        let log = app.buttons["hooray-capture-release"]
+        let figure = "claude:list:fixture-claude:"
+        let hooray = figure + "hooray still"
+        let idle = figure + "idle still"
+        let notes = { motionLogEntries(log.label) }
         let cheer = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            log.label.contains("claude:list:fixture-claude:hooray still")
+            notes().first { $0.event.hasPrefix(figure) }?.event == hooray
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [cheer], timeout: 10), .completed)
+        let capturedCheer = try XCTUnwrap(notes().first { $0.event.hasPrefix(figure) })
+        XCTAssertEqual(capturedCheer.event, hooray, log.label)
         capture("iphone-claude-hooray", in: app, requiresDemoLabel: false)
+        XCTAssertEqual(notes().first { $0.event.hasPrefix(figure) }?.event, hooray, log.label)
+        log.tap()
         let expired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            let entries = log.label.components(separatedBy: " | ")
-            guard let cheer = entries.lastIndex(where: { $0.contains("claude:list:fixture-claude:hooray still") }) else { return false }
-            return entries.dropFirst(cheer + 1).contains { $0.contains("claude:list:fixture-claude:idle still") }
+            notes().contains { $0.number > capturedCheer.number && $0.event == idle }
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [expired], timeout: 10), .completed)
         app.tabBars.buttons["Resets"].tap()
         XCTAssertTrue(app.navigationBars["Resets"].waitForExistence(timeout: 10))
         app.tabBars.buttons["Overview"].tap()
         XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+
+        let nextOpening = "hooray:opening:2 "
+        let beforeHome = notes()
+        let checkpoint = try XCTUnwrap(beforeHome.first?.number)
+        XCTAssertFalse(beforeHome.contains { $0.event.hasPrefix(nextOpening) }, log.label)
+        let lastCheer = try XCTUnwrap(beforeHome.first { $0.event == hooray }).number
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10))
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+
+        let completed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            notes().contains { $0.number > checkpoint && $0.event.hasPrefix(nextOpening) }
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [completed], timeout: 10), .completed, log.label)
+        let returned = notes()
+        let placement = returned.first { $0.number > checkpoint && $0.event.hasPrefix(nextOpening) }
+        XCTAssertEqual(placement?.event, nextOpening + "steady visible=fixture-claude", log.label)
+        XCTAssertEqual(returned.first { $0.event == hooray }?.number, lastCheer, log.label)
+        XCTAssertEqual(returned.first { $0.event.hasPrefix(figure) }?.event, idle, log.label)
+        XCTAssertTrue(claude.isHittable)
     }
 
     func testCaptureIPhoneClaudeStillSheet() {

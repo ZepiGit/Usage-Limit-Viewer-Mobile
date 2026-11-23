@@ -247,7 +247,7 @@ struct RootView: View {
         }
         .tint(appearance.colors.ink)
         #if DEBUG
-        .motionLogOverlay(visible: claudeAnimationVisible)
+        .motionLogOverlay(visible: claudeAnimationVisible, releaseCapture: store.hoorayPlayback.captureReleaseAction)
         .claudeStillSheet()
         .overlay(alignment: .topTrailing) {
             if let stage = store.uiTestSettingsLoadStage {
@@ -270,9 +270,9 @@ struct RootView: View {
 
 #if DEBUG
 private extension View {
-    func motionLogOverlay(visible: Bool = true) -> some View {
+    func motionLogOverlay(visible: Bool = true, releaseCapture: (() -> Void)? = nil) -> some View {
         overlay(alignment: .top) {
-            if visible && MotionLog.isEnabled { MotionLogOverlay() }
+            if visible && MotionLog.isEnabled { MotionLogOverlay(releaseCapture: releaseCapture) }
         }
     }
 }
@@ -281,16 +281,26 @@ private extension View {
 private struct MotionLogOverlay: View {
     @Environment(\.usageAppearance) private var appearance
     @ObservedObject private var log = MotionLog.shared
+    let releaseCapture: (() -> Void)?
 
     var body: some View {
+        if let releaseCapture {
+            Button(action: releaseCapture) { strip.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: log.text))
+                .accessibilityIdentifier("hooray-capture-release")
+        } else {
+            strip.accessibilityIdentifier("motion-log").allowsHitTesting(false)
+        }
+    }
+
+    private var strip: some View {
         Text(verbatim: log.text)
             .font(.caption2)
             .lineLimit(1)
-            .accessibilityIdentifier("motion-log")
             .padding(4)
             .frame(maxWidth: .infinity)
             .background(appearance.colors.ground)
-            .allowsHitTesting(false)
     }
 }
 #endif

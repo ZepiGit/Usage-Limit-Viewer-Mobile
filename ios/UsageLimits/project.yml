@@ -159,6 +159,7 @@ targets:
     platform: iOS
     sources:
       - path: UITests
+      - path: TestSupport/MotionLogEntries.swift
       - path: ../../shared/test-vectors/credit-widget-compact-status.json
         buildPhase: resources
     dependencies:
@@ -174,6 +175,7 @@ targets:
     platform: iOS
     sources:
       - path: ScreenshotTests
+      - path: TestSupport/MotionLogEntries.swift
     dependencies:
       - target: UsageLimits
     settings:

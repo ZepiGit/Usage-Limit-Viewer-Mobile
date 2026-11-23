@@ -44,11 +44,7 @@ final class MotionUITests: XCTestCase {
     }
 
     private func entries(_ app: XCUIApplication) -> [(number: Int, event: String)] {
-        app.staticTexts["motion-log"].label.components(separatedBy: " | ").dropFirst().compactMap { entry in
-            let parts = entry.split(separator: " ", maxSplits: 1)
-            guard parts.count == 2, let number = Int(parts[0]) else { return nil }
-            return (number, String(parts[1]))
-        }
+        motionLogEntries(app.staticTexts["motion-log"].label)
     }
 
     private func waitFor(_ event: String, after number: Int, in app: XCUIApplication) {

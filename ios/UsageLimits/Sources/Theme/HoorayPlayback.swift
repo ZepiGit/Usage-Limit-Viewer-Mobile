@@ -8,6 +8,17 @@ final class HoorayPlayback: ObservableObject {
     private(set) var expiry: Task<Void, Never>?
     private let now: () -> TimeInterval
     private let waitForExpiry: () async throws -> Void
+    #if DEBUG
+    private let captureRelease = MotionLog.isEnabled && ProcessInfo.processInfo.arguments.contains("-ui-testing")
+        && ProcessInfo.processInfo.arguments.contains("-fixture-hooray")
+        && ProcessInfo.processInfo.arguments.contains("-hooray-capture-hold")
+        ? AsyncStream<Void>.makeStream() : nil
+
+    var captureReleaseAction: (() -> Void)? {
+        guard let captureRelease else { return nil }
+        return { captureRelease.continuation.finish() }
+    }
+    #endif
 
     init(now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          waitForExpiry: @escaping () async throws -> Void = {
@@ -28,9 +39,19 @@ final class HoorayPlayback: ObservableObject {
         guard !presentation.startedAt.isEmpty, expiry == nil else { return }
         let opening = presentation.opening
         let waitForExpiry = waitForExpiry
+        #if DEBUG
+        let captureRelease = opening == 1 ? self.captureRelease?.stream : nil
+        #endif
         expiry = Task { [weak self] in
             do { try await waitForExpiry() }
             catch { return }
+            #if DEBUG
+            // The fixture cannot expire until both the normal duration and the attachment are done.
+            if let captureRelease {
+                var release = captureRelease.makeAsyncIterator()
+                _ = await release.next()
+            }
+            #endif
             guard !Task.isCancelled, let self, self.presentation.opening == opening else { return }
             self.presentation.advance(to: self.now())
             self.expiry = nil
@@ -132,7 +153,20 @@ private struct HoorayOpeningModifier: ViewModifier {
                 Color.clear
                     .task(id: placement) {
                         guard placement.ready, !Task.isCancelled else { return }
+                        #if DEBUG
+                        let beforePlacement = MotionLog.isEnabled && ProcessInfo.processInfo.arguments.contains("-ui-testing")
+                            ? playback.presentation : nil
+                        #endif
                         playback.placed(placement.accounts)
+                        #if DEBUG
+                        // Later layouts can call placed again; only the one that consumed this opening counts.
+                        if let beforePlacement, beforePlacement.opening == placement.opening,
+                           beforePlacement != playback.presentation {
+                            let outcome = playback.presentation.startedAt.isEmpty ? "steady" : "playing"
+                            let visible = placement.accounts.sorted().joined(separator: ",")
+                            MotionLog.shared.note("hooray:opening:\(placement.opening)", "\(outcome) visible=\(visible)")
+                        }
+                        #endif
                     }
             }
             .allowsHitTesting(false)
