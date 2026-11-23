@@ -72,7 +72,7 @@ final class MarketingScreenshotTests: XCTestCase {
         demo.terminate()
     }
 
-    func testCaptureIPhoneAppearanceFonts() {
+    func testCaptureIPhoneAppearanceFonts() async {
         // No marketing fixture: this exercises the real settings store and first loaded state.
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-reduce-motion", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -88,7 +88,8 @@ final class MarketingScreenshotTests: XCTestCase {
         let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
         scrollToCreditControl(preview, in: app, towardStart: true, requireHittable: false)
         let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "saved"), object: preview)
-        XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 10), .completed)
+        let savedResult = await XCTWaiter.fulfillment(of: [saved], timeout: 10)
+        XCTAssertEqual(savedResult, .completed)
         app.terminate()
         app.launch()
         XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 15))
@@ -99,7 +100,7 @@ final class MarketingScreenshotTests: XCTestCase {
             XCTAssertEqual(choice.value as? String, "Selected")
         }
         scrollToCreditControl(preview, in: app, towardStart: true, requireHittable: false)
-        assertAppearancePreview(in: app)
+        await assertAppearancePreview(in: app)
         capture("iphone-appearance-fonts", in: app, requiresDemoLabel: false)
         let licences = app.buttons["settings-font-licences"]
         scrollToCreditControl(licences, in: app)
@@ -117,7 +118,7 @@ final class MarketingScreenshotTests: XCTestCase {
         app.terminate()
     }
 
-    func testCaptureIPhoneAppearanceLargeGerman() {
+    func testCaptureIPhoneAppearanceLargeGerman() async {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-reduce-motion", "-AppleLanguages", "(de)", "-AppleLocale", "de_DE",
                                "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
@@ -132,15 +133,16 @@ final class MarketingScreenshotTests: XCTestCase {
             scrollToCreditControl(choice, in: app)
             choice.tap()
             let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Ausgewählt"), object: choice)
-            XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed)
+            let selectedResult = await XCTWaiter.fulfillment(of: [selected], timeout: 10)
+            XCTAssertEqual(selectedResult, .completed)
         }
         let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
         scrollToCreditControl(preview, in: app, towardStart: true, requireHittable: false)
-        assertAppearancePreview(in: app, german: true)
+        await assertAppearancePreview(in: app, german: true)
         capture("iphone-appearance-fonts-de-large", in: app, requiresDemoLabel: false)
     }
 
-    private func assertAppearancePreview(in app: XCUIApplication, german: Bool = false) {
+    private func assertAppearancePreview(in app: XCUIApplication, german: Bool = false) async {
         func previewElements() -> [XCUIElement] {
             let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
             let figure = preview.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@",
@@ -150,13 +152,15 @@ final class MarketingScreenshotTests: XCTestCase {
         }
         let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
         let pollingViewport = captureViewport(in: app)
+        // XCTest evaluates the predicate on the main actor when awaited via fulfillment(of:timeout:).
         // A single snapshot prevents remote query chains from exhausting the waiter.
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            guard let snapshot = try? preview.snapshot() else { return false }
-            return self.appearancePreviewFits(snapshot, in: pollingViewport, german: german)
+            MainActor.assumeIsolated {
+                guard let snapshot = try? preview.snapshot() else { return false }
+                return Self.appearancePreviewFits(snapshot, in: pollingViewport, german: german)
+            }
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed,
-            "Appearance preview and all sample text must fit the capture viewport")
+        await fulfillment(of: [ready], timeout: 10)
         let viewport = captureViewport(in: app)
         for element in previewElements() {
             XCTAssertTrue(element.exists, "Appearance preview content must be rendered: \(element)")
@@ -166,7 +170,8 @@ final class MarketingScreenshotTests: XCTestCase {
         }
     }
 
-    private func appearancePreviewFits(_ snapshot: any XCUIElementSnapshot, in viewport: CGRect, german: Bool) -> Bool {
+    @MainActor
+    private static func appearancePreviewFits(_ snapshot: any XCUIElementSnapshot, in viewport: CGRect, german: Bool) -> Bool {
         guard !viewport.isEmpty, !snapshot.frame.isEmpty, viewport.contains(snapshot.frame) else { return false }
         let figureLabels = german ? ["18 %", "82 %"] : ["18%", "82%"]
         let detailsLabel = german ? "23:31 · 1 Std. 18 Min. · 12,40 $" : "23:31 · 1h 18m · $12.40"
