@@ -9,10 +9,7 @@ final class MarketingScreenshotTests: XCTestCase {
     }
 
     func testCaptureIPhoneScreens() {
-        var needsTracedAppCleanup = true
-        addTeardownBlock {
-            if needsTracedAppCleanup { XCUIApplication().terminate() }
-        }
+        addTeardownBlock { XCUIApplication().terminate() }
         let app = launchDemo(["-settings-trace", "-settings-touch-trace"])
         let claude = app.buttons["overview-account-demo-claude"]
         let codex = app.buttons["overview-account-demo-codex"]
@@ -39,7 +36,6 @@ final class MarketingScreenshotTests: XCTestCase {
         verifyCustomLayout(in: app)
 
         XCUIApplication().terminate()
-        needsTracedAppCleanup = false
         let dials = launchDemo()
         selectDials(in: dials, captureSettings: true)
         captureDials("iphone-overview-dials", in: dials)
