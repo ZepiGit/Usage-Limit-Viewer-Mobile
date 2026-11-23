@@ -81,7 +81,7 @@ final class MarketingScreenshotTests: XCTestCase {
         chooseAppearance("settings-theme-warmDark", in: app)
         chooseAppearance("settings-text-font-system", in: app)
         chooseAppearance("settings-figure-font-robotoMono", in: app)
-        chooseAppearance("settings-theme-lightPaper", in: app)
+        chooseAppearance("settings-theme-lightPaper", in: app, towardStart: true)
         chooseAppearance("settings-text-font-robotoFlex", in: app)
         chooseAppearance("settings-figure-font-jetBrainsMono", in: app)
         let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
@@ -176,9 +176,9 @@ final class MarketingScreenshotTests: XCTestCase {
         scrollToCreditControl(app.buttons["settings-theme-pureBlack"], in: app)
     }
 
-    private func chooseAppearance(_ identifier: String, in app: XCUIApplication) {
+    private func chooseAppearance(_ identifier: String, in app: XCUIApplication, towardStart: Bool? = nil) {
         let choice = app.buttons[identifier]
-        scrollToCreditControl(choice, in: app)
+        scrollToCreditControl(choice, in: app, towardStart: towardStart)
         choice.tap()
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Selected"), object: choice)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed)
