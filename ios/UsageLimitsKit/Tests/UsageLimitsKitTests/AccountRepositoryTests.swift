@@ -222,8 +222,10 @@ final class AccountRepositoryTests: XCTestCase {
         try await repository.upsert(account())
         let sink = RepositorySink(repository: repository)
 
+        let storedAccounts = await repository.accounts()
+        let storedAccount = try XCTUnwrap(storedAccounts.first)
         await sink.record(.success(accountID: "a", result: result(35)),
-            at: now, accountCreatedAt: account().createdAt)
+            at: now, accountCreatedAt: storedAccount.createdAt, accountInstanceID: storedAccount.instanceID)
 
         let snapshot = await repository.usage().first?.snapshot
         XCTAssertEqual(snapshot?.windows.first?.usedPercent, 35)
@@ -319,6 +321,64 @@ final class AccountRepositoryTests: XCTestCase {
 
         let ids = await repository.accounts().map(\.id)
         XCTAssertEqual(ids, ["a"])
+    }
+
+    // MARK: - A checked read tells an unread register from an empty one
+
+    func testACheckedReadReportsACorruptRegisterWhileThePlainReadStaysEmpty() async throws {
+        // The screens ask through the checked read, so "the file could not be read" does not
+        // reach a user as "this account is no longer on this device".
+        try Data("not json".utf8).write(to: accountsFile)
+        let repository = AccountRepository(directory: directory)
+
+        do {
+            _ = try await repository.checkedUsage()
+            XCTFail("an undecodable register must not read as no accounts")
+        } catch {
+            XCTAssertEqual(error as? AccountStoreError, .corrupt)
+        }
+
+        // Callers that draw whatever is there keep the empty list they always had.
+        let plain = await repository.usage()
+        XCTAssertTrue(plain.isEmpty)
+    }
+
+    func testACheckedReadOfAMissingFileIsAnEmptyRegister() async throws {
+        // A first launch has no file. That is the one case in which "no accounts" is true.
+        let repository = AccountRepository(directory: directory)
+
+        let usage = try await repository.checkedUsage()
+
+        XCTAssertTrue(usage.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: accountsFile.path),
+                       "reading must not write the register it found missing")
+    }
+
+    func testACheckedReadRecoversOnceAFileThatCouldNotBeOpenedCanBe() async throws {
+        // A directory where the file belongs exists and cannot be opened as data, which is the
+        // shape a protected file has while the device is locked.
+        try FileManager.default.createDirectory(at: accountsFile, withIntermediateDirectories: false)
+        let repository = AccountRepository(directory: directory)
+
+        do {
+            _ = try await repository.checkedUsage()
+            XCTFail("a file that is present and cannot be opened must not read as no accounts")
+        } catch {
+            XCTAssertEqual(error as? AccountStoreError, .unreadable)
+        }
+
+        // The fault clears: a readable register takes the place of the unreadable entry.
+        try FileManager.default.removeItem(at: accountsFile)
+        let writer = AccountRepository(directory: directory)
+        try await writer.upsert(account("b", created: 200))
+        try await writer.upsert(account("a", created: 100))
+        try await writer.record(.success(accountID: "a", result: result(20)), at: now)
+
+        let recovered = try await repository.checkedUsage()
+        XCTAssertEqual(recovered.map(\.account.id), ["a", "b"], "the same repository must read again")
+        XCTAssertEqual(recovered.first?.snapshot?.windows.first?.usedPercent, 20)
+        let plain = await repository.usage()
+        XCTAssertEqual(recovered, plain, "both reads return the same register in the same order")
     }
 
     func testADuplicateAccountIdDoesNotTrap() async throws {

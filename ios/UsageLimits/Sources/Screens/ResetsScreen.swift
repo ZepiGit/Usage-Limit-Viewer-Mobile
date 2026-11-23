@@ -7,6 +7,8 @@ import UsageLimitsKit
 /// does not state is absent rather than shown with a blank — a row with no time is a row that
 /// cannot be acted on, and it would push a real one off the screen.
 struct ResetsScreen: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     @EnvironmentObject private var store: UsageStore
     @State private var listMotionArmed = false
@@ -48,17 +50,17 @@ struct ResetsScreen: View {
                         DashedBox {
                             Text("Nothing scheduled")
                                 .usageFont(.body)
-                                .foregroundStyle(UsageColors.ink)
+                                .foregroundStyle(colors.ink)
                             Text("Reset times appear here once a provider reports one.")
                                 .usageFont(.body)
-                                .foregroundStyle(UsageColors.muted)
+                                .foregroundStyle(colors.muted)
                         }
                         .listItemMotion(armed: listMotionArmed)
                     } else {
                         ForEach(visibleDays, id: \.start) { day in
                             Text(dayTitle(day.start))
                                 .usageFont(.smallStrong)
-                                .foregroundStyle(UsageColors.muted)
+                                .foregroundStyle(colors.muted)
                                 .padding(.top, 16)
                                 .accessibilityAddTraits(.isHeader)
                                 .listItemMotion(armed: listMotionArmed)
@@ -68,7 +70,7 @@ struct ResetsScreen: View {
                                 ForEach(Array(day.entries.enumerated()), id: \.offset) { index, entry in
                                     if index > 0 { LedgerDivider() }
                                     ResetRow(
-                                        accountLabel: entry.account.label,
+                                        account: entry.account,
                                         window: entry.window,
                                         now: store.now,
                                         mode: store.settings.percentDisplay,
@@ -83,7 +85,7 @@ struct ResetsScreen: View {
                 .padding(16)
                 .readableWidth()
             }
-            .background(UsageColors.ground)
+            .background(colors.ground)
             .navigationTitle("Resets")
             .navigationBarTitleDisplayMode(.inline)
             .marketingDemoLabel()
@@ -105,8 +107,12 @@ struct ResetsScreen: View {
 }
 
 private struct ResetRow: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-    let accountLabel: String
+    let account: ProviderAccount
+    private var accountLabel: String { account.label }
     let window: UsageWindow
     let now: Date
     /// Only the spoken sentence carries a percentage on this row.
@@ -117,44 +123,64 @@ private struct ResetRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Both forms, deliberately: the countdown is what the eye wants, and the
-            // wall-clock time is what survives being read a few minutes later.
-            Text(clock)
-                .usageFont(.figure)
-                .foregroundStyle(UsageColors.ink)
-                .lineLimit(1)
-                // A column, not a width: "10:30 AM" is wider than "10:30" and must not clip.
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(minWidth: 64, alignment: .trailing)
-
-            // Severity is this dot and nothing else; a healthy window is the default and
-            // leaves the slot empty so the labels still line up.
-            Circle()
-                .fill(window.severity == .healthy ? Color.clear : SeverityPalette.accent(window.severity))
-                .frame(width: 6, height: 6)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: DisplayText.windowLabel(window.label, category: window.category, scope: window.scope))
-                    .usageFont(.body)
-                    .foregroundStyle(UsageColors.ink)
-                Text(accountLabel)
-                    .usageFont(.small)
-                    .foregroundStyle(UsageColors.muted)
+            ClaudeProviderBadge(provider: account.provider, mood: .hooray, size: 28)
+            #if DEBUG
+            .environment(\.claudeAnimationDiagnosticID, "reset:\(account.id)")
+            #endif
+            if typeSize >= .accessibility1 {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack { mark; labels }
+                    clockText
+                    remainingTime
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                clockText.frame(minWidth: 64, alignment: .trailing)
+                mark
+                labels
+                Spacer(minLength: 8)
+                remainingTime
             }
-
-            Spacer(minLength: 8)
-
-            Text(countdown)
-                .usageFont(.figure)
-                .foregroundStyle(isNext ? UsageColors.data : UsageColors.muted)
         }
         .padding(.horizontal, 16)
+        .padding(.vertical, typeSize >= .accessibility1 ? 8 : 0)
         .frame(minHeight: 56)
         .overlay(alignment: .leading) {
-            if isNext { UsageColors.data.frame(width: 2).padding(.vertical, 8) }
+            if isNext { colors.data.frame(width: 2).padding(.vertical, 8) }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
+    }
+
+    private var clockText: some View {
+        Text(clock)
+            .usageFont(.figure)
+            .foregroundStyle(colors.ink)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var mark: some View {
+        Circle()
+            .fill(window.severity == .healthy ? Color.clear : colors.accent(window.severity))
+            .frame(width: 6, height: 6)
+    }
+
+    private var labels: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: DisplayText.windowLabel(window.label, category: window.category, scope: window.scope))
+                .usageFont(.body)
+                .foregroundStyle(colors.ink)
+            Text(accountLabel)
+                .usageFont(.small)
+                .foregroundStyle(colors.muted)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var remainingTime: some View {
+        Text(countdown)
+            .usageFont(.figure)
+            .foregroundStyle(isNext ? colors.dataText : colors.muted)
     }
 
     private var clock: String {

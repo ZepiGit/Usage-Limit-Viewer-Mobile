@@ -1,7 +1,6 @@
 package com.usagelimits.feature.settings
 
 import android.Manifest
-import android.app.Application
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
@@ -9,12 +8,19 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.WorkManager
+import com.usagelimits.UsageLimitsApp
+import com.usagelimits.core.sync.resetTestWorkManager
+import kotlinx.coroutines.runBlocking
+import org.junit.Before
+import org.junit.After
+import org.robolectric.shadows.ShadowLooper
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.model.CreditEntry
 import com.usagelimits.core.model.ProviderAccount
@@ -37,11 +43,28 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(application = UsageLimitsApp::class, sdk = [34])
 class StatusIconSettingsTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
-    private val app = ApplicationProvider.getApplicationContext<Application>()
+    private val app: UsageLimitsApp get() = ApplicationProvider.getApplicationContext()
+
+    @Before fun prepare(): Unit = runBlocking {
+        app.startupJob?.join()
+        WorkManager.getInstance(app).cancelAllWork().result.get()
+        app.container.settingsStore.setStatusIconsEnabled(false)
+        app.container.settingsStore.setPinnedAccounts(emptyList())
+        app.container.settingsStore.recordStatusIconEligibility(true)
+    }
+
+    @After fun drain() {
+        lateinit var barrier: kotlinx.coroutines.Job
+        compose.runOnUiThread { barrier = app.observeStatusIconEligibility() }
+        compose.waitDrained { barrier.isCompleted }
+        WorkManager.getInstance(app).cancelAllWork().result.get()
+        ShadowLooper.idleMainLooper()
+        resetTestWorkManager()
+    }
 
     private fun usage(id: String, name: String, provider: ProviderId) = AccountUsage(
         ProviderAccount(id, provider, "ext-$id", null, name, null, "cred-$id", 0L, null), snapshot = null,
@@ -64,9 +87,9 @@ class StatusIconSettingsTest {
             UsageLimitsTheme {
                 SettingsScreen(
                     state = UsageUiState(accounts = accounts, settings = settings, credits = credits),
-                    onSyncIntervalChange = {}, onNotificationPermissionHandled = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
+                    onSyncIntervalChange = {}, onNotificationPermissionHandled = {}, onAppThemeChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
                     onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
-                    onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {},
+                    onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {},
                     onStatusIconsChange = { enabled = it },
                     onPinnedChange = { id, pin -> pinned = id to pin },
                 )

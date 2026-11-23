@@ -70,6 +70,23 @@ public protocol ViewModifier {
     @ViewBuilder func body(content: Content) -> Body
 }
 
+public protocol VectorArithmetic: AdditiveArithmetic {
+    mutating func scale(by rhs: Double)
+    var magnitudeSquared: Double { get }
+}
+
+extension Double: VectorArithmetic {
+    public mutating func scale(by rhs: Double) { self *= rhs }
+    public var magnitudeSquared: Double { self * self }
+}
+
+public protocol Animatable {
+    associatedtype AnimatableData: VectorArithmetic
+    var animatableData: AnimatableData { get set }
+}
+
+public protocol AnimatableModifier: Animatable, ViewModifier {}
+
 @MainActor
 extension ViewModifier {
     /// The content a `ViewModifier`'s body receives, spelled `Content` at every call site —
@@ -124,6 +141,7 @@ extension View {
     public func tint(_ value: Any?) -> Self { self }
     public func tabItem(@ViewBuilder content: () -> any View) -> Self { self }
     public func preferredColorScheme(_ value: ColorScheme?) -> Self { self }
+    public func ignoresSafeArea() -> Self { self }
     public func badge(_ value: Any?) -> Self { self }
     public func accessibilityLabel(_ value: Any) -> Self { self }
     public func accessibilityHint(_ value: Any) -> Self { self }
@@ -133,6 +151,9 @@ extension View {
     public func buttonStyle(_ value: ButtonStyleShim) -> Self { self }
     public func buttonStyle<S: ButtonStyle>(_ style: S) -> Self { self }
     public func navigationBarTitleDisplayMode(_ mode: NavigationBarItem.TitleDisplayMode) -> Self { self }
+    public func navigationDestination<Value: Hashable>(
+        for type: Value.Type, @ViewBuilder destination: (Value) -> any View
+    ) -> Self { self }
     public func focused(_ condition: FocusState<Bool>.Binding) -> Self { self }
     public func controlSize(_ size: ControlSize) -> Self { self }
     public func tracking(_ value: CGFloat) -> Self { self }
@@ -153,6 +174,9 @@ extension View {
         @ViewBuilder content: () -> any View) -> Self { self }
     public func sheet<Item: Identifiable>(item: Binding<Item?>, onDismiss: (() -> Void)? = nil,
         @ViewBuilder content: (Item) -> any View) -> Self { self }
+    public func fullScreenCover<Item: Identifiable>(item: Binding<Item?>,
+        @ViewBuilder content: @escaping (Item) -> any View) -> Self { self }
+    public func onReceive<P>(_ publisher: P, perform: @escaping (Notification) -> Void) -> Self { self }
     public func alert(_ title: Any, isPresented: Binding<Bool>,
                       @ViewBuilder actions: () -> any View) -> Self { self }
     public func alert(_ title: Any, isPresented: Binding<Bool>,
@@ -168,6 +192,12 @@ extension View {
     public func refreshable(action: @escaping () async -> Void) -> Self { self }
     public func task(_ action: @escaping () async -> Void) -> Self { self }
     public func task<T: Equatable>(id: T, _ action: @escaping () async -> Void) -> Self { self }
+    public func anchorPreference<K: PreferenceKey, A>(key: K.Type = K.self,
+        value: Anchor<A>.Source, transform: @escaping (Anchor<A>) -> K.Value) -> Self { self }
+    public func transformAnchorPreference<K: PreferenceKey, A>(key: K.Type = K.self,
+        value: Anchor<A>.Source, transform: @escaping (inout K.Value, Anchor<A>) -> Void) -> Self { self }
+    public func overlayPreferenceValue<K: PreferenceKey, V: View>(_ key: K.Type = K.self,
+        @ViewBuilder _ transform: @escaping (K.Value) -> V) -> Self { self }
     public func onAppear(perform: (() -> Void)? = nil) -> Self { self }
     public func onDisappear(perform: (() -> Void)? = nil) -> Self { self }
     public func onChange<T: Equatable>(of value: T, perform: @escaping (T) -> Void) -> Self { self }

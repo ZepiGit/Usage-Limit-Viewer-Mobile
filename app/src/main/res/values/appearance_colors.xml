@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="appearance_warm_dark_ground">#0F0F0E</color>
+    <color name="appearance_pure_black_ground">#000000</color>
+    <color name="appearance_cool_graphite_ground">#0E1013</color>
+    <color name="appearance_light_paper_ground">#F3F0E8</color>
+</resources>

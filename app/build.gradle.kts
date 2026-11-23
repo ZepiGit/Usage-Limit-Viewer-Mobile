@@ -42,7 +42,7 @@ android {
         // version code from a different run cannot tell an update from a re-install — and a
         // published release can never go back to a lower code.
         versionCode = System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull() ?: commitCount
-        versionName = System.getenv("ANDROID_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.4.1"
+        versionName = System.getenv("ANDROID_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -103,7 +103,12 @@ android {
     }
 
     // The status icon glyphs are shared with the iOS widget; one file, packaged as a Java resource.
-    sourceSets.getByName("main").resources.srcDir("../shared/glyphs")
+    sourceSets.getByName("main").resources.apply {
+        srcDir("../shared/glyphs")
+        // AGP's DSL type hides the PatternFilterable implemented by its source directory set.
+        (this as org.gradle.api.tasks.util.PatternFilterable).include("status-icon-glyphs.json")
+    }
+    sourceSets.getByName("main").res.directories.add("../third_party/fonts/android-res")
 
     packaging {
         resources.excludes += setOf(
@@ -132,12 +137,78 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+// Match Robolectric 4.18's SDKs; separate configurations prevent same-module version conflict resolution.
+val robolectricSdkJars = listOf(
+    "8.0.0_r4-robolectric-r1-i7", // API 26
+    "11-robolectric-6757853-i7", // API 30
+    "12.1-robolectric-8229987-i7", // API 32
+    "14-robolectric-10818077-i7", // API 34
+    "16-robolectric-13921718-2-i7", // API 36
+    "17-robolectric-16653203-i7", // API 37
+).associate { version ->
+    val coordinate = "org.robolectric:android-all-instrumented:$version"
+    coordinate to configurations.detachedConfiguration(dependencies.create(coordinate)).apply {
+        isTransitive = false
+    }
+}
+
+val robolectricDepsFile = layout.buildDirectory.file("robolectric/robolectric-deps.properties")
+val writeRobolectricDeps = tasks.register<WriteProperties>("writeRobolectricDeps") {
+    destinationFile.set(robolectricDepsFile)
+    robolectricSdkJars.forEach { (coordinate, sdk) ->
+        property(coordinate, sdk.elements.map { it.single().asFile.absolutePath })
+    }
+}
+
 // Robolectric's native font zip filesystem is process-wide on Windows, while
 // Android sandboxes are not. A fresh worker avoids sharing that native state.
 tasks.withType<Test>().configureEach {
+    inputs.file(writeRobolectricDeps.flatMap { it.destinationFile }).withPathSensitivity(PathSensitivity.NONE)
+    inputs.files(robolectricSdkJars.values).withPathSensitivity(PathSensitivity.NAME_ONLY)
+    systemProperty("robolectric-deps.properties", robolectricDepsFile.get().asFile.absolutePath)
+    // Measured on b575d1b, in a 512 MiB heap: 183 full collections, the live set 277 MiB after the
+    // first and 505 MiB after the last. One possible cause is the framework's sandbox cache; no heap
+    // dump was taken. 1 GiB is the owner's upper limit, the same on CI and on a workstation. If this
+    // fills up, the next step is fewer sandbox configurations, not more heap.
+    maxHeapSize = "1g"
     if (System.getProperty("os.name").startsWith("Windows")) forkEvery = 1
     // RedesignCaptureTest writes PNGs only when -PcaptureDir=<abs path> is given.
     providers.gradleProperty("captureDir").orNull?.let { systemProperty("capture.dir", it) }
+    // Unlike Gradle's buffered binary results, this opt-in journal retains a test's start even
+    // when its worker never completes. Columns: event, task, class, method, start ms, end ms, outcome.
+    providers.gradleProperty("testEventLog").orNull?.let { logPath ->
+        val eventLog = file(logPath)
+        val taskPath = path
+        doFirst {
+            try {
+                eventLog.parentFile.mkdirs()
+                eventLog.writeText("event\ttask\tclass\tmethod\tstartMs\tendMs\toutcome\n")
+            } catch (error: java.io.IOException) {
+                logger.warn("Could not initialize the test event journal", error)
+            }
+        }
+        addTestListener(object : org.gradle.api.tasks.testing.TestListener {
+            private fun record(event: String, test: org.gradle.api.tasks.testing.TestDescriptor,
+                start: Long, end: Long?, outcome: String) {
+                val line = listOf(event, taskPath, test.className.orEmpty(), test.name,
+                    start.toString(), end?.toString().orEmpty(), outcome)
+                    .joinToString("\t") { it.replace('\t', ' ').replace('\r', ' ').replace('\n', ' ') }
+                try {
+                    eventLog.appendText("$line\n")
+                } catch (error: java.io.IOException) {
+                    logger.warn("Could not append to the test event journal", error)
+                }
+            }
+            override fun beforeTest(test: org.gradle.api.tasks.testing.TestDescriptor) =
+                record("START", test, System.currentTimeMillis(), null, "RUNNING")
+            override fun afterTest(test: org.gradle.api.tasks.testing.TestDescriptor,
+                result: org.gradle.api.tasks.testing.TestResult) =
+                record("END", test, result.startTime, result.endTime, result.resultType.name)
+        })
+    }
+    // Off by default. -PtestGcLog=<abs path> writes the test worker's GC log there, with the heap
+    // after each collection, to measure the live set across the suite. It changes no heap size.
+    providers.gradleProperty("testGcLog").orNull?.let { jvmArgs("-Xlog:gc*,gc+heap=debug:file=$it:uptime,tags") }
     // The cross-platform vectors are read from outside the module; without this a changed
     // vector file would leave the test task up to date, or served from the build cache.
     inputs.dir(rootProject.file("shared/test-vectors")).withPathSensitivity(PathSensitivity.RELATIVE)
@@ -147,6 +218,7 @@ dependencies {
     implementation("sh.calvin.reorderable:reorderable:3.1.0")
     implementation(libs.androidx.core)
     implementation(libs.androidx.lifecycle.runtime)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
 

@@ -5,7 +5,10 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.buildAnnotatedString
 import com.usagelimits.core.time.CountdownTexts
+import com.usagelimits.ui.theme.UsageType
 
 /*
  * Composition-side entry points to the resource-backed texts, so a screen asks for words the way
@@ -27,4 +30,15 @@ fun rememberCountdownTexts(): CountdownTexts {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     return remember(context, configuration) { ResourceCountdownTexts(context.resources) }
+}
+
+/** The stamp is the final formatted value; the surrounding localized words keep the text face. */
+@Composable
+internal fun textWithResetStamp(text: String, stamp: String): AnnotatedString {
+    val style = UsageType.Stamp.toSpanStyle()
+    return buildAnnotatedString {
+        val start = text.lastIndexOf(stamp)
+        append(text)
+        addStyle(style, start, start + stamp.length)
+    }
 }

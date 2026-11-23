@@ -9,18 +9,17 @@ import android.content.pm.PackageManager
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
-import androidx.work.WorkManager
-import com.usagelimits.UsageLimitsApp
-import com.usagelimits.core.oauth.SignInKeepAliveService
-import kotlinx.coroutines.runBlocking
-import org.junit.After
-import org.robolectric.shadows.ShadowLooper
 import com.usagelimits.UsageLimitsActivity
+import com.usagelimits.UsageLimitsApp
+import com.usagelimits.closeAndDrainActivityJobs
+import com.usagelimits.core.oauth.SignInKeepAliveService
+import com.usagelimits.drainActivityFixtureWork
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.robolectric.Robolectric
@@ -50,11 +49,7 @@ class AppIconsTest {
 
     @After
     fun drainStartupWork() {
-        val app = context as? UsageLimitsApp ?: return
-        ShadowLooper.idleMainLooper()
-        runBlocking { app.startupJob?.join() }
-        ShadowLooper.idleMainLooper()
-        WorkManager.getInstance(app).cancelAllWork().result.get()
+        (context as? UsageLimitsApp)?.drainActivityFixtureWork()
     }
 
     @Test
@@ -84,28 +79,37 @@ class AppIconsTest {
         compose.onNodeWithText(AppIcon.GAUGE_COIN.text()).assertIsSelected()
         compose.runOnIdle { showing = false }
         compose.waitForIdle()
-        val activity = Robolectric.buildActivity(UsageLimitsActivity::class.java).create().start().resume()
-        activity.pause().stop()
-        assertEquals(AppIcon.GAUGE_COIN, AppIcon.current(context))
-        assertNull(AppIcon.pending)
-        activity.destroy()
+        val activity = Robolectric.buildActivity(UsageLimitsActivity::class.java)
+        try {
+            activity.create().start().resume().pause().stop()
+            assertEquals(AppIcon.GAUGE_COIN, AppIcon.current(context))
+            assertNull(AppIcon.pending)
+        } finally {
+            activity.closeAndDrainActivityJobs()
+        }
     }
 
     @Test
     @Config(application = UsageLimitsApp::class)
     fun `pending choice waits while a browser sign-in is in progress`() {
         AppIcon.select(AppIcon.GAUGE_COIN)
-        val login = SignInKeepAliveService.start(context)
-        val activity = Robolectric.buildActivity(UsageLimitsActivity::class.java).create().start().resume()
-        activity.pause().stop()
-        assertEquals(AppIcon.CURRENT, AppIcon.current(context))
-        assertEquals(AppIcon.GAUGE_COIN, AppIcon.pending)
+        val activity = Robolectric.buildActivity(UsageLimitsActivity::class.java)
+        try {
+            val login = SignInKeepAliveService.start(context)
+            try {
+                activity.create().start().resume().pause().stop()
+                assertEquals(AppIcon.CURRENT, AppIcon.current(context))
+                assertEquals(AppIcon.GAUGE_COIN, AppIcon.pending)
+            } finally {
+                SignInKeepAliveService.stop(context, login)
+            }
 
-        SignInKeepAliveService.stop(context, login)
-        activity.restart().resume().pause().stop()
-        assertEquals(AppIcon.GAUGE_COIN, AppIcon.current(context))
-        assertNull(AppIcon.pending)
-        activity.destroy()
+            activity.restart().resume().pause().stop()
+            assertEquals(AppIcon.GAUGE_COIN, AppIcon.current(context))
+            assertNull(AppIcon.pending)
+        } finally {
+            activity.closeAndDrainActivityJobs()
+        }
     }
 
     @Test

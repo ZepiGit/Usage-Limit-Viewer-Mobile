@@ -1,6 +1,6 @@
 import XCTest
 
-/// Checks real modifier decisions and reachable UI state, not applied transactions or rendered motion.
+/// Checks motion decisions and the app's public accessibility tree. Hosted rendering tests check frames.
 final class MotionUITests: XCTestCase {
     override func setUp() {
         super.setUp()
@@ -16,7 +16,9 @@ final class MotionUITests: XCTestCase {
         ] + arguments
         app.launch()
         XCTAssertTrue(app.staticTexts["motion-log"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["5/5 connected"].waitForExistence(timeout: 10))
+        if !arguments.contains("-motion-delayed-demo") {
+            XCTAssertTrue(app.buttons["overview-account-demo-codex"].waitForExistence(timeout: 10))
+        }
         return app
     }
 
@@ -42,99 +44,247 @@ final class MotionUITests: XCTestCase {
     }
 
     private func entries(_ app: XCUIApplication) -> [(number: Int, event: String)] {
-        app.staticTexts["motion-log"].label.components(separatedBy: " | ").dropFirst().compactMap { entry in
-            let parts = entry.split(separator: " ", maxSplits: 1)
-            guard parts.count == 2, let number = Int(parts[0]) else { return nil }
-            return (number, String(parts[1]))
-        }
+        motionLogEntries(app.staticTexts["motion-log"].label)
     }
 
     private func waitFor(_ event: String, after number: Int, in app: XCUIApplication) {
         waitUntil("\(event) after #\(number)", in: app) { self.entries(app).contains { $0.number > number && $0.event == event } }
     }
 
-    private func filterToCodex(_ app: XCUIApplication) {
-        tab("Accounts", in: app)
-        let filter = app.buttons["OpenAI Codex"]
+    private func filterToAttention(_ app: XCUIApplication) {
+        let filter = app.buttons["overview-filter-needsAttention"]
         XCTAssertTrue(filter.waitForExistence(timeout: 10))
         filter.tap()
-        waitUntil("Codex filter selected", in: app) { filter.value as? String == "Selected" }
+        waitUntil("Needs attention selected", in: app) { filter.value as? String == "Selected" }
     }
 
-    func testProviderFilterLogsAnimatedDecisionInNormalMotion() {
-        let app = launch()
-        tab("Accounts", in: app)
+    private func launchSignInFixture(reduced: Bool = false) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing", "-fixture-sign-in-motion", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        if reduced { app.launchArguments.append("-reduce-motion") }
+        app.launch()
+        return app
+    }
+
+    private func kimiButton(in picker: XCUIElement) -> XCUIElement {
+        picker.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Kimi")).firstMatch
+    }
+
+    func testLeavingSignInChooserRejectsAXAndTouchThenRestoresItsAction() {
+        let app = launchSignInFixture()
+        defer { app.terminate() }
+        let picker = app.scrollViews["provider-picker-scroll"]
+        let kimi = kimiButton(in: picker)
+        let key = picker.staticTexts["Paste your OpenCode Go key"]
+        let region = picker.staticTexts["Kimi region"]
+        let request = app.buttons["Request key step"]
+        let release = app.buttons["Release exit"]
+        let retained = app.buttons["Activate retained Kimi"]
+        let restore = app.buttons["Restore chooser"]
+        XCTAssertTrue(kimi.waitForExistence(timeout: 5))
+        XCTAssertTrue(kimi.isEnabled)
+        XCTAssertTrue(kimi.isHittable)
+        let oldFrame = kimi.frame
+        let oldPoint = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: oldFrame.midX - app.frame.minX, dy: oldFrame.midY - app.frame.minY))
+        XCTAssertTrue(request.waitForExistence(timeout: 5), "the real Kimi button action has been retained")
+        request.tap()
+        XCTAssertTrue(release.waitForExistence(timeout: 5))
+        XCTAssertTrue(retained.exists)
+        XCTAssertTrue(picker.exists, "the outgoing picker is still mounted")
+        XCTAssertFalse(kimi.exists, "the still-visible outgoing card is already hidden from AX")
+        XCTAssertFalse(key.exists, "the destination has not yet replaced the outgoing card")
+        XCTAssertTrue(app.buttons["Cancel"].exists, "AX is active outside the outgoing card")
+        let held = XCTAttachment(screenshot: app.screenshot())
+        held.name = "sign-in-opaque-outgoing-picker"
+        held.lifetime = .keepAlways
+        add(held)
+        oldPoint.tap()
+        retained.tap()
+        release.tap()
+        XCTAssertTrue(key.waitForExistence(timeout: 5), "neither old action may replace the requested destination")
+        XCTAssertFalse(region.exists)
+        XCTAssertFalse(kimi.exists)
+        XCTAssertFalse(picker.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Shows a code")).firstMatch.exists)
+
+        restore.tap()
+        XCTAssertTrue(kimi.waitForExistence(timeout: 5))
+        XCTAssertTrue(kimi.isEnabled)
+        kimi.tap()
+        XCTAssertTrue(region.waitForExistence(timeout: 5), "the restored real button opens the Kimi region choice")
+    }
+
+    func testInterruptedSignInRestoresTheRealChooserAction() {
+        let app = launchSignInFixture()
+        defer { app.terminate() }
+        let picker = app.scrollViews["provider-picker-scroll"]
+        let kimi = kimiButton(in: picker)
+        XCTAssertTrue(kimi.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Request key step"].waitForExistence(timeout: 5))
+        let reverse = app.buttons["Reverse at intermediate"]
+        XCTAssertTrue(reverse.isEnabled)
+        reverse.tap()
+        XCTAssertTrue(app.buttons["Reversal settled"].waitForExistence(timeout: 5),
+                      "a real exit and resumed entrance must finish before testing the restored action")
+        XCTAssertFalse(picker.staticTexts["Paste your OpenCode Go key"].exists)
+        XCTAssertTrue(kimi.exists)
+        XCTAssertTrue(kimi.isEnabled)
+        kimi.tap()
+        XCTAssertTrue(picker.staticTexts["Kimi region"].waitForExistence(timeout: 5))
+    }
+
+    func testReducedSignInPublishesOnlyTheNewStepToAccessibility() {
+        let app = launchSignInFixture(reduced: true)
+        defer { app.terminate() }
+        let picker = app.scrollViews["provider-picker-scroll"]
+        let kimi = kimiButton(in: picker)
+        let key = picker.staticTexts["Paste your OpenCode Go key"]
+        XCTAssertTrue(kimi.waitForExistence(timeout: 5))
+        XCTAssertFalse(key.exists)
+        let request = app.buttons["Request key step"]
+        XCTAssertTrue(request.waitForExistence(timeout: 5))
+        request.tap()
+        XCTAssertTrue(key.waitForExistence(timeout: 5), "the new step is exposed without releasing the normal-motion hold")
+        XCTAssertFalse(kimi.exists)
+        XCTAssertTrue(app.buttons["Cancel"].exists)
+    }
+
+    func testOverviewFilterLogsAnimatedDecisionInNormalMotion() {
+        let app = launch(["-overview-expired-demo"])
         let before = checkpoint(app)
-        let filter = app.buttons["OpenAI Codex"]
-        XCTAssertTrue(filter.waitForExistence(timeout: 10))
-        filter.tap()
+        filterToAttention(app)
         waitFor("moveAfterExit animated", after: before, in: app)
         XCTAssertTrue(entries(app).contains { $0.event == "item fade" })
+        XCTAssertTrue(app.buttons["overview-account-demo-codex"].waitForExistence(timeout: 10))
+        waitUntil("Claude is filtered out", in: app) { !app.buttons["overview-account-demo-claude"].exists }
     }
 
     func testReducedMotionLogsNoAnimationForFilterAndFigureChanges() {
-        let app = launch(["-reduce-motion"])
+        let app = launch(["-reduce-motion", "-overview-expired-demo"])
         let beforeFilter = checkpoint(app)
-        filterToCodex(app)
+        filterToAttention(app)
         waitFor("moveAfterExit none", after: beforeFilter, in: app)
         XCTAssertTrue(entries(app).contains { $0.event == "item identity" })
         XCTAssertFalse(entries(app).contains { $0.number > beforeFilter && $0.event.hasSuffix(" animated") })
 
-        tab("Overview", in: app)
-        let lead = app.descendants(matching: .any)["overview-lead"].firstMatch
-        XCTAssertTrue(lead.waitForExistence(timeout: 10))
-        let oldLabel = lead.label
+        let card = app.buttons["overview-account-demo-codex"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        let mode = app.buttons["overview-display-mode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 10))
+        let oldValue = mode.value as? String
+        XCTAssertTrue(oldValue == "Left" || oldValue == "Used")
         let beforeFigure = checkpoint(app)
-        // A fixed inset stays inside the figure on both phone and iPad; the rest of the band
-        // deliberately has no tap action. The overlay is above it and never takes touches.
-        lead.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.45))
-            .withOffset(CGVector(dx: 24, dy: 0)).tap()
-        waitUntil("the lead reads the other side", in: app) { lead.label != oldLabel }
+        mode.tap()
+        waitUntil("the display mode changes", in: app) { mode.value as? String != oldValue }
+        XCTAssertEqual(mode.value as? String, oldValue == "Left" ? "Used" : "Left")
         waitFor("enterAfterExit none", after: beforeFigure, in: app)
         waitFor("move none", after: beforeFigure, in: app)
         XCTAssertTrue(entries(app).contains { $0.event == "figure identity" })
         XCTAssertFalse(entries(app).contains { $0.number > beforeFigure && $0.event.hasSuffix(" animated") })
     }
 
-    func testDeepLinkReachesTargetAndLogsUnanimatedFilterReset() throws {
+    func testWarmDeepLinkOpensExcludedAccountAndRestoresFilter() throws {
         guard #available(iOS 16.4, *) else {
             throw XCTSkip("XCUIDevice.system.open requires iOS 16.4")
         }
         let app = launch()
-        filterToCodex(app)
-        waitFor("moveAfterExit animated", after: 0, in: app)
+        filterToAttention(app)
+        waitUntil("Codex is filtered out", in: app) { !app.buttons["overview-account-demo-codex"].exists }
         let before = checkpoint(app)
-        // Through the system, as a widget's link arrives: `XCUIApplication.open` relaunches the
-        // app (seen on CI), which would lose the filter this test is about.
-        XCUIDevice.shared.system.open(URL(string: "usagelimits://account/demo-kimi")!)
+        XCUIDevice.shared.system.open(URL(string: "usagelimits://account/demo-codex")!)
         let confirm = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Open"]
         if confirm.waitForExistence(timeout: 3) { confirm.tap() }
-        let target = app.staticTexts["account-title-demo-kimi"]
-        XCTAssertTrue(target.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Account details"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["account-title-demo-codex"].waitForExistence(timeout: 10))
         XCTAssertGreaterThanOrEqual(checkpoint(app), before, "the same process, not a relaunch")
-        waitUntil("the target card is on screen", in: app) { target.isHittable }
-        waitFor("moveAfterExit none", after: before, in: app)
+        app.buttons["overview-close-detail"].tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.buttons["overview-filter-needsAttention"].value as? String, "Selected")
+        XCTAssertFalse(app.buttons["overview-account-demo-codex"].exists)
+        XCTAssertFalse(app.buttons["overview-account-demo-claude"].exists)
         XCTAssertFalse(entries(app).contains { $0.number > before && $0.event == "moveAfterExit animated" })
 
-        // The jump can scroll the filters out of a lazy stack. Read the selection after
-        // returning to its top, without tapping a filter and thereby changing the result.
-        let all = app.buttons["All"]
-        let scroll = app.descendants(matching: .any)["accounts-scroll"].firstMatch
-        for _ in 0..<8 {
-            if all.exists && all.isHittable { break }
-            scroll.swipeDown()
+        tab("Settings", in: app)
+        tab("Overview", in: app)
+        XCTAssertEqual(app.buttons["overview-filter-all"].value as? String, "Selected")
+        XCTAssertTrue(app.buttons["overview-account-demo-claude"].waitForExistence(timeout: 10))
+    }
+
+    func testDeepLinkFromSettingsOpensDetailOnOverview() throws {
+        guard #available(iOS 16.4, *) else {
+            throw XCTSkip("XCUIDevice.system.open requires iOS 16.4")
         }
-        XCTAssertTrue(all.waitForExistence(timeout: 10))
-        XCTAssertEqual(all.value as? String, "Selected")
+        let app = launch()
+        tab("Settings", in: app)
+        XCUIDevice.shared.system.open(URL(string: "usagelimits://account/demo-codex")!)
+        let confirm = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Open"]
+        if confirm.waitForExistence(timeout: 3) { confirm.tap() }
+        XCTAssertTrue(app.navigationBars["Account details"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["account-title-demo-codex"].waitForExistence(timeout: 10))
+        app.buttons["overview-close-detail"].tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.buttons["overview-filter-all"].value as? String, "Selected")
+    }
+
+    func testClaudeMoodsPauseWhenCoveredOrDeselected() {
+        let app = launch(["-claude-mood-demo"])
+        defer { app.terminate() }
+        waitFor("claude:list:demo-claude-exhausted:asleep animated", after: 0, in: app)
+        waitFor("claude:list:demo-claude:tired animated", after: 0, in: app)
+
+        let beforeDetail = checkpoint(app)
+        app.buttons["overview-account-demo-claude-exhausted"].tap()
+        XCTAssertTrue(app.navigationBars["Account details"].waitForExistence(timeout: 10))
+        waitFor("claude:list:demo-claude-exhausted:asleep paused", after: beforeDetail, in: app)
+        waitFor("claude:detail:demo-claude-exhausted:asleep animated", after: beforeDetail, in: app)
+        let beforeClose = checkpoint(app)
+        app.buttons["overview-close-detail"].tap()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        waitFor("claude:list:demo-claude-exhausted:asleep animated", after: beforeClose, in: app)
+
+        let beforeResets = checkpoint(app)
+        tab("Resets", in: app)
+        waitFor("claude:list:demo-claude-exhausted:asleep paused", after: beforeResets, in: app)
+        waitFor("claude:reset:demo-claude-exhausted:hooray animated", after: beforeResets, in: app)
+        let beforeReturn = checkpoint(app)
+        tab("Overview", in: app)
+        waitFor("claude:reset:demo-claude-exhausted:hooray paused", after: beforeReturn, in: app)
+        waitFor("claude:list:demo-claude-exhausted:asleep animated", after: beforeReturn, in: app)
+
+        let beforeHome = checkpoint(app)
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10))
+        app.activate()
+        waitFor("claude:list:demo-claude-exhausted:asleep paused", after: beforeHome, in: app)
+        waitFor("claude:list:demo-claude-exhausted:asleep animated", after: beforeHome, in: app)
+    }
+
+    func testReduceMotionUsesTheSameMoodsAsStills() {
+        let app = launch(["-claude-mood-demo", "-reduce-motion"])
+        defer { app.terminate() }
+        waitFor("claude:list:demo-claude-exhausted:asleep still", after: 0, in: app)
+        waitFor("claude:list:demo-claude:tired still", after: 0, in: app)
+        let beforeResets = checkpoint(app)
+        tab("Resets", in: app)
+        waitFor("claude:reset:demo-claude-exhausted:hooray still", after: beforeResets, in: app)
+        XCTAssertFalse(entries(app).contains { $0.event.hasPrefix("claude:") && $0.event.hasSuffix(" animated") })
     }
 
     func testDelayedFirstContentLogsNoListAnimation() {
-        let app = launch(["-motion-delayed-demo"])
-        waitFor("move none", after: 0, in: app)
-        XCTAssertFalse(entries(app).contains { $0.event == "move animated" || $0.event == "moveAfterExit animated" })
-        // A later filter change must still resolve to an animation.
+        let app = launch(["-motion-delayed-demo", "-overview-expired-demo"])
+        XCTAssertTrue(app.staticTexts["Loading usage"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["No accounts yet"].exists)
+        XCTAssertFalse(app.buttons["overview-account-demo-codex"].exists)
+        let beforeLoad = checkpoint(app)
+        let release = app.buttons["overview-release-demo-load"]
+        XCTAssertTrue(release.waitForExistence(timeout: 10))
+        release.tap()
+        XCTAssertTrue(app.buttons["overview-account-demo-codex"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Loading usage"].exists)
+        waitFor("moveAfterExit none", after: beforeLoad, in: app)
+        XCTAssertFalse(entries(app).contains { $0.number > beforeLoad && ($0.event == "move animated" || $0.event == "moveAfterExit animated") })
         let before = checkpoint(app)
-        filterToCodex(app)
+        filterToAttention(app)
         waitFor("moveAfterExit animated", after: before, in: app)
     }
 }

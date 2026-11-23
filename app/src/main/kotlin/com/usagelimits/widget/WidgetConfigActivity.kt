@@ -36,12 +36,18 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.AccountUsage
@@ -49,7 +55,11 @@ import com.usagelimits.core.database.WidgetConfigEntity
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.WidgetScope
+import com.usagelimits.core.model.withPercentSign
+import com.usagelimits.core.settings.AppTheme
 import com.usagelimits.R
+import com.usagelimits.ui.LocalProviderIcons
+import com.usagelimits.ui.providerLogoResource
 import com.usagelimits.ui.ProviderLogo
 import com.usagelimits.ui.components.ErrorBlock
 import com.usagelimits.ui.components.InkButton
@@ -62,10 +72,7 @@ import com.usagelimits.ui.components.Spinner
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
-import com.usagelimits.ui.percentSideCaptionRes
 import com.usagelimits.ui.percentSideWordRes
-import com.usagelimits.ui.text.percentFigure
-import com.usagelimits.ui.theme.UsageType
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageLimitsTheme
 import kotlinx.coroutines.launch
@@ -97,7 +104,7 @@ class WidgetConfigActivity : ComponentActivity() {
             targetColumns ?: if (kind == "Mini Rings") 1 else 3, targetRows ?: if (kind == "Mini Rings" || kind == "Usage Summary") 1 else 2)
         setContent {
             val settings by container.settingsStore.settings.collectAsState(initial = com.usagelimits.core.settings.AppSettings())
-            UsageLimitsTheme(providerIcons = settings.providerIcons) {
+            UsageLimitsTheme(appTheme = AppTheme.WARM_DARK, providerIcons = settings.providerIcons) {
                 var initial by remember { mutableStateOf<WidgetConfigEntity?>(null) }
                 var loaded by remember { mutableStateOf(false) }
                 val accounts by container.repository.observeAccountUsage().collectAsState(emptyList())
@@ -175,7 +182,7 @@ internal fun WidgetConfigScreen(accounts: List<AccountUsage>, initial: WidgetCon
     }
     val scope = WidgetScope.fromName(scopeName)
     val preview = WidgetDataBuilder.build(accounts, System.currentTimeMillis(), scope, accountId, providerId,
-        customAccountIds = currentOrder.filter { it in selected })
+        customAccountIds = currentOrder.filter { it in selected }, providerIcons = LocalProviderIcons.current)
     val valid = when (scope) {
         WidgetScope.ACCOUNT -> accounts.any { it.account.localId == accountId }
         WidgetScope.PROVIDER -> ProviderId.fromId(providerId) != null
@@ -388,6 +395,9 @@ private fun BackgroundSettings(
                 Segment(label, style.textTone == tone) { onTextTone(tone) }
             }
         }
+        Spacer(Modifier.height(8.dp))
+        Text(stringResource(R.string.widget_config_display_hint),
+            style = MaterialTheme.typography.bodySmall, color = UsageColors.Muted)
     }
 }
 
@@ -405,25 +415,29 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
         ) {
             Text(stringResource(R.string.widget_config_preview_title, snapshot.accountCount), style = MaterialTheme.typography.labelMedium, color = style.textSecondary)
             if (snapshot.accounts.isEmpty()) Text(snapshot.emptyText(resources) ?: stringResource(R.string.widget_config_preview_empty), color = style.textSecondary)
-            else if (kind.contains("Rings")) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                // A ring alone does not say which side it counts; the placed widgets carry the same caption.
-                Text(stringResource(percentSideCaptionRes(mode)), style = MaterialTheme.typography.labelSmall, color = style.textSecondary)
+            else if (kind.contains("Rings")) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     snapshot.accounts.take(4).forEach { account ->
                         val p = ringLimit(account).presentation(null, mode)
-                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                        val ringSize = 48.dp
+                        Box(Modifier.size(ringSize), contentAlignment = Alignment.Center) {
                             Image(
                                 UsageRing.draw(
                                     160,
                                     p.fill?.times(100.0),
                                     ringAccent(account, style).toArgb(), style.trackArgb,
                                 ).asImageBitmap(),
-                                ringDescription(resources, account, mode), Modifier.fillMaxSize(),
+                                ringDescription(resources, account, p), Modifier.fillMaxSize(),
                             )
                             // The centre the placed widget draws: Mini Rings the provider mark,
                             // Account Rings the figure, through the same rule for a 100.
-                            if (kind == "Mini Rings") ProviderId.fromId(account.providerId)?.let { ProviderLogo(it, Modifier.size(22.dp)) }
-                            else ringCentreFigure(resources, p)?.let { Text(it, style = UsageType.Figure, color = style.textPrimary) }
+                            if (kind == "Mini Rings") {
+                                ProviderId.fromId(account.providerId)?.let { provider ->
+                                    Image(painterResource(providerLogoResource(provider, account.iconChoiceId)), null,
+                                        Modifier.size(miniLogoSize(ringSize, account.providerId)),
+                                        colorFilter = widgetLogoTint(provider, style)?.let { ColorFilter.tint(it) })
+                                }
+                            } else ringCentreFigure(p)?.let { Text(it, style = WidgetPreviewFigure, color = style.textPrimary) }
                         }
                     }
                 }
@@ -431,7 +445,7 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                 Text(account.title, style = MaterialTheme.typography.titleMedium, color = style.textPrimary)
                 account.rows.take(2).forEach { row ->
                     val p = row.presentation(account.dataValidity, mode)
-                    val percent = percentFigure(p.token, resources)
+                    val percent = withPercentSign(p.token)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(row.labelText(resources), Modifier.width(64.dp), style = MaterialTheme.typography.bodySmall, color = style.textSecondary)
                         PreviewBar(
@@ -441,7 +455,7 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
                         // The preview names the side as the placed widget does; a dash stays bare.
                         Text(
                             if (!p.hasFigure) percent else "$percent ${stringResource(percentSideWordRes(mode))}",
-                            style = UsageType.Figure, color = style.barText(row, account.dataValidity),
+                            style = WidgetPreviewFigure, color = style.barText(row, account.dataValidity),
                         )
                     }
                 }
@@ -449,6 +463,10 @@ internal fun ContentPreview(snapshot: WidgetSnapshot, kind: String, style: Widge
         }
     }
 }
+
+private val WidgetPreviewFigure = TextStyle(
+    fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp,
+)
 
 /** A 4dp bar on the widget's own track; no fill when the widget would draw none. */
 @Composable

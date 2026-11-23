@@ -1,5 +1,17 @@
 import Foundation
 
+public enum OverviewLayout: String, Codable, Sendable {
+    case list, dials
+}
+
+public enum OverviewCreditLayout: String, Codable, Sendable {
+    case normal, compact
+}
+
+public enum OverviewShowFirst: String, Codable, Sendable {
+    case usageProviders, creditAccounts
+}
+
 /// Everything the user can change.
 ///
 /// One type rather than several stores so a single value can be persisted, passed to the
@@ -18,13 +30,17 @@ public struct AppSettings: Sendable, Equatable, Codable {
     /// Show the plan tier — Plus, Pro, Max — beside the provider name.
     public var showSubscriptionTier: Bool
 
-    /// Show when the long allowance renews, on the overview only.
-    ///
-    /// Off by default, and deliberately not in the widgets: the widget's job is the number you
-    /// are about to run out of, and a second date competing with the next reset is the kind of
-    /// detail that makes a glanceable tile unglanceable.
+    /// Retained for saved settings compatibility. Both Overview layouts always show reset stamps.
     public var showRenewalTime: Bool
+    public var overviewLayout: OverviewLayout
+    public var overviewCreditLayout: OverviewCreditLayout
+    public var overviewShowFirst: OverviewShowFirst
+    public var overviewShowCredits: Bool
     public var providerIcons: [String: String]
+    public var animateClaudeCodeIcon: Bool
+    public var appearanceTheme: AppearanceTheme
+    public var appearanceTextFont: AppearanceTextFont
+    public var appearanceFigureFont: AppearanceFigureFont
 
     /// Whether quota figures count down what is left or up what has been used.
     public var percentDisplay: PercentDisplay
@@ -43,7 +59,15 @@ public struct AppSettings: Sendable, Equatable, Codable {
         accountsManuallyOrdered: Bool = false,
         showSubscriptionTier: Bool = true,
         showRenewalTime: Bool = false,
+        overviewLayout: OverviewLayout = .list,
+        overviewCreditLayout: OverviewCreditLayout = .normal,
+        overviewShowFirst: OverviewShowFirst = .usageProviders,
+        overviewShowCredits: Bool = true,
         providerIcons: [String: String] = [:],
+        animateClaudeCodeIcon: Bool = true,
+        appearanceTheme: AppearanceTheme = .pureBlack,
+        appearanceTextFont: AppearanceTextFont = .system,
+        appearanceFigureFont: AppearanceFigureFont = .robotoMono,
         percentDisplay: PercentDisplay = .left,
         statusIconsEnabled: Bool = false,
         pinnedAccountKeys: [String] = []
@@ -53,7 +77,15 @@ public struct AppSettings: Sendable, Equatable, Codable {
         self.accountsManuallyOrdered = accountsManuallyOrdered
         self.showSubscriptionTier = showSubscriptionTier
         self.showRenewalTime = showRenewalTime
+        self.overviewLayout = overviewLayout
+        self.overviewCreditLayout = overviewCreditLayout
+        self.overviewShowFirst = overviewShowFirst
+        self.overviewShowCredits = overviewShowCredits
         self.providerIcons = providerIcons
+        self.animateClaudeCodeIcon = animateClaudeCodeIcon
+        self.appearanceTheme = appearanceTheme
+        self.appearanceTextFont = appearanceTextFont
+        self.appearanceFigureFont = appearanceFigureFont
         self.percentDisplay = percentDisplay
         self.statusIconsEnabled = statusIconsEnabled
         self.pinnedAccountKeys = pinnedAccountKeys
@@ -76,7 +108,16 @@ public struct AppSettings: Sendable, Equatable, Codable {
                 Bool.self, forKey: .showSubscriptionTier) ?? true,
             showRenewalTime: try container.decodeIfPresent(
                 Bool.self, forKey: .showRenewalTime) ?? false,
+            overviewLayout: (try? container.decode(String.self, forKey: .overviewLayout))
+                .flatMap(OverviewLayout.init(rawValue:)) ?? .list,
+            overviewCreditLayout: (try? container.decode(OverviewCreditLayout.self, forKey: .overviewCreditLayout)) ?? .normal,
+            overviewShowFirst: (try? container.decode(OverviewShowFirst.self, forKey: .overviewShowFirst)) ?? .usageProviders,
+            overviewShowCredits: (try? container.decode(Bool.self, forKey: .overviewShowCredits)) ?? true,
             providerIcons: try container.decodeIfPresent([String: String].self, forKey: .providerIcons) ?? [:],
+            animateClaudeCodeIcon: (try? container.decode(Bool.self, forKey: .animateClaudeCodeIcon)) ?? true,
+            appearanceTheme: (try? container.decode(AppearanceTheme.self, forKey: .appearanceTheme)) ?? .pureBlack,
+            appearanceTextFont: (try? container.decode(AppearanceTextFont.self, forKey: .appearanceTextFont)) ?? .system,
+            appearanceFigureFont: (try? container.decode(AppearanceFigureFont.self, forKey: .appearanceFigureFont)) ?? .robotoMono,
             // Decoded through the raw String, so an unknown stored name reads as the default
             // instead of failing the whole decode and resetting every preference.
             percentDisplay: PercentDisplay.fromLoose(

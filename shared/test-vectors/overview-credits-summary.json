@@ -1,0 +1,130 @@
+{
+  "description": "Compact Credits counts every tracked credit account, not its balance lines. A missing snapshot (null) has never been read; a snapshot with an empty balances array has no usable amount. Neither can win. Null means absent; an empty string is never an absent value. A snapshot is stale at age >= staleAfterMs, measured from fetchedAt (the last reading, not a refresh attempt); only status ok or paused with a retained amount can compete while current. Paused means the existing rate-limit pause, not an ordinary failed read; the pause does not extend freshness. Both platforms store a paused snapshot as failed with the existing rate-limit pause message and the original fetchedAt. An unlimited balance reports spend, not remaining money. For each bounded balance, use the positive custom threshold if present, else 35 for CNY or 5 for any other currency. The provider's total, if present, is irrelevant. Only amounts strictly below their own threshold qualify, including zero and negative amounts. Choose the smallest signed amount / threshold: compare decimal cross-products, without converting to binary floats, rounding to display precision or comparing nominal amounts across currencies. On exactly equal ratios keep the first account in stored order, then the first balance in provider order. The winner carries its own currency and unrounded amount; expectations are hand-written and contain no localized text.",
+  "schema": "vectors: array of { name: string, now: epoch ms, staleAfterMs: positive integer ms, accounts: stored-order array of { id: unique nonempty string, customThreshold: positive decimal string or null, snapshot: null or { fetchedAt: epoch ms, status: ok|paused|failed, balances: provider-order array of { currency: uppercase ISO 4217, amount: decimal string, total: decimal string or null, unlimited: boolean } } }, expected: { count: integer, winner: null or { accountId: string, balanceIndex: zero-based integer, currency: uppercase ISO 4217, amount: decimal string } } }. All keys are required, including nullable ones. Decimals use ASCII digits, optional minus and optional dot fraction, without spaces, groups or exponents.",
+  "vectors": [
+    {
+      "name": "no tracked accounts",
+      "now": 1800000000000, "staleAfterMs": 3600000,
+      "accounts": [],
+      "expected": {"count":0,"winner":null}
+    },
+    {
+      "name": "count accounts not lines and compare ratios across currencies",
+      "now": 1800000000000, "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"dollars","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"USD","amount":"2.50","total":"600.00","unlimited":false},
+          {"currency":"EUR","amount":"4.13","total":null,"unlimited":false}
+        ]}},
+        {"id":"yuan","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"CNY","amount":"14.00","total":null,"unlimited":false}
+        ]}},
+        {"id":"unread","customThreshold":null,"snapshot":null}
+      ],
+      "expected": {"count":3,"winner":{"accountId":"yuan","balanceIndex":0,"currency":"CNY","amount":"14.00"}}
+    },
+    {
+      "name": "threshold equality is not low even with a nearly empty total",
+      "now": 1800000000000, "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"equal","customThreshold":"3.18","snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"USD","amount":"3.180","total":"900.00","unlimited":false},
+          {"currency":"CNY","amount":"4.00","total":null,"unlimited":false}
+        ]}}
+      ],
+      "expected": {"count":1,"winner":null}
+    },
+    {
+      "name": "equal ratios keep stored account order then provider balance order",
+      "now": 1800000000000, "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"z-first","customThreshold":"3","snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"EUR","amount":"3","total":null,"unlimited":false},
+          {"currency":"USD","amount":"1.00","total":null,"unlimited":false},
+          {"currency":"CNY","amount":"1","total":null,"unlimited":false}
+        ]}},
+        {"id":"a-second","customThreshold":"12","snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"EUR","amount":"4","total":null,"unlimited":false}
+        ]}}
+      ],
+      "expected": {"count":2,"winner":{"accountId":"z-first","balanceIndex":1,"currency":"USD","amount":"1.00"}}
+    },
+    {
+      "name": "zero is eligible and smaller than a positive low amount",
+      "now": 1800000000000, "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"positive","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"USD","amount":"0.001","total":null,"unlimited":false}
+        ]}},
+        {"id":"zero","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"USD","amount":"0","total":null,"unlimited":false}
+        ]}}
+      ],
+      "expected": {"count":2,"winner":{"accountId":"zero","balanceIndex":0,"currency":"USD","amount":"0"}}
+    },
+    {
+      "name": "signed ratio orders arrears ahead of zero and each other",
+      "now": 1800000000000, "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"zero","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"USD","amount":"0","total":null,"unlimited":false}
+        ]}},
+        {"id":"more-money","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"CNY","amount":"-3.50","total":null,"unlimited":false}
+        ]}},
+        {"id":"deeper-ratio","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"EUR","amount":"-1.20","total":null,"unlimited":false}
+        ]}}
+      ],
+      "expected": {"count":3,"winner":{"accountId":"deeper-ratio","balanceIndex":0,"currency":"EUR","amount":"-1.20"}}
+    },
+    {
+      "name": "ordinary failure and both kinds of stale reports lose to a usable paused reading",
+      "now": 1800000000000, "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"failed","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"failed","balances":[
+          {"currency":"USD","amount":"-9","total":null,"unlimited":false}
+        ]}},
+        {"id":"stale-at-boundary","customThreshold":null,"snapshot":{"fetchedAt":1799996400000,"status":"ok","balances":[
+          {"currency":"USD","amount":"-8","total":null,"unlimited":false}
+        ]}},
+        {"id":"stale-paused","customThreshold":null,"snapshot":{"fetchedAt":1799996399999,"status":"paused","balances":[
+          {"currency":"USD","amount":"-7","total":null,"unlimited":false}
+        ]}},
+        {"id":"unlimited","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"USD","amount":"0","total":null,"unlimited":true}
+        ]}},
+        {"id":"unknown","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[]}},
+        {"id":"near-boundary-paused","customThreshold":null,"snapshot":{"fetchedAt":1799996400001,"status":"paused","balances":[
+          {"currency":"USD","amount":"1.25","total":null,"unlimited":false}
+        ]}}
+      ],
+      "expected": {"count":6,"winner":{"accountId":"near-boundary-paused","balanceIndex":0,"currency":"USD","amount":"1.25"}}
+    },
+    {
+      "name": "unknown and unlimited readings alone give no hint",
+      "now": 1800000000000, "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"missing","customThreshold":null,"snapshot":null},
+        {"id":"paused-without-a-reading","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"paused","balances":[]}},
+        {"id":"uncapped","customThreshold":null,"snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"USD","amount":"0","total":null,"unlimited":true}
+        ]}}
+      ],
+      "expected": {"count":3,"winner":null}
+    },
+    {
+      "name": "a distinct decimal ratio must not round into a tie",
+      "now": 1800000000000, "staleAfterMs": 3600000,
+      "accounts": [
+        {"id":"first","customThreshold":"1","snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"USD","amount":"0.500000000000000001","total":null,"unlimited":false}
+        ]}},
+        {"id":"second","customThreshold":"2","snapshot":{"fetchedAt":1799999999000,"status":"ok","balances":[
+          {"currency":"USD","amount":"1.000000000000000001","total":null,"unlimited":false}
+        ]}}
+      ],
+      "expected": {"count":2,"winner":{"accountId":"second","balanceIndex":0,"currency":"USD","amount":"1.000000000000000001"}}
+    }
+  ]
+}

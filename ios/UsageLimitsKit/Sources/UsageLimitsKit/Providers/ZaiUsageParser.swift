@@ -16,15 +16,18 @@ public enum ZaiUsageParser {
     private static let monthSeconds: Int64 = 30 * 24 * 60 * 60
 
     public static func parse(_ payload: [String: Any]) -> [UsageWindow] {
-        JSONSupport.array(JSONSupport.object(payload, "data"), "limits").enumerated().compactMap { index, element in
+        var ids = StableWindowIDs()
+        return JSONSupport.array(JSONSupport.object(payload, "data"), "limits").compactMap { element in
             guard let entry = element as? [String: Any] else { return nil }
             let type = (JSONSupport.string(entry, "type") ?? "").uppercased()
             let seconds = periodSeconds(type: type, entry)
             let category = WindowCategory.from(periodSeconds: seconds)
             let percent = usedPercent(entry)
+            let windowLabel = label(category, type: type)
+            let name = JSONSupport.string(entry, "name", "label") ?? windowLabel
             return UsageWindow(
-                id: "zai-\(type.lowercased())-\(seconds.map(String.init) ?? "\(index)")",
-                label: label(category, type: type),
+                id: ids.next("zai:\(StableWindowIDs.text(type)):\(StableWindowIDs.text(name)):\(seconds.map(String.init) ?? "unknown")"),
+                label: windowLabel,
                 category: category,
                 usedPercent: percent,
                 periodSeconds: seconds,

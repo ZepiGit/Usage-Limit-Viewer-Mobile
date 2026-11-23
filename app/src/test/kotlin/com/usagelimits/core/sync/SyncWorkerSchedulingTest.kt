@@ -156,9 +156,9 @@ class SyncWorkerSchedulingTest {
         for (request in active(SyncWorker.ONE_SHOT_WORK_NAME) + scheduled) runWork(request)
         assertEquals("provider reads from one cold background wakeup", 1, reads.get())
 
-        SyncWorker.syncOnResume(context)
+        SyncWorker.syncOnOpen(context)
         runWork(active(SyncWorker.ONE_SHOT_WORK_NAME).single())
-        assertEquals("activity resume still refreshes even immediately after a read", 2, reads.get())
+        assertEquals("a qualifying opening still refreshes even immediately after a read", 2, reads.get())
     }
 
     @Test
@@ -314,12 +314,12 @@ class SyncWorkerSchedulingTest {
         runWork(active(SHORT).single())
         runWork(active(SHORT).single())
         assertEquals("the next short pass must honor the throttle", 1, reads.get())
-        SyncWorker.syncOnResume(context)
+        SyncWorker.syncOnOpen(context)
         runWork(active(SyncWorker.ONE_SHOT_WORK_NAME).single())
         assertEquals("foreground launch is not an explicit refresh", 1, reads.get())
 
         manager.cancelUniqueWork(SHORT).result.get()
-        SyncWorker.syncOnResume(context)
+        SyncWorker.syncOnOpen(context)
         val foreground = active(SyncWorker.ONE_SHOT_WORK_NAME).single()
         SyncWorker.syncNow(context)
         val manual = active(SyncWorker.ONE_SHOT_WORK_NAME).single()

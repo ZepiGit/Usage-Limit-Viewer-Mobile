@@ -130,6 +130,16 @@ public actor UsageLimitsContainer {
         await repository.usage()
     }
 
+    /// The usage, or the reason the account register could not be read.
+    public func checkedUsage() async throws -> [AccountUsage] {
+        try await repository.checkedUsage()
+    }
+
+    /// The app completes this transaction before starting the opening’s refresh.
+    public func claimPendingResetConfirmations() async throws -> Set<String> {
+        try await repository.claimPendingResetConfirmations()
+    }
+
     // MARK: - Signing in
 
     /// Asks a provider for a code to show the user.
@@ -529,24 +539,6 @@ public actor UsageLimitsContainer {
         await publishCurrent(await repository.usage())
     }
 
-    /// Stores the order the user dragged the accounts into, and reports the list as it now reads.
-    ///
-    /// Republishes the widget snapshot, for a narrower reason than it might look.
-    ///
-    /// The tiles rank by urgency, not by this order, so a drag does not reorder a widget — and
-    /// should not: the home screen's job is what is closest to running out. But that ranking is
-    /// a STABLE sort in five-point bands, so accounts the ranking cannot separate keep the order
-    /// they arrived in, which is now the user's. Republishing is what carries that tiebreak
-    /// across; without it the tile keeps the previous tiebreak until something else happens to
-    /// rewrite the file.
-    @discardableResult
-    public func reorder(ids: [String]) async throws -> [AccountUsage] {
-        try await repository.reorder(ids: ids)
-        let usage = await repository.usage()
-        await publishCurrent(usage)
-        return usage
-    }
-
     /// Forgets an account and the credentials behind it.
     ///
     /// The credential is deleted first. If that fails the account stays visible, which is
@@ -647,11 +639,8 @@ public actor UsageLimitsContainer {
         publish(usage, credits: await creditRepository.entries(), settings: await settingsStore.settings())
     }
 
-    /// Hands the widget what the app would render.
-    ///
-    /// Built from the same `GlanceModel` call the app's own screen uses, so the two surfaces
-    /// cannot disagree — one derivation, one answer. Best-effort: failing to update a tile must
-    /// never fail the refresh the user is watching.
+    /// Publishes the register order; widget scopes select from it at their entry date.
+    /// Best-effort: failing to update a tile must never fail the refresh the user is watching.
     private func publish(_ usage: [AccountUsage], credits: [CreditEntry], settings: AppSettings) {
         let time = now()
         try? GlanceSnapshotCodec.write(

@@ -76,7 +76,7 @@ struct WidgetPresetQuery: EntityQuery {
 @available(iOS 17.0, *)
 struct UsageWidgetIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Widget content"
-    static let description = IntentDescription("Closest Resets automatically shows whatever account resets next. Create custom layouts in the app's widget settings.")
+    static let description = IntentDescription("Closest Resets follows the next reset. All accounts follows Overview; Custom keeps your saved order. Left or used follows Settings › Display.")
     @Parameter(title: "Content", default: .closestResets) var content: WidgetContentChoice
     @Parameter(title: "Provider", default: .codex) var provider: WidgetProviderChoice
     @Parameter(title: "Account") var account: WidgetAccountEntity?
@@ -176,7 +176,8 @@ struct ConfiguredUsageWidget: Widget {
                 if entry.outcome == .ready {
                     UsageWidgetEntryView(entry: UsageEntry(date: entry.date, snapshot: entry.snapshot),
                         transparent: entry.transparent,
-                        ink: WidgetInk.ink(transparent: entry.transparent, darkTone: entry.tone == .dark))
+                        ink: WidgetInk.ink(transparent: entry.transparent, darkTone: entry.tone == .dark),
+                        showsProviderMark: true)
                 } else {
                     WidgetEmptyStateView(reason: entry.outcome, ink: WidgetInk.ink(transparent: entry.transparent, darkTone: entry.tone == .dark))
                 }
@@ -184,7 +185,7 @@ struct ConfiguredUsageWidget: Widget {
             .widgetBackground(entry.transparent ? nil : UsageColors.ground)
             .widgetURL(DeepLink.glance)
         }.configurationDisplayName("Usage Bars")
-            .description("Your accounts, your order. Choose one account, a provider or a custom layout.")
+            .description("Choose accounts, a provider or a custom layout. Only Custom has your own order. Left or used follows Settings › Display.")
             .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
@@ -199,21 +200,19 @@ struct ConfiguredRingWidget: Widget {
             ConfiguredRingGrid(entry: entry, mini: mini,
                 ink: WidgetInk.ink(transparent: entry.transparent, darkTone: entry.tone == .dark))
         }.configurationDisplayName(mini ? "Mini Rings" : "Account Rings")
-            .description(mini ? "Only your usage rings and provider logos." : "Usage, account and reset at a glance.")
+            .description(mini ? "Usage rings and provider marks. Left or used follows Settings › Display." : "Usage, account and reset at a glance. Left or used follows Settings › Display.")
             .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
 
 @available(iOS 17.0, *)
-private struct ConfiguredRingGrid: View {
+struct ConfiguredRingGrid: View {
     let entry: ConfiguredUsageEntry
     let mini: Bool
     var ink: WidgetInk
 
-    /// The line the mode caption takes above the grid, taken off the height before rows are
-    /// counted so a captioned grid cannot overflow its tile. A deliberate capacity drop for a
-    /// one-row-tall mini widget: one ring where two fitted before.
-    @ScaledMetric(relativeTo: .caption2) private var captionSpace: CGFloat = 14
+    @ScaledMetric(relativeTo: .caption2) private var accountRowHeight: CGFloat = 56
+    @ScaledMetric(relativeTo: .caption) private var accountColumnWidth: CGFloat = 140
 
     /// From the snapshot alone: the widget process cannot read the app's settings.
     private var mode: PercentDisplay { entry.snapshot.percentDisplay }
@@ -228,25 +227,15 @@ private struct ConfiguredRingGrid: View {
             }
         }
         .containerBackground(for: .widget) { entry.transparent ? Color.clear : UsageColors.ground }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .widgetURL(DeepLink.glance)
     }
 
     private var grid: some View {
         GeometryReader { geometry in
-            let columns = max(1, Int(geometry.size.width / (mini ? 48 : 140)))
-            let rows = max(1, Int((geometry.size.height - captionSpace) / (mini ? 48 : 56)))
+            let columns = max(1, Int(geometry.size.width / (mini ? 48 : accountColumnWidth)))
+            let rows = max(1, Int((geometry.size.height + 8) / (mini ? 48 : accountRowHeight + 8)))
             VStack(alignment: .leading, spacing: 0) {
-                if !entry.snapshot.accounts.isEmpty {
-                    // One hint for the whole grid, independent of which status line each ring shows:
-                    // a bare ring does not say which side it counts. The rings speak the mode
-                    // themselves, so VoiceOver does not need the caption as well.
-                    Text(verbatim: PercentText.caption(mode))
-                        .usageFont(.micro)
-                        .foregroundStyle(ink.secondary)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(height: captionSpace)
-                        .accessibilityHidden(true)
-                }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: columns), spacing: 8) {
                     ForEach(entry.snapshot.accounts.prefix(columns * rows)) { account in
                         Link(destination: URL(string: "usagelimits://account/\(account.id)")!) {
@@ -270,8 +259,9 @@ private struct ConfiguredRingGrid: View {
                                     }
                                     if mini {
                                         // Only room for the logo: the figure is the arc.
-                                        logo(for: account).frame(width: 20, height: 20)
-                                    } else if let centre = ConfiguredRingText.centre(p, texts: LocalizedPercentTexts()) {
+                                        WidgetProviderMark(account: account, date: entry.date,
+                                            size: 38 * (account.providerID == ProviderID.claude.rawValue ? 0.575 : 0.46), ink: ink)
+                                    } else if let centre = ConfiguredRingText.centre(p) {
                                         // A ring this size reads best with its number inside; the
                                         // logo goes beside the name instead. A full allowance under
                                         // its arc writes nothing, and a 100 the arc does not show
@@ -284,14 +274,15 @@ private struct ConfiguredRingGrid: View {
                                             .monospaced()
                                     }
                                 }.frame(width: mini ? 38 : 46, height: mini ? 38 : 46)
-                                if mini && account.statusMessage != nil {
-                                    // Partial update: a dot, not a badge.
-                                    Circle().fill(ink.warning).frame(width: 6, height: 6)
+                                .overlay(alignment: .topTrailing) {
+                                    if mini && account.statusMessage != nil {
+                                        Circle().fill(ink.warning).frame(width: 6, height: 6)
+                                    }
                                 }
                                 if !mini {
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack(spacing: 6) {
-                                            logo(for: account).frame(width: 16, height: 16)
+                                            WidgetProviderMark(account: account, date: entry.date, size: 18, ink: ink)
                                             Text(verbatim: account.title).usageFont(.smallStrong).lineLimit(1)
                                         }
                                         if account.connectionStatus == .reconnectRequired { Text("Reconnect").usageFont(.micro) }
@@ -302,22 +293,13 @@ private struct ConfiguredRingGrid: View {
                                         }
                                     }.foregroundStyle(ink.primary)
                                 }
-                            }.accessibilityLabel(ConfiguredRingText.spoken(account, presentation: p, texts: LocalizedPercentTexts()))
+                            }.accessibilityElement(children: .ignore)
+                                .accessibilityLabel(WidgetRingSpeech.label(account: account, row: limit,
+                                    presentation: p, date: entry.date, staleAfter: entry.snapshot.staleAfter))
                         }
                     }
                 }
             }
-        }
-    }
-
-    /// The provider's mark, drawn in the ink's own colour when the tile sits on a light
-    /// wallpaper, where the white artwork would vanish.
-    @ViewBuilder
-    private func logo(for account: GlanceAccount) -> some View {
-        if let provider = ProviderID(rawValue: account.providerID ?? "") {
-            ProviderMark(
-                assetName: account.iconAssetName ?? provider.assetName,
-                tint: ink.tintsLogos ? ink.primary : nil)
         }
     }
 

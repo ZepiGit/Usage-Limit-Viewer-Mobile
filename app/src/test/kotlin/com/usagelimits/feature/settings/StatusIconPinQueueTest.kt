@@ -11,7 +11,7 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -147,8 +147,8 @@ class StatusIconPinQueueTest {
                     state = state,
                     onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {},
                     onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
-                    onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {},
-                    onNotificationPermissionHandled = {},
+                    onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {},
+                    onNotificationPermissionHandled = {}, onAppThemeChange = vm::setAppTheme,
                     onStatusIconsChange = vm::setStatusIcons,
                     onPinnedChange = vm::setPinned,
                 )

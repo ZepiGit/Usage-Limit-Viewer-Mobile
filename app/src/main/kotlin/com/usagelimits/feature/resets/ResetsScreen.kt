@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -127,6 +129,7 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
     val description = stringResource(
         R.string.resets_row_description, time, windowLabel, reset.accountLabel, statusLabel, countdown,
     )
+    val dataMark = UsageColors.Data
 
     Row(
         // The severity dot is a bare Box: it emits no semantics node, so the status was
@@ -140,16 +143,19 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
                 contentDescription = description
             }
             .drawBehind {
-                if (isNext) drawRect(UsageColors.Data, Offset(0f, 8.dp.toPx()), Size(2.dp.toPx(), size.height - 16.dp.toPx()))
+                if (isNext) drawRect(dataMark, Offset(0f, 8.dp.toPx()), Size(2.dp.toPx(), size.height - 16.dp.toPx()))
             }
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = time, style = UsageType.Figure, color = UsageColors.Ink, modifier = Modifier.width(48.dp))
+        Text(text = time, style = UsageType.Figure, color = UsageColors.Ink, modifier = Modifier.widthIn(min = 48.dp), maxLines = 1, softWrap = false)
         Spacer(Modifier.width(8.dp))
         Dot(SeverityPalette.accent(reset.severity), size = 6.dp)
         Spacer(Modifier.width(12.dp))
-        com.usagelimits.ui.ProviderBadge(provider = reset.provider, size = 28.dp)
+        // The logo fills its 28dp box (A4); Claude's Claude Code icons always cheer here, as every
+        // row on this screen is a coming reset.
+        com.usagelimits.ui.ProviderLogo(reset.provider, Modifier.size(28.dp), com.usagelimits.ui.FigureSlot.RESETS,
+            com.usagelimits.core.model.ClaudeCodeMood.HOORAY)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -169,7 +175,7 @@ private fun ResetRow(reset: UpcomingReset, nowMs: Long, zone: ZoneId, isNext: Bo
         Text(
             text = countdown,
             style = UsageType.Figure,
-            color = if (isNext) UsageColors.Data else UsageColors.Muted,
+            color = if (isNext) UsageColors.DataText else UsageColors.Muted,
             textAlign = TextAlign.End,
         )
     }

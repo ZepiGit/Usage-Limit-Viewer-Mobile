@@ -2,7 +2,7 @@ package com.usagelimits.widget
 
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performScrollToNode
@@ -85,13 +85,14 @@ class GermanWidgetConfigRenderTest {
     fun `the bar preview counts the German title and puts the German side word after the figure`() {
         preview("Usage Bars", PercentDisplay.LEFT)
         assertEquals(1, texts("Vorschau · 1 ausgewählt").size)
-        assertEquals(1, texts("60 % übrig").size)
+        assertEquals(1, texts("60% übrig").size)
     }
 
     @Test
-    fun `the ring preview carries the German caption and a German spoken description`() {
+    fun `the ring preview omits side captions and has a German spoken description`() {
         preview("Account Rings", PercentDisplay.USED)
-        assertEquals(1, texts("Verbraucht").size)
+        assertTrue(texts("Verbraucht").isEmpty() && texts("Übrig").isEmpty())
+        assertEquals(1, texts("40%").size)
         assertEquals(1, compose.onAllNodesWithContentDescription("Claude, fixture@example.invalid, 40 % verbraucht",
             substring = true).fetchSemanticsNodes().size)
     }
@@ -118,5 +119,8 @@ class GermanWidgetConfigRenderTest {
         assertEquals(1, texts("Widget-Inhalt").size)
         reveal("Ein Anbieter")
         assertEquals(1, texts("Ein Anbieter").size)
+        val footer = "Ob „Übrig“ oder „Verbraucht“ angezeigt wird, richtet sich nach Einstellungen › Anzeige, wie in der Übersicht."
+        reveal(footer)
+        assertEquals(1, texts(footer).size)
     }
 }

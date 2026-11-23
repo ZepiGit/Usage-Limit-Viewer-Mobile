@@ -50,14 +50,7 @@ final class RingCentreVectorsTests: XCTestCase {
         return vectors
     }
 
-    /// `#filePath` is this source file; the vectors sit at the repository root.
-    private static let file = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent() // UsageLimitsKitTests
-        .deletingLastPathComponent() // Tests
-        .deletingLastPathComponent() // UsageLimitsKit
-        .deletingLastPathComponent() // ios
-        .deletingLastPathComponent() // repository root
-        .appendingPathComponent("shared/test-vectors/ring-centre.json")
+    private static let file = SharedVectors.file("ring-centre.json")
 
     func testEverySharedVectorWritesTheExpectedCentre() throws {
         for vector in try Self.parse(Data(contentsOf: Self.file)) {

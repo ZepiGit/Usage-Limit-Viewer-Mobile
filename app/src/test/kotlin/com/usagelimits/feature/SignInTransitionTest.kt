@@ -3,7 +3,7 @@ package com.usagelimits.feature
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.Snapshot
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.semantics.SemanticsActions
@@ -108,14 +108,15 @@ class SignInTransitionTest {
                 Snapshot.sendApplyNotifications()
             }
             compose.mainClock.advanceTimeByFrame()
-            // 90 ms keeps the click inside the 180 ms crossfade while the outgoing node is attached.
-            compose.mainClock.advanceTimeBy(90)
-            compose.onNodeWithText("Contacting ${ProviderId.KIMI.displayName}…").assertExists()
-            // A queued click belongs to the old step even after the next step appears.
+            compose.mainClock.advanceTimeBy(32)
+            compose.onNodeWithText(ProviderId.KIMI.displayName).assertDoesNotExist()
+            // Der alte Callback kann noch in der Eingabewarteschlange liegen.
             compose.runOnIdle {
                 outgoingClick()
                 assertEquals(0, starts)
             }
+            compose.mainClock.advanceTimeBy(1_000)
+            compose.onNodeWithText("Contacting ${ProviderId.KIMI.displayName}…").assertExists()
         } finally {
             compose.mainClock.autoAdvance = true
         }

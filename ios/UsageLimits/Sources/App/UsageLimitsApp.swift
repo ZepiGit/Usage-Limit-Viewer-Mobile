@@ -1,4 +1,6 @@
+import Combine
 import SwiftUI
+import UIKit
 import UsageLimitsKit
 
 @main
@@ -26,154 +28,279 @@ struct UsageLimitsApp: App {
 
     /// Whether the process was started by the UI test bundle.
     ///
-    /// One flag, read in one place. It suppresses a system permission prompt and nothing else —
-    /// it must never change what the app computes or displays, or the tests would be checking a
-    /// different app from the one that ships.
-    static var isUITesting: Bool {
+    /// One flag, read in one place. On its own it suppresses a system permission prompt and
+    /// nothing else — it must never change what the app computes or displays, or the tests
+    /// would be checking a different app from the one that ships. A debug build's test
+    /// fixtures ask for it as well as for their own flag, so none applies without it.
+    ///
+    /// `nonisolated`, because it reads the process arguments and nothing of this type, and the
+    /// shared container is built outside the main actor.
+    nonisolated static var isUITesting: Bool {
         ProcessInfo.processInfo.arguments.contains("-ui-testing")
     }
 
     /// Which tab is showing. Lifted out of `TabView`'s own state so a widget tap can select
     /// one: a deep link that opened the app on whatever tab was last used would make the
     /// tile's destination a coin toss.
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tab: RootView.Tab = .overview
+    @State private var router = OverviewRouter()
+    @State private var detail: DetailRoute?
+
+    private struct DetailRoute: Identifiable {
+        let id: String
+        let unavailable: Bool
+    }
 
     var body: some Scene {
         WindowGroup {
-            RootView(tab: $tab)
-                .environmentObject(store)
-                .environment(\.providerIconChoices, store.settings.providerIcons)
-                // Six failure paths in the store wrote `lastError` and NOTHING read it. A spend
-                // the provider refused dismissed its dialog, left the credit count unchanged and
-                // said nothing — indistinguishable from a button that did nothing at all. A
-                // failed disconnect left the row in place with no explanation, and a build with
-                // no App Group entitlement showed a permanently empty account list while the
-                // sentence explaining why sat in a property no view had ever read.
-                //
-                // One alert at the root rather than one per screen: these are failures of the
-                // whole run, they are raised from tabs the user may have left by the time the
-                // call returns, and a per-screen alert would miss exactly those.
-                .alert(
-                    "Something went wrong",
-                    isPresented: Binding(
-                        get: { store.lastError != nil },
-                        set: { if !$0 { store.clearError() } })
-                ) {
-                    Button("OK", role: .cancel) { store.clearError() }
-                } message: {
-                    // `lastError` is often a kit error read from English text; a sentence the kit
-                    // wrote is shown in the current language, anything else as it came.
-                    Text(verbatim: DisplayText.stored(store.lastError ?? ""))
-                }
-                // Widget links require the usagelimits scheme in CFBundleURLTypes for system routing.
-                .onOpenURL { url in
-                    Task { await handle(url) }
-                }
-                // A tapped alert names one account, so it lands on the screen where that
-                // account's card, its error and its actions are.
-                .task {
-                    guard !store.isMarketingDemo else { return }
-                    NotificationRouter.shared.onAccountTapped = { _ in tab = .accounts }
-                }
-                .preferredColorScheme(.dark)
-                // Cached first, then the network. A cold launch that waited for the slowest
-                // provider before drawing anything would read as "you have no accounts" for as
-                // long as that took — which on a bad connection is indefinitely.
-                .task {
-                    await store.load()
-                    // Asked once, and only after the first screen is up: a permission sheet in
-                    // front of an empty app asks the user to approve something they have not
-                    // seen the point of yet.
-                    //
-                    // Never asked under UI test. The permission prompt is a SYSTEM alert, which
-                    // sits above the app's own window and fails every query behind it — so a
-                    // test written to check the tab bar would fail on the alert instead, for a
-                    // reason that reads as unrelated to what it was checking.
-                    if !Self.isUITesting && !store.isMarketingDemo {
-                        _ = await NotificationScheduler.requestAuthorization()
-                    }
-                    await store.refresh(automatic: true)
-                }
+            #if DEBUG
+            if Self.isUITesting && ProcessInfo.processInfo.arguments.contains("-fixture-sign-in-motion") {
+                AddAccountSheet.motionAccessibilityFixture()
+                    .environmentObject(store)
+                    .appAppearance(store.settings)
+                    .environment(\.reduceMotionOverride, ProcessInfo.processInfo.arguments.contains("-reduce-motion"))
+            } else if Self.isUITesting && ProcessInfo.processInfo.arguments.contains("-fixture-credits-widget") {
+                CreditsWidgetFixture()
+            } else {
+                appContent
+            }
+            #else
+            appContent
+            #endif
         }
     }
 
-    /// Answers one widget link.
-    ///
-    /// Both destinations land on the overview, which is the screen the tiles summarise; the
-    /// refresh link additionally fetches. The fetch happens HERE rather than in the extension
-    /// because the app process is the only one that can read the keychain — which is the
-    /// arrangement that keeps tokens out of widget state, not an accident of layering.
-    ///
-    /// An unrecognised URL is ignored rather than treated as a refresh: a link this build does
-    /// not know is a link from a future one, and guessing at its meaning is how a tap starts
-    /// doing something the user did not ask for.
-    private func handle(_ url: URL) async {
-        guard url.scheme == "usagelimits" else { return }
-        switch url.host {
-        case "refresh":
-            tab = .overview
-            await store.refresh()
-        case "glance":
-            tab = .overview
-        case "account":
-            store.focusedAccountID = url.lastPathComponent
-            tab = .accounts
-        default:
-            break
+    private var appContent: some View {
+        RootView(tab: $tab, claudeAnimationVisible: detail == nil, openAccount: openAccount)
+            .fullScreenCover(item: $detail) { route in
+                NavigationStack {
+                    AccountDetailScreen(
+                        accountID: route.id, unavailable: route.unavailable,
+                        // Only the detail that asked closes. A removal can finish after the
+                        // user has gone on to another account, and must not close that one.
+                        onDisconnected: { if detail?.id == route.id { detail = nil } })
+                        .navigationTitle("Account details")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Close") { detail = nil }
+                                    .accessibilityIdentifier("overview-close-detail")
+                            }
+                        }
+                }
+                .environmentObject(store)
+                .appAppearance(store.settings)
+                .environment(\.hoorayPlayback, store.hoorayPlayback)
+                .hoorayOpening(playback: store.hoorayPlayback, ready: store.hasLoaded && store.openingClaimed)
+                .environment(\.providerIconChoices, store.settings.providerIcons)
+                .environment(\.claudeAnimationVisible, true)
+                #if DEBUG
+                .motionLogOverlay()
+                #endif
+                .modifier(StoreErrorAlert(store: store))
+            }
+            .environmentObject(store)
+            .environment(\.hoorayPlayback, store.hoorayPlayback)
+            .hoorayOpening(playback: store.hoorayPlayback, ready: store.hasLoaded && store.openingClaimed && detail == nil)
+            .environment(\.providerIconChoices, store.settings.providerIcons)
+            #if DEBUG
+            .environment(\.reduceMotionOverride,
+                ProcessInfo.processInfo.arguments.contains("-reduce-motion") ? true : nil)
+            #endif
+            .modifier(StoreErrorAlert(store: store, enabled: detail == nil))
+            .onOpenURL { url in
+                apply(router.open(url, loadedAccountIDs: loadedAccountIDs))
+            }
+            .onChange(of: store.hasLoaded) { loaded in
+                if loaded { apply(router.accountsLoaded(store.accounts.map(\.account.id))) }
+            }
+            .onChange(of: scenePhase) { phase in
+                sceneChanged(phase)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)
+                .receive(on: RunLoop.main)) { _ in
+                store.updatePresentationClock()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)
+                .receive(on: RunLoop.main)) { _ in
+                store.updatePresentationClock()
+            }
+            .task {
+                guard !store.isMarketingDemo else { return }
+                NotificationRouter.shared.onAccountTapped = openAccount
+            }
+            .appAppearance(store.settings)
+            // The opening owns cache load, atomic claim and then the automatic refresh.
+            .task {
+                sceneChanged(scenePhase)
+                // Asked once, and only after the first screen is up: a permission sheet in
+                // front of an empty app asks the user to approve something they have not
+                // seen the point of yet.
+                //
+                // Never asked under UI test. The permission prompt is a SYSTEM alert, which
+                // sits above the app's own window and fails every query behind it — so a
+                // test written to check the tab bar would fail on the alert instead, for a
+                // reason that reads as unrelated to what it was checking.
+                if !Self.isUITesting && !store.isMarketingDemo {
+                    await store.waitForOpening()
+                    _ = await NotificationScheduler.requestAuthorization()
+                }
+            }
+    }
+
+    private func sceneChanged(_ phase: ScenePhase) {
+        switch phase {
+        case .active: store.sceneChanged(.active)
+        case .inactive: store.sceneChanged(.inactive)
+        case .background: store.sceneChanged(.background)
+        @unknown default: store.sceneChanged(.inactive)
+        }
+    }
+
+    private var loadedAccountIDs: [String]? {
+        store.hasLoaded ? store.accounts.map(\.account.id) : nil
+    }
+
+    private func openAccount(_ id: String) {
+        apply(router.notification(accountID: id, loadedAccountIDs: loadedAccountIDs))
+    }
+
+    private func apply(_ destination: OverviewDestination?) {
+        guard let destination else { return }
+        tab = .overview
+        switch destination {
+        case .overview:
+            detail = nil
+        case .refreshOverview:
+            detail = nil
+            Task { await store.refresh() }
+        case .account(let id):
+            detail = DetailRoute(id: id, unavailable: false)
+        case .unavailable(let id):
+            // An empty list from a register that could not be read does not say the account is
+            // gone. The detail then follows the store instead of being pinned to "unavailable":
+            // the storage wording now, and the account itself once a later read finds it.
+            detail = DetailRoute(id: id, unavailable: !store.registerUnreadable)
         }
     }
 }
 
-/// The four destinations from the reference design.
-///
-/// A `TabView` rather than a custom bar: iOS already adapts the tab bar for larger widths, for
-/// Dynamic Type and for VoiceOver, and a hand-rolled bar would have to re-earn all three.
-struct RootView: View {
+private struct StoreErrorAlert: ViewModifier {
+    @ObservedObject var store: UsageStore
+    var enabled = true
 
-    enum Tab: Hashable { case overview, accounts, resets, settings }
+    func body(content: Content) -> some View {
+        content.alert("Something went wrong", isPresented: Binding(
+            get: { enabled && store.lastError != nil },
+            set: { if enabled && !$0 { store.clearError() } }
+        )) {
+            Button("OK", role: .cancel) { store.clearError() }
+        } message: {
+            Text(verbatim: DisplayText.stored(store.lastError ?? ""))
+        }
+    }
+}
+
+struct RootView: View {
+    @Environment(\.usageAppearance) private var appearance
+    @EnvironmentObject private var store: UsageStore
+
+    private var mayDrawAppContent: Bool {
+        #if DEBUG
+        if UsageLimitsApp.isUITesting && ProcessInfo.processInfo.arguments.contains("-fixture-settings-gates") {
+            return true
+        }
+        #endif
+        return store.settingsLoaded
+    }
+    enum Tab: Hashable { case overview, resets, settings }
 
     @Binding var tab: Tab
+    var claudeAnimationVisible = true
+    let openAccount: (String) -> Void
 
     var body: some View {
+        Group {
+            if mayDrawAppContent {
+                tabs
+            } else {
+                Color("LaunchNeutral").ignoresSafeArea()
+            }
+        }
+    }
+
+    private var tabs: some View {
         TabView(selection: $tab) {
-            OverviewScreen()
+            OverviewScreen(isSelected: tab == .overview, openAccount: openAccount)
+                .environment(\.claudeAnimationVisible, claudeAnimationVisible && tab == .overview)
                 .tabItem { Label("Overview", systemImage: "gauge.with.dots.needle.33percent") }
                 .tag(Tab.overview)
-            AccountsScreen()
-                .tabItem { Label("Accounts", systemImage: "person.2") }
-                .tag(Tab.accounts)
             ResetsScreen()
+                .environment(\.claudeAnimationVisible, claudeAnimationVisible && tab == .resets)
                 .tabItem { Label("Resets", systemImage: "clock.arrow.circlepath") }
                 .tag(Tab.resets)
             SettingsScreen()
+                .environment(\.claudeAnimationVisible, claudeAnimationVisible && tab == .settings)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(Tab.settings)
         }
-        .tint(UsageColors.ink)
+        .tint(appearance.colors.ink)
         #if DEBUG
-        .overlay(alignment: .top) {
-            if MotionLog.isEnabled { MotionLogOverlay() }
+        .motionLogOverlay(visible: claudeAnimationVisible, releaseCapture: store.hoorayPlayback.captureReleaseAction)
+        .claudeStillSheet()
+        .overlay(alignment: .topTrailing) {
+            if let stage = store.uiTestSettingsLoadStage {
+                Button { store.releaseSettingsLoadGate() } label: {
+                    Text(verbatim: "Continue settings load")
+                }
+                    .accessibilityIdentifier("settings-load-release-\(stage)")
+            }
         }
-        .environment(\.reduceMotionOverride,
-            ProcessInfo.processInfo.arguments.contains("-reduce-motion") ? true : nil)
+        #if !os(Linux)
+        .overlay(alignment: .topLeading) {
+            if SettingsTrace.isEnabled {
+                SettingsTraceProbe().frame(width: 1, height: 1).allowsHitTesting(false)
+            }
+        }
+        #endif
         #endif
     }
 }
 
 #if DEBUG
+private extension View {
+    func motionLogOverlay(visible: Bool = true, releaseCapture: (() -> Void)? = nil) -> some View {
+        overlay(alignment: .top) {
+            if visible && MotionLog.isEnabled { MotionLogOverlay(releaseCapture: releaseCapture) }
+        }
+    }
+}
+
 /// Observed separately so publishing a note never re-evaluates the screens being logged.
 private struct MotionLogOverlay: View {
+    @Environment(\.usageAppearance) private var appearance
     @ObservedObject private var log = MotionLog.shared
+    let releaseCapture: (() -> Void)?
 
     var body: some View {
+        if let releaseCapture {
+            Button(action: releaseCapture) { strip.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: log.text))
+                .accessibilityIdentifier("hooray-capture-release")
+        } else {
+            strip.accessibilityIdentifier("motion-log").allowsHitTesting(false)
+        }
+    }
+
+    private var strip: some View {
         Text(verbatim: log.text)
             .font(.caption2)
             .lineLimit(1)
-            .accessibilityIdentifier("motion-log")
             .padding(4)
             .frame(maxWidth: .infinity)
-            .background(UsageColors.ground)
-            .allowsHitTesting(false)
+            .background(appearance.colors.ground)
     }
 }
 #endif

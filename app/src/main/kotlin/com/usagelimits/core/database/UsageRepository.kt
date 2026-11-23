@@ -10,9 +10,18 @@ import com.usagelimits.core.model.UsageSegment
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.model.inOverviewOrder
+import com.usagelimits.core.model.confirmedResetWindowIds
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.UUID
@@ -29,6 +38,13 @@ data class AccountUsage(
                 it.windows.isNotEmpty() || it.resetCredits.isNotEmpty() || it.resetCreditCount != null
         }?.fetchedAt
 }
+
+/** A failed cache read keeps the last readable accounts until an explicit retry succeeds. */
+data class AccountUsageRead(val accounts: List<AccountUsage>, val unreadable: Boolean = false)
+
+/** Overview's automatic order (ADR 0004); see [com.usagelimits.core.model.inOverviewOrder]. */
+fun List<AccountUsage>.inOverviewOrder(nowMs: Long): List<AccountUsage> =
+    inOverviewOrder(nowMs, AccountUsage::account, AccountUsage::snapshot)
 
 /**
  * Runs a block with the database's write serialisation held for its whole duration.
@@ -67,6 +83,8 @@ class UsageRepository(
     private val snapshotDao: UsageSnapshotDao,
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val transactions: TransactionRunner = DirectTransactionRunner,
+    /** When a new account counts as added; Overview breaks ties by it (ADR 0004). */
+    private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
 
     // Persisted shapes. Kept separate from the domain models so a UI-facing change (adding a
@@ -84,6 +102,7 @@ class UsageRepository(
         val group: String? = null,
         val scope: String? = null,
         val segments: List<StoredSegment> = emptyList(),
+        val measured: Boolean = true,
     )
 
     @Serializable
@@ -110,6 +129,27 @@ class UsageRepository(
                 )
             }
         }
+
+    private val readRetries = MutableStateFlow(0L)
+
+    /** Only the account cache is caught here, never settings, credits or a downstream consumer. */
+    fun observeAccountUsageRead(): Flow<AccountUsageRead> {
+        var known = emptyList<AccountUsage>()
+        return flow {
+            emitAll(observeAccountUsage().map { accounts ->
+                known = accounts
+                AccountUsageRead(accounts)
+            })
+        }.retryWhen { cause, _ ->
+            if (cause is CancellationException || cause !is Exception) throw cause
+            val generation = readRetries.value
+            emit(AccountUsageRead(known, unreadable = true))
+            readRetries.first { it != generation }
+            true
+        }
+    }
+
+    fun retryAccountRead() { readRetries.update { it + 1 } }
 
     fun observeAccounts(): Flow<List<ProviderAccount>> =
         accountDao.observeAll().map { list -> list.mapNotNull { it.toDomain() } }
@@ -162,7 +202,7 @@ class UsageRepository(
             // Reference stays stable across re-auth so the stored credential is replaced,
             // not orphaned alongside a new one.
             credentialReference = existing?.credentialReference ?: "${provider.id}_$localId",
-            createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+            createdAt = existing?.createdAt ?: nowMs(),
             lastSuccessfulSync = existing?.lastSuccessfulSync,
             attributesJson = json.encodeToString(
                 StoredAttributes.serializer(),
@@ -170,6 +210,7 @@ class UsageRepository(
             ),
             // A new account joins the end of the list, not the front of it.
             sortOrder = existing?.sortOrder ?: accountDao.nextSortOrder(),
+            pendingResetConfirmationAt = existing?.pendingResetConfirmationAt,
         )
         accountDao.upsert(entity)
         // Built from a known ProviderId a moment ago, so this cannot be null.
@@ -215,7 +256,13 @@ class UsageRepository(
         // The guard and the write are one step. Apart, the account could be deleted in the gap
         // between them and the insert would raise the very constraint violation the guard
         // exists to prevent — the failure the paragraph above describes, still reachable.
-        if (accountDao.getById(snapshot.accountId) != null) {
+        val account = accountDao.getById(snapshot.accountId)
+        if (account != null) {
+            if (account.provider == ProviderId.CLAUDE.id && account.pendingResetConfirmationAt == null &&
+                snapshot.confirmedResetWindowIds(snapshotDao.getForAccount(snapshot.accountId)?.toDomain(ProviderId.CLAUDE)).isNotEmpty()
+            ) {
+                accountDao.upsert(account.copy(pendingResetConfirmationAt = snapshot.fetchedAt))
+            }
             snapshotDao.upsert(
                 UsageSnapshotEntity(
                     accountId = snapshot.accountId,
@@ -243,6 +290,13 @@ class UsageRepository(
                 accountDao.markSynced(snapshot.accountId, snapshot.fetchedAt)
             }
         }
+    }
+
+    /** Claims and clears together, ordered against every snapshot commit and account removal. */
+    suspend fun claimPendingResetConfirmations(): Set<String> = transactions.inTransaction {
+        val pending = accountDao.getAll().filter { it.pendingResetConfirmationAt != null }
+        for (account in pending) accountDao.upsert(account.copy(pendingResetConfirmationAt = null))
+        pending.mapTo(linkedSetOf()) { it.localId }
     }
 
     /**
@@ -355,10 +409,12 @@ class UsageRepository(
         group = group,
         scope = scope.name,
         segments = segments.map { StoredSegment(it.label, it.usedPercent) },
+        measured = measured,
     )
 
     private fun StoredWindow.toDomain(provider: ProviderId?, hasLegacyXaiOnDemand: Boolean) = UsageWindow(
         segments = segments.map { UsageSegment(it.label, it.usedPercent) },
+        measured = measured,
         id = id,
         label = label,
         category = runCatching { WindowCategory.valueOf(category) }

@@ -85,47 +85,6 @@ struct CreditsProvider: TimelineProvider {
 
 // MARK: - Views
 
-private extension GlanceCredit {
-    /// The figure a row leads with. Unlimited has no balance, only a spend.
-    var headlineText: String {
-        guard let balance = balances.first else { return "—" }
-        return balance.unlimited ? String(localized: "No limit") : CreditFormat.string(balance.amount, currency: balance.currency)
-    }
-
-    /// Other currencies, for the second line ("¥110.00 · $5.00" leads with the worse one).
-    var extraText: String? {
-        guard balances.count > 1 else { return nil }
-        return CreditFormat.summary(Array(balances.dropFirst()))
-    }
-
-    var providerName: String? {
-        CreditProviderID(rawValue: providerID)?.displayName
-    }
-}
-
-/// A balance bar, drawn only when the provider states a total.
-private struct CreditBar: View {
-    let remainingPercent: Double?
-    let severity: Severity
-    var ink: WidgetInk = .light
-
-    @ScaledMetric(relativeTo: .caption) private var barHeight = 4
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(ink.track)
-                if let remainingPercent, let fill = ink.bar(severity) {
-                    Capsule()
-                        .fill(fill)
-                        .frame(width: proxy.size.width * QuotaFormatting.fraction(remainingPercent))
-                }
-            }
-        }
-        .frame(height: barHeight)
-    }
-}
-
 /// systemSmall: the account that most needs topping up.
 struct CreditsSmallView: View {
     let entry: CreditsEntry
@@ -134,48 +93,13 @@ struct CreditsSmallView: View {
     var body: some View {
         Group {
             if let credit = entry.credits.first {
-                let severity = credit.severity(at: entry.date, staleAfter: entry.staleAfter)
-                VStack(alignment: .center, spacing: 4) {
-                    Text(verbatim: credit.title).usageFont(.bodyStrong).foregroundColor(ink.primary).lineLimit(1)
-                    if let name = credit.providerName, name != credit.title {
-                        Text(verbatim: name).usageFont(.small).foregroundColor(ink.secondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                    // Money is the one figure that stays bold, and it stays ink: a balance does
-                    // not change colour with its severity. A missing amount is a small dash.
-                    Text(verbatim: credit.headlineText)
-                        .usageFont(credit.balances.isEmpty ? .small : .widgetMoney)
-                        .foregroundColor(credit.balances.isEmpty ? ink.secondary : ink.primary)
-                        .minimumScaleFactor(0.85)
-                        .lineLimit(1)
-                    if let extra = credit.extraText {
-                        Text(verbatim: extra).usageFont(.micro).foregroundColor(ink.secondary).lineLimit(1)
-                    }
-                    CreditBar(remainingPercent: credit.balances.first?.remainingPercent, severity: severity, ink: ink)
-                    HStack(spacing: 6) {
-                        if severity != .healthy {
-                            Circle().fill(SeverityPalette.accent(severity)).frame(width: 6, height: 6)
-                                .accessibilityHidden(true)
-                        }
-                        Text(verbatim: statusLine(credit, severity))
-                            .usageFont(.micro).foregroundColor(ink.secondary).lineLimit(1)
-                    }
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .center)
+                CreditsSmallContent(credit: credit, date: entry.date, staleAfter: entry.staleAfter, ink: ink)
             } else {
                 CreditsEmptyView(state: entry.state, ink: ink)
             }
         }
         .widgetBackground(UsageColors.ground)
         .widgetURL(DeepLink.glance)
-    }
-
-    private func statusLine(_ credit: GlanceCredit, _ severity: Severity) -> String {
-        if let message = credit.statusMessage { return DisplayText.stored(message) }
-        // Stale, failed or unread: say so rather than dating a number that cannot be trusted.
-        if severity == .stale || severity == .error || severity == .unknown { return SeverityPalette.label(severity) }
-        return GlanceText.asOfLine(updatedAt: credit.fetchedAt, now: entry.date) ?? SeverityPalette.label(severity)
     }
 }
 
@@ -229,15 +153,9 @@ struct CreditsListView: View {
                 CreditsEmptyView(state: entry.state, ink: ink)
             } else {
                 let shown = Array(entry.credits.prefix(visibleLimit))
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Credits").usageFont(.smallStrong).foregroundColor(ink.secondary)
-                        Spacer(minLength: 4)
-                        if let asOf = GlanceText.latestUpdateLine(
-                            updatedAt: entry.updatedAt, now: entry.date) {
-                            Text(verbatim: asOf).usageFont(.micro).foregroundColor(ink.tertiary).lineLimit(1)
-                        }
-                    }
+                // The shorter medium tile needs room for a stacked header at larger text sizes.
+                VStack(alignment: .leading, spacing: limit == 3 && dynamicTypeSize >= .xLarge ? 2 : 8) {
+                    header
                     ForEach(shown) { credit in
                         CreditRow(credit: credit, now: entry.date, staleAfter: entry.staleAfter, ink: ink)
                     }
@@ -246,14 +164,35 @@ struct CreditsListView: View {
                         Text(verbatim: String(localized: "+\(hidden) more"))
                             .usageFont(.micro).foregroundColor(ink.tertiary)
                     }
-                    Spacer(minLength: 0)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .widgetBackground(UsageColors.ground)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .widgetURL(DeepLink.glance)
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        let title = Text("Credits").usageFont(.smallStrong).foregroundColor(ink.secondary)
+        if let asOf = GlanceText.latestUpdateLine(updatedAt: entry.updatedAt, now: entry.date) {
+            let update = Text(verbatim: asOf).usageFont(.micro).foregroundColor(ink.tertiary)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    title.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 4)
+                    update.fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    title
+                    update.fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } else {
+            title
+        }
     }
 }
 

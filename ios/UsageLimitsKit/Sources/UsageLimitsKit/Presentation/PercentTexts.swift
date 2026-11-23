@@ -13,10 +13,17 @@ public protocol PercentTexts: Sendable {
 }
 
 public extension PercentTexts {
-    /// A token as every figure is written: with its sign, except the unknown dash, which stays
+    /// A localized figure: with its sign, except the unknown dash, which stays
     /// bare rather than "—%".
     func figure(_ token: String) -> String {
         token == PercentToken.unknown ? token : withSign(token)
+    }
+}
+
+/// Visible widget figures keep the percent sign attached in every language.
+public enum WidgetPercentText {
+    public static func figure(_ token: String) -> String {
+        token == PercentToken.unknown ? token : "\(token)%"
     }
 }
 

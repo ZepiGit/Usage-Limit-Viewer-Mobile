@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.InputModeManager
 import androidx.compose.ui.input.key.Key
@@ -28,7 +29,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -84,7 +85,7 @@ class NavigationShellTest {
     private var layout by mutableStateOf(NavigationLayout.BOTTOM_BAR)
     private var motionOn by mutableStateOf(true)
     private val tab = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab)
-    private val pushed = Destination.AddAccount.route
+    private val pushed = Destination.AddAccount.of()
     private val keyboard = object : InputModeManager {
         override val inputMode = InputMode.Keyboard
         override fun requestInputMode(inputMode: InputMode) = inputMode == InputMode.Keyboard
@@ -107,7 +108,6 @@ class NavigationShellTest {
                     Box(Modifier.fillMaxSize().background(UsageColors.Ground)) {
                         NavigationShell(nav, layout) {
                             composable(Destination.Overview.route) { Screen("Overview screen", 0) }
-                            composable(Destination.Accounts.route) { Screen("Accounts screen", 1) }
                             composable(Destination.Resets.route) { Screen("Resets screen", 2) }
                             composable(Destination.Settings.route) { Screen("Settings screen", 3) }
                             composable(pushed) { Screen("Pushed screen", 4) }
@@ -133,7 +133,7 @@ class NavigationShellTest {
     }
 
     private fun Bitmap.weight(region: Region): Long {
-        val ground = UsageColors.Ground.argb
+        val ground = Color.Black.argb
         var sum = 0L
         for (y in region.top until region.bottom) for (x in region.left until region.right) {
             val pixel = getPixel(x, y)
@@ -204,7 +204,7 @@ class NavigationShellTest {
     private fun assertUsableChrome(edge: NavigationLayout, motion: Boolean) {
         layout = edge
         setShell(motion)
-        val accounts = compose.onNode(hasText("Accounts") and tab)
+        val accounts = compose.onNode(hasText("Resets") and tab)
         val root = compose.onRoot()
         accounts.requestFocus()
         compose.mainClock.advanceTimeByFrame()
@@ -236,13 +236,13 @@ class NavigationShellTest {
                 compose.mainClock.advanceTimeByFrame()
                 assertEquals("no accessible tabs before the return finishes", 0, tabs().size)
             }
-            compose.mainClock.advanceTimeUntil(timeoutMillis = 320) { tabs().size == 4 }
+            compose.mainClock.advanceTimeUntil(timeoutMillis = 320) { tabs().size == 3 }
             assertEquals(Destination.Overview.route, route)
         }
-        assertEquals("tabs are usable on return", 4, tabs().size)
+        assertEquals("tabs are usable on return", 3, tabs().size)
         tapAtTab()
         settle()
-        assertEquals(Destination.Accounts.route, route)
+        assertEquals(Destination.Resets.route, route)
     }
 
     // MARK: - Interrupted
@@ -276,10 +276,10 @@ class NavigationShellTest {
             assertNoStep(shares)
             assertTrue("and Overview is back, whole", frames.last().sameAs(onOverview))
             assertEquals(Destination.Overview.route, route)
-            assertEquals("the tabs work again", 4, tabs().size)
-            compose.onNode(hasText("Accounts") and tab).performClick()
+            assertEquals("the tabs work again", 3, tabs().size)
+            compose.onNode(hasText("Resets") and tab).performClick()
             settle()
-            assertEquals(Destination.Accounts.route, route)
+            assertEquals(Destination.Resets.route, route)
         }
     }
 
@@ -334,7 +334,7 @@ class NavigationShellTest {
             returning.saveSequence("shell-back-reduced")
             assertNothingPartWay(shares(returning, rest, onPushed, strip))
             assertTrue("back: settled by the third frame", returning[2].sameAs(rest))
-            assertEquals(4, tabs().size)
+            assertEquals(3, tabs().size)
         }
     }
 

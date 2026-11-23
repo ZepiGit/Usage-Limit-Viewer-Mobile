@@ -90,8 +90,11 @@ public struct GlanceSeverityStep: Sendable, Equatable, Codable {
 /// One account block.
 public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     public let id: String
+    /// The account-added time; absent in exports predating automatic order.
+    public let createdAt: Date?
     public let title: String
     public let subtitle: String?
+    public let accountLabel: String?
     public let rows: [GlanceRow]
 
     /// The severity as it stood when the app wrote this, staleness included.
@@ -99,6 +102,9 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
 
     /// The severity WITHOUT the staleness judgement — what the numbers themselves say.
     public let baseSeverity: Severity
+
+    /// Raw scope verdict for the List mark; never replaces the reading's error validity.
+    public let quotaSeverity: Severity
 
     /// `baseSeverity` as it becomes at each later reset, ascending. `UsageSnapshot` drops a
     /// window whose reset passed since the fetch (`UsageWindow.resetElapsed`), so an entry
@@ -125,6 +131,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         rows: [GlanceRow],
         severity: Severity,
         baseSeverity: Severity? = nil,
+        quotaSeverity: Severity? = nil,
         baseSeverityAfterResets: [GlanceSeverityStep] = [],
         candidates: [GlanceRow]? = nil,
         fetchedAt: Date? = nil,
@@ -132,14 +139,19 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
         connectionStatus: ConnectionStatus = .unknown,
         resetDates: [Date]? = nil,
         iconAssetName: String? = nil,
-        statusMessage: String? = nil
+        statusMessage: String? = nil,
+        createdAt: Date? = nil,
+        accountLabel: String? = nil
     ) {
         self.id = id
+        self.createdAt = createdAt
         self.title = title
         self.subtitle = subtitle
+        self.accountLabel = accountLabel
         self.rows = rows
         self.severity = severity
         self.baseSeverity = baseSeverity ?? severity
+        self.quotaSeverity = quotaSeverity ?? baseSeverity ?? severity
         self.baseSeverityAfterResets = baseSeverityAfterResets
         self.candidates = candidates ?? rows
         self.fetchedAt = fetchedAt
@@ -152,6 +164,7 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, subtitle, rows, severity, baseSeverity, baseSeverityAfterResets, candidates, fetchedAt, providerID, connectionStatus, resetDates, iconAssetName, statusMessage
+        case createdAt, quotaSeverity, accountLabel
     }
 
     /// Lenient on the optional keys: a snapshot written before them must still decode, or every
@@ -159,11 +172,14 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt)
         title = try c.decode(String.self, forKey: .title)
         subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+        accountLabel = try c.decodeIfPresent(String.self, forKey: .accountLabel)
         rows = try c.decode([GlanceRow].self, forKey: .rows)
         severity = try c.decode(Severity.self, forKey: .severity)
         baseSeverity = try c.decodeIfPresent(Severity.self, forKey: .baseSeverity) ?? severity
+        quotaSeverity = try c.decodeIfPresent(Severity.self, forKey: .quotaSeverity) ?? baseSeverity
         baseSeverityAfterResets = try c.decodeIfPresent([GlanceSeverityStep].self, forKey: .baseSeverityAfterResets) ?? []
         candidates = try c.decodeIfPresent([GlanceRow].self, forKey: .candidates) ?? rows
         fetchedAt = try c.decodeIfPresent(Date.self, forKey: .fetchedAt)
@@ -233,11 +249,6 @@ public struct GlanceAccount: Sendable, Equatable, Identifiable, Codable {
     /// they all stay candidates, drawn as "reset due".
     public func representative(at date: Date) -> GlanceRow? {
         candidates.headline(fetchedAt: fetchedAt, at: date)
-    }
-
-    public func nextResettingRow(at date: Date) -> GlanceRow? {
-        candidates.filter { ($0.remainingPercent != nil || $0.severity == .exhausted) && ($0.resetAt ?? .distantPast) > date }
-            .min { $0.resetAt! < $1.resetAt! }
     }
 
     /// The tightest number this block actually shows. Used only for ordering.
@@ -338,19 +349,24 @@ public struct GlanceSnapshot: Sendable, Equatable, Codable {
             raw: try c.decodeIfPresent(String.self, forKey: .percentDisplay))
     }
 
-    public func nextResettingAccount(at date: Date) -> GlanceAccount? {
-        let candidates = accounts.filter { $0.representative(at: date) != nil }
-        let trusted = candidates.filter {
-            let row = $0.nextResettingRow(at: date) ?? $0.representative(at: date)
-            let severity = $0.displaySeverity(of: row, at: date, staleAfter: staleAfter)
-            return severity != .stale && severity != .error
+    /// Overview and All accounts rank the same accounts without changing the register order.
+    /// Older App Group snapshots keep their entire cache order until the app republishes.
+    public func overviewOrderedAccounts(at date: Date) -> [GlanceAccount] {
+        var ranked: [(index: Int, reconnect: Bool, remaining: Double, createdAt: Date)] = []
+        ranked.reserveCapacity(accounts.count)
+        for (index, account) in accounts.enumerated() {
+            guard let createdAt = account.createdAt else { return accounts }
+            let headline = account.representative(at: date)
+            let remaining = headline?.severity == .exhausted ? 0 : headline?.remainingPercent ?? .infinity
+            ranked.append((index, account.connectionStatus == .reconnectRequired, remaining, createdAt))
         }
-        let pool = trusted.isEmpty ? candidates : trusted
-        let upcoming = pool.filter { $0.nextResettingRow(at: date) != nil }
-        if !upcoming.isEmpty {
-            return upcoming.min { $0.nextResettingRow(at: date)!.resetAt! < $1.nextResettingRow(at: date)!.resetAt! }
+        ranked.sort { left, right in
+            if left.reconnect != right.reconnect { return left.reconnect }
+            if left.remaining != right.remaining { return left.remaining < right.remaining }
+            if left.createdAt != right.createdAt { return left.createdAt < right.createdAt }
+            return overviewAccountIDPrecedes(accounts[left.index].id, accounts[right.index].id)
         }
-        return pool.min { $0.tightestRemaining(at: date) < $1.tightestRemaining(at: date) }
+        return ranked.map { accounts[$0.index] }
     }
 
     /// The same snapshot carrying `credits`.
@@ -659,6 +675,7 @@ public enum GlanceModel {
             // The unaged judgement and the instant it was made, so a widget rendering this
             // hours later can age it itself instead of repeating a verdict from write time.
             baseSeverity: usage.snapshot?.severityOfOpenWindows(at: now) ?? .stale,
+            quotaSeverity: usage.snapshot?.quotaSeverity ?? .unknown,
             baseSeverityAfterResets: afterResets,
             // Scoped ones too: which pool leads is decided at render time, among windows still open.
             candidates: allWindows.map(row),
@@ -666,7 +683,8 @@ public enum GlanceModel {
             connectionStatus: usage.snapshot?.connectionStatus ?? .unknown,
             resetDates: usage.snapshot?.windows.compactMap(\.resetAt),
             iconAssetName: ProviderIconCatalog.selected(for: usage.account.provider, id: providerIcons[usage.account.provider.rawValue]).assetName,
-            statusMessage: usage.snapshot?.statusMessage)
+            statusMessage: usage.snapshot?.statusMessage,
+            createdAt: usage.account.createdAt, accountLabel: usage.account.label)
     }
 
     private static func row(_ window: UsageWindow) -> GlanceRow {
@@ -678,4 +696,8 @@ public enum GlanceModel {
             severity: window.severity,
             scope: window.scope, segments: window.segments, sourceWindowID: window.id)
     }
+}
+
+func overviewAccountIDPrecedes(_ left: String, _ right: String) -> Bool {
+    left.unicodeScalars.lexicographicallyPrecedes(right.unicodeScalars)
 }

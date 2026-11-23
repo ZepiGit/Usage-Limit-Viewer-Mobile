@@ -30,6 +30,10 @@ _Avoid_: Limit, quota, bucket (a "limit" appears only inside a window's label, e
 
 ### Reading states
 
+**Expired sign-in**:
+An account whose provider requires signing in again. A failed refresh, stale reading or exhausted usage window does not by itself mean the sign-in expired.
+_Avoid_: Expired account, broken account
+
 **Exhausted**:
 Nothing is left in a usage window: the provider says so, or its reading shows zero remaining. It is never inferred from an aged or replaced state.
 _Avoid_: Empty, out, maxed
@@ -43,6 +47,18 @@ A usage window whose reset time has passed since it was read, so the reading des
 _Avoid_: Reset pending, expired window
 
 ### Presentation
+
+**Overview layout**:
+The choice between **List**, which shows every usage window, and **Dials**, which shows one headline ring per account. This is separate from the display mode.
+_Avoid_: Display mode for List/Dials
+
+**Needs attention**:
+The Overview List filter for expired sign-ins only. Low or exhausted allowance does not qualify.
+_Avoid_: Critical accounts, low accounts
+
+**Resets today**:
+The Overview List filter for accounts with a recorded reset strictly after now and strictly before the next local day starts. A past reset or a reset exactly at the next day start does not qualify.
+_Avoid_: Resets in 24 hours
 
 **Display mode**:
 The app-wide choice of which side of a usage window the percentages count: **Left** (what remains) or **Used** (what has been spent). Every usage widget follows it.
@@ -59,3 +75,11 @@ _Avoid_: Notification icon, status bar item
 **Provider glyph**:
 The one-colour silhouette that stands for a provider in a status icon; not the provider artwork chosen under Provider icons.
 _Avoid_: Logo, provider icon
+
+**App theme**:
+The app's palette, chosen under Settings → Appearance: **Warm dark**, **Pure black** (the default), **Cool graphite** or **Light paper**. It colours the app, and on Android also its launch presentation. Placed widgets and the Android widget editor keep their own panel style.
+_Avoid_: Widget theme, dark mode
+
+**Panel style**:
+How one placed usage widget paints its background and text, saved with that widget and independent of the app theme. On Android it is a panel colour (Charcoal by default), its opacity and a text tone; on iOS, the widget's own palette or a transparent background with light or dark text. A transparent panel shows the wallpaper; Android's automatic text tone follows the panel colour, never the wallpaper.
+_Avoid_: Widget theme, background colour

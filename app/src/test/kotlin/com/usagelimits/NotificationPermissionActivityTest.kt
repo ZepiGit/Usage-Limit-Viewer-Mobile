@@ -3,7 +3,10 @@ package com.usagelimits
 import android.Manifest
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.Job
 import androidx.work.WorkManager
+import com.usagelimits.core.sync.resetTestWorkManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -35,8 +38,16 @@ class NotificationPermissionActivityTest {
     fun drainStartupWork() {
         ShadowLooper.idleMainLooper()
         runBlocking { app.startupJob?.join() }
+        await { app.mainOpening.job?.isCompleted != false }
+        lateinit var eligibilityBarrier: Job
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            eligibilityBarrier = app.observeStatusIconEligibility()
+        }
+        await { eligibilityBarrier.isCompleted }
         ShadowLooper.idleMainLooper()
         WorkManager.getInstance(app).cancelAllWork().result.get()
+        ShadowLooper.idleMainLooper()
+        resetTestWorkManager()
     }
 
     @Test

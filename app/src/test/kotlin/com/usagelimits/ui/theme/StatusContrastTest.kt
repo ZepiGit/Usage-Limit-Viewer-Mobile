@@ -1,7 +1,16 @@
 package com.usagelimits.ui.theme
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import androidx.compose.ui.graphics.Color
+import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.settings.AppTheme
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import com.usagelimits.widget.WidgetStyle
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,9 +23,11 @@ import kotlin.math.pow
  *
  * The StatusMark word, the row figure and the stamp are 12-14sp: normal text, so 4.5:1, not the
  * 3:1 large-text allowance. Severity hues are dots now, so they are held to the 3:1 graphic floor
- * instead; only the figure tones and the greys are text. The maths is pure Kotlin, so this stays
- * a plain JVM test.
+ * instead; only the figure tones and the greys are text. Faint does not clear AA on Raised
+ * across all palettes, so that surface uses Muted. Grounds use the actual colour resources.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class StatusContrastTest {
 
     private companion object {
@@ -41,41 +52,47 @@ class StatusContrastTest {
         return (max(a, b) + 0.05) / (min(a, b) + 0.05)
     }
 
+    private val resources = ApplicationProvider.getApplicationContext<Context>().resources
+
     @Test
-    fun `every row figure tone clears AA on the card and on the ground`() {
-        for (ground in listOf(UsageColors.Surface, UsageColors.Ground)) {
-            for (severity in Severity.entries) {
-                val ratio = contrast(SeverityPalette.figureColor(severity), ground)
-                assertTrue("$severity figure measures %.2f:1 over $ground".format(ratio), ratio >= AA_NORMAL_TEXT)
+    fun `text roles and status marks meet their floors on every palette surface`() {
+        assertTrue("Faint is not safe text ink on Raised across all palettes",
+            AppTheme.entries.minOf { contrast(it.colors.Faint, it.colors.Raised) } < AA_NORMAL_TEXT)
+        for (theme in AppTheme.entries) {
+            val palette = theme.colors
+            val ground = Color(resources.getColor(palette.groundRes, null))
+            val surfaces = mapOf("ground" to ground, "surface" to palette.Surface, "raised" to palette.Raised)
+            for ((surface, background) in surfaces) {
+                val quiet = if (surface == "raised") palette.Muted else palette.Faint
+                for ((label, tone) in mapOf(
+                    "ink" to palette.Ink, "muted" to palette.Muted, "quiet" to quiet,
+                    "warning" to palette.Warning, "negative" to palette.NegativeText, "data countdown" to palette.DataText,
+                )) {
+                    val ratio = contrast(tone, background)
+                    assertTrue("$theme $label text on $surface: %.2f:1".format(ratio), ratio >= AA_NORMAL_TEXT)
+                }
+                for (severity in Severity.entries) {
+                    val mark = contrast(palette.accent(severity), background)
+                    assertTrue("$theme $severity mark on $surface: %.2f:1".format(mark), mark >= AA_GRAPHIC)
+                    // Stale and unknown figures use faint on cards, and quiet ink on raised surfaces.
+                    val figure = if (surface == "raised" && severity in setOf(Severity.STALE, Severity.UNKNOWN)) quiet
+                        else palette.figureColor(severity)
+                    val ratio = contrast(figure, background)
+                    assertTrue("$theme $severity figure on $surface: %.2f:1".format(ratio), ratio >= AA_NORMAL_TEXT)
+                }
+                assertTrue("$theme data mark on $surface", contrast(palette.Data, background) >= AA_GRAPHIC)
             }
+            assertTrue("$theme data bar on its track", contrast(palette.Data, palette.Rule) >= AA_GRAPHIC)
+            assertTrue("$theme inverse ink", contrast(ground, palette.Ink) >= AA_NORMAL_TEXT)
         }
     }
 
     @Test
-    fun `the greys that carry words clear AA where they are used`() {
-        for (ground in listOf(UsageColors.Surface, UsageColors.Ground)) {
-            for ((name, tone) in mapOf("Muted" to UsageColors.Muted, "Faint" to UsageColors.Faint,
-                "NegativeText" to UsageColors.NegativeText)) {
-                val ratio = contrast(tone, ground)
-                assertTrue("$name measures %.2f:1 over $ground".format(ratio), ratio >= AA_NORMAL_TEXT)
-            }
-        }
-        // Faint is for the card and the ground only: on Raised it falls under AA, which is why
-        // nothing is stamped on a selected segment or a dialog in it.
-        assertTrue(contrast(UsageColors.Faint, UsageColors.Raised) < AA_NORMAL_TEXT)
-        assertTrue(contrast(UsageColors.Muted, UsageColors.Raised) >= AA_NORMAL_TEXT)
-        assertTrue(contrast(UsageColors.OnInk, UsageColors.Ink) >= AA_NORMAL_TEXT)
-    }
-
-    @Test
-    fun `severity dots and the data hue are visible marks on the card`() {
-        for (severity in Severity.entries) {
-            val ratio = contrast(SeverityPalette.accent(severity), UsageColors.Surface)
-            assertTrue("$severity dot measures %.2f:1 on Surface".format(ratio), ratio >= AA_GRAPHIC)
-        }
-        assertTrue(contrast(UsageColors.Data, UsageColors.Surface) >= AA_GRAPHIC)
-        // Terracotta on the track is the weakest pairing of a bar; it must stay a visible edge.
-        assertTrue(contrast(UsageColors.Data, UsageColors.Rule) >= AA_GRAPHIC)
+    fun `paper uses the prescribed amber red and green status marks`() {
+        val paper = AppTheme.LIGHT_PAPER.colors
+        assertEquals(Color(0xFF8A5A0A), paper.accent(Severity.LOW))
+        assertEquals(Color(0xFFB03A31), paper.accent(Severity.EXHAUSTED))
+        assertEquals(Color(0xFF437345), paper.accent(Severity.HEALTHY))
     }
 
     /**
@@ -100,14 +117,16 @@ class StatusContrastTest {
 
     @Test
     fun `the figure rule keeps full-looking blockers and unknowns off the data fill`() {
-        org.junit.Assert.assertNull(SeverityPalette.barFill(Severity.EXHAUSTED))
-        org.junit.Assert.assertNull(SeverityPalette.barFill(Severity.UNKNOWN))
-        org.junit.Assert.assertNull(SeverityPalette.barFill(Severity.ERROR))
-        org.junit.Assert.assertEquals(UsageColors.StaleMark, SeverityPalette.barFill(Severity.STALE))
-        org.junit.Assert.assertEquals(UsageColors.Data, SeverityPalette.barFill(Severity.HEALTHY))
-        // Healthy and moderate figures are ink; only the last fifth and a real zero take a hue.
-        org.junit.Assert.assertEquals(UsageColors.Ink, SeverityPalette.figureColor(Severity.MEDIUM))
-        org.junit.Assert.assertEquals(UsageColors.Warning, SeverityPalette.figureColor(Severity.LOW))
-        org.junit.Assert.assertEquals(UsageColors.NegativeText, SeverityPalette.figureColor(Severity.EXHAUSTED))
+        for (theme in AppTheme.entries) {
+            val palette = theme.colors
+            for (severity in listOf(Severity.EXHAUSTED, Severity.UNKNOWN, Severity.ERROR)) {
+                assertNull(palette.barInkFor(severity, 0.15, PercentDisplay.LEFT))
+            }
+            assertEquals(palette.StaleMark, palette.barInkFor(Severity.STALE, 0.15, PercentDisplay.LEFT))
+            assertEquals(palette.Data, palette.barInkFor(Severity.HEALTHY, 0.70, PercentDisplay.LEFT))
+            assertEquals(palette.Ink, palette.figureColor(Severity.MEDIUM))
+            assertEquals(palette.Warning, palette.figureColor(Severity.LOW))
+            assertEquals(palette.NegativeText, palette.figureColor(Severity.EXHAUSTED))
+        }
     }
 }

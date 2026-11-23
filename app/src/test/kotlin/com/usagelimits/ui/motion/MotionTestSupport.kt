@@ -61,7 +61,14 @@ internal fun demoAccount(
 internal fun MotionRule.softwareFrame(): Bitmap {
     waitForIdle()
     val root = activity.window.decorView
-    return Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
+    val frame = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+    try {
+        root.draw(Canvas(frame))
+        return frame
+    } catch (error: Throwable) {
+        frame.recycle()
+        throw error
+    }
 }
 
 /**
@@ -78,32 +85,59 @@ internal class FrameRecorder(private val rule: MotionRule) : AutoCloseable {
     private val node = android.graphics.RenderNode("frames").apply { setPosition(0, 0, root.width, root.height) }
 
     init {
-        renderer.setSurface(reader.surface)
-        renderer.setContentRoot(node)
+        try {
+            renderer.setSurface(reader.surface)
+            renderer.setContentRoot(node)
+        } catch (error: Throwable) {
+            close()
+            throw error
+        }
     }
 
     fun frame(): Bitmap {
         rule.waitForIdle()
-        root.draw(node.beginRecording())
-        node.endRecording()
+        val canvas = node.beginRecording()
+        try {
+            root.draw(canvas)
+        } finally {
+            node.endRecording()
+        }
         renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()
         return reader.acquireNextImage().use { image ->
             val plane = image.planes[0]
             val padded = Bitmap.createBitmap(plane.rowStride / plane.pixelStride, root.height, Bitmap.Config.ARGB_8888)
-            padded.copyPixelsFromBuffer(plane.buffer)
-            Bitmap.createBitmap(padded, 0, 0, root.width, root.height)
+            var frame: Bitmap? = null
+            try {
+                padded.copyPixelsFromBuffer(plane.buffer)
+                Bitmap.createBitmap(padded, 0, 0, root.width, root.height).also { frame = it }
+            } finally {
+                // With no padding the caller takes ownership of this bitmap itself.
+                if (frame !== padded) padded.recycle()
+            }
         }
     }
 
     /** The next [count] frames, 16 ms apart. */
-    fun next(count: Int): List<Bitmap> = List(count) {
-        rule.mainClock.advanceTimeByFrame()
-        frame()
+    fun next(count: Int): List<Bitmap> {
+        val frames = ArrayList<Bitmap>(count)
+        try {
+            repeat(count) {
+                rule.mainClock.advanceTimeByFrame()
+                frames += frame()
+            }
+            return frames
+        } catch (error: Throwable) {
+            frames.forEach { it.recycle() }
+            throw error
+        }
     }
 
     override fun close() {
-        renderer.destroy()
-        reader.close()
+        try {
+            renderer.destroy()
+        } finally {
+            reader.close()
+        }
     }
 }
 
@@ -158,9 +192,27 @@ private val captureDir: File? = System.getProperty("capture.dir")?.takeIf { it.i
  * does; otherwise the test only asserts. These are the frame sequences a person can look at.
  */
 internal fun List<Bitmap>.saveSequence(name: String) {
+    forEachIndexed { index, frame -> frame.saveFrame(name, index) }
+}
+
+/** Writes one frame of a sequence when `-PcaptureDir` is given; see [saveSequence]. */
+internal fun Bitmap.saveFrame(name: String, index: Int) {
     val dir = captureDir?.resolve("motion/$name") ?: return
     dir.mkdirs()
-    forEachIndexed { index, frame ->
-        File(dir, "%02d.png".format(index)).outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) }
-    }
+    File(dir, "%02d.png".format(index)).outputStream().use { compress(Bitmap.CompressFormat.PNG, 100, it) }
 }
+
+/**
+ * The pixels of [region] alone, as a small bitmap with the region's top left at 0,0. A test that
+ * compares only parts of the screen keeps these and releases each full frame at once.
+ */
+internal fun Bitmap.crop(region: Region): Bitmap {
+    val width = region.right - region.left
+    val height = region.bottom - region.top
+    // Always a copy of its own, so releasing the frame never releases the crop.
+    val pixels = IntArray(width * height).also { getPixels(it, 0, width, region.left, region.top, width, height) }
+    return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+}
+
+/** The same region, at 0,0, for a bitmap made by [crop]. */
+internal fun Region.atOrigin() = Region(0, 0, right - left, bottom - top)

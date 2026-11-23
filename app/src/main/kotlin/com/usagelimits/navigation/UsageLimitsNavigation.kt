@@ -30,7 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -60,26 +60,31 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
+import com.usagelimits.core.settings.OverviewLayout
 import com.usagelimits.feature.UsageViewModel
 import com.usagelimits.feature.credits.AddCreditScreen
 import com.usagelimits.feature.credits.AddCreditViewModel
 import com.usagelimits.feature.credits.CreditDetailScreen
+import com.usagelimits.feature.credits.ManageCreditsScreen
 import com.usagelimits.feature.accounts.AccountDetailScreen
-import com.usagelimits.feature.accounts.AccountsScreen
 import com.usagelimits.feature.accounts.AddAccountScreen
 import com.usagelimits.feature.accounts.AddAccountState
 import com.usagelimits.feature.accounts.AddAccountViewModel
+import com.usagelimits.feature.overview.OverviewFilter
 import com.usagelimits.feature.overview.OverviewScreen
+import com.usagelimits.feature.overview.nextOverviewBoundary
 import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.ConstrainedContent
 import com.usagelimits.ui.NavigationLayout
 import com.usagelimits.ui.theme.AxisShift
+import com.usagelimits.ui.theme.LocalAppTheme
+import com.usagelimits.ui.theme.LocalFigureFont
+import com.usagelimits.ui.theme.LocalTextFont
 import com.usagelimits.ui.theme.UsageColors
 import com.usagelimits.ui.theme.UsageMotion
 import com.usagelimits.ui.theme.axisIn
@@ -90,21 +95,16 @@ import com.usagelimits.ui.theme.swapIn
 import com.usagelimits.ui.theme.swapOut
 import com.usagelimits.ui.AppIcons
 
-/**
- * How often relative times refresh.
- *
- * Countdowns are rendered at minute resolution, so a shorter tick would recompose without
- * changing a single character; a longer one would let "1m" sit on screen after it became "now".
- */
-private const val TICK_INTERVAL_MS = 30_000L
-
 internal sealed class Destination(val route: String) {
     data object Overview : Destination("overview")
-    data object Accounts : Destination("accounts")
     data object Resets : Destination("resets")
     data object Settings : Destination("settings")
-    data object AddAccount : Destination("add-account")
+    data object AddAccount : Destination("add-account?provider={provider}") {
+        fun of(provider: com.usagelimits.core.model.ProviderId? = null) =
+            provider?.let { "add-account?provider=${it.id}" } ?: "add-account"
+    }
     data object AddCredit : Destination("add-credit")
+    data object ManageCredits : Destination("manage-credits")
     data object CreditDetail : Destination("credit/{creditId}") {
         fun of(creditId: String) = "credit/$creditId"
     }
@@ -121,7 +121,6 @@ private data class TabItem(
 
 private val TABS = listOf(
     TabItem(Destination.Overview, R.string.tab_overview, Icons.Default.Home),
-    TabItem(Destination.Accounts, R.string.tab_accounts, AppIcons.People),
     TabItem(Destination.Resets, R.string.tab_resets, AppIcons.Schedule),
     TabItem(Destination.Settings, R.string.tab_settings, Icons.Default.Settings),
 )
@@ -250,6 +249,7 @@ internal fun NavigationShell(
     val motion = UsageMotion.current
     val reducedBack = !motion.enabled && routeKnown && navController.previousBackStackEntry != null
     val shift = with(LocalDensity.current) { AxisShift.roundToPx() }
+    val rule = UsageColors.Rule
 
     fun navigateToTab(route: String) {
         navController.navigate(route) {
@@ -292,7 +292,7 @@ internal fun NavigationShell(
                         tonalElevation = 0.dp,
                         // A 1px rule on the top edge, not a tone step or a shadow.
                         modifier = Modifier.drawBehind {
-                            drawLine(UsageColors.Rule, Offset.Zero, Offset(size.width, 0f), strokeWidth = 1.dp.toPx())
+                            drawLine(rule, Offset.Zero, Offset(size.width, 0f), strokeWidth = 1.dp.toPx())
                         },
                     ) {
                         TABS.forEach { tab ->
@@ -351,24 +351,59 @@ internal fun NavigationShell(
 }
 
 /**
- * The app shell: four tabs plus two pushed routes.
+ * The app shell: Overview, Resets and Settings, plus the pushed routes (account and credit detail,
+ * add account, add credit).
  *
- * `nowMs` is read once per recomposition and threaded down rather than each countdown calling
- * the clock itself, so every relative time on screen is consistent with the others.
+ * One [ScreenClock] supplies the instant the shell passes to Overview, Resets and the account
+ * detail, and the instant and zone Overview ranks, filters and heads its list for. Resets keeps
+ * its own zone, and Settings reads the clock itself for its diagnostics.
  */
 @Composable
 fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeClass,
-    requestedAccountId: String? = null, onAccountHandled: () -> Unit = {}) {
+    request: ExternalRequest? = null, onRequestHandled: (ExternalRequest) -> Unit = {},
+    /** The wall clock the screens read; a test passes its own. */
+    now: () -> Long = System::currentTimeMillis) {
     val navController = rememberNavController()
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val viewModel: UsageViewModel =
         viewModel(factory = UsageViewModel.Factory(container, appContext))
     val state by viewModel.state.collectAsState()
-    LaunchedEffect(requestedAccountId, state.accounts) {
-        if (requestedAccountId != null && state.accounts.any { it.account.localId == requestedAccountId }) {
-            navController.navigate(Destination.AccountDetail.of(requestedAccountId)) { launchSingleTop = true }
-            onAccountHandled()
+    // A status icon or widget row names an account: the link waits for the store's first answer
+    // and opens the detail over Overview whichever tab is showing; an account that is gone gets its
+    // own detail state with a way back. A usage alert or a whole-widget tap opens Overview, over
+    // whatever was showing. Each request is handled once.
+    val route = (request as? ExternalRequest.OpenAccount)?.let {
+        AccountRoute.resolve(it.accountId, state.accounts.map { usage -> usage.account.localId }.takeIf { state.loaded },
+            unreadable = state.accountStorageUnreadable)
+    }
+    // The graph exists once the NavHost inside the scaffold has composed: on a cold start the
+    // request waits for the host's first back stack entry before it navigates or is confirmed.
+    val hostReady = navController.currentBackStackEntryAsState().value != null
+    LaunchedEffect(request, route, hostReady) {
+        if (!hostReady) return@LaunchedEffect
+        when (request) {
+            null -> return@LaunchedEffect
+            is ExternalRequest.OpenOverview ->
+                // A cold launch already shows Overview; a warm one may be on a detail or a tab.
+                if (navController.currentDestination?.route != Destination.Overview.route) {
+                    navController.navigate(Destination.Overview.route) {
+                        popUpTo(navController.graph.findStartDestination().id)
+                        launchSingleTop = true
+                    }
+                }
+            is ExternalRequest.OpenAccount -> {
+                val accountId = when (val target = route ?: return@LaunchedEffect) {
+                    is AccountRoute.Detail -> target.accountId
+                    is AccountRoute.Unavailable -> target.accountId
+                    is AccountRoute.StorageError -> target.accountId
+                }
+                navController.navigate(Destination.AccountDetail.of(accountId)) {
+                    popUpTo(navController.graph.findStartDestination().id)
+                    launchSingleTop = true
+                }
+            }
         }
+        onRequestHandled(request)
     }
     val resetInFlight by viewModel.resetCreditInFlight.collectAsState()
 
@@ -380,17 +415,33 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
         }
     }
 
-    // A plain System.currentTimeMillis() read is not a Compose state read, so with no
-    // data change every countdown on screen froze at whatever the tab was composed with.
-    // For an app made of countdowns that is visible within a minute.
-    val nowMs by produceState(initialValue = System.currentTimeMillis()) {
-        while (true) {
-            value = System.currentTimeMillis()
-            delay(TICK_INTERVAL_MS)
+    // A plain System.currentTimeMillis() read is not a Compose state read, so with no data change
+    // every countdown on screen froze at whatever the tab was composed with. The clock moves at the
+    // next tick, at Overview's next boundary (a reset falling due, a reading turning stale, the
+    // next local day) when that is sooner, on returning to the app and on a time or zone change.
+    val clock = rememberScreenClock(now) { at, zone ->
+        val current = viewModel.state.value
+        current.accounts.nextOverviewBoundary(at, zone, current.staleAfterMs, current.credits)
+    }
+    val nowMs = clock.nowMs
+    // New readings and a changed staleness threshold can move the next boundary.
+    LaunchedEffect(state.accounts, state.credits, state.staleAfterMs) { clock.reread() }
+    // Overview's filter is view state: never stored, and All again when another tab is chosen.
+    // An account detail opened from the list, and the way back to it, keep the filter.
+    var overviewFilter by rememberSaveable { mutableStateOf(OverviewFilter.ALL) }
+    val activeEntry by navController.currentBackStackEntryAsState()
+    val routeState = activeEntry?.lifecycle?.currentStateFlow?.collectAsState()?.value
+    val hoorayLayout = com.usagelimits.ui.HoorayPresentation(com.usagelimits.ui.LocalHoorayPlayback.current,
+        state.loaded && routeState == androidx.lifecycle.Lifecycle.State.RESUMED)
+    val currentRoute = activeEntry?.destination?.route
+    val dials = state.settings.overviewLayout == OverviewLayout.DIALS
+    LaunchedEffect(currentRoute, dials) {
+        if (dials || (currentRoute != Destination.Overview.route && TABS.any { it.destination.route == currentRoute })) {
+            overviewFilter = OverviewFilter.ALL
         }
     }
 
-    Box(Modifier.fillMaxSize().background(UsageColors.Ground)) {
+    Box(Modifier.fillMaxSize().background(UsageColors.Ground).then(hoorayLayout)) {
         NavigationShell(
             navController, NavigationLayout.forWidth(windowSizeClass.widthSizeClass),
             snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -399,23 +450,18 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                 OverviewScreen(
                     state = state,
                     nowMs = nowMs,
+                    zone = clock.zoneId,
+                    filter = overviewFilter,
+                    onFilterChange = { overviewFilter = it },
                     onRefresh = viewModel::refresh,
+                    onRetryStorage = viewModel::retryAccountStorage,
                     onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
-                    onAddAccount = { navController.navigate(Destination.AddAccount.route) },
-                    onReorder = viewModel::reorderAccounts,
+                    onAddAccount = { navController.navigate(Destination.AddAccount.of()) },
                     onPercentDisplayChange = viewModel::setPercentDisplay,
                     onCreditClick = { navController.navigate(Destination.CreditDetail.of(it)) },
                     onAddCredit = { navController.navigate(Destination.AddCredit.route) },
-                )
-            }
-
-            composable(Destination.Accounts.route) {
-                AccountsScreen(
-                    state = state,
-                    nowMs = nowMs,
-                    onAccountClick = { navController.navigate(Destination.AccountDetail.of(it)) },
-                    onAddAccount = { navController.navigate(Destination.AddAccount.route) },
-                    onRefresh = viewModel::refresh,
+                    onManageCredits = { navController.navigate(Destination.ManageCredits.route) },
+                    isCurrentDestination = activeEntry?.destination?.route == Destination.Overview.route,
                 )
             }
 
@@ -424,14 +470,22 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
             }
 
             composable(Destination.Settings.route) {
+                val appTheme = LocalAppTheme.current
+                val textFont = LocalTextFont.current
+                val figureFont = LocalFigureFont.current
+                val settings = state.settings
+                // The root loads appearance separately; keep it until the combined view-model state catches up.
                 SettingsScreen(
-                    state = state,
+                    state = if (settings.appTheme == appTheme && settings.textFont == textFont && settings.figureFont == figureFont) state
+                    else state.copy(settings = settings.copy(appTheme = appTheme, textFont = textFont, figureFont = figureFont)),
                     onSyncIntervalChange = viewModel::setSyncInterval,
                     onNotificationPermissionHandled = viewModel::recordNotificationPermissionHandled,
                     onProviderIconChange = viewModel::setProviderIcon,
+                    onAppThemeChange = viewModel::setAppTheme,
+                    onTextFontChange = viewModel::setTextFont,
+                    onFigureFontChange = viewModel::setFigureFont,
                     onStatusIconsChange = viewModel::setStatusIcons,
                     onPinnedChange = viewModel::setPinned,
-                    onNotificationsAllowed = viewModel::notificationsAllowed,
                     onNotifyBelow20 = viewModel::setNotifyBelow20,
                     onNotifyBelow10 = viewModel::setNotifyBelow10,
                     onNotifyExhausted = viewModel::setNotifyExhausted,
@@ -440,16 +494,43 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
                     onNotifyResetApproaching = viewModel::setNotifyResetApproaching,
                     onNotifyCreditExpiring = viewModel::setNotifyCreditExpiring,
                     onShowTier = viewModel::setShowSubscriptionTier,
-                    onShowRenewal = viewModel::setShowRenewalTime,
+                    onOverviewLayoutChange = viewModel::setOverviewLayout,
                     onPercentDisplayChange = viewModel::setPercentDisplay,
+                    onOverviewCreditLayoutChange = viewModel::setOverviewCreditLayout,
+                    onOverviewShowFirstChange = viewModel::setOverviewShowFirst,
+                    onOverviewShowCreditsChange = viewModel::setOverviewShowCredits,
+                    onManageCredits = { navController.navigate(Destination.ManageCredits.route) },
+                    onAnimateClaudeCodeIconChange = viewModel::setAnimateClaudeCodeIcon,
+                    nowMs = nowMs,
                 )
             }
 
-            composable(Destination.AddAccount.route) {
+            composable(Destination.ManageCredits.route) {
+                ManageCreditsScreen(
+                    credits = state.credits,
+                    nowMs = nowMs,
+                    staleAfterMs = state.staleAfterMs,
+                    onAdd = { navController.navigate(Destination.AddCredit.route) },
+                    onSelect = { navController.navigate(Destination.CreditDetail.of(it)) },
+                    onRetry = viewModel::refresh,
+                )
+            }
+
+            composable(Destination.AddAccount.route, arguments = listOf(
+                androidx.navigation.navArgument("provider") {
+                    type = androidx.navigation.NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            )) { entry ->
                 val addViewModel: AddAccountViewModel =
                     viewModel(factory = AddAccountViewModel.Factory(container))
                 val addState by addViewModel.state.collectAsState()
                 val context = androidx.compose.ui.platform.LocalContext.current
+                LaunchedEffect(entry) {
+                    com.usagelimits.core.model.ProviderId.fromId(entry.arguments?.getString("provider") ?: "")
+                        ?.let { addViewModel.startInitialLogin(context, it) }
+                }
 
                 AddAccountScreen(
                     state = addState,
@@ -515,12 +596,16 @@ fun UsageLimitsNavigation(container: AppContainer, windowSizeClass: WindowSizeCl
 
                 AccountDetailScreen(
                     usage = usage,
+                    loaded = state.loaded,
+                    onBack = { navController.popBackStack() },
                     nowMs = nowMs,
                     staleAfterMs = state.staleAfterMs,
                     percentDisplay = state.settings.percentDisplay,
                     resetInFlight = resetInFlight == accountId,
-                supportsResetCredits = supportsCredits,
-                onReconnect = { navController.navigate(Destination.AddAccount.route) },
+                    supportsResetCredits = supportsCredits,
+                    accountStorageUnreadable = state.accountStorageUnreadable,
+                    onRetryStorage = viewModel::retryAccountStorage,
+                    onReconnect = { usage?.account?.provider?.let { navController.navigate(Destination.AddAccount.of(it)) } },
                     onRefresh = { accountId?.let(viewModel::refreshAccount) },
                     onConsumeResetCredit = { accountId?.let(viewModel::consumeResetCredit) },
                     onRemove = {

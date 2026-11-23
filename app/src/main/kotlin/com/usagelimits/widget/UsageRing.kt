@@ -14,6 +14,7 @@ import android.graphics.RectF
  * to arrive as a picture. This draws that picture.
  */
 object UsageRing {
+    internal const val STROKE_FRACTION = 0.11f
 
     /** Degrees of arc for a given remaining fraction, starting at twelve o'clock. */
     fun sweepDegrees(remainingFraction: Float): Float =
@@ -38,7 +39,7 @@ object UsageRing {
         displayedPercent: Double?,
         argb: Int,
         trackArgb: Int,
-        strokePx: Float = sizePx * 0.11f,
+        strokePx: Float = sizePx * STROKE_FRACTION,
     ): Bitmap {
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)

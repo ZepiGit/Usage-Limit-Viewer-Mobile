@@ -58,13 +58,14 @@ import kotlin.math.roundToInt
  * longer pinned. Which pinned accounts it posts depends on why it runs, because a person can
  * swipe an icon away and Android gives the app no way to tell that apart from a reboot or from
  * the permission being withdrawn; all three leave the group missing from the active list:
- * - after a sync, and when Settings saw notifications or the category allowed again
+ * - after a sync, and when the main window observes notifications or the category allowed again
  *   ([restoreDismissed]), every pinned account is posted, so a swiped icon returns with the next
  *   sync, and so do icons lost to a reboot or removed by Android while they were blocked;
  * - otherwise only groups still showing are updated, plus accounts that were not pinned the last
  *   time a publication ran. Turning the feature on, pinning an account, or unpinning and pinning
  *   it again therefore shows it; pinning another account, a display-mode change or a time
- *   boundary does not bring back an icon the person swiped away.
+ *   boundary does not bring back an icon the person swiped away. Updates require both records
+ *   still active immediately before each notify, but Android cannot make that check and post atomic.
  *
  * "The last time" is [ShownSelection], the list of accounts the previous publication meant to
  * show. It is not a record of dismissals: nothing listens for a swipe.
@@ -160,7 +161,8 @@ class StatusIconPublisher(
             val postedAt = reading ?: now()
             val usage = byId.getValue(id)
             val showAccountName = pinned.any { it != id && byId.getValue(it).account.provider == usage.account.provider }
-            post(usage, settings, texts, nowMs, postedAt, showAccountName)
+            post(usage, settings, texts, nowMs, postedAt, showAccountName,
+                updateOnly = !restoreDismissed && id in previouslyShown)
             previous = postedAt
         }
     }
@@ -200,7 +202,7 @@ class StatusIconPublisher(
         }
     }
 
-    private fun post(usage: AccountUsage, settings: AppSettings, texts: StatusIconTexts, nowMs: Long, postedAt: Long, showAccountName: Boolean) {
+    private fun post(usage: AccountUsage, settings: AppSettings, texts: StatusIconTexts, nowMs: Long, postedAt: Long, showAccountName: Boolean, updateOnly: Boolean) {
         val snapshot = usage.snapshot
         val headline = snapshot?.headlineAt(nowMs)
         val needsReauthentication = snapshot?.connectionStatus == ConnectionStatus.RECONNECT_REQUIRED
@@ -255,6 +257,13 @@ class StatusIconPublisher(
                 .setWhen(postedAt)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
+            // Android has no atomic update-if-present. Require the complete group immediately
+            // before each update; a swipe between this read and notify remains an OS-level gap.
+            if (updateOnly) {
+                val active = manager.activeNotifications
+                if (!active.any { it.tag == tag && it.id == SUMMARY_ID && it.notification.channelId == CHANNEL_ID } ||
+                    !active.any { it.tag == tag && it.id == CHILD_ID && it.notification.channelId == CHANNEL_ID }) return
+            }
             try {
                 manager.notify(tag, id, notification)
             } catch (_: SecurityException) {
@@ -299,15 +308,19 @@ class StatusIconPublisher(
         )
     }
 
-    private fun canShow(): Boolean =
-        manager.areNotificationsEnabled() &&
-            (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
-            !categoryBlocked(manager)
+    private fun canShow(): Boolean = canShow(context)
 
     companion object {
         /** Separate from the alert channel, so a person can silence one without the other. */
         const val CHANNEL_ID = "status_icons"
+
+        internal fun canShow(context: Context): Boolean {
+            val manager = context.getSystemService(NotificationManager::class.java)
+            return manager.areNotificationsEnabled() &&
+                (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+                !categoryBlocked(manager)
+        }
 
         /**
          * Whether the person switched the "Status bar icons" category off in Android. A category

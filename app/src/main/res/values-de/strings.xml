@@ -67,16 +67,39 @@
 
     <!-- Settings screen (feature/settings/SettingsScreen.kt). Thresholds are passed in as formatted figures so the percent template stays the one place a sign is laid out. -->
     <string name="settings_title">Einstellungen</string>
+
+    <!-- Appearance: app-only theme selection and its live preview. -->
+    <string name="settings_section_appearance">Erscheinungsbild</string>
+    <string name="settings_appearance_preview">Vorschau</string>
+    <string name="settings_appearance_preview_account">Claude Pro</string>
+    <string name="settings_appearance_preview_values">%1$s · %2$s · %3$s</string>
+    <string name="settings_appearance_theme">Design</string>
+    <string name="settings_appearance_theme_subtitle">Farben der App. Widgets behalten ihren eigenen Panelstil.</string>
+    <string name="settings_appearance_warm_dark">Warmes Dunkel</string>
+    <string name="settings_appearance_pure_black">Reines Schwarz</string>
+    <string name="settings_appearance_cool_graphite">Kühles Graphit</string>
+    <string name="settings_appearance_light_paper">Helles Papier</string>
+    <string name="settings_text_font">Textschrift</string>
+    <string name="settings_text_font_subtitle">Für alle Texte in der App.</string>
+    <string name="settings_figure_font">Ziffernschrift</string>
+    <string name="settings_figure_font_subtitle">Für Prozentwerte, Zeiten und Beträge.</string>
+    <string name="settings_font_licences">Schriftlizenzen</string>
+
     <string name="settings_section_sync">Synchronisierung</string>
     <string name="settings_interval_title">Intervall der Hintergrundaktualisierung</string>
     <string name="settings_interval_subtitle">Android aktualisiert im Ruhemodus oder Energiesparmodus möglicherweise seltener.</string>
     <string name="settings_section_overview">Übersicht</string>
     <string name="settings_show_tier_title">Abo-Stufe anzeigen</string>
-    <string name="settings_show_tier_subtitle">Plus, Pro, Max – neben dem Anbieternamen</string>
-    <string name="settings_show_renewal_title">Erneuerungszeit anzeigen</string>
-    <string name="settings_show_renewal_subtitle">Wann das Wochen- oder Monatskontingent neu beginnt, im Unterschied zum nächsten Reset. Nur in der Übersicht – die Widgets zeigen weiterhin nur eine Angabe.</string>
+    <string name="settings_show_tier_subtitle">Plus, Pro, Max – neben dem Anbieternamen in der Liste</string>
+    <string name="settings_section_display">Anzeige</string>
     <string name="settings_percent_display_title">Prozente anzeigen als</string>
-    <string name="settings_percent_display_subtitle">Ob die Zahlen herunterzählen, was übrig ist, oder hochzählen, was du verbraucht hast.</string>
+    <string name="settings_percent_display_subtitle">Was noch übrig ist oder was du schon verbraucht hast. Gilt für die ganze App und alle Widgets.</string>
+    <string name="settings_preview">VORSCHAU</string>
+    <string name="settings_display_preview_sample">%1$s · %2$s</string>
+    <string name="settings_overview_layout_title">Layout</string>
+    <string name="settings_overview_layout_subtitle">Die Liste zeigt alle Zeitfenster pro Konto. Die Ringe zeigen wie die Ring-Widgets einen Ring pro Konto.</string>
+    <string name="settings_overview_list">Liste</string>
+    <string name="settings_overview_dials">Ringe</string>
     <string name="settings_section_notifications">Benachrichtigungen</string>
     <string name="settings_notifications_allowed">Benachrichtigungen erlaubt</string>
     <string name="settings_notifications_not_allowed">Benachrichtigungen nicht erlaubt</string>
@@ -161,25 +184,55 @@
     <string name="action_retry">Erneut versuchen</string>
 
     <!-- Overview screen and account cards (feature/overview/OverviewScreen.kt). -->
-    <string name="overview_section_accounts">Konten</string>
-    <string name="overview_reorder">Sortieren</string>
-    <string name="overview_no_accounts">Noch keine Konten. Füge eines hinzu, um die Nutzung zu verfolgen.</string>
-    <string name="overview_move_account">%1$s verschieben</string>
     <string name="overview_add_account">Konto hinzufügen</string>
-    <string name="overview_add_account_hint">Ein weiteres KI-Abo überwachen</string>
     <string name="overview_section_credits">Guthaben</string>
     <string name="overview_no_credits">Keine Prepaid-Guthaben erfasst.</string>
     <string name="overview_add_credit">Guthaben hinzufügen</string>
-    <string name="overview_add_credit_hint">Prepaid-API-Guthaben verfolgen</string>
-    <plurals name="overview_accounts_monitored">
-        <item quantity="one">%1$d Konto überwacht</item>
-        <item quantity="other">%1$d Konten überwacht</item>
+    <string name="overview_credit_collapse">Einklappen</string>
+    <string name="overview_credit_expand">Guthaben ausklappen</string>
+    <string name="overview_credit_low_balance">Niedriges Guthaben: %1$s</string>
+    <string name="overview_credit_hint">%1$s %2$s</string>
+    <plurals name="overview_credit_count">
+        <item quantity="one">Guthaben · %1$d Konto</item>
+        <item quantity="other">Guthaben · %1$d Konten</item>
     </plurals>
+    <string name="settings_credit_layout_title">Guthabenkonten</string>
+    <string name="settings_credit_layout_subtitle">Normal listet die Guthaben auf. Kompakt zeigt die Anzahl der Konten und das Guthaben, das im Verhältnis zu seiner Schwelle am niedrigsten ist.</string>
+    <string name="settings_credit_normal">Normal</string>
+    <string name="settings_credit_compact">Kompakt</string>
+    <string name="settings_overview_show_first_title">Zuerst anzeigen</string>
+    <string name="settings_overview_show_first_subtitle">Welcher Bereich in der Übersicht ganz oben steht.</string>
+    <string name="settings_overview_usage_providers">Nutzungskonten</string>
+    <string name="settings_show_credits_title">Guthaben anzeigen</string>
+    <string name="settings_show_credits_subtitle">Blendet Guthaben in der Übersicht aus, ohne sie zu entfernen.</string>
+    <string name="credit_manage">Guthaben verwalten</string>
+    <plurals name="overview_need_attention">
+        <item quantity="one">%1$d Konto benötigt Aufmerksamkeit</item>
+        <item quantity="other">%1$d Konten benötigen Aufmerksamkeit</item>
+    </plurals>
+    <string name="overview_all_have_room">Alle Konten haben noch Spielraum</string>
+    <string name="overview_claim_next_reset">%1$s · nächster Reset %2$s</string>
+    <string name="overview_next_reset">Nächster Reset %1$s</string>
+    <string name="overview_no_accounts_yet">Noch keine Konten</string>
+    <string name="overview_loading_usage">Nutzung wird geladen</string>
+    <string name="overview_filter_all">Alle</string>
+    <string name="overview_filter_attention">Braucht Aufmerksamkeit</string>
+    <string name="overview_filter_resets_today">Resets heute</string>
+    <string name="overview_no_match">Keine Konten entsprechen diesem Filter.</string>
+    <string name="overview_headline_caption">Die hervorgehobene Zeile zeigt das maßgebliche Zeitfenster des Kontos.</string>
+    <string name="overview_sign_in_expired">Anmeldung abgelaufen · letzte bekannte Daten</string>
+    <string name="overview_headline_spoken">Maßgebliches Zeitfenster: %1$s</string>
+    <string name="overview_mode_left" formatted="false">% übrig</string>
+    <string name="overview_mode_used" formatted="false">% verbraucht</string>
+    <string name="overview_empty_title">Noch nichts zu verfolgen</string>
+    <string name="overview_no_usage_accounts_title">Noch keine Nutzungskonten</string>
+    <string name="overview_empty_body">Füge ein KI-Abo hinzu, um hier seine Nutzungslimits und Resets zu sehen. Deine Anmeldedaten bleiben auf diesem Gerät.</string>
+    <string name="overview_track_credit">Prepaid-Guthaben erfassen</string>
     <string name="overview_refreshing">Wird aktualisiert…</string>
     <string name="overview_refresh_usage">Nutzung aktualisieren</string>
-    <string name="overview_connected_accounts">Verbundene Konten</string>
-    <string name="overview_loading_usage">Nutzung wird geladen</string>
-    <string name="overview_renews">%1$s erneuert sich in %2$s</string>
+    <string name="overview_dials_caption">Jeder Ring zeigt das maßgebliche Zeitfenster des Kontos. Tippe darauf, um alle Zeitfenster und ihre Rücksetzzeiten zu sehen.</string>
+    <string name="overview_dial_account_number">Konto %1$d</string>
+    <string name="overview_dial_headline_line">%1$s · %2$s</string>
     <string name="overview_no_usage_data">Noch keine Nutzungsdaten</string>
     <string name="status_reconnect">Neu verbinden</string>
     <string name="restricted_windows">Eingeschränkt: %1$s</string>
@@ -187,13 +240,6 @@
     <string name="reset_credits_available_count">%1$d verfügbar</string>
     <string name="error_partial_update">%1$s · teilweise aktualisiert</string>
     <string name="error_showing_last_known">%1$s · zeigt zuletzt bekannte Daten</string>
-
-    <!-- Accounts screen (feature/accounts/AccountsScreen.kt). -->
-    <string name="accounts_title">Konten</string>
-    <string name="accounts_shown">%1$d von %2$d angezeigt</string>
-    <string name="accounts_filter_all">Alle</string>
-    <string name="accounts_filter_attention">Braucht Aufmerksamkeit</string>
-    <string name="accounts_no_match">Kein Konto passt zu diesem Filter.</string>
 
     <!-- Resets screen (feature/resets/ResetsScreen.kt). The day pattern is a DateTimeFormatter pattern, not display text. -->
     <string name="resets_title">Resets</string>
@@ -205,8 +251,14 @@
     <string name="resets_tomorrow">Morgen</string>
     <string name="resets_day_pattern">EEEE, d. MMM</string>
 
+    <!-- Account storage read recovery (#108). -->
+    <string name="storage_error_title">Konten nicht lesbar</string>
+    <string name="storage_error_body">Die auf diesem Gerät gespeicherten Konten konnten nicht gelesen werden. Versuche es erneut.</string>
+    <string name="storage_error_retry">Erneut versuchen</string>
+
     <!-- Account detail (feature/accounts/AccountDetailScreen.kt). -->
     <string name="account_unavailable">Dieses Konto ist nicht mehr verfügbar.</string>
+    <string name="account_back_to_overview">Zurück zur Übersicht</string>
     <string name="account_remove_body">Die gespeicherten Zugangsdaten werden von diesem Gerät gelöscht. Beim Anbieter ändert sich nichts, und du kannst das Konto jederzeit erneut hinzufügen.</string>
     <string name="account_last_attempt_just_now">Letzter Versuch gerade eben</string>
     <string name="account_last_attempt_ago">Letzter Versuch vor %1$s</string>
@@ -304,7 +356,6 @@
     <string name="credit_of_total">von %1$s</string>
 
     <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
-    <string name="message_order_save_failed">Die Reihenfolge der Konten konnte nicht gespeichert werden. Versuche es erneut.</string>
     <string name="message_icon_save_failed">Die Symbolauswahl konnte nicht gespeichert werden. Versuche es erneut.</string>
     <string name="message_pin_refused_full">Das Konto konnte nicht angeheftet werden: Es sind schon %1$d angeheftet. Löse zuerst eines.</string>
     <string name="message_pin_refused_gone">Das Konto konnte nicht angeheftet werden: Es wurde entfernt.</string>
@@ -318,7 +369,6 @@
 
     <!-- Navigation tabs (navigation/UsageLimitsNavigation.kt). -->
     <string name="tab_overview">Übersicht</string>
-    <string name="tab_accounts">Konten</string>
     <string name="tab_resets">Resets</string>
     <string name="tab_settings">Einstellungen</string>
 
@@ -375,6 +425,9 @@
     <string name="widget_credits_unreadable">Konnte nicht gelesen werden</string>
     <string name="widget_credits_refresh_failed_reason">Aktualisierung fehlgeschlagen: %1$s</string>
     <string name="widget_credits_not_read">Noch nicht gelesen</string>
+    <string name="widget_credits_compact_not_read">Ungelesen</string>
+    <string name="widget_credits_compact_unreadable">Lesefehler</string>
+    <string name="widget_credits_compact_refresh_failed">Updatefehler</string>
     <string name="widget_credits_out_of_date">Veraltet · %1$s</string>
     <string name="credit_spent_this_month">%1$s diesen Monat ausgegeben</string>
 
@@ -410,6 +463,7 @@
     <string name="widget_config_tone_auto">Auto</string>
     <string name="widget_config_tone_light">Hell</string>
     <string name="widget_config_tone_dark">Dunkel</string>
+    <string name="widget_config_display_hint">Ob „Übrig“ oder „Verbraucht“ angezeigt wird, richtet sich nach Einstellungen › Anzeige, wie in der Übersicht.</string>
     <string name="widget_config_preview_title">Vorschau · %1$d ausgewählt</string>
     <string name="widget_config_preview_empty">Wähle Konten aus, um dein Widget zu sehen</string>
     <string name="widget_color_charcoal">Anthrazit</string>
@@ -515,4 +569,8 @@
     <string name="icon_style_monochrome">Einfarbig</string>
     <string name="icon_style_wordmark">Wortmarke</string>
     <string name="icon_label_with_style">%1$s · %2$s</string>
+
+    <!-- Claude Code figure (CH-3): the switch under Claude's provider icon row. -->
+    <string name="settings_animate_claude_code_title">Claude-Code-Symbol animieren</string>
+    <string name="settings_animate_claude_code_subtitle">Bewegt sich mit Claudes Nutzung in der Übersicht und in den Kontodetails. Aus, wenn in Android „Animationen entfernen“ aktiviert ist.</string>
 </resources>

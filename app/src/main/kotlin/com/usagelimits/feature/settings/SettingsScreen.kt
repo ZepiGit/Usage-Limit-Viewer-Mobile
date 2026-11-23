@@ -28,9 +28,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.annotation.StringRes
 import com.usagelimits.R
+import com.usagelimits.core.database.inOverviewOrder
 import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.claudeCodeMoodAt
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.OverviewCreditLayout
+import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
+import com.usagelimits.core.settings.OverviewLayout
+import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.core.sync.BackgroundRestrictions
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.feature.UsageUiState
@@ -44,7 +53,6 @@ import com.usagelimits.ui.components.SectionHeader
 import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.ToggleRow
 import com.usagelimits.ui.components.UsageCard
-import com.usagelimits.ui.percentSideCaptionRes
 import com.usagelimits.ui.text.percentFigureText
 import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.theme.SeverityPalette
@@ -64,23 +72,31 @@ fun SettingsScreen(
     onNotifyResetApproaching: (Boolean) -> Unit,
     onNotifyCreditExpiring: (Boolean) -> Unit,
     onShowTier: (Boolean) -> Unit,
-    onShowRenewal: (Boolean) -> Unit,
+    onOverviewLayoutChange: (OverviewLayout) -> Unit,
     onPercentDisplayChange: (PercentDisplay) -> Unit,
     onNotificationPermissionHandled: () -> Unit,
+    onAppThemeChange: (AppTheme) -> Unit,
     modifier: Modifier = Modifier,
     onProviderIconChange: (com.usagelimits.core.model.ProviderId, String) -> Unit = { _, _ -> },
     onStatusIconsChange: (Boolean) -> Unit = {},
     onPinnedChange: (accountId: String, pinned: Boolean) -> Unit = { _, _ -> },
-    onNotificationsAllowed: () -> Unit = {},
+    onOverviewCreditLayoutChange: (OverviewCreditLayout) -> Unit = {},
+    onOverviewShowFirstChange: (OverviewShowFirst) -> Unit = {},
+    onOverviewShowCreditsChange: (Boolean) -> Unit = {},
+    onManageCredits: (() -> Unit)? = null,
+    onTextFontChange: (TextFont) -> Unit = {},
+    onFigureFontChange: (FigureFont) -> Unit = {},
+    onAnimateClaudeCodeIconChange: (Boolean) -> Unit = {},
+    /** The instant Overview orders by; the Claude provider row follows Overview's first Claude account. */
+    nowMs: Long = System.currentTimeMillis(),
 ) {
     val settings = state.settings
     val uriHandler = LocalUriHandler.current
     // One permission flow for the screen: the notification card and the status icon section ask,
-    // read and announce it the same way, and a grant from either reaches the publication.
+    // read and announce it the same way; the application observes eligibility for publication.
     val permission = rememberNotificationPermission(
         alreadyAsked = settings.notificationPermissionHandled,
         onAsked = onNotificationPermissionHandled,
-        onAllowed = onNotificationsAllowed,
     )
 
     LazyColumn(
@@ -92,7 +108,16 @@ fun SettingsScreen(
     ) {
         item { ScreenTitle(stringResource(R.string.settings_title)) }
 
-        item { ProviderIconSettings(settings.providerIcons, onProviderIconChange) }
+        item { SectionHeader(stringResource(R.string.settings_section_appearance)) }
+        item { AppearanceSettings(settings, onTextFontChange, onFigureFontChange, onAppThemeChange) }
+
+        item {
+            // The first Claude account in unfiltered Overview order speaks for Claude's row; none is Idle.
+            val claude = state.accounts.inOverviewOrder(nowMs).firstOrNull { it.account.provider == ProviderId.CLAUDE }
+            ProviderIconSettings(settings.providerIcons, claude?.snapshot.claudeCodeMoodAt(nowMs),
+                settings.animateClaudeCodeIcon, onAnimateClaudeCodeIconChange,
+                claudeAccountId = claude?.account?.localId, onChoose = onProviderIconChange)
+        }
         item { AppIconSettings() }
         item { SectionHeader(stringResource(R.string.settings_section_sync)) }
         item {
@@ -122,44 +147,12 @@ fun SettingsScreen(
             }
         }
 
-        item { SectionHeader(stringResource(R.string.settings_section_overview)) }
+        item(key = "display-heading") { SectionHeader(stringResource(R.string.settings_section_display)) }
+        item { DisplaySettings(settings.percentDisplay, onPercentDisplayChange) }
+        item(key = "overview-heading") { SectionHeader(stringResource(R.string.settings_section_overview)) }
         item {
-            UsageCard {
-                ToggleRow(
-                    title = stringResource(R.string.settings_show_tier_title),
-                    subtitle = stringResource(R.string.settings_show_tier_subtitle),
-                    checked = settings.showSubscriptionTier,
-                    onChange = onShowTier,
-                )
-                RuleDivider()
-                ToggleRow(
-                    title = stringResource(R.string.settings_show_renewal_title),
-                    subtitle = stringResource(R.string.settings_show_renewal_subtitle),
-                    checked = settings.showRenewalTime,
-                    onChange = onShowRenewal,
-                )
-                RuleDivider()
-                Text(
-                    text = stringResource(R.string.settings_percent_display_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = UsageColors.Ink,
-                )
-                Text(
-                    text = stringResource(R.string.settings_percent_display_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = UsageColors.Muted,
-                )
-                Spacer(Modifier.height(10.dp))
-                SegmentedRow {
-                    PercentDisplay.entries.forEach { mode ->
-                        Segment(
-                            label = stringResource(percentSideCaptionRes(mode)),
-                            selected = settings.percentDisplay == mode,
-                            onClick = { onPercentDisplayChange(mode) },
-                        )
-                    }
-                }
-            }
+            OverviewSettings(settings, onOverviewLayoutChange, onShowTier, onOverviewCreditLayoutChange,
+                onOverviewShowFirstChange, onOverviewShowCreditsChange, onManageCredits)
         }
 
         item { SectionHeader(stringResource(R.string.settings_section_notifications)) }

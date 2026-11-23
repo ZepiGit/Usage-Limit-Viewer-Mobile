@@ -211,6 +211,11 @@ public struct ZStack: View {
     public var body: some View { ShimLeaf() }
 }
 
+public struct ViewThatFits: View {
+    public init(in axes: Axis.Set, @ViewBuilder content: () -> any View) {}
+    public var body: some View { ShimLeaf() }
+}
+
 public struct LazyVStack: View {
     public init(alignment: HorizontalAlignment? = nil, spacing: CGFloat? = nil,
                 @ViewBuilder content: () -> any View) {}
@@ -434,6 +439,21 @@ public struct GeometryReader: View {
 
 public struct GeometryProxy {
     public var size: CGSize { .zero }
+    public subscript<T>(anchor: Anchor<T>) -> T { fatalError("Geometry anchors are type-check-only") }
+}
+
+public struct Anchor<Value> {
+    public struct Source {}
+}
+
+extension Anchor.Source where Value == CGRect {
+    public static var bounds: Self { Self() }
+}
+
+public protocol PreferenceKey {
+    associatedtype Value
+    static var defaultValue: Value { get }
+    static func reduce(value: inout Value, nextValue: () -> Value)
 }
 
 // MARK: - App entry point
@@ -470,7 +490,9 @@ extension App {
 }
 
 public struct NavigationLink: View {
+    public init(@ViewBuilder destination: () -> any View, @ViewBuilder label: () -> any View) {}
     public init(_ title: String, @ViewBuilder destination: () -> any View) {}
+    public init<Value: Hashable>(_ title: String, value: Value?) {}
     public var body: some View { ShimLeaf() }
 }
 
@@ -613,6 +635,7 @@ public struct EnvironmentValues {
     public var dismiss = DismissAction()
     public var openURL = OpenURLAction()
     public var dynamicTypeSize: DynamicTypeSize = .large
+    public var locale: Locale = .current
     public var colorScheme: ColorScheme = .dark
     public var scenePhase: ScenePhase = .active
     public var widgetFamily: WidgetFamilyPlaceholder = .systemSmall
@@ -655,6 +678,13 @@ public struct ContentTransition {
 public struct Transaction {
     public var animation: Animation?
     public var disablesAnimations = false
+    public init(animation: Animation?) { self.animation = animation }
+}
+
+@discardableResult
+public func withTransaction<Result>(_ transaction: Transaction,
+                                    _ body: () throws -> Result) rethrows -> Result {
+    try body()
 }
 
 /// The widget family, declared here because `EnvironmentValues` lives in this module while
@@ -703,6 +733,7 @@ public struct Font {
     public static let largeTitle = Font()
     public static func system(size: CGFloat, weight: Weight? = nil, design: Design? = nil) -> Font { Font() }
     public static func system(_ style: TextStyle, design: Design? = nil, weight: Weight? = nil) -> Font { Font() }
+    public static func custom(_ name: String, fixedSize: CGFloat) -> Font { Font() }
     public func weight(_ value: Weight) -> Font { self }
     public func monospacedDigit() -> Font { self }
     public struct Weight { public static let regular = Weight(); public static let medium = Weight()
@@ -727,6 +758,7 @@ public struct CGPoint {
     public var x: Double
     public var y: Double
     public init(x: Double, y: Double) { self.x = x; self.y = y }
+    public static let zero = CGPoint(x: 0, y: 0)
 }
 
 public struct CGRect {
@@ -739,6 +771,16 @@ public struct CGRect {
     public var height: Double { size.height }
     public var midX: Double { origin.x + size.width / 2 }
     public var midY: Double { origin.y + size.height / 2 }
+    public init(origin: CGPoint, size: CGSize) { self.origin = origin; self.size = size }
+    public var isEmpty: Bool { size.width <= 0 || size.height <= 0 }
+    public var isNull: Bool { origin.x.isInfinite || origin.y.isInfinite }
+    public func intersection(_ other: CGRect) -> CGRect {
+        let x = max(origin.x, other.origin.x)
+        let y = max(origin.y, other.origin.y)
+        let right = min(origin.x + width, other.origin.x + other.width)
+        let bottom = min(origin.y + height, other.origin.y + other.height)
+        return CGRect(x: x, y: y, width: max(0, right - x), height: max(0, bottom - y))
+    }
 }
 
 /// A drawn outline: the calls the glyph and sign shapes make.

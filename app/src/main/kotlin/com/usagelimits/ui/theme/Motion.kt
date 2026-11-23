@@ -86,7 +86,7 @@ class UsageMotion private constructor(val enabled: Boolean) {
     /** A state changing in place: a selection, an icon giving way to a spinner. */
     fun <T> stateChange(): FiniteAnimationSpec<T> = spec(QUICK, Standard)
 
-    /** One content replacing another in the same place: tabs, sign-in steps, a figure. */
+    /** A crossfade for content that may overlap, unlike a card or a whole screen. */
     fun <T> contentSwap(): FiniteAnimationSpec<T> = spec(SHORT, Fade)
 
     /** A quantity or a position changing: a bar's fill, a list item's place, a pushed screen. */
@@ -97,6 +97,8 @@ class UsageMotion private constructor(val enabled: Boolean) {
     fun <T> exit(): FiniteAnimationSpec<T> = spec(BRIEF, Fade)
     /** The new arrives where the old was: straight after the exit. */
     fun <T> enterAfterExit(): FiniteAnimationSpec<T> = spec(MEDIUM - BRIEF, Fade, delayMs = BRIEF)
+    /** Derselbe Eintritt, wenn der Aufrufer den Austritt bereits abgewartet hat. */
+    internal fun <T> enterFromHidden(): FiniteAnimationSpec<T> = spec(MEDIUM - BRIEF, Fade)
     fun <T> moveAfterExit(): FiniteAnimationSpec<T> = spec(MEDIUM, Standard, delayMs = BRIEF)
     /**
      * The new arrives where its neighbours have to make room first: it waits for most of their
@@ -123,14 +125,11 @@ class UsageMotion private constructor(val enabled: Boolean) {
 /**
  * A lazy list item in the list's fade-through: items that leave fade out first, then the rest
  * moves, and new items fade in as the move ends.
- *
- * [sequenced] false starts the move at once: under a finger dragging a card, a neighbour that
- * waits reads as lag.
  */
-fun LazyItemScope.itemMotion(motion: UsageMotion, sequenced: Boolean = true): Modifier =
+fun LazyItemScope.itemMotion(motion: UsageMotion): Modifier =
     if (!motion.enabled) Modifier else Modifier.animateItem(
         fadeInSpec = motion.enterAfterMove(),
-        placementSpec = if (sequenced) motion.moveAfterExit() else motion.move(),
+        placementSpec = motion.moveAfterExit(),
         fadeOutSpec = motion.exit(),
     )
 

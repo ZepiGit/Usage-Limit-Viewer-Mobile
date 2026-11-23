@@ -80,14 +80,23 @@ names (the owner's choice). Whether a real Lock Screen keeps that glyph is a rel
   no heads-up showed in the sampled frames; silence on a phone and a dozing screen are release
   checks.
 - Order was observed, not guaranteed. On API 30, 36 and 37 emulators the icons followed the
-  app's order on first post and after a reorder (runs
-  [44196948542](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44196948542) and
-  [44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612));
+  app's order on first post and after a repository reorder (historical runs
+  [44196948542](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44196948542) on
+  `35c18be97b09510afc5d3a76e698e20cb6ed5857` and
+  [44216665612](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612) on
+  `facd42e022ae6c53581a2a2ceaf53d0778e62551`, from builds that still offered a reorder);
   on API 30 a newly pinned account came first until the next sync. The owner accepted that
   exception as a known limit.
-- A swiped-away icon normally returns with the next sync, or at once when the app's Settings
-  screen, which showed notifications or the status icon category blocked, sees them allowed again
-  (that counts like turning the feature on); a block it did not see waits for the next sync. Best
-  effort, as
-  [Status icons](../status-icons.md#swiping-an-icon-away) describes.
+- The order the app asks for is the stored account order, not Overview's automatic order;
+  [ADR 0004](0004-automatic-overview-order-and-stored-order.md) splits the two and keeps the
+  requested order on the stored one, so a changed reading does not change the `when` order the
+  app posts. Whether SystemUI draws that order stays an observation; ADR 0004 records the API 30
+  frames where it did not.
+- A swiped-away icon normally returns with the next sync. A shared main-window observer also
+  restores pins from the cache when a previously observed blocked notification state becomes
+  allowed; this works from Overview as well as Settings. An unknown initial allowed state and an
+  ordinary resume are not restoration edges. A block the app never observed waits for the next
+  sync. Updates recheck their active group immediately before posting, but Android offers no
+  atomic check-and-update, so a concurrent swipe can still race that last gap. These are
+  best-effort boundaries, as [Status icons](../status-icons.md#swiping-an-icon-away) describes.
 - On iOS the widget redraws on WidgetKit's schedule, so the Lock Screen can lag the app.

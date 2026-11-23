@@ -1,0 +1,8 @@
+{
+  "description": "Visible status words for a constrained small Credits widget. Use the same reading state and full localized status for accessibility; compact wording changes neither the cached balance nor freshness. These examples apply when full status sentences do not fit at the chosen text size.",
+  "vectors": [
+    { "state": "unread", "en": "Not read", "de": "Ungelesen" },
+    { "state": "unreadable", "en": "Read error", "de": "Lesefehler" },
+    { "state": "refreshFailed", "en": "Update error", "de": "Updatefehler" }
+  ]
+}

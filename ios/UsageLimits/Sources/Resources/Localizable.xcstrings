@@ -1,6 +1,159 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Appearance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Darstellung" }
+        }
+      }
+    },
+    "Theme" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Design" }
+        }
+      }
+    },
+    "Warm dark" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Warmes Dunkel" }
+        }
+      }
+    },
+    "Pure black" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Reines Schwarz" }
+        }
+      }
+    },
+    "Cool graphite" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Kühles Graphit" }
+        }
+      }
+    },
+    "Light paper" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Helles Papier" }
+        }
+      }
+    },
+    "Text font" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Textschrift" }
+        }
+      }
+    },
+    "Figure font" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Ziffernschrift" }
+        }
+      }
+    },
+    "System" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "System" }
+        }
+      }
+    },
+    "Colours of the app. Widgets keep their own panel style." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Farben der App. Widgets behalten ihren eigenen Hintergrundstil." }
+        }
+      }
+    },
+    "Used for all text in the app." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Für alle Texte in der App." }
+        }
+      }
+    },
+    "Used for percentages, times and amounts." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Für Prozentwerte, Zeiten und Beträge." }
+        }
+      }
+    },
+    "Font licences" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Schriftlizenzen" }
+        }
+      }
+    },
+    "The bundled font notice could not be read." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "Der mitgelieferte Lizenztext der Schrift konnte nicht gelesen werden." }
+        }
+      }
+    },
+    "23:31 · 1h 18m · $12.40" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : { "state" : "translated", "value" : "23:31 · 1 Std. 18 Min. · 12,40 $" }
+        }
+      }
+    },
+    "% left" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "% übrig"
+          }
+        }
+      }
+    },
+    "% used" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "% verbraucht"
+          }
+        }
+      }
+    },
+    "%@ need attention" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Konten benötigen Aufmerksamkeit"
+          }
+        }
+      }
+    },
     "%@ needs to be reconnected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -177,6 +330,17 @@
         }
       }
     },
+    "%@ · next reset %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · nächster Reset %2$@"
+          }
+        }
+      }
+    },
     "%@%%" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -206,28 +370,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@, %2$@, Reset um %3$@, in %4$@, %5$@"
-          }
-        }
-      }
-    },
-    "%@, %@: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@, %2$@: %3$@"
-          }
-        }
-      }
-    },
-    "%@, %@: remaining unknown" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@, %2$@: Restwert unbekannt"
           }
         }
       }
@@ -488,17 +630,6 @@
         }
       }
     },
-    "%lld/%lld connected" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld/%lld verbunden"
-          }
-        }
-      }
-    },
     "%lldd" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -554,17 +685,6 @@
         }
       }
     },
-    "+ Add account" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "+ Konto hinzufügen"
-          }
-        }
-      }
-    },
     "+%lld more" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -572,6 +692,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "+%lld weitere"
+          }
+        }
+      }
+    },
+    "1 needs attention" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 Konto benötigt Aufmerksamkeit"
           }
         }
       }
@@ -605,6 +736,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Für dieses Konto wird bereits ein Reset angefordert."
+          }
+        }
+      }
+    },
+    "Account %lld" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto %lld"
+          }
+        }
+      }
+    },
+    "Account details" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kontodetails"
+          }
+        }
+      }
+    },
+    "Add an AI subscription to see its limits and resets here. Sign-in details stay on this device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Füge ein KI-Abo hinzu, um hier seine Nutzungslimits und Resets zu sehen. Deine Anmeldedaten bleiben auf diesem Gerät."
+          }
+        }
+      }
+    },
+    "All accounts have room" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Konten haben noch Spielraum"
           }
         }
       }
@@ -686,17 +861,6 @@
         }
       }
     },
-    "Accounts" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Konten"
-          }
-        }
-      }
-    },
     "Accounts · drag to reorder" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -726,17 +890,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Guthaben hinzufügen"
-          }
-        }
-      }
-    },
-    "Add a subscription to see how much usage is left and when it resets." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Füge ein Abo hinzu, um zu sehen, wie viel Nutzung übrig ist und wann sie zurückgesetzt wird."
           }
         }
       }
@@ -799,6 +952,17 @@
     "Antigravity" : {
       "extractionState" : "manual",
       "shouldTranslate" : false
+    },
+    "Animate Claude Code icon" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude-Code-Symbol animieren"
+          }
+        }
+      }
     },
     "App icon" : {
       "extractionState" : "manual",
@@ -877,13 +1041,13 @@
         }
       }
     },
-    "Below this the balance reads Low, below twice it Moderate. Ignored when the provider reports a total: the share left decides." : {
+    "Can't read accounts" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Darunter gilt das Guthaben als niedrig, unter dem Doppelten als mäßig. Wird ignoriert, wenn der Anbieter einen Gesamtwert meldet: Dann entscheidet der verbleibende Anteil."
+            "value" : "Konten nicht lesbar"
           }
         }
       }
@@ -980,6 +1144,17 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Close" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schließen"
+          }
+        }
+      }
+    },
     "Closest Resets" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -991,13 +1166,13 @@
         }
       }
     },
-    "Closest Resets automatically shows whatever account resets next. Create custom layouts in the app's widget settings." : {
+    "Closest Resets follows the next reset. All accounts follows Overview; Custom keeps your saved order. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nächste Resets zeigt automatisch das Konto, das als Nächstes zurückgesetzt wird. Eigene Layouts erstellst du in den Widget-Einstellungen der App."
+            "value" : "Nächste Resets folgt dem nächsten Reset. Alle Konten folgt der Übersicht; Eigene Layouts behält deine gespeicherte Reihenfolge. Übrig oder verbraucht folgt Einstellungen › Anzeige."
           }
         }
       }
@@ -1020,17 +1195,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Verbinden"
-          }
-        }
-      }
-    },
-    "Connected accounts" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verbundene Konten"
           }
         }
       }
@@ -1101,17 +1265,6 @@
         }
       }
     },
-    "Could not save account order. Try again." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Reihenfolge der Konten konnte nicht gespeichert werden. Versuche es erneut."
-          }
-        }
-      }
-    },
     "Could not save this layout. Try again." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1133,6 +1286,81 @@
           }
         }
       }
+    },
+    "Collapse" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Einklappen" } } }
+    },
+    "Compact" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Kompakt" } } }
+    },
+    "Compact Credits uses this threshold. For the balance status, a reported total takes precedence." : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Die kompakte Guthabenansicht nutzt diese Schwelle. Für den Guthabenstatus hat ein gemeldeter Gesamtbetrag Vorrang." } } }
+    },
+    "Credit accounts" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Guthabenkonten" } } }
+    },
+    "Credits · %lld balances" : {
+      "comment" : "Compact overview row. The count is the number of tracked credit accounts, not the number of currencies or amounts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : { "stringUnit" : { "state" : "translated", "value" : "Guthaben · %lld Konto" } },
+              "other" : { "stringUnit" : { "state" : "translated", "value" : "Guthaben · %lld Konten" } }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : { "stringUnit" : { "state" : "translated", "value" : "Credits · %lld balance" } },
+              "other" : { "stringUnit" : { "state" : "translated", "value" : "Credits · %lld balances" } }
+            }
+          }
+        }
+      }
+    },
+    "Expands the credit balances" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Klappt die Guthabenliste aus" } } }
+    },
+    "Hide prepaid balances from Overview without removing them." : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Blendet Guthaben in der Übersicht aus, ohne sie zu entfernen." } } }
+    },
+    "Low balance: %@" : {
+      "comment" : "VoiceOver value for the under-threshold credit account and its localized amount.",
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Niedriges Guthaben: %@" } } }
+    },
+    "Normal" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Normal" } } }
+    },
+    "Normal lists the balances. Compact shows a count and the balance furthest below its threshold." : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Normal listet die Guthaben auf. Kompakt zeigt die Anzahl der Konten und das Guthaben, das im Verhältnis zu seiner Schwelle am niedrigsten ist." } } }
+    },
+    "Show credits" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Guthaben anzeigen" } } }
+    },
+    "Show first" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Zuerst anzeigen" } } }
+    },
+    "Usage providers" : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Nutzungskonten" } } }
+    },
+    "Which block sits at the top of Overview." : {
+      "extractionState" : "manual",
+      "localizations" : { "de" : { "stringUnit" : { "state" : "translated", "value" : "Welcher Bereich in der Übersicht ganz oben steht." } } }
     },
     "Credits" : {
       "extractionState" : "manual",
@@ -1226,6 +1454,17 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Dials" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ringe"
+          }
+        }
+      }
+    },
     "Disconnect" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1270,13 +1509,13 @@
         }
       }
     },
-    "Done" : {
+    "Each dial shows the account’s headline. Tap one for every window and its resets." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fertig"
+            "value" : "Jeder Ring zeigt das maßgebliche Zeitfenster des Kontos. Tippe darauf, um alle Zeitfenster und ihre Rücksetzzeiten zu sehen."
           }
         }
       }
@@ -1395,6 +1634,17 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Headline: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maßgebliches Zeitfenster: %@"
+          }
+        }
+      }
+    },
     "Healthy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1494,6 +1744,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Letzte Aktualisierung %@"
+          }
+        }
+      }
+    },
+    "Layout" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Layout"
           }
         }
       }
@@ -1619,7 +1880,29 @@
         }
       }
     },
-    "Manage credits" : {
+    "List" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liste"
+          }
+        }
+      }
+    },
+    "List shows every window per account. Dials show one ring per account, like the ring widgets." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Liste zeigt alle Zeitfenster eines Kontos. Die Ringansicht zeigt wie die Ring-Widgets einen Ring pro Konto."
+          }
+        }
+      }
+    },
+    "Manage credit accounts" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
@@ -1755,17 +2038,6 @@
         }
       }
     },
-    "Never updated" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nie aktualisiert"
-          }
-        }
-      }
-    },
     "New custom layout" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1773,6 +2045,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Neues eigenes Layout"
+          }
+        }
+      }
+    },
+    "Next reset %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächster Reset %@"
+          }
+        }
+      }
+    },
+    "No accounts match this filter." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Konten entsprechen diesem Filter."
+          }
+        }
+      }
+    },
+    "No usage accounts yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Nutzungskonten"
           }
         }
       }
@@ -1865,13 +2170,13 @@
         }
       }
     },
-    "No limit to report" : {
+    "No prepaid balances tracked." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kein Limit zu melden"
+            "value" : "Keine Prepaid-Guthaben erfasst."
           }
         }
       }
@@ -1920,6 +2225,18 @@
         }
       }
     },
+    "Not read" : {
+      "comment" : "Compact status for a Credits widget account that has never been read.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ungelesen"
+          }
+        }
+      }
+    },
     "Not selected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1938,6 +2255,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nichts geplant"
+          }
+        }
+      }
+    },
+    "Nothing to monitor yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nichts zu verfolgen"
           }
         }
       }
@@ -2052,13 +2380,13 @@
         }
       }
     },
-    "Only your usage rings and provider logos." : {
+    "Usage rings and provider marks. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nur deine Verbrauchsringe und Anbieter-Logos."
+            "value" : "Verbrauchsringe und Anbieter-Logos. Übrig oder verbraucht folgt Einstellungen › Anzeige."
           }
         }
       }
@@ -2155,17 +2483,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OpenRouter, DeepSeek, Moonshot, xAI, fal.ai und Novita. Schlüssel bleiben im Schlüsselbund dieses Geräts."
-          }
-        }
-      }
-    },
-    "Opens the provider's normal sign-in page in your browser." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Öffnet die normale Anmeldeseite des Anbieters in deinem Browser."
           }
         }
       }
@@ -2356,6 +2673,18 @@
         }
       }
     },
+    "Read error" : {
+      "comment" : "Compact status for a failed Credits widget account read with no stored balance.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lesefehler"
+          }
+        }
+      }
+    },
     "Reconnect" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2455,17 +2784,6 @@
         }
       }
     },
-    "Reorder" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sortieren"
-          }
-        }
-      }
-    },
     "Reset approaching" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2473,6 +2791,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reset steht bevor"
+          }
+        }
+      }
+    },
+    "Reset due" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset fällig"
           }
         }
       }
@@ -2539,6 +2868,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reset in %@"
+          }
+        }
+      }
+    },
+    "Resets today" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resets heute"
           }
         }
       }
@@ -2681,17 +3021,6 @@
         }
       }
     },
-    "Show renewal time" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Erneuerungszeit anzeigen"
-          }
-        }
-      }
-    },
     "Show subscription tier" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2738,6 +3067,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anmeldung abgelaufen"
+          }
+        }
+      }
+    },
+    "Sign-in expired · showing last known data" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anmeldung abgelaufen · letzte bekannte Daten"
           }
         }
       }
@@ -2841,6 +3181,17 @@
         }
       }
     },
+    "The accounts stored on this device could not be read. Pull down to try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die auf diesem Gerät gespeicherten Konten konnten nicht gelesen werden. Ziehe nach unten, um es erneut zu versuchen."
+          }
+        }
+      }
+    },
     "The account does not name a provider." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2848,6 +3199,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Das Konto nennt keinen Anbieter."
+          }
+        }
+      }
+    },
+    "The emphasised line is the account’s headline." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die hervorgehobene Zeile zeigt das maßgebliche Zeitfenster des Kontos."
           }
         }
       }
@@ -2929,17 +3291,6 @@
         }
       }
     },
-    "The renewal line names when the longest allowance comes back. It is shown on the overview only — a widget has room for the number you are about to run out of, not a second date competing with it." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Die Erneuerungszeile nennt, wann das längste Kontingent zurückkommt. Sie erscheint nur in der Übersicht – ein Widget hat Platz für die Zahl, bei der es gleich knapp wird, nicht für ein zweites Datum, das damit konkurriert."
-          }
-        }
-      }
-    },
     "The same tile with a transparent background." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3002,6 +3353,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dieses Konto kann keine Reset-Credits verwenden."
+          }
+        }
+      }
+    },
+    "This account is no longer on this device." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Konto ist nicht mehr auf diesem Gerät."
           }
         }
       }
@@ -3079,6 +3441,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Morgen"
+          }
+        }
+      }
+    },
+    "Track a prepaid credit balance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prepaid-Guthaben erfassen"
           }
         }
       }
@@ -3182,6 +3555,18 @@
         }
       }
     },
+    "Update error" : {
+      "comment" : "Compact status for a Credits widget account whose refresh failed but still has a balance.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updatefehler"
+          }
+        }
+      }
+    },
     "Updated %@ ago" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3259,13 +3644,13 @@
         }
       }
     },
-    "Usage, account and reset at a glance." : {
+    "Usage, account and reset at a glance. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verbrauch, Konto und Reset auf einen Blick."
+            "value" : "Verbrauch, Konto und Reset auf einen Blick. Übrig oder verbraucht folgt Einstellungen › Anzeige."
           }
         }
       }
@@ -3314,28 +3699,6 @@
         }
       }
     },
-    "Use the actions rotor to show percentage left" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Über den Aktionen-Rotor Prozent übrig anzeigen"
-          }
-        }
-      }
-    },
-    "Use the actions rotor to show percentage used" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Über den Aktionen-Rotor Prozent verbraucht anzeigen"
-          }
-        }
-      }
-    },
     "Used" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3369,24 +3732,24 @@
         }
       }
     },
-    "What is left on one subscription, as a ring, with its reset time." : {
+    "One subscription as a ring, with its reset time. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Was bei einem Abo übrig ist, als Ring mit Reset-Zeit."
+            "value" : "Ein Abo als Ring mit Reset-Zeit. Übrig oder verbraucht folgt Einstellungen › Anzeige."
           }
         }
       }
     },
-    "Whether figures count down what is left or up what you have used." : {
+    "What is left, or what you have used. Applies to the whole app and to every widget." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ob die Zahlen herunterzählen, was übrig ist, oder hochzählen, was du verbraucht hast."
+            "value" : "Zeigt, was übrig ist oder was du verbraucht hast. Gilt für die ganze App und alle Widgets."
           }
         }
       }
@@ -3435,13 +3798,46 @@
         }
       }
     },
-    "Your accounts, your order. Choose one account, a provider or a custom layout." : {
+    "Choose accounts, a provider or a custom layout. Only Custom has your own order. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Konten in deiner Reihenfolge. Wähle ein Konto, einen Anbieter oder ein eigenes Layout."
+            "value" : "Wähle Konten, einen Anbieter oder ein eigenes Layout. Nur Eigene Layouts hat deine eigene Reihenfolge. Übrig oder verbraucht folgt Einstellungen › Anzeige."
+          }
+        }
+      }
+    },
+    "Left or used follows Settings › Display, like Overview. Ring widgets keep the side in VoiceOver, not as a visible caption." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übrig oder verbraucht folgt Einstellungen › Anzeige, wie die Übersicht. Ring-Widgets nennen die Seite in VoiceOver, nicht als sichtbare Beschriftung."
+          }
+        }
+      }
+    },
+    "Static artwork. Add a widget from the Home Screen gallery; touch and hold it to edit its content. System tint, size and update timing are controlled by WidgetKit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Statische Vorschau. Füge ein Widget über die Galerie des Home-Bildschirms hinzu; halte es gedrückt, um seinen Inhalt zu bearbeiten. Systemtönung, Größe und Aktualisierungszeitpunkt werden von WidgetKit gesteuert."
+          }
+        }
+      }
+    },
+    "Static Usage Bars and Mini Rings artwork" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Statische Vorschau von Verbrauchsbalken und Mini-Ringen"
           }
         }
       }

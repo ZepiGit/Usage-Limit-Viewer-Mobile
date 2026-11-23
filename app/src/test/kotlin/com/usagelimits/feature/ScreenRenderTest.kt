@@ -1,17 +1,33 @@
 package com.usagelimits.feature
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.toArgb
+import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.ui.theme.LocalMotionEnabled
+import com.usagelimits.ui.theme.colors
+import org.robolectric.annotation.GraphicsMode
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import com.usagelimits.core.database.AccountUsage
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.OverviewLayout
+import com.usagelimits.feature.overview.OverviewFilter
+import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderAccount
 import com.usagelimits.core.model.ProviderId
@@ -25,12 +41,11 @@ import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.feature.accounts.AccountDetailScreen
 import com.usagelimits.feature.accounts.AddAccountScreen
 import com.usagelimits.feature.accounts.AddAccountState
-import com.usagelimits.feature.accounts.AccountsScreen
-import com.usagelimits.feature.overview.AccountCard
 import com.usagelimits.feature.overview.OverviewScreen
 import com.usagelimits.feature.resets.ResetsScreen
 import com.usagelimits.feature.settings.SettingsScreen
 import com.usagelimits.ui.theme.UsageLimitsTheme
+import androidx.compose.ui.test.hasClickAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -57,7 +72,7 @@ import org.robolectric.annotation.Config
 class ScreenRenderTest {
 
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createAndroidComposeRule<ComponentActivity>()
 
     private val now = 1_757_000_000_000L
 
@@ -123,13 +138,10 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {},
+                onPercentDisplayChange = {},
             )
         }
 
-        // `onAllNodes`, not `onNode`: the label legitimately appears twice — once on the
-        // summary card that leads the screen and once on the account card below it — and
-        // asserting a single node fails on correct behaviour.
         assertTrue(
             "the window label should be on screen",
             compose.onAllNodesWithText("5h limit", substring = true)
@@ -137,11 +149,11 @@ class ScreenRenderTest {
     }
 
     @Test
-    fun `an otherwise current Overview card shows a pause without presenting a failure`() {
+    fun `an otherwise current Overview row shows a pause without presenting a failure`() {
         render {
-            AccountCard(
-                usage = pausedAntigravity(), nowMs = now, staleAfterMs = 3_600_000,
-                percentDisplay = PercentDisplay.LEFT, onRetry = {}, onClick = {},
+            OverviewScreen(
+                state = state(pausedAntigravity()), nowMs = now, onRefresh = {}, onAccountClick = {},
+                onAddAccount = {}, onPercentDisplayChange = {},
             )
         }
 
@@ -153,22 +165,7 @@ class ScreenRenderTest {
         compose.onNodeWithText("Error", useUnmergedTree = true).assertDoesNotExist()
     }
 
-    @Test
-    fun `overview renders with no accounts at all`() {
-        // The state every user sees first, and the one most likely to divide by a count of zero.
-        render {
-            OverviewScreen(
-                state = state(),
-                nowMs = now,
-                onRefresh = {},
-                onAccountClick = {},
-                onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {},
-            )
-        }
-
-        compose.waitForIdle()
-    }
+    // C1, loading and a filter without matches: OverviewEmptyStatesTest, in English and German.
 
     @Test
     fun `overview survives a window whose percentage the provider never stated`() {
@@ -180,7 +177,7 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {},
+                onPercentDisplayChange = {},
             )
         }
 
@@ -188,19 +185,68 @@ class ScreenRenderTest {
     }
 
     @Test
-    fun `overview renders a failed account`() {
+    fun `a failed row says why once, with its last figures and a retry`() {
+        val failed = usage(status = SnapshotStatus.FAILED).let {
+            it.copy(snapshot = it.snapshot!!.copy(errorMessage = "Network unavailable"))
+        }
         render {
             OverviewScreen(
-                state = state(usage(status = SnapshotStatus.FAILED)),
+                state = state(failed),
                 nowMs = now,
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {},
+                onPercentDisplayChange = {},
             )
         }
 
-        compose.waitForIdle()
+        fun shown(text: String) = compose.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        assertTrue("the stored message, worded as a failure", shown("Network unavailable · showing last known data"))
+        assertTrue("the last figure stays", shown("60%"))
+        assertTrue("a retry is offered", shown("Retry"))
+        assertTrue("the bare severity word does not repeat the message", !shown("Error"))
+    }
+
+    @Test
+    fun `failed retained global scope determines the actual List mark`() {
+        val sample = mutableStateOf(usage(status = SnapshotStatus.FAILED))
+        render {
+            OverviewScreen(
+                state = state(sample.value), nowMs = now,
+                onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+        val cases = listOf(
+            Triple(37.0, 90.0, null),
+            Triple(37.0, 70.0, null),
+            Triple(70.0, 90.0, "Moderate"),
+            Triple(90.0, 37.0, "Low"),
+            Triple(100.0, 37.0, "Exhausted"),
+            Triple(37.0, 100.0, "Limited"),
+            Triple(null, 90.0, null),
+        )
+        for ((globalUsed, modelUsed, expected) in cases) {
+            compose.runOnIdle {
+                sample.value = usage(status = SnapshotStatus.FAILED).let {
+                    it.copy(snapshot = it.snapshot!!.copy(windows = listOf(
+                        window(globalUsed, "Weekly").copy(id = "global"),
+                        window(modelUsed, "Model").copy(id = "model", scope = com.usagelimits.core.model.UsageScope.MODEL),
+                    )))
+                }
+            }
+            compose.waitForIdle()
+            for (label in listOf("Moderate", "Low", "Limited", "Exhausted", "Unknown")) {
+                val mark = compose.onNode(hasContentDescription(label), useUnmergedTree = true)
+                if (label == expected) mark.assertIsDisplayed() else mark.assertDoesNotExist()
+            }
+            compose.onNodeWithText("Error", useUnmergedTree = true).assertIsDisplayed()
+            if (modelUsed == 90.0 && globalUsed != 90.0) {
+                compose.onNodeWithText("10%", useUnmergedTree = true).assertIsDisplayed()
+            }
+            if (globalUsed == 37.0) {
+                compose.onNodeWithText("63%", useUnmergedTree = true).assertIsDisplayed()
+            }
+        }
     }
 
     @Test
@@ -216,30 +262,33 @@ class ScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {}, onPercentDisplayChange = {},
+                onPercentDisplayChange = {},
             )
         }
 
         compose.waitForIdle()
     }
 
+    // Tall enough that the lazy list composes all four rows.
+    @Config(qualifiers = "w393dp-h1600dp")
     @Test
-    fun `accounts renders one card per provider`() {
+    fun `overview renders one row per account of four providers`() {
         render {
-            AccountsScreen(
+            OverviewScreen(
                 state = state(
                     usage("a", provider = ProviderId.CODEX),
                     usage("b", provider = ProviderId.CLAUDE),
                     usage("c", provider = ProviderId.ANTIGRAVITY),
                     usage("d", provider = ProviderId.XAI),
                 ),
-                nowMs = now,
-                onAccountClick = {},
-                onAddAccount = {},
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
             )
         }
 
-        compose.waitForIdle()
+        assertEquals("one row per account", 4,
+            compose.onAllNodes(androidx.compose.ui.test.hasClickAction() and
+                androidx.compose.ui.test.hasAnyDescendant(androidx.compose.ui.test.hasContentDescription("Headline", substring = true)))
+                .fetchSemanticsNodes().size)
     }
 
     @Test
@@ -263,7 +312,7 @@ class ScreenRenderTest {
             SettingsScreen(
                 state = state(usage()),
                 onSyncIntervalChange = {},
-                onNotificationPermissionHandled = {},
+                onNotificationPermissionHandled = {}, onAppThemeChange = {},
                 onNotifyBelow20 = { toggled = true },
                 onNotifyBelow10 = {},
                 onNotifyExhausted = {},
@@ -272,7 +321,7 @@ class ScreenRenderTest {
                 onNotifyResetApproaching = {},
                 onNotifyCreditExpiring = {},
                 onShowTier = {},
-                onShowRenewal = {},
+                onOverviewLayoutChange = {},
                 onPercentDisplayChange = {},
             )
         }
@@ -284,7 +333,7 @@ class ScreenRenderTest {
             .fetchSemanticsNodes()
             .let { assertTrue("the 20% toggle should be reachable", it.isNotEmpty()) }
 
-        // The two display switches, which decide what the overview shows per account.
+        // Only the tier remains configurable; reset stamps are part of the layout.
         compose.onNode(hasScrollToNodeAction())
             .performScrollToNode(hasText("Show subscription tier", substring = true))
         compose.onAllNodesWithText("Show subscription tier", substring = true)
@@ -292,7 +341,7 @@ class ScreenRenderTest {
             .let { assertTrue("the tier switch should be reachable", it.isNotEmpty()) }
         compose.onAllNodesWithText("Show renewal time", substring = true)
             .fetchSemanticsNodes()
-            .let { assertTrue("the renewal switch should be reachable", it.isNotEmpty()) }
+            .let { assertTrue("the stored renewal preference no longer has a switch", it.isEmpty()) }
 
         // The percent-display control, with both modes reachable.
         compose.onNode(hasScrollToNodeAction())
@@ -325,7 +374,7 @@ class ScreenRenderTest {
         SettingsScreen(
             state = UsageUiState(accounts = listOf(usage()), settings = AppSettings(percentDisplay = mode)),
             onSyncIntervalChange = onSyncIntervalChange,
-            onNotificationPermissionHandled = {},
+            onNotificationPermissionHandled = {}, onAppThemeChange = {},
             onNotifyBelow20 = {},
             onNotifyBelow10 = {},
             onNotifyExhausted = {},
@@ -334,7 +383,7 @@ class ScreenRenderTest {
             onNotifyResetApproaching = {},
             onNotifyCreditExpiring = {},
             onShowTier = {},
-            onShowRenewal = {},
+            onOverviewLayoutChange = {},
             onPercentDisplayChange = {},
         )
     }
@@ -379,13 +428,221 @@ class ScreenRenderTest {
     }
 
     @Test
+    @Config(qualifiers = "en-rGB-w393dp-h1600dp")
+    fun `settings previews change with layout display mode and tier`() {
+        val settings = mutableStateOf(AppSettings())
+        render {
+            SettingsScreen(
+                state = UsageUiState(settings = settings.value),
+                onSyncIntervalChange = {}, onNotificationPermissionHandled = {}, onAppThemeChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {},
+                onNotifyExhausted = {}, onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
+                onNotifyCreditExpiring = {}, onShowTier = { settings.value = settings.value.copy(showSubscriptionTier = it) },
+                onOverviewLayoutChange = { settings.value = settings.value.copy(overviewLayout = it) },
+                onPercentDisplayChange = { settings.value = settings.value.copy(percentDisplay = it) },
+            )
+        }
+        val scroll = compose.onNode(hasScrollToNodeAction())
+        scroll.performScrollToNode(hasText("OpenAI Codex Plus"))
+        compose.onNodeWithText("OpenAI Codex Plus", useUnmergedTree = true).assertIsDisplayed()
+        scroll.performScrollToNode(hasText("61%"))
+        compose.onNodeWithText("61%", useUnmergedTree = true).assertIsDisplayed()
+        scroll.performScrollToNode(hasContentDescription("Show subscription tier"))
+        compose.onNode(hasContentDescription("Show subscription tier") and hasClickAction())
+            .assertIsDisplayed().performClick()
+        compose.onNodeWithText("OpenAI Codex Plus", useUnmergedTree = true).assertDoesNotExist()
+        val untieredPreview = hasText("OpenAI Codex") and !hasClickAction()
+        scroll.performScrollToNode(untieredPreview)
+        compose.onNode(untieredPreview).assertIsDisplayed()
+
+        scroll.performScrollToNode(hasText("Used") and hasClickAction())
+        compose.onNode(hasText("Used") and hasClickAction()).assertIsDisplayed().performClick()
+        val usedWindow = hasContentDescription("39% used", substring = true)
+        scroll.performScrollToNode(usedWindow)
+        compose.onNode(usedWindow).assertIsDisplayed()
+        compose.onNodeWithText("39%", useUnmergedTree = true).assertIsDisplayed()
+        scroll.performScrollToNode(hasText("Dials") and hasClickAction())
+        compose.onNode(hasText("Dials") and hasClickAction()).assertIsDisplayed().performClick()
+        val usedDial = hasContentDescription("OpenAI Codex", substring = true) and
+            hasContentDescription("56%", substring = true)
+        scroll.performScrollToNode(usedDial)
+        compose.onNode(usedDial).assertIsDisplayed()
+        compose.onNodeWithText("39%", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "en-rGB")
+    fun `an expired dial shows reconnect while keeping its reset stamp in semantics`() {
+        val expired = usage().let { usage ->
+            usage.copy(snapshot = usage.snapshot!!.copy(connectionStatus = ConnectionStatus.RECONNECT_REQUIRED))
+        }
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(expired), settings = AppSettings(overviewLayout = OverviewLayout.DIALS)),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"),
+                onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+
+        val tile = compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and
+            hasContentDescription("16:33", substring = true))
+        tile.assertIsDisplayed()
+        compose.onNodeWithText("Reconnect", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("5h limit · 16:33", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `same-provider dials identify accounts without emails`() {
+        val first = usage(id = "first").let { usage ->
+            usage.copy(account = usage.account.copy(email = null, createdAt = 1L))
+        }
+        val second = usage(id = "second").let { usage ->
+            usage.copy(account = usage.account.copy(email = null, createdAt = 2L))
+        }
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(first, second), settings = AppSettings(overviewLayout = OverviewLayout.DIALS)),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"),
+                onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+
+        compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and
+            hasContentDescription("Account 1", substring = true)).assertIsDisplayed()
+        compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and
+            hasContentDescription("Account 2", substring = true)).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a moderate dial does not add an extra spoken severity`() {
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(usage(usedPercent = 60.0)),
+                    settings = AppSettings(overviewLayout = OverviewLayout.DIALS)),
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+        compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and hasClickAction())
+            .assert(hasContentDescription("40% remaining", substring = true) and hasContentDescription("Moderate", substring = true).not())
+    }
+
+    @Test
+    @Config(qualifiers = "en-rGB-w393dp-h1600dp")
+    fun `List and Dials preserve stored reading messages with their reset stamps`() {
+        val layout = mutableStateOf(OverviewLayout.LIST)
+        val snapshot = mutableStateOf(usage().snapshot!!.copy(errorMessage = "Network unavailable"))
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(usage().copy(snapshot = snapshot.value)),
+                    settings = AppSettings(overviewLayout = layout.value)),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"), onRefresh = {}, onAccountClick = {},
+                onAddAccount = {}, onPercentDisplayChange = {},
+            )
+        }
+        for (choice in OverviewLayout.entries) {
+            for ((status, message) in listOf(SnapshotStatus.OK to "Network unavailable",
+                SnapshotStatus.PARTIAL to "Network unavailable · partial update",
+                SnapshotStatus.FAILED to "Network unavailable · showing last known data")) {
+                compose.runOnIdle { layout.value = choice; snapshot.value = snapshot.value.copy(status = status) }
+                compose.onNodeWithText(message, useUnmergedTree = true).assertIsDisplayed()
+                compose.onNodeWithText(if (choice == OverviewLayout.LIST) "16:33" else "5h limit · 16:33",
+                    useUnmergedTree = true).assertIsDisplayed()
+                compose.onNodeWithText("60%", useUnmergedTree = true).assertIsDisplayed()
+            }
+        }
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Config(qualifiers = "en-rGB-w393dp-h873dp")
+    fun `Dials draw warning expired stale data and missing arcs in their actual palette colours`() {
+        val palette = AppTheme.PURE_BLACK.colors
+        val low = usage(usedPercent = 80.0)
+        val data = usage(usedPercent = 40.0)
+        val expired = low.copy(snapshot = low.snapshot!!.copy(connectionStatus = ConnectionStatus.RECONNECT_REQUIRED))
+        val stale = low.copy(snapshot = low.snapshot!!.copy(fetchedAt = now - 48 * 3_600_000L))
+        val failed = low.copy(snapshot = low.snapshot!!.copy(status = SnapshotStatus.FAILED))
+        val unknown = usage(usedPercent = null)
+        val reading = mutableStateOf(low)
+        compose.setContent {
+            UsageLimitsTheme {
+                CompositionLocalProvider(LocalMotionEnabled provides false) {
+                    OverviewScreen(
+                        state = UsageUiState(accounts = listOf(reading.value),
+                            settings = AppSettings(overviewLayout = OverviewLayout.DIALS, percentDisplay = PercentDisplay.USED)),
+                        nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onPercentDisplayChange = {},
+                    )
+                }
+            }
+        }
+        val cases = listOf(
+            "low" to (low to palette.Warning), "exhausted" to (usage(usedPercent = 100.0) to palette.Warning),
+            "expired" to (expired to palette.Faint),
+            "stale" to (stale to palette.StaleMark), "current" to (data to palette.Data),
+            "failed" to (failed to palette.Rule), "unknown" to (unknown to palette.Rule),
+        )
+        for ((name, sample) in cases) {
+            compose.runOnIdle { reading.value = sample.first }
+            compose.waitForIdle()
+            val tile = compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and hasClickAction())
+                .fetchSemanticsNode().boundsInRoot
+            val density = compose.activity.resources.displayMetrics.density
+            val root = compose.activity.window.decorView
+            val image = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(Canvas(it)) }
+            try {
+                // The 3 o'clock centre of the real 104dp ring: 48dp radius, 16dp tile top padding.
+                val x = (tile.center.x + 48 * density).toInt()
+                val y = (tile.top + 68 * density).toInt()
+                assertEquals("$name ring stroke", sample.second.toArgb(), image.getPixel(x, y))
+            } finally { image.recycle() }
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "en-rGB-w393dp-h1600dp", fontScale = 1.6f)
+    fun `large Dials keep the headline and ignore the List filter`() {
+        val codex = usage().let { usage ->
+            usage.copy(snapshot = usage.snapshot!!.copy(windows = listOf(
+                window(20.0).copy(id = "first", resetAt = now + 2 * 60 * 60 * 1000),
+                window(90.0).copy(id = "headline", resetAt = now + 3 * 60 * 60 * 1000),
+            )))
+        }
+        val claude = codex.copy(account = account("claude", ProviderId.CLAUDE, "Pro"))
+        var opened: String? = null
+        var add = false
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(codex, claude), settings = AppSettings(overviewLayout = OverviewLayout.DIALS)),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"), filter = OverviewFilter.NEEDS_ATTENTION,
+                onRefresh = {}, onAccountClick = { opened = it }, onAddAccount = { add = true }, onPercentDisplayChange = {},
+            )
+        }
+        val codexTile = compose.onNode(hasContentDescription("OpenAI Codex", substring = true) and hasClickAction())
+        val claudeTile = compose.onNode(hasContentDescription("Claude", substring = true) and hasClickAction())
+        codexTile.assertIsDisplayed()
+        claudeTile.assertIsDisplayed()
+        val boxes = listOf(codexTile, claudeTile).map { it.fetchSemanticsNode().boundsInRoot }.sortedBy { it.top }
+        assertTrue("a large font puts the dials on separate rows", boxes[0].bottom <= boxes[1].top)
+        assertEquals(boxes[0].left, boxes[1].left)
+        codexTile.assert(hasContentDescription("10% remaining", substring = true) and
+            hasContentDescription("18:33", substring = true))
+        codexTile.assert(hasContentDescription("80%", substring = true).not() and
+            hasContentDescription("17:33", substring = true).not())
+        compose.onNodeWithText("Needs attention").assertDoesNotExist()
+        compose.onNodeWithText("OpenAI Codex Plus", useUnmergedTree = true).assertDoesNotExist()
+        codexTile.performClick()
+        assertEquals(codex.account.localId, opened)
+        compose.onNode(hasContentDescription("Add account") and hasClickAction()).performClick()
+        assertTrue(add)
+    }
+
+    @Test
     fun `the percent display control reports its choice`() {
         var chosen: PercentDisplay? = null
         render {
             SettingsScreen(
                 state = state(usage()),
                 onSyncIntervalChange = {},
-                onNotificationPermissionHandled = {},
+                onNotificationPermissionHandled = {}, onAppThemeChange = {},
                 onNotifyBelow20 = {},
                 onNotifyBelow10 = {},
                 onNotifyExhausted = {},
@@ -394,7 +651,7 @@ class ScreenRenderTest {
                 onNotifyResetApproaching = {},
                 onNotifyCreditExpiring = {},
                 onShowTier = {},
-                onShowRenewal = {},
+                onOverviewLayoutChange = {},
                 onPercentDisplayChange = { chosen = it },
             )
         }

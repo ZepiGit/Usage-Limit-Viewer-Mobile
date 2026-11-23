@@ -27,23 +27,26 @@ runtime_directory=$(mktemp -d "$RUNNER_TEMP/usage-runtime.XXXXXX")
 export ANDROID_AVD_HOME="$runtime_directory/avd"
 mkdir -p "$ANDROID_AVD_HOME"
 emulator_pid=
+boot_evidence=$evidence
 
-cleanup() {
-  local status=$?
-  trap - EXIT
-  set +e
-  # Preserve boot/system evidence before terminating only the emulator we started.
+preserve_boot() {
+  [[ -n "$emulator_pid" ]] || return 0
+  local command_status=0
+  timeout 15s adb -s "$ANDROID_SERIAL" logcat -b all -d -v threadtime > "$boot_evidence/emulator-system-log.txt" 2>&1 || command_status=$?
+  printf '%s\n' "$command_status" > "$boot_evidence/emulator-system-log-exit-status.txt"
+  command_status=0
+  timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys dropbox --print system_app_anr > "$boot_evidence/emulator-system-app-anr.txt" 2>&1 || command_status=$?
+  printf '%s\n' "$command_status" > "$boot_evidence/emulator-system-app-anr-exit-status.txt"
+  timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys activity lastanr > "$boot_evidence/emulator-last-anr.txt" 2>&1 || true
+  timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys window > "$boot_evidence/emulator-window.txt" 2>&1 || true
+  timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys activity activities > "$boot_evidence/emulator-activities.txt" 2>&1 || true
+}
+
+stop_emulator() {
   if [[ -n "$emulator_pid" ]]; then
-    timeout 15s adb -s "$ANDROID_SERIAL" logcat -b all -d -v threadtime > "$evidence/emulator-system-log.txt" 2>&1
-    printf '%s\n' "$?" > "$evidence/emulator-system-log-exit-status.txt"
-    timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys dropbox --print system_app_anr > "$evidence/emulator-system-app-anr.txt" 2>&1
-    printf '%s\n' "$?" > "$evidence/emulator-system-app-anr-exit-status.txt"
-    timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys activity lastanr > "$evidence/emulator-last-anr.txt" 2>&1
-    timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys window > "$evidence/emulator-window.txt" 2>&1
-    timeout 15s adb -s "$ANDROID_SERIAL" shell dumpsys activity activities > "$evidence/emulator-activities.txt" 2>&1
     if kill -0 "$emulator_pid" 2>/dev/null; then
       kill "$emulator_pid"
-      for ((attempt = 0; attempt < 20; attempt++)); do
+      for ((probe = 0; probe < 20; probe++)); do
         kill -0 "$emulator_pid" 2>/dev/null || break
         sleep 1
       done
@@ -51,8 +54,17 @@ cleanup() {
         kill -KILL "$emulator_pid"
       fi
     fi
-    wait "$emulator_pid" 2>/dev/null
+    wait "$emulator_pid" 2>/dev/null || true
+    emulator_pid=
   fi
+}
+
+cleanup() {
+  local status=$?
+  trap - EXIT
+  set +e
+  preserve_boot
+  stop_emulator
   rm -rf -- "$runtime_directory"
   exit "$status"
 }
@@ -125,31 +137,35 @@ cp "$ANDROID_AVD_HOME/usage-runtime.avd/config.ini" "$evidence/emulator-avd-conf
 # Select SwiftShader explicitly, matching the earlier healthy boot's backends.
 # https://developer.android.com/studio/run/emulator-acceleration
 emulator_args=(-avd usage-runtime -port 5554 -cores 4 -memory 4096
-  -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim
+  -no-window -gpu swiftshader -no-snapshot -wipe-data -noaudio -no-boot-anim
   -camera-back none -camera-front none)
 printf '%s\n' "${emulator_args[@]}" > "$evidence/emulator-arguments.txt"
-EGL_PLATFORM=x11 \
-  "$ANDROID_HOME/emulator/emulator" "${emulator_args[@]}" > "$evidence/emulator-boot.txt" 2>&1 &
-emulator_pid=$!
-boot_deadline=$((SECONDS + 600))
-timeout 120s adb -s "$ANDROID_SERIAL" wait-for-device
-while :; do
-  if ! kill -0 "$emulator_pid" 2>/dev/null; then
-    echo 'Emulator exited before boot completed; see emulator-boot.txt.' >&2
-    exit 1
-  fi
-  if ((SECONDS >= boot_deadline)); then
-    echo 'Emulator did not complete boot within 600 seconds.' >&2
-    exit 1
-  fi
-  boot_completed=$(timeout 10s adb -s "$ANDROID_SERIAL" shell getprop sys.boot_completed | tr -d '\r') || boot_completed=
-  printf '%s boot_completed=%s\n' "$(date -u +%FT%TZ)" "$boot_completed" >> "$evidence/emulator-boot-probes.txt"
-  [[ "$boot_completed" == 1 ]] && break
-  sleep 1
-done
+boot_emulator() {
+  for attempt in 1 2 3; do
+    boot_evidence="$evidence/boot-$attempt"
+    mkdir -p "$boot_evidence"
+    EGL_PLATFORM=x11 \
+      "$ANDROID_HOME/emulator/emulator" "${emulator_args[@]}" > "$boot_evidence/emulator-boot.txt" 2>&1 &
+    emulator_pid=$!
+    boot_deadline=$((SECONDS + 600))
+    timeout 120s adb -s "$ANDROID_SERIAL" wait-for-device
+    while :; do
+      if ! kill -0 "$emulator_pid" 2>/dev/null; then
+        echo 'Emulator exited before boot completed; see emulator-boot.txt.' >&2
+        exit 1
+      fi
+      if ((SECONDS >= boot_deadline)); then
+        echo 'Emulator did not complete boot within 600 seconds.' >&2
+        exit 1
+      fi
+      boot_completed=$(timeout 10s adb -s "$ANDROID_SERIAL" shell getprop sys.boot_completed | tr -d '\r') || boot_completed=
+      printf '%s boot_completed=%s\n' "$(date -u +%FT%TZ)" "$boot_completed" >> "$boot_evidence/emulator-boot-probes.txt"
+      [[ "$boot_completed" == 1 ]] && break
+      sleep 1
+    done
 
-# Fail before APK installation if an SDK update changes the selected backends.
-python3 - "$evidence/emulator-boot.txt" <<'PY'
+    # Fail before APK installation if an SDK update changes the selected backends.
+    python3 - "$boot_evidence/emulator-boot.txt" <<'PY'
 from pathlib import Path
 import re
 import sys
@@ -159,10 +175,10 @@ if modes != {("swiftshader", "swiftshader")}:
     raise SystemExit(f"Expected SwiftShader Vulkan/GLES; observed renderer modes: {sorted(modes)}")
 PY
 
-display_size=$(timeout 10s adb -s "$ANDROID_SERIAL" shell wm size | tr -d '\r')
-display_density=$(timeout 10s adb -s "$ANDROID_SERIAL" shell wm density | tr -d '\r')
-printf '%s\n%s\n' "$display_size" "$display_density" > "$evidence/emulator-runtime-display.txt"
-python3 - "$evidence/emulator-runtime-display.txt" <<'PY'
+    display_size=$(timeout 10s adb -s "$ANDROID_SERIAL" shell wm size | tr -d '\r')
+    display_density=$(timeout 10s adb -s "$ANDROID_SERIAL" shell wm density | tr -d '\r')
+    printf '%s\n%s\n' "$display_size" "$display_density" > "$boot_evidence/emulator-runtime-display.txt"
+    python3 - "$boot_evidence/emulator-runtime-display.txt" <<'PY'
 from pathlib import Path
 import math
 import re
@@ -178,6 +194,27 @@ if any(not math.isclose(actual, expected, abs_tol=0.6)
        for actual, expected in zip(dp, (1440 * 160 / 560, 3120 * 160 / 560))):
     raise SystemExit(f"The reduced-resolution display changed the logical viewport: {dp}")
 PY
+
+    readiness_status=0
+    python3 "$script_directory/android_runtime_smoke.py" --boot-readiness --serial "$ANDROID_SERIAL" \
+      --evidence "$boot_evidence" || readiness_status=$?
+    if ((readiness_status == 75)); then
+      preserve_boot
+      if ((attempt == 3)); then
+        message='System UI startup ANR (com.android.systemui failed to complete startup) exhausted all three pre-install boots.'
+        echo "$message" >&2
+        [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || printf '%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
+        exit 1
+      fi
+      stop_emulator
+      continue
+    fi
+    ((readiness_status == 0)) || exit "$readiness_status"
+    printf '%s\n' "$attempt" > "$evidence/installed-on-boot.txt"
+    break
+  done
+}
+boot_emulator
 
 for setting in window_animation_scale transition_animation_scale animator_duration_scale; do
   timeout 10s adb -s "$ANDROID_SERIAL" shell settings put global "$setting" 0.0

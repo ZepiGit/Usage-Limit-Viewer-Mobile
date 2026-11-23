@@ -1,12 +1,18 @@
 package com.usagelimits.widget
 
 import android.content.Context
+import android.content.res.Resources
+import android.graphics.Paint
+import android.graphics.Typeface
+import androidx.core.util.TypedValueCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -17,7 +23,6 @@ import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.LocalSize
-import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.LinearProgressIndicator
@@ -47,17 +52,25 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.usagelimits.R
 import com.usagelimits.UsageLimitsActivity
+import com.usagelimits.navigation.ExternalRequest
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.Severity
 import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.model.claudeCodeMood
+import com.usagelimits.core.model.withPercentSign
+import com.usagelimits.ui.ClaudeCodeBrand
+import com.usagelimits.ui.ProviderIconCatalog
+import com.usagelimits.ui.ProviderIconChoice
+import com.usagelimits.ui.claudeCodeStillBitmap
 import com.usagelimits.core.time.Countdown
 import com.usagelimits.core.time.CountdownTexts
 import com.usagelimits.ui.percentSideCaptionRes
 import com.usagelimits.ui.percentSideWordRes
 import com.usagelimits.ui.text.ResourceCountdownTexts
-import com.usagelimits.ui.text.percentFigure
 import kotlinx.coroutines.flow.first
+import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /**
  * The style of the widget being composed: its panel and the ink derived from it.
@@ -111,15 +124,31 @@ internal fun UsageBar(row: WidgetRow, modifier: GlanceModifier = GlanceModifier,
  */
 @Composable
 private fun percentText(row: WidgetRow): String =
-    percentFigure(row.presentation(null, LocalPercentMode.current).token, androidx.glance.LocalContext.current.resources)
+    withPercentSign(row.presentation(null, LocalPercentMode.current).token)
 
-/** Text on a widget: sizes from the scale (11, 12, 14, 16, 22), figures in the system mono. */
+/** Text on a widget, with figures in the system monospace face. */
 internal fun widgetText(color: Color, size: Int, weight: FontWeight = FontWeight.Normal, mono: Boolean = false) = TextStyle(
     color = ColorProvider(color),
     fontSize = size.sp,
     fontWeight = weight,
     fontFamily = if (mono) FontFamily.Monospace else null,
 )
+
+/** Fit bold monospace figures in pixels, then invert the host's nonlinear sp scaling. */
+internal fun fittedMonoSize(text: String, sizeSp: Float, maxWidth: Dp, resources: Resources): Float {
+    val metrics = resources.displayMetrics
+    val available = maxWidth.value * metrics.density
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        textSize = TypedValueCompat.spToPx(sizeSp, metrics)
+    }
+    val width = paint.measureText(text)
+    if (width <= available) return sizeSp
+    // TextView rounds glyph advances. Check again at the smaller size rather than scaling widths linearly.
+    paint.textSize = (paint.textSize * available / width).toInt().toFloat()
+    while (paint.textSize > 1f && paint.measureText(text) > available) paint.textSize -= 1f
+    return TypedValueCompat.pxToSp(paint.textSize, metrics)
+}
 
 /** The panel's corner: the launcher's own radius where the system states it, 16dp before API 31. */
 internal fun GlanceModifier.panelCorner(): GlanceModifier =
@@ -200,7 +229,7 @@ class CompactUsageWidget : GlanceAppWidget() {
                         .panelCorner()
                         .background(style.background.color)
                         .padding(10.dp)
-                        .clickable(actionStartActivity<UsageLimitsActivity>())
+                        .clickable(androidx.glance.appwidget.action.actionStartActivity(ExternalRequest.openOverview(context)))
                     val empty = snapshot.emptyText(context.resources)
                     if (empty != null) {
                         Column(root) {
@@ -450,7 +479,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
                     Column(
                         GlanceModifier.fillMaxSize().panelCorner()
                             .background(style.background.color).padding(10.dp)
-                            .clickable(actionStartActivity<UsageLimitsActivity>()),
+                            .clickable(androidx.glance.appwidget.action.actionStartActivity(ExternalRequest.openOverview(context))),
                     ) {
                         if (snapshot.accounts.size != 1) {
                             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -504,10 +533,7 @@ class DetailedUsageWidget : GlanceAppWidget() {
         val validity = account.dataValidity
         Column(GlanceModifier.fillMaxWidth().clickable(openAccount)) {
             Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ProviderId.fromId(account.providerId)?.let { provider ->
-                    WidgetLogo(provider, account.iconChoiceId, 20.dp)
-                    Spacer(GlanceModifier.width(8.dp))
-                }
+                WidgetLogo(account, 26.dp, gap = 8.dp)
                 Column(GlanceModifier.defaultWeight()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(account.title, maxLines = 1, style = widgetText(style.textPrimary, 14, FontWeight.Medium))
@@ -558,17 +584,26 @@ class DetailedUsageWidget : GlanceAppWidget() {
                 rows.forEach { row ->
                     Column(GlanceModifier.fillMaxWidth()) {
                         Spacer(GlanceModifier.height(6.dp))
+                        val p = row.presentation(null, LocalPercentMode.current)
+                        val percent = withPercentSign(p.token)
+                        val shown = if (!p.hasFigure) percent
+                            else "$percent ${context.getString(percentSideWordRes(LocalPercentMode.current))}"
+                        val label = row.labelText(context.resources)
+                        val metrics = context.resources.displayMetrics
+                        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            textSize = TypedValueCompat.spToPx(12f, metrics)
+                            typeface = Typeface.DEFAULT
+                        }
+                        val labelWidth = paint.measureText(label)
+                        paint.typeface = Typeface.MONOSPACE
+                        val stacked = labelWidth + paint.measureText(shown) + 8f * metrics.density >
+                            (LocalSize.current.width.value - 20f) * metrics.density
+                        if (stacked) Text(label, GlanceModifier.fillMaxWidth(), maxLines = 2,
+                            style = widgetText(style.textSecondary, 12))
                         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                row.labelText(context.resources), GlanceModifier.defaultWeight(), maxLines = 1,
-                                style = widgetText(style.textSecondary, 12),
-                            )
-                            // The figure carries its side ("73% left" / "27% used"); a dash stays bare.
-                            val p = row.presentation(null, LocalPercentMode.current)
-                            val percent = percentFigure(p.token, context.resources)
-                            val shown = if (!p.hasFigure) percent
-                                else "$percent ${context.getString(percentSideWordRes(LocalPercentMode.current))}"
-                            Text(shown, style = if (!p.hasFigure) widgetText(style.textSecondary, 12)
+                            if (!stacked) Text(label, GlanceModifier.defaultWeight(), maxLines = 1,
+                                style = widgetText(style.textSecondary, 12))
+                            Text(shown, maxLines = 2, style = if (!p.hasFigure) widgetText(style.textSecondary, 12)
                                 else widgetText(style.barText(row, validity), 12, FontWeight.Medium, mono = true))
                         }
                         Spacer(GlanceModifier.height(3.dp))
@@ -592,13 +627,55 @@ class DetailedUsageWidget : GlanceAppWidget() {
  * on one the mark is drawn in the panel's ink instead.
  */
 @Composable
-internal fun WidgetLogo(provider: ProviderId, iconChoiceId: String?, size: Dp) {
+internal fun WidgetLogo(account: WidgetAccount, size: Dp, gap: Dp = 0.dp) {
+    val provider = ProviderId.fromId(account.providerId) ?: return
     val style = LocalWidgetStyle.current
-    Image(
-        ImageProvider(com.usagelimits.ui.providerLogoResource(provider, iconChoiceId)), null, GlanceModifier.size(size),
-        colorFilter = if (!style.lightInk && provider in WHITE_ARTWORK) ColorFilter.tint(ColorProvider(style.textPrimary)) else null,
-    )
+    val choice = ProviderIconCatalog.selected(provider, account.iconChoiceId)
+    val fill = when (choice.id) {
+        "claudecode-color" -> ClaudeCodeBrand
+        "claudecode" -> style.textPrimary
+        else -> null
+    }
+    val density = androidx.glance.LocalContext.current.resources.displayMetrics.density
+    val figurePx = (size.value * density).roundToInt().coerceAtLeast(1)
+    val bitmapPx = ceil(figurePx * 1.3).toInt()
+    val imageWidth = if (fill == null) size else (bitmapPx / density).dp
+    // The envelope fits inside the existing header/ring height. Spend the existing label
+    // gap on its width, so particles survive without shrinking the body or moving the text.
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            widgetProviderImage(choice, account, figurePx, bitmapPx, fill, style), null,
+            GlanceModifier.size(imageWidth),
+            colorFilter = widgetLogoTint(provider, style)?.let { ColorFilter.tint(ColorProvider(it)) },
+        )
+        if (gap > 0.dp) Spacer(GlanceModifier.width((size + gap - imageWidth).coerceAtLeast(0.dp)))
+    }
 }
+
+internal fun widgetLogoTint(provider: ProviderId, style: WidgetStyle): Color? =
+    if (provider in WHITE_ARTWORK && !style.lightInk) style.textPrimary else null
+
+/** The projected headline is rebuilt by the existing reading/publication/boundary repaint. */
+@Composable
+private fun widgetProviderImage(
+    choice: ProviderIconChoice,
+    account: WidgetAccount,
+    figurePx: Int,
+    bitmapPx: Int,
+    fill: Color?,
+    style: WidgetStyle,
+): ImageProvider {
+    if (fill == null) return ImageProvider(choice.drawable)
+    val headline = account.representative
+    val mood = claudeCodeMood(headline?.remainingPercent, headline?.isExhausted == true)
+    val sleepInk = style.textSecondary.toArgb()
+    return remember(mood, fill, figurePx, bitmapPx, sleepInk) {
+        ImageProvider(claudeCodeStillBitmap(mood, fill.toArgb(), figurePx, bitmapPx, sleepInk))
+    }
+}
+
+internal fun miniLogoSize(ringSize: Dp, providerId: String): Dp =
+    ringSize * if (providerId == ProviderId.CLAUDE.id) 0.575f else 0.46f
 
 private val WHITE_ARTWORK = setOf(
     ProviderId.CODEX, ProviderId.XAI, ProviderId.KIMI,

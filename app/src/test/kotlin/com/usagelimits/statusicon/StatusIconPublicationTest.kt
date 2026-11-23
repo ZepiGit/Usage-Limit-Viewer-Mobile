@@ -420,7 +420,7 @@ class StatusIconPublicationTest {
             assertTrue(flags and Notification.FLAG_ONGOING_EVENT != 0)
             assertTrue(flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
             assertTrue(flags and Notification.FLAG_LOCAL_ONLY != 0)
-            assertTrue("the fallback glyph for a provider without its own", expectedIcon(ProviderId.CODEX, StatusIconContent.Figure(87)).sameAs(record.iconPixels()))
+            assertTrue("the provider's required glyph", expectedIcon(ProviderId.CODEX, StatusIconContent.Figure(87)).sameAs(record.iconPixels()))
         }
     }
 

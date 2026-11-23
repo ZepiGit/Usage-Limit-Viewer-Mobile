@@ -10,8 +10,10 @@ import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.map
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.updateAll
 import androidx.glance.action.ActionParameters
@@ -132,19 +134,35 @@ object WidgetUpdater {
      */
     suspend fun load(context: Context, glanceId: GlanceId): WidgetView = observe(context, glanceId).first()
 
-    /** The Credits widget's data: every credit account, worst first. Repository reads only. */
-    fun observeCredits(context: Context): kotlinx.coroutines.flow.Flow<CreditWidgetSnapshot> =
+    /** Every credit account, worst first, rebuilt at [now] on the same repaint input as [observe]. */
+    fun observeCredits(
+        context: Context,
+        now: () -> Long = System::currentTimeMillis,
+    ): kotlinx.coroutines.flow.Flow<CreditWidgetSnapshot> =
         kotlinx.coroutines.flow.flow {
             val container = (context.applicationContext as? UsageLimitsApp)?.container ?: return@flow
             emitAll(kotlinx.coroutines.flow.combine(
                 container.creditRepository.observeEntries(),
                 container.settingsStore.settings,
-            ) { entries, settings ->
-                CreditWidgetBuilder.build(entries, System.currentTimeMillis(), Severity.staleAfterMs(settings.syncIntervalMinutes))
+                container.settingsStore.diagnostics.map { it.lastWidgetRefreshAt }.distinctUntilChanged(),
+            ) { entries, settings, _ ->
+                CreditWidgetBuilder.build(entries, now(), Severity.staleAfterMs(settings.syncIntervalMinutes))
             })
         }
 
-    fun observe(context: Context, glanceId: GlanceId): kotlinx.coroutines.flow.Flow<WidgetView> =
+    /**
+     * One widget instance's view, rebuilt at [now] whenever its inputs move.
+     *
+     * The inputs include the time of the last repaint ([refreshAll]). A running Glance session
+     * is not restarted by `updateAll`, so without it a session would keep the rank, reset-due
+     * and stale marks it computed at its last data emission, through every presentation
+     * boundary the [WidgetPresentationWorker] repaints for.
+     */
+    fun observe(
+        context: Context,
+        glanceId: GlanceId,
+        now: () -> Long = System::currentTimeMillis,
+    ): kotlinx.coroutines.flow.Flow<WidgetView> =
         kotlinx.coroutines.flow.flow {
             val app = context.applicationContext as? UsageLimitsApp ?: return@flow
             val container = app.container
@@ -153,13 +171,14 @@ object WidgetUpdater {
                 container.repository.observeAccountUsage(),
                 container.widgetConfigDao.observe(appWidgetId),
                 container.settingsStore.settings,
-            ) { accounts, config, settings ->
+                container.settingsStore.diagnostics.map { it.lastWidgetRefreshAt }.distinctUntilChanged(),
+            ) { accounts, config, settings, _ ->
                 val custom = runCatching {
                     val ids = org.json.JSONArray(config?.customAccountIdsJson ?: "[]")
                     (0 until ids.length()).map { ids.getString(it) }
                 }.getOrDefault(emptyList())
                 WidgetView(
-                    WidgetDataBuilder.build(accounts, System.currentTimeMillis(),
+                    WidgetDataBuilder.build(accounts, now(),
                         WidgetScope.fromName(config?.scope), config?.accountId, config?.provider,
                         Severity.staleAfterMs(settings.syncIntervalMinutes), custom, settings.providerIcons),
                     WidgetStyle.fromStored(

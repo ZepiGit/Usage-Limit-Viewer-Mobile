@@ -67,16 +67,46 @@
 
     <!-- Settings screen (feature/settings/SettingsScreen.kt). Thresholds are passed in as formatted figures so the percent template stays the one place a sign is laid out. -->
     <string name="settings_title">Settings</string>
+
+    <!-- Appearance: app-only theme selection and its live preview. -->
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_appearance_preview">Preview</string>
+    <string name="settings_appearance_preview_account">Claude Pro</string>
+    <string name="settings_appearance_preview_values">%1$s · %2$s · %3$s</string>
+    <string name="settings_appearance_theme">Theme</string>
+    <string name="settings_appearance_theme_subtitle">Colours of the app. Widgets keep their own panel style.</string>
+    <string name="settings_appearance_warm_dark">Warm dark</string>
+    <string name="settings_appearance_pure_black">Pure black</string>
+    <string name="settings_appearance_cool_graphite">Cool graphite</string>
+    <string name="settings_appearance_light_paper">Light paper</string>
+    <string name="settings_text_font">Text font</string>
+    <string name="settings_text_font_subtitle">Used for all text in the app.</string>
+    <string name="settings_figure_font">Figure font</string>
+    <string name="settings_figure_font_subtitle">Used for percentages, times and amounts.</string>
+    <string name="settings_font_roboto" translatable="false">Roboto</string>
+    <string name="settings_font_roboto_flex" translatable="false">Roboto Flex</string>
+    <string name="settings_font_ibm_plex_sans" translatable="false">IBM Plex Sans</string>
+    <string name="settings_font_figtree" translatable="false">Figtree</string>
+    <string name="settings_font_roboto_mono" translatable="false">Roboto Mono</string>
+    <string name="settings_font_jetbrains_mono" translatable="false">JetBrains Mono</string>
+    <string name="settings_font_ibm_plex_mono" translatable="false">IBM Plex Mono</string>
+    <string name="settings_font_licences">Font licences</string>
+
     <string name="settings_section_sync">Sync</string>
     <string name="settings_interval_title">Background refresh interval</string>
     <string name="settings_interval_subtitle">Android may refresh less often in Doze or battery saver.</string>
     <string name="settings_section_overview">Overview</string>
     <string name="settings_show_tier_title">Show subscription tier</string>
-    <string name="settings_show_tier_subtitle">Plus, Pro, Max — beside the provider name</string>
-    <string name="settings_show_renewal_title">Show renewal time</string>
-    <string name="settings_show_renewal_subtitle">When the weekly or monthly allowance starts over, as opposed to the next reset. Overview only — the widgets stay on one number.</string>
+    <string name="settings_show_tier_subtitle">Plus, Pro, Max — beside the provider name in List</string>
+    <string name="settings_section_display">Display</string>
     <string name="settings_percent_display_title">Show percentages as</string>
-    <string name="settings_percent_display_subtitle">Whether figures count down what is left or up what you have used.</string>
+    <string name="settings_percent_display_subtitle">What is left, or what you have used. Applies to the whole app and to every widget.</string>
+    <string name="settings_preview">PREVIEW</string>
+    <string name="settings_display_preview_sample">%1$s · %2$s</string>
+    <string name="settings_overview_layout_title">Layout</string>
+    <string name="settings_overview_layout_subtitle">List shows every window per account. Dials show one ring per account, like the ring widgets.</string>
+    <string name="settings_overview_list">List</string>
+    <string name="settings_overview_dials">Dials</string>
     <string name="settings_section_notifications">Notifications</string>
     <string name="settings_notifications_allowed">Notifications allowed</string>
     <string name="settings_notifications_not_allowed">Notifications not allowed</string>
@@ -161,40 +191,68 @@
     <string name="action_retry">Retry</string>
 
     <!-- Overview screen and account cards (feature/overview/OverviewScreen.kt). -->
-    <string name="overview_section_accounts">Accounts</string>
-    <string name="overview_reorder">Reorder</string>
-    <string name="overview_no_accounts">No accounts yet. Add one to start tracking usage.</string>
-    <string name="overview_move_account">Move %1$s</string>
     <string name="overview_add_account">Add account</string>
-    <string name="overview_add_account_hint">Monitor another AI subscription</string>
     <string name="overview_section_credits">Credits</string>
     <string name="overview_no_credits">No prepaid balances tracked.</string>
     <string name="overview_add_credit">Add credit balance</string>
-    <string name="overview_add_credit_hint">Track prepaid API credit</string>
-    <plurals name="overview_accounts_monitored">
-        <item quantity="one">%1$d account monitored</item>
-        <item quantity="other">%1$d accounts monitored</item>
+    <string name="overview_credit_collapse">Collapse</string>
+    <string name="overview_credit_expand">Expand credit balances</string>
+    <string name="overview_credit_low_balance">Low balance: %1$s</string>
+    <string name="overview_credit_hint">%1$s %2$s</string>
+    <plurals name="overview_credit_count">
+        <item quantity="one">Credits · %1$d balance</item>
+        <item quantity="other">Credits · %1$d balances</item>
     </plurals>
+    <string name="settings_credit_layout_title">Credit accounts</string>
+    <string name="settings_credit_layout_subtitle">Normal lists the balances. Compact shows a count and the balance furthest below its threshold.</string>
+    <string name="settings_credit_normal">Normal</string>
+    <string name="settings_credit_compact">Compact</string>
+    <string name="settings_overview_show_first_title">Show first</string>
+    <string name="settings_overview_show_first_subtitle">Which block sits at the top of Overview.</string>
+    <string name="settings_overview_usage_providers">Usage providers</string>
+    <string name="settings_show_credits_title">Show credits</string>
+    <string name="settings_show_credits_subtitle">Hide prepaid balances from Overview without removing them.</string>
+    <string name="credit_manage">Manage credit accounts</string>
+    <!-- The header subtitle: a claim, then the next reset; either part may be missing. -->
+    <plurals name="overview_need_attention">
+        <item quantity="one">%1$d needs attention</item>
+        <item quantity="other">%1$d need attention</item>
+    </plurals>
+    <string name="overview_all_have_room">All accounts have room</string>
+    <string name="overview_claim_next_reset">%1$s · next reset %2$s</string>
+    <string name="overview_next_reset">Next reset %1$s</string>
+    <string name="overview_no_accounts_yet">No accounts yet</string>
+    <string name="overview_loading_usage">Loading usage</string>
+    <!-- Filter chips; the count follows the label as its own text. -->
+    <string name="overview_filter_all">All</string>
+    <string name="overview_filter_attention">Needs attention</string>
+    <string name="overview_filter_resets_today">Resets today</string>
+    <string name="overview_no_match">No accounts match this filter.</string>
+    <string name="overview_headline_caption">The emphasised line is the account’s headline.</string>
+    <string name="overview_sign_in_expired">Sign-in expired · showing last known data</string>
+    <!-- Spoken before the emphasised window's reading. -->
+    <string name="overview_headline_spoken">Headline: %1$s</string>
+    <!-- The display chip: what the figures count now. -->
+    <string name="overview_mode_left" formatted="false">% left</string>
+    <string name="overview_mode_used" formatted="false">% used</string>
+    <!-- C1, the empty Overview. -->
+    <string name="overview_empty_title">Nothing to monitor yet</string>
+    <string name="overview_no_usage_accounts_title">No usage accounts yet</string>
+    <string name="overview_empty_body">Add an AI subscription to see its limits and resets here. Sign-in details stay on this device.</string>
+    <string name="overview_track_credit">Track a prepaid credit balance</string>
     <string name="overview_refreshing">Refreshing…</string>
     <string name="overview_refresh_usage">Refresh usage</string>
-    <string name="overview_connected_accounts">Connected accounts</string>
-    <string name="overview_loading_usage">Loading usage</string>
-    <string name="overview_renews">%1$s renews %2$s</string>
+    <string name="overview_dials_caption">Each dial shows the account’s headline. Tap one for every window and its resets.</string>
+    <string name="overview_dial_account_number" tools:ignore="PluralsCandidate">Account %1$d</string>
+    <string name="overview_dial_headline_line">%1$s · %2$s</string>
     <string name="overview_no_usage_data">No usage data yet</string>
     <string name="status_reconnect">Reconnect</string>
     <string name="restricted_windows">Restricted: %1$s</string>
     <string name="reset_credits_title">Reset credits</string>
-    <!-- Not a plural: "available", "shown" and "upcoming" after a count do not inflect (also accounts_shown, resets_upcoming_count). -->
+    <!-- Not a plural: "available", "shown" and "upcoming" after a count do not inflect (also resets_upcoming_count). -->
     <string name="reset_credits_available_count" tools:ignore="PluralsCandidate">%1$d available</string>
     <string name="error_partial_update">%1$s · partial update</string>
     <string name="error_showing_last_known">%1$s · showing last known data</string>
-
-    <!-- Accounts screen (feature/accounts/AccountsScreen.kt). -->
-    <string name="accounts_title">Accounts</string>
-    <string name="accounts_shown" tools:ignore="PluralsCandidate">%1$d of %2$d shown</string>
-    <string name="accounts_filter_all">All</string>
-    <string name="accounts_filter_attention">Needs attention</string>
-    <string name="accounts_no_match">No accounts match this filter.</string>
 
     <!-- Resets screen (feature/resets/ResetsScreen.kt). The day pattern is a DateTimeFormatter pattern, not display text. -->
     <string name="resets_title">Resets</string>
@@ -206,8 +264,14 @@
     <string name="resets_tomorrow">Tomorrow</string>
     <string name="resets_day_pattern">EEEE d MMM</string>
 
+    <!-- Account storage read recovery (#108). -->
+    <string name="storage_error_title">Can\'t read accounts</string>
+    <string name="storage_error_body">The accounts stored on this device could not be read. Try again.</string>
+    <string name="storage_error_retry">Try again</string>
+
     <!-- Account detail (feature/accounts/AccountDetailScreen.kt). -->
     <string name="account_unavailable">This account is no longer available.</string>
+    <string name="account_back_to_overview">Back to Overview</string>
     <string name="account_remove_body">Its stored credentials are deleted from this device. Nothing changes on the provider side, and you can add the account again at any time.</string>
     <string name="account_last_attempt_just_now">Last attempt just now</string>
     <string name="account_last_attempt_ago">Last attempt %1$s ago</string>
@@ -306,7 +370,6 @@
     <string name="credit_of_total">of %1$s</string>
 
     <!-- Messages the shared view model raises (feature/UsageViewModel.kt). -->
-    <string name="message_order_save_failed">Could not save account order. Try again.</string>
     <string name="message_icon_save_failed">Could not save the icon choice. Try again.</string>
     <string name="message_pin_refused_full" tools:ignore="PluralsCandidate">Could not pin the account: %1$d are pinned already. Unpin one first.</string>
     <string name="message_pin_refused_gone">Could not pin the account: it has been removed.</string>
@@ -321,7 +384,6 @@
 
     <!-- Navigation tabs (navigation/UsageLimitsNavigation.kt). -->
     <string name="tab_overview">Overview</string>
-    <string name="tab_accounts">Accounts</string>
     <string name="tab_resets">Resets</string>
     <string name="tab_settings">Settings</string>
 
@@ -379,6 +441,9 @@
     <string name="widget_credits_unreadable">Could not be read</string>
     <string name="widget_credits_refresh_failed_reason">Refresh failed: %1$s</string>
     <string name="widget_credits_not_read">Not read yet</string>
+    <string name="widget_credits_compact_not_read">Not read</string>
+    <string name="widget_credits_compact_unreadable">Read error</string>
+    <string name="widget_credits_compact_refresh_failed">Update error</string>
     <string name="widget_credits_out_of_date">Out of date · %1$s</string>
     <string name="credit_spent_this_month">%1$s spent this month</string>
 
@@ -414,6 +479,7 @@
     <string name="widget_config_tone_auto">Auto</string>
     <string name="widget_config_tone_light">Light</string>
     <string name="widget_config_tone_dark">Dark</string>
+    <string name="widget_config_display_hint">Left or used follows Settings › Display, like the Overview.</string>
     <string name="widget_config_preview_title" tools:ignore="PluralsCandidate">Preview · %1$d selected</string>
     <string name="widget_config_preview_empty">Select accounts to see your widget</string>
     <string name="widget_color_charcoal">Charcoal</string>
@@ -505,7 +571,7 @@
     <string name="settings_status_icons_category_blocked">Status bar icons cannot be shown while their notification category is turned off.</string>
     <string name="settings_status_icons_open_category">Open category settings</string>
     <string name="settings_status_icons_choose">Pinned accounts</string>
-    <!-- %1$d accounts pinned out of at most %2$d. Not a plural: "pinned" after a count does not inflect, as in accounts_shown. -->
+    <!-- %1$d accounts pinned out of at most %2$d. Not a plural: "pinned" after a count does not inflect. -->
     <string name="settings_status_icons_pinned_count" tools:ignore="PluralsCandidate">%1$d of %2$d pinned</string>
     <string name="settings_status_icons_pin">Pin %1$s</string>
     <!-- Spoken by a disabled pin switch; %2$d is the limit, so the count is always several. -->
@@ -524,4 +590,8 @@
     <string name="icon_style_monochrome">Monochrome</string>
     <string name="icon_style_wordmark">Wordmark</string>
     <string name="icon_label_with_style">%1$s · %2$s</string>
+
+    <!-- Claude Code figure (CH-3): the switch under Claude's provider icon row. -->
+    <string name="settings_animate_claude_code_title">Animate Claude Code icon</string>
+    <string name="settings_animate_claude_code_subtitle">Moves with Claude\'s usage in Overview and Account detail. Off when Android\'s “Remove animations” is on.</string>
 </resources>

@@ -28,8 +28,24 @@ Amounts use decimal arithmetic and locale currency formatting. Positive amounts 
 
 With a known total, severity follows the percentage remaining. Otherwise the default low threshold is 5 currency units, or 35 CNY; below twice that is moderate. Zero or negative is exhausted. An account takes its worst balance's status.
 
+<a id="credits-in-android-overview"></a>
+
+## Credits in Overview
+
+On Android and iOS, open **Settings → Overview** and choose **Normal** to list balances or **Compact** to see the number of tracked credit accounts. When a current balance is below its own threshold, Compact also names the one furthest below, comparing each amount as a share of that threshold rather than comparing currencies. A still-current balance retained during a rate-limit pause can appear there; stale balances and ordinary failed reads cannot. Tap the compact row to open it. **Collapse** or leaving Overview restores the compact row. On Android, an expanded block survives configuration-state restoration; leaving Overview still collapses it.
+
+**Show credits** comes before its dependent Normal/Compact and **Show first** controls on both platforms. **Show first** places Credits above or below usage accounts in List and Dials. The changing Overview preview follows all controls, so expanding it does not move the switch away from your finger. Hiding Credits removes only the block and its layout/order controls; it does not remove accounts or change refresh or widget settings.
+
+**Manage credit accounts** in Settings → Overview stays available when the block is hidden. Normal and expanded Compact also offer management and Add. With no tracked credit accounts, Compact uses the normal empty state so you can add one.
+
+With credit accounts but no usage accounts, Overview says **No usage accounts yet**, not that all accounts are missing. It keeps one visible Add credit path: the Credits heading supplies it in Normal or expanded Compact; the secondary empty-state action remains when populated Compact is collapsed or Credits is hidden.
+
+On a German device these controls are under **Einstellungen → Übersicht**: **Guthabenkonten**, **Zuerst anzeigen**, **Guthaben anzeigen** and **Guthaben verwalten**. The credit-only heading reads **Noch keine Nutzungskonten**. Both native implementations are integrated in the 0.5.0 candidate; [combined CI and device acceptance](release.md#release-050-checkpoint) remain pending.
+
 ## Refresh and removal
 
-Balances refresh alongside usage. Failed reads retain previous values and their age; one failed account does not block others. Credits widgets show up to one, three or six accounts, worst first, depending on size.
+Balances refresh alongside usage. Failed reads retain previous values and their age; one failed account does not block others. Credits widgets show up to one, three or six accounts, worst first, depending on size. On iOS, medium and large Credits widgets show the last-updated timestamp on its own line when it cannot fit beside the title. With larger text, fewer accounts may fit, but the widget still shows how many are hidden.
+
+Android's running widget recomputes age, severity and order on presentation repaints without syncing. iOS prepares timeline entries at those age boundaries. Neither path promises when the system will display an update.
 
 Keys stay in Android's encrypted credential store or iOS Keychain, separate from cached balances. Removing an account deletes its local key. Revoke the key in the provider's console to invalidate it elsewhere. See [Security](security.md).

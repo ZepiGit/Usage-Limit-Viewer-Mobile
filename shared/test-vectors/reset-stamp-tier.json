@@ -1,0 +1,14 @@
+{
+  "description": "Compare local calendar dates in the supplied zone, not elapsed 24-hour periods. The same local day uses time; one through six local dates ahead uses weekday and time; seven or more (and earlier local dates) uses date. Formatting stays native to each platform. Values are hand-written.",
+  "vectors": [
+    {"name":"same day","now":"2026-09-09T12:00:00Z","instant":"2026-09-09T23:59:59Z","zone":"UTC","tier":"time"},
+    {"name":"exact midnight starts weekday tier","now":"2026-09-09T23:59:59Z","instant":"2026-09-10T00:00:00Z","zone":"UTC","tier":"weekday"},
+    {"name":"six days remains weekday","now":"2026-09-09T12:00:00Z","instant":"2026-09-15T23:59:59Z","zone":"UTC","tier":"weekday"},
+    {"name":"seven dates at midnight uses date","now":"2026-09-09T12:00:00Z","instant":"2026-09-16T00:00:00Z","zone":"UTC","tier":"date"},
+    {"name":"exactly seven elapsed days uses date","now":"2026-09-09T12:00:00Z","instant":"2026-09-16T12:00:00Z","zone":"UTC","tier":"date"},
+    {"name":"local midnight not UTC midnight","now":"2026-09-09T21:59:59Z","instant":"2026-09-09T22:00:00Z","zone":"Europe/Berlin","tier":"weekday"},
+    {"name":"spring DST within six local dates","now":"2026-03-27T11:00:00Z","instant":"2026-04-02T21:59:59Z","zone":"Europe/Berlin","tier":"weekday"},
+    {"name":"spring DST seven dates in fewer than seven elapsed days","now":"2026-03-27T11:00:00Z","instant":"2026-04-03T10:00:00Z","zone":"Europe/Berlin","tier":"date"},
+    {"name":"fall DST six dates in more than six elapsed days","now":"2026-10-23T10:00:00Z","instant":"2026-10-29T22:59:59Z","zone":"Europe/Berlin","tier":"weekday"}
+  ]
+}

@@ -4,7 +4,10 @@ import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import android.view.View
 import android.view.ViewGroup
@@ -20,6 +23,7 @@ import androidx.glance.appwidget.runComposition
 import androidx.test.core.app.ApplicationProvider
 import com.usagelimits.UsageLimitsApp
 import com.usagelimits.core.database.WidgetConfigEntity
+import com.usagelimits.core.model.ClaudeCodeMood
 import com.usagelimits.core.model.ConnectionStatus
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ProviderId
@@ -48,21 +52,20 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowLooper
+import kotlin.math.roundToInt
+import java.io.File
 
 /**
  * Every widget, host-applied, in both percent modes (R1, R2).
  *
- * The figure on a widget is only half of what it says: "60%" means nothing until the widget also
- * says which side it counts. These pin the pair — the number AND the word that disambiguates it
- * (a tile label, a suffix, or a caption) — for each widget type, plus the accessibility text
- * that carries the same meaning for a screen reader.
+ * Summary and Bars visibly name the side; rings name it only in their spoken description.
  *
  * Fixture: one Claude account, a 5h window with 40% used (60% left) and a Weekly window with 63%
  * used (37% left), so the two modes never produce the same digits and a swapped label is caught.
  *
  * Bar widgets use legacy graphics because the native runtime cannot inflate Glance's ProgressBar
  * (a PathInterpolator error); their hosted progress values still expose the fill. Ring fill tests
- * use native graphics to inspect the arc bitmap alongside its caption and spoken description.
+ * use native graphics to inspect the arc bitmap alongside its spoken description.
  */
 @OptIn(ExperimentalGlanceApi::class, ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -75,6 +78,15 @@ class PercentModeWidgetRenderingTest {
     }
 
     private val app get() = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+
+    @org.junit.After fun drain() {
+        try {
+            androidx.work.WorkManager.getInstance(app).cancelAllWork().result.get()
+            ShadowLooper.idleMainLooper()
+        } finally {
+            com.usagelimits.core.sync.resetTestWorkManager()
+        }
+    }
 
     private suspend fun seedFixtureAccount() = seedAccount(
         UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR, 40.0, 18_000, System.currentTimeMillis() + 3_600_000, false),
@@ -91,9 +103,10 @@ class PercentModeWidgetRenderingTest {
         windows: List<UsageWindow>,
         status: SnapshotStatus = SnapshotStatus.OK,
         connection: ConnectionStatus? = null,
+        provider: ProviderId = ProviderId.CLAUDE,
     ): String {
         val repository = app.container.repository
-        val account = repository.upsertFromLogin(ProviderId.CLAUDE, key,
+        val account = repository.upsertFromLogin(provider, key,
             "fixture@example.invalid", name, "Pro", emptyMap())
         val snapshot = UsageSnapshot(account.localId, System.currentTimeMillis(), status, windows = windows)
         repository.saveSnapshot(connection?.let { snapshot.copy(connectionStatus = it) } ?: snapshot)
@@ -110,11 +123,14 @@ class PercentModeWidgetRenderingTest {
         widgetName: String,
         accountIds: List<String>,
         size: DpSize,
+        style: WidgetStyle = WidgetStyle(),
         check: (View) -> Unit,
     ) {
         val placed = WidgetUpdater.allWidgets.first { it.name == widgetName }
         val config = WidgetConfigEntity(nextWidgetId++, "CUSTOM", null, null, System.currentTimeMillis(),
-            customAccountIdsJson = accountIds.joinToString(prefix = "[", postfix = "]") { "\"$it\"" })
+            customAccountIdsJson = accountIds.joinToString(prefix = "[", postfix = "]") { "\"$it\"" },
+            backgroundArgb = style.background.argb, backgroundOpacity = style.background.clampedOpacity,
+            textTone = style.textTone.name)
         app.container.widgetConfigDao.upsert(config)
         shadowOf(AppWidgetManager.getInstance(app)).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
             provider = ComponentName(app, placed.receiver)
@@ -128,9 +144,12 @@ class PercentModeWidgetRenderingTest {
             host.addView(view)
             remote.reapply(app, view)
             ShadowLooper.idleMainLooper()
-            view.measure(View.MeasureSpec.makeMeasureSpec(size.width.value.toInt(), View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(size.height.value.toInt(), View.MeasureSpec.EXACTLY))
-            view.layout(0, 0, size.width.value.toInt(), size.height.value.toInt())
+            val density = app.resources.displayMetrics.density
+            val width = (size.width.value * density).roundToInt()
+            val height = (size.height.value * density).roundToInt()
+            view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+            view.layout(0, 0, width, height)
             check(view)
             true
         }
@@ -140,17 +159,29 @@ class PercentModeWidgetRenderingTest {
      * Runs [body] once per mode with the setting persisted before composing, then restores the
      * previous app mode so a failing assertion cannot leak a change into a neighbouring test.
      */
-    private suspend fun TestScope.inEachMode(body: suspend (PercentDisplay) -> Unit) {
-        val originalMode = app.container.settingsStore.settings.first().percentDisplay
+    private suspend fun TestScope.inEachMode(icon: String = "claude-color", body: suspend (PercentDisplay) -> Unit) {
+        val settings = app.container.settingsStore
+        val original = settings.settings.first()
+        val provider = ProviderId.CLAUDE.id
+        val originalIcon = original.providerIcons[provider] ?: "claudecode-color"
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         try {
+            // SDK sandboxes share DataStore with other test classes, including icon pickers.
+            settings.setProviderIcon(provider, icon)
             for (mode in PercentDisplay.entries) {
-                app.container.settingsStore.setPercentDisplay(mode)
+                settings.setPercentDisplay(mode)
                 body(mode)
             }
         } finally {
-            app.container.settingsStore.setPercentDisplay(originalMode)
-            Dispatchers.resetMain()
+            try {
+                settings.setPercentDisplay(original.percentDisplay)
+            } finally {
+                try {
+                    settings.setProviderIcon(provider, originalIcon)
+                } finally {
+                    Dispatchers.resetMain()
+                }
+            }
         }
     }
 
@@ -241,6 +272,7 @@ class PercentModeWidgetRenderingTest {
                 }
                 assertTrue("$mode: no bare figure is left to be misread, got $text",
                     text.none { it.endsWith("%") })
+                assertEquals("single-account Bars artwork is 26dp", listOf(26), claudeArtworkSlotSizes(view))
                 val fills = progressBars(view).map { it.progress.toFloat() / it.max }
                 val expected = if (mode == PercentDisplay.USED) listOf(0.40f, 0.63f) else listOf(0.60f, 0.37f)
                 assertEquals("$mode: both Usage Bars are present", 2, fills.size)
@@ -256,14 +288,14 @@ class PercentModeWidgetRenderingTest {
     // region Account Rings
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    @Test fun `account rings caption the mode and put the matching figure in the centre`() = runTest {
+    @Test fun `account rings omit the caption and put the matching figure in the centre`() = runTest {
         val id = seedFixtureAccount()
         inEachMode { mode ->
             inspect("MinimalUsageWidget", listOf(id), DpSize(180.dp, 240.dp)) { view ->
                 val text = textViews(view).map { it.text.toString() }
                 val descriptions = descriptions(view)
-                assertTrue("$mode: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
-                assertTrue("$mode: no caption of the other mode, got $text", otherWord(mode) !in text)
+                assertTrue("$mode: rings have no display-mode caption, got $text", "Left" !in text && "Used" !in text)
+                assertEquals("Account Rings artwork is 18dp", listOf(18), claudeArtworkSlotSizes(view))
                 // The most critical window is Weekly, so its figure is the representative one.
                 val centre = figures(mode).last()
                 assertTrue("$mode: centre figure $centre present, got $text", centre in text)
@@ -273,6 +305,10 @@ class PercentModeWidgetRenderingTest {
                 val notSpoken = if (mode == PercentDisplay.USED) "% remaining" else "% used"
                 assertTrue("$mode: ring description says '$spoken', got $descriptions", descriptions.any { spoken in it })
                 assertTrue("$mode: no ring description says '$notSpoken', got $descriptions", descriptions.none { notSpoken in it })
+                val ring = ringImages(view).single()
+                val speech = ring.contentDescription.toString()
+                assertTrue("$mode: speech identifies the headline and its reset, got $speech",
+                    "Weekly" in speech && "Resets " in speech)
                 assertRingFill(view, mode)
             }
         }
@@ -287,7 +323,7 @@ class PercentModeWidgetRenderingTest {
             inspect("MinimalUsageWidget", listOf(id), DpSize(180.dp, 240.dp)) { view ->
                 val text = textViews(view).map { it.text.toString() }
                 val descriptions = descriptions(view)
-                assertTrue("$mode: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
+                assertTrue("$mode: rings have no display-mode caption, got $text", "Left" !in text && "Used" !in text)
                 if (mode == PercentDisplay.USED) {
                     // An exhausted 100 is written without its sign so it fits (#38).
                     assertTrue("USED: the centre reads a bare 100, got $text", "100" in text && "100%" !in text)
@@ -350,7 +386,7 @@ class PercentModeWidgetRenderingTest {
         }
     }
 
-    @Test fun `account rings keep both labels and the caption in two columns with a very long label`() = runTest {
+    @Test fun `account rings keep both labels in two columns with a very long label`() = runTest {
         val size = DpSize(420.dp, 300.dp)
         assertEquals("the fixture size must be a two-column layout",
             2, WidgetLayout.accountColumns(size.width.value, size.height.value, null, 1f))
@@ -362,7 +398,7 @@ class PercentModeWidgetRenderingTest {
         inEachMode { mode ->
             inspect("MinimalUsageWidget", ids, size) { view ->
                 val text = textViews(view).map { it.text.toString() }
-                assertTrue("$mode: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
+                assertTrue("$mode: rings have no display-mode caption, got $text", "Left" !in text && "Used" !in text)
                 // Ellipsising is the layout's business; the text it was given must be whole.
                 assertTrue("$mode: the 60-character label is rendered, got $text", longLabel in text)
                 assertTrue("$mode: the short label is rendered, got $text", "Short" in text)
@@ -374,7 +410,7 @@ class PercentModeWidgetRenderingTest {
         }
     }
 
-    @Test fun `account rings caption the mode whatever status line each account shows`() = runTest {
+    @Test fun `account rings retain the status line specific to each account`() = runTest {
         val future = System.currentTimeMillis() + 86_400_000
         fun weekly(used: Double?, exhausted: Boolean = false, resetAt: Long? = future) =
             UsageWindow("week", "Weekly", WindowCategory.WEEKLY, used, 604_800, resetAt, exhausted)
@@ -392,8 +428,7 @@ class PercentModeWidgetRenderingTest {
         inEachMode { mode ->
             inspect("MinimalUsageWidget", ids, DpSize(180.dp, 900.dp)) { view ->
                 val text = textViews(view).map { it.text.toString() }
-                assertTrue("$mode: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
-                assertTrue("$mode: no caption of the other mode, got $text", otherWord(mode) !in text)
+                assertTrue("$mode: rings have no display-mode caption, got $text", "Left" !in text && "Used" !in text)
                 for (status in listOf("Reconnect", "Out · Partial update", "Partial update",
                     "Limited: Opus", "Quota unknown", "No reset time")) {
                     assertEquals("$mode: exactly one account shows '$status', got $text", 1, text.count { it == status })
@@ -404,61 +439,86 @@ class PercentModeWidgetRenderingTest {
         }
     }
 
-    // endregion
-
-    // region Mini Rings
-
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    @Test fun `mini rings caption the mode and word the ring descriptions to match`() = runTest {
-        val id = seedFixtureAccount()
-        inEachMode { mode ->
-            inspect("MiniRingsWidget", listOf(id), DpSize(62.dp, 180.dp)) { view ->
-                val text = textViews(view).map { it.text.toString() }
-                val descriptions = descriptions(view)
-                assertTrue("$mode: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
-                assertTrue("$mode: no caption of the other mode, got $text", otherWord(mode) !in text)
-                val spoken = if (mode == PercentDisplay.USED) "63% used" else "37% remaining"
-                val notSpoken = if (mode == PercentDisplay.USED) "% remaining" else "% used"
-                assertTrue("$mode: ring description says '$spoken', got $descriptions", descriptions.any { spoken in it })
-                assertTrue("$mode: no ring description says '$notSpoken', got $descriptions", descriptions.none { notSpoken in it })
-                assertTrue("$mode: the 1x1 rings carry a mark, not a figure, got $text", text.none { it.endsWith("%") })
-                assertRingFill(view, mode)
-            }
+    @Test fun `both hosted ring kinds speak stale failed and reconnect readings without losing the window`() = runTest {
+        val now = System.currentTimeMillis()
+        val window = UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 63.0, 604_800,
+            now + 86_400_000, false)
+        val cases = listOf(
+            Triple("Stale speech", SnapshotStatus.OK, "Data is out of date"),
+            Triple("Failed speech", SnapshotStatus.FAILED, "Update failed · last known data"),
+            Triple("Reconnect speech", SnapshotStatus.OK, "reconnect required"),
+        ).map { (name, status, clause) ->
+            val id = seedNamedAccount("speech-$name", name, listOf(window))
+            app.container.repository.saveSnapshot(UsageSnapshot(id,
+                if (name == "Stale speech") now - 2 * 86_400_000L else now,
+                status, windows = listOf(window),
+                connectionStatus = if (name == "Reconnect speech") ConnectionStatus.RECONNECT_REQUIRED else ConnectionStatus.CONNECTED))
+            id to clause
         }
-    }
-
-    @Test fun `mini rings at the 56dp minimum keep the caption and show one ring inside the host`() = runTest {
-        // PLAN 3: the deliberate 2-to-1 drop. The caption's line is paid for before rows are
-        // counted, so a one-cell-tall host with more accounts than fit clips nothing.
-        val ids = (1..4).map { seedNamedAccount("mini-$it", "Mini $it", fixtureWindows()) }
-        val size = DpSize(62.dp, 56.dp)
-        val grid = WidgetLayout.miniGrid(size.width.value, size.height.value)
-        val expectedRings = WidgetLayout.miniCaptionedRows(grid, 4, size.height.value, 1f) * grid.columns
-        assertEquals("PLAN 3: a 1x1 cell holds one ring once the caption takes its line", 1, expectedRings)
         inEachMode { mode ->
-            inspect("MiniRingsWidget", ids, size) { view ->
-                assertCaptionedRingsFit("$mode", view, mode, size, expectedRings = expectedRings)
-            }
-        }
-    }
-
-    @Test fun `mini rings at the 56dp minimum and a 1_3 font scale still caption and fit`() = runTest {
-        val ids = (1..4).map { seedNamedAccount("mini-$it", "Mini $it", fixtureWindows()) }
-        val size = DpSize(62.dp, 56.dp)
-        atFontScale(1.3f) {
-            assertEquals("the font scale reached the resources the widget reads",
-                1.3f, app.resources.configuration.fontScale, 0.001f)
-            inEachMode { mode ->
-                inspect("MiniRingsWidget", ids, size) { view ->
-                    assertCaptionedRingsFit("$mode at 1.3x", view, mode, size, expectedRings = null)
+            for ((id, clause) in cases) for (kind in listOf("MinimalUsageWidget", "MiniRingsWidget")) {
+                inspect(kind, listOf(id), DpSize(180.dp, 110.dp)) { root ->
+                    val speech = ringImages(root).single().contentDescription.toString()
+                    assertTrue("$kind $mode keeps '$clause': $speech", clause in speech)
+                    assertTrue("$kind $mode names the actual window and reset: $speech", "Weekly, Resets " in speech)
+                    val figure = if (mode == PercentDisplay.USED) "63% used" else "37% remaining"
+                    assertTrue("$kind $mode retains the cached figure: $speech", figure in speech)
+                    for ((_, other) in cases.filter { it.second != clause }) {
+                        assertTrue("$kind does not confuse $clause with $other: $speech", other !in speech)
+                    }
                 }
             }
         }
     }
 
-    @Test fun `an empty selection shows its message and no mode caption`() = runTest {
-        // PLAN 3: the caption is a hint about the rings below it; with no rings it would be a
-        // word floating over an explanation.
+    // endregion
+
+    // region Mini Rings
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun `mini rings omit the caption and word the ring descriptions to match`() = runTest {
+        val id = seedFixtureAccount()
+        inEachMode { mode ->
+            inspect("MiniRingsWidget", listOf(id), DpSize(62.dp, 180.dp)) { view ->
+                val text = textViews(view).map { it.text.toString() }
+                val descriptions = descriptions(view)
+                assertTrue("$mode: rings have no display-mode caption, got $text", "Left" !in text && "Used" !in text)
+                val spoken = if (mode == PercentDisplay.USED) "63% used" else "37% remaining"
+                val notSpoken = if (mode == PercentDisplay.USED) "% remaining" else "% used"
+                assertTrue("$mode: ring description says '$spoken', got $descriptions", descriptions.any { spoken in it })
+                assertTrue("$mode: no ring description says '$notSpoken', got $descriptions", descriptions.none { notSpoken in it })
+                assertTrue("$mode: the 1x1 rings carry a mark, not a figure, got $text", text.none { it.endsWith("%") })
+                val ring = ringImages(view).single()
+                val markWidth = claudeArtworkSlotSizes(view).single()
+                assertTrue("Claude occupies 57.5% of its ring: $markWidth in ${ring.width}",
+                    kotlin.math.abs(markWidth - 0.575f * ring.width) <= 1f)
+                val speech = ring.contentDescription.toString()
+                assertTrue("$mode: speech identifies the headline and its reset, got $speech",
+                    "Weekly" in speech && "Resets " in speech)
+                assertRingFill(view, mode)
+            }
+        }
+    }
+
+    @Test fun `a 56dp mini host fits two rings again at both font scales`() = runTest {
+        val ids = (1..4).map { seedNamedAccount("mini-$it", "Mini $it", fixtureWindows()) }
+        val size = DpSize(56.dp, 56.dp)
+        for (scale in listOf(1f, 1.5f)) atFontScale(scale) {
+            assertEquals(scale, app.resources.configuration.fontScale, 0.001f)
+            inEachMode { mode ->
+                inspect("MiniRingsWidget", ids, size) { view ->
+                    val rings = ringImages(view)
+                    assertEquals("$mode at ${scale}x: two rings fit one launcher cell", 2, rings.size)
+                    for (ring in rings) {
+                        assertTrue("$mode at ${scale}x: ${ring.contentDescription} fits inside the host",
+                            ring.height > 0 && bottomWithin(view, ring) <= view.height)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun `an empty ring selection shows the no matching accounts message`() = runTest {
         seedFixtureAccount()
         inEachMode { mode ->
             for (name in listOf("MinimalUsageWidget", "MiniRingsWidget")) {
@@ -474,36 +534,210 @@ class PercentModeWidgetRenderingTest {
 
     // endregion
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun `placed Claude artwork follows each raw headline in both modes without Hooray`() = runTest {
+        val now = System.currentTimeMillis()
+        fun window(left: Double?, exhausted: Boolean = false, scope: UsageScope = UsageScope.GLOBAL) =
+            UsageWindow("$scope-$left", "Weekly", WindowCategory.WEEKLY,
+                left?.let { 100.0 - it }, 604_800, null, exhausted, scope = scope)
+        val cases = listOf(
+            "Asleep" to (listOf(window(0.0)) to ClaudeCodeMood.ASLEEP),
+            "Tired" to (listOf(window(15.0)) to ClaudeCodeMood.TIRED),
+            "Working" to (listOf(window(40.0)) to ClaudeCodeMood.WORKING),
+            "Idle" to (listOf(window(70.0)) to ClaudeCodeMood.IDLE),
+            "Dancing" to (listOf(window(95.0)) to ClaudeCodeMood.DANCING),
+            "Declared" to (listOf(window(70.0, exhausted = true)) to ClaudeCodeMood.ASLEEP),
+            "Unknown exhausted" to (listOf(window(null, exhausted = true)) to ClaudeCodeMood.ASLEEP),
+            "Unknown" to (listOf(window(null)) to ClaudeCodeMood.IDLE),
+            "Stale" to (listOf(window(15.0)) to ClaudeCodeMood.TIRED),
+            "Expired" to (listOf(window(40.0)) to ClaudeCodeMood.WORKING),
+            "Restricted" to (listOf(window(70.0), window(0.0, true, UsageScope.MODEL)) to ClaudeCodeMood.IDLE),
+        )
+        val ids = cases.map { (name, fixture) ->
+            val id = seedNamedAccount("mood-$name", name, fixture.first)
+            if (name == "Stale" || name == "Expired") app.container.repository.saveSnapshot(
+                UsageSnapshot(id, if (name == "Stale") now - 2 * 86_400_000L else now - 2_000,
+                    SnapshotStatus.OK, windows = fixture.first,
+                    connectionStatus = if (name == "Expired") ConnectionStatus.RECONNECT_REQUIRED else ConnectionStatus.CONNECTED))
+            id
+        }
+        val baseline = mutableMapOf<String, Bitmap>()
+        try {
+            inEachMode(icon = "claudecode-color") { mode ->
+                inspect("MinimalUsageWidget", ids, DpSize(220.dp, 900.dp)) { root ->
+                    for ((name, fixture) in cases) {
+                        val image = providerImages(accountCell(root, name)).single()
+                        try { assertStill(image, 18, fixture.second, 0xFFD97757.toInt(), WidgetStyle()) }
+                        catch (failure: AssertionError) { throw AssertionError("$name: ${failure.message}; cell texts=${textViews(accountCell(root, name)).map { it.text }}", failure) }
+                        val bitmap = (image.drawable as BitmapDrawable).bitmap
+                        baseline[name]?.let { assertTrue("$name ignores Used", it.sameAs(bitmap)) }
+                            ?: run { baseline[name] = bitmap.copy(Bitmap.Config.ARGB_8888, false) }
+                    }
+                    if (mode == PercentDisplay.LEFT) saveMoodCapture(root, "mood-accounts-color")
+                }
+            }
+        } finally {
+            baseline.values.forEach(Bitmap::recycle)
+        }
+    }
+
+    @Config(qualifiers = "xhdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun `all placed logo slots keep body size alpha ink and particles at actual density`() = runTest {
+        val id = seedAccount(UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 5.0, 604_800, null, false))
+        val settings = app.container.settingsStore
+        val original = settings.settings.first()
+        val styles = listOf(WidgetStyle(), WidgetStyle(WidgetBackground(0xFFF3F0E8.toInt())),
+            WidgetStyle(WidgetBackground(opacityPercent = 0)),
+            WidgetStyle(WidgetBackground(opacityPercent = 0), WidgetTextTone.DARK))
+        inEachMode {
+            try {
+                for (choice in listOf("claudecode-color", "claudecode")) {
+                    settings.setProviderIcon(ProviderId.CLAUDE.id, choice)
+                    settings.setAnimateClaudeCodeIcon(false)
+                    settings.setFigureFont(com.usagelimits.core.settings.FigureFont.IBM_PLEX_MONO)
+                    for ((styleIndex, style) in styles.withIndex()) {
+                        settings.setAppTheme(com.usagelimits.core.settings.AppTheme.entries[styleIndex])
+                        for ((widget, size) in listOf("DetailedUsageWidget" to DpSize(180.dp, 110.dp),
+                            "MinimalUsageWidget" to DpSize(180.dp, 110.dp),
+                            "MiniRingsWidget" to DpSize(56.dp, 56.dp))) {
+                            inspect(widget, listOf(id), size, style) { root ->
+                                val image = providerImages(root).single()
+                                val density = app.resources.displayMetrics.density
+                                val body = when (widget) {
+                                    "DetailedUsageWidget" -> (26 * density).roundToInt()
+                                    "MinimalUsageWidget" -> (18 * density).roundToInt()
+                                    else -> (ringImages(root).single().width * 0.575f).roundToInt()
+                                }
+                                assertStill(image, body, ClaudeCodeMood.DANCING,
+                                    if (choice == "claudecode") style.textPrimary.toArgb() else 0xFFD97757.toInt(), style)
+                                val bounds = Rect(0, 0, image.width, image.height)
+                                (root as ViewGroup).offsetDescendantRectToMyCoords(image, bounds)
+                                assertTrue("$widget shows the full particle envelope: $bounds in ${root.width}x${root.height}",
+                                    Rect(0, 0, root.width, root.height).contains(bounds))
+                                // Each note extends past the nominal body box. The hosted image must retain both.
+                                val frame = Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
+                                try {
+                                    image.draw(Canvas(frame))
+                                    val inset = (image.width - body) / 2
+                                    assertTrue("left note survives host scaling", (0 until inset).any { x ->
+                                        (0 until frame.height).any { y -> Color.alpha(frame.getPixel(x, y)) > 0 } })
+                                    assertTrue("right note survives host scaling", (inset + body until frame.width).any { x ->
+                                        (0 until frame.height).any { y -> Color.alpha(frame.getPixel(x, y)) > 0 } })
+                                } finally { frame.recycle() }
+                                if (styleIndex == 2) saveMoodCapture(root, "mood-$widget-$choice-transparent")
+                            }
+                        }
+                    }
+                }
+            } finally {
+                try { settings.setAnimateClaudeCodeIcon(original.animateClaudeCodeIcon) }
+                finally {
+                    try { settings.setFigureFont(original.figureFont) }
+                    finally {
+                        try { settings.setAppTheme(original.appTheme) }
+                        finally { settings.setProviderIcon(ProviderId.CLAUDE.id, original.providerIcons[ProviderId.CLAUDE.id] ?: "claudecode-color") }
+                    }
+                }
+            }
+        }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun `new readings replace the placed still while other artwork stays static`() = runTest {
+        val id = seedAccount(UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 85.0, 604_800, null, false))
+        val codex = seedNamedAccount("mood-static-codex", "Codex", fixtureWindows(), provider = ProviderId.CODEX)
+        inEachMode(icon = "claudecode-color") {
+            inspect("DetailedUsageWidget", listOf(id), DpSize(180.dp, 110.dp)) { root ->
+                assertStill(providerImages(root).single(), 26, ClaudeCodeMood.TIRED, 0xFFD97757.toInt(), WidgetStyle())
+            }
+            app.container.repository.saveSnapshot(UsageSnapshot(id, System.currentTimeMillis(), SnapshotStatus.OK,
+                windows = listOf(UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 60.0, 604_800, null, false))))
+            inspect("DetailedUsageWidget", listOf(id), DpSize(180.dp, 110.dp)) { root ->
+                assertStill(providerImages(root).single(), 26, ClaudeCodeMood.WORKING, 0xFFD97757.toInt(), WidgetStyle())
+            }
+            val settings = app.container.settingsStore
+            try {
+                for (choice in com.usagelimits.ui.ProviderIconCatalog.choices(ProviderId.CLAUDE)
+                    .filter { it.id !in setOf("claudecode-color", "claudecode") }) {
+                    settings.setProviderIcon(ProviderId.CLAUDE.id, choice.id)
+                    inspect("DetailedUsageWidget", listOf(id), DpSize(180.dp, 110.dp)) { root ->
+                        val image = providerImages(root).single()
+                        assertEquals(choice.id, choice.drawable, shadowOf(image.drawable).createdFromResId)
+                        assertEquals("static slot", 26, image.width)
+                    }
+                }
+            } finally { settings.setProviderIcon(ProviderId.CLAUDE.id, "claudecode-color") }
+            val codexChoice = com.usagelimits.ui.ProviderIconCatalog.selected(ProviderId.CODEX,
+                settings.settings.first().providerIcons[ProviderId.CODEX.id])
+            inspect("DetailedUsageWidget", listOf(codex), DpSize(180.dp, 110.dp)) { root ->
+                val image = providerImages(root).single()
+                assertEquals("other providers keep catalog artwork", codexChoice.drawable, shadowOf(image.drawable).createdFromResId)
+                assertEquals("other providers keep their slot", 26, image.width)
+            }
+            app.container.repository.saveSnapshot(UsageSnapshot(id, System.currentTimeMillis(), SnapshotStatus.OK,
+                windows = listOf(UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 85.0, 604_800, null, false))))
+        }
+    }
+
+    private fun assertStill(image: ImageView, body: Int, mood: ClaudeCodeMood, ink: Int, style: WidgetStyle) {
+        val bitmap = (image.drawable as BitmapDrawable).bitmap
+        assertEquals("envelope keeps the CH-5 body size", kotlin.math.ceil(body * 1.3).toInt(), image.height)
+        assertEquals("bitmap drawn for density without rescaling", bitmap.width, image.width)
+        assertEquals("the square is not compressed vertically", bitmap.height, image.height)
+        val reference = com.usagelimits.ui.claudeCodeStillBitmap(mood, ink, body, bitmap.width, style.textSecondary.toArgb())
+        try {
+            if (!reference.sameAs(bitmap)) {
+                val firstDifference = (0 until bitmap.height).firstNotNullOfOrNull { y ->
+                    (0 until bitmap.width).firstOrNull { x -> bitmap.getPixel(x, y) != reference.getPixel(x, y) }
+                        ?.let { x -> "($x,$y): actual=${bitmap.getPixel(x, y).toUInt().toString(16)}, expected=${reference.getPixel(x, y).toUInt().toString(16)}" }
+                }
+                System.getProperty("capture.dir")?.let { directory ->
+                    for ((label, frame) in listOf("actual" to bitmap, "reference" to reference)) {
+                        File(directory, "mood-difference-$mood-$body-$label.png").outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    }
+                }
+                org.junit.Assert.fail("projected $mood at $body px uses the shared steady drawing; $firstDifference")
+            }
+        } finally { reference.recycle() }
+        val inset = (bitmap.width - body) / 2f
+        fun pixel(x: Float, y: Float) = bitmap.getPixel((inset + x * body / 24f).toInt(), (inset + y * body / 24f).toInt())
+        assertEquals("body uses caller ink", ink, pixel(12f, 14f))
+        val torsoY = (inset + body * 15.5f / 24f).toInt()
+        val torso = (0 until bitmap.width).filter { bitmap.getPixel(it, torsoY) == ink }
+        assertTrue("the torso stays three quarters of its slot, not its envelope",
+            kotlin.math.abs(torso.size - body * 0.75f) <= 2f)
+        if (body >= 36 && mood == ClaudeCodeMood.DANCING) {
+            assertEquals("left eye is real alpha", 0, Color.alpha(pixel(6.74f, 9.5f)))
+            assertEquals("right eye is real alpha", 0, Color.alpha(pixel(17.25f, 9.5f)))
+        }
+        assertEquals("bitmap surround is transparent", 0, Color.alpha(bitmap.getPixel(0, bitmap.height - 1)))
+    }
+
+    private fun saveMoodCapture(root: View, name: String) {
+        val directory = System.getProperty("capture.dir")?.takeIf { it.isNotBlank() }?.let(::File) ?: return
+        directory.mkdirs()
+        val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+        try {
+            root.draw(Canvas(bitmap))
+            File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            for ((backdrop, color) in listOf("dark" to 0xFF242322.toInt(), "light" to 0xFFF3F0E8.toInt())) {
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(color)
+                root.draw(canvas)
+                File(directory, "$name-on-$backdrop.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+        } finally { bitmap.recycle() }
+    }
+
     /** Runs [body] at [scale] and always puts the font scale back, so a failure cannot leak it onward. */
     private inline fun <T> atFontScale(scale: Float, body: () -> T): T {
+        val original = app.resources.configuration.fontScale
         RuntimeEnvironment.setFontScale(scale)
         try {
             return body()
         } finally {
-            RuntimeEnvironment.setFontScale(1f)
-        }
-    }
-
-    /**
-     * The caption and at least one ring are there, the rings number [expectedRings] when given, and
-     * none of them ends below the host. Positions are measured against [root], which [inspect] laid
-     * out at exactly [size] (one pixel per dp under mdpi).
-     */
-    private fun assertCaptionedRingsFit(name: String, root: View, mode: PercentDisplay, size: DpSize,
-        expectedRings: Int?) {
-        val hostHeight = size.height.value.toInt()
-        assertEquals("$name: the host is laid out at its full height", hostHeight, root.height)
-        val text = textViews(root).map { it.text.toString() }
-        assertTrue("$name: caption '${modeWord(mode)}' present, got $text", modeWord(mode) in text)
-        val rings = ringImages(root)
-        assertTrue("$name: at least one ring is shown, got ${descriptions(root)}", rings.isNotEmpty())
-        if (expectedRings != null) {
-            assertEquals("$name: ring count, got ${descriptions(root)}", expectedRings, rings.size)
-        }
-        for (part in rings + textViews(root).filter { it.text.toString() == modeWord(mode) }) {
-            val bottom = bottomWithin(root, part)
-            assertTrue("$name: ${part.javaClass.simpleName} '${part.contentDescription ?: (part as? TextView)?.text}' " +
-                "ends at ${bottom}px, below the ${hostHeight}px host", bottom <= hostHeight)
+            RuntimeEnvironment.setFontScale(original)
         }
     }
 
@@ -529,10 +763,23 @@ class PercentModeWidgetRenderingTest {
             bitmap.getPixel(centreX, (innerStrokeY + outerStrokeY) / 2))
     }
 
-    /** The rings: images whose description ends in a figure clause, which a provider logo's never does. */
+    private fun claudeArtworkSlotSizes(view: View): List<Int> = providerImages(view).map { image ->
+        if (image.drawable is BitmapDrawable && shadowOf(image.drawable).createdFromResId == 0)
+            (image.width / 1.3f).toInt() else image.width
+    }
+
+    /** Provider art is decorative; rings and the refresh button have spoken descriptions. */
+    private fun providerImages(view: View): List<ImageView> = buildList {
+        if (!view.contentDescription.isNullOrBlank()) return@buildList
+        if (view is ImageView && view.drawable is BitmapDrawable &&
+            view.importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_NO &&
+            view.width == view.height && view.scaleType == ImageView.ScaleType.FIT_CENTER) add(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(providerImages(view.getChildAt(index)))
+    }
+
+    /** Ring images describe the reading; their decorative provider marks have no description. */
     private fun ringImages(view: View): List<ImageView> = buildList {
-        val description = view.contentDescription?.toString()
-        if (view is ImageView && description != null && ("% remaining" in description || "% used" in description)) add(view)
+        if (view is ImageView && !view.contentDescription.isNullOrBlank()) add(view)
         if (view is ViewGroup) for (index in 0 until view.childCount) addAll(ringImages(view.getChildAt(index)))
     }
 
@@ -554,7 +801,7 @@ class PercentModeWidgetRenderingTest {
     private fun accountCell(root: View, label: String): View {
         var cell: View = textViews(root).singleOrNull { it.text.toString() == label }
             ?: error("one '$label' label, got ${textViews(root).map { it.text }}")
-        while (descriptions(cell).none { " remaining" in it || " used" in it }) {
+        while (ringImages(cell).isEmpty()) {
             cell = cell.parent as? View ?: error("no ring around '$label'")
         }
         return cell

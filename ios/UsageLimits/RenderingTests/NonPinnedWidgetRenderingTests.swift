@@ -1,0 +1,417 @@
+import SwiftUI
+import UIKit
+import Vision
+import WidgetKit
+import XCTest
+import UsageLimitsKit
+
+/// Production views at native family sizes, not installed WidgetKit or Lock Screen captures.
+@available(iOS 17.0, *)
+@MainActor
+final class NonPinnedWidgetRenderingTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_789_206_060)
+    private let staleAfter: TimeInterval = 3600
+    private let families: [(String, WidgetFamily, CGSize)] = [
+        ("small", .systemSmall, CGSize(width: 158, height: 158)),
+        ("medium", .systemMedium, CGSize(width: 338, height: 158)),
+        ("large", .systemLarge, CGSize(width: 338, height: 354)),
+    ]
+
+    func testRenderNonPinnedFamiliesInBothModesAndTextSizes() throws {
+        let environment = ProcessInfo.processInfo.environment
+        let directory = try XCTUnwrap(environment["NON_PINNED_RENDERINGS"], "set TEST_RUNNER_NON_PINNED_RENDERINGS")
+        let language = try XCTUnwrap(environment["NON_PINNED_LANGUAGE"], "set TEST_RUNNER_NON_PINNED_LANGUAGE")
+        XCTAssertEqual(String(localized: "Locked"), language == "de" ? "Gesperrt" : "Locked")
+        let output = URL(fileURLWithPath: directory).appendingPathComponent(language)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        var manifest = ["Native SwiftUI view renderings. NOT installed widgets; no host tint, vibrancy or delivery proof."]
+        let creditsEntry = creditEntry()
+        let creditUpdate = try XCTUnwrap(creditsEntry.updatedAt)
+        let creditTime = DateFormatter.localizedString(from: creditUpdate, dateStyle: .none, timeStyle: .short)
+        for mode in [PercentDisplay.left, .used] {
+            let snapshot = snapshot(mode: mode)
+            let entry = UsageEntry(date: now, snapshot: snapshot)
+            let configured = ConfiguredUsageEntry(date: now, snapshot: snapshot, transparent: false, outcome: .ready)
+            for (typeName, typeSize) in [("regular", DynamicTypeSize.large), ("ax5", .accessibility5)] {
+                for (name, family, size) in families {
+                    let prefix = "\(mode.rawValue)-\(typeName)-\(name)"
+                    let bars = try render(UsageWidgetFamilyView(family: family, entry: entry, showsProviderMark: true),
+                        size: size, typeSize: typeSize)
+                    try write(bars, name: "\(prefix)-bars", to: output)
+                    let summary = try render(UsageWidgetFamilyView(family: family, entry: entry), size: size, typeSize: typeSize)
+                    try write(summary, name: "\(prefix)-summary", to: output)
+                    XCTAssertNotEqual(bars.pngData(), summary.pngData(), "configured Bars must add the provider slot, including small")
+                    if typeName == "regular" && family == .systemSmall {
+                        let visible = try words(bars).map(\.text).joined(separator: " ")
+                        XCTAssertTrue(visible.localizedCaseInsensitiveContains(PercentText.sideWord(mode)),
+                            "Bars must retain its visible side")
+                    }
+                    for mini in [false, true] {
+                        let image = try render(ConfiguredRingGrid(entry: configured, mini: mini, ink: .light),
+                            size: size, typeSize: typeSize)
+                        let filename = "\(prefix)-\(mini ? "mini-rings" : "account-rings")"
+                        try write(image, name: filename, to: output)
+                        let recognized = try words(image)
+                        assertNoSideCaption(in: recognized, context: filename)
+                        if !mini && typeName == "regular" {
+                            XCTAssertTrue(recognized.contains { $0.text.contains("Claude") }, "ring account label must survive")
+                        }
+                    }
+                    let credits = try render(creditView(family: family, entry: creditsEntry), size: size, typeSize: typeSize)
+                    try write(credits, name: "\(prefix)-credits", to: output)
+                    if family != .systemSmall {
+                        let regular = typeSize == .large
+                        let lastBalance = family == .systemMedium ? (regular ? 2 : 1) : (regular ? 5 : 4)
+                        try assertCreditList(credits, language: language, time: creditTime, lastBalance: lastBalance,
+                            context: "\(language)/\(prefix)-credits")
+                    }
+                    manifest.append("\(prefix): Bars, logo-free Summary, Account Rings, Mini Rings, Credits")
+                }
+                for (name, size) in [("home-ring", CGSize(width: 158, height: 158)),
+                                      ("circular", CGSize(width: 72, height: 72)),
+                                      ("rectangular", CGSize(width: 160, height: 72))] {
+                    let view: AnyView = name == "home-ring" ? AnyView(UsageRingWidgetView(entry: entry))
+                        : name == "circular" ? AnyView(UsageAccessoryCircularView(entry: entry))
+                        : AnyView(UsageAccessoryRectangularView(entry: entry))
+                    let image = try render(view, size: size, typeSize: typeSize)
+                    try write(image, name: "\(mode.rawValue)-\(typeName)-\(name)", to: output)
+                    let recognized = try words(image)
+                    if name != "rectangular" { assertNoSideCaption(in: recognized, context: name) }
+                    else if typeName == "regular" {
+                        XCTAssertTrue(recognized.map(\.text).joined(separator: " ")
+                            .localizedCaseInsensitiveContains(PercentText.sideWord(mode)))
+                    }
+                }
+            }
+            let darkEntry = ConfiguredUsageEntry(date: now, snapshot: snapshot, transparent: true, tone: .dark, outcome: .ready)
+            try write(try render(ConfiguredRingGrid(entry: darkEntry, mini: true, ink: .dark),
+                size: CGSize(width: 158, height: 158), background: .white),
+                name: "\(mode.rawValue)-transparent-dark-ink", to: output)
+        }
+        let single = UsageEntry(date: now, snapshot: snapshot(mode: .left).selecting(scope: .account,
+            now: now, accountID: "claude"))
+        let singleBars = try render(UsageWidgetFamilyView(family: .systemSmall, entry: single, showsProviderMark: true),
+            size: CGSize(width: 158, height: 158))
+        let singleSummary = try render(UsageWidgetFamilyView(family: .systemSmall, entry: single),
+            size: CGSize(width: 158, height: 158))
+        XCTAssertNotEqual(singleBars.pngData(), singleSummary.pngData())
+        try write(singleBars, name: "single-account-bars", to: output)
+        for outcome in [ConfiguredSelectionOutcome.noAccounts, .missingAccount, .missingPreset, .sourceUnavailable, .corruptSource] {
+            let entry = ConfiguredUsageEntry(date: now, snapshot: .empty, transparent: false, outcome: outcome)
+            try write(try render(ConfiguredRingGrid(entry: entry, mini: false, ink: .light),
+                size: CGSize(width: 158, height: 158)), name: "empty-\(outcome)", to: output)
+        }
+        for failed in [false, true] {
+            let row = GlanceRow(label: "5h", category: .fiveHour, remainingPercent: 42,
+                resetAt: now.addingTimeInterval(-60), severity: .medium)
+            let retained = GlanceAccount(id: "retained", title: "Claude Max", subtitle: "retained@example.invalid",
+                rows: [row], severity: failed ? .error : .stale, baseSeverity: failed ? .error : .medium,
+                fetchedAt: now.addingTimeInterval(-7200), providerID: "claude",
+                connectionStatus: failed ? .reconnectRequired : .connected, iconAssetName: "ProviderIconClaudecode",
+                statusMessage: failed ? NotificationEvaluator.signInExpiredMessage : nil)
+            let snapshot = GlanceSnapshot(accounts: [retained], accountCount: 1, updatedAt: retained.fetchedAt,
+                nextResetAt: row.resetAt, overallSeverity: retained.severity, summaryLineShort: row,
+                summaryLineLong: nil, staleAfter: staleAfter, percentDisplay: .left,
+                statusIconsEnabled: false, pinnedAccountIDs: [])
+            let entry = UsageEntry(date: now, snapshot: snapshot)
+            try write(try render(UsageRingWidgetView(entry: entry), size: CGSize(width: 158, height: 158)),
+                name: failed ? "legacy-ring-failed-retained" : "legacy-ring-stale-reset-due", to: output)
+            let credits = GlanceCredit(id: "retained", title: "DeepSeek", providerID: "deepseek",
+                balances: [CreditBalance(currency: "USD", amount: Decimal(string: "3.18")!)],
+                severity: failed ? .error : .stale, baseSeverity: failed ? .error : .low,
+                fetchedAt: now.addingTimeInterval(-7200), statusMessage: failed ? "Connection lost" : nil)
+            try write(try render(CreditsSmallView(entry: CreditsEntry(date: now, credits: [credits],
+                staleAfter: staleAfter, updatedAt: credits.fetchedAt, state: .ready)),
+                size: CGSize(width: 158, height: 158)), name: failed ? "credits-failed-retained" : "credits-stale-retained", to: output)
+        }
+        for state in [CreditsEntry.State.noCredits, .locked, .unreadable] {
+            try write(try render(CreditsEmptyView(state: state), size: CGSize(width: 158, height: 158)),
+                name: "credits-empty-\(state)", to: output)
+        }
+        try manifest.joined(separator: "\n").write(to: output.appendingPathComponent("MANIFEST.txt"),
+            atomically: true, encoding: .utf8)
+    }
+
+    func testSteadyClaudeUsesSharedDrawingWithTransparentEyesAndWidgetInk() throws {
+        let size: CGFloat = 72
+        for remaining in [0.0, 15, 40, 70, 95] {
+            let account = account("claude", remaining: remaining, icon: "ProviderIconClaudecode")
+            let actual = try render(WidgetProviderMark(account: account, date: now, size: size, ink: .dark),
+                size: CGSize(width: size, height: size), background: .clear)
+            let expected = try render(ClaudeCodeStill(mood: account.claudeCodeMood(at: now), size: size,
+                ink: WidgetInk.dark.primary), size: CGSize(width: size, height: size), background: .clear)
+            XCTAssertEqual(actual.pngData(), expected.pngData(), "widget and app must use one drawing for \(remaining)")
+            XCTAssertNotEqual(account.claudeCodeMood(at: now), .hooray)
+        }
+        let tired = account("claude", remaining: 15, icon: "ProviderIconClaudecode")
+        let image = try render(WidgetProviderMark(account: tired, date: now, size: size, ink: .dark),
+            size: CGSize(width: size, height: size), background: .clear)
+        let raster = try Raster(image)
+        // CH-3 eye centers on the 24-unit grid of the untransformed Tired still pose.
+        for (side, x) in [("left", 6.744), ("right", 17.254)] {
+            XCTAssertLessThan(raster.pixel(x: x / 24, y: 10.275 / 24).alpha, 10,
+                "tired \(side) eye must be an alpha cut-out")
+        }
+        let body = raster.pixel(x: 12.0 / 24, y: 12.0 / 24)
+        XCTAssertGreaterThan(body.alpha, 245)
+        XCTAssertLessThan(body.red, 40, "monochrome uses dark widget ink, not white app artwork")
+        let color = account("claude", remaining: 15, icon: "ProviderIconClaudecodeColor")
+        let colored = try Raster(render(WidgetProviderMark(account: color, date: now, size: size, ink: .dark),
+            size: CGSize(width: size, height: size), background: .clear))
+        let terracotta = colored.pixel(x: 12.0 / 24, y: 12.0 / 24)
+        XCTAssertEqual(Double(terracotta.red), 217, accuracy: 2)
+        XCTAssertEqual(Double(terracotta.green), 119, accuracy: 2)
+        XCTAssertEqual(Double(terracotta.blue), 87, accuracy: 2)
+    }
+
+    func testNextPresentationDateReevaluatesTheSteadyPoseWithoutACheer() throws {
+        let boundary = now.addingTimeInterval(60)
+        let short = GlanceRow(label: "5h", category: .fiveHour, remainingPercent: 15,
+            resetAt: boundary, severity: .low)
+        let weekly = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 95,
+            resetAt: now.addingTimeInterval(7200), severity: .healthy)
+        let account = GlanceAccount(id: "claude", title: "Claude Max", subtitle: "claude@example.invalid",
+            rows: [short, weekly], severity: .low, fetchedAt: now.addingTimeInterval(-60),
+            providerID: "claude", iconAssetName: "ProviderIconClaudecodeColor")
+        XCTAssertEqual(account.claudeCodeMood(at: now), .tired)
+        XCTAssertEqual(account.claudeCodeMood(at: boundary), .dancing)
+        let before = try render(WidgetProviderMark(account: account, date: now, size: 72),
+            size: CGSize(width: 72, height: 72), background: .clear)
+        let after = try render(WidgetProviderMark(account: account, date: boundary, size: 72),
+            size: CGSize(width: 72, height: 72), background: .clear)
+        XCTAssertNotEqual(before.pngData(), after.pngData(), "a new presentation date must not freeze the old mood")
+        let expected = try render(ClaudeCodeStill(mood: .dancing, size: 72, ink: UsageColors.data),
+            size: CGSize(width: 72, height: 72), background: .clear)
+        XCTAssertEqual(after.pngData(), expected.pngData(), "a dated reset changes the steady pose, never exports Hooray")
+    }
+
+    func testRingSpeechRetainsTheActualWindowSideStatusResetAndIdentity() throws {
+        for mode in [PercentDisplay.left, .used] {
+            let account = account("claude", remaining: 42, fetchedAgo: 7200, reconnect: true)
+            let row = try XCTUnwrap(account.representative(at: now))
+            let p = account.presentation(of: row, at: now, staleAfter: staleAfter, mode: mode)
+            let speech = WidgetRingSpeech.label(account: account, row: row, presentation: p, date: now, staleAfter: staleAfter)
+            XCTAssertTrue(speech.contains("claude@example.invalid"))
+            XCTAssertTrue(speech.contains(row.displayLabel))
+            XCTAssertTrue(speech.contains(PercentText.spoken(PercentText.figure(p), mode)))
+            XCTAssertTrue(speech.contains(String(localized: "Reconnect")))
+            XCTAssertTrue(speech.contains(SeverityPalette.label(.stale)))
+            XCTAssertTrue(speech.contains(try XCTUnwrap(GlanceText.resetLine(resetAt: row.resetAt, now: now))))
+            XCTAssertTrue(speech.contains(try XCTUnwrap(GlanceText.asOfLine(updatedAt: account.fetchedAt, now: now))))
+        }
+    }
+
+    func testSmallCreditsKeepAmountAndStatusWithinNativeBoundsAtLargeType() throws {
+        for typeSize in [DynamicTypeSize.large, .accessibility5] {
+            let image = try render(CreditsSmallView(entry: creditEntry()), size: CGSize(width: 158, height: 158), typeSize: typeSize)
+            let recognized = try words(image)
+            XCTAssertTrue(recognized.contains { $0.text.contains("3") && $0.text.contains("18") }, "balance must render")
+            let status = String(localized: "Stale")
+            XCTAssertTrue(recognized.contains { $0.text.localizedCaseInsensitiveContains(status) }, "retained stale message must render")
+            for word in recognized {
+                XCTAssertGreaterThan(word.bounds.minY, 0)
+                XCTAssertLessThan(word.bounds.maxY, 1)
+            }
+        }
+    }
+
+    func testSmallCreditCompactStatusesKeepTheTitleAndRetainedAmountAtAX5() throws {
+        let environment = ProcessInfo.processInfo.environment
+        let directory = try XCTUnwrap(environment["NON_PINNED_RENDERINGS"], "set TEST_RUNNER_NON_PINNED_RENDERINGS")
+        let language = try XCTUnwrap(environment["NON_PINNED_LANGUAGE"], "set TEST_RUNNER_NON_PINNED_LANGUAGE")
+        XCTAssertEqual(String(localized: "Locked"), language == "de" ? "Gesperrt" : "Locked")
+        let output = URL(fileURLWithPath: directory).appendingPathComponent(language)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let fixtureURL = try XCTUnwrap(Bundle(for: NonPinnedWidgetRenderingTests.self)
+            .url(forResource: "credit-widget-compact-status", withExtension: "json"))
+        let fixture = try JSONDecoder().decode(CompactCreditStatuses.self, from: Data(contentsOf: fixtureURL))
+        XCTAssertEqual(fixture.vectors.count, CompactCreditStatuses.State.allCases.count)
+        XCTAssertEqual(Set(fixture.vectors.map(\.state)), Set(CompactCreditStatuses.State.allCases))
+
+        let size = CGSize(width: 158, height: 158)
+        // Long at the existing iOS font caps, even without a cached amount or outer padding.
+        let detail = "The prepaid balance, its currency, and the account's billing details were missing from the provider response. The remaining fields did not identify a paid balance or provide a timestamp that could be used to verify when the remaining amount was reported."
+        let failure = try XCTUnwrap(CreditError.malformed(detail).errorDescription)
+        for vector in fixture.vectors {
+            let retained = vector.state == .refreshFailed
+            let unread = vector.state == .unread
+            // A retained failure is stale, not .error: its message must still win over age.
+            let balance = CreditBalance(currency: "USD", amount: Decimal(318) / 100, total: 20)
+            let entry = creditReading(balances: retained ? [balance] : [], failure: unread ? nil : failure)
+            let compact = language == "de" ? vector.de : vector.en
+            let original = language == "de" ? "Unbekannt" : "Unknown"
+            let credit = try XCTUnwrap(entry.credits.first)
+            XCTAssertEqual(CreditsSmallContent.compactStatus(for: credit), compact, "\(vector.state)")
+
+            let view = CreditsSmallView(entry: entry)
+            let image = try render(view, size: size, typeSize: .accessibility5)
+            try write(image, name: "credit-compact-\(vector.state.rawValue)-ax5", to: output)
+            let recognized = try words(image).sorted { $0.bounds.midY > $1.bounds.midY }
+            let visible = recognized.map(\.text).joined(separator: " ")
+            let expected = unread ? original : compact
+            XCTAssertTrue(visible.localizedCaseInsensitiveContains("DeepSeek"),
+                "\(vector.state) must keep the account title visible: \(visible)")
+            XCTAssertTrue(visible.localizedCaseInsensitiveContains(expected),
+                "\(vector.state) must render \(expected): \(visible)")
+            if retained {
+                XCTAssertTrue(visible.contains("3.18") || visible.contains("3,18"),
+                    "the cached balance must still render beside the failure: \(visible)")
+            }
+        }
+    }
+
+    func testSmallCreditUsesOriginalStatusWhenItFits() throws {
+        let entry = creditReading(balances: [], failure: "The provider could not be reached.")
+        let image = try render(CreditsSmallView(entry: entry), size: CGSize(width: 158, height: 158))
+        let lines = try words(image).sorted { $0.bounds.midY > $1.bounds.midY }
+        let visible = lines.map(\.text).joined(separator: " ")
+        XCTAssertTrue(visible.localizedCaseInsensitiveContains(String(localized: "The provider could not be reached.")),
+            "a fitting warning must retain its full wording: \(visible)")
+    }
+
+    private struct CompactCreditStatuses: Decodable {
+        enum State: String, Decodable, CaseIterable { case unread, unreadable, refreshFailed }
+        struct Vector: Decodable {
+            let state: State
+            let en: String
+            let de: String
+        }
+        let vectors: [Vector]
+    }
+
+    private func creditReading(balances: [CreditBalance], failure: String?) -> CreditsEntry {
+        let account = CreditAccount(id: "deepseek", provider: .deepseek, label: "DeepSeek",
+            credentialReference: "unused", sortOrder: 0, createdAt: now.addingTimeInterval(-10800))
+        let snapshot = failure.map { CreditSnapshot(accountID: account.id, balances: balances,
+            fetchedAt: now.addingTimeInterval(-7200), lastAttemptAt: now, status: .failed, error: $0) }
+        let credit = GlanceCredit(entry: CreditEntry(account: account, snapshot: snapshot), now: now, staleAfter: staleAfter)
+        return CreditsEntry(date: now, credits: [credit], staleAfter: staleAfter, updatedAt: credit.fetchedAt, state: .ready)
+    }
+
+    private func account(_ provider: String, remaining: Double?, fetchedAgo: TimeInterval = 60,
+                         reconnect: Bool = false, icon: String? = nil) -> GlanceAccount {
+        let severity = remaining.map { Severity.from(remainingPercent: $0) } ?? .unknown
+        let row = GlanceRow(label: "5h", category: .fiveHour, remainingPercent: remaining,
+            resetAt: now.addingTimeInterval(7200), severity: severity)
+        return GlanceAccount(id: provider, title: provider == "claude" ? "Claude Max" : "OpenAI Codex",
+            subtitle: "\(provider)@example.invalid", rows: [row], severity: severity,
+            fetchedAt: now.addingTimeInterval(-fetchedAgo), providerID: provider,
+            connectionStatus: reconnect ? .reconnectRequired : .connected, iconAssetName: icon)
+    }
+
+    private func snapshot(mode: PercentDisplay) -> GlanceSnapshot {
+        let accounts = [account("claude", remaining: 18, icon: "ProviderIconClaudecodeColor"),
+                        account("codex", remaining: 66), account("claude-stale", remaining: nil)]
+        return GlanceSnapshot(accounts: accounts, accountCount: accounts.count, updatedAt: now,
+            nextResetAt: now.addingTimeInterval(7200), overallSeverity: .low,
+            summaryLineShort: accounts[0].rows[0], summaryLineLong: nil, staleAfter: staleAfter, percentDisplay: mode,
+            statusIconsEnabled: false, pinnedAccountIDs: [])
+    }
+
+    private func creditEntry() -> CreditsEntry {
+        let credits = (0..<7).map { index in
+            GlanceCredit(id: "credit-\(index)", title: index == 0 ? "DeepSeek" : "Balance \(index)", providerID: "deepseek",
+                balances: [CreditBalance(currency: "USD", amount: Decimal(string: "3.18")!, total: 20)],
+                severity: .stale, baseSeverity: .low, fetchedAt: now.addingTimeInterval(-7200), statusMessage: nil)
+        }
+        return CreditsEntry(date: now, credits: credits, staleAfter: staleAfter, updatedAt: now.addingTimeInterval(-7200), state: .ready)
+    }
+
+    @ViewBuilder
+    private func creditView(family: WidgetFamily, entry: CreditsEntry) -> some View {
+        if family == .systemSmall { CreditsSmallView(entry: entry) }
+        else { CreditsListView(entry: entry, limit: family == .systemLarge ? 6 : 3) }
+    }
+
+    private func assertCreditList(_ image: UIImage, language: String, time: String, lastBalance: Int,
+                                  context: String) throws {
+        let recognized = try words(image)
+        let first = try XCTUnwrap(recognized.first { $0.text.contains("DeepSeek") }, "\(context): first account missing")
+        let last = try XCTUnwrap(recognized.first { $0.text.contains("Balance \(lastBalance)") },
+            "\(context): last account missing")
+        // Vision's normalized Y increases from the bottom. Exclude all row figures from the clock check.
+        let header = recognized.filter { $0.bounds.midY > first.bounds.maxY }.map(\.text).joined(separator: " ")
+        let lastRow = recognized.filter { $0.bounds.minY < last.bounds.maxY && $0.bounds.maxY > last.bounds.minY }
+            .map(\.text).joined(separator: " ")
+        let footer = recognized.filter { $0.bounds.midY < last.bounds.minY }.map(\.text).joined(separator: " ")
+        let german = language == "de"
+        let title = german ? "Guthaben" : "Credits"
+        let update = german ? "Letzte Aktualisierung" : "Latest update"
+        let overflow = "+\(7 - (lastBalance + 1)) \(german ? "weitere" : "more")"
+        func compact(_ text: String) -> String { String(text.filter { !$0.isWhitespace }).lowercased() }
+        let visibleHeader = compact(header)
+        XCTAssertTrue(visibleHeader.contains(compact(title)), "\(context): title missing in \(header)")
+        XCTAssertTrue(visibleHeader.contains(compact(update)), "\(context): update label missing in \(header)")
+        XCTAssertTrue(visibleHeader.contains(compact(time)), "\(context): expected full time \(time) in \(header)")
+        let amountPattern = german
+            ? #"(?<![\d.,])[-+−]?\s*\d+(?:\s*[.,]\s*\d+)*\s*\$"#
+            : #"[-+−]?\s*\$\s*[-+−]?\s*\d+(?:\s*[.,]\s*\d+)*(?![\d.,])"#
+        let amountRange = try XCTUnwrap(lastRow.range(of: amountPattern, options: .regularExpression),
+            "\(context): last account amount missing in \(lastRow)")
+        XCTAssertEqual(compact(String(lastRow[amountRange])), german ? "3,18$" : "$3.18", context)
+        XCTAssertTrue(compact(footer).contains(compact(overflow)), "\(context): expected \(overflow) below the last account, got \(footer)")
+    }
+
+    private func render(_ view: some View, size: CGSize, typeSize: DynamicTypeSize = .large,
+                        background: Color = .black) throws -> UIImage {
+        let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height)
+            .foregroundStyle(.white).background(background)
+            .environment(\.colorScheme, .dark).environment(\.dynamicTypeSize, typeSize)
+            .environment(\.reduceMotionOverride, true))
+        renderer.scale = 3
+        let image = try XCTUnwrap(renderer.uiImage)
+        XCTAssertEqual(image.size.width, size.width, accuracy: 0.5)
+        XCTAssertEqual(image.size.height, size.height, accuracy: 0.5)
+        return image
+    }
+
+    private func write(_ image: UIImage, name: String, to directory: URL) throws {
+        try XCTUnwrap(image.pngData()).write(to: directory.appendingPathComponent(name + ".png"))
+    }
+
+    private func words(_ image: UIImage) throws -> [(text: String, bounds: CGRect)] {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["en-US", "de-DE"]
+        request.usesLanguageCorrection = false
+        try VNImageRequestHandler(cgImage: XCTUnwrap(image.cgImage)).perform([request])
+        return (request.results ?? []).compactMap { observation in
+            observation.topCandidates(1).first.map { ($0.string, observation.boundingBox) }
+        }
+    }
+
+    private func assertNoSideCaption(in words: [(text: String, bounds: CGRect)], context: String) {
+        let captions = ["left", "used", "übrig", "verbraucht"]
+        for word in words {
+            XCTAssertFalse(captions.contains(word.text.lowercased()), "visible ring side caption: \(context)")
+        }
+    }
+
+    private struct Raster {
+        let width: Int
+        let height: Int
+        let bytes: [UInt8]
+
+        init(_ image: UIImage) throws {
+            let image = try XCTUnwrap(image.cgImage)
+            let pixelWidth = image.width
+            let pixelHeight = image.height
+            width = pixelWidth
+            height = pixelHeight
+            var bytes = [UInt8](repeating: 0, count: pixelWidth * pixelHeight * 4)
+            try bytes.withUnsafeMutableBytes { buffer in
+                let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: pixelWidth, height: pixelHeight,
+                    bitsPerComponent: 8, bytesPerRow: pixelWidth * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+                // An untransformed CGImage draw preserves row order; a Y-flip mirrors the bitmap.
+                context.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
+            }
+            self.bytes = bytes
+        }
+
+        func pixel(x: Double, y: Double) -> (red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8) {
+            let offset = (Int(y * Double(height)) * width + Int(x * Double(width))) * 4
+            return (bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3])
+        }
+    }
+}

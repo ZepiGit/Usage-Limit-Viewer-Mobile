@@ -12,7 +12,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -73,16 +73,28 @@ class StatusIconBlockedTest {
     private lateinit var owned: OwnedViewModel
     private val vm: UsageViewModel get() = owned.vm
 
-    /** How often the screen reported that status icons can be shown again. */
+    private lateinit var original: com.usagelimits.core.di.AppContainer
+    private var eligibilityJob: Job? = null
     private var allowedEvents = 0
 
     @Before
     fun setUp() = runBlocking {
         app.startupJob?.join()
         WorkManager.getInstance(app).cancelAllWork().result.get()
+        original = app.container
+        val container = object : com.usagelimits.core.di.AppContainer(app) {
+            override val publication = object : com.usagelimits.core.sync.Publication by original.publication {
+                override suspend fun notificationsAllowedAgain() {
+                    allowedEvents++
+                    original.publication.notificationsAllowedAgain()
+                }
+            }
+        }
+        org.robolectric.util.ReflectionHelpers.setField(app, "container", container)
         shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val store = app.container.settingsStore
         store.recordNotificationPermissionHandled()
+        store.recordStatusIconEligibility(true)
         store.setStatusIconsEnabled(true)
         store.setPinnedAccounts(listOf(account().localId))
         owned = OwnedViewModel(app.container, app)
@@ -91,7 +103,10 @@ class StatusIconBlockedTest {
     /** Nothing this class started may outlive it: see `resetTestWorkManager`. */
     @After
     fun drain() {
+        compose.runOnUiThread { eligibilityJob = app.observeStatusIconEligibility() }
+        compose.waitDrained { eligibilityJob?.isCompleted == true }
         owned.clear()
+        org.robolectric.util.ReflectionHelpers.setField(app, "container", original)
         WorkManager.getInstance(app).cancelAllWork().result.get()
         ShadowLooper.idleMainLooper()
         resetTestWorkManager()
@@ -135,18 +150,22 @@ class StatusIconBlockedTest {
                     state = state,
                     onSyncIntervalChange = {}, onNotifyBelow20 = {}, onNotifyBelow10 = {}, onNotifyExhausted = {},
                     onNotifyResetCredit = {}, onNotifyAuthExpired = {}, onNotifyResetApproaching = {},
-                    onNotifyCreditExpiring = {}, onShowTier = {}, onShowRenewal = {}, onPercentDisplayChange = {},
-                    onNotificationPermissionHandled = vm::recordNotificationPermissionHandled,
+                    onNotifyCreditExpiring = {}, onShowTier = {}, onOverviewLayoutChange = {}, onPercentDisplayChange = {},
+                    onNotificationPermissionHandled = vm::recordNotificationPermissionHandled, onAppThemeChange = vm::setAppTheme,
                     onStatusIconsChange = vm::setStatusIcons,
                     onPinnedChange = vm::setPinned,
-                    onNotificationsAllowed = {
-                        allowedEvents++
-                        vm.notificationsAllowed()
-                    },
                 )
             }
         }
         compose.waitDrained { vm.state.value.loaded && vm.state.value.accounts.isNotEmpty() }
+        compose.runOnUiThread {
+            compose.activity.lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+                override fun onResume(owner: androidx.lifecycle.LifecycleOwner) {
+                    eligibilityJob = app.observeStatusIconEligibility()
+                }
+            })
+        }
+        compose.waitDrained { eligibilityJob?.isCompleted == true }
     }
 
     private fun eventually(condition: () -> Boolean): Boolean = try {
@@ -169,6 +188,7 @@ class StatusIconBlockedTest {
         compose.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
         change()
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.waitDrained { eligibilityJob?.isCompleted == true }
     }
 
     @Test

@@ -1,3 +1,6 @@
+#if DEBUG
+import Combine
+#endif
 import SwiftUI
 import UIKit
 import UsageLimitsKit
@@ -12,6 +15,8 @@ import UsageLimitsKit
 /// Every listed provider now has a phone-compatible sign-in flow, and the screen describes the
 /// selected flow before it starts so the browser step is predictable.
 struct AddAccountSheet: View {
+    @Environment(\.usageAppearance) private var appearance
+    private var colors: UsagePalette { appearance.colors }
 
     @EnvironmentObject private var store: UsageStore
     @Environment(\.dismiss) private var dismiss
@@ -19,7 +24,7 @@ struct AddAccountSheet: View {
 
     /// Where the sheet is in the flow. One value rather than several booleans, so "waiting" and
     /// "failed" cannot both be true and leave the screen showing a contradiction.
-    private enum Stage: Equatable {
+    enum Stage: Equatable {
         case choosing
         case starting(ProviderID)
         case waiting(ProviderID, DeviceLoginChallenge)
@@ -30,7 +35,32 @@ struct AddAccountSheet: View {
         case failed(ProviderID, String)
     }
 
-    @State private var stage: Stage = .choosing
+    @ReducesMotion private var reduceMotion
+    @State private var localStage: Stage = .choosing
+    @State private var displayedStage: Stage = .choosing
+    @State private var stepOpacity = 1.0
+    @State private var stepRevision = 0
+
+    private var stage: Stage {
+        get {
+            #if DEBUG
+            if let drivenStage { return drivenStage.wrappedValue }
+            #endif
+            return localStage
+        }
+        nonmutating set {
+            #if DEBUG
+            if let drivenStage { drivenStage.wrappedValue = newValue; return }
+            #endif
+            localStage = newValue
+        }
+    }
+    #if DEBUG
+    private var drivenStage: Binding<Stage>?
+    private var captureStep: ((Double, Bool) -> Void)?
+    private var holdExit = false
+    private var retainChooserAction: ((@escaping @MainActor () -> Void) -> Void)?
+    #endif
     @State private var login: Task<Void, Never>?
     @State private var loopback = LoopbackSignIn()
     @State private var copied = false
@@ -38,11 +68,66 @@ struct AddAccountSheet: View {
     /// The region picked for a regional provider, or nil until the user picks.
     @State private var region: ProviderRegion?
 
+    private let initialProvider: ProviderID?
+
+    init(initialProvider: ProviderID? = nil) {
+        self.initialProvider = initialProvider
+    }
+
+    #if DEBUG
+    static func rendering(stage: Binding<Stage>, reduceMotion: Bool,
+                          captureStep: @escaping (Double, Bool) -> Void) -> some View {
+        // Apply the app's environment key, not the rendering target's copy of UsageMotion.
+        AddAccountSheet(stage: stage, captureStep: captureStep)
+            .environment(\.reduceMotionOverride, reduceMotion)
+    }
+
+    private init(stage: Binding<Stage>, captureStep: ((Double, Bool) -> Void)? = nil,
+                 holdExit: Bool = false, retainChooserAction: ((@escaping @MainActor () -> Void) -> Void)? = nil) {
+        initialProvider = nil
+        drivenStage = stage
+        self.captureStep = captureStep
+        self.holdExit = holdExit
+        self.retainChooserAction = retainChooserAction
+        _displayedStage = State(initialValue: stage.wrappedValue)
+    }
+
+    static func motionAccessibilityFixture() -> some View {
+        SignInMotionAccessibilityFixture()
+    }
+    #endif
+
+    private struct StepTarget: Equatable {
+        let stage: Stage
+        let reduceMotion: Bool
+        #if DEBUG
+        let holdExit: Bool
+        #endif
+    }
+
+    private var acceptsInput: Bool { reduceMotion || (displayedStage == stage && stepOpacity == 1) }
+
+    private var capturesStepFrames: Bool {
+        #if DEBUG
+        captureStep != nil
+        #else
+        false
+        #endif
+    }
+
     var body: some View {
+        #if DEBUG
+        let target = StepTarget(stage: stage, reduceMotion: reduceMotion, holdExit: holdExit)
+        #else
+        let target = StepTarget(stage: stage, reduceMotion: reduceMotion)
+        #endif
+        // A cut must paint the requested card in this update, not in a later onChange update.
+        let visibleStage = target.reduceMotion ? target.stage : displayedStage
+        let opacity = target.reduceMotion ? 1 : stepOpacity
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    switch stage {
+                    switch visibleStage {
                     case .choosing:
                         chooser
                     case .starting(let provider):
@@ -57,14 +142,25 @@ struct AddAccountSheet: View {
                         failure(provider, message)
                     }
                 }
-                .id(stageIdentity)
-                .transition(AnyTransition.opacity)
-                .motion(.contentSwap, value: stage)
+                .id(stageIdentity(visibleStage))
+                .disabled(!acceptsInput)
+                .allowsHitTesting(acceptsInput)
+                .accessibilityHidden(!acceptsInput)
+                .modifier(SignInStepOpacity(value: opacity, capturesFrames: capturesStepFrames) { [revision = stepRevision] value in
+                    guard revision == stepRevision else { return }
+                    #if DEBUG
+                    captureStep?(value, !target.reduceMotion && displayedStage != stage)
+                    #endif
+                    if value == 0, stepOpacity == 0 { finishExit() }
+                })
+                // Switching the preference must also discard an in-flight interpolation to 1.
+                .id(target.reduceMotion)
+                .transaction { if target.reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
                 .padding(16)
                 .readableWidth()
             }
             .accessibilityIdentifier("provider-picker-scroll")
-            .background(UsageColors.ground)
+            .background(colors.ground)
             .navigationTitle("Add account")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -79,10 +175,44 @@ struct AddAccountSheet: View {
                 }
             }
         }
+        .onAppear {
+            if let initialProvider, stage == .choosing { select(initialProvider) }
+        }
+        .onChange(of: target) { retargetStep($0) }
         .onDisappear { login?.cancel() }
     }
 
-    private var stageIdentity: Int {
+    private func retargetStep(_ target: StepTarget) {
+        guard !target.reduceMotion else {
+            stepRevision += 1
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                displayedStage = target.stage
+                stepOpacity = 1
+            }
+            return
+        }
+        #if DEBUG
+        if target.holdExit { return }
+        #endif
+        let returning = displayedStage == target.stage
+        guard returning || stepOpacity != 0 else { return }
+        stepRevision += 1
+        withAnimation(returning ? Motion.enterFromHidden(reduceMotion: false) : Motion.exit.animation(reduceMotion: false)) {
+            stepOpacity = returning ? 1 : 0
+        }
+    }
+
+    private func finishExit() {
+        guard displayedStage != stage else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { displayedStage = stage }
+        withAnimation(Motion.enterFromHidden(reduceMotion: reduceMotion)) { stepOpacity = 1 }
+    }
+
+    private func stageIdentity(_ stage: Stage) -> Int {
         switch stage {
         case .choosing: return 0
         case .starting: return 1
@@ -100,30 +230,34 @@ struct AddAccountSheet: View {
         UsageCard(padding: 0, spacing: 0) {
             ForEach(Array(ProviderID.allCases.enumerated()), id: \.offset) { index, provider in
                 if index > 0 { LedgerDivider() }
-                Button { select(provider) } label: {
+                let action: @MainActor () -> Void = { if stage == .choosing, acceptsInput { select(provider) } }
+                Button { action() } label: {
                     HStack(spacing: 12) {
                         ProviderBadge(provider: provider)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(provider.displayName)
                                 .usageFont(.section)
-                                .foregroundStyle(UsageColors.ink)
+                                .foregroundStyle(colors.ink)
                             // Named before the tap, not after: a user should know what the button is
                             // about to do with their account before it does it. The two flows feel
                             // different enough that saying which one is coming is worth a line.
                             Text(signInHint(for: provider))
                                 .usageFont(.body)
-                                .foregroundStyle(UsageColors.muted)
+                                .foregroundStyle(colors.muted)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .foregroundStyle(UsageColors.faint)
+                            .foregroundStyle(colors.faint)
                             .accessibilityHidden(true)
                     }
                     .padding(.horizontal, 16)
                     .frame(minHeight: 56)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ProviderPickerRowStyle())
+                #if DEBUG
+                .onAppear { if provider == .kimi { retainChooserAction?(action) } }
+                #endif
             }
         }
     }
@@ -132,10 +266,10 @@ struct AddAccountSheet: View {
         UsageCard {
             Text("\(provider.displayName) region")
                 .usageFont(.section)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
             Text("Keys and sign-ins only work on the service they were issued by. Pick the one your account is on.")
                 .usageFont(.body)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
             ForEach(ProviderRegion.options(for: provider), id: \.self) { option in
                 Button(DisplayText.regionLabel(option, for: provider)) {
                     region = option
@@ -152,12 +286,12 @@ struct AddAccountSheet: View {
         UsageCard {
             Text(provider.displayName)
                 .usageFont(.section)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
             HStack(spacing: 8) {
                 ActivityMark(still: .dots)
                 Text("Asking \(provider.displayName) for a code…")
                     .usageFont(.body)
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
             }
         }
     }
@@ -166,7 +300,7 @@ struct AddAccountSheet: View {
         UsageCard {
             Text("Enter this code")
                 .usageFont(.section)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
 
             // Monospaced digits so the code does not reflow while it is being read aloud or
             // copied character by character, and selectable because typing it on another device
@@ -176,13 +310,13 @@ struct AddAccountSheet: View {
             Text(verbatim: challenge.userCode)
                 .tracking(1.2)
                 .usageFont(.lead)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
                 .textSelection(.enabled)
                 .accessibilityLabel(spelledOut(challenge.userCode))
 
             Text(verbatim: challenge.verificationURI)
                 .usageFont(.small)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
 
             HStack(spacing: 10) {
                 Button(copied ? String(localized: "Copied") : String(localized: "Copy code")) {
@@ -205,12 +339,12 @@ struct AddAccountSheet: View {
                 ActivityMark(still: .dots)
                 Text("Waiting for you to approve it…")
                     .usageFont(.body)
-                    .foregroundStyle(UsageColors.muted)
+                    .foregroundStyle(colors.muted)
             }
 
             Text("The browser opens \(provider.displayName)'s own sign-in page. This app never sees your password.")
                 .usageFont(.small)
-                .foregroundStyle(UsageColors.faint)
+                .foregroundStyle(colors.faint)
 
             if DeviceLoginSupport.acceptsPastedKey(provider) {
                 // The flow is the default because it costs the user nothing; the key is for
@@ -240,16 +374,16 @@ struct AddAccountSheet: View {
         UsageCard {
             Text("Paste your \(provider.displayName) key")
                 .usageFont(.section)
-                .foregroundStyle(UsageColors.ink)
+                .foregroundStyle(colors.ink)
 
             Text("Create a key in your \(provider.displayName) console and paste it here. It is stored on this device only, in the keychain with every other account.")
                 .usageFont(.body)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
 
             if let region {
                 Text(verbatim: DisplayText.regionLabel(region, for: provider))
                     .usageFont(.small)
-                    .foregroundStyle(UsageColors.faint)
+                    .foregroundStyle(colors.faint)
             }
 
             TextField("API key", text: $pastedKey)
@@ -275,15 +409,15 @@ struct AddAccountSheet: View {
     private func failure(_ provider: ProviderID, _ message: String) -> some View {
         UsageCard {
             HStack(spacing: 8) {
-                Circle().fill(UsageColors.negative).frame(width: 8, height: 8)
+                Circle().fill(colors.negative).frame(width: 8, height: 8)
                     .accessibilityHidden(true)
                 Text("Could not add \(provider.displayName)")
                     .usageFont(.section)
-                    .foregroundStyle(UsageColors.ink)
+                    .foregroundStyle(colors.ink)
             }
             Text(verbatim: DisplayText.stored(message))
                 .usageFont(.body)
-                .foregroundStyle(UsageColors.muted)
+                .foregroundStyle(colors.muted)
             HStack(spacing: 10) {
                 Button("Try again") { start(provider) }
                     .buttonStyle(InkButtonStyle())
@@ -406,4 +540,98 @@ struct AddAccountSheet: View {
             }
         }
     }
+
+    #if DEBUG
+    private struct SignInMotionAccessibilityFixture: View {
+        @State private var stage: Stage = .choosing
+        @State private var holdExit = false
+        @State private var reversal = Reversal.idle
+        @StateObject private var retained = RetainedAction()
+
+        private enum Reversal: Equatable {
+            case idle, exiting, returning(from: Double), resumed, settled
+        }
+
+        private func observeReversal(_ opacity: Double, leaving: Bool) {
+            switch reversal {
+            case .exiting where leaving && opacity > 0.2 && opacity < 0.8:
+                reversal = .returning(from: opacity)
+                stage = .choosing
+            case .returning(let exit) where !leaving && opacity > exit && opacity < 0.95:
+                reversal = .resumed
+            case .resumed where !leaving && opacity == 1:
+                reversal = .settled
+            default: break
+            }
+        }
+
+        @MainActor
+        private final class RetainedAction: ObservableObject {
+            @Published var call: (@MainActor () -> Void)?
+        }
+
+        var body: some View {
+            VStack(spacing: 8) {
+                AddAccountSheet(stage: $stage, captureStep: { observeReversal($0, leaving: $1) },
+                                holdExit: holdExit) { [weak retained] action in
+                    Task { @MainActor in retained?.call = action }
+                }
+                HStack {
+                    if holdExit {
+                        Button { holdExit = false } label: { Text(verbatim: "Release exit") }
+                        if let action = retained.call { Button { action() } label: { Text(verbatim: "Activate retained Kimi") } }
+                    } else {
+                        if retained.call != nil {
+                            Button {
+                                holdExit = true
+                                stage = .awaitingKey(.opencode)
+                            } label: { Text(verbatim: "Request key step") }
+                        }
+                        Button { stage = .choosing } label: { Text(verbatim: "Restore chooser") }
+                    }
+                }
+                Button {
+                    reversal = .exiting
+                    stage = .awaitingKey(.opencode)
+                } label: {
+                    Text(verbatim: reversal == .settled ? "Reversal settled" : "Reverse at intermediate")
+                }
+                .disabled(holdExit || reversal != .idle || stage != .choosing || retained.call == nil)
+                .padding(.bottom, 8)
+            }
+            .onDisappear { retained.call = nil }
+        }
+    }
+    #endif
+}
+
+// PlainButtonStyle can fade the enabled state independently of the card's fade.
+private struct ProviderPickerRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .pressRelease(isPressed: configuration.isPressed)
+    }
+}
+
+/// iOS 16 meldet das Ende einer Animation über ihren tatsächlichen Animatable-Wert.
+private struct SignInStepOpacity: AnimatableModifier {
+    // SwiftUI interpoliert diese lokale Wertkopie außerhalb des Main Actors.
+    nonisolated(unsafe) var value: Double
+    let capturesFrames: Bool
+    let onFrame: @MainActor @Sendable (Double) -> Void
+
+    nonisolated var animatableData: Double {
+        get { value }
+        set {
+            value = newValue
+            guard newValue == 0 || capturesFrames else { return }
+            let report = onFrame
+            let sample = newValue
+            // Zustandsänderungen dürfen nicht innerhalb des laufenden View-Updates passieren.
+            Task { @MainActor in report(sample) }
+        }
+    }
+
+    func body(content: Content) -> some View { content.opacity(value) }
 }

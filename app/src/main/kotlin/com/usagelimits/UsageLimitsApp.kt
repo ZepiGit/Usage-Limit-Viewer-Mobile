@@ -1,6 +1,13 @@
 package com.usagelimits
 
 import android.app.Application
+import android.app.Activity
+import android.os.Bundle
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
+import com.usagelimits.core.sync.MainAppOpening
+import com.usagelimits.ui.HoorayPlayback
 import android.util.Log
 import androidx.work.Configuration
 import com.usagelimits.core.di.AppContainer
@@ -16,7 +23,7 @@ class UsageLimitsApp : Application(), Configuration.Provider {
     /**
      * WorkManager's configuration, supplied on demand.
      *
-     * The manifest removes the default `InitializationProvider`, so this is the only path by
+     * The manifest excludes WorkManager's Startup initializer, so this is the only path by
      * which WorkManager is configured — deterministic and ordered after `onCreate`, rather than
      * a content provider that runs before the app exists and fails invisibly when it does not.
      */
@@ -49,10 +56,47 @@ class UsageLimitsApp : Application(), Configuration.Provider {
     var startupJob: kotlinx.coroutines.Job? = null
         private set
 
+    private val statusIconEligibility by lazy {
+        com.usagelimits.statusicon.StatusIconEligibilityObserver(
+            scope = CoroutineScope(appScope.coroutineContext + Dispatchers.Main.immediate),
+            record = { container.settingsStore.recordStatusIconEligibility(it) },
+            publish = { container.publication.notificationsAllowedAgain() },
+        )
+    }
+
+    /** Captures the OS state now; the application queue persists and publishes observations in order. */
+    @androidx.annotation.MainThread
+    internal fun observeStatusIconEligibility(): kotlinx.coroutines.Job =
+        statusIconEligibility.observe(com.usagelimits.statusicon.StatusIconPublisher.canShow(this))
+
+    internal val hoorayPlayback = HoorayPlayback()
+    internal val mainOpening = MainAppOpening(
+        scope = CoroutineScope(appScope.coroutineContext + Dispatchers.Main.immediate),
+        claim = { container.repository.claimPendingResetConfirmations() },
+        present = hoorayPlayback::open,
+        enqueueSync = { SyncWorker.syncOnOpen(this) },
+        stopPlayback = hoorayPlayback::stop,
+    )
+
     override fun onCreate() {
         super.onCreate()
         OkHttp.initialize(this)
         container = AppContainer(this)
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) = mainOpening.processStarted()
+            override fun onStop(owner: LifecycleOwner) = mainOpening.processStopped()
+        })
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: Activity) {
+                if (activity !is UsageLimitsActivity) mainOpening.activityStarted(main = false)
+            }
+            override fun onActivityCreated(activity: Activity, state: Bundle?) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivityStopped(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, state: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
 
         startupJob = appScope.launch {
             // Contained, and logged rather than swallowed. This runs in a SupervisorJob, so a
@@ -68,7 +112,7 @@ class UsageLimitsApp : Application(), Configuration.Provider {
         }
     }
 
-    // WorkManager can start this process without an activity. Only the activity requests a launch refresh.
+    // WorkManager can start this process alone; only a qualifying main opening requests fresh readings.
     internal suspend fun scheduleOnStartup() = SyncWorker.scheduleBackgroundSync(this)
 
     private companion object {

@@ -41,7 +41,7 @@ public protocol SyncSink: Sendable {
 
     /// Deliberately non-throwing: a fault while persisting an outcome must never be turned back
     /// into an account failure, so a sink with problems owns them itself.
-    func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date) async
+    func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date, accountInstanceID: String?) async
 
     func automaticSyncNotBefore(accountID: String) async -> TimeInterval?
 }
@@ -200,7 +200,7 @@ public actor SyncEngine {
             if RateLimitCooldown.shouldSkip(automatic: automatic, until: deadline, now: now()) { return nil }
         }
         let outcome = try await isolatedOutcome(for: account)
-        await sink.record(outcome, at: now(), accountCreatedAt: account.createdAt)
+        await sink.record(outcome, at: now(), accountCreatedAt: account.createdAt, accountInstanceID: account.instanceID)
         try Task.checkCancellation()
         return outcome
     }

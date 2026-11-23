@@ -8,6 +8,7 @@ public protocol PinnedAccountTexts: PercentTexts {
     var outdated: String { get }
     /// The short side word written after a figure: "left" or "used".
     func sideWord(_ mode: PercentDisplay) -> String
+    func account(number: Int) -> String
 }
 
 /// The English the app's catalog keys are written in.
@@ -21,6 +22,7 @@ public struct EnglishPinnedAccountTexts: PinnedAccountTexts {
     public var outdated: String { "Stale" }
 
     public func sideWord(_ mode: PercentDisplay) -> String { mode == .used ? "used" : "left" }
+    public func account(number: Int) -> String { "Account \(number)" }
     public func withSign(_ token: String) -> String { EnglishPercentTexts().withSign(token) }
     public func spoken(_ figure: String, _ mode: PercentDisplay) -> String {
         EnglishPercentTexts().spoken(figure, mode)

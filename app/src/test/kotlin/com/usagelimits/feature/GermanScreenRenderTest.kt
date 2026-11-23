@@ -5,7 +5,7 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performScrollToNode
@@ -102,21 +102,21 @@ class GermanScreenRenderTest {
         render {
             OverviewScreen(
                 state = UsageUiState(accounts = listOf(usage.copy(snapshot = snapshot)), settings = AppSettings()),
-                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {}, onReorder = {},
+                nowMs = now, onRefresh = {}, onAccountClick = {}, onAddAccount = {},
                 onPercentDisplayChange = {},
             )
         }
         val notice = "Zu viele Anfragen. Die automatische Aktualisierung pausiert. Aktualisiere manuell, um es jetzt erneut zu versuchen."
         scrollTo(notice)
         assertShown(notice, substring = true)
-        assertShown("73 %", substring = true)
+        assertEquals(1, compose.onAllNodesWithContentDescription("73 % übrig", substring = true).fetchSemanticsNodes().size)
     }
 
     private fun renderSettings(mode: PercentDisplay) = render {
         SettingsScreen(
             state = UsageUiState(accounts = listOf(usage), settings = AppSettings(percentDisplay = mode)),
             onSyncIntervalChange = {},
-            onNotificationPermissionHandled = {},
+            onNotificationPermissionHandled = {}, onAppThemeChange = {},
             onNotifyBelow20 = {},
             onNotifyBelow10 = {},
             onNotifyExhausted = {},
@@ -125,7 +125,7 @@ class GermanScreenRenderTest {
             onNotifyResetApproaching = {},
             onNotifyCreditExpiring = {},
             onShowTier = {},
-            onShowRenewal = {},
+            onOverviewLayoutChange = {},
             onPercentDisplayChange = {},
         )
     }
@@ -137,7 +137,6 @@ class GermanScreenRenderTest {
             onRefresh = {},
             onAccountClick = {},
             onAddAccount = {},
-            onReorder = {},
             onPercentDisplayChange = {},
         )
     }
@@ -148,6 +147,10 @@ class GermanScreenRenderTest {
 
         assertShown("Einstellungen")
         assertShown("Settings", expected = false)
+
+        scrollTo("Abo-Stufe anzeigen")
+        assertShown("Abo-Stufe anzeigen")
+        assertShown("Erneuerungszeit anzeigen", expected = false, substring = true)
 
         scrollTo("Prozente anzeigen als")
         assertShown("Prozente anzeigen als")
@@ -175,26 +178,60 @@ class GermanScreenRenderTest {
     }
 
     @Test
-    fun `the overview lead and row count what is left in German`() {
-        renderOverview(PercentDisplay.LEFT)
-
-        assertShown("73 %")
-        assertShown("übrig")
-        assertShown("27 %", expected = false)
-        // A countdown from resources, with the German unit abbreviations.
-        assertShown("Reset in 1 Std.")
-        assertShown("1 Konto überwacht", substring = true)
-        assertShown("Reset in 1h", expected = false, substring = true)
+    fun `the overview row shows the German figure, chip word and reset stamp, and speaks them`() {
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(usage), settings = AppSettings(percentDisplay = PercentDisplay.LEFT)),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"), onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                onPercentDisplayChange = {},
+            )
+        }
+        // 15:33:20 UTC plus one hour: the stamp in German 24-hour time, with no English left.
+        assertEquals("the chip shows the German side once", 1, compose.onAllNodesWithText("% übrig", useUnmergedTree = true).fetchSemanticsNodes().size)
+        assertEquals("the figure is drawn with the German percent spacing", 1,
+            compose.onAllNodesWithText("73 %", useUnmergedTree = true).fetchSemanticsNodes().size)
+        assertEquals("the stamp is drawn", 1, compose.onAllNodesWithText("16:33", useUnmergedTree = true).fetchSemanticsNodes().size)
+        assertEquals("and spoken with the line", 1,
+            compose.onAllNodesWithContentDescription("73 % übrig, 16:33", substring = true).fetchSemanticsNodes().size)
+        assertShown("4:33 PM", expected = false)
     }
 
     @Test
-    fun `the overview lead and row count what is used in German`() {
+    fun `without a claim or a future reset the German header has no subtitle`() {
+        val low = usage.copy(snapshot = usage.snapshot!!.copy(windows = usage.snapshot!!.windows.map {
+            it.copy(usedPercent = 85.0, resetAt = null)
+        }))
+        render {
+            OverviewScreen(
+                state = UsageUiState(accounts = listOf(low), settings = AppSettings()),
+                nowMs = now, zone = java.time.ZoneId.of("Etc/UTC"), onRefresh = {}, onAccountClick = {}, onAddAccount = {},
+                onPercentDisplayChange = {},
+            )
+        }
+        assertShown("Alle Konten haben noch Spielraum", expected = false, substring = true)
+        assertShown("Nächster Reset", expected = false, substring = true)
+        assertShown("nächster Reset", expected = false, substring = true)
+        assertShown("Next reset", expected = false, substring = true)
+    }
+
+    @Test
+    fun `the overview row counts what is left in German`() {
+        renderOverview(PercentDisplay.LEFT)
+
+        assertEquals(1, compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "% übrig"))
+            .fetchSemanticsNodes().size)
+        assertEquals(1, compose.onAllNodesWithContentDescription("73 % übrig", substring = true).fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithContentDescription("27 % verbraucht", substring = true).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun `the overview row counts what is used in German`() {
         renderOverview(PercentDisplay.USED)
 
-        assertShown("27 %")
-        assertShown("verbraucht")
-        assertShown("73 %", expected = false)
-        assertShown("Reset in 1 Std.")
+        assertEquals(1, compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "% verbraucht"))
+            .fetchSemanticsNodes().size)
+        assertEquals(1, compose.onAllNodesWithContentDescription("27 % verbraucht", substring = true).fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithContentDescription("73 % übrig", substring = true).fetchSemanticsNodes().size)
     }
 
     @Test
@@ -210,25 +247,22 @@ class GermanScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
                 onPercentDisplayChange = {},
             )
         }
 
         assertShown("5\u2011Std.-Limit")
         assertShown("5h limit", expected = false)
-        // The spoken sentence of the row leads with the same translated label.
-        // The row's sentence leads with the label; the lead card's names the account first and has
-        // its own test below.
-        val startsWithLabel = SemanticsMatcher("description starts with the label") { node ->
-            node.config.getOrNull(SemanticsProperties.ContentDescription)?.any { it.startsWith("5\u2011Std.-Limit, ") } == true
+        // The headline sentence contains the same translated label.
+        val startsWithLabel = SemanticsMatcher("description contains the label") { node ->
+            node.config.getOrNull(SemanticsProperties.ContentDescription)?.any { "5\u2011Std.-Limit, " in it } == true
         }
         val spoken = compose.onAllNodes(startsWithLabel).fetchSemanticsNodes()
         assertEquals("one row speaks the translated label", 1, spoken.size)
     }
 
     @Test
-    fun `the renewal line names the long window in German like its row does`() {
+    fun `the overview row names the long window in German`() {
         val first = usage.snapshot!!.windows.first()
         val withWeekly = usage.copy(
             snapshot = usage.snapshot!!.copy(
@@ -254,13 +288,12 @@ class GermanScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
                 onPercentDisplayChange = {},
             )
         }
 
-        assertShown("W\u00F6chentlich erneuert sich in 3 T.")
-        assertShown("Weekly erneuert sich", expected = false, substring = true)
+        assertShown("W\u00F6chentlich")
+        assertShown("Weekly", expected = false, substring = true)
     }
 
     @Test
@@ -277,7 +310,6 @@ class GermanScreenRenderTest {
                 onRefresh = {},
                 onAccountClick = {},
                 onAddAccount = {},
-                onReorder = {},
                 onPercentDisplayChange = {},
             )
         }
@@ -287,21 +319,20 @@ class GermanScreenRenderTest {
     }
 
     @Test
-    fun `the overview lead names its window in German and no text node keeps the English label`() {
+    fun `the overview row names its window in German and no text node keeps the English label`() {
         renderOverview(PercentDisplay.LEFT)
 
-        // The lead line is "account · window"; the row below it carries the same label on its own.
-        assertShown("${usage.account.label} \u00B7 5\u2011Std.-Limit")
+        assertShown("5\u2011Std.-Limit")
         assertShown("5h limit", expected = false, substring = true)
     }
 
     @Test
-    fun `the overview lead speaks the window label in German`() {
+    fun `the overview row speaks the window label in German`() {
         renderOverview(PercentDisplay.LEFT)
 
-        val spoken = compose.onAllNodesWithContentDescription("${usage.account.label}, 5\u2011Std.-Limit, 73 %", substring = true)
+        val spoken = compose.onAllNodesWithContentDescription("5\u2011Std.-Limit, 73 % übrig", substring = true)
             .fetchSemanticsNodes()
-        assertEquals("the lead card speaks the translated label", 1, spoken.size)
+        assertEquals("the row speaks the translated label", 1, spoken.size)
         val english = compose.onAllNodesWithContentDescription("5h limit", substring = true).fetchSemanticsNodes()
         assertEquals("no spoken sentence keeps the English label", 0, english.size)
     }

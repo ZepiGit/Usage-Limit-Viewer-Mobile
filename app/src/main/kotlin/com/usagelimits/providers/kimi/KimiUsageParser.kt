@@ -4,6 +4,7 @@ import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.time.Instants
+import com.usagelimits.providers.StableWindowIds
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -64,9 +65,10 @@ object KimiUsageParser {
      * The duration is read from the entry rather than assumed from its position. Classifying
      * by position is how a monthly bucket ends up labelled as a week.
      */
-    private fun rateLimitWindows(payload: JsonObject): List<UsageWindow> =
-        JsonSupport.array(payload, "limits").mapIndexedNotNull { index, element ->
-            val entry = element as? JsonObject ?: return@mapIndexedNotNull null
+    private fun rateLimitWindows(payload: JsonObject): List<UsageWindow> {
+        val ids = StableWindowIds()
+        return JsonSupport.array(payload, "limits").mapNotNull { element ->
+            val entry = element as? JsonObject ?: return@mapNotNull null
             val detail = JsonSupport.obj(entry, "detail") ?: entry
 
             val percent = usedPercent(
@@ -84,7 +86,7 @@ object KimiUsageParser {
                 ?: defaultLabel(seconds)
 
             UsageWindow(
-                id = "kimi-limit-$index",
+                id = ids.next("kimi-limit:${StableWindowIds.text(label)}:$seconds"),
                 label = label,
                 category = WindowCategory.fromPeriodSeconds(seconds),
                 usedPercent = percent,
@@ -93,6 +95,7 @@ object KimiUsageParser {
                 exhausted = percent == 100.0,
             )
         }
+    }
 
     /**
      * Consumption as a percentage, from whichever of the two fields the block carries.

@@ -115,6 +115,117 @@ class SettingsMappingTest {
     }
 
     @Test
+    fun `theme reads back stable names without resetting other choices`() {
+        val key = stringPreferencesKey("appearance_theme")
+        for ((name, theme) in mapOf(
+            "WARM_DARK" to AppTheme.WARM_DARK,
+            "PURE_BLACK" to AppTheme.PURE_BLACK,
+            "COOL_GRAPHITE" to AppTheme.COOL_GRAPHITE,
+            "LIGHT_PAPER" to AppTheme.LIGHT_PAPER,
+            "future_theme" to AppTheme.PURE_BLACK,
+        )) {
+            val settings = settingsFrom(key to name, stringPreferencesKey("percent_display") to "USED")
+            assertEquals(name, theme, settings.appTheme)
+            assertEquals(PercentDisplay.USED, settings.percentDisplay)
+        }
+        assertEquals(AppTheme.PURE_BLACK, settingsFrom().appTheme)
+    }
+
+    @Test
+    fun `saved font choices fall back independently of one another and the theme`() {
+        val text = stringPreferencesKey("appearance_text_font")
+        val figures = stringPreferencesKey("appearance_figure_font")
+        val theme = stringPreferencesKey("appearance_theme")
+        val settings = settingsFrom(text to "FIGTREE", figures to "IBM_PLEX_MONO", theme to "LIGHT_PAPER")
+        assertEquals(TextFont.FIGTREE, settings.textFont)
+        assertEquals(FigureFont.IBM_PLEX_MONO, settings.figureFont)
+        assertEquals(AppTheme.LIGHT_PAPER, settings.appTheme)
+
+        val unknownText = settingsFrom(text to "future_text", figures to "JETBRAINS_MONO")
+        assertEquals(TextFont.ROBOTO, unknownText.textFont)
+        assertEquals(FigureFont.JETBRAINS_MONO, unknownText.figureFont)
+
+        val unknownFigures = settingsFrom(text to "IBM_PLEX_SANS", figures to "future_figures")
+        assertEquals(TextFont.IBM_PLEX_SANS, unknownFigures.textFont)
+        assertEquals(FigureFont.ROBOTO_MONO, unknownFigures.figureFont)
+        assertEquals(TextFont.ROBOTO_FLEX, settingsFrom(text to "ROBOTO_FLEX").textFont)
+        assertEquals(TextFont.ROBOTO, settingsFrom().textFont)
+        assertEquals(FigureFont.ROBOTO_MONO, settingsFrom().figureFont)
+    }
+
+    @Test
+    fun `dials read back from their own key and unknown layouts fall back to List`() {
+        val key = stringPreferencesKey("overview_layout")
+        assertEquals(OverviewLayout.DIALS, settingsFrom(key to "DIALS").overviewLayout)
+        assertEquals(OverviewLayout.LIST, settingsFrom(key to "grid").overviewLayout)
+        assertEquals(OverviewLayout.LIST, settingsFrom().overviewLayout)
+    }
+
+    @Test
+    fun `overview credit preferences default and read independent stored choices`() {
+        val defaults = settingsFrom()
+        assertEquals(OverviewCreditLayout.NORMAL, defaults.overviewCreditLayout)
+        assertEquals(OverviewShowFirst.USAGE_PROVIDERS, defaults.overviewShowFirst)
+        assertTrue(defaults.overviewShowCredits)
+
+        val chosen = settingsFrom(
+            stringPreferencesKey("overview_credit_layout") to "COMPACT",
+            stringPreferencesKey("overview_show_first") to "CREDIT_ACCOUNTS",
+            booleanPreferencesKey("overview_show_credits") to false,
+        )
+        assertEquals(OverviewCreditLayout.COMPACT, chosen.overviewCreditLayout)
+        assertEquals(OverviewShowFirst.CREDIT_ACCOUNTS, chosen.overviewShowFirst)
+        assertFalse(chosen.overviewShowCredits)
+
+        val explicitDefaults = settingsFrom(
+            stringPreferencesKey("overview_credit_layout") to "NORMAL",
+            stringPreferencesKey("overview_show_first") to "USAGE_PROVIDERS",
+            booleanPreferencesKey("overview_show_credits") to true,
+        )
+        assertEquals(OverviewCreditLayout.NORMAL, explicitDefaults.overviewCreditLayout)
+        assertEquals(OverviewShowFirst.USAGE_PROVIDERS, explicitDefaults.overviewShowFirst)
+        assertTrue(explicitDefaults.overviewShowCredits)
+    }
+
+    @Test
+    fun `missing and unknown overview choices do not reset other preferences`() {
+        val layoutKey = stringPreferencesKey("overview_credit_layout")
+        val firstKey = stringPreferencesKey("overview_show_first")
+        val showKey = booleanPreferencesKey("overview_show_credits")
+        for (stored in listOf(null, "unknown")) {
+            val withOtherChoices = mutablePreferencesOf(
+                firstKey to "CREDIT_ACCOUNTS", showKey to false,
+                booleanPreferencesKey("notify_low_usage") to false,
+                booleanPreferencesKey("show_renewal_time") to true,
+            )
+            if (stored != null) withOtherChoices[layoutKey] = stored
+            val layoutFallback = withOtherChoices.toSettings()
+            assertEquals(OverviewCreditLayout.NORMAL, layoutFallback.overviewCreditLayout)
+            assertEquals(OverviewShowFirst.CREDIT_ACCOUNTS, layoutFallback.overviewShowFirst)
+            assertFalse(layoutFallback.overviewShowCredits)
+            assertFalse(layoutFallback.notifyBelow20Percent)
+            assertFalse(layoutFallback.notifyBelow10Percent)
+            assertTrue(layoutFallback.showRenewalTime)
+
+            val withLayout = mutablePreferencesOf(
+                layoutKey to "COMPACT", showKey to false,
+                booleanPreferencesKey("accounts_manually_ordered") to true,
+            )
+            if (stored != null) withLayout[firstKey] = stored
+            val firstFallback = withLayout.toSettings()
+            assertEquals(OverviewCreditLayout.COMPACT, firstFallback.overviewCreditLayout)
+            assertEquals(OverviewShowFirst.USAGE_PROVIDERS, firstFallback.overviewShowFirst)
+            assertFalse(firstFallback.overviewShowCredits)
+            assertTrue(firstFallback.accountsManuallyOrdered)
+        }
+
+        val missingShow = settingsFrom(layoutKey to "COMPACT", firstKey to "CREDIT_ACCOUNTS")
+        assertEquals(OverviewCreditLayout.COMPACT, missingShow.overviewCreditLayout)
+        assertEquals(OverviewShowFirst.CREDIT_ACCOUNTS, missingShow.overviewShowFirst)
+        assertTrue(missingShow.overviewShowCredits)
+    }
+
+    @Test
     fun `status icons are off with nothing pinned until someone turns them on`() {
         val settings = settingsFrom()
 
@@ -131,6 +242,16 @@ class SettingsMappingTest {
 
         assertTrue(settings.statusIconsEnabled)
         assertEquals(listOf("acct-2", "acct-1"), settings.pinnedAccountIds)
+    }
+
+    @Test
+    fun `the Claude Code figure animates until someone turns it off, under its own key`() {
+        assertTrue(settingsFrom().animateClaudeCodeIcon)
+
+        val off = settingsFrom(booleanPreferencesKey("animate_claude_code_icon") to false)
+        assertFalse(off.animateClaudeCodeIcon)
+        // Its own key: turning the figure still leaves the other display choices as stored.
+        assertEquals(AppSettings(animateClaudeCodeIcon = false), off)
     }
 
     @Test

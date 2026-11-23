@@ -25,6 +25,7 @@ public actor AccountRepository {
         var sortOrder: Int?
 
         var automaticSyncNotBefore: TimeInterval? = nil
+        var pendingResetConfirmationAt: Date? = nil
     }
 
     private let fileURL: URL
@@ -86,7 +87,22 @@ public actor AccountRepository {
 
     public func usage() -> [AccountUsage] {
         ensureLoaded()
-        return ordered().map { AccountUsage(account: $0.account, snapshot: $0.snapshot) }
+        return orderedUsage()
+    }
+
+    /// `usage()` for a caller that must tell a register it could not read from an empty one.
+    ///
+    /// `usage()` answers both with an empty list, which suits a caller that draws whatever is
+    /// there. A screen that concludes "this account is gone" from that list needs the
+    /// difference. A missing file is an empty register and does not throw; the read is tried
+    /// again on every call until it succeeds.
+    public func checkedUsage() throws -> [AccountUsage] {
+        try requireLoaded()
+        return orderedUsage()
+    }
+
+    private func orderedUsage() -> [AccountUsage] {
+        ordered().map { AccountUsage(account: $0.account, snapshot: $0.snapshot) }
     }
 
     func automaticSyncNotBefore(accountID: String) -> TimeInterval? {
@@ -134,7 +150,8 @@ public actor AccountRepository {
             account: account.with(instanceID: instanceID),
             snapshot: records[account.id]?.snapshot,
             sortOrder: records[account.id]?.sortOrder,
-            automaticSyncNotBefore: records[account.id]?.automaticSyncNotBefore)
+            automaticSyncNotBefore: records[account.id]?.automaticSyncNotBefore,
+            pendingResetConfirmationAt: records[account.id]?.pendingResetConfirmationAt)
         try persist(updated)
     }
 
@@ -151,13 +168,16 @@ public actor AccountRepository {
     /// them with nothing. Showing yesterday's numbers with a staleness marker is far more useful
     /// than blanking a card because one refresh did not come back — and the caller can tell the
     /// two apart, which it could not if the windows were simply gone.
-    public func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date? = nil) throws {
+    public func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date? = nil,
+                       accountInstanceID: String? = nil) throws {
         try requireLoaded()
         var updated = records
         switch outcome {
         case .success(let accountID, let result):
             guard var stored = updated[accountID],
-                  accountCreatedAt == nil || stored.account.createdAt == accountCreatedAt else { return }
+                  accountCreatedAt == nil || (stored.account.createdAt == accountCreatedAt
+                    && stored.account.instanceID == accountInstanceID) else { return }
+            let previous = stored.snapshot
             stored.snapshot = UsageSnapshot(
                 accountID: accountID,
                 fetchedAt: time,
@@ -172,6 +192,11 @@ public actor AccountRepository {
                 applicableResetCreditCount: result.applicableResetCreditCount,
                 errorMessage: result.errorMessage,
                 connectionStatus: result.connectionStatus)
+            if stored.account.provider == .claude, stored.pendingResetConfirmationAt == nil,
+               let snapshot = stored.snapshot,
+               !snapshot.confirmedResetWindowIDs(previous: previous).isEmpty {
+                stored.pendingResetConfirmationAt = time
+            }
             if let rateLimit = result.rateLimit {
                 stored.automaticSyncNotBefore = RateLimitCooldown.deadline(from: time, retryAfter: rateLimit.retryAfter)
             } else if result.status != .failed {
@@ -184,7 +209,8 @@ public actor AccountRepository {
 
         case .failure(let accountID, let message), .rateLimited(let accountID, let message, _):
             guard var stored = updated[accountID],
-                  accountCreatedAt == nil || stored.account.createdAt == accountCreatedAt else { return }
+                  accountCreatedAt == nil || (stored.account.createdAt == accountCreatedAt
+                    && stored.account.instanceID == accountInstanceID) else { return }
             if case .rateLimited(_, _, let retryAfter) = outcome {
                 stored.automaticSyncNotBefore = RateLimitCooldown.deadline(from: time, retryAfter: retryAfter)
             }
@@ -208,6 +234,20 @@ public actor AccountRepository {
         }
 
         try persist(updated)
+    }
+
+    /// Clears all pending marks in the same atomic register replacement before returning them.
+    public func claimPendingResetConfirmations() throws -> Set<String> {
+        try requireLoaded()
+        var updated = records
+        var claimed = Set<String>()
+        for (id, var stored) in records where stored.pendingResetConfirmationAt != nil {
+            stored.pendingResetConfirmationAt = nil
+            updated[id] = stored
+            claimed.insert(id)
+        }
+        if !claimed.isEmpty { try persist(updated) }
+        return claimed
     }
 
     /// Writes the order the user dragged the accounts into.
@@ -314,8 +354,8 @@ public struct RepositorySink: SyncSink {
         self.repository = repository
     }
 
-    public func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date) async {
-        try? await repository.record(outcome, at: time, accountCreatedAt: accountCreatedAt)
+    public func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date, accountInstanceID: String?) async {
+        try? await repository.record(outcome, at: time, accountCreatedAt: accountCreatedAt, accountInstanceID: accountInstanceID)
     }
 
     public func automaticSyncNotBefore(accountID: String) async -> TimeInterval? {

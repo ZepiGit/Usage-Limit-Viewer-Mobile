@@ -1,6 +1,7 @@
 package com.usagelimits.core.settings
 
 import android.content.Context
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -13,6 +14,11 @@ import com.usagelimits.core.model.PercentDisplay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+
+/** The stored names are independent of the labels in Settings. */
+enum class OverviewLayout { LIST, DIALS }
+enum class OverviewCreditLayout { NORMAL, COMPACT }
+enum class OverviewShowFirst { USAGE_PROVIDERS, CREDIT_ACCOUNTS }
 
 /** User-configurable preferences. */
 data class AppSettings(
@@ -35,19 +41,13 @@ data class AppSettings(
     val notifyOnResetCreditExpiring: Boolean = true,
     val resetCreditExpiryLeadMinutes: Int = DEFAULT_CREDIT_LEAD_MINUTES,
     /**
-     * Records whether the user has dragged an account to change the order.
-     * The overview uses the stored order regardless of this flag.
+     * Whether the user dragged an account in a build that still allowed it. Kept as stored and
+     * no longer written; no view reads it (ADR 0004).
      */
     val accountsManuallyOrdered: Boolean = false,
     /** Show the plan tier — Plus, Pro, Max — beside the provider name. */
     val showSubscriptionTier: Boolean = true,
-    /**
-     * Show when the long allowance renews, on the overview only.
-     *
-     * Off by default, and deliberately not in the widgets: the widget's job is the number you
-     * are about to run out of, and a second date competing with the next reset is the kind of
-     * detail that makes a glanceable tile unglanceable.
-     */
+    /** Kept for existing installs; both Overview layouts now show reset stamps unconditionally. */
     val showRenewalTime: Boolean = false,
     /**
      * Accounts that should never notify, by local id.
@@ -71,6 +71,15 @@ data class AppSettings(
      * a removed account or a stored fourth id never needs a write to stop mattering.
      */
     val pinnedAccountIds: List<String> = emptyList(),
+    val appTheme: AppTheme = AppTheme.PURE_BLACK,
+    val textFont: TextFont = TextFont.ROBOTO,
+    val figureFont: FigureFont = FigureFont.ROBOTO_MONO,
+    val overviewLayout: OverviewLayout = OverviewLayout.LIST,
+    val overviewCreditLayout: OverviewCreditLayout = OverviewCreditLayout.NORMAL,
+    val overviewShowFirst: OverviewShowFirst = OverviewShowFirst.USAGE_PROVIDERS,
+    val overviewShowCredits: Boolean = true,
+    /** Whether Claude's two Claude Code icons move; on by default (CH-3). */
+    val animateClaudeCodeIcon: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_SYNC_INTERVAL_MINUTES = 30
@@ -107,9 +116,8 @@ private val Context.dataStore by preferencesDataStore(name = "usage_limits_setti
  * directly, and writes are transactional. Nothing sensitive is stored here — credentials live
  * in the Keystore-backed store.
  */
-class SettingsStore(context: Context) {
-
-    private val dataStore = context.applicationContext.dataStore
+class SettingsStore internal constructor(private val dataStore: DataStore<Preferences>) {
+    constructor(context: Context) : this(context.applicationContext.dataStore)
 
     // Distinct, because the diagnostics below share this file: a timestamp written after
     // every sync would otherwise re-emit an unchanged AppSettings into every collector,
@@ -117,6 +125,20 @@ class SettingsStore(context: Context) {
     val settings: Flow<AppSettings> = dataStore.data.map { it.toSettings() }.distinctUntilChanged()
 
     val diagnostics: Flow<SyncDiagnostics> = dataStore.data.map { it.toDiagnostics() }.distinctUntilChanged()
+
+    /** Last observed OS eligibility, not a display preference: it must not repaint widgets. */
+    internal val statusIconEligibility: Flow<Boolean?> = dataStore.data
+        .map { it[Keys.STATUS_ICON_ELIGIBILITY] }.distinctUntilChanged()
+
+    /** Records one observation and claims only a known blocked-to-allowed edge, atomically. */
+    internal suspend fun recordStatusIconEligibility(allowed: Boolean): Boolean {
+        var allowedAgain = false
+        dataStore.edit { prefs ->
+            allowedAgain = prefs[Keys.STATUS_ICON_ELIGIBILITY] == false && allowed
+            prefs[Keys.STATUS_ICON_ELIGIBILITY] = allowed
+        }
+        return allowedAgain
+    }
 
     suspend fun recordSyncAttempt(atMs: Long) = edit { it[Keys.LAST_SYNC_ATTEMPT] = atMs }
 
@@ -169,17 +191,23 @@ class SettingsStore(context: Context) {
         it[Keys.CREDIT_LEAD_MINUTES] = minutes.coerceIn(60, 7 * 24 * 60)
     }
 
-    /**
-     * Records a user drag; the flag does not control account ordering.
-     * It is set on reorder and is not cleared automatically.
-     */
-    suspend fun setAccountsManuallyOrdered(ordered: Boolean) = edit {
-        it[Keys.ACCOUNTS_MANUAL_ORDER] = ordered
-    }
-
     suspend fun setShowSubscriptionTier(show: Boolean) = edit { it[Keys.SHOW_TIER] = show }
 
-    suspend fun setShowRenewalTime(show: Boolean) = edit { it[Keys.SHOW_RENEWAL] = show }
+    suspend fun setOverviewLayout(layout: OverviewLayout) = edit { it[Keys.OVERVIEW_LAYOUT] = layout.name }
+
+    suspend fun setOverviewCreditLayout(layout: OverviewCreditLayout) = edit {
+        it[Keys.OVERVIEW_CREDIT_LAYOUT] = layout.name
+    }
+
+    suspend fun setOverviewShowFirst(showFirst: OverviewShowFirst) = edit {
+        it[Keys.OVERVIEW_SHOW_FIRST] = showFirst.name
+    }
+
+    suspend fun setOverviewShowCredits(show: Boolean) = edit {
+        it[Keys.OVERVIEW_SHOW_CREDITS] = show
+    }
+
+    suspend fun setAnimateClaudeCodeIcon(animate: Boolean) = edit { it[Keys.ANIMATE_CLAUDE_CODE_ICON] = animate }
 
     /**
      * Counts the figures down (LEFT) or up (USED). Widgets observe this like every other setting;
@@ -202,6 +230,12 @@ class SettingsStore(context: Context) {
         prefs[Keys.MUTED_ACCOUNTS] =
             if (enabled) current - accountId else current + accountId
     }
+
+    suspend fun setAppTheme(theme: AppTheme) = edit { it[Keys.APP_THEME] = theme.name }
+
+    suspend fun setTextFont(font: TextFont) = edit { it[Keys.TEXT_FONT] = font.name }
+
+    suspend fun setFigureFont(font: FigureFont) = edit { it[Keys.FIGURE_FONT] = font.name }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         dataStore.edit(block)
@@ -237,6 +271,20 @@ internal fun Preferences.toSettings() = AppSettings(
     percentDisplay = PercentDisplay.fromNameOrNull(this[Keys.PERCENT_DISPLAY]) ?: PercentDisplay.LEFT,
     statusIconsEnabled = this[Keys.STATUS_ICONS_ENABLED] ?: false,
     pinnedAccountIds = this[Keys.PINNED_ACCOUNTS].orEmpty().split(PINNED_SEPARATOR).filter { it.isNotBlank() },
+    appTheme = AppTheme.fromStored(this[Keys.APP_THEME]),
+    textFont = this[Keys.TEXT_FONT].let { name -> TextFont.entries.firstOrNull { it.name == name } } ?: TextFont.ROBOTO,
+    figureFont = this[Keys.FIGURE_FONT].let { name -> FigureFont.entries.firstOrNull { it.name == name } } ?: FigureFont.ROBOTO_MONO,
+    overviewLayout = this[Keys.OVERVIEW_LAYOUT]?.let { stored ->
+        OverviewLayout.entries.firstOrNull { it.name == stored }
+    } ?: OverviewLayout.LIST,
+    overviewCreditLayout = this[Keys.OVERVIEW_CREDIT_LAYOUT]?.let { stored ->
+        OverviewCreditLayout.entries.firstOrNull { it.name == stored }
+    } ?: OverviewCreditLayout.NORMAL,
+    overviewShowFirst = this[Keys.OVERVIEW_SHOW_FIRST]?.let { stored ->
+        OverviewShowFirst.entries.firstOrNull { it.name == stored }
+    } ?: OverviewShowFirst.USAGE_PROVIDERS,
+    overviewShowCredits = this[Keys.OVERVIEW_SHOW_CREDITS] ?: true,
+    animateClaudeCodeIcon = this[Keys.ANIMATE_CLAUDE_CODE_ICON] ?: true,
 )
 
 /**
@@ -273,10 +321,19 @@ private object Keys {
     val ACCOUNTS_MANUAL_ORDER = booleanPreferencesKey("accounts_manually_ordered")
     val SHOW_TIER = booleanPreferencesKey("show_subscription_tier")
     val SHOW_RENEWAL = booleanPreferencesKey("show_renewal_time")
+    val OVERVIEW_LAYOUT = stringPreferencesKey("overview_layout")
+    val OVERVIEW_CREDIT_LAYOUT = stringPreferencesKey("overview_credit_layout")
+    val OVERVIEW_SHOW_FIRST = stringPreferencesKey("overview_show_first")
+    val OVERVIEW_SHOW_CREDITS = booleanPreferencesKey("overview_show_credits")
+    val ANIMATE_CLAUDE_CODE_ICON = booleanPreferencesKey("animate_claude_code_icon")
     val MUTED_ACCOUNTS = stringSetPreferencesKey("muted_account_ids")
     val PERCENT_DISPLAY = stringPreferencesKey("percent_display")
+    val STATUS_ICON_ELIGIBILITY = booleanPreferencesKey("status_icon_eligibility")
     val STATUS_ICONS_ENABLED = booleanPreferencesKey("status_icons_enabled")
     val PINNED_ACCOUNTS = stringPreferencesKey("pinned_account_ids")
+    val APP_THEME = stringPreferencesKey("appearance_theme")
+    val TEXT_FONT = stringPreferencesKey("appearance_text_font")
+    val FIGURE_FONT = stringPreferencesKey("appearance_figure_font")
     val LAST_SYNC_ATTEMPT = longPreferencesKey("last_sync_attempt_at")
     val LAST_SYNC_FINISHED = longPreferencesKey("last_sync_finished_at")
     val LAST_WIDGET_REFRESH = longPreferencesKey("last_widget_refresh_at")

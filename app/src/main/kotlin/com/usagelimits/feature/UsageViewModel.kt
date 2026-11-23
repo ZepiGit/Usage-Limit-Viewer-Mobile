@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.database.inOverviewOrder
 import com.usagelimits.R
 import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.CreditEntry
@@ -16,6 +17,12 @@ import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.UsageWindow
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
+import com.usagelimits.core.settings.OverviewCreditLayout
+import com.usagelimits.core.settings.OverviewLayout
+import com.usagelimits.core.settings.OverviewShowFirst
 import com.usagelimits.core.settings.SyncDiagnostics
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.userMessage
@@ -29,6 +36,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.NonCancellable
@@ -54,9 +64,6 @@ data class UpcomingReset(
     val severity: Severity,
 )
 
-/** The overview lead: [window] of [usage], [stale] when its data is old, failed or past its reset. */
-data class Lead(val usage: AccountUsage, val window: UsageWindow, val stale: Boolean)
-
 /** Everything the screens render. */
 data class UsageUiState(
     val accounts: List<AccountUsage> = emptyList(),
@@ -69,6 +76,7 @@ data class UsageUiState(
     val credits: List<CreditEntry> = emptyList(),
     /** False only before the first repository emission, so an empty list is not read as "no accounts". */
     val loaded: Boolean = true,
+    val accountStorageUnreadable: Boolean = false,
     /**
      * Pin changes made but not yet stored, by account id: true to pin, false to unpin. Settings
      * shows them at once, so a toggle does not spring back while earlier changes are published.
@@ -85,11 +93,11 @@ data class UsageUiState(
      */
     val staleAfterMs: Long get() = Severity.staleAfterMs(settings.syncIntervalMinutes)
 
-    /** Accounts retain repository order: sort position, then creation time. New accounts join the end. */
-    fun orderedAccounts(): List<AccountUsage> = accounts
-
-    fun healthyCountAt(): Int =
-        accounts.count { it.snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.CONNECTED }
+    /**
+     * The accounts in Overview's automatic order at [nowMs], the one All accounts widgets use too
+     * (ADR 0004). [accounts] keeps the stored order for pins and the other consumers.
+     */
+    fun overviewAccountsAt(nowMs: Long): List<AccountUsage> = accounts.inOverviewOrder(nowMs)
 
     /** Newest data wins for the "last updated" line — it describes the screen as a whole. */
     val lastUpdated: Long?
@@ -98,27 +106,6 @@ data class UsageUiState(
     fun overallSeverityAt(nowMs: Long): Severity =
         accounts.mapNotNull { it.snapshot?.severityAt(nowMs, staleAfterMs) }.maxOrNull()
             ?: Severity.STALE
-
-    /**
-     * Trusted readings outrank cached ones so a failed account cannot displace live data.
-     * Without any future reset, retain the tightest-window fallback rather than leave a blank.
-     */
-    fun leadAt(nowMs: Long): Lead? {
-        val candidates = accounts.mapNotNull { usage ->
-            val snapshot = usage.snapshot ?: return@mapNotNull null
-            val next = snapshot.windows.filter { (it.remainingPercent != null || it.exhausted) && (it.resetAt ?: Long.MIN_VALUE) > nowMs }
-                .minByOrNull { it.resetAt!! }
-            val window = next ?: snapshot.headlineAt(nowMs) ?: return@mapNotNull null
-            val trusted = snapshot.severityAt(nowMs, staleAfterMs) !in setOf(Severity.STALE, Severity.ERROR)
-            // A reset-due headline means every window has reset since the fetch: nothing current to lead with.
-            Lead(usage, window, stale = !trusted || window.resetElapsedAt(snapshot.fetchedAt, nowMs))
-        }
-        val pool = candidates.filterNot { it.stale }.ifEmpty { candidates }
-        val upcoming = pool.filter { (it.window.remainingPercent != null || it.window.exhausted) && (it.window.resetAt ?: Long.MIN_VALUE) > nowMs }
-        if (upcoming.isNotEmpty()) return upcoming.minByOrNull { it.window.resetAt!! }
-        return pool
-            .minByOrNull { if (it.window.exhausted) -1.0 else it.window.remainingPercent ?: Double.MAX_VALUE }
-    }
 
     /** Chronological reset timeline; past events are dropped by the screen. */
     fun upcomingResets(nowMs: Long): List<UpcomingReset> =
@@ -148,10 +135,13 @@ data class UsageUiState(
  * would mean four collectors over the same Flow and four ways for them to disagree about
  * refresh state.
  */
-class UsageViewModel(
+class UsageViewModel internal constructor(
     private val container: AppContainer,
     private val appContext: Context,
-) : ViewModel() {
+    scope: CoroutineScope,
+) : ViewModel(scope) {
+    constructor(container: AppContainer, appContext: Context) :
+        this(container, appContext, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
 
     private val refreshing = MutableStateFlow(false)
     private val transientMessage = MutableStateFlow<String?>(null)
@@ -160,41 +150,22 @@ class UsageViewModel(
     private val pinRequests = MutableStateFlow<Map<String, PinRequest>>(emptyMap())
 
     val state: StateFlow<UsageUiState> = combine(
-        combine(container.repository.observeAccountUsage(), container.creditRepository.observeEntries()) { accounts, credits ->
-            accounts to credits
+        combine(container.repository.observeAccountUsageRead(), container.creditRepository.observeEntries()) { read, credits ->
+            read to credits
         },
         container.settingsStore.settings,
         refreshing,
         transientMessage,
         combine(container.settingsStore.diagnostics, pinRequests) { diagnostics, pending -> diagnostics to pending.mapValues { it.value.pinned } },
-    ) { (accounts, credits), settings, isRefreshing, message, (diagnostics, pending) ->
-        UsageUiState(accounts, settings, isRefreshing, message, diagnostics, credits, pendingPins = pending)
+    ) { (read, credits), settings, isRefreshing, message, (diagnostics, pending) ->
+        UsageUiState(read.accounts, settings, isRefreshing, message, diagnostics, credits,
+            accountStorageUnreadable = read.unreadable, pendingPins = pending)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState(loaded = false))
 
     private val _resetCreditInFlight = MutableStateFlow<String?>(null)
 
     /** Account id whose reset credit is currently being spent, for a per-card spinner. */
     val resetCreditInFlight: StateFlow<String?> = _resetCreditInFlight.asStateFlow()
-
-    private val reorderMutex = kotlinx.coroutines.sync.Mutex()
-
-    /** Persists the dragged order and records the drag; the flag does not control ordering. */
-    fun reorderAccounts(idsInOrder: List<String>) {
-        viewModelScope.launch {
-            reorderMutex.lock()
-            try {
-                container.repository.reorderAccounts(idsInOrder.distinct())
-                container.settingsStore.setAccountsManuallyOrdered(true)
-                container.publication.presentationChanged()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                transientMessage.value = appContext.getString(R.string.message_order_save_failed)
-            } finally {
-                reorderMutex.unlock()
-            }
-        }
-    }
 
     fun setProviderIcon(provider: ProviderId, iconId: String) {
         viewModelScope.launch {
@@ -206,7 +177,13 @@ class UsageViewModel(
         }
     }
 
+    fun retryAccountStorage() { container.repository.retryAccountRead() }
+
     fun refresh() {
+        if (state.value.accountStorageUnreadable) {
+            retryAccountStorage()
+            return
+        }
         if (refreshing.value) return
         viewModelScope.launch {
             refreshing.value = true
@@ -228,6 +205,10 @@ class UsageViewModel(
     }
 
     fun refreshAccount(accountId: String) {
+        if (state.value.accountStorageUnreadable) {
+            retryAccountStorage()
+            return
+        }
         viewModelScope.launch {
             refreshing.value = true
             try {
@@ -361,12 +342,40 @@ class UsageViewModel(
         }
     }
 
+    fun setAppTheme(theme: AppTheme) {
+        viewModelScope.launch { container.settingsStore.setAppTheme(theme) }
+    }
+
+    fun setTextFont(font: TextFont) {
+        viewModelScope.launch { container.settingsStore.setTextFont(font) }
+    }
+
+    fun setFigureFont(font: FigureFont) {
+        viewModelScope.launch { container.settingsStore.setFigureFont(font) }
+    }
+
     fun setShowSubscriptionTier(enabled: Boolean) {
         viewModelScope.launch { container.settingsStore.setShowSubscriptionTier(enabled) }
     }
 
-    fun setShowRenewalTime(enabled: Boolean) {
-        viewModelScope.launch { container.settingsStore.setShowRenewalTime(enabled) }
+    fun setOverviewLayout(layout: OverviewLayout) {
+        viewModelScope.launch { container.settingsStore.setOverviewLayout(layout) }
+    }
+
+    fun setOverviewCreditLayout(layout: OverviewCreditLayout) {
+        viewModelScope.launch { container.settingsStore.setOverviewCreditLayout(layout) }
+    }
+
+    fun setOverviewShowFirst(showFirst: OverviewShowFirst) {
+        viewModelScope.launch { container.settingsStore.setOverviewShowFirst(showFirst) }
+    }
+
+    fun setOverviewShowCredits(show: Boolean) {
+        viewModelScope.launch { container.settingsStore.setOverviewShowCredits(show) }
+    }
+
+    fun setAnimateClaudeCodeIcon(animate: Boolean) {
+        viewModelScope.launch { container.settingsStore.setAnimateClaudeCodeIcon(animate) }
     }
 
     fun setPercentDisplay(mode: PercentDisplay) {
@@ -415,18 +424,6 @@ class UsageViewModel(
 
     private var nextPinRequest = 0L
 
-
-    /**
-     * Settings saw notifications become allowed, through the dialog or the system's settings, or
-     * the "Status bar icons" category switched on again.
-     *
-     * Nothing could be shown before, so every pinned account's icon appears now, from the cache,
-     * also one swiped away before the block. Not a cache move: no reading is new, so alerts are
-     * not evaluated, and no provider is asked.
-     */
-    fun notificationsAllowed() {
-        viewModelScope.launch { container.publication.notificationsAllowedAgain() }
-    }
 
     fun recordNotificationPermissionHandled() {
         viewModelScope.launch { container.settingsStore.recordNotificationPermissionHandled() }

@@ -3,11 +3,15 @@
 No network and no sleeping: the gate gets a fake fetch and a fake clock whose sleep only moves time.
 """
 
+from email.message import Message
 import io
+import json
 import os
+import urllib.error
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 import merge_gate
 from merge_gate import GaveUp, Transient, list_runs, main, parse_next_link, verdict, wait_for_runs
@@ -121,7 +125,7 @@ class VerdictTest(unittest.TestCase):
                 self.assertEqual(reason, "all 2 judged runs visible for this commit passed")
 
     def test_a_ci_run_started_by_a_tag_push_is_judged_like_any_push_run(self):
-        # Decided for #92: the gate does not guess from the ref name (#98 decides whether CI runs on tags).
+        # Branch-only triggers prevent new tag CI; historical push runs still count without guessing refs.
         tag_run = {**run(3, event="push", conclusion="failure"), "head_branch": "v0.3.1"}
         passed, reason = verdict([run(1), run(2, "iOS"), tag_run])
         self.assertFalse(passed)
@@ -293,6 +297,92 @@ class WaitTest(unittest.TestCase):
         runs = wait(clock, timeline(clock, (0, [])))
         self.assertEqual(runs, [])
         self.assertTrue(verdict(runs)[0])
+
+
+class RateLimitTest(unittest.TestCase):
+    def gate(self, failures):
+        clock, asked = Clock(), []
+        out = io.StringIO()
+        failures = iter(failures)
+
+        def response(request, timeout):
+            asked.append(clock.now)
+            failure = next(failures, None)
+            if failure is not None:
+                code, headers, message = failure
+                fields = Message()
+                for key, value in headers.items():
+                    fields[key] = value
+                raise urllib.error.HTTPError(request.full_url, code, message, fields,
+                                             io.BytesIO(json.dumps({"message": message}).encode()))
+            body = io.BytesIO(json.dumps({"total_count": 1, "workflow_runs": [run(1)]}).encode())
+            body.headers = Message()
+            return body
+
+        with patch.object(merge_gate.urllib.request, "urlopen", side_effect=response):
+            fetch = merge_gate.http_fetch("synthetic-token", wall_clock=lambda: 1_000 + clock.now)
+            code = main([SHA], env={"GITHUB_REPOSITORY": REPO}, fetch=fetch,
+                        clock=clock, sleep=clock.sleep, out=out)
+        return code, clock, asked, out.getvalue()
+
+    def test_429_primary_and_secondary_403_obey_retry_after(self):
+        for code, headers, message in (
+            (429, {}, "Too many requests"),
+            (403, {"X-RateLimit-Remaining": "0"}, "API rate limit exceeded"),
+            (403, {"X-RateLimit-Remaining": "50"}, "You have exceeded a secondary rate limit."),
+        ):
+            with self.subTest(code=code, message=message):
+                result, clock, asked, log = self.gate([(code, {**headers, "Retry-After": "75"}, message)])
+                self.assertEqual(0, result, log)
+                self.assertEqual([0, 75], asked[:2])
+                self.assertIn("rate limit", log.lower())
+
+    def test_reset_epoch_and_http_date_use_the_injected_wall_clock(self):
+        for headers in ({"X-RateLimit-Reset": "1090"},
+                        {"Retry-After": "Thu, 01 Jan 1970 00:18:10 GMT"},
+                        {"Retry-After": "unreadable", "X-RateLimit-Reset": "1090"}):
+            with self.subTest(headers=headers):
+                result, _, asked, log = self.gate([(429, headers, "Too many requests")])
+                self.assertEqual(0, result, log)
+                self.assertEqual([0, 90], asked[:2])
+
+    def test_retry_after_takes_precedence_over_reset(self):
+        _, _, asked, _ = self.gate([(429, {"Retry-After": "10", "X-RateLimit-Reset": "1500"}, "limited")])
+        self.assertEqual([0, 10], asked[:2])
+
+    def test_missing_or_malformed_headers_back_off_without_real_sleep(self):
+        failures = [(429, {}, "limited"), (403, {"Retry-After": "bad", "X-RateLimit-Reset": "bad"},
+                                               "You have exceeded a secondary rate limit."),
+                    (429, {}, "limited")]
+        code, clock, asked, log = self.gate(failures)
+        self.assertEqual(0, code, log)
+        self.assertEqual([0, 60, 180, 420], asked[:4])
+        self.assertEqual([60, 120, 240], clock.slept[:3])
+
+    def test_repeated_server_delays_also_back_off(self):
+        _, _, asked, _ = self.gate([(429, {"Retry-After": "70"}, "limited")] * 3)
+        self.assertEqual([0, 70, 210, 490], asked[:4])
+
+    def test_a_successful_listing_resets_rate_limit_backoff_and_settling(self):
+        _, _, asked, _ = self.gate([(429, {}, "limited"), None, (429, {}, "limited")])
+        self.assertEqual([0, 60, 90, 150, 180, 210], asked)
+
+    def test_rate_limit_sleep_stops_at_the_existing_deadline(self):
+        for delay in (str(merge_gate.DEADLINE), str(merge_gate.DEADLINE + 1)):
+            with self.subTest(delay=delay):
+                code, clock, asked, log = self.gate([(429, {"Retry-After": delay}, "limited")])
+                self.assertEqual(1, code)
+                self.assertEqual(merge_gate.DEADLINE, clock.now)
+                self.assertEqual([0], asked)
+                self.assertIn("rate limit", log.lower())
+
+    def test_permission_403_remains_fatal_even_with_quota_headers(self):
+        code, clock, asked, log = self.gate([(403, {"X-RateLimit-Remaining": "50", "X-RateLimit-Reset": "1090"},
+                                            "Resource not accessible by integration")])
+        self.assertEqual(1, code)
+        self.assertEqual([0], asked)
+        self.assertEqual([], clock.slept)
+        self.assertIn("Resource not accessible by integration", log)
 
 
 class MainTest(unittest.TestCase):

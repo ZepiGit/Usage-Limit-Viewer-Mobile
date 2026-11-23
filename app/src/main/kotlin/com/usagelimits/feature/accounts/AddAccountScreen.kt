@@ -1,6 +1,6 @@
 package com.usagelimits.feature.accounts
 
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import com.usagelimits.ui.theme.UsageMotion
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,14 +25,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -58,6 +62,7 @@ import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.text.apiKeyHintRes
 import com.usagelimits.ui.text.providerRegionLabelRes
 import com.usagelimits.ui.theme.UsageColors
+import com.usagelimits.ui.theme.UsageType
 
 /**
  * Add-account flow.
@@ -82,8 +87,24 @@ fun AddAccountScreen(
     /** The region picked for Kimi or Z.ai, before the code or key step. */
     onChooseRegion: (ProviderId, ProviderRegion) -> Unit = { _, _ -> },
 ) {
-    val context = LocalContext.current
+    val motion = UsageMotion.current
     val activeState by rememberUpdatedState(state)
+    var displayedState by remember { mutableStateOf(state) }
+    val opacity = remember { Animatable(1f) }
+
+    LaunchedEffect(state, motion) {
+        if (!motion.enabled) {
+            displayedState = state
+            opacity.snapTo(1f)
+        } else {
+            // Nur bei null tauschen: auch ein dritter Schritt kann keine zweite Karte überblenden.
+            if (displayedState != state) {
+                opacity.animateTo(0f, motion.exit())
+                displayedState = state
+            }
+            opacity.animateTo(1f, motion.enterFromHidden())
+        }
+    }
 
     Column(
         modifier = modifier
@@ -95,18 +116,23 @@ fun AddAccountScreen(
     ) {
         ScreenTitle(stringResource(R.string.add_account_title))
 
-        Crossfade(
-            targetState = state,
-            animationSpec = UsageMotion.current.contentSwap(),
-            label = "signInStep",
-        ) { displayedState ->
-            // Crossfade remembers outgoing content, so read the latest state through a State.
-            val acceptsInput = { displayedState == activeState }
+        val visibleStep = if (motion.enabled) displayedState else state
+        key(visibleStep) {
+            val step = visibleStep
+            val acceptsInput = { step == activeState && (!motion.enabled || opacity.targetValue == 1f) }
+            val inputModifier = if (acceptsInput()) Modifier else Modifier
+                .clearAndSetSemantics {}
+                .focusProperties { canFocus = false }
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                    }
+                }
             Column(
-                modifier = if (acceptsInput()) Modifier else Modifier.clearAndSetSemantics {},
+                modifier = inputModifier.graphicsLayer { alpha = if (motion.enabled) opacity.value else 1f },
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                when (val state = displayedState) {
+                when (val state = step) {
                     is AddAccountState.PickProvider -> {
                         Text(
                             text = stringResource(R.string.add_pick_intro),
@@ -179,7 +205,7 @@ fun AddAccountScreen(
                             // The sheet's lead figure: a code, so the figure face, in ink.
                             Text(
                                 text = state.userCode,
-                                style = MaterialTheme.typography.headlineMedium,
+                                style = UsageType.Code,
                                 // 0.04em, enough to read the code a character at a time.
                                 letterSpacing = 1.2.sp,
                                 color = UsageColors.Ink,

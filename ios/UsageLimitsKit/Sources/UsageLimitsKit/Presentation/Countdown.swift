@@ -126,15 +126,25 @@ public enum Countdown {
     /// matters, because the limit may already have reset. An absolute time stays true however
     /// old the render is, so that is what a widget shows.
     ///
-    /// The date is omitted when the reset is today, which is the common case and the one where
-    /// a date would only add noise.
-    public static func absolute(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+    /// Today uses time alone, the next six local dates use weekday and time, and later dates
+    /// use date and time. Calendar dates, not elapsed days, keep the tiers stable across DST.
+    public static func absolute(
+        _ date: Date, now: Date, calendar: Calendar = .current, locale: Locale = .current
+    ) -> String {
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.timeZone = calendar.timeZone
-        formatter.locale = .current
-        formatter.dateStyle = calendar.isDate(date, inSameDayAs: now) ? .none : .short
-        formatter.timeStyle = .short
+        formatter.locale = locale
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now),
+            to: calendar.startOfDay(for: date)).day
+        if days == 0 {
+            formatter.timeStyle = .short
+        } else if let days, (1...6).contains(days) {
+            formatter.setLocalizedDateFormatFromTemplate("EEEjm")
+        } else {
+            formatter.dateStyle = .short
+            formatter.timeStyle = .short
+        }
         return formatter.string(from: date)
     }
 }

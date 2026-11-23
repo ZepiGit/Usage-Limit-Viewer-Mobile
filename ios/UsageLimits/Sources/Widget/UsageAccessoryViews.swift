@@ -32,7 +32,7 @@ struct UsageAccessoryRectangularView: View {
 
             let p = presentation(for: focus)
             HStack(spacing: 4) {
-                WidgetPercentage(text: PercentText.figure(p))
+                WidgetPercentage(token: p.token)
                     .font(.system(.title3, design: .monospaced).weight(.semibold))
                     .lineLimit(1)
                 // Names the side the figure counts; a bare dash for an unknown figure stays bare.
@@ -100,7 +100,6 @@ struct UsageAccessoryCircularView: View {
         let p = focus?.account.presentation(
             of: focus?.row, at: entry.date, staleAfter: entry.snapshot.staleAfter, mode: mode)
             ?? WindowPresentation.absent(mode)
-        let text = PercentText.figure(p)
         return ZStack {
             Circle()
                 .stroke(.tertiary, style: StrokeStyle(lineWidth: 5, lineCap: .round))
@@ -113,37 +112,22 @@ struct UsageAccessoryCircularView: View {
                     .rotationEffect(Angle.degrees(-90))
             }
             VStack(spacing: 1) {
-                WidgetPercentage(text: text)
+                WidgetPercentage(token: p.token)
                     .font(.system(.caption, design: .monospaced).weight(.semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
-                // A caption inside the ring: there is no room beside the figure, and the arc
-                // alone cannot say which side it counts.
-                if p.hasFigure {
-                    Text(verbatim: PercentText.sideWord(mode))
-                        .font(.caption2)
-                        .lineLimit(1)
-                }
                 if focus?.account.statusMessage != nil {
                     Image(systemName: "exclamationmark.circle").font(.caption2)
                 }
             }
         }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .accessibilityElement()
         .accessibilityLabel(
-            focus.map { $0.title(for: text, mode: mode) } ?? String(localized: "Open the app to see your quota"))
+            focus.map { WidgetRingSpeech.label(account: $0.account, row: $0.row,
+                presentation: p, date: entry.date, staleAfter: entry.snapshot.staleAfter) }
+                ?? String(localized: "Open the app to see your quota"))
     }
 }
 
-private extension WidgetFocus {
-    func title(for figure: String, mode: PercentDisplay) -> String {
-        guard figure != PercentToken.unknown else {
-            return String(localized: "\(account.title): remaining unknown")
-        }
-        let said = PercentText.spoken(figure, mode)
-        let sentence = String(localized: "\(account.title): \(said)")
-        guard let message = account.statusMessage else { return sentence }
-        return String(localized: "\(sentence), \(DisplayText.stored(message))")
-    }
-}
 

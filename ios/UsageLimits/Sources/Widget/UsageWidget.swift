@@ -104,12 +104,10 @@ struct UsageProvider: TimelineProvider {
 
     // MARK: Snapshot shaping
 
-    /// The legacy tiles' stated focus is the account most in need of attention — but the
-    /// published export follows the overview's order, which is the user's, not urgency's.
-    /// Without a selection pass of its own, every legacy tile inherited whatever order the
-    /// exporter currently used, so reordering the overview moved the tile's lead with no
-    /// widget edit anywhere. The pass runs against a COPY of the export; the export itself
-    /// keeps overview order, because the configured widgets' "All accounts" depends on it.
+    /// The legacy tiles' stated focus is the account most in need of attention. The published
+    /// export is in register order, the order accounts were stored in, not in order of urgency,
+    /// so the tiles run a selection pass of their own. It runs against a COPY of the export:
+    /// the export keeps register order, because Pinned accounts and the Provider scope read it.
     static func criticalSelection(of snapshot: GlanceSnapshot, now: Date) -> GlanceSnapshot {
         snapshot.selecting(scope: .mostCritical, now: now)
     }
@@ -235,17 +233,32 @@ struct UsageWidgetEntryView: View {
     /// whose tone is configured dark gets the dark one. Defaults to light, which is what the
     /// legacy widgets — with no tone configuration — have always written.
     var ink: WidgetInk = .light
+    var showsProviderMark: Bool = false
+
+    var body: some View {
+        UsageWidgetFamilyView(family: family, entry: entry, transparent: transparent,
+            ink: ink, showsProviderMark: showsProviderMark)
+    }
+}
+
+/// The same family dispatch used by WidgetKit and native view-rendering tests.
+struct UsageWidgetFamilyView: View {
+    let family: WidgetFamily
+    let entry: UsageEntry
+    var transparent: Bool = false
+    var ink: WidgetInk = .light
+    var showsProviderMark: Bool = false
 
     var body: some View {
         switch family {
         case .systemLarge:
-            UsageWidgetLargeView(entry: entry, transparent: transparent, ink: ink)
+            UsageWidgetLargeView(entry: entry, transparent: transparent, ink: ink, showsProviderMark: showsProviderMark)
         case .systemMedium:
-            UsageWidgetMediumView(entry: entry, transparent: transparent, ink: ink)
+            UsageWidgetMediumView(entry: entry, transparent: transparent, ink: ink, showsProviderMark: showsProviderMark)
         case .accessoryRectangular:
             UsageAccessoryRectangularView(entry: entry)
         default:
-            UsageWidgetSmallView(entry: entry, transparent: transparent, ink: ink)
+            UsageWidgetSmallView(entry: entry, transparent: transparent, ink: ink, showsProviderMark: showsProviderMark)
         }
     }
 }
@@ -326,7 +339,7 @@ struct UsageRingWidget: Widget {
             UsageRingEntryView(entry: entry)
         }
         .configurationDisplayName("Usage Ring")
-        .description("What is left on one subscription, as a ring, with its reset time.")
+        .description("One subscription as a ring, with its reset time. Left or used follows Settings › Display.")
         .supportedFamilies([.systemSmall, .accessoryCircular])
     }
 }
@@ -352,7 +365,9 @@ struct UsageRingEntryView: View {
     }
 }
 
+#if !WIDGET_RENDERING_TESTS
 @main
+#endif
 struct UsageWidgets: WidgetBundle {
     var body: some Widget {
         #if canImport(AppIntents)

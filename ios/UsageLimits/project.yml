@@ -21,7 +21,7 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.4.1"
+    MARKETING_VERSION: "0.5.0"
     CURRENT_PROJECT_VERSION: "1"
     # Strict concurrency across the app too, not only the package. The kit is already clean, and
     # letting the app lag behind is how a @MainActor violation reaches a user as a crash on a
@@ -44,6 +44,10 @@ targets:
       # (percent figures, severity names, countdowns) are looked up from the bundle they run in,
       # so a widget whose bundle lacked the catalog would show English in every language.
       - path: Sources/Resources/Localizable.xcstrings
+        buildPhase: resources
+      # Folder reference preserves byte-identical canonical files without a copied asset tree.
+      - path: ../../third_party/fonts/android-res
+        type: folder
         buildPhase: resources
     dependencies:
       - package: UsageLimitsKit
@@ -68,12 +72,20 @@ targets:
       properties:
         CFBundleShortVersionString: '$(MARKETING_VERSION)'
         CFBundleVersion: '$(CURRENT_PROJECT_VERSION)'
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchNeutral
+        UIAppFonts:
+          - android-res/font/roboto_flex.ttf
+          - android-res/font/ibm_plex_sans_regular.ttf
+          - android-res/font/ibm_plex_sans_medium.ttf
+          - android-res/font/figtree.ttf
+          - android-res/font/roboto_mono.ttf
+          - android-res/font/jetbrains_mono.ttf
+          - android-res/font/ibm_plex_mono_regular.ttf
+          - android-res/font/ibm_plex_mono_medium.ttf
+          - android-res/font/ibm_plex_mono_bold.ttf
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        # Dark-only by design: a half-finished light palette would look worse than a deliberate
-        # dark one, and the reference design is dark.
-        UIUserInterfaceStyle: Dark
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -147,6 +159,9 @@ targets:
     platform: iOS
     sources:
       - path: UITests
+      - path: TestSupport/MotionLogEntries.swift
+      - path: ../../shared/test-vectors/credit-widget-compact-status.json
+        buildPhase: resources
     dependencies:
       - target: UsageLimits
     settings:
@@ -160,6 +175,7 @@ targets:
     platform: iOS
     sources:
       - path: ScreenshotTests
+      - path: TestSupport/MotionLogEntries.swift
     dependencies:
       - target: UsageLimits
     settings:
@@ -178,8 +194,10 @@ targets:
     sources:
       - path: RenderingTests
       - path: Sources/Theme
-      - path: Sources/Widget/PinnedAccountsViews.swift
+      - path: Sources/Widget
       - path: ../../shared/glyphs/status-icon-glyphs.json
+        buildPhase: resources
+      - path: ../../shared/test-vectors/credit-widget-compact-status.json
         buildPhase: resources
     dependencies:
       - target: UsageLimits
@@ -187,6 +205,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.usagelimits.app.renderingtests
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WIDGET_RENDERING_TESTS"
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/UsageLimits.app/UsageLimits
         BUNDLE_LOADER: $(TEST_HOST)
@@ -198,6 +217,9 @@ schemes:
         UsageLimits: all
     test:
       config: Debug
+      # The host must not put a notification permission alert over native rendering tests.
+      commandLineArguments:
+        "-ui-testing": true
       targets:
         - UsageLimitsRenderingTests
   UsageLimitsScreenshots:

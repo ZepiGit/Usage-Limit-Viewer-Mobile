@@ -12,7 +12,7 @@ import kotlinx.serialization.json.doubleOrNull
  *
  * The iOS Lock Screen widget draws the same file, so the two platforms cannot drift apart; that
  * file is the one place to change a glyph. Sources and licences are in `docs/provider-assets.md`.
- * The build packages `shared/glyphs` as a Java resource, so reading it needs no Context.
+ * The build packages only that JSON file as a Java resource, so reading it needs no Context.
  *
  * Both readers accept exactly the grammar in `docs/provider-assets.md` ("Glyph path grammar") and
  * reject the rest, so a path that one platform would draw cannot be skipped or misread by the
@@ -30,7 +30,7 @@ class StatusIconGlyphs private constructor(val paths: Map<ProviderId, String>, v
 
         val shipped: StatusIconGlyphs by lazy {
             val stream = requireNotNull(StatusIconGlyphs::class.java.getResourceAsStream(RESOURCE)) {
-                "$RESOURCE is not packaged; app/build.gradle.kts adds shared/glyphs as a resource folder"
+                "$RESOURCE is not packaged; app/build.gradle.kts includes the shared glyph file"
             }
             parse(stream.bufferedReader().use { it.readText() })
         }

@@ -18,7 +18,10 @@ import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
 import com.usagelimits.UsageLimitsApp
+import com.usagelimits.core.database.UsageRepository
+import com.usagelimits.core.di.AppContainer
 import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.overviewCreditSummary
 import com.usagelimits.core.sync.NotificationPublisher
 import com.usagelimits.core.sync.SyncWorker
 import com.usagelimits.core.sync.resetTestWorkManager
@@ -125,6 +128,26 @@ class StatusIconEvidenceDriverTest {
             assertEquals(token, it.getString("token"))
             assertEquals(name, it.getString("command"))
             assertTrue("completion uses the device's elapsed clock", it.getLong("completedElapsedRealtimeMs") in started..returned)
+        }
+    }
+
+    @Test
+    fun `credit fixture keeps a usable compact hint through an automatic refresh`() = runBlocking {
+        val completion = command("seed-credits")
+        assertTrue(completion.toString(), completion.getBoolean("success"))
+        val credits = app.container.creditRepository
+        val before = credits.entriesOnce().single()
+        try {
+            val instant = requireNotNull(before.snapshot).fetchedAt
+            val engine = com.usagelimits.core.sync.CreditSyncEngine(
+                credits, app.container.credentialStore, app.container.creditRegistry, nowMs = { instant },
+            )
+            engine.syncAll(automatic = true)
+            val winner = credits.entriesOnce().overviewCreditSummary(instant, 3_600_000).winner
+            assertEquals("Synthetic credit", winner?.account?.label)
+            assertEquals("3.18", winner?.balance?.amount?.toPlainString())
+        } finally {
+            credits.remove(before.id)
         }
     }
 
@@ -270,7 +293,7 @@ class StatusIconEvidenceDriverTest {
         // Seed waits out the driver's whole 15 s start-up grace for the unmet constraint first.
         withTimeout(25_000) {
             withStartupSync(5, SyncWorker.SHORT_WORK_NAME, runSync = { error("Network constraint was not released") }) { work, _ ->
-                SyncWorker.syncOnResume(app)
+                SyncWorker.syncOnOpen(app)
                 val pending = work.getWorkInfosForUniqueWorkFlow(SyncWorker.ONE_SHOT_WORK_NAME)
                     .first { it.isNotEmpty() }.single()
                 assertEquals(WorkInfo.State.ENQUEUED, pending.state)
@@ -352,15 +375,15 @@ class StatusIconEvidenceDriverTest {
     }
 
     @Test
-    fun `same provider command preserves reordered accounts`() = runBlocking {
+    fun `same provider command preserves the seeded stored order`() = runBlocking {
         val seeded = command("seed")
         assertTrue(seeded.getBoolean("success"))
         val originalIds = seeded.getJSONObject("localIds")
-        assertTrue(command("reorder").getBoolean("success"))
+        assertTrue(command("rerank").getBoolean("success"))
 
         val duplicate = command("same-provider")
         assertTrue(duplicate.optString("error"), duplicate.getBoolean("success"))
-        assertEquals(listOf("evidence-gemini", "evidence-claude", "evidence-codex", "evidence-xai", "evidence-copilot", "evidence-cursor", "evidence-claude-work"),
+        assertEquals(listOf("evidence-claude", "evidence-codex", "evidence-gemini", "evidence-xai", "evidence-copilot", "evidence-cursor", "evidence-claude-work"),
             (0 until duplicate.getJSONArray("accounts").length()).map { duplicate.getJSONArray("accounts").getString(it) })
         val localIds = duplicate.getJSONObject("localIds")
         assertEquals(7, localIds.length())
@@ -369,6 +392,81 @@ class StatusIconEvidenceDriverTest {
             (0 until duplicate.getJSONArray("pins").length()).map { duplicate.getJSONArray("pins").getString(it) })
     }
 
+    /**
+     * The order split the CI scenario shows on a device (ADR 0004). Seed arranges a pre-upgrade
+     * stored order through the repository writer; Overview and All accounts rank by the headline,
+     * the pinned icons follow the stored order. A synthetic reading for Antigravity then moves it
+     * up the automatic order while the stored order, the pin list and the icons' order stay put,
+     * and the publication posts that reading.
+     *
+     * Both clocks are scripted (standard 1): accounts are added at fixed, distinct instants, and
+     * the publisher's wall clock moves only when it waits for the next tick, as in
+     * `StatusIconClockTest`, so the order of the `when` stamps cannot depend on the host.
+     */
+    @Test
+    fun `a reading reranks Overview and All accounts while the pinned icons keep the stored order`() = runBlocking {
+        var added = 1_700_000_000_000L
+        // A starting point only: the readings the driver writes are fresh against it, and from
+        // here the publisher's clock advances by the script alone.
+        var wall = System.currentTimeMillis()
+        val container = object : AppContainer(app) {
+            override val repository by lazy {
+                UsageRepository(database.accountDao(), database.usageSnapshotDao(), transactions = transactions,
+                    nowMs = { added += 60_000; added })
+            }
+            override val statusIconPublisher by lazy {
+                StatusIconPublisher(app, settingsStore, repository::accountUsageOnce,
+                    now = { wall }, nextTick = { wall += 1 }, monotonic = { 0L })
+            }
+        }
+        val driver = StatusIconEvidenceDriver(app, container, prepareEmptyInstall = {})
+        val seeded = command("seed", driver = driver)
+        val stored = listOf("evidence-claude", "evidence-codex", "evidence-gemini", "evidence-xai", "evidence-copilot", "evidence-cursor")
+        assertEquals(stored, seeded.strings("accounts"))
+        // Added newest-first: each account in stored order was added strictly after the next one.
+        val created = container.repository.accounts().associate { it.externalAccountId to it.createdAt }
+        assertTrue("addition order runs against the stored order: $created",
+            stored.zipWithNext().all { (a, b) -> created.getValue(a) > created.getValue(b) })
+        assertTrue(command("enable", driver = driver).getBoolean("success"))
+        for (alias in listOf("evidence-codex", "evidence-gemini", "evidence-claude")) {
+            assertTrue(command("pin", alias, driver = driver).getBoolean("success"))
+        }
+        val before = command("update", driver = driver)
+        val pinOrder = listOf("evidence-claude", "evidence-codex", "evidence-gemini")
+        assertEquals("pins follow the stored order, not the pin order", pinOrder, before.strings("pinOrder"))
+        assertEquals("Antigravity (100 left) ranks last before the reading", "evidence-gemini", before.strings("overview").last())
+        assertEquals(before.strings("overview"), before.strings("allAccounts"))
+        assertEquals(pinOrder, postedOrder(container))
+        val gemini = before.getJSONObject("localIds").getString("evidence-gemini")
+        assertEquals("summary and child show the reading before", listOf("100% left", "100% left"), titles(gemini))
+        val keys = statusRecords().map { it.key }.toSet()
+
+        val after = command("rerank", driver = driver)
+        assertEquals("xAI (exhausted) then Antigravity (2 left) lead", listOf("evidence-xai", "evidence-gemini"), after.strings("overview").take(2))
+        assertEquals(after.strings("overview"), after.strings("allAccounts"))
+        assertEquals(stored, after.strings("accounts"))
+        assertEquals(before.strings("pins"), after.strings("pins"))
+        assertEquals("the icons keep the stored order", pinOrder, after.strings("pinOrder"))
+        assertEquals(pinOrder, postedOrder(container))
+        assertEquals("the publication posted the new reading on summary and child", listOf("2% left", "2% left"), titles(gemini))
+        assertEquals("the same six records were updated in place", keys, statusRecords().map { it.key }.toSet())
+    }
+
+    /** The titles of one account's status records, summary first. */
+    private fun titles(localId: String): List<String> = statusRecords().filter { it.tag == "status-icon:$localId" }
+        .sortedByDescending { it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 }
+        .map { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString() }
+
+    /** Pinned accounts in the order the publisher stamped them: the newest `when` leads. */
+    private suspend fun postedOrder(container: AppContainer): List<String> {
+        val aliases = container.repository.accounts().associate { it.localId to it.externalAccountId }
+        return statusRecords().groupBy { it.tag.removePrefix("status-icon:") }
+            .mapValues { (_, records) -> records.maxOf { it.notification.`when` } }
+            .entries.sortedByDescending { it.value }.map { aliases.getValue(it.key) }
+    }
+
+    private fun JSONObject.strings(name: String): List<String> = getJSONArray(name).let { array -> (0 until array.length()).map(array::getString) }
+
     @Test
     fun `driver commands seed real accounts publish six records update readings and report rejection`() = runBlocking {
         val seeded = command("seed")
@@ -376,8 +474,8 @@ class StatusIconEvidenceDriverTest {
         assertFalse(seeded.getBoolean("enabled"))
         assertEquals(0, seeded.getJSONArray("pins").length())
         assertEquals(0, statusRecords().size)
-        assertEquals(listOf("evidence-claude", "evidence-codex", "evidence-gemini", "evidence-xai", "evidence-copilot", "evidence-cursor"),
-            (0 until seeded.getJSONArray("accounts").length()).map { seeded.getJSONArray("accounts").getString(it) })
+        val seededOrder = listOf("evidence-claude", "evidence-codex", "evidence-gemini", "evidence-xai", "evidence-copilot", "evidence-cursor")
+        assertEquals(seededOrder, seeded.strings("accounts"))
         assertEquals(listOf(ProviderId.CLAUDE, ProviderId.CODEX, ProviderId.ANTIGRAVITY, ProviderId.XAI, ProviderId.KIMI, ProviderId.DEVIN),
             app.container.repository.accounts().map { it.provider })
         val localIds = seeded.getJSONObject("localIds")
@@ -400,9 +498,9 @@ class StatusIconEvidenceDriverTest {
         assertEquals(13.0, app.container.repository.snapshot(localIds.getString("evidence-claude"))!!.windows.single().usedPercent!!, 0.0)
         assertEquals(0, manager.activeNotifications.count { it.notification.channelId == NotificationPublisher.CHANNEL_ID })
 
-        val reordered = command("reorder")
-        assertTrue(reordered.getBoolean("success"))
-        assertEquals("evidence-gemini", reordered.getJSONArray("accounts").getString(0))
+        val reranked = command("rerank")
+        assertTrue(reranked.getBoolean("success"))
+        assertEquals("a reading moves no stored position", seededOrder, reranked.strings("accounts"))
         assertTrue(command("states").getBoolean("success"))
         assertTrue(app.container.repository.snapshot(localIds.getString("evidence-claude"))!!.windows.single().exhausted)
         assertTrue(app.container.repository.snapshot(localIds.getString("evidence-codex"))!!.isStaleAt(System.currentTimeMillis()))
@@ -410,7 +508,7 @@ class StatusIconEvidenceDriverTest {
             app.container.repository.snapshot(localIds.getString("evidence-gemini"))!!.status)
         val readingsReset = command("reset-readings")
         assertTrue(readingsReset.getBoolean("success"))
-        assertEquals("evidence-gemini", readingsReset.getJSONArray("accounts").getString(0))
+        assertEquals(seededOrder, readingsReset.strings("accounts"))
         assertEquals(3, readingsReset.getJSONArray("pins").length())
         assertTrue(statusRecords().any { it.notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString().startsWith("42% left") })
         assertTrue(command("presentation").getBoolean("success"))

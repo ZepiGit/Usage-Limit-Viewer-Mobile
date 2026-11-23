@@ -41,12 +41,12 @@ open class AppContainer(context: Context) {
 
     open val credentialStore: CredentialStore by lazy { KeystoreCredentialStore(appContext) }
 
-    private val database: UsageLimitsDatabase by lazy { UsageLimitsDatabase.build(appContext) }
+    protected val database: UsageLimitsDatabase by lazy { UsageLimitsDatabase.build(appContext) }
 
     /** One runner for everything that must serialise against the database's other writers. */
     val transactions by lazy { RoomTransactionRunner(database) }
 
-    val repository: UsageRepository by lazy {
+    open val repository: UsageRepository by lazy {
         UsageRepository(
             database.accountDao(),
             database.usageSnapshotDao(),
@@ -64,13 +64,13 @@ open class AppContainer(context: Context) {
         ProviderRegistry(httpClient, ResourceLoopbackPageTexts(appContext.resources))
     }
 
-    val settingsStore: SettingsStore by lazy { SettingsStore(appContext) }
+    open val settingsStore: SettingsStore by lazy { SettingsStore(appContext) }
 
     val syncEngine: SyncEngine by lazy {
         SyncEngine(repository, credentialStore, providerRegistry)
     }
 
-    val creditRepository: CreditRepository by lazy {
+    open val creditRepository: CreditRepository by lazy {
         CreditRepository(database.creditDao(), transactions = transactions)
     }
 
@@ -88,7 +88,7 @@ open class AppContainer(context: Context) {
         NotificationPublisher(appContext, settingsStore, notificationDao, transactions = transactions)
     }
 
-    val statusIconPublisher by lazy {
+    open val statusIconPublisher: StatusIconPublisher by lazy {
         StatusIconPublisher(appContext, settingsStore, repository::accountUsageOnce)
     }
 

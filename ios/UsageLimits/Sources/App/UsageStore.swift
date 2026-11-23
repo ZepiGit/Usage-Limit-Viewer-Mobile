@@ -11,14 +11,38 @@ import UsageLimitsKit
 @MainActor
 final class UsageStore: ObservableObject {
 
-    @Published private(set) var accounts: [AccountUsage] = []
+    @Published private(set) var accounts: [AccountUsage] = [] {
+        didSet { if !isMarketingDemo { updatePresentationClock() } }
+    }
     /// Prepaid balances, kept apart from the usage accounts: no windows, no resets.
     @Published private(set) var credits: [CreditEntry] = []
-    @Published private var pendingAccountOrder: [String]?
-    @Published var focusedAccountID: String?
-    private var orderWrite: Task<Void, Never>?
-    private var orderGeneration = 0
     private var settingsWrite: Task<Void, Never>?
+    #if DEBUG
+    /// Lets UI tests terminate only after the normal settings save has finished.
+    @Published private(set) var uiTestSavedSettings: AppSettings?
+    @Published private(set) var uiTestSettingsLoadStage: String?
+    private var settingsLoadGate: CheckedContinuation<Void, Never>?
+
+    func releaseSettingsLoadGate() {
+        uiTestSettingsLoadStage = nil
+        settingsLoadGate?.resume()
+        settingsLoadGate = nil
+    }
+
+    private func holdSettingsLoad(at stage: String) async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard UsageLimitsApp.isUITesting,
+              (stage == "cached-usage" ? arguments.contains("-fixture-retained-scoped")
+                : arguments.contains("-fixture-settings-gates")) else { return }
+        await withCheckedContinuation { continuation in
+            settingsLoadGate = continuation
+            uiTestSettingsLoadStage = stage
+            SettingsTrace.record("load gate held stage=\(stage)")
+        }
+    }
+    private var settingsTraceSource = "control edit"
+    private var settingsTraceSaveID = 0
+    #endif
 
     /// Writable, because the settings screen binds straight to it.
     ///
@@ -27,18 +51,76 @@ final class UsageStore: ObservableObject {
     /// through the binding chain too, since mutating a nested struct rewrites the whole value.
     @Published var settings = AppSettings() {
         didSet {
-            guard settings != oldValue, !isLoadingSettings else { return }
+            guard settingsLoaded || isLoadingSettings else {
+                settings = oldValue
+                #if DEBUG
+                SettingsTrace.record("settings edit rejected reason=not-loaded")
+                #endif
+                return
+            }
+            #if DEBUG
+            SettingsTrace.record(
+                "settings didSet source=\(settingsTraceSource) loading=\(isLoadingSettings) "
+                    + "changed={\(Self.traceSettings(settings, changedFrom: oldValue))}")
+            #endif
+            if settings.staleAfter != oldValue.staleAfter { updatePresentationClock() }
+            guard settings != oldValue, !isLoadingSettings else {
+                #if DEBUG
+                SettingsTrace.record("settings save skipped reason=\(isLoadingSettings ? "apply" : "unchanged")")
+                #endif
+                return
+            }
             let previous = settingsWrite
+            #if DEBUG
+            settingsTraceSaveID += 1
+            let saveID = settingsTraceSaveID
+            SettingsTrace.record("settings save queued id=\(saveID)")
+            #endif
             // Queued saves also adopt pins removed while they were waiting.
             settingsWrite = Task { [weak self, container] in
+                #if DEBUG
+                SettingsTrace.record("settings save task start id=\(saveID)")
+                #endif
                 await previous?.value
-                guard let container, let value = self?.settings else { return }
+                guard let container, let value = self?.settings else {
+                    #if DEBUG
+                    SettingsTrace.record("settings save finish id=\(saveID) result=skipped missing=container-or-store")
+                    #endif
+                    return
+                }
+                #if DEBUG
+                SettingsTrace.record("settings save value read id=\(saveID) value={\(Self.traceSettings(value))}")
+                #endif
                 // Reflect the persisted value, which may clamp the sync interval, only if no newer
                 // edit has landed. An out-of-order save acknowledgement must not revert later edits.
-                if let stored = try? await container.save(settings: value), self?.settings == value {
-                    self?.applyLoaded(stored)
+                if let stored = try? await container.save(settings: value) {
+                    if self?.settings == value {
+                        #if DEBUG
+                        self?.settingsTraceSource = "acknowledgement apply"
+                        SettingsTrace.record("settings save acknowledgement apply id=\(saveID)")
+                        #endif
+                        self?.applyLoaded(stored)
+                        #if DEBUG
+                        self?.settingsTraceSource = "control edit"
+                        #endif
+                    } else {
+                        #if DEBUG
+                        SettingsTrace.record("settings save acknowledgement skipped id=\(saveID) reason=newer-edit-or-store-gone")
+                        #endif
+                    }
+                    #if DEBUG
+                    if UsageLimitsApp.isUITesting { self?.uiTestSavedSettings = stored }
+                    SettingsTrace.record("settings save persisted id=\(saveID) value={\(Self.traceSettings(stored))}")
+                    #endif
+                } else {
+                    #if DEBUG
+                    SettingsTrace.record("settings save failed id=\(saveID)")
+                    #endif
                 }
                 BackgroundRefresh.schedule(after: value.syncIntervalMinutes)
+                #if DEBUG
+                SettingsTrace.record("settings save task finish id=\(saveID)")
+                #endif
             }
         }
     }
@@ -55,12 +137,58 @@ final class UsageStore: ObservableObject {
     /// Whether the cache has been read once. Until then an empty account list means "nothing has
     /// asked yet", not "no accounts", and the screens draw a skeleton instead of an empty state.
     @Published private(set) var hasLoaded = false
+    @Published private(set) var settingsLoaded = false
     @Published private(set) var lastError: String?
+    /// Whether the account register is on this device and could not be read.
+    ///
+    /// Apart from `lastError`, because it is a state and not a report: the empty account list
+    /// that comes with it does not mean the accounts are gone, the screen that would otherwise
+    /// say so words it itself, and a later read that succeeds ends it without anyone
+    /// dismissing anything.
+    @Published private(set) var registerUnreadable = false
 
-    /// Ticks so countdowns move without every view owning a timer.
     @Published private(set) var now = Date()
-
+    private(set) var timeZone = TimeZone.current
+    var presentationCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
+    }
     private var clock: Task<Void, Never>?
+    let hoorayPlayback = HoorayPlayback()
+    @Published private(set) var openingClaimed = false
+    private lazy var openings: AppOpeningCoordinator = makeOpenings()
+
+    @MainActor
+    private func makeOpenings() -> AppOpeningCoordinator {
+        AppOpeningCoordinator(
+            claim: { [weak self] in
+                guard let self else { return [] }
+                #if DEBUG
+                if let container = self.container { try await HoorayOpeningFixture.prepare(container) }
+                #endif
+                await self.load()
+                guard let container = self.container else { return [] }
+                return try await container.claimPendingResetConfirmations()
+            },
+            present: { [weak self] in
+                self?.hoorayPlayback.open($0)
+                self?.openingClaimed = true
+            },
+            refresh: { [weak self] in await self?.refresh(automatic: true) },
+            interrupt: { [weak self] in
+                self?.openingClaimed = false
+                self?.hoorayPlayback.stop()
+            },
+            failed: { [weak self] in self?.lastError = $0.localizedDescription })
+    }
+
+    func waitForOpening() async { await openings.task?.value }
+
+    func sceneChanged(_ phase: AppOpeningCoordinator.Phase) {
+        openings.sceneChanged(phase)
+        if phase == .active { updatePresentationClock() }
+    }
 
     /// Built lazily and kept, because it owns the credential store and the account cache: a
     /// second one would be a second set of in-flight refresh locks, and the whole point of that
@@ -71,81 +199,95 @@ final class UsageStore: ObservableObject {
         self.container = container
 
         #if DEBUG
+        SettingsTrace.record("settings init source=defaults value={\(Self.traceSettings(settings))} container=\(container == nil ? "nil" : "present")")
         if MarketingDemo.isEnabled {
+            SettingsTrace.record("demo init delayedLoad=\(MarketingDemo.delaysLoad) compactCredits=\(MarketingDemo.startsWithCompactCredits)")
             now = MarketingDemo.now
-            if !MarketingDemo.delaysLoad {
-                accounts = MarketingDemo.accounts
-                hasLoaded = true
+            timeZone = TimeZone(secondsFromGMT: 0)!
+            if MarketingDemo.startsWithCompactCredits || SettingsTrace.gapVariant == "still" {
+                var sampleSettings = settings
+                if MarketingDemo.startsWithCompactCredits {
+                    sampleSettings.overviewCreditLayout = .compact
+                    sampleSettings.overviewShowFirst = .creditAccounts
+                }
+                if SettingsTrace.gapVariant == "still" {
+                    sampleSettings.animateClaudeCodeIcon = false
+                }
+                settingsTraceSource = "demo initialization"
+                applyLoaded(sampleSettings)
+                settingsTraceSource = "control edit"
             }
+            settingsLoaded = true
+            if !MarketingDemo.delaysLoad { finishDemoLoad() }
             return
         }
         #endif
 
-        // A countdown that only moves when the data refreshes is worse than no countdown: it
-        // reads as a live number while being up to half an hour stale.
-        clock = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 30 * NSEC_PER_SEC)
-                await MainActor.run { self?.now = Date() }
-            }
-        }
+        updatePresentationClock()
     }
 
     deinit { clock?.cancel() }
 
-    /// What the Overview screen leads with.
-    ///
-    /// The staleness threshold follows the user's chosen sync interval rather than a constant:
-    /// at the three-hour setting the settings screen offers, a fixed hour would mark accounts
-    /// stale before the next refresh arrives.
+    func updatePresentationClock() {
+        guard !isMarketingDemo else {
+            #if DEBUG
+            SettingsTrace.record("presentation clock rearm skipped reason=demo")
+            #endif
+            return
+        }
+        clock?.cancel()
+        timeZone = .current
+        let date = Date()
+        now = date
+        let boundary = glance.nextOverviewUpdate(after: date, in: timeZone)
+        // Countdown text still ticks between presentation boundaries.
+        let delay = min(30, max(0, boundary.timeIntervalSinceNow))
+        #if DEBUG
+        SettingsTrace.record("presentation clock rearm delay=\(delay) now=\(date.timeIntervalSince1970) boundary=\(boundary.timeIntervalSince1970)")
+        #endif
+        clock = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) }
+            catch { return }
+            #if DEBUG
+            SettingsTrace.record("presentation clock scheduled tick store=\(self == nil ? "gone" : "present")")
+            #endif
+            self?.updatePresentationClock()
+        }
+    }
+
+    #if DEBUG
+    var hasUnreadableRegisterFixture: Bool { RegisterFixture.isUnreadable }
+
+    func recoverUnreadableRegisterFixture() async {
+        guard RegisterFixture.isUnreadable else { return }
+        do {
+            try RegisterFixture.replaceWithEmptyRegister()
+            await load()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func finishDemoLoad() {
+        guard MarketingDemo.isEnabled, !hasLoaded else {
+            SettingsTrace.record("demo load skipped enabled=\(MarketingDemo.isEnabled) hasLoaded=\(hasLoaded)")
+            return
+        }
+        SettingsTrace.record("demo load begin")
+        accounts = MarketingDemo.accounts
+        credits = MarketingDemo.credits
+        hasLoaded = true
+        SettingsTrace.record("demo load hasLoaded=true")
+    }
+    #endif
+
+    /// The in-memory snapshot in register order. Overview projects its rank separately.
     var glance: GlanceSnapshot {
         GlanceModel.build(
             accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons,
             percentDisplay: settings.percentDisplay,
             statusIconsEnabled: settings.statusIconsEnabled,
             pinnedAccountIDs: PinnedAccounts.resolve(keys: settings.pinnedAccountKeys, accounts: accounts.map(\.account)))
-    }
-
-    /// The accounts in the order the overview should show them.
-    ///
-    /// Uses repository order regardless of the manual-order flag, with a pending drag order
-    /// applied while it is being persisted. The glance summary and next reset are selected
-    /// separately from the displayed account list.
-    var orderedAccounts: [GlanceAccount] {
-        let values = GlanceModel.build(accounts, now: now, scope: .allAccounts, staleAfter: settings.staleAfter, providerIcons: settings.providerIcons, percentDisplay: settings.percentDisplay).accounts
-        guard let order = pendingAccountOrder else { return values }
-        let byID = Dictionary(uniqueKeysWithValues: values.map { ($0.id, $0) })
-        return order.compactMap { byID[$0] } + values.filter { !order.contains($0.id) }
-    }
-
-    func reorderAccounts(ids: [String]) async {
-        guard let container else { return }
-        var seen = Set<String>()
-        let order = ids.filter { seen.insert($0).inserted }
-        pendingAccountOrder = order
-        orderGeneration += 1
-        let generation = orderGeneration
-        let previous = orderWrite
-        let write = Task { @MainActor [weak self] in
-            await previous?.value
-            guard let self else { return }
-            do {
-                let updated = try await container.reorder(ids: order)
-                if self.orderGeneration == generation {
-                    self.accounts = updated
-                    self.pendingAccountOrder = nil
-                    self.settings.accountsManuallyOrdered = true
-                    self.lastError = nil
-                }
-            } catch {
-                if self.orderGeneration == generation {
-                    self.pendingAccountOrder = nil
-                    self.lastError = String(localized: "Could not save account order. Try again.")
-                }
-            }
-        }
-        orderWrite = write
-        await write.value
     }
 
     func notificationsEnabled(accountID: String) -> Bool {
@@ -163,38 +305,6 @@ final class UsageStore: ObservableObject {
             updated.notifications.mutedAccountIDs.insert(accountID)
         }
         settings = updated
-    }
-
-    /// The plan tier for one account, as a label, or nil when the provider never stated one.
-    ///
-    /// Named `tierLabel` rather than `planLabel` so the call to the kit's free `planLabel(_:)`
-    /// inside it cannot be misread as recursion.
-    func tierLabel(accountID: String) -> String? {
-        accounts.first { $0.account.id == accountID }.flatMap { usage in
-            guard let tier = planLabel(usage.account.plan), tier.caseInsensitiveCompare(usage.account.provider.displayName) != .orderedSame else { return nil }
-            return tier
-        }
-    }
-
-    /// When this account's LONGEST allowance comes back, when that is not simply the next reset.
-    ///
-    /// Suppressed when it coincides with the soonest reset, which the card already shows: two
-    /// lines stating the same instant in different words is noise, and the one the user acts on
-    /// is the sooner one. Same rule as Android.
-    func renewalLabel(accountID: String, now: Date) -> String? {
-        guard let usage = accounts.first(where: { $0.account.id == accountID }) else { return nil }
-        let windows = usage.snapshot?.windows ?? []
-        guard windows.count >= 2 else { return nil }
-        // A provider that does not state a window's duration sorts BELOW every window that
-        // does, rather than being taken for the longest.
-        guard let longest = windows.max(by: { ($0.periodSeconds ?? -1) < ($1.periodSeconds ?? -1) })
-        else { return nil }
-        guard let renewsAt = longest.resetAt, renewsAt > now else { return nil }
-        let soonest = windows.compactMap(\.resetAt).filter { $0 > now }.min()
-        guard renewsAt != soonest else { return nil }
-        return Countdown.renewsLine(
-            label: DisplayText.windowLabel(longest.label, category: longest.category, scope: longest.scope),
-            until: renewsAt, from: now, texts: LocalizedCountdownTexts())
     }
 
     /// Every window that has a reset time, soonest first — the Resets screen.
@@ -224,49 +334,126 @@ final class UsageStore: ObservableObject {
     /// render while the real answer is on its way.
     func load() async {
         #if DEBUG
+        SettingsTrace.record("load begin demo=\(MarketingDemo.isEnabled) hasLoaded=\(hasLoaded)")
         if MarketingDemo.isEnabled {
-            if !hasLoaded {
-                // Only this opt-in fixture waits: it drives the same empty-to-loaded update
-                // as a cache read, after the screens have drawn their first skeletons.
-                try? await Task.sleep(nanoseconds: NSEC_PER_SEC)
-                accounts = MarketingDemo.accounts
-                hasLoaded = true
-            }
+            SettingsTrace.record("load skipped reason=demo hasLoaded=\(hasLoaded)")
             return
         }
         #endif
-        defer { hasLoaded = true }
+        defer {
+            hasLoaded = true
+            #if DEBUG
+            SettingsTrace.record("load hasLoaded=true")
+            #endif
+        }
         guard let container else {
+            settingsLoaded = true
+            #if DEBUG
+            SettingsTrace.record("load skipped reason=nil-container")
+            #endif
             // Said here as well as in `refresh`, because a cold launch renders this screen before
             // anything is refreshed: without it the user sees an empty account list and the
             // explanation exists only behind a pull they have no reason to perform.
             lastError = String(localized: "This build cannot reach its shared storage.")
             return
         }
-        // Before anything reads or writes an account. Keychain items outlive the app being
-        // deleted, so a reinstall inherits every credential of the install before it; this is
-        // where that is noticed and cleaned up. A failure here is not fatal — the check retries
-        // on the next launch — and must not stop the cache from rendering.
+        // Only the first load installs preferences; subsequent cache loads cannot replace edits.
+        if !settingsLoaded {
+            #if DEBUG
+            await holdSettingsLoad(at: "before-read")
+            SettingsTrace.record("load settings read begin")
+            #endif
+            let loadedSettings = await container.settings()
+            #if DEBUG
+            SettingsTrace.record("load settings read returned value={\(Self.traceSettings(loadedSettings))}")
+            await holdSettingsLoad(at: "before-apply")
+            settingsTraceSource = "load apply"
+            #endif
+            if !settingsLoaded {
+                applyLoaded(loadedSettings)
+                settingsLoaded = true
+            }
+            #if DEBUG
+            SettingsTrace.record("load settings installed")
+            settingsTraceSource = "control edit"
+            #endif
+        }
+        // Preparation can suspend on credentials. Preferences must already be installed so an
+        // edit cannot save defaults over a previous run's choices while that work is pending.
+        #if DEBUG
+        SettingsTrace.record("load prepare begin")
+        #endif
         try? await container.prepareForUse()
 
-        applyLoaded(await container.settings())
-
         credits = await container.credits()
-        let cached = await container.usage()
-        // A refresh that started while this was reading has newer accounts than the cache does,
-        // and its result must not be overwritten by one that merely finished later.
-        if !isRefreshing {
-            accounts = cached
+        // The checked read, because a link opened on a cold launch is resolved against this
+        // list: read as empty, an unreadable register would send it to "this account is no
+        // longer on this device". No alert is raised for it. The detail says what happened
+        // where the link landed, and an alert over that would say it twice.
+        // A refresh can own the account list while this read still tells us whether storage is readable.
+        do {
+            let cached = try await container.checkedUsage()
+            if !isRefreshing { accounts = cached }
+            registerUnreadable = false
+        } catch {
+            if !isRefreshing { accounts = [] }
+            registerUnreadable = true
         }
+        #if DEBUG
+        if UsageLimitsApp.isUITesting, ProcessInfo.processInfo.arguments.contains("-fixture-retained-scoped") {
+            hasLoaded = true
+            await holdSettingsLoad(at: "cached-usage")
+        }
+        #endif
     }
 
     /// Installs settings that came from storage, without treating the assignment as a change the
     /// user made — which would save them straight back and, worse, reschedule on every launch.
     private func applyLoaded(_ stored: AppSettings) {
+        #if DEBUG
+        SettingsTrace.record("settings apply source=\(settingsTraceSource) value={\(Self.traceSettings(stored))}")
+        #endif
         isLoadingSettings = true
         settings = stored
         isLoadingSettings = false
     }
+
+    #if DEBUG
+    private static func traceSettings(_ value: AppSettings, changedFrom previous: AppSettings? = nil) -> String {
+        var fields: [String] = []
+        func field<Value: Equatable>(
+            _ name: String, _ key: KeyPath<AppSettings, Value>,
+            render: (Value) -> String = { String(describing: $0) }
+        ) {
+            if let previous, value[keyPath: key] == previous[keyPath: key] { return }
+            fields.append("\(name)=\(render(value[keyPath: key]))")
+        }
+        field("syncIntervalMinutes", \.syncIntervalMinutes)
+        field("accountsManuallyOrdered", \.accountsManuallyOrdered)
+        field("showSubscriptionTier", \.showSubscriptionTier)
+        field("showRenewalTime", \.showRenewalTime)
+        field("overviewLayout", \.overviewLayout)
+        field("overviewCreditLayout", \.overviewCreditLayout)
+        field("overviewShowFirst", \.overviewShowFirst)
+        field("overviewShowCredits", \.overviewShowCredits)
+        field("providerIcons.count", \.providerIcons) { String($0.count) }
+        field("animateClaudeCodeIcon", \.animateClaudeCodeIcon)
+        field("percentDisplay", \.percentDisplay)
+        field("statusIconsEnabled", \.statusIconsEnabled)
+        field("pinnedAccountKeys.count", \.pinnedAccountKeys) { String($0.count) }
+        field("notifications.notifyBelow20Percent", \.notifications.notifyBelow20Percent)
+        field("notifications.notifyBelow10Percent", \.notifications.notifyBelow10Percent)
+        field("notifications.notifyOnExhausted", \.notifications.notifyOnExhausted)
+        field("notifications.notifyOnResetCreditAvailable", \.notifications.notifyOnResetCreditAvailable)
+        field("notifications.notifyOnAuthExpired", \.notifications.notifyOnAuthExpired)
+        field("notifications.notifyOnResetApproaching", \.notifications.notifyOnResetApproaching)
+        field("notifications.notifyOnResetCreditExpiring", \.notifications.notifyOnResetCreditExpiring)
+        field("notifications.resetApproachingMinutes", \.notifications.resetApproachingMinutes)
+        field("notifications.resetCreditExpiryLeadMinutes", \.notifications.resetCreditExpiryLeadMinutes)
+        field("notifications.mutedAccountIDs.count", \.notifications.mutedAccountIDs) { String($0.count) }
+        return fields.isEmpty ? "none" : fields.joined(separator: " ")
+    }
+    #endif
 
     /// Serialises the passes below. A request made while one is running gets one more pass after
     /// it rather than being dropped: the running pass read its account list when it started, so
@@ -299,6 +486,9 @@ final class UsageStore: ObservableObject {
         defer { isRefreshing = false }
 
         now = Date()
+        #if DEBUG
+        SettingsTrace.record("presentation clock refresh now=\(now.timeIntervalSince1970) automatic=\(automatic)")
+        #endif
         do {
             // The container returns the usage as it stands after the sync, rather than leaving
             // this to re-read it: re-reading races the write that just happened.
@@ -320,6 +510,15 @@ final class UsageStore: ObservableObject {
             accounts = await container.usage()
             credits = await container.credits()
             lastError = error.localizedDescription
+        }
+
+        // The repository reads the register again on every call until one succeeds, so a pass
+        // is where an unreadable register comes back, for instance once the device is unlocked.
+        // The accounts are taken from the read that proved it, so the state never clears over a
+        // list that an earlier, failed read left empty.
+        if registerUnreadable, let recovered = try? await container.checkedUsage() {
+            accounts = recovered
+            registerUnreadable = false
         }
 
         // The container publishes the widget snapshot itself as part of a refresh, so the app
@@ -364,31 +563,43 @@ final class UsageStore: ObservableObject {
     /// that could not be removed has to stay on screen saying so, so the user can try again.
     /// This removes what is stored HERE; it is not an OAuth revocation at the provider, and the
     /// confirmation text says so rather than promising something this app cannot do.
+    ///
+    /// Returns whether the account was removed, so the detail that asked can close instead of
+    /// staying open on an account that is no longer there.
     @Published private(set) var isRemoving = false
 
-    func removeAccount(accountID: String) async {
-        guard let container, !isRemoving else { return }
+    func removeAccount(accountID: String) async -> Bool {
+        guard let container, !isRemoving else { return false }
         isRemoving = true
         defer { isRemoving = false }
         let previous = settingsWrite
-        let removal = Task { @MainActor [weak self] in
+        let removal = Task { @MainActor [weak self] () -> Bool in
             await previous?.value
-            guard let self else { return }
+            guard let self else { return false }
             let pinKey = self.accounts.first { $0.account.id == accountID }?.account.pinKey
             do {
                 try await container.remove(id: accountID)
                 var updated = self.settings
                 updated.pinnedAccountKeys.removeAll { $0 == pinKey }
+                #if DEBUG
+                self.settingsTraceSource = "removal apply"
+                #endif
                 self.applyLoaded(updated)
+                #if DEBUG
+                self.settingsTraceSource = "control edit"
+                #endif
                 self.accounts = await container.usage()
                 self.lastError = nil
+                return true
             } catch {
                 // Keep the account visible when removal fails.
                 self.lastError = error.localizedDescription
+                return false
             }
         }
-        settingsWrite = removal
-        await removal.value
+        // The queue of settings writes waits for the removal, not for its answer.
+        settingsWrite = Task { _ = await removal.value }
+        return await removal.value
     }
 
     // MARK: - Credits
@@ -450,6 +661,10 @@ final class UsageStore: ObservableObject {
         #if DEBUG
         // Screenshot launches must never open the keychain, cached accounts or saved settings.
         if MarketingDemo.isEnabled { return nil }
+        if let fixture = HoorayOpeningFixture.container() { return fixture }
+        if let fixture = RegisterFixture.container() { return fixture }
+        if let fixture = CreditRegisterFixture.container() { return fixture }
+        if let fixture = SettingsFixture.container() { return fixture }
         #endif
         guard let directory = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: appGroupID) else { return nil }
@@ -457,3 +672,117 @@ final class UsageStore: ObservableObject {
             directory: directory, credentials: KeychainCredentialStore())
     }()
 }
+
+#if DEBUG
+/// A register file of the UI tests' own, read and written by the container the app ships.
+///
+/// Disconnect and an unreadable register are storage behaviour, so the tests that follow them
+/// to the screen run the real `UsageLimitsContainer` rather than a store that pretends: over a
+/// directory in the app's temporary folder, with credentials held in memory. Nothing here opens
+/// the app group or the keychain. No credential is stored for the account, so its sync stops
+/// at `credentialsAbsent` before there is a request to send, and the row reads as failed.
+/// Only under `-ui-testing`, so a debug build started by hand cannot end up here.
+private enum RegisterFixture {
+    /// One connected account, `codex:fixture`, labelled "Codex".
+    private static let seeded = "-fixture-register"
+    /// A register that is present and does not decode.
+    private static let unreadable = "-fixture-register-unreadable"
+    private static let directory = FileManager.default.temporaryDirectory.appendingPathComponent("register-fixture")
+    private static let registerFile = directory.appendingPathComponent(AccountRepository.fileName)
+
+    static var isUnreadable: Bool {
+        UsageLimitsApp.isUITesting && ProcessInfo.processInfo.arguments.contains(unreadable)
+    }
+
+    static func replaceWithEmptyRegister() throws {
+        try Data("[]".utf8).write(to: registerFile, options: .atomic)
+    }
+
+    static func container() -> UsageLimitsContainer? {
+        let arguments = ProcessInfo.processInfo.arguments
+        let retained = arguments.contains("-fixture-retained-scoped")
+        guard UsageLimitsApp.isUITesting, isUnreadable || arguments.contains(seeded) || retained else { return nil }
+
+        // One fixed place, emptied on every launch: each test starts from the register written
+        // below, whatever the test before it removed, and no directory is left behind per run.
+        try? FileManager.default.removeItem(at: directory)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // Written as the file the repository reads, before anything reads it. The row is the
+        // oldest shape the register has had, which the Kit's tests keep loadable.
+        let quotaCase = arguments.firstIndex(of: "-fixture-retained-quota-case").flatMap {
+            arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil
+        }
+        let globalUsed: String = switch quotaCase {
+        case "medium-global": "70"
+        case "low-global": "90"
+        case "exhausted-global": "100"
+        case "unknown-global": "null"
+        default: "37"
+        }
+        let modelUsed: Int = switch quotaCase {
+        case "medium-model": 70
+        case "low-global", "exhausted-global": 37
+        case nil: 100
+        default: 90
+        }
+        let reading = retained ? """
+            ,"snapshot":{"accountID":"codex:fixture","fetchedAt":"2026-09-01T00:00:00Z",
+              "status":"failed","windows":[
+                {"id":"global","label":"Weekly","category":"weekly","usedPercent":\(globalUsed),"exhausted":false,"scope":"global"},
+                {"id":"model","label":"Model","category":"weekly","usedPercent":\(modelUsed),"exhausted":\(modelUsed == 100),"scope":"model"}]}
+            """ : ""
+        let register = isUnreadable ? "not json" : """
+            [{"account": {"id": "codex:fixture", "provider": "codex", "externalAccountID": "fixture",
+              "displayName": "Codex", "credentialReference": "codex:fixture",
+              "createdAt": "2026-09-01T00:00:00Z"}\(reading)}]
+            """
+        try? Data(register.utf8).write(to: registerFile)
+
+        return UsageLimitsContainer(directory: directory, credentials: InMemoryCredentialStore())
+    }
+}
+
+private enum SettingsFixture {
+    static func container() -> UsageLimitsContainer? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard UsageLimitsApp.isUITesting, arguments.contains("-fixture-settings") else { return nil }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("settings-fixture")
+        if arguments.contains("-fixture-settings-reset") {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let settings = """
+                {"syncIntervalMinutes":180,"showSubscriptionTier":false,"overviewLayout":"dials",
+                 "overviewCreditLayout":"compact","overviewShowFirst":"creditAccounts",
+                 "providerIcons":{"claude":"color"},"percentDisplay":"used",
+                 "statusIconsEnabled":true,"pinnedAccountKeys":["preserved-pin"],
+                 "notifications":{"notifyBelow20Percent":false,"mutedAccountIDs":["preserved-mute"]}}
+                """
+            try? Data(settings.utf8).write(to: directory.appendingPathComponent("settings.json"), options: .atomic)
+        }
+        return UsageLimitsContainer(directory: directory, credentials: InMemoryCredentialStore())
+    }
+}
+
+private enum CreditRegisterFixture {
+    static func container() -> UsageLimitsContainer? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard UsageLimitsApp.isUITesting, arguments.contains("-fixture-credits") else { return nil }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("credit-register-fixture")
+        if arguments.contains("-fixture-credits-reset") {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let register = """
+                [{"account":{"id":"credit:fixture","provider":"deepseek","label":"DeepSeek",
+                  "credentialReference":"credit:fixture","attributes":{},"sortOrder":0,
+                  "createdAt":"2026-09-01T00:00:00Z"},
+                  "snapshot":{"accountID":"credit:fixture","fetchedAt":"2026-09-01T00:00:00Z",
+                  "lastAttemptAt":"2026-09-01T00:00:00Z","status":"ok",
+                  "balances":[{"currency":"USD","amount":"3.18"}]}}]
+                """
+            try? Data(register.utf8).write(to: directory.appendingPathComponent(CreditRepository.fileName))
+        }
+        return UsageLimitsContainer(directory: directory, credentials: InMemoryCredentialStore())
+    }
+}
+#endif

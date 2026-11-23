@@ -1,6 +1,7 @@
 package com.usagelimits.feature.accounts
 
 import com.usagelimits.core.model.title
+import com.usagelimits.core.model.claudeCodeMoodAt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -71,6 +72,12 @@ fun AccountDetailScreen(
     onNotificationsChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     onReconnect: () -> Unit = {},
+    /** False until the account store's first answer: a missing [usage] then means not yet read. */
+    loaded: Boolean = true,
+    /** Back to Overview from a detail that has no account to show. */
+    onBack: () -> Unit = {},
+    accountStorageUnreadable: Boolean = false,
+    onRetryStorage: () -> Unit = {},
 ) {
     if (usage == null) {
         Column(
@@ -78,12 +85,22 @@ fun AccountDetailScreen(
                 .fillMaxSize()
                 .background(UsageColors.Ground)
                 .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = stringResource(R.string.account_unavailable),
-                style = MaterialTheme.typography.bodyLarge,
-                color = UsageColors.Muted,
-            )
+            if (accountStorageUnreadable) {
+                AccountStorageError(onRetryStorage)
+                OutlineButton(stringResource(R.string.account_back_to_overview), onBack)
+            } else if (loaded) {
+                Text(
+                    text = stringResource(R.string.account_unavailable),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = UsageColors.Muted,
+                )
+                OutlineButton(stringResource(R.string.account_back_to_overview), onBack)
+            } else {
+                // A cold link waits here for the first read rather than calling the account gone.
+                Spinner()
+            }
         }
         return
     }
@@ -103,9 +120,14 @@ fun AccountDetailScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (accountStorageUnreadable) {
+            item { AccountStorageError(onRetryStorage) }
+        }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                com.usagelimits.ui.ProviderBadge(provider = usage.account.provider, size = 34.dp)
+                com.usagelimits.ui.ProviderBadge(provider = usage.account.provider, size = 34.dp,
+                    figure = com.usagelimits.ui.FigureSlot.DETAIL,
+                    mood = snapshot.claudeCodeMoodAt(nowMs), accountId = usage.account.localId)
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -271,6 +293,15 @@ fun AccountDetailScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+internal fun AccountStorageError(onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    UsageCard(modifier) {
+        Text(stringResource(R.string.storage_error_title), style = MaterialTheme.typography.titleMedium, color = UsageColors.Ink)
+        Text(stringResource(R.string.storage_error_body), style = MaterialTheme.typography.bodyMedium, color = UsageColors.Muted)
+        OutlineButton(stringResource(R.string.storage_error_retry), onRetry)
     }
 }
 

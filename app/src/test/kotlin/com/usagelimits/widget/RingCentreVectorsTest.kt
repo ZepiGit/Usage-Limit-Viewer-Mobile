@@ -1,11 +1,10 @@
 package com.usagelimits.widget
 
-import androidx.test.core.app.ApplicationProvider
-import android.content.Context
 import com.usagelimits.core.model.FillState
 import com.usagelimits.core.model.PercentDisplay
 import com.usagelimits.core.model.ReadingValidity
 import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.SharedVectors
 import com.usagelimits.core.model.windowPresentation
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -19,7 +18,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.io.File
 
 /**
  * What a ring writes in its centre (#38), proven against the vector file the Swift suite reads too.
@@ -66,8 +64,7 @@ class RingCentreVectorsTest {
         return vectors
     }
 
-    /** Repo-relative: Gradle runs unit tests from the module directory. */
-    private val file = File("../shared/test-vectors/ring-centre.json")
+    private val file = SharedVectors.file("ring-centre.json")
 
     @Test
     fun `every shared vector writes the expected centre`() {
@@ -106,8 +103,6 @@ class RingCentreVectorsTest {
         }
     }
 
-    private val resources get() = ApplicationProvider.getApplicationContext<Context>().resources
-
     /** A Left reading of [remaining] whose raw severity and validity are given. */
     private fun left(remaining: Double?, severity: Severity, validity: ReadingValidity) =
         windowPresentation(remaining, severity, validity, PercentDisplay.LEFT)
@@ -126,7 +121,7 @@ class RingCentreVectorsTest {
         )
         for ((name, p) in cases) {
             assertEquals("$name: the presentation fills the whole ring", 1.0, p.fill)
-            assertNull("$name: nothing in the centre", ringCentreFigure(resources, p))
+            assertNull("$name: nothing in the centre", ringCentreFigure(p))
         }
         assertEquals("exhausted reads no fill", FillState.NO_FILL, cases.getValue("exhausted").fillState)
         assertEquals("error reads no fill", FillState.NO_FILL, cases.getValue("error").fillState)
@@ -134,10 +129,10 @@ class RingCentreVectorsTest {
 
     @Test
     fun `the Android ring centre writes signed, bare and no figure`() {
-        assertEquals("42%", ringCentreFigure(resources, left(42.0, Severity.HEALTHY, ReadingValidity.CURRENT)))
-        assertEquals("100", ringCentreFigure(resources,
+        assertEquals("42%", ringCentreFigure(left(42.0, Severity.HEALTHY, ReadingValidity.CURRENT)))
+        assertEquals("100", ringCentreFigure(
             windowPresentation(null, Severity.EXHAUSTED, ReadingValidity.CURRENT, PercentDisplay.USED)))
         // The unknown dash keeps Android's ring treatment: nothing is written.
-        assertNull(ringCentreFigure(resources, left(null, Severity.UNKNOWN, ReadingValidity.CURRENT)))
+        assertNull(ringCentreFigure(left(null, Severity.UNKNOWN, ReadingValidity.CURRENT)))
     }
 }
