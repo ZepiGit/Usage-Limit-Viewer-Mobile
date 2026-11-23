@@ -137,11 +137,35 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+// Match Robolectric 4.18's SDKs; separate configurations prevent same-module version conflict resolution.
+val robolectricSdkJars = listOf(
+    "8.0.0_r4-robolectric-r1-i7", // API 26
+    "11-robolectric-6757853-i7", // API 30
+    "12.1-robolectric-8229987-i7", // API 32
+    "14-robolectric-10818077-i7", // API 34
+    "16-robolectric-13921718-2-i7", // API 36
+    "17-robolectric-16653203-i7", // API 37
+).associate { version ->
+    val coordinate = "org.robolectric:android-all-instrumented:$version"
+    coordinate to configurations.detachedConfiguration(dependencies.create(coordinate)).apply {
+        isTransitive = false
+    }
+}
+
+val robolectricDepsFile = layout.buildDirectory.file("robolectric/robolectric-deps.properties")
+val writeRobolectricDeps = tasks.register<WriteProperties>("writeRobolectricDeps") {
+    destinationFile.set(robolectricDepsFile)
+    robolectricSdkJars.forEach { (coordinate, sdk) ->
+        property(coordinate, sdk.elements.map { it.single().asFile.absolutePath })
+    }
+}
+
 // Robolectric's native font zip filesystem is process-wide on Windows, while
 // Android sandboxes are not. A fresh worker avoids sharing that native state.
 tasks.withType<Test>().configureEach {
-    // Robolectric resolves Android SDK jars outside Gradle; use the same endpoint as mavenCentral().
-    systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+    inputs.file(writeRobolectricDeps.flatMap { it.destinationFile }).withPathSensitivity(PathSensitivity.NONE)
+    inputs.files(robolectricSdkJars.values).withPathSensitivity(PathSensitivity.NAME_ONLY)
+    systemProperty("robolectric-deps.properties", robolectricDepsFile.get().asFile.absolutePath)
     // Measured on b575d1b, in a 512 MiB heap: 183 full collections, the live set 277 MiB after the
     // first and 505 MiB after the last. One possible cause is the framework's sandbox cache; no heap
     // dump was taken. 1 GiB is the owner's upper limit, the same on CI and on a workstation. If this
