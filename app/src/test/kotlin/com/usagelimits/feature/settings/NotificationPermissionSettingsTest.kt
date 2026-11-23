@@ -1,6 +1,8 @@
 package com.usagelimits.feature.settings
 
 import android.Manifest
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assert
@@ -232,6 +234,31 @@ class NotificationPermissionSettingsTest {
                         System.err.println("$prefix actorOwner=${identity(update)} actorPhase=$phase " +
                             "callerContext=${identity(callerContext)} callerJob=${status(callerJob)} " +
                             "callerDispatcher=${identity(dispatcher)} callerScheduler=${identity(scheduler)} ack=${status(ack)}")
+                        try {
+                            if (dispatcher?.javaClass?.name == "kotlinx.coroutines.android.HandlerContext") {
+                                val handler = field(dispatcher, "handler") as Handler
+                                val looper = handler.looper
+                                val main = Looper.getMainLooper()
+                                val queue = looper.queue
+                                val mainQueue = main.queue
+                                val thread = looper.thread
+                                System.err.println("$prefix actorHandler=${identity(handler)} actorLooper=${identity(looper)} " +
+                                    "actorQueue=${identity(queue)} actorThreadId=${thread.id} " +
+                                    "actorThreadName=${thread.name} actorThreadAlive=${thread.isAlive} " +
+                                    "pumpedLooper=${identity(main)} pumpedQueue=${identity(mainQueue)} " +
+                                    "sameLooper=${looper === main} sameQueue=${queue === mainQueue} sameThread=${thread === main.thread}")
+                                val mainShadow = ShadowLooper.getShadowMainLooper()
+                                System.err.println("$prefix actorPaused=${shadowOf(looper).isPaused} " +
+                                    "pumpedShadow=${identity(mainShadow)} pumpedPaused=${mainShadow.isPaused}")
+                            }
+                            walkFrames(callerJob as? CoroutineStackFrame, 20) { frame ->
+                                frame.getStackTraceElement()?.let { System.err.println("$prefix actorCaller frame=$it") }
+                            }
+                            scopeJobs = 0
+                            if (callerJob != null) scan("actorCaller", callerJob, actorTree = false)
+                        } catch (failure: ReflectiveOperationException) {
+                            System.err.println("$prefix actorCallerProbeError=${failure.javaClass.name}")
+                        }
                         return
                     }
                 }
