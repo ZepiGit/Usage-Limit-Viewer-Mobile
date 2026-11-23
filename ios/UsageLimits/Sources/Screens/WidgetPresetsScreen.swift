@@ -159,7 +159,20 @@ private struct WidgetPresetEditor: View {
                                 }
                             }
                         }
-                    }.onMove { offsets, destination in order.move(fromOffsets: offsets, toOffset: destination) }
+                    }.onMove { offsets, destination in
+                        #if DEBUG
+                        if MarketingDemo.isEnabled {
+                            SettingsTrace.record("custom layout onMove before source=\(Array(offsets)) "
+                                + "destination=\(destination) count=\(order.count) order=\(order)")
+                        }
+                        #endif
+                        order.move(fromOffsets: offsets, toOffset: destination)
+                        #if DEBUG
+                        if MarketingDemo.isEnabled {
+                            SettingsTrace.record("custom layout onMove after order=\(order)")
+                        }
+                        #endif
+                    }
                 }
                 .listRowBackground(colors.surface)
                 if let error { NoticeLine(message: error, dot: colors.negative).listRowBackground(colors.surface) }

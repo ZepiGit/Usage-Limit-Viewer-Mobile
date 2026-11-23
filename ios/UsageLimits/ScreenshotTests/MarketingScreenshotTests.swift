@@ -9,7 +9,11 @@ final class MarketingScreenshotTests: XCTestCase {
     }
 
     func testCaptureIPhoneScreens() {
-        let app = launchDemo()
+        var needsTracedAppCleanup = true
+        addTeardownBlock {
+            if needsTracedAppCleanup { XCUIApplication().terminate() }
+        }
+        let app = launchDemo(["-settings-trace", "-settings-touch-trace"])
         let claude = app.buttons["overview-account-demo-claude"]
         let codex = app.buttons["overview-account-demo-codex"]
         XCTAssertTrue(claude.waitForExistence(timeout: 10))
@@ -35,6 +39,7 @@ final class MarketingScreenshotTests: XCTestCase {
         verifyCustomLayout(in: app)
 
         XCUIApplication().terminate()
+        needsTracedAppCleanup = false
         let dials = launchDemo()
         selectDials(in: dials, captureSettings: true)
         captureDials("iphone-overview-dials", in: dials)
@@ -571,15 +576,54 @@ final class MarketingScreenshotTests: XCTestCase {
         let codex = app.buttons["Reorder Show OpenAI Codex"]
         let claude = app.buttons["Reorder Show Claude"]
         XCTAssertTrue(codex.isHittable && claude.isHittable)
+        func accessibilitySnapshot() -> String {
+            func frame(of element: XCUIElement) -> String {
+                element.exists ? String(describing: element.frame) : "not exposed"
+            }
+            return """
+                uptime=\(ProcessInfo.processInfo.systemUptime)
+                Claude handle=\(frame(of: claude)), selection row=\(frame(of: app.buttons["Show Claude"]))
+                Codex handle=\(frame(of: codex)), selection row=\(frame(of: app.buttons["Show OpenAI Codex"]))
+                Keyboard=\(frame(of: app.keyboards.firstMatch))
+                \(app.debugDescription)
+                """
+        }
+
         // Drop in the upper part of the target row. Its midpoint can resolve to the slot
         // below it, leaving the order unchanged.
-        claude.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.3, thenDragTo: codex.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)))
+        let start = claude.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = codex.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1))
+        let beforeDrag = accessibilitySnapshot()
+        let intendedPoints = "Intended XCTest screen points: start=\(start.screenPoint), end=\(end.screenPoint)"
+        let dragStarted = ProcessInfo.processInfo.systemUptime
+        start.press(forDuration: 0.3, thenDragTo: end)
+        let dragEnded = ProcessInfo.processInfo.systemUptime
         let reordered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             app.buttons["Show Claude"].frame.minY < app.buttons["Show OpenAI Codex"].frame.minY
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [reordered], timeout: 10), .completed,
-            "the drag must place Claude above Codex before saving")
+        let result = XCTWaiter.wait(for: [reordered], timeout: 10)
+        if result != .completed {
+            let afterWait = accessibilitySnapshot()
+            let probe = app.descendants(matching: .any)["settings-trace"].firstMatch
+            let settingsTrace = probe.exists ? probe.value as? String : nil
+            let trace = XCTAttachment(string: """
+                \(intendedPoints); press/drag call uptime=\(dragStarted)–\(dragEnded)
+
+                Before drag: \(beforeDrag)
+
+                After wait (\(result)): \(afterWait)
+
+                \(settingsTrace ?? "Settings trace unavailable via accessibility; see the app log.")
+                """)
+            trace.name = "Custom layout drag and accessibility trace"
+            trace.lifetime = .keepAlways
+            add(trace)
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Custom layout after unsuccessful reorder"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+        }
+        XCTAssertEqual(result, .completed, "the drag must place Claude above Codex before saving")
         capture("iphone-custom-layout", in: app, requiresDemoLabel: false)
         app.buttons["Save"].tap()
         XCTAssertTrue(app.navigationBars["Widget layouts"].waitForExistence(timeout: 10))
