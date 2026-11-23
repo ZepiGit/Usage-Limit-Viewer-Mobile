@@ -40,11 +40,10 @@ class MainAppOpeningActivityTest {
         app.mainOpening.processStopped()
         app.mainOpening.job?.cancel()
         drainOpening()
-        manager.cancelAllWork().result.get()
-        ShadowLooper.idleMainLooper()
-        resetTestWorkManager()
+        app.drainActivityFixtureWork()
     }
-    private fun drainOpening(job: Job? = app.mainOpening.job) {
+    private fun drainOpening() {
+        val job = app.mainOpening.job
         val deadline = System.currentTimeMillis() + 10_000
         while (job?.isCompleted == false) {
             check(System.currentTimeMillis() < deadline) { "opening work did not end" }
@@ -86,10 +85,7 @@ class MainAppOpeningActivityTest {
             assertEquals("next qualifying main opening enqueues sync", 1, queued().size)
             assertTrue("next main opening claimed and cleared the mark", repo.claimPendingResetConfirmations().isEmpty())
         } finally {
-            val notification = main?.get()?.notificationPermissionCheck
-            main?.stop()?.destroy()
-            notification?.cancel()
-            drainOpening(notification)
+            main?.closeAndDrainActivityJobs()
             if (!config.get().isDestroyed) config.stop().destroy()
             app.mainOpening.job?.cancel()
             drainOpening()
