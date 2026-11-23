@@ -148,14 +148,12 @@ final class MarketingScreenshotTests: XCTestCase {
             let details = preview.staticTexts[german ? "23:31 · 1 Std. 18 Min. · 12,40 $" : "23:31 · 1h 18m · $12.40"]
             return [preview, preview.staticTexts["Claude Pro"], figure, details]
         }
-        // A visible Form card can still report a stale accessibility child after scrolling.
+        let preview = app.descendants(matching: .any)["settings-appearance-preview"].firstMatch
+        let pollingViewport = captureViewport(in: app)
+        // A single snapshot prevents remote query chains from exhausting the waiter.
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            let viewport = self.captureViewport(in: app)
-            return previewElements().allSatisfy { element in
-                guard element.exists else { return false }
-                let frame = element.frame
-                return !frame.isEmpty && viewport.contains(frame)
-            }
+            guard let snapshot = try? preview.snapshot() else { return false }
+            return self.appearancePreviewFits(snapshot, in: pollingViewport, german: german)
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed,
             "Appearance preview and all sample text must fit the capture viewport")
@@ -166,6 +164,32 @@ final class MarketingScreenshotTests: XCTestCase {
             XCTAssertFalse(frame.isEmpty, "Appearance preview content needs visible bounds: \(element)")
             XCTAssertTrue(viewport.contains(frame), "Appearance preview content must fit the capture viewport: \(element); \(viewport)")
         }
+    }
+
+    private func appearancePreviewFits(_ snapshot: any XCUIElementSnapshot, in viewport: CGRect, german: Bool) -> Bool {
+        guard !viewport.isEmpty, !snapshot.frame.isEmpty, viewport.contains(snapshot.frame) else { return false }
+        let figureLabels = german ? ["18 %", "82 %"] : ["18%", "82%"]
+        let detailsLabel = german ? "23:31 · 1 Std. 18 Min. · 12,40 $" : "23:31 · 1h 18m · $12.40"
+        var foundTitle = false
+        var foundFigure = false
+        var foundDetails = false
+        var remaining = Array(snapshot.children.reversed())
+        while let child = remaining.popLast() {
+            if child.elementType == .staticText {
+                if !foundTitle && child.label == "Claude Pro" {
+                    guard !child.frame.isEmpty, viewport.contains(child.frame) else { return false }
+                    foundTitle = true
+                } else if !foundFigure && figureLabels.contains(child.label) {
+                    guard !child.frame.isEmpty, viewport.contains(child.frame) else { return false }
+                    foundFigure = true
+                } else if !foundDetails && child.label == detailsLabel {
+                    guard !child.frame.isEmpty, viewport.contains(child.frame) else { return false }
+                    foundDetails = true
+                }
+            }
+            remaining.append(contentsOf: child.children.reversed())
+        }
+        return foundTitle && foundFigure && foundDetails
     }
 
     private func openAppearance(in app: XCUIApplication) {
