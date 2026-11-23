@@ -91,9 +91,22 @@ struct SettingsTraceProbe: UIViewRepresentable {
 
     @MainActor
     private final class TouchObserver: UIGestureRecognizer {
+        private struct WeakRecognizer {
+            weak var value: UIGestureRecognizer?
+        }
+
+        private static let switchEvents: [(event: UIControl.Event, action: Selector)] = [
+            (.touchDown, #selector(TouchObserver.switchTouchDown(_:))),
+            (.touchUpInside, #selector(TouchObserver.switchTouchUpInside(_:))),
+            (.touchUpOutside, #selector(TouchObserver.switchTouchUpOutside(_:))),
+            (.touchCancel, #selector(TouchObserver.switchTouchCancel(_:)))
+        ]
+
         private var nextTouchID = 0
         private var activeTouches: [ObjectIdentifier: Int] = [:]
-        private let tracesNativeControls = ProcessInfo.processInfo.arguments.contains("-settings-native-control-trace")
+        private let tracesNativeControls: Bool
+        private let tracesSwitchEvents: Bool
+        private var switchRecognizers: [WeakRecognizer] = []
         private weak var nativeView: UIView?
         private var nativeKind = "unavailable"
         private var nativeIdentifier = "unavailable"
@@ -103,6 +116,12 @@ struct SettingsTraceProbe: UIViewRepresentable {
         private var nativePrimaryActionCount = 0
 
         override init(target: Any?, action: Selector?) {
+            let arguments = ProcessInfo.processInfo.arguments
+            let tracesNativeControls = arguments.contains("-settings-native-control-trace")
+            self.tracesNativeControls = tracesNativeControls
+            // The two diagnostic scenarios opt in already; their UIKit switch may have no AX ID.
+            tracesSwitchEvents = tracesNativeControls && (arguments.contains("-claude-mood-demo")
+                || arguments.contains("-overview-credits-demo"))
             super.init(target: target, action: action)
             cancelsTouchesInView = false
             delaysTouchesBegan = false
@@ -125,7 +144,20 @@ struct SettingsTraceProbe: UIViewRepresentable {
             }
         }
 
+        private func stopSwitchEvents() {
+            if tracesSwitchEvents, let toggle = nativeView as? UISwitch {
+                for (event, action) in Self.switchEvents {
+                    toggle.removeTarget(self, action: action, for: event)
+                }
+            }
+            for recognizer in switchRecognizers {
+                recognizer.value?.removeTarget(self, action: #selector(switchGestureChanged(_:)))
+            }
+            switchRecognizers.removeAll(keepingCapacity: true)
+        }
+
         func stopNativeControlTrace() {
+            stopSwitchEvents()
             if let control = nativeView as? UIControl {
                 control.removeTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
                 control.removeTarget(self, action: #selector(nativePrimaryAction(_:)), for: .primaryActionTriggered)
@@ -140,6 +172,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
 
         private func observeNativeControl(for touch: UITouch, id: Int) {
             guard tracesNativeControls else { return }
+            stopSwitchEvents()
             var ancestor = touch.view
             var candidate: UIControl?
             var identifier = "unavailable"
@@ -174,6 +207,9 @@ struct SettingsTraceProbe: UIViewRepresentable {
             if let toggle = candidate as? UISwitch {
                 nativeKind = "switch"
                 toggle.addTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
+                if tracesSwitchEvents {
+                    observeSwitchEvents(on: toggle, from: touch.view)
+                }
             } else if let segment = candidate as? UISegmentedControl {
                 nativeKind = "segment"
                 segment.addTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
@@ -198,6 +234,40 @@ struct SettingsTraceProbe: UIViewRepresentable {
             }
             SettingsTrace.record("native \(nativeKind) observed touchID=\(id) control=\(ObjectIdentifier(hit)) "
                 + "axID=\(identifier) class=\(String(describing: type(of: hit))) \(nativeState(hit))")
+        }
+
+        private func observeSwitchEvents(on toggle: UISwitch, from hit: UIView?) {
+            for (event, action) in Self.switchEvents {
+                toggle.addTarget(self, action: action, for: event)
+            }
+            var ancestor = hit
+            while let current = ancestor {
+                for recognizer in current.gestureRecognizers ?? []
+                    where !switchRecognizers.contains(where: { $0.value === recognizer }) {
+                    switchRecognizers.append(WeakRecognizer(value: recognizer))
+                    recognizer.addTarget(self, action: #selector(switchGestureChanged(_:)))
+                }
+                if current === toggle { break }
+                ancestor = current.superview
+            }
+        }
+
+        @objc private func switchTouchDown(_ sender: UISwitch) { recordSwitchEvent("touchDown", sender) }
+        @objc private func switchTouchUpInside(_ sender: UISwitch) { recordSwitchEvent("touchUpInside", sender) }
+        @objc private func switchTouchUpOutside(_ sender: UISwitch) { recordSwitchEvent("touchUpOutside", sender) }
+        @objc private func switchTouchCancel(_ sender: UISwitch) { recordSwitchEvent("touchCancel", sender) }
+
+        private func recordSwitchEvent(_ event: String, _ sender: UISwitch) {
+            guard sender === nativeView, let id = nativeTouchID else { return }
+            SettingsTrace.record("native switch control-event touchID=\(id) control=\(ObjectIdentifier(sender)) "
+                + "event=\(event) switchOn=\(sender.isOn) tracking=\(sender.isTracking) inside=\(sender.isTouchInside)")
+        }
+
+        @objc private func switchGestureChanged(_ sender: UIGestureRecognizer) {
+            guard let control = nativeView, let id = nativeTouchID,
+                  switchRecognizers.contains(where: { $0.value === sender }) else { return }
+            SettingsTrace.record("native switch recognizer-action touchID=\(id) control=\(ObjectIdentifier(control)) "
+                + "recognizer=\(ObjectIdentifier(sender)) state=\(sender.state.rawValue)")
         }
 
         private func nativeState(_ view: UIView) -> String {
