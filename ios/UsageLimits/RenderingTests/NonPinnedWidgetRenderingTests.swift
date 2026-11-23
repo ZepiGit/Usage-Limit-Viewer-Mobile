@@ -25,6 +25,9 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
         let output = URL(fileURLWithPath: directory).appendingPathComponent(language)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         var manifest = ["Native SwiftUI view renderings. NOT installed widgets; no host tint, vibrancy or delivery proof."]
+        let creditsEntry = creditEntry()
+        let creditUpdate = try XCTUnwrap(creditsEntry.updatedAt)
+        let creditTime = DateFormatter.localizedString(from: creditUpdate, dateStyle: .none, timeStyle: .short)
         for mode in [PercentDisplay.left, .used] {
             let snapshot = snapshot(mode: mode)
             let entry = UsageEntry(date: now, snapshot: snapshot)
@@ -54,8 +57,14 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
                             XCTAssertTrue(recognized.contains { $0.text.contains("Claude") }, "ring account label must survive")
                         }
                     }
-                    let credits = try render(creditView(family: family), size: size, typeSize: typeSize)
+                    let credits = try render(creditView(family: family, entry: creditsEntry), size: size, typeSize: typeSize)
                     try write(credits, name: "\(prefix)-credits", to: output)
+                    if family != .systemSmall {
+                        let regular = typeSize == .large
+                        let lastBalance = family == .systemMedium ? (regular ? 2 : 1) : (regular ? 5 : 4)
+                        try assertCreditList(credits, language: language, time: creditTime, lastBalance: lastBalance,
+                            context: "\(language)/\(prefix)-credits")
+                    }
                     manifest.append("\(prefix): Bars, logo-free Summary, Account Rings, Mini Rings, Credits")
                 }
                 for (name, size) in [("home-ring", CGSize(width: 158, height: 158)),
@@ -309,9 +318,38 @@ final class NonPinnedWidgetRenderingTests: XCTestCase {
     }
 
     @ViewBuilder
-    private func creditView(family: WidgetFamily) -> some View {
-        if family == .systemSmall { CreditsSmallView(entry: creditEntry()) }
-        else { CreditsListView(entry: creditEntry(), limit: family == .systemLarge ? 6 : 3) }
+    private func creditView(family: WidgetFamily, entry: CreditsEntry) -> some View {
+        if family == .systemSmall { CreditsSmallView(entry: entry) }
+        else { CreditsListView(entry: entry, limit: family == .systemLarge ? 6 : 3) }
+    }
+
+    private func assertCreditList(_ image: UIImage, language: String, time: String, lastBalance: Int,
+                                  context: String) throws {
+        let recognized = try words(image)
+        let first = try XCTUnwrap(recognized.first { $0.text.contains("DeepSeek") }, "\(context): first account missing")
+        let last = try XCTUnwrap(recognized.first { $0.text.contains("Balance \(lastBalance)") },
+            "\(context): last account missing")
+        // Vision's normalized Y increases from the bottom. Exclude all row figures from the clock check.
+        let header = recognized.filter { $0.bounds.midY > first.bounds.maxY }.map(\.text).joined(separator: " ")
+        let lastRow = recognized.filter { $0.bounds.minY < last.bounds.maxY && $0.bounds.maxY > last.bounds.minY }
+            .map(\.text).joined(separator: " ")
+        let footer = recognized.filter { $0.bounds.midY < last.bounds.minY }.map(\.text).joined(separator: " ")
+        let german = language == "de"
+        let title = german ? "Guthaben" : "Credits"
+        let update = german ? "Letzte Aktualisierung" : "Latest update"
+        let overflow = "+\(7 - (lastBalance + 1)) \(german ? "weitere" : "more")"
+        func compact(_ text: String) -> String { String(text.filter { !$0.isWhitespace }).lowercased() }
+        let visibleHeader = compact(header)
+        XCTAssertTrue(visibleHeader.contains(compact(title)), "\(context): title missing in \(header)")
+        XCTAssertTrue(visibleHeader.contains(compact(update)), "\(context): update label missing in \(header)")
+        XCTAssertTrue(visibleHeader.contains(compact(time)), "\(context): expected full time \(time) in \(header)")
+        let amountPattern = german
+            ? #"(?<![\d.,])[-+−]?\s*\d+(?:\s*[.,]\s*\d+)*\s*\$"#
+            : #"[-+−]?\s*\$\s*[-+−]?\s*\d+(?:\s*[.,]\s*\d+)*(?![\d.,])"#
+        let amountRange = try XCTUnwrap(lastRow.range(of: amountPattern, options: .regularExpression),
+            "\(context): last account amount missing in \(lastRow)")
+        XCTAssertEqual(compact(String(lastRow[amountRange])), german ? "3,18$" : "$3.18", context)
+        XCTAssertTrue(compact(footer).contains(compact(overflow)), "\(context): expected \(overflow) below the last account, got \(footer)")
     }
 
     private func render(_ view: some View, size: CGSize, typeSize: DynamicTypeSize = .large,

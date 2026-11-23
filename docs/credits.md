@@ -44,6 +44,8 @@ On a German device these controls are under **Einstellungen → Übersicht**: **
 
 ## Refresh and removal
 
-Balances refresh alongside usage. Failed reads retain previous values and their age; one failed account does not block others. Credits widgets show up to one, three or six accounts, worst first, depending on size. Android's running widget recomputes age, severity and order on presentation repaints without syncing. iOS prepares timeline entries at those age boundaries. Neither path promises when the system will display an update.
+Balances refresh alongside usage. Failed reads retain previous values and their age; one failed account does not block others. Credits widgets show up to one, three or six accounts, worst first, depending on size. On iOS, medium and large Credits widgets show the last-updated timestamp on its own line when it cannot fit beside the title. With larger text, fewer accounts may fit, but the widget still shows how many are hidden.
+
+Android's running widget recomputes age, severity and order on presentation repaints without syncing. iOS prepares timeline entries at those age boundaries. Neither path promises when the system will display an update.
 
 Keys stay in Android's encrypted credential store or iOS Keychain, separate from cached balances. Removing an account deletes its local key. Revoke the key in the provider's console to invalidate it elsewhere. See [Security](security.md).

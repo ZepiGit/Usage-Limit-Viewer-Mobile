@@ -153,15 +153,9 @@ struct CreditsListView: View {
                 CreditsEmptyView(state: entry.state, ink: ink)
             } else {
                 let shown = Array(entry.credits.prefix(visibleLimit))
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Credits").usageFont(.smallStrong).foregroundColor(ink.secondary)
-                        Spacer(minLength: 4)
-                        if let asOf = GlanceText.latestUpdateLine(
-                            updatedAt: entry.updatedAt, now: entry.date) {
-                            Text(verbatim: asOf).usageFont(.micro).foregroundColor(ink.tertiary).lineLimit(1)
-                        }
-                    }
+                // The shorter medium tile needs room for a stacked header at larger text sizes.
+                VStack(alignment: .leading, spacing: limit == 3 && dynamicTypeSize >= .xLarge ? 2 : 8) {
+                    header
                     ForEach(shown) { credit in
                         CreditRow(credit: credit, now: entry.date, staleAfter: entry.staleAfter, ink: ink)
                     }
@@ -170,7 +164,6 @@ struct CreditsListView: View {
                         Text(verbatim: String(localized: "+\(hidden) more"))
                             .usageFont(.micro).foregroundColor(ink.tertiary)
                     }
-                    Spacer(minLength: 0)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -179,6 +172,27 @@ struct CreditsListView: View {
         .widgetBackground(UsageColors.ground)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .widgetURL(DeepLink.glance)
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        let title = Text("Credits").usageFont(.smallStrong).foregroundColor(ink.secondary)
+        if let asOf = GlanceText.latestUpdateLine(updatedAt: entry.updatedAt, now: entry.date) {
+            let update = Text(verbatim: asOf).usageFont(.micro).foregroundColor(ink.tertiary)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    title.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 4)
+                    update.fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    title
+                    update.fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } else {
+            title
+        }
     }
 }
 
