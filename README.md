@@ -14,9 +14,14 @@
 >
 > Install the signed APK from the [0.5.0 release](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0), or build from source. A debug APK from an Android run under **Actions** is a separate build; match it to its commit.
 
-<p align="center"><img src="docs/redesign/android/overview-list.png" width="280" alt="Android Overview List rendered with synthetic accounts"><img src="docs/redesign/android/overview-dials.png" width="280" alt="Android Overview Dials rendered with synthetic accounts"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/01-hero-dark.png">
+    <img src="docs/images/readme/01-hero-light.png" width="880" alt="Usage Limit Viewer on a Pixel 11 (prepaid credits), an unfolded Pixel 11 Pro Fold (account list) and a second Pixel 11 (dials), all with the same sample data.">
+  </picture>
+</p>
 
-Android List and Dials, rendered from native Compose views by `RedesignCaptureTest` at `0b51086` (Robolectric API 34, synthetic accounts, Pure black). The empty area below the content is cropped; the captures are not emulator or phone screenshots. [Capture provenance and before/after selection](docs/release.md#selected-android-captures).
+<sub>Screenshots use sample data. Usage Limit Viewer is not affiliated with any of the providers shown; names and logos belong to their owners. Android captures are native Compose views in Pixel 11 and Pixel 11 Pro Fold frames (Pure black and Light paper).</sub>
 
 ## What the app does
 
@@ -39,6 +44,39 @@ The app also supports:
   [Status icons](docs/status-icons.md).
 - **No model calls.** The app only asks each service for your usage. It never sends a prompt,
   so checking your limits never costs you any of them.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/02-overview-dark.png">
+  <img src="docs/images/readme/02-overview-light.png" width="880" alt="Overview as a list and as dials: Claude Max 5x exhausted, Kimi 24%, Claude Pro 34%, Devin 62%, Grok and Antigravity 76% left.">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/03-resets-dark.png">
+  <img src="docs/images/readme/03-resets-light.png" width="880" alt="Resets screen: upcoming 5-hour and weekly resets grouped by day, with 24-hour times and live countdowns.">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/04-account-detail-dark.png">
+  <img src="docs/images/readme/04-account-detail-light.png" width="880" alt="Claude Max 5x detail with 5-hour (0% left), weekly (59%) and weekly Opus (37%) limits, next to the Claude Pro detail at 34% left.">
+</picture>
+
+### Status icons
+
+Pin up to three accounts. Each shows its glyph and figure in the Android status bar and notification shade, or on the iPhone Lock Screen. Off until you turn it on. See [Status icons](docs/status-icons.md).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/05-status-bar-icons-dark.png">
+  <img src="docs/images/readme/05-status-bar-icons-light.png" width="880" alt="Status bar icon settings with three pinned accounts, the notification shade, and an enlarged status bar: Codex 99% left, Claude exhausted, Grok 76% left.">
+</picture>
+
+### Alerts
+
+The app can warn you below 20% and 10% left, when a limit is exhausted, when a reset is approaching, when credits are low, and when a sign-in has expired. Each alert type can be switched off, including per account.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/06-notifications-dark.png">
+  <img src="docs/images/readme/06-notifications-light.png" width="880" alt="Alert settings for 20% and 10% warnings, exhausted limits, resets and expired sign-ins, next to three status notifications for Codex, Claude and Grok.">
+</picture>
 
 <a id="android-overview-and-settings"></a>
 
@@ -64,6 +102,11 @@ Switching to another primary destination or to Dials returns the filter to All; 
 
 Under **Settings → Appearance**, both apps offer **Warm dark**, **Pure black** (default), **Cool graphite** and **Light paper**. Android text choices start with system **Roboto**; iOS starts with Apple's **System** text. Both also offer **Roboto Flex**, **IBM Plex Sans** and **Figtree**. Choose **Roboto Mono** (default), **JetBrains Mono** or **IBM Plex Mono** independently for percentages, times and amounts. The preview reacts immediately; no restart is required.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/11-themes-dark.png">
+  <img src="docs/images/readme/11-themes-light.png" width="880" alt="Overview in the Warm dark, Pure black, Cool graphite and Light paper themes, each with a colour swatch and a short description.">
+</picture>
+
 Open **Font licences** in that section for the six bundled families' offline notices. Their pinned sources, versions, checksums and full licences are in the [canonical font manifest](third_party/fonts/manifest.json) and [font notes](third_party/fonts/README.md). These choices affect the app, not placed widgets or their configuration previews ([ADR 0005](docs/adr/0005-app-and-widget-appearance.md)). iOS bundles the canonical font files and licences in the app only, not its widget extension. The first app-controlled interface waits for saved preferences; iOS shows a neutral root while loading them. This is implemented behavior, not physical cold-launch proof.
 
 On a German device, use **Einstellungen → Übersicht → Layout → Liste/Ringe**, **Anzeige → Prozente anzeigen als**, or **Erscheinungsbild** for **Textschrift**, **Ziffernschrift** and **Schriftlizenzen**. The List filters are **Alle**, **Braucht Aufmerksamkeit** and **Resets heute**.
@@ -71,6 +114,11 @@ On a German device, use **Einstellungen → Übersicht → Layout → Liste/Ring
 ### Claude Code mood and Hooray
 
 Under **Settings → Provider icons → Claude**, the **Claude Code · Color** and **Claude Code · Monochrome** choices use the account's headline for their figure. Other artwork stays static. Mood uses raw percentage left, never the rounded or Used figure:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/12-claude-moods-dark.png">
+  <img src="docs/images/readme/12-claude-moods-light.png" width="880" alt="Six Claude Code figure moods: Asleep, Tired, Working, Idle, Dancing and Hooray, with the % left (or, for Hooray, the reset) that triggers each.">
+</picture>
 
 | Raw headline percentage left | Steady mood |
 | :--- | :--- |
@@ -90,6 +138,11 @@ At the next qualifying main-app opening, the app claims the mark before refreshi
 An interrupted or unseen opportunity does not replay later. Placed Usage Bars, Account Rings and Mini Rings use each account's steady mood, never Hooray; configuration keeps static catalog artwork. Both implementations use the same dated-reset vectors. See [release evidence and remaining device gates](docs/release.md#release-050-checkpoint). Real foreground transitions, first placement and animation pacing still need device checks.
 
 ## Supported services
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/10-providers-dark.png">
+  <img src="docs/images/readme/10-providers-light.png" width="880" alt="Icons and names of the nine supported subscriptions with what the app reads, and the six prepaid credit APIs.">
+</picture>
 
 | Service | What you see | How you connect |
 | :--- | :--- | :--- |
@@ -128,6 +181,11 @@ minutes, the notification asks you to come back to the app, and that finishes it
 If you use AI through API keys, the **Credits** section shows how much money is left on
 each account, in that account's currency, and warns you when it gets low.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/07-api-credits-dark.png">
+  <img src="docs/images/readme/07-api-credits-light.png" width="880" alt="Credits block with OpenRouter, DeepSeek, xAI, fal.ai and Novita balances, the OpenRouter credit detail with its low-balance threshold, and a Credits widget.">
+</picture>
+
 | Service | Which key it needs |
 | :--- | :--- |
 | **OpenRouter** | A management key shows the whole account; a normal key shows that key's own limit |
@@ -151,6 +209,16 @@ Pick the style that fits your home screen:
 - **Account Rings:** a ring around each service's logo, with the name and reset time.
 - **Mini Rings:** small rings, as many as fit.
 - **Credits:** prepaid balances, worst status first.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/08-widgets-usage-dark.png">
+  <img src="docs/images/readme/08-widgets-usage-light.png" width="880" alt="Usage Summary widget (4×1 and 2×2) for Claude Pro at 34% left, and the Usage Bars widget (4×4 and 2×2) listing accounts by closest reset.">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/09-widgets-rings-credits-dark.png">
+  <img src="docs/images/readme/09-widgets-rings-credits-light.png" width="880" alt="Account Rings (4×3), Mini Rings (2×2 and 1×2) and Credits (4×2) widgets with sample data.">
+</picture>
 
 Each configurable usage widget can show all accounts, one service, one account, or a Custom selection in its saved order. **All accounts** follows Overview's automatic headline order. Pinned status icons use the stored account order instead; choosing pins does not reorder them. Android requests that notification order, but SystemUI decides what appears ([ADR 0003 clarification](docs/adr/0003-status-icons-and-lock-screen-substitute.md#consequences)).
 
@@ -182,9 +250,30 @@ iOS version.
 
 More about how widgets stay current: [docs/widgets.md](docs/widgets.md).
 
+## Device compatibility
+
+The same Android build adapts to phones and foldables. On a wide inner display, navigation moves to a side rail so more of every account is visible. See [Device compatibility](docs/compatibility.md) for supported versions and form factors.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/13-foldable-showcase-dark.png">
+  <img src="docs/images/readme/13-foldable-showcase-light.png" width="880" alt="Unfolded Pixel 11 Pro Fold showing the account list with a side navigation rail, plus a smaller unfolded view with the dials layout.">
+</picture>
+
 ## App tour
 
-The [archived app tour](docs/01-terracotta/DEMO.md) shows an earlier interface, including the removed Accounts destination. Its [asset notes](docs/01-terracotta/ASSET-SOURCES.md) distinguish illustrations from old iOS simulator captures. It is not a walkthrough of 0.5.0. The [selected Android captures](docs/release.md#selected-android-captures) show earlier redesign revisions; the older `docs/redesign/after` directory predates this release too. Current phone, tablet and physical-device captures remain pending; no new gallery is claimed.
+<details>
+<summary>Animated tour (7 screens, Android, sample data)</summary>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/14-app-tour-dark.webp">
+    <img src="docs/images/readme/14-app-tour-light.webp" width="360" alt="Animated tour on a Pixel 11 through overview list, dials, credits, resets, status bar icons, alerts and appearance.">
+  </picture>
+</p>
+
+</details>
+
+The [archived app tour](docs/01-terracotta/DEMO.md) shows an earlier interface, including the removed Accounts destination. Its [asset notes](docs/01-terracotta/ASSET-SOURCES.md) distinguish illustrations from old iOS simulator captures. It is not a walkthrough of 0.5.0. The README images above are Robolectric captures of native Compose views in device frames, with sample data; they are not physical-device photographs. The [selected Android captures](docs/release.md#selected-android-captures) show earlier redesign revisions; the older `docs/redesign/after` directory predates this release too. Physical-device captures remain pending.
 
 ## Your data
 
