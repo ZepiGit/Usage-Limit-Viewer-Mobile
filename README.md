@@ -10,9 +10,9 @@
 
 <p align="center"><a href="#what-the-app-does">What it does</a> · <a href="#supported-services">Services</a> · <a href="#prepaid-credits">Credits</a> · <a href="#widgets">Widgets</a> · <a href="#your-data">Your data</a> · <a href="#build-it-yourself">Build</a></p>
 
-> **0.5.0 is tagged and its draft is ready.** The signed Android APK and AAB, the R8 mapping and the unsigned iOS archive are attached to the draft of [`v0.5.0`](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0). The tag points at `b8d861f`, and `main` has the same source tree. The release workflow for the tag passed Android unit tests and lint, the shared Swift tests and the API 37 emulator smoke before packaging. Physical-device checks remain open. See [release evidence and remaining gates](docs/release.md#release-050-checkpoint).
+> **[0.5.0 is published](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0).** The release carries the signed Android APK and AAB, the R8 mapping and the unsigned iOS archive. Its tag points at `b8d861f`, and `main` has the same source tree. The release workflow passed Android unit tests and lint, the shared Swift tests and the API 37 emulator smoke before packaging. Physical-device checks remain open. See [release evidence and remaining gates](docs/release.md#release-050-checkpoint).
 >
-> Build from source or download the debug APK from an Android run under **Actions**. Match the artifact to its commit.
+> Install the signed APK from the [0.5.0 release](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0), or build from source. A debug APK from an Android run under **Actions** is a separate build; match it to its commit.
 
 <p align="center"><img src="docs/redesign/android/overview-list.png" width="280" alt="Android Overview List rendered with synthetic accounts"><img src="docs/redesign/android/overview-dials.png" width="280" alt="Android Overview Dials rendered with synthetic accounts"></p>
 
