@@ -1,0 +1,367 @@
+package com.usagelimits.widget
+
+import com.usagelimits.core.model.title
+import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.database.inOverviewOrder
+import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.ReadingValidity
+import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.UsageScope
+import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WidgetScope
+import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.model.WindowPresentation
+import com.usagelimits.core.model.windowPresentation
+
+/** One bar in a widget. */
+data class WidgetRow(
+    val label: String,
+    /** Carried so a summary row can be chosen by horizon rather than by position in [rows]. */
+    val category: WindowCategory,
+    val remainingPercent: Double?,
+    val resetAt: Long?,
+    val severity: Severity,
+    /**
+     * The window's reset instant has passed since this snapshot was fetched.
+     *
+     * The cached figure is then not old but WRONG: the provider has opened a fresh window and
+     * this row still describes the spent one. Surfaces draw such a row in the stale treatment
+     * and say "reset due" until a fetch confirms the new number — a full ring is not claimed
+     * either, because nothing has reported one. A snapshot fetched after the reset is
+     * unaffected: the provider had already described the new window by then.
+     */
+    val resetElapsed: Boolean = false,
+    val windowId: String = "",
+    /** Carried so a label the app chose can be told from one a model-scoped window brought along. */
+    val scope: UsageScope = UsageScope.GLOBAL,
+) {
+    /** The validity a surface should colour this row with, when its account's own is null. */
+    val validity: Severity? get() = if (resetElapsed) Severity.STALE else null
+
+    /**
+     * The raw exhaustion a USED-mode figure or fill keys on: the provider's verdict, never a
+     * validity state a stale reading or a passed reset swapped in, so an exhausted window still
+     * reads "100%" beside a grey bar.
+     */
+    val isExhausted: Boolean get() = severity == Severity.EXHAUSTED
+}
+
+/**
+ * The validity a widget gives this row, from its account's [accountValidity] first and its own
+ * passed reset second, the same precedence [WidgetStyle.barText] colours by.
+ *
+ * Production passes only STALE, ERROR or null. UNKNOWN reads as ERROR because the bar has always
+ * drawn nothing for it; any other severity is not a validity and falls through to the row.
+ */
+fun WidgetRow.readingValidity(accountValidity: Severity?): ReadingValidity = when (accountValidity) {
+    Severity.STALE -> ReadingValidity.STALE
+    Severity.ERROR, Severity.UNKNOWN -> ReadingValidity.ERROR
+    else -> if (resetElapsed) ReadingValidity.RESET_DUE else ReadingValidity.CURRENT
+}
+
+/**
+ * The presentation of a widget row, or [WindowPresentation.absent] for no row.
+ *
+ * Reads the row's raw [WidgetRow.severity]: a reading's validity is passed in separately and never
+ * replaces it, so a stale exhausted row still counts as exhausted.
+ */
+fun WidgetRow?.presentation(accountValidity: Severity?, mode: PercentDisplay): WindowPresentation =
+    if (this == null) WindowPresentation.absent(mode)
+    else windowPresentation(remainingPercent, severity, readingValidity(accountValidity), mode)
+
+/** One account block in the larger widget. */
+data class WidgetAccount(
+    val accountId: String,
+    val title: String,
+    val subtitle: String?,
+    val rows: List<WidgetRow>,
+    val severity: Severity,
+    val providerId: String = "",
+    val requiresReauthentication: Boolean = false,
+    val iconChoiceId: String? = null,
+    val accountLabel: String? = null,
+    val resetTimes: List<Long> = rows.mapNotNull { it.resetAt },
+    /** The same global/scoped representative used by the app; not a new minimum of two rows. */
+    val representative: WidgetRow? = null,
+    val restrictions: List<String> = emptyList(),
+    /** A usable quota can coexist with an unsuccessful optional endpoint. */
+    val partialUpdate: Boolean = false,
+) {
+    /**
+     * Whether the cached reading itself is to be trusted: STALE or ERROR while it is not, null
+     * while it is. Deliberately narrower than [severity] — an exhausted account's data is
+     * perfectly trustworthy, and funnelling quota severity in here would recolour a healthy
+     * five-hour row red because a different, longer window ran out. A validity state may
+     * override the row's own colour; a quota state may not.
+     */
+    val dataValidity: Severity?
+        get() = when {
+            requiresReauthentication -> Severity.ERROR
+            severity == Severity.ERROR || severity == Severity.STALE -> severity
+            else -> null
+        }
+}
+
+/**
+ * Everything a widget renders, already reduced from the cache.
+ *
+ * Contains no tokens and no provider payloads — by construction, since it is built only from
+ * the normalised Room cache. That is what makes it safe to hand to the home screen process.
+ */
+data class WidgetSnapshot(
+    val accounts: List<WidgetAccount>,
+    val accountCount: Int,
+    val updatedAt: Long?,
+    val nextResetAt: Long?,
+    val overallSeverity: Severity,
+    val summaryLineShort: WidgetRow?,
+    val summaryLineLong: WidgetRow?,
+    /**
+     * The data validity of the account the summary numbers come from — the compact tile draws
+     * its two quota tiles from this account, so its staleness is the validity those numbers
+     * must answer to. Null while the lead's data is trustworthy.
+     */
+    val leadValidity: Severity? = null,
+    /**
+     * The provider a provider-scoped widget found no account for, when the widget knows; null
+     * leaves the generic hint. Carried as data rather than as a sentence so each surface says it
+     * in the user's language (see [emptyText]).
+     */
+    val emptyProvider: ProviderId? = null,
+) {
+    /**
+     * The English reference [emptyText] is held equal to under `en` by WidgetTextsEnglishTest, and
+     * WidgetDataBuilderTest pins its wording; nothing on screen reads it.
+     */
+    val emptyMessage: String? get() = emptyProvider?.let { "No ${it.displayName} account connected. Add one in the app." }
+
+    /**
+     * The English reference [statusLabel] is held equal to under `en` by WidgetTextsEnglishTest, and
+     * WidgetDataBuilderTest pins its wording; nothing on screen reads it.
+     */
+    val selectionStatusLabel: String get() = if (accountCount > 1) "$accountCount accounts" else "Account"
+    val hasPartialUpdate: Boolean get() = accounts.any { it.partialUpdate }
+
+    companion object {
+        val Empty = WidgetSnapshot(
+            accounts = emptyList(),
+            accountCount = 0,
+            updatedAt = null,
+            nextResetAt = null,
+            overallSeverity = Severity.STALE,
+            summaryLineShort = null,
+            summaryLineLong = null,
+        )
+    }
+}
+
+/**
+ * Reduces the cache to what a given widget configuration needs.
+ *
+ * Kept as pure functions over already-loaded data so it is unit-testable and so widget
+ * rendering never touches a provider or the credential store.
+ */
+object WidgetDataBuilder {
+
+    fun build(
+        all: List<AccountUsage>,
+        nowMs: Long,
+        scope: WidgetScope,
+        accountId: String?,
+        providerId: String?,
+        /**
+         * How old a snapshot may be before it reads as stale.
+         *
+         * Passed in rather than taken from a constant so a widget agrees with the app about
+         * what "stale" means — and so the three-hour sync interval the app offers does not
+         * grey out every tile permanently.
+         */
+        staleAfterMs: Long = Severity.STALE_AFTER_MS,
+        customAccountIds: List<String> = emptyList(),
+        providerIcons: Map<String, String> = emptyMap(),
+    ): WidgetSnapshot {
+        val selected = when (scope) {
+            WidgetScope.ACCOUNT -> all.filter { it.account.localId == accountId }
+            WidgetScope.PROVIDER -> all.filter { it.account.provider.id == providerId }
+            WidgetScope.CUSTOM -> customAccountIds.distinct().mapNotNull { id -> all.firstOrNull { it.account.localId == id } }
+            // Overview's automatic order at render time, before the layout trims to its slots.
+            // Every other scope keeps the stored order or its saved ids (ADR 0004).
+            WidgetScope.ALL_ACCOUNTS -> all.inOverviewOrder(nowMs)
+            WidgetScope.MOST_CRITICAL, WidgetScope.CLOSEST_RESETS -> all
+        }
+
+        if (selected.isEmpty()) {
+            // A provider widget with nothing to match is a missing sign-in, not stale data.
+            val provider = ProviderId.fromId(providerId)?.takeIf { scope == WidgetScope.PROVIDER }
+                ?: return WidgetSnapshot.Empty
+            return WidgetSnapshot.Empty.copy(
+                overallSeverity = Severity.UNKNOWN,
+                emptyProvider = provider,
+            )
+        }
+
+        val accounts = selected.map { it.toWidgetAccount(nowMs, staleAfterMs, providerIcons) }
+
+        // For the auto scope, lead with whatever is closest to running out — see [criticality].
+        val ordered = if (scope == WidgetScope.MOST_CRITICAL) {
+            accounts.sortedWith(
+                compareBy({ criticality(it.severity) }, { band(it.tightestRemaining()) }),
+            )
+        } else if (scope == WidgetScope.CLOSEST_RESETS) {
+            accounts.sortedBy { account ->
+                selected.first { it.account.localId == account.accountId }.snapshot?.windows.orEmpty()
+                    .mapNotNull { it.resetAt }.filter { it > nowMs }.minOrNull() ?: Long.MAX_VALUE
+            }
+        } else {
+            accounts
+        }
+
+        // The summary belongs to ONE account — the one leading the list — not to a pool.
+        //
+        // Reducing across every account produced a number attributed to nobody. On a tile
+        // showing two of six accounts, "5h: 3 %" could be the sixth account's window, so the
+        // user read a figure they could not locate. Worse, `weekly ?: monthly` applied to the
+        // pool meant any one account having a weekly window suppressed every monthly one, so
+        // the summary could read 80 % while a visible row read 3 %.
+        val lead = ordered.firstOrNull()
+
+        return WidgetSnapshot(
+            accounts = ordered,
+            accountCount = selected.size,
+            updatedAt = selected.firstOrNull { it.account.localId == lead?.accountId }?.measurementAt,
+            // The soonest reset OF THE LEADING ACCOUNT. Taken across all accounts it paired the
+            // summary state with an unrelated account's clock: "0 % left · resets in 12m",
+            // where the twelve minutes belonged to a healthy account's five-hour window. And
+            // because healthy five-hour windows reset constantly, that was the common case.
+            // And one still AHEAD. A snapshot keeps a window's reset instant until the next fetch
+            // replaces it, so once one had passed the minimum was anchored in the past and the
+            // compact widget's tile named a reset that was already over. The overview's view
+            // model drops passed instants for the same reason.
+            nextResetAt = lead?.resetTimes?.filter { it > nowMs }?.minOrNull(),
+            // Deliberately NOT the leading account's severity. This answers "is anything wrong
+            // anywhere", which is a different question from "what should I look at first" —
+            // and it is the only thing that still surfaces a broken account once the ordering
+            // below stops letting rowless accounts occupy a two-slot widget.
+            overallSeverity = ordered.maxOfOrNull { it.severity } ?: Severity.STALE,
+            summaryLineShort = lead?.rows?.firstOrNull { it.category == WindowCategory.FIVE_HOUR },
+            summaryLineLong = lead?.rows?.firstOrNull { it.category != WindowCategory.FIVE_HOUR },
+            leadValidity = lead?.dataValidity,
+        )
+    }
+
+    /**
+     * Rank for the auto scope, lowest first.
+     *
+     * Deliberately not [Severity.ordinal]. That enum is ordered best-to-worst so `maxOf` finds
+     * an account's worst window, which puts STALE and ERROR *after* EXHAUSTED — so ranking by
+     * the ordinal led with an account the app merely failed to read, above one the user has
+     * genuinely run out on.
+     *
+     * ERROR and STALE then sort LAST, below HEALTHY, which reads wrong until you count the
+     * slots. Both states are rowless — a never-fetched or failed account has no windows to show
+     * — so ranking them highly filled a two-tile widget with blank cards and pushed an account
+     * at 3 % off the screen entirely. A blank tile answers nothing; the account with a real
+     * number does. That an account is unreadable still reaches the user through
+     * [WidgetSnapshot.overallSeverity] and through the app's own list, neither of which is
+     * slot-limited.
+     */
+    private fun criticality(severity: Severity): Int = severity.urgency
+
+    /**
+     * Tie-break within one rank: the tightest number the card actually shows, ascending.
+     *
+     * An account with no readable number sorts last inside its rank — there is nothing to
+     * compare, and a known percentage is the more useful thing to put first.
+     */
+    private fun WidgetAccount.tightestRemaining(): Double =
+        representative?.remainingPercent ?: Double.MAX_VALUE
+
+    /**
+     * Five-point buckets, so sub-point drift cannot reorder a home screen.
+     *
+     * Two healthy accounts drifting 47.2 to 46.8 and 46.9 to 47.1 swapped places on every
+     * refresh. On a home screen that means the reader re-scans from scratch each time and stops
+     * trusting the position of anything.
+     */
+    private fun band(remaining: Double): Int =
+        if (remaining == Double.MAX_VALUE) Int.MAX_VALUE else (remaining / 5).toInt()
+
+    /** Known constraints lead; an optional unknown must not displace a readable percentage. */
+    private fun summaryLine(windows: List<UsageWindow>, category: WindowCategory, fetchedAt: Long, nowMs: Long): WidgetRow? =
+        windows.filter { it.category == category }
+            .minWithOrNull(compareBy({ it.severity.urgency }, { it.remainingPercent ?: Double.MAX_VALUE }))
+            ?.toRow(fetchedAt, nowMs)
+
+    /**
+     * Choose the long-horizon row by urgency, then remaining percentage and category.
+     * An exhausted monthly limit must outrank a healthy weekly one; unreadable limits
+     * must not displace known exhaustion. OTHER is a last resort among equal readings.
+     */
+    private fun longSummaryLine(windows: List<UsageWindow>, fetchedAt: Long, nowMs: Long): WidgetRow? =
+        windows.filter { it.category != WindowCategory.FIVE_HOUR }
+            .minWithOrNull(
+                compareBy(
+                    { it.severity.urgency },
+                    { it.remainingPercent ?: Double.MAX_VALUE },
+                    { longCategoryRank(it.category) },
+                )
+            )
+            ?.toRow(fetchedAt, nowMs)
+
+    private fun longCategoryRank(category: WindowCategory): Int = when (category) {
+        WindowCategory.WEEKLY -> 0
+        WindowCategory.MONTHLY -> 1
+        else -> 2
+    }
+
+    private fun AccountUsage.toWidgetAccount(nowMs: Long, staleAfterMs: Long, providerIcons: Map<String, String>): WidgetAccount {
+        val windows = snapshot?.windows.orEmpty()
+        val summaryWindows = windows.filter { it.scope == com.usagelimits.core.model.UsageScope.GLOBAL }
+            .ifEmpty { windows }
+        val fetchedAt = measurementAt ?: Long.MAX_VALUE
+
+        // Lead with the summary's two horizons, then retain independently scoped limits and
+        // unknown optional values in the scrollable detail. Category is not window identity.
+        val rows = (listOfNotNull(
+            summaryLine(summaryWindows, WindowCategory.FIVE_HOUR, fetchedAt, nowMs),
+            longSummaryLine(summaryWindows, fetchedAt, nowMs),
+        ) + windows.map { it.toRow(fetchedAt, nowMs) }).distinct()
+
+        return WidgetAccount(
+            accountId = account.localId,
+            title = account.title(),
+            subtitle = account.maskedEmail,
+            rows = rows,
+            severity = snapshot?.severityAt(nowMs, staleAfterMs) ?: Severity.STALE,
+            providerId = account.provider.id,
+            iconChoiceId = providerIcons[account.provider.id],
+            accountLabel = account.label,
+            requiresReauthentication = snapshot?.connectionStatus == com.usagelimits.core.model.ConnectionStatus.RECONNECT_REQUIRED,
+            resetTimes = windows.mapNotNull { it.resetAt },
+            // The account headline; when every window has reset since the fetch it reads "reset due".
+            representative = snapshot?.headlineAt(nowMs)?.toRow(fetchedAt, nowMs),
+            restrictions = snapshot?.restrictedWindows.orEmpty().map { it.label },
+            partialUpdate = snapshot?.status == com.usagelimits.core.model.SnapshotStatus.PARTIAL,
+        )
+    }
+
+    private fun UsageWindow.toRow(fetchedAt: Long, nowMs: Long) = WidgetRow(
+        category = category,
+        label = label,
+        remainingPercent = remainingPercent,
+        resetAt = resetAt,
+        severity = severity,
+        resetElapsed = resetElapsedAt(resetAt, fetchedAt, nowMs),
+        windowId = id,
+        scope = scope,
+    )
+
+    /**
+     * Whether a window's reset has come and gone since its snapshot was taken. Pure, and the
+     * same rule `SyncWorker.cacheNeedsSync` fetches on, so the tile that says "reset due" and
+     * the sync that answers it cannot disagree about when that is.
+     */
+    fun resetElapsedAt(resetAt: Long?, fetchedAt: Long, nowMs: Long): Boolean =
+        resetAt != null && resetAt <= nowMs && fetchedAt < resetAt
+}

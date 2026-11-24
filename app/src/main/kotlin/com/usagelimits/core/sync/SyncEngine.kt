@@ -1,0 +1,296 @@
+package com.usagelimits.core.sync
+
+import com.usagelimits.core.auth.CredentialStore
+import com.usagelimits.core.auth.OAuthCredentials
+import com.usagelimits.core.database.UsageRepository
+import com.usagelimits.core.model.ProviderAccount
+import com.usagelimits.core.notifications.NotificationEvaluator
+import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageSnapshot
+import com.usagelimits.core.network.ProviderException
+import com.usagelimits.core.network.RATE_LIMITED_REQUEST_MESSAGE
+import com.usagelimits.providers.ProviderRegistry
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/** Per-account outcome of a sync pass. */
+data class SyncOutcome(
+    val accountId: String,
+    val success: Boolean,
+    val message: String? = null,
+)
+
+/**
+ * Refreshes usage for accounts.
+ *
+ * Three properties matter here:
+ *
+ *  - **Isolation.** Accounts sync concurrently and each failure is caught per account, so one
+ *    revoked token or one provider outage cannot stop the others from updating.
+ *  - **Refresh safety.** Token refreshes are serialised per credential reference. Without
+ *    that, a periodic sync racing a manual pull-to-refresh could both refresh the same
+ *    account, and providers invalidate the old refresh token on use — the loser would be left
+ *    holding a dead token and the account would appear revoked.
+ *  - **Stale over empty.** A failed fetch keeps the previous numbers and records the error, so
+ *    the UI can say "last updated 37 minutes ago, refresh failed" instead of blanking a card.
+ */
+class SyncEngine(
+    private val repository: UsageRepository,
+    private val credentialStore: CredentialStore,
+    private val registry: ProviderRegistry,
+    private val nowMs: () -> Long = System::currentTimeMillis,
+) {
+
+    private val refreshMutexes = mutableMapOf<String, Mutex>()
+    private val mutexGuard = Mutex()
+
+    /**
+     * Serialize fetch through save per account: completion timestamps cannot order overlapping
+     * requests, and a slow earlier fetch must not overwrite a later result.
+     */
+    private val accountLocks = mutableMapOf<String, Mutex>()
+
+    private suspend fun accountLock(accountId: String): Mutex =
+        mutexGuard.withLock { accountLocks.getOrPut(accountId) { Mutex() } }
+
+    /** Syncs accounts concurrently; an automatic pass omits accounts in cooldown. */
+    suspend fun syncAll(automatic: Boolean = false): List<SyncOutcome> = coroutineScope {
+        repository.accounts()
+            .map { account -> async {
+                accountLock(account.localId).withLock {
+                    if (RateLimitCooldown.shouldSkip(automatic, nowMs) { repository.backgroundNotBefore(account.localId) }) {
+                        null
+                    } else syncLocked(account)
+                }
+            } }
+            .awaitAll()
+            .filterNotNull()
+    }
+
+    suspend fun syncAccount(accountId: String): SyncOutcome {
+        val account = repository.account(accountId)
+            ?: return SyncOutcome(accountId, success = false, message = "Account not found")
+        return syncAccount(account)
+    }
+
+    suspend fun syncAccount(account: ProviderAccount): SyncOutcome =
+        accountLock(account.localId).withLock { syncLocked(account) }
+
+    private suspend fun syncLocked(account: ProviderAccount): SyncOutcome {
+        // Emulator fixtures never contact a provider. R8 removes this branch from release APKs.
+        if (com.usagelimits.BuildConfig.DEBUG && account.attributes["screenshotFixture"] == "true") {
+            val attemptedAt = nowMs()
+            repository.snapshot(account.localId)?.let {
+                repository.saveSnapshot(it.copy(fetchedAt = attemptedAt, lastAttemptAt = attemptedAt,
+                    windows = it.windows.map { window -> window.copy(measured = false) }))
+            }
+            return SyncOutcome(account.localId, success = true)
+        }
+        return try {
+            val provider = registry.forId(account.provider)
+                ?: throw ProviderException.Unexpected("No provider for ${account.provider.id}")
+
+            val credentials = validCredentials(account)
+            val result = try {
+                provider.fetchUsage(account, credentials)
+            } catch (e: ProviderException.Unauthorized) {
+                // The reactive half of the refresh policy, and what makes the proactive half
+                // safe to keep conservative. The provider has said this token is dead, which
+                // beats any expiry the account did or did not carry.
+                //
+                // Once only: if the renewed pair is refused too, the credential is genuinely
+                // revoked and a second attempt is just another way to fail.
+                val renewed = validCredentials(account, rejectedAccessToken = credentials.accessToken)
+                provider.fetchUsage(account, renewed)
+            }
+
+            val fetchedAt = nowMs()
+            val rateLimit = result.rateLimit
+            val message = if (rateLimit != null) {
+                RATE_LIMITED_PAUSE_MESSAGE
+            } else result.errorMessage
+            repository.saveSnapshot(
+                UsageSnapshot(
+                    accountId = account.localId,
+                    fetchedAt = fetchedAt,
+                    status = result.status,
+                    errorMessage = message,
+                    connectionStatus = result.connectionStatus,
+                    windows = result.windows,
+                    resetCredits = result.resetCredits,
+                    resetCreditCount = result.resetCreditCount,
+                    applicableResetCreditCount = result.applicableResetCreditCount,
+                ),
+                backgroundNotBefore = rateLimit?.let { RateLimitCooldown.deadline(fetchedAt, it.retryAfterMs) },
+            )
+            SyncOutcome(account.localId, success = result.status != SnapshotStatus.FAILED, message = message)
+        } catch (e: CancellationException) {
+            // Rethrow cancellation before the Exception handler: stopping work is not an account
+            // failure and must preserve structured concurrency.
+            throw e
+        } catch (e: ProviderException) {
+            // A cancelled call reaches here too, wearing the wrong clothes: OkHttp answers
+            // cancellation with IOException("Canceled"), which the client maps to Offline. So
+            // the scope is checked before anything is persisted — otherwise a cancelled sync
+            // records "No network connection" against an account with a working connection.
+            currentCoroutineContext().ensureActive()
+            val rateLimit = e as? ProviderException.RateLimited
+            val message = if (rateLimit != null) RATE_LIMITED_PAUSE_MESSAGE else e.userMessage()
+            recordFailure(account.localId, message, e is ProviderException.Unauthorized, rateLimit)
+            SyncOutcome(account.localId, success = false, message = message)
+        } catch (e: Exception) {
+            // A provider bug must not take the whole sync pass down with it.
+            currentCoroutineContext().ensureActive()
+            val message = "Unexpected error while refreshing"
+            recordFailure(account.localId, message)
+            SyncOutcome(account.localId, success = false, message = message)
+        }
+    }
+
+    /**
+     * Best-effort persistence of a failure.
+     *
+     * These calls sit in catch blocks, outside any try. A throw from here would leave
+     * [syncAccount] — documented as never throwing — and cancel the sibling accounts sharing
+     * the [syncAll] scope, discarding their freshly fetched numbers.
+     */
+    private suspend fun recordFailure(
+        accountId: String,
+        message: String,
+        requiresReauthentication: Boolean = false,
+        rateLimit: ProviderException.RateLimited? = null,
+    ) {
+        try {
+            val now = nowMs()
+            repository.saveFailure(
+                accountId, message, now, requiresReauthentication,
+                backgroundNotBefore = rateLimit?.let { RateLimitCooldown.deadline(now, it.retryAfterMs) },
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Nothing further to do: the error is already reflected in the returned outcome.
+        }
+    }
+
+    /**
+     * Runs [block] holding the per-reference credential lock.
+     *
+     * Sign-out has to take this too, and did not. `validCredentials` checks that the reference
+     * still exists and then saves the rotated pair, both inside this lock — but a delete that
+     * did not hold it could land in between, so the save put the credential the user had just
+     * removed straight back. The store's own operations are each atomic; what needs
+     * serialising is the sequence, and that means one lock shared by everything that changes a
+     * credential's existence.
+     *
+     * Keyed by credential reference rather than by account, because two accounts can share
+     * one reference and both would otherwise spend the same rotating refresh token.
+     */
+    suspend fun <T> withCredentialLock(reference: String, block: suspend () -> T): T {
+        val mutex = mutexGuard.withLock { refreshMutexes.getOrPut(reference) { Mutex() } }
+        return mutex.withLock { block() }
+    }
+
+    /**
+     * Returns usable credentials with renewal serialized per credential reference.
+     * Reread credentials and recheck expiry inside the lock to avoid duplicate rotations.
+     * A rejected access token permits reactive renewal when expiry is missing or inaccurate;
+     * a concurrently saved different token gets one attempt before another rotation.
+     * Presenting an already-spent refresh token makes the provider revoke the whole grant,
+     * so the rejected token itself is passed rather than a force flag.
+     */
+    suspend fun validCredentials(
+        account: ProviderAccount,
+        rejectedAccessToken: String? = null,
+    ): OAuthCredentials {
+        val reference = account.credentialReference
+        val current = credentialStore.load(reference)
+            ?: throw ProviderException.Unauthorized("No stored credentials for this account")
+
+        // A rejection overrides the clock, but only for the token that was rejected.
+        val currentWasRejected = rejectedAccessToken != null &&
+            current.accessToken == rejectedAccessToken
+        if (!currentWasRejected && !current.needsRefresh(nowMs())) return current
+
+        return withCredentialLock(reference) {
+            val latest = credentialStore.load(reference)
+                ?: throw ProviderException.Unauthorized("Account was removed while waiting to refresh")
+            val latestWasRejected = rejectedAccessToken != null &&
+                latest.accessToken == rejectedAccessToken
+            // Whoever held the lock may have rotated already. If what they saved is not the
+            // token this caller was refused, it is worth trying before spending another.
+            if (!latestWasRejected && !latest.needsRefresh(nowMs())) return@withCredentialLock latest
+
+            val provider = registry.forId(account.provider)
+                ?: throw ProviderException.Unexpected("No provider for ${account.provider.id}")
+
+            // The exchange and the write that follows it are one indivisible step.
+            //
+            // A rotating provider invalidates `latest` the moment it answers. If the worker is
+            // cancelled while the response is in flight — a lost constraint, doze, the system
+            // reclaiming it — the result can be discarded on the way out of the IO dispatcher,
+            // or the coroutine can stop between receiving it and writing it. Either way the
+            // provider has moved on and the store still holds a pair that is now dead: the
+            // account is signed out, with nothing anywhere recording why, and the user's only
+            // route back is to notice and reconnect it by hand.
+            //
+            // Cancellation is honoured everywhere else, and is still honoured here — just
+            // AFTER the pair is safe. `withContext(NonCancellable)` covers only the exchange
+            // and its persistence, so a cancelled sync stops at the next suspension point
+            // rather than at the one place where stopping costs the account.
+            withContext(NonCancellable) {
+                val refreshed = provider.refresh(latest)
+                // Written back only if the store still holds the very pair this exchange
+                // started from — a compare-and-swap on content, not merely a presence check.
+                //
+                // Presence alone answered the wrong question. It catches the account being
+                // REMOVED mid-flight, which is why it was there, and misses the account being
+                // signed in AGAIN: the user reconnects the same provider while this refresh is
+                // still in the air, the login writes fresh credentials under the same
+                // reference, and this then overwrites them with a pair derived from the
+                // session they just replaced. The symptom is the one users report as "I logged
+                // in and it signed me straight back out", and it is the same failure as losing
+                // a rotated pair, arriving from the other direction.
+                //
+                // `OAuthCredentials` is a data class, so identity here is the whole pair. If
+                // anything at all changed underneath — a newer login, another refresh that
+                // finished first — this result is stale by definition and is dropped rather
+                // than allowed to win on arrival order.
+                val stored = credentialStore.load(reference)
+                    ?: throw ProviderException.Unauthorized("Account was removed during refresh")
+                if (stored == latest) {
+                    credentialStore.save(reference, refreshed)
+                    refreshed
+                } else {
+                    // The discarded rotation must not authorize the next usage request after
+                    // a newer login has replaced it; that can falsely expire the new session.
+                    stored
+                }
+            }
+        }
+    }
+}
+
+/** Message safe to show a user: never contains a token, URL, or raw provider body. */
+fun ProviderException.userMessage(): String = when (this) {
+    // The evaluator's constant, not a second copy of the sentence. See
+    // `NotificationEvaluator.SIGN_IN_EXPIRED_MESSAGE` for the notification a divergence here
+    // silently disabled on the other platform.
+    is ProviderException.Unauthorized -> NotificationEvaluator.SIGN_IN_EXPIRED_MESSAGE
+    is ProviderException.Forbidden -> "Access denied for this account"
+    is ProviderException.RateLimited -> RATE_LIMITED_REQUEST_MESSAGE
+    is ProviderException.ServerError -> "Provider is having trouble ($statusCode)"
+    // The client names the host and the kind of failure; the generic line is only the fallback.
+    is ProviderException.Offline -> message ?: "No network connection"
+    is ProviderException.MalformedPayload -> "Unexpected response from provider"
+    is ProviderException.LoginCancelled -> "Sign-in was cancelled"
+    is ProviderException.Unexpected -> "Refresh failed"
+}

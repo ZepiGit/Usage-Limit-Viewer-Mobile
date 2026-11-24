@@ -1,0 +1,303 @@
+package com.usagelimits.core.network
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import okhttp3.ConnectionPool
+import okhttp3.MediaType
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
+import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import java.net.ProtocolException
+import java.security.cert.CertificateException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
+
+/** A response body plus the bits of the envelope callers actually need. */
+data class HttpResponse(
+    val statusCode: Int,
+    val body: String,
+    val headers: Map<String, String>,
+)
+
+/**
+ * The app's only outbound HTTP path.
+ *
+ * Enforces HTTPS for everything except the loopback OAuth callbacks (which are, by
+ * definition, local and cannot be TLS), maps transport and status failures onto
+ * [ProviderException], and applies bounded retries with exponential backoff.
+ *
+ * No logging interceptor is installed in release builds and request bodies are never logged,
+ * because every request here carries a bearer token.
+ */
+class HttpClient(
+    private val client: OkHttpClient = defaultClient(),
+) {
+    suspend fun request(
+        url: String,
+        method: String = "GET",
+        headers: Map<String, String> = emptyMap(),
+        body: RequestBody? = null,
+        retries: Int = DEFAULT_RETRIES,
+        /**
+         * Whether a 400 means "this credential is dead" rather than "this request was wrong".
+         *
+         * True only for token endpoints. RFC 6749 §5.2 gives `invalid_grant` — a spent, revoked
+         * or malformed refresh token — the status 400, and providers differ in practice: probed
+         * with a deliberately invalid refresh token, OpenAI answers 401 while Google's token
+         * endpoint answers 400. Both codes occur, so the refresh path has to accept both.
+         *
+         * It stays false everywhere else, because on a quota endpoint a 400 really is a bad
+         * request and reading it as an expired sign-in would tell the user to reconnect a
+         * perfectly good account.
+         */
+        badRequestMeansExpired: Boolean = false,
+        /**
+         * Whether this request spends something the server can only accept once.
+         *
+         * A rotating refresh grant and an authorization code are consumed by the act of
+         * ARRIVING, not by the response getting back. If the server rotates R1 to R2 and the
+         * reply is then lost — a dropped connection, a 502 from something in front of it —
+         * resending the same body presents R1 a second time. A provider that treats reuse as
+         * theft can revoke the entire token family, so the retry that was meant to paper over
+         * a blip signs the account out instead. The failure it prevents costs one refresh
+         * cycle; the failure it causes costs the account.
+         *
+         * A one-time grant can be retried after a 429 or a connection failure proven to
+         * precede the HTTP exchange. A DNS outage or a failed connection has not spent it.
+         * Once the exchange starts, transport failures and 5xx leave delivery unknown and
+         * must not be retried. Plain reads keep the
+         * full policy — a usage GET spends nothing and is safe to repeat.
+         */
+        oneTimeGrant: Boolean = false,
+        /** Device grants carry protocol errors on HTTP 400/403; only their poll reads these. */
+        devicePoll: Boolean = false,
+    ): HttpResponse {
+        requireSecure(url)
+        var attempt = 0
+        while (attempt <= retries) {
+            currentCoroutineContext().ensureActive()
+            try {
+                return executeOnce(url, method, headers, body, badRequestMeansExpired, oneTimeGrant, devicePoll)
+            } catch (e: ProviderException.RateLimited) {
+                // Honour Retry-After when the provider sent one, otherwise back off — but
+                // clamped. Providers routinely set Retry-After to the whole remaining
+                // rate-limit window (an hour is common), and this delay holds the calling
+                // coroutine: one throttled account would otherwise stall the entire sync
+                // pass, suppressing the widgets and notifications of every healthy account.
+                // A longer wait is the next scheduled pass's job, not this call's.
+                val wait = (e.retryAfterMs ?: backoffMs(attempt)).coerceIn(0L, MAX_RETRY_AFTER_MS)
+                if (attempt == retries) throw e
+                delay(wait)
+            } catch (e: ProviderException.ServerError) {
+                // Delivery is unknown here: the request reached something, and whether the
+                // grant was consumed before the error is not observable from this side.
+                if (oneTimeGrant || attempt == retries) throw e
+                delay(backoffMs(attempt))
+            } catch (e: ProviderException.Offline) {
+                if ((oneTimeGrant && !e.requestNotSent) || attempt == retries) throw e
+                delay(backoffMs(attempt))
+            }
+            attempt++
+        }
+        // Every final attempt throws; the compiler still requires a terminal expression.
+        throw ProviderException.Unexpected("request failed")
+    }
+
+    private suspend fun executeOnce(
+        url: String,
+        method: String,
+        headers: Map<String, String>,
+        body: RequestBody?,
+        badRequestMeansExpired: Boolean = false,
+        oneTimeGrant: Boolean = false,
+        devicePoll: Boolean = false,
+    ): HttpResponse = withContext(Dispatchers.IO) {
+        val builder = Request.Builder().url(url)
+        headers.forEach { (k, v) -> builder.header(k, v) }
+
+        // One-shot bodies allow route fallback before transmission, but prevent replay after
+        // transmission when delivery is unknown and a second presentation can spend the grant twice.
+        builder.method(method, if (oneTimeGrant && body != null) OneShotBody(body) else body)
+
+        // A dedicated connection avoids stale pooled sockets failing after a one-time grant is sent.
+        // The pool evicts it after the reply; newBuilder preserves the dispatcher.
+        var exchangeStarted = false
+        var connectionFailure: IOException? = null
+        val call = if (oneTimeGrant) {
+            client.newBuilder()
+                .connectionPool(ConnectionPool(0, 1, TimeUnit.MILLISECONDS))
+                // This last application interceptor sees transport failures. The network
+                // guard runs after DNS, TCP and TLS, before any HTTP request is written.
+                // Unknown delivery stays final; the caller's event listeners stay intact.
+                .addInterceptor { chain ->
+                    try {
+                        chain.proceed(chain.request())
+                    } catch (e: IOException) {
+                        if (!exchangeStarted) connectionFailure = e
+                        throw e
+                    }
+                }
+                .apply {
+                    networkInterceptors().add(0, okhttp3.Interceptor { chain ->
+                        exchangeStarted = true
+                        chain.proceed(chain.request())
+                    })
+                }
+                .build()
+        } else {
+            client
+        }
+
+        try {
+            call.newCall(builder.build()).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                val headerMap = response.headers.names().associateWith { response.headers[it].orEmpty() }
+                when {
+                    response.isSuccessful -> HttpResponse(response.code, text, headerMap)
+                    devicePoll && response.code in setOf(400, 403) -> HttpResponse(response.code, text, headerMap)
+                    response.code == 400 && badRequestMeansExpired ->
+                        throw ProviderException.Unauthorized()
+                    response.code == 401 -> throw ProviderException.Unauthorized()
+                    response.code == 403 -> throw ProviderException.Forbidden()
+                    response.code == 429 -> throw ProviderException.RateLimited(
+                        retryAfterMs = retryAfterMs(response.header("Retry-After"), response.header("Date")),
+                    )
+                    response.code >= 500 -> throw ProviderException.ServerError(
+                        response.code,
+                        "Provider returned ${response.code}",
+                    )
+                    else -> throw ProviderException.Unexpected("HTTP ${response.code}", statusCode = response.code)
+                }
+            }
+        } catch (e: IOException) {
+            throw ProviderException.Offline(
+                describeTransportFailure(url, e), e,
+                requestNotSent = e === connectionFailure && isTransientConnectionFailure(e),
+            )
+        }
+    }
+
+    private fun isTransientConnectionFailure(e: IOException): Boolean =
+        e !is ProtocolException &&
+            (e !is InterruptedIOException || e is SocketTimeoutException) &&
+            e !is SSLPeerUnverifiedException &&
+            !(e is SSLHandshakeException && e.cause is CertificateException)
+
+    /**
+     * Describes the failing host and transport stage without exception text.
+     * OkHttp messages may contain sensitive URLs; only the host is safe to display.
+     */
+    private fun describeTransportFailure(url: String, e: IOException): String {
+        val host = runCatching { java.net.URI(url).host }.getOrNull() ?: "the provider"
+        return when (e) {
+            is UnknownHostException ->
+                "Could not look up $host. Check the connection, or a DNS filter that may block it."
+            is ConnectException, is NoRouteToHostException -> "Could not connect to $host."
+            is SocketTimeoutException -> "$host did not answer in time."
+            is SSLHandshakeException, is SSLPeerUnverifiedException ->
+                "A secure connection to $host could not be established."
+            else -> "The connection to $host was interrupted."
+        }
+    }
+
+    /**
+     * A body OkHttp may write at most once.
+     *
+     * Declaring a body one-shot is how OkHttp is told "do not resend this after it was written",
+     * while leaving every recovery that happens before the write — trying the next address of a
+     * multi-homed host, replacing a pooled connection that would not open a stream — in place.
+     */
+    private class OneShotBody(private val delegate: RequestBody) : RequestBody() {
+        override fun contentType(): MediaType? = delegate.contentType()
+        override fun contentLength(): Long = delegate.contentLength()
+        override fun writeTo(sink: BufferedSink) = delegate.writeTo(sink)
+        override fun isOneShot(): Boolean = true
+    }
+
+    /**
+     * Rejects plaintext HTTP for anything that is not a loopback OAuth callback. Tokens must
+     * never traverse an unencrypted connection.
+     */
+    private fun requireSecure(url: String) {
+        if (url.startsWith("https://", ignoreCase = true)) return
+
+        // A prefix match would have accepted http://localhost.attacker.example/ and
+        // http://127.0.0.1.evil.com/ — both are ordinary remote hosts. Compare the parsed
+        // host instead.
+        val host = runCatching { java.net.URI(url).host }.getOrNull()?.lowercase()
+        val isLoopback = host == "localhost" || host == "127.0.0.1" || host == "::1"
+        if (!isLoopback) throw ProviderException.Unexpected("refusing plaintext request")
+    }
+
+    private fun retryAfterMs(value: String?, serverDate: String?): Long? {
+        if (value == null) return null
+        value.toLongOrNull()?.let { seconds ->
+            return seconds.coerceIn(0L, MAX_RETRY_AFTER_SECONDS) * 1_000
+        }
+        val retryAt = httpDateMs(value) ?: return null
+        // A server date gives the intended delay even if the device clock differs.
+        val responseAt = httpDateMs(serverDate) ?: System.currentTimeMillis()
+        return (retryAt - responseAt).coerceIn(0L, MAX_RETRY_AFTER_SECONDS * 1_000)
+    }
+
+    private fun httpDateMs(value: String?): Long? {
+        if (value == null) return null
+        return try {
+            ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
+        } catch (_: DateTimeParseException) {
+            null
+        }
+    }
+
+    private fun backoffMs(attempt: Int): Long =
+        (BASE_BACKOFF_MS * (1L shl attempt)).coerceAtMost(MAX_BACKOFF_MS)
+
+    companion object {
+        const val DEFAULT_RETRIES = 2
+
+        /** Longest this client will sleep between attempts, Retry-After included. */
+        const val MAX_RETRY_AFTER_MS = 30_000L
+
+        private const val BASE_BACKOFF_MS = 1_000L
+        private const val MAX_BACKOFF_MS = 8_000L
+        private const val MAX_RETRY_AFTER_SECONDS = 86_400L
+
+        val JSON_MEDIA_TYPE = "application/json".toMediaType()
+        val FORM_MEDIA_TYPE = "application/x-www-form-urlencoded".toMediaType()
+
+        fun jsonBody(payload: String): RequestBody = payload.toRequestBody(JSON_MEDIA_TYPE)
+
+        fun formBody(fields: Map<String, String>): RequestBody =
+            fields.entries.joinToString("&") { (k, v) ->
+                "${urlEncode(k)}=${urlEncode(v)}"
+            }.toRequestBody(FORM_MEDIA_TYPE)
+
+        private fun urlEncode(value: String): String =
+            java.net.URLEncoder.encode(value, "UTF-8")
+
+        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            // Keep route fallback on: with it off, a dead first (usually IPv6) route fails every
+            // token exchange as "No network connection". OneShotBody still blocks replay after send.
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+}

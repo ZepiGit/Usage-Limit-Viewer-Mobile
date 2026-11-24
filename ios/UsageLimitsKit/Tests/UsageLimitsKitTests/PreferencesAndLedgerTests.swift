@@ -1,0 +1,582 @@
+import XCTest
+@testable import UsageLimitsKit
+
+/// The two things that have to survive the process dying.
+///
+/// Settings, because a preferences screen that forgets is worse than no preferences screen. And
+/// the notification ledger, because the evaluator decides an account has BECOME low — a claim
+/// that means nothing without a memory of what it said last time. Both are read by a background
+/// task in a different process from the one that wrote them, so both are files rather than
+/// anything held in memory.
+final class PreferencesAndLedgerTests: XCTestCase {
+
+    private let now = Date(timeIntervalSince1970: 1_757_000_000)
+    private var directory: URL!
+
+    override func setUpWithError() throws {
+        directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("prefs-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    // MARK: - Settings
+
+    func testASettingSurvivesAReopen() async throws {
+        let store = SettingsStore(directory: directory)
+        var settings = AppSettings()
+        settings.syncIntervalMinutes = 180
+        settings.notifications.notifyOnExhausted = false
+        try await store.save(settings)
+
+        let reopened = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(reopened.syncIntervalMinutes, 180)
+        XCTAssertFalse(reopened.notifications.notifyOnExhausted)
+    }
+
+    /// Normalization must preserve preferences outside the fields it adjusts.
+    func testEveryDisplayPreferenceSurvivesASave() async throws {
+        let store = SettingsStore(directory: directory)
+        var settings = AppSettings()
+        settings.showSubscriptionTier = false
+        settings.showRenewalTime = true
+        settings.accountsManuallyOrdered = true
+        settings.percentDisplay = .used
+        settings.overviewLayout = .dials
+        settings.notifications.mutedAccountIDs = ["acct-1", "acct-2"]
+
+        let returned = try await store.save(settings)
+
+        // What `save` reports and what the next launch reads have to agree: the settings screen
+        // renders the former and the user judges it by the latter.
+        XCTAssertEqual(returned, settings)
+        let reopened = await SettingsStore(directory: directory).settings()
+        XCTAssertFalse(reopened.showSubscriptionTier)
+        XCTAssertTrue(reopened.showRenewalTime)
+        XCTAssertTrue(reopened.accountsManuallyOrdered)
+        XCTAssertEqual(reopened.percentDisplay, .used)
+        XCTAssertEqual(reopened.overviewLayout, .dials)
+        XCTAssertEqual(reopened.notifications.mutedAccountIDs, ["acct-1", "acct-2"])
+    }
+
+    func testClaudeCodeAnimationOffSurvivesDecodingAndAReopen() async throws {
+        struct StoredAnimation: Decodable {
+            let animateClaudeCodeIcon: Bool?
+        }
+
+        let json = #"{"animateClaudeCodeIcon":false,"providerIcons":{"claude":"custom"},"overviewLayout":"dials","percentDisplay":"used"}"#
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+        let stored = try await SettingsStore(directory: directory).save(settings)
+        let reopened = await SettingsStore(directory: directory).settings()
+
+        for state in [settings, stored, reopened] {
+            let data = try JSONEncoder().encode(state)
+            XCTAssertEqual(try JSONDecoder().decode(StoredAnimation.self, from: data).animateClaudeCodeIcon, false)
+            XCTAssertEqual(state.providerIcons, ["claude": "custom"])
+            XCTAssertEqual(state.overviewLayout, .dials)
+            XCTAssertEqual(state.percentDisplay, .used)
+        }
+    }
+
+    func testClaudeCodeAnimationDefaultsToOnWithoutResettingOtherChoices() async throws {
+        XCTAssertTrue(AppSettings().animateClaudeCodeIcon)
+        for animation in ["", #", "animateClaudeCodeIcon":null"#, #", "animateClaudeCodeIcon":"unknown""#, #", "animateClaudeCodeIcon":true"#] {
+            let json = #"{"overviewLayout":"dials","percentDisplay":"used"\#(animation)}"#
+            let data = Data(json.utf8)
+            let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+            XCTAssertTrue(decoded.animateClaudeCodeIcon, json)
+
+            try data.write(to: directory.appendingPathComponent("settings.json"))
+            let reopened = await SettingsStore(directory: directory).settings()
+            XCTAssertEqual(reopened, decoded, json)
+            XCTAssertEqual(reopened.overviewLayout, .dials, json)
+            XCTAssertEqual(reopened.percentDisplay, .used, json)
+        }
+    }
+
+    func testSavedLayoutKeepsItsStableJSONValue() throws {
+        let settings = try JSONDecoder().decode(AppSettings.self,
+            from: Data(#"{"overviewLayout":"dials","showRenewalTime":true}"#.utf8))
+        let encoded = try JSONEncoder().encode(settings.normalised())
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(saved["overviewLayout"] as? String, "dials")
+        XCTAssertTrue(settings.showRenewalTime)
+    }
+
+    private func assertCreditChoices(
+        _ settings: AppSettings, layout: String, first: String, visible: Bool,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let data = try JSONEncoder().encode(settings)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any], file: file, line: line)
+        XCTAssertEqual(json["overviewCreditLayout"] as? String, layout, file: file, line: line)
+        XCTAssertEqual(json["overviewShowFirst"] as? String, first, file: file, line: line)
+        XCTAssertEqual(json["overviewShowCredits"] as? Bool, visible, file: file, line: line)
+    }
+
+    func testCreditChoicesKeepTheirStableJSONValuesThroughNormalisationAndAReopen() async throws {
+        for (layout, first, visible) in [("compact", "creditAccounts", false), ("normal", "usageProviders", true)] {
+            let json = """
+                {"overviewCreditLayout":"\(layout)","overviewShowFirst":"\(first)","overviewShowCredits":\(visible),
+                 "overviewLayout":"dials","percentDisplay":"used","syncIntervalMinutes":180,
+                 "showSubscriptionTier":false,"showRenewalTime":true,"accountsManuallyOrdered":true,
+                 "statusIconsEnabled":true,"pinnedAccountKeys":["b","a"],
+                 "notifications":{"notifyOnExhausted":false,"mutedAccountIDs":["acct-1"]}}
+                """
+            let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+            let stored = try await SettingsStore(directory: directory).save(settings)
+            let reopened = await SettingsStore(directory: directory).settings()
+
+            try assertCreditChoices(settings, layout: layout, first: first, visible: visible)
+            try assertCreditChoices(stored, layout: layout, first: first, visible: visible)
+            try assertCreditChoices(reopened, layout: layout, first: first, visible: visible)
+            XCTAssertEqual(reopened, stored)
+            XCTAssertEqual(reopened.overviewLayout, .dials)
+            XCTAssertEqual(reopened.percentDisplay, .used)
+            XCTAssertEqual(reopened.syncIntervalMinutes, 180)
+            XCTAssertFalse(reopened.showSubscriptionTier)
+            XCTAssertTrue(reopened.showRenewalTime)
+            XCTAssertTrue(reopened.accountsManuallyOrdered)
+            XCTAssertTrue(reopened.statusIconsEnabled)
+            XCTAssertEqual(reopened.pinnedAccountKeys, ["b", "a"])
+            XCTAssertFalse(reopened.notifications.notifyOnExhausted)
+            XCTAssertEqual(reopened.notifications.mutedAccountIDs, ["acct-1"])
+        }
+    }
+
+    func testNewAndOldSettingsUseNormalVisibleCreditsAfterUsageProviders() async throws {
+        try assertCreditChoices(AppSettings(), layout: "normal", first: "usageProviders", visible: true)
+        try Data(#"{"overviewLayout":"dials","percentDisplay":"used","showRenewalTime":true}"#.utf8)
+            .write(to: directory.appendingPathComponent("settings.json"))
+
+        let old = await SettingsStore(directory: directory).settings()
+
+        try assertCreditChoices(old, layout: "normal", first: "usageProviders", visible: true)
+        XCTAssertEqual(old.overviewLayout, .dials)
+        XCTAssertEqual(old.percentDisplay, .used)
+        XCTAssertTrue(old.showRenewalTime)
+    }
+
+    func testEachAbsentCreditChoiceDefaultsWithoutResettingItsNeighbours() async throws {
+        for (json, layout, first, visible) in [
+            (#"{"overviewShowFirst":"creditAccounts","overviewShowCredits":false,"overviewLayout":"dials"}"#,
+             "normal", "creditAccounts", false),
+            (#"{"overviewCreditLayout":"compact","overviewShowCredits":false,"overviewLayout":"dials"}"#,
+             "compact", "usageProviders", false),
+            (#"{"overviewCreditLayout":"compact","overviewShowFirst":"creditAccounts","overviewLayout":"dials"}"#,
+             "compact", "creditAccounts", true),
+        ] {
+            try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+            let settings = await SettingsStore(directory: directory).settings()
+            try assertCreditChoices(settings, layout: layout, first: first, visible: visible)
+            XCTAssertEqual(settings.overviewLayout, .dials)
+        }
+    }
+
+    func testAnUnknownCreditLayoutKeepsTheOtherCreditChoices() async throws {
+        let json = #"{"overviewCreditLayout":"tiles","overviewShowFirst":"creditAccounts","overviewShowCredits":false,"percentDisplay":"used"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        try assertCreditChoices(settings, layout: "normal", first: "creditAccounts", visible: false)
+        XCTAssertEqual(settings.percentDisplay, .used)
+    }
+
+    func testAnUnknownFirstBlockKeepsTheOtherCreditChoices() async throws {
+        let json = #"{"overviewCreditLayout":"compact","overviewShowFirst":"alphabetical","overviewShowCredits":false,"percentDisplay":"used"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        try assertCreditChoices(settings, layout: "compact", first: "usageProviders", visible: false)
+        XCTAssertEqual(settings.percentDisplay, .used)
+    }
+
+    func testAnUnknownCreditsVisibilityKeepsTheOtherCreditChoices() async throws {
+        let json = #"{"overviewCreditLayout":"compact","overviewShowFirst":"creditAccounts","overviewShowCredits":"unknown","percentDisplay":"used"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        try assertCreditChoices(settings, layout: "compact", first: "creditAccounts", visible: true)
+        XCTAssertEqual(settings.percentDisplay, .used)
+    }
+
+    func testPinnedAccountPreferencesSurviveNormalisationAndAReopen() async throws {
+        let store = SettingsStore(directory: directory)
+        var settings = AppSettings(statusIconsEnabled: true, pinnedAccountKeys: ["b", "a"])
+        settings.syncIntervalMinutes = 5
+
+        let stored = try await store.save(settings)
+        let reopened = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(stored.syncIntervalMinutes, AppSettings.minimumSyncIntervalMinutes)
+        XCTAssertTrue(stored.statusIconsEnabled)
+        XCTAssertEqual(stored.pinnedAccountKeys, ["b", "a"])
+        XCTAssertEqual(reopened, stored)
+    }
+
+    func testSettingsFromBeforePinnedAccountsKeepTheirChoicesWithPinsOff() async throws {
+        let json = #"{"syncIntervalMinutes": 120, "showRenewalTime": true, "percentDisplay": "used", "notifications": {"notifyOnExhausted": false}}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertFalse(settings.statusIconsEnabled)
+        XCTAssertEqual(settings.pinnedAccountKeys, [])
+        XCTAssertEqual(settings.syncIntervalMinutes, 120)
+        XCTAssertTrue(settings.showRenewalTime)
+        XCTAssertEqual(settings.percentDisplay, .used)
+        XCTAssertFalse(settings.notifications.notifyOnExhausted)
+    }
+
+    /// A file from before these preferences existed must keep every value it does state, and
+    /// take the defaults only for what it does not.
+    func testAFileWithoutTheDisplayPreferencesTakesTheirDefaults() async throws {
+        let json = #"{"syncIntervalMinutes": 60}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(settings.syncIntervalMinutes, 60)
+        XCTAssertTrue(settings.showSubscriptionTier)
+        XCTAssertFalse(settings.showRenewalTime)
+        XCTAssertFalse(settings.accountsManuallyOrdered)
+        XCTAssertEqual(settings.percentDisplay, .left)
+        XCTAssertEqual(settings.overviewLayout, .list)
+        XCTAssertTrue(settings.notifications.mutedAccountIDs.isEmpty)
+    }
+
+    func testAnUnknownOverviewLayoutPreservesOtherStoredChoices() async throws {
+        let json = #"{"overviewLayout":"tiles","showSubscriptionTier":false,"showRenewalTime":true,"percentDisplay":"used"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(settings.overviewLayout, .list)
+        XCTAssertFalse(settings.showSubscriptionTier)
+        XCTAssertTrue(settings.showRenewalTime)
+        XCTAssertEqual(settings.percentDisplay, .used)
+    }
+
+    /// One unknown enum name must not fail the whole decode: the file holds every other
+    /// preference, and failing it would reset them all.
+    func testAnUnknownPercentDisplayNameTakesTheDefaultWithoutResettingTheRest() async throws {
+        let json = #"{"syncIntervalMinutes": 60, "percentDisplay": "sideways"}"#
+        try Data(json.utf8).write(to: directory.appendingPathComponent("settings.json"))
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(settings.percentDisplay, .left)
+        XCTAssertEqual(settings.syncIntervalMinutes, 60)
+    }
+
+    func testDefaultsRatherThanAFailureWhenNothingIsStored() async {
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(settings.syncIntervalMinutes, AppSettings.defaultSyncIntervalMinutes)
+    }
+
+    func testAnUnreadableFileFallsBackToDefaults() async throws {
+        // Preferences, not data: losing them costs a trip back to the settings screen, where
+        // refusing to launch over the file would cost the whole app.
+        try "not json".write(
+            to: directory.appendingPathComponent("settings.json"),
+            atomically: true, encoding: .utf8)
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(settings.syncIntervalMinutes, AppSettings.defaultSyncIntervalMinutes)
+    }
+
+    func testAnIntervalBelowTheMinimumIsRaisedOnTheWayIn() async throws {
+        let store = SettingsStore(directory: directory)
+
+        let stored = try await store.save(AppSettings(syncIntervalMinutes: 1))
+
+        XCTAssertEqual(stored.syncIntervalMinutes, 5)
+    }
+
+    func testAFileWrittenWithATooSmallIntervalIsRaisedOnTheWayOut() async throws {
+        // A hand-edited or downgraded file is the other direction the floor can be bypassed
+        // from, and it reaches the scheduler just the same.
+        try #"{"syncIntervalMinutes":1,"notifications":{}}"#.write(
+            to: directory.appendingPathComponent("settings.json"),
+            atomically: true, encoding: .utf8)
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(settings.syncIntervalMinutes, 5)
+    }
+
+    func testASettingsFileFromAnOlderVersionKeepsWhatItDoesSay() async throws {
+        // Synthesised decoding requires every key, so adding one toggle later would make every
+        // stored file undecodable — and an undecodable file means "use defaults", silently
+        // wiping every preference the user had set. A missing key is a version difference.
+        try #"{"syncIntervalMinutes":120,"notifications":{"notifyOnExhausted":false}}"#.write(
+            to: directory.appendingPathComponent("settings.json"),
+            atomically: true, encoding: .utf8)
+
+        let settings = await SettingsStore(directory: directory).settings()
+
+        XCTAssertEqual(settings.syncIntervalMinutes, 120)
+        XCTAssertFalse(settings.notifications.notifyOnExhausted)
+        // Untouched by the file, so it keeps its default rather than becoming false.
+        XCTAssertTrue(settings.notifications.notifyBelow20Percent)
+    }
+
+    func testTheStaleThresholdFollowsTheChosenInterval() async throws {
+        // The setting that made a fixed one-hour threshold wrong: at a three-hour interval
+        // every snapshot was older than an hour before the next arrived, so every account read
+        // stale permanently.
+        let store = SettingsStore(directory: directory)
+        let stored = try await store.save(AppSettings(syncIntervalMinutes: 180))
+
+        XCTAssertEqual(stored.staleAfter, 2 * 180 * 60)
+    }
+
+    // MARK: - The ledger
+
+    private func event(_ key: String, account: String = "a") -> NotificationEvaluator.Event {
+        NotificationEvaluator.Event(accountId: account, key: key, line: "line for \(key)")
+    }
+
+    func testAnEventIsClaimedOnceAndOnlyOnce() async throws {
+        let ledger = NotificationLedger(directory: directory)
+
+        let first = try await ledger.claim([event("a|0|low")], at: now)
+        let second = try await ledger.claim([event("a|0|low")], at: now.addingTimeInterval(1_800))
+
+        XCTAssertEqual(first.map(\.key), ["a|0|low"])
+        XCTAssertTrue(second.isEmpty)
+    }
+
+    func testAClaimSurvivesTheProcess() async throws {
+        // The whole reason this is a file. An account at 8% would otherwise be announced afresh
+        // on every launch, and on every background refresh after one.
+        let ledger = NotificationLedger(directory: directory)
+        _ = try await ledger.claim([event("a|0|low")], at: now)
+
+        let reopened = NotificationLedger(directory: directory)
+        let again = try await reopened.claim([event("a|0|low")], at: now)
+
+        XCTAssertTrue(again.isEmpty)
+    }
+
+    func testClaimingReturnsTheEventsSoTheCallerCanPostThem() async throws {
+        let ledger = NotificationLedger(directory: directory)
+
+        let claimed = try await ledger.claim(
+            [event("a|0|low"), event("a|0|critical")], at: now)
+
+        XCTAssertEqual(claimed.map(\.line), ["line for a|0|low", "line for a|0|critical"])
+    }
+
+    func testAMixOfNewAndAlreadyDeliveredKeepsOnlyTheNew() async throws {
+        let ledger = NotificationLedger(directory: directory)
+        _ = try await ledger.claim([event("a|0|low")], at: now)
+
+        let claimed = try await ledger.claim(
+            [event("a|0|low"), event("a|0|exhausted")], at: now)
+
+        XCTAssertEqual(claimed.map(\.key), ["a|0|exhausted"])
+    }
+
+    func testReClaimingDoesNotExtendAKeyRetention() async throws {
+        // Otherwise a still-true condition re-stated on every sync would keep its key alive for
+        // ever, and the episode it belongs to could never age out.
+        let ledger = NotificationLedger(directory: directory)
+        _ = try await ledger.claim([event("a|0|low")], at: now)
+
+        // Re-claimed just before it would age out...
+        _ = try await ledger.claim(
+            [event("a|0|low")],
+            at: now.addingTimeInterval(NotificationLedger.retention - 60))
+        // ...and then a sync past the original claim's retention.
+        _ = try await ledger.claim(
+            [event("unrelated")],
+            at: now.addingTimeInterval(NotificationLedger.retention + 60))
+
+        let expired = await ledger.hasDelivered("a|0|low")
+        XCTAssertFalse(expired)
+    }
+
+    func testAKeyIsRememberedForLongerThanAnyRealEpisode() async throws {
+        // A monthly window's exhaustion must not be re-announced because the record aged out
+        // mid-month.
+        let ledger = NotificationLedger(directory: directory)
+        _ = try await ledger.claim([event("a|0|exhausted")], at: now)
+
+        _ = try await ledger.claim(
+            [event("unrelated")], at: now.addingTimeInterval(31 * 24 * 60 * 60))
+
+        let stillThere = await ledger.hasDelivered("a|0|exhausted")
+        XCTAssertTrue(stillThere)
+    }
+
+    func testEvaluatorStateSurvivesTheProcess() async throws {
+        // Without it every launch reads as a fresh dip: the episode counter advances, fresh keys
+        // are minted, and every threshold fires again.
+        let ledger = NotificationLedger(directory: directory)
+        try await ledger.save(states: [
+            NotificationEvaluator.AccountState(
+                accountId: "a", lowQuotaEpisode: 3, lowQuotaActive: true,
+                lastProcessedFetchedAt: now),
+        ])
+
+        let reopened = await NotificationLedger(directory: directory).states()
+
+        XCTAssertEqual(reopened["a"]?.lowQuotaEpisode, 3)
+        XCTAssertEqual(reopened["a"]?.lowQuotaActive, true)
+        XCTAssertEqual(reopened["a"]?.lastProcessedFetchedAt, now)
+    }
+
+    func testForgettingAnAccountClearsItsKeysAndNotItsNeighbours() async throws {
+        // A re-added account under the same id would otherwise inherit records saying every one
+        // of its edges had already been announced, and go silent while genuinely low.
+        let ledger = NotificationLedger(directory: directory)
+        _ = try await ledger.claim(
+            [event("a|0|low", account: "a"), event("b|0|low", account: "b")], at: now)
+        try await ledger.save(states: [
+            NotificationEvaluator.AccountState(accountId: "a"),
+            NotificationEvaluator.AccountState(accountId: "b"),
+        ])
+
+        try await ledger.forget(accountID: "a")
+
+        let goneA = await ledger.hasDelivered("a|0|low")
+        let keptB = await ledger.hasDelivered("b|0|low")
+        let states = await ledger.states()
+        XCTAssertFalse(goneA)
+        XCTAssertTrue(keptB)
+        XCTAssertNil(states["a"])
+        XCTAssertNotNil(states["b"])
+    }
+
+    func testAnUnreadableLedgerIsEmptyRatherThanFatal() async throws {
+        // Re-announcing an edge is a repeated message the user can see. Announcing nothing is
+        // the failure they cannot.
+        try "not json".write(
+            to: directory.appendingPathComponent("notifications.json"),
+            atomically: true, encoding: .utf8)
+
+        let ledger = NotificationLedger(directory: directory)
+        let claimed = try await ledger.claim([event("a|0|low")], at: now)
+
+        XCTAssertEqual(claimed.count, 1)
+    }
+
+    // MARK: - What counts as a credit you have
+
+    private func snapshot(
+        rows: [ResetCredit], count: Int?, applicable: Int?
+    ) -> UsageSnapshot {
+        UsageSnapshot(
+            accountID: "a", fetchedAt: now, status: .ok, windows: [],
+            resetCredits: rows, resetCreditCount: count,
+            applicableResetCreditCount: applicable)
+    }
+
+    func testACountWithoutRowsStillCounts() {
+        // The shape Codex actually serves in its usage payload: a count and no rows at all.
+        // Counting rows told a user holding two credits that they had none.
+        let stored = snapshot(rows: [], count: 2, applicable: 2)
+
+        XCTAssertEqual(stored.heldResetCredits, 2)
+        XCTAssertEqual(stored.spendableResetCredits, 2)
+    }
+
+    func testASpentCreditIsNotOneYouHold() {
+        // A consumed credit is still listed. Counting it says the user has one to spend.
+        let stored = snapshot(
+            rows: [ResetCredit(id: "c1", grantedAt: nil, expiresAt: nil, status: "consumed")],
+            count: nil, applicable: nil)
+
+        XCTAssertEqual(stored.heldResetCredits, 0)
+    }
+
+    func testHoldingCreditsIsNotTheSameAsBeingAbleToSpendOne() {
+        // The distinction the whole applicable count exists for: two in the balance, none that
+        // applies to the limit in force.
+        let stored = snapshot(rows: [], count: 2, applicable: 0)
+
+        XCTAssertEqual(stored.heldResetCredits, 2)
+        XCTAssertEqual(stored.spendableResetCredits, 0)
+    }
+    // MARK: - Arithmetic on a decoded interval
+
+    /// `2 * minutes * 60` is Int arithmetic and trapped past Int.max / 120. The interval comes
+    /// off a settings file with a floor and no ceiling, so a hand-edited or corrupt file could
+    /// crash every launch. Against the Int version this test aborts the process.
+    func testAHugeSyncIntervalDoesNotOverflowTheStaleThreshold() {
+        XCTAssertEqual(
+            Severity.staleAfter(syncIntervalMinutes: Int.max),
+            TimeInterval(Int.max) * 120)
+    }
+
+    // MARK: - One ledger step
+
+    /// A failed commit must leave the transition retryable.
+    ///
+    /// Split across save-then-claim, a failed first write left the ledger's cache advanced
+    /// (lastProcessedFetchedAt moved) and its file not; the retry then read the same snapshot
+    /// as a replay and skipped its quota edges. The warning was consumed and never returned,
+    /// with no crash and nothing posted.
+    func testAFailedLedgerWriteDoesNotConsumeTheTransition() async throws {
+        // A directory that does not exist yet: the first write fails, and creating it afterwards
+        // is "write access restored".
+        let missing = directory.appendingPathComponent("not-yet")
+        let ledger = NotificationLedger(directory: missing)
+        let now = Date(timeIntervalSince1970: 1_757_000_000)
+        let low = AccountSummary(
+            accountId: "acct", label: "Account acct",
+            snapshot: UsageSnapshot(
+                accountID: "acct", fetchedAt: now, status: .ok,
+                windows: [UsageWindow(
+                    id: "w", label: "5h limit", category: .fiveHour, usedPercent: 85,
+                    periodSeconds: 18_000, resetAt: nil, exhausted: false)]))
+
+        do {
+            _ = try await ledger.evaluateAndClaim(
+                accounts: [low], settings: NotificationSettings(), percentDisplay: .left, at: now)
+            XCTFail("the first write must fail: the directory does not exist")
+        } catch {
+            // Expected.
+        }
+
+        try FileManager.default.createDirectory(at: missing, withIntermediateDirectories: true)
+        let retried = try await ledger.evaluateAndClaim(
+            accounts: [low], settings: NotificationSettings(), percentDisplay: .left, at: now)
+
+        XCTAssertEqual(
+            retried.map(\.line), ["Account acct · 5h limit: less than 20% remaining"],
+            "the transition must still be announced once the write succeeds")
+        // And once more, to prove the claim then holds.
+        let again = try await ledger.evaluateAndClaim(
+            accounts: [low], settings: NotificationSettings(), percentDisplay: .left, at: now.addingTimeInterval(1))
+        XCTAssertTrue(again.isEmpty)
+    }
+
+    func testTheLedgerWordsAnAlertInTheModeItIsGiven() async throws {
+        let ledger = NotificationLedger(directory: directory)
+        let now = Date(timeIntervalSince1970: 1_757_000_000)
+        let low = AccountSummary(
+            accountId: "acct", label: "Account acct",
+            snapshot: UsageSnapshot(
+                accountID: "acct", fetchedAt: now, status: .ok,
+                windows: [UsageWindow(
+                    id: "w", label: "5h limit", category: .fiveHour, usedPercent: 85,
+                    periodSeconds: 18_000, resetAt: nil, exhausted: false)]))
+
+        let claimed = try await ledger.evaluateAndClaim(
+            accounts: [low], settings: NotificationSettings(), percentDisplay: .used, at: now)
+
+        XCTAssertEqual(claimed.map(\.line), ["Account acct · 5h limit: more than 80% used"])
+    }
+
+}

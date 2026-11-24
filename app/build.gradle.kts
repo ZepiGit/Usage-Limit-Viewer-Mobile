@@ -1,0 +1,270 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.ksp)
+}
+
+// Environment names match the release workflow; user-level Gradle properties are supported too.
+fun signingValue(environment: String, property: String): String? =
+    providers.environmentVariable(environment).orNull?.takeIf { it.isNotBlank() }
+        ?: providers.gradleProperty(property).orNull?.takeIf { it.isNotBlank() }
+        ?: providers.environmentVariable(property).orNull?.takeIf { it.isNotBlank() }
+
+val releaseStorePath = signingValue("ANDROID_KEYSTORE_PATH", "USAGE_LIMITS_STORE_FILE")
+val releaseStorePassword = signingValue("ANDROID_KEYSTORE_PASSWORD", "USAGE_LIMITS_STORE_PASSWORD")
+val releaseKeyAlias = signingValue("ANDROID_KEY_ALIAS", "USAGE_LIMITS_KEY_ALIAS")
+val releaseKeyPassword = signingValue("ANDROID_KEY_PASSWORD", "USAGE_LIMITS_KEY_PASSWORD")
+val signingValues = listOf(releaseStorePath, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+
+/** Commits reachable from HEAD, or 1 where there is no git to ask. See `versionCode`. */
+val commitCount: Int = runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+        .standardOutput.asText.get().trim().toInt()
+}.getOrDefault(1).coerceAtLeast(1)
+val releaseSigningConfigured = signingValues.any { it != null }
+if (releaseSigningConfigured) {
+    require(signingValues.all { it != null }) { "Release signing requires all four signing settings." }
+    require(file(releaseStorePath!!).isFile) { "The configured release keystore file does not exist." }
+}
+
+android {
+    namespace = "com.usagelimits"
+    compileSdk = 37
+
+    defaultConfig {
+        applicationId = "com.usagelimits"
+        minSdk = 26
+        targetSdk = 37
+        // Supplied by the workflows; otherwise the commit count, which rises with the history
+        // on every machine that builds the same commit. A hardcoded 1 made every build a
+        // sideways install — fine for `adb install -r`, but an installer that sees the same
+        // version code from a different run cannot tell an update from a re-install — and a
+        // published release can never go back to a lower code.
+        versionCode = System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull() ?: commitCount
+        versionName = System.getenv("ANDROID_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.5.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        // One debug key for every machine and every CI run, checked in at app/debug.keystore.
+        //
+        // Android refuses to update an installed app with an APK signed by a different key, and
+        // the only way past that refusal is to uninstall — which deletes the database, the
+        // credentials and every widget's configuration. Gradle's default debug key lives in
+        // ~/.android and is minted fresh on any machine that lacks one, so a GitHub runner
+        // signed each verification APK with a key nobody had seen before, and installing the
+        // next one meant starting from nothing. A key that is repository content is the same
+        // key everywhere. It is a DEBUG key: the password is Android's own default and nothing
+        // distributed is signed with it; releases use the real keystore below.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(releaseStorePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            isMinifyEnabled = false
+        }
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            // Local minified builds stay installable. A debug-signed APK is for verification
+            // only; the release workflow requires its real signing settings before building.
+            signingConfig = if (releaseSigningConfigured) signingConfigs.getByName("release")
+                else signingConfigs.getByName("debug")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    // The status icon glyphs are shared with the iOS widget; one file, packaged as a Java resource.
+    sourceSets.getByName("main").resources.apply {
+        srcDir("../shared/glyphs")
+        // AGP's DSL type hides the PatternFilterable implemented by its source directory set.
+        (this as org.gradle.api.tasks.util.PatternFilterable).include("status-icon-glyphs.json")
+    }
+    sourceSets.getByName("main").res.directories.add("../third_party/fonts/android-res")
+
+    packaging {
+        resources.excludes += setOf(
+            "/META-INF/{AL2.0,LGPL2.1}",
+            "META-INF/LICENSE.md",
+            "META-INF/LICENSE-notice.md",
+        )
+    }
+
+    lint {
+        abortOnError = true
+        warningsAsErrors = false
+        htmlReport = true
+        xmlReport = true
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
+    }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+// Match Robolectric 4.18's SDKs; separate configurations prevent same-module version conflict resolution.
+val robolectricSdkJars = listOf(
+    "8.0.0_r4-robolectric-r1-i7", // API 26
+    "11-robolectric-6757853-i7", // API 30
+    "12.1-robolectric-8229987-i7", // API 32
+    "14-robolectric-10818077-i7", // API 34
+    "16-robolectric-13921718-2-i7", // API 36
+    "17-robolectric-16653203-i7", // API 37
+).associate { version ->
+    val coordinate = "org.robolectric:android-all-instrumented:$version"
+    coordinate to configurations.detachedConfiguration(dependencies.create(coordinate)).apply {
+        isTransitive = false
+    }
+}
+
+val robolectricDepsFile = layout.buildDirectory.file("robolectric/robolectric-deps.properties")
+val writeRobolectricDeps = tasks.register<WriteProperties>("writeRobolectricDeps") {
+    destinationFile.set(robolectricDepsFile)
+    robolectricSdkJars.forEach { (coordinate, sdk) ->
+        property(coordinate, sdk.elements.map { it.single().asFile.absolutePath })
+    }
+}
+
+// Robolectric's native font zip filesystem is process-wide on Windows, while
+// Android sandboxes are not. A fresh worker avoids sharing that native state.
+tasks.withType<Test>().configureEach {
+    inputs.file(writeRobolectricDeps.flatMap { it.destinationFile }).withPathSensitivity(PathSensitivity.NONE)
+    inputs.files(robolectricSdkJars.values).withPathSensitivity(PathSensitivity.NAME_ONLY)
+    systemProperty("robolectric-deps.properties", robolectricDepsFile.get().asFile.absolutePath)
+    // Measured on b575d1b, in a 512 MiB heap: 183 full collections, the live set 277 MiB after the
+    // first and 505 MiB after the last. One possible cause is the framework's sandbox cache; no heap
+    // dump was taken. 1 GiB is the owner's upper limit, the same on CI and on a workstation. If this
+    // fills up, the next step is fewer sandbox configurations, not more heap.
+    maxHeapSize = "1g"
+    if (System.getProperty("os.name").startsWith("Windows")) forkEvery = 1
+    // RedesignCaptureTest writes PNGs only when -PcaptureDir=<abs path> is given.
+    providers.gradleProperty("captureDir").orNull?.let { systemProperty("capture.dir", it) }
+    // Unlike Gradle's buffered binary results, this opt-in journal retains a test's start even
+    // when its worker never completes. Columns: event, task, class, method, start ms, end ms, outcome.
+    providers.gradleProperty("testEventLog").orNull?.let { logPath ->
+        val eventLog = file(logPath)
+        val taskPath = path
+        doFirst {
+            try {
+                eventLog.parentFile.mkdirs()
+                eventLog.writeText("event\ttask\tclass\tmethod\tstartMs\tendMs\toutcome\n")
+            } catch (error: java.io.IOException) {
+                logger.warn("Could not initialize the test event journal", error)
+            }
+        }
+        addTestListener(object : org.gradle.api.tasks.testing.TestListener {
+            private fun record(event: String, test: org.gradle.api.tasks.testing.TestDescriptor,
+                start: Long, end: Long?, outcome: String) {
+                val line = listOf(event, taskPath, test.className.orEmpty(), test.name,
+                    start.toString(), end?.toString().orEmpty(), outcome)
+                    .joinToString("\t") { it.replace('\t', ' ').replace('\r', ' ').replace('\n', ' ') }
+                try {
+                    eventLog.appendText("$line\n")
+                } catch (error: java.io.IOException) {
+                    logger.warn("Could not append to the test event journal", error)
+                }
+            }
+            override fun beforeTest(test: org.gradle.api.tasks.testing.TestDescriptor) =
+                record("START", test, System.currentTimeMillis(), null, "RUNNING")
+            override fun afterTest(test: org.gradle.api.tasks.testing.TestDescriptor,
+                result: org.gradle.api.tasks.testing.TestResult) =
+                record("END", test, result.startTime, result.endTime, result.resultType.name)
+        })
+    }
+    // Off by default. -PtestGcLog=<abs path> writes the test worker's GC log there, with the heap
+    // after each collection, to measure the live set across the suite. It changes no heap size.
+    providers.gradleProperty("testGcLog").orNull?.let { jvmArgs("-Xlog:gc*,gc+heap=debug:file=$it:uptime,tags") }
+    // The cross-platform vectors are read from outside the module; without this a changed
+    // vector file would leave the test task up to date, or served from the build cache.
+    inputs.dir(rootProject.file("shared/test-vectors")).withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+dependencies {
+    implementation("sh.calvin.reorderable:reorderable:3.1.0")
+    implementation(libs.androidx.core)
+    implementation(libs.androidx.lifecycle.runtime)
+    implementation(libs.androidx.lifecycle.process)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.activity.compose)
+
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.graphics)
+    implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.compose.material3)
+    // The CORE icon set, not the extended one. Seven icons are used in the whole app; the
+    // extended artifact carries several thousand and was the largest single dependency in the
+    // debug build — the one a tester installs. The three glyphs core lacks are drawn locally
+    // in `AppIcons.kt` from their Material path data.
+    implementation(libs.compose.material.icons.core)
+    implementation(libs.compose.material3.window.size)
+    implementation(libs.androidx.window)
+    debugImplementation(libs.compose.ui.tooling)
+    implementation(libs.androidx.navigation.compose)
+
+    implementation(libs.androidx.room.runtime)
+    ksp(libs.androidx.room.compiler)
+
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
+    implementation(libs.androidx.browser)
+    implementation(libs.androidx.datastore.preferences)
+
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.junit)
+    // Compose's transitive Espresso floor predates API 37.
+    testImplementation(libs.androidx.test.espresso.core)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.androidx.work.testing)
+    testImplementation(libs.turbine)
+    // Compose UI tests, run on the JVM under Robolectric. This environment has no KVM, so an
+    // emulator is not available; Robolectric is what makes the screens testable at all, and an
+    // app whose screens are never rendered anywhere is an app nobody has run.
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
+}

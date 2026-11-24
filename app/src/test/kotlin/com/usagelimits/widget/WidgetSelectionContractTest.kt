@@ -1,0 +1,113 @@
+package com.usagelimits.widget
+
+import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.model.*
+import com.usagelimits.feature.UsageUiState
+import com.usagelimits.feature.overview.OverviewFilter
+import com.usagelimits.feature.overview.overviewAt
+import java.time.ZoneId
+import org.junit.Assert.*
+import org.junit.Test
+
+class WidgetSelectionContractTest {
+    private val now = 1_800_000_000_000L
+    private fun account(id: String, used: Double, reset: Long?, connection: ConnectionStatus = ConnectionStatus.CONNECTED,
+        provider: ProviderId = ProviderId.CODEX): AccountUsage = AccountUsage(
+        ProviderAccount(id, provider, id, "$id@example.com", id, "Plus", "test-$id", now, now),
+        UsageSnapshot(id, now, SnapshotStatus.OK,
+            listOf(UsageWindow("short", "5h", WindowCategory.FIVE_HOUR, used, 18_000, reset, exhausted = used >= 100)),
+            connectionStatus = connection),
+    )
+
+    @Test fun `exhausted and low quota remain connected and are excluded from attention`() {
+        val accounts = listOf(account("empty", 100.0, now + 100), account("low", 97.0, now + 200),
+            account("revoked", 10.0, now + 300, ConnectionStatus.RECONNECT_REQUIRED))
+        val projection = accounts.overviewAt(OverviewFilter.NEEDS_ATTENTION, now, ZoneId.of("Etc/UTC"), 3_600_000)
+        assertEquals(listOf("revoked"), projection.entries.map { it.usage.account.localId })
+        assertEquals(1, projection.attentionCount)
+    }
+
+    @Test fun `missing data never asserts a valid connection`() {
+        val unknown = account("unknown", 0.0, null).copy(snapshot = null)
+        val projection = listOf(unknown).overviewAt(OverviewFilter.NEEDS_ATTENTION, now, ZoneId.of("Etc/UTC"), 3_600_000)
+        assertEquals(emptyList<String>(), projection.entries.map { it.usage.account.localId })
+        assertEquals(0, projection.attentionCount)
+    }
+
+    @Test fun `closest resets sorts future timestamps independent of remaining quota`() {
+        val accounts = listOf(account("empty-later", 100.0, now + 9000), account("full-soon", 0.0, now + 1000),
+            account("past", 90.0, now - 1), account("unknown", 10.0, null))
+        val result = WidgetDataBuilder.build(accounts, now, WidgetScope.CLOSEST_RESETS, null, null)
+        assertEquals(listOf("full-soon", "empty-later", "past", "unknown"), result.accounts.map { it.accountId })
+        assertEquals(now + 1000, result.nextResetAt)
+        // A persisted scope name keeps its selection and ordering semantics.
+        assertEquals(WidgetScope.MOST_CRITICAL, WidgetScope.fromName("MOST_CRITICAL"))
+    }
+
+    @Test fun `legacy most-critical name retains urgency semantics`() {
+        // Account "empty" is exhausted but resets later; "full-soon" is healthy and resets
+        // sooner. Urgency ordering must lead with the exhausted account — if this widget led
+        // with "full-soon" instead, a saved MOST_CRITICAL row was silently reinterpreted as
+        // CLOSEST_RESETS and the user saw their widget start watching a different account.
+        val accounts = listOf(account("empty", 100.0, now + 9000), account("full-soon", 0.0, now + 1000))
+        val critical = WidgetDataBuilder.build(accounts, now, WidgetScope.fromName("MOST_CRITICAL"), null, null)
+        assertEquals("empty", critical.accounts.first().accountId)
+        // The explicit closest-resets choice really is a different policy, not the same one.
+        val resets = WidgetDataBuilder.build(accounts, now, WidgetScope.CLOSEST_RESETS, null, null)
+        assertEquals("full-soon", resets.accounts.first().accountId)
+    }
+
+    @Test fun `account selection survives another account's reset boundary`() {
+        // The selected account must stay selected when some OTHER account's reset ordering
+        // changes — an exact choice never falls back to another account.
+        val accounts = listOf(account("selected", 30.0, now + 9000), account("other", 10.0, now + 1000))
+        val snapshot = WidgetDataBuilder.build(accounts, now, WidgetScope.ACCOUNT, "selected", null)
+        assertEquals(listOf("selected"), snapshot.accounts.map { it.accountId })
+    }
+
+    @Test fun `all accounts matches overview and custom is an exact ordered subset`() {
+        val accounts = listOf(account("c", 0.0, null), account("a", 100.0, null), account("b", 20.0, null))
+        // Stored order c, a, b; both rank a (exhausted), b (80 left), c (100 left).
+        assertEquals(listOf("a", "b", "c"), UsageUiState(accounts).overviewAccountsAt(now).map { it.account.localId })
+        assertEquals(listOf("a", "b", "c"), WidgetDataBuilder.build(accounts, now, WidgetScope.ALL_ACCOUNTS, null, null).accounts.map { it.accountId })
+        assertEquals("Provider scope keeps the stored order", listOf("c", "a", "b"),
+            WidgetDataBuilder.build(accounts, now, WidgetScope.PROVIDER, null, ProviderId.CODEX.id).accounts.map { it.accountId })
+        assertEquals(listOf("b", "c"), WidgetDataBuilder.build(accounts, now, WidgetScope.CUSTOM, null, null,
+            customAccountIds = listOf("b", "deleted", "b", "c")).accounts.map { it.accountId })
+        assertTrue(WidgetDataBuilder.build(accounts, now, WidgetScope.CUSTOM, null, null).accounts.isEmpty())
+    }
+
+    @Test fun `one account remains exact even when a different account is exhausted`() {
+        val accounts = listOf(account("empty", 100.0, now + 100), account("selected", 30.0, now + 200))
+        val snapshot = WidgetDataBuilder.build(accounts, now, WidgetScope.ACCOUNT, "selected", null)
+        assertEquals(1, snapshot.accountCount)
+        assertEquals("selected", snapshot.accounts.single().accountId)
+        assertEquals(70.0, snapshot.summaryLineShort!!.remainingPercent!!, 0.01)
+        assertTrue(WidgetDataBuilder.build(accounts, now, WidgetScope.ACCOUNT, "deleted", null).accounts.isEmpty())
+    }
+
+    @Test fun `ring layouts change columns and preserve the requested compact capacities`() {
+        assertEquals(1, WidgetLayout.accountColumns(250f, 140f))
+        // Height cannot supply missing label width: at 250dp two columns leave just 67dp
+        // per label after 20dp outer padding and each ring (36), gap (8), and padding (4).
+        // The 96dp label budget therefore requires 20 + 2 * (36 + 8 + 4 + 96) = 308dp.
+        assertEquals(1, WidgetLayout.accountColumns(250f, 280f))
+        assertEquals(1, WidgetLayout.accountColumns(307.9f, 280f))
+        assertEquals(2, WidgetLayout.accountColumns(308f, 280f))
+        assertEquals(1, WidgetLayout.accountColumns(308f, 239f))
+        // At 1.5x font size only the text budget scales: 20 + 2 * (48 + 144) = 404dp.
+        assertEquals(1, WidgetLayout.accountColumns(403.9f, 280f, fontScale = 1.5f))
+        assertEquals(2, WidgetLayout.accountColumns(404f, 280f, fontScale = 1.5f))
+        assertEquals(2, WidgetLayout.miniCapacity(64f, 64f))
+        assertEquals(4, WidgetLayout.miniCapacity(64f, 128f))
+        assertEquals(8, WidgetLayout.miniCapacity(128f, 128f))
+    }
+
+    @Test fun `legacy auth errors are recognized narrowly`() {
+        assertEquals(ConnectionStatus.RECONNECT_REQUIRED, ConnectionStatus.fromStored(null, SnapshotStatus.FAILED,
+            "Sign-in expired — reconnect this account"))
+        assertEquals(ConnectionStatus.UNKNOWN, ConnectionStatus.fromStored(null, SnapshotStatus.FAILED, "Request deadline expired"))
+        assertEquals(ConnectionStatus.CONNECTED, ConnectionStatus.fromStored("CONNECTED", SnapshotStatus.FAILED, "No network"))
+    }
+}
+

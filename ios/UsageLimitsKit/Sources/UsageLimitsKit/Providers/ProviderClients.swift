@@ -1,0 +1,843 @@
+import Foundation
+
+// The fetching layer of the usage readers: each adapter pulls raw JSON from one provider's
+// undocumented endpoints and hands it to the matching parser. None of these endpoints is a
+// published contract, so every adapter is written to sacrifice a section of the result rather
+// than discard the whole refresh when an endpoint changes shape, disappears or starts
+// refusing the token.
+
+// MARK: - Result model
+
+/// Everything a single provider refresh could salvage.
+///
+/// Empty and nil fields mean "the endpoint did not say", which callers must show as unknown
+/// rather than as zero; a refresh that loses one section still returns the sections it kept.
+public struct UsageResult: Sendable {
+    public struct RateLimit: Sendable {
+        public let retryAfter: TimeInterval?
+
+        public init(retryAfter: TimeInterval?) {
+            self.retryAfter = retryAfter
+        }
+    }
+
+    /// The quota windows the provider reported. An empty list is a valid answer — nothing to
+    /// show — as distinct from a failure, which throws instead of returning.
+    public let windows: [UsageWindow]
+
+    /// Rate-limit reset credits, for the providers that expose them; only Codex does.
+    public let resetCredits: [ResetCredit]
+
+    /// How many of those credits the provider still counts as available, when it publishes a
+    /// figure at all. Nil means "no count was available"; zero means "none left".
+    public let resetCreditCount: Int?
+
+    /// The subset of credits the provider considers applicable right now, with the same
+    /// nil-versus-zero distinction as `resetCreditCount`.
+    public let applicableResetCreditCount: Int?
+
+    /// The plan name the provider reported, if it reports one.
+    public let plan: String?
+
+    /// The provider's own id for the account this response describes, when the response states
+    /// one.
+    ///
+    /// Only a key-authenticated sign-in needs it, and only at the moment the account is filed.
+    /// A key carries no identity of its own, so without this the account can only be named
+    /// after a digest of the key — and rotating the key in the provider's console then mints a
+    /// SECOND account for the same subscription, leaving the first behind holding a key that
+    /// no longer works. The provider's id survives a rotation; the digest does not.
+    ///
+    /// Nil from every provider that signs in by OAuth, where the identity comes from the token
+    /// exchange and this would be a second answer to a settled question.
+    public let accountIdentity: String?
+    public let status: SnapshotStatus
+    public let errorMessage: String?
+    public let connectionStatus: ConnectionStatus
+
+    /// A final HTTP 429 from one endpoint, even if it supplied no Retry-After header.
+    public let rateLimit: RateLimit?
+
+    public init(
+        windows: [UsageWindow] = [],
+        resetCredits: [ResetCredit] = [],
+        resetCreditCount: Int? = nil,
+        applicableResetCreditCount: Int? = nil,
+        plan: String? = nil,
+        accountIdentity: String? = nil,
+        status: SnapshotStatus = .ok,
+        errorMessage: String? = nil,
+        connectionStatus: ConnectionStatus = .connected,
+        rateLimit: RateLimit? = nil
+    ) {
+        self.windows = windows
+        self.resetCredits = resetCredits
+        self.resetCreditCount = resetCreditCount
+        self.applicableResetCreditCount = applicableResetCreditCount
+        self.plan = plan
+        self.accountIdentity = accountIdentity
+        self.status = status
+        self.errorMessage = errorMessage
+        self.connectionStatus = connectionStatus
+        self.rateLimit = rateLimit
+    }
+}
+
+// MARK: - Provider contract
+
+// A provider adapter conforms to `SyncProvider` (see `Sync/SyncEngine.swift`), which is the one
+// contract: read usage, and exchange a refresh token. There is deliberately no second,
+// fetch-only protocol. There was one, and the split cost nothing but bugs — the engine could
+// only be handed something that refreshes, so a "usage client" that did not was a type that
+// compiled and could never be wired in. The exchange half of each adapter lives in
+// `ProviderTokenRefresh.swift`.
+//
+// Implementations prefer shrinking the result to throwing: only a rejected credential or a
+// total absence of answers justifies an error.
+
+// MARK: - Errors
+
+/// Why a refresh could not produce a result at all.
+///
+/// `LocalizedError`, because these messages are what an account card shows when a sync fails.
+/// Without it the engine falls back to `String(describing:)` and a user reading their own screen
+/// is told "unauthorised", which names the HTTP status rather than the thing they can do about
+/// it. Every description is built from endpoint names and status codes the app chose; no payload,
+/// header or token is ever interpolated into one.
+public enum ProviderError: Error, LocalizedError {
+    /// The endpoint answered, but not with a JSON object any parser can consume.
+    case malformedPayload(String)
+    /// The credential was rejected (HTTP 401/403); refreshing the token is the only fix the
+    /// caller can make.
+    case unauthorised
+    case rateLimited(endpoint: String, retryAfter: TimeInterval?)
+    /// The endpoint was unreachable, answered with an error status, or had nothing for this
+    /// account.
+    case noData(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .malformedPayload(let detail):
+            return "The provider answered in a shape this app does not understand (\(detail))."
+        case .unauthorised:
+            // Share the evaluator's sign-in-expired message so reconnect detection and alerts agree.
+            return NotificationEvaluator.signInExpiredMessage
+        case .rateLimited:
+            return StoredMessage.rateLimitedRequestMessage
+        case .noData(let detail):
+            return "No usage could be read (\(detail))."
+        }
+    }
+}
+
+private extension ProviderError {
+    var usageRateLimit: UsageResult.RateLimit? {
+        guard case .rateLimited(_, let retryAfter) = self else { return nil }
+        return .init(retryAfter: retryAfter)
+    }
+
+    func preferringRateLimit(_ other: ProviderError) -> ProviderError {
+        guard case .rateLimited(_, let ownHint) = self else { return other }
+        guard case .rateLimited(_, let otherHint) = other else { return self }
+        guard let otherHint else { return self }
+        if let ownHint, otherHint <= ownHint { return self }
+        return other
+    }
+}
+
+// MARK: - Shared HTTP plumbing
+
+/// Status and body checks shared by every adapter.
+///
+/// Diagnostics carry only endpoint names and HTTP status codes — never a header, token or
+/// account identifier — because these errors end up in logs and user interfaces.
+enum ProviderHTTP {
+    /// Enforces the one rule every endpoint shares, that only a 2xx body may be parsed,
+    /// while keeping 401/403 distinct because the caller can repair those alone by
+    /// refreshing the token.
+    static func ensureSuccess(_ response: HTTPResponse, endpoint: String) throws {
+        try translate(status: response.status, endpoint: endpoint)
+    }
+
+    /// Sends a request and reports the outcome in the provider's own terms.
+    ///
+    /// Every adapter goes through here rather than calling the HTTP client directly, because
+    /// `UsageHTTPClient` THROWS on a non-2xx rather than returning one. Checking
+    /// `response.status` for a 401 afterwards was therefore unreachable code: a rejected
+    /// credential surfaced as an opaque `HTTPError.status(401, …)` and the caller lost the one
+    /// signal it could act on. The distinction earns its keep because only a rejection is
+    /// repairable — by refreshing the token — where every other failure is something to wait
+    /// out or report.
+    static func request(
+        _ client: UsageHTTPClient,
+        url: String,
+        method: String = "GET",
+        headers: [String: String] = [:],
+        body: Data? = nil,
+        endpoint: String,
+        retries: Int? = nil
+    ) async throws -> HTTPResponse {
+        do {
+            let response = try await client.request(
+                url: url, method: method, headers: headers, body: body, retries: retries)
+            try translate(status: response.status, endpoint: endpoint)
+            return response
+        } catch let error as HTTPError {
+            switch error {
+            case .status(let code, _):
+                try translate(status: code, endpoint: endpoint)
+                throw ProviderError.noData("\(endpoint) answered HTTP \(code)")
+            case .rateLimited(let retryAfter):
+                throw ProviderError.rateLimited(endpoint: endpoint, retryAfter: retryAfter)
+            default:
+                throw ProviderError.noData("\(endpoint) could not be reached")
+            }
+        }
+    }
+
+    private static func translate(status: Int, endpoint: String) throws {
+        if status == 401 || status == 403 {
+            throw ProviderError.unauthorised
+        }
+        guard (200...299).contains(status) else {
+            throw ProviderError.noData("\(endpoint) answered HTTP \(status)")
+        }
+    }
+
+    /// Turns a response body into a JSON object, or reports that it is not one, so callers
+    /// never have to guess what a parser will accept.
+    static func decodeObject(_ body: String, endpoint: String) throws -> [String: Any] {
+        guard
+            let data = body.data(using: .utf8),
+            let object = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any]
+        else {
+            throw ProviderError.malformedPayload("\(endpoint) did not return a JSON object")
+        }
+        return object
+    }
+}
+
+// MARK: - Codex (ChatGPT)
+
+/// Reads ChatGPT/Codex quota from the undocumented `wham` backend.
+///
+/// The usage payload is the primary source and also carries a stale copy of the reset-credit
+/// list; the dedicated reset-credit endpoint is newer and authoritative, so it is preferred
+/// whenever it answers and the embedded copy covers the occasions when it does not.
+public struct CodexClient: SyncProvider, Sendable {
+    public let providerID = "codex"
+
+    private static let usageURL = "https://chatgpt.com/backend-api/wham/usage"
+    private static let resetCreditsURL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+
+    /// Shared with the token exchange in `ProviderTokenRefresh.swift`, so one adapter makes one
+    /// kind of request through one client.
+    let httpClient: UsageHTTPClient
+
+    /// Injected rather than read from the clock, so a test can pin the instant an access token
+    /// is stamped as expiring at.
+    let now: @Sendable () -> Date
+
+    public init(httpClient: UsageHTTPClient, now: @Sendable @escaping () -> Date = { Date() }) {
+        self.httpClient = httpClient
+        self.now = now
+    }
+
+    public func fetchUsage(credentials: OAuthCredentials, attributes: [String: String]) async throws -> UsageResult {
+        var headers: [String: String] = [
+            "Authorization": "Bearer \(credentials.accessToken)",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            // The backend refuses requests that carry no client-like signature, so a stable
+            // product-style agent is declared once here.
+            "User-Agent": "UsageLimitsKit/1.0",
+        ]
+        // Team and enterprise plans scope quota to an account id, while personal plans reject
+        // the header outright; it therefore travels only when the caller actually has one.
+        if let accountID = attributes["chatgpt_account_id"], !accountID.isEmpty {
+            headers["chatgpt-account-id"] = accountID
+        }
+
+        let usageResponse = try await ProviderHTTP.request(
+            httpClient,
+            url: Self.usageURL,
+            method: "GET",
+            headers: headers,
+            body: nil,
+            endpoint: "codex usage"
+        )
+        let usagePayload = try ProviderHTTP.decodeObject(usageResponse.body, endpoint: "codex usage")
+        let windows = CodexUsageParser.parse(usagePayload, now: now())
+        let plan = CodexUsageParser.parsePlan(usagePayload)
+
+        let credits = try await fetchResetCredits(headers: headers, usagePayload: usagePayload)
+
+        // The two sources are not the same payload with the same fields. The dedicated endpoint
+        // returns `credits`, `available_count` and `total_earned_count` and NO applicable count;
+        // the copy embedded in the usage payload returns both counts and no `credits` array.
+        // Reading the applicable count off whichever source answered meant it existed only on
+        // the FALLBACK path — the redeem button lost its gate precisely when the authoritative
+        // call succeeded.
+        // Both spellings, as the row parser already accepts: the count lookups read only the
+        // snake-case container, so a camel-case summary kept its rows and lost both counts.
+        let embedded = JSONSupport.object(usagePayload, "rate_limit_reset_credits", "rateLimitResetCredits")
+
+        return UsageResult(
+            windows: windows,
+            resetCredits: credits.rows,
+            resetCreditCount: credits.available,
+            applicableResetCreditCount: CodexUsageParser.applicableCreditCount(embedded),
+            plan: plan
+        )
+    }
+
+    /// Spends one reset credit, resetting the account's rate limit immediately.
+    ///
+    /// The one thing this app does that changes anything at a provider, so it is called only
+    /// from an explicit, confirmed action and never as part of a refresh.
+    ///
+    /// `redeem_request_id` is a fresh UUID per attempt, which is what makes the call idempotent
+    /// on the provider's side: a request replayed with the same id will not spend a second
+    /// credit. For the same reason the request is sent with no retries — a network error after
+    /// the server has already committed the spend is indistinguishable from one before it, and
+    /// a retry would risk burning a second credit to avoid reporting a first one that worked.
+    public func redeemResetCredit(
+        credentials: OAuthCredentials,
+        attributes: [String: String],
+        requestID: String = UUID().uuidString
+    ) async throws {
+        var headers: [String: String] = [
+            "Authorization": "Bearer \(credentials.accessToken)",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": ProviderEndpoints.Codex.userAgent,
+        ]
+        if let accountID = attributes["chatgpt_account_id"], !accountID.isEmpty {
+            headers[ProviderEndpoints.Codex.accountIDHeader] = accountID
+        }
+        // Only the reset-credit endpoints take these; the usage endpoint does not.
+        headers.merge(ProviderEndpoints.Codex.resetCreditHeaders) { current, _ in current }
+
+        let body = try JSONSerialization.data(
+            withJSONObject: ["redeem_request_id": requestID], options: [])
+
+        _ = try await ProviderHTTP.request(
+            httpClient,
+            url: ProviderEndpoints.Codex.resetCreditsConsumeURL,
+            method: "POST",
+            headers: headers,
+            body: body,
+            endpoint: "codex redeem",
+            retries: 0)
+    }
+
+    /// Fetches reset credits from their dedicated endpoint, falling back to the copy embedded
+    /// in the usage payload.
+    ///
+    /// The dedicated endpoint is newer than the usage payload and is the likelier of the two
+    /// to change, so a failure here must cost only the credit rows: the usage refresh has
+    /// already succeeded and remains worth showing. Every failure — including an
+    /// authorisation rejection, which would be odd given the call above just succeeded with
+    /// the same token — degrades to the slightly stale embedded copy rather than discarding
+    /// the whole result. Try the optional read once per pass rather than retrying it within
+    /// the pass or pausing the main reading on a throttle.
+    private func fetchResetCredits(
+        headers: [String: String],
+        usagePayload: [String: Any]
+    ) async throws -> (rows: [ResetCredit], available: Int?) {
+        do {
+            let response = try await ProviderHTTP.request(
+                httpClient,
+                url: Self.resetCreditsURL,
+                method: "GET",
+                headers: headers,
+                body: nil,
+                endpoint: "codex reset credits",
+                retries: 0
+            )
+            let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "codex reset credits")
+            return (
+                rows: CodexUsageParser.parseResetCredits(payload),
+                available: CodexUsageParser.availableCreditCount(payload)
+            )
+        } catch let error as CancellationError {
+            // Cancellation is the caller's decision, not an endpoint fault to absorb.
+            throw error
+        } catch {
+            let embedded = JSONSupport.object(usagePayload, "rate_limit_reset_credits", "rateLimitResetCredits")
+            return (
+                rows: CodexUsageParser.parseEmbeddedResetCredits(usagePayload),
+                available: CodexUsageParser.availableCreditCount(embedded)
+            )
+        }
+    }
+}
+
+// MARK: - Claude (Anthropic)
+
+/// Reads the Claude subscription usage console over its OAuth-only routes.
+public struct ClaudeClient: SyncProvider, Sendable {
+    public let providerID = "claude"
+
+    /// Shared with the token exchange in `ProviderTokenRefresh.swift`, so one adapter makes one
+    /// kind of request through one client.
+    let httpClient: UsageHTTPClient
+
+    /// Injected rather than read from the clock, so a test can pin the instant an access token
+    /// is stamped as expiring at.
+    let now: @Sendable () -> Date
+
+    public init(httpClient: UsageHTTPClient, now: @Sendable @escaping () -> Date = { Date() }) {
+        self.httpClient = httpClient
+        self.now = now
+    }
+
+    public func fetchUsage(credentials: OAuthCredentials, attributes: [String: String]) async throws -> UsageResult {
+        // Through `ProviderHTTP.request`, like every other adapter. Calling the client directly
+        // meant a 401 surfaced as the client's own `HTTPError.status` before `ensureSuccess`
+        // could translate it, so this adapter never produced `ProviderError.unauthorised` — and
+        // that is the one error the engine's reactive refresh is triggered by. A Claude
+        // credential that expired therefore read as a generic failure, refreshed nothing, and
+        // failed the same way on every sync after.
+        let response = try await ProviderHTTP.request(
+            httpClient,
+            url: "https://api.anthropic.com/api/oauth/usage",
+            method: "GET",
+            headers: [
+                "Authorization": "Bearer \(credentials.accessToken)",
+                "Accept": "application/json",
+                // The /api/oauth paths exist only behind this feature flag; without it the
+                // gateway answers 404 as though the routes were not there at all.
+                "anthropic-beta": "oauth-2025-04-20",
+            ],
+            body: nil,
+            endpoint: "claude usage"
+        )
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "claude usage")
+        let invalid = ClaudeUsageParser.hasInvalidUsage(payload)
+        return UsageResult(windows: ClaudeUsageParser.parse(payload, now: now()),
+                           status: invalid ? .partial : .ok,
+                           errorMessage: invalid ? "Some usage data could not be read" : nil)
+    }
+}
+
+// MARK: - Antigravity (Google)
+
+/// Reads Antigravity quota summaries from the quota service's sharded hosts.
+///
+/// Hosts can carry different quota groups, so their union preserves every shared pool.
+public struct AntigravityClient: SyncProvider, Sendable {
+    public let providerID = "antigravity"
+
+    /// The shared list, not a private copy of it. This client carried its own two-host list
+    /// that silently shadowed `ProviderEndpoints.Antigravity.quotaURLs`, which has three —
+    /// so an account routed to the sandbox shard fell out of the loop on iOS and showed an
+    /// error card while Android, using the full list, showed its buckets. One list, one
+    /// place to update it.
+    private static var quotaHosts: [String] { ProviderEndpoints.Antigravity.quotaURLs }
+
+    /// Shared with the token exchange in `ProviderTokenRefresh.swift`, so one adapter makes one
+    /// kind of request through one client.
+    let httpClient: UsageHTTPClient
+
+    /// Injected rather than read from the clock, so a test can pin the instant an access token
+    /// is stamped as expiring at.
+    let now: @Sendable () -> Date
+
+    public init(httpClient: UsageHTTPClient, now: @Sendable @escaping () -> Date = { Date() }) {
+        self.httpClient = httpClient
+        self.now = now
+    }
+
+    public func fetchUsage(credentials: OAuthCredentials, attributes: [String: String]) async throws -> UsageResult {
+        guard let projectID = attributes["project_id"], !projectID.isEmpty else {
+            // The quota RPC is scoped to a project; without one there is no honest request
+            // to send, and guessing would report some other project's quota.
+            throw ProviderError.noData("project_id attribute is required for the quota summary")
+        }
+        let headers: [String: String] = [
+            "Authorization": "Bearer \(credentials.accessToken)",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": ProviderEndpoints.Antigravity.userAgent,
+        ]
+        // Serialised rather than interpolated so a project id containing quotes or braces
+        // cannot quietly turn into a different request.
+        let requestBody = try JSONSerialization.data(withJSONObject: ["project": projectID], options: [])
+
+        var authRejection: ProviderError?
+        var rateLimit: ProviderError?
+        var firstFailure: Error?
+        var allRows: [AntigravityQuotaParser.Row] = []
+
+        for (index, url) in Self.quotaHosts.enumerated() {
+            let response: HTTPResponse
+            do {
+                response = try await httpClient.request(
+                    url: url, method: "POST", headers: headers, body: requestBody,
+                    retries: index == 0 ? nil : 0)
+            } catch let error as CancellationError {
+                throw error
+            } catch let error as HTTPError {
+                let failure: ProviderError
+                switch error {
+                case .status(let code, _) where code == 401 || code == 403:
+                    if authRejection == nil { authRejection = .unauthorised }
+                    continue
+                case .status(let code, _):
+                    failure = .noData("antigravity quota answered HTTP \(code)")
+                case .rateLimited(let retryAfter):
+                    let limit = ProviderError.rateLimited(endpoint: "antigravity quota", retryAfter: retryAfter)
+                    rateLimit = rateLimit?.preferringRateLimit(limit) ?? limit
+                    continue
+                case .transport:
+                    failure = .noData("antigravity quota could not be reached")
+                default:
+                    failure = .noData("antigravity quota could not be reached")
+                }
+                if firstFailure == nil { firstFailure = failure }
+                continue
+            } catch {
+                if firstFailure == nil { firstFailure = error }
+                continue
+            }
+
+            // Empty summaries do not establish that the other hosts have no quota groups.
+            let summary = response.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            if summary.isEmpty {
+                continue
+            }
+
+            do {
+                let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "quota summary")
+                allRows.append(contentsOf: AntigravityQuotaParser.parseRows(payload))
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                if firstFailure == nil { firstFailure = error }
+                continue
+            }
+        }
+
+        let groupsWithWindows = Set(allRows.filter { !$0.isPlaceholder }.compactMap { $0.window.group })
+        var seenIDs: Set<String> = []
+        let allWindows = allRows.filter {
+            !($0.isPlaceholder && $0.window.group.map(groupsWithWindows.contains) == true)
+        }.map(\.window).filter { seenIDs.insert($0.id).inserted }
+        if !allWindows.isEmpty {
+            return UsageResult(
+                windows: allWindows,
+                errorMessage: rateLimit == nil ? nil : StoredMessage.rateLimitedPauseMessage,
+                rateLimit: rateLimit?.usageRateLimit)
+        }
+
+        // Honor a throttle when no host supplied usage; a different shard's auth rejection
+        // must not cause immediate retries against the throttled host.
+        if let rateLimit { throw rateLimit }
+        if let authRejection {
+            throw authRejection
+        }
+        if let firstFailure {
+            throw firstFailure
+        }
+        // Every host acknowledged with an empty summary: the account is served by no shard
+        // we know of, which is a different statement from "no quota left".
+        throw ProviderError.noData("every quota host returned an empty summary")
+    }
+}
+
+// MARK: - xAI
+
+/// Reads xAI billing through the CLI proxy's two overlapping routes.
+///
+/// The credits-flavoured route adds purchased-credit balances to the subscription figures
+/// the plain route carries, and the parser's merge reconciles the overlap. Because the two
+/// routes age independently, one failing must not discard the other's answer: only a double
+/// failure leaves nothing to show.
+public struct XaiClient: SyncProvider, Sendable {
+    public let providerID = "xai"
+
+    private static let creditsURL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
+    private static let billingURL = "https://cli-chat-proxy.grok.com/v1/billing"
+
+    /// Shared with the token exchange in `ProviderTokenRefresh.swift`, so one adapter makes one
+    /// kind of request through one client.
+    let httpClient: UsageHTTPClient
+
+    /// Injected rather than read from the clock, so a test can pin the instant an access token
+    /// is stamped as expiring at.
+    let now: @Sendable () -> Date
+
+    public init(httpClient: UsageHTTPClient, now: @Sendable @escaping () -> Date = { Date() }) {
+        self.httpClient = httpClient
+        self.now = now
+    }
+
+    public func fetchUsage(credentials: OAuthCredentials, attributes: [String: String]) async throws -> UsageResult {
+        // The same identity Android presents. The CLI proxy answers billing JSON for the
+        // first-party CLI, and Android sends its client markers for exactly that reason; iOS
+        // sent a bare bearer token and an `Accept: application/json` the proxy has never seen
+        // from a real client. The endpoints file already carried these constants — they were
+        // simply not used here.
+        var headers: [String: String] = [
+            "Authorization": "Bearer \(credentials.accessToken)",
+            "accept": "*/*",
+            "user-agent": ProviderEndpoints.Xai.userAgent,
+        ]
+        headers.merge(ProviderEndpoints.Xai.identityHeaders) { current, _ in current }
+
+        var creditsWindows: [UsageWindow]?
+        var invalidUsage = false
+        var creditsFailure: Error?
+        do {
+            let fetched = try await fetchWindows(
+                url: Self.creditsURL,
+                endpoint: "credits billing",
+                headers: headers,
+                parse: XaiBillingParser.parseCredits
+            )
+            creditsWindows = fetched.windows
+            invalidUsage = invalidUsage || fetched.invalidUsage
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            creditsFailure = error
+        }
+
+        var billingWindows: [UsageWindow]?
+        var billingFailure: Error?
+        do {
+            let fetched = try await fetchWindows(
+                url: Self.billingURL,
+                endpoint: "billing",
+                headers: headers,
+                parse: XaiBillingParser.parseBilling
+            )
+            billingWindows = fetched.windows
+            invalidUsage = invalidUsage || fetched.invalidUsage
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            billingFailure = error
+        }
+
+        if creditsWindows != nil || billingWindows != nil {
+            let failures = [creditsFailure, billingFailure].compactMap { $0 }
+            let needsReconnect = failures.contains { error in
+                if case .unauthorised? = error as? ProviderError { return true }
+                return false
+            }
+            let partial = !failures.isEmpty || invalidUsage
+            let rateLimit = Self.preferredRateLimit(creditsFailure, billingFailure)?.usageRateLimit
+            let warning: String?
+            if needsReconnect {
+                warning = "One billing view rejected authentication; some usage could not be refreshed."
+            } else if rateLimit != nil {
+                warning = StoredMessage.rateLimitedPauseMessage
+            } else {
+                warning = partial ? "Some billing data could not be updated" : nil
+            }
+            return UsageResult(
+                windows: XaiBillingParser.merge(creditsWindows ?? [], billingWindows ?? []),
+                status: partial ? .partial : .ok,
+                errorMessage: warning,
+                connectionStatus: needsReconnect ? .unknown : .connected,
+                rateLimit: rateLimit)
+        }
+        throw Self.preferredFailure(creditsFailure, billingFailure)
+    }
+
+    /// Fetches and parses one billing route; the caller decides what its failure means.
+    private func fetchWindows(
+        url: String,
+        endpoint: String,
+        headers: [String: String],
+        parse: (_ payload: [String: Any], _ now: Date) -> [UsageWindow]
+    ) async throws -> (windows: [UsageWindow], invalidUsage: Bool) {
+        let response = try await ProviderHTTP.request(
+            httpClient, url: url, headers: headers,
+            endpoint: endpoint)
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: endpoint)
+        return (parse(payload, now()), XaiBillingParser.hasInvalidUsage(payload))
+    }
+
+    private static func preferredRateLimit(_ first: Error?, _ second: Error?) -> ProviderError? {
+        let primary = first as? ProviderError
+        let fallback = second as? ProviderError
+        if case .rateLimited? = primary, let primary {
+            return fallback.map { primary.preferringRateLimit($0) } ?? primary
+        }
+        if case .rateLimited? = fallback { return fallback }
+        return nil
+    }
+
+    /// A final throttle takes priority over renewal. Without throttling, one token refresh
+    /// may repair both routes at once.
+    private static func preferredFailure(_ first: Error?, _ second: Error?) -> Error {
+        if let rateLimit = preferredRateLimit(first, second) { return rateLimit }
+        for candidate in [first, second].compactMap({ $0 }) {
+            if let providerError = candidate as? ProviderError, case .unauthorised = providerError {
+                return providerError
+            }
+        }
+        if let first { return first }
+        if let second { return second }
+        return ProviderError.noData("both billing routes failed")
+    }
+}
+
+
+/// Kimi Code, reached with either an OAuth token from `KimiDeviceLogin` or a key the user
+/// pasted. Every request names this app as the caller — `api.kimi.com/coding` admits programs
+/// by name, and presenting another program's is the one thing Moonshot forbids. See
+/// docs/providers-kimi.md.
+public struct KimiClient: SyncProvider, Sendable {
+    public let providerID = "kimi"
+
+    let httpClient: UsageHTTPClient
+
+    public init(httpClient: UsageHTTPClient) {
+        self.httpClient = httpClient
+    }
+
+    public func fetchUsage(
+        credentials: OAuthCredentials,
+        attributes: [String: String]
+    ) async throws -> UsageResult {
+        var headers = [
+            "Authorization": "Bearer \(credentials.accessToken)",
+            "Accept": "application/json",
+        ]
+        headers.merge(ProviderEndpoints.Kimi.identityHeaders) { current, _ in current }
+        // Keys and tokens are region-bound: ask the host that issued this one.
+        let region = ProviderRegion.stored(provider: .kimi, credentials: credentials, attributes: attributes)
+        let response = try await ProviderHTTP.request(
+            httpClient,
+            url: ProviderEndpoints.Kimi.urls(region).usageEndpoint,
+            headers: headers,
+            endpoint: "kimi usages")
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "kimi usages")
+        return UsageResult(
+            windows: KimiUsageParser.parse(payload),
+            accountIdentity: Self.identity(in: payload))
+    }
+
+    /// The account id Kimi states in its usage response, or nil if it states none.
+    ///
+    /// Read from the same spellings the Android provider reads, so the same payload names the
+    /// same account on both platforms.
+    static func identity(in payload: [String: Any]) -> String? {
+        let direct = JSONSupport.string(payload, "userId", "user_id", "accountId", "account_id")
+        if let direct, !direct.isEmpty { return direct }
+        let nested = JSONSupport.string(
+            JSONSupport.object(payload, "user"), "id", "userId", "user_id")
+        if let nested, !nested.isEmpty { return nested }
+        return nil
+    }
+
+    /// Refreshes an OAuth-connected account; hands a key-connected one back unchanged.
+    ///
+    /// A key carries no expiry and no refresh grant, and the engine calls this whenever it
+    /// suspects staleness — for a key that suspicion is never right, and a revoked key surfaces
+    /// as a 401 on the usage call, which already marks the account as needing attention.
+    public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials {
+        guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
+            return credentials
+        }
+        var headers = [
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        ]
+        headers.merge(ProviderEndpoints.Kimi.identityHeaders) { current, _ in current }
+        let refreshed = try await TokenExchange.post(
+            httpClient,
+            url: ProviderEndpoints.Kimi.urls(ProviderRegion.stored(provider: .kimi, credentials: credentials)).tokenURL,
+            headers: headers,
+            body: TokenExchange.formBody([
+                "grant_type": "refresh_token",
+                "client_id": ProviderEndpoints.Kimi.clientID,
+                "refresh_token": refreshToken,
+            ]),
+            endpoint: "kimi token",
+            now: Date())
+        // A refresh response may omit the refresh token, meaning "keep using the old one".
+        return OAuthCredentials(
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken ?? refreshToken,
+            idToken: refreshed.idToken,
+            expiresAt: refreshed.expiresAt)
+    }
+}
+
+
+/// Z.ai GLM Coding Plan, reached with an API key the user pasted. The key is region-bound (see
+/// `ProviderRegion`) and the response names no user, so the account is filed under a digest of
+/// the key. See docs/providers-zai.md.
+public struct ZaiClient: SyncProvider, Sendable {
+    public let providerID = "zai"
+
+    let httpClient: UsageHTTPClient
+
+    public init(httpClient: UsageHTTPClient) {
+        self.httpClient = httpClient
+    }
+
+    public func fetchUsage(
+        credentials: OAuthCredentials,
+        attributes: [String: String]
+    ) async throws -> UsageResult {
+        let region = ProviderRegion.stored(provider: .zai, credentials: credentials, attributes: attributes)
+        let response = try await ProviderHTTP.request(
+            httpClient,
+            url: ProviderEndpoints.Zai.usageEndpoint(region),
+            headers: [
+                "Authorization": "Bearer \(credentials.accessToken)",
+                "Accept": "application/json",
+            ],
+            endpoint: "zai quota")
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "zai quota")
+        // Z.ai can refuse inside a 200: {"code":401,"success":false,...}.
+        if JSONSupport.int64(payload, "code") == 401 { throw ProviderError.unauthorised }
+        guard payload["data"] is [String: Any] else {
+            throw ProviderError.malformedPayload("zai quota has no data")
+        }
+        return UsageResult(windows: ZaiUsageParser.parse(payload), plan: ZaiUsageParser.plan(payload))
+    }
+
+    /// A key has no refresh grant.
+    public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
+}
+
+/// OpenCode Go, reached with an API key the user pasted. The response names no user, so the
+/// account is filed under a digest of the key. See docs/providers-opencode.md.
+public struct OpenCodeClient: SyncProvider, Sendable {
+    public let providerID = "opencode"
+
+    let httpClient: UsageHTTPClient
+
+    public init(httpClient: UsageHTTPClient) {
+        self.httpClient = httpClient
+    }
+
+    public func fetchUsage(
+        credentials: OAuthCredentials,
+        attributes: [String: String]
+    ) async throws -> UsageResult {
+        let response = try await ProviderHTTP.request(
+            httpClient,
+            url: ProviderEndpoints.OpenCode.usageEndpoint,
+            headers: [
+                "Authorization": "Bearer \(credentials.accessToken)",
+                "Accept": "application/json",
+            ],
+            endpoint: "opencode usage")
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "opencode usage")
+        guard payload["usage"] is [String: Any] else {
+            throw ProviderError.malformedPayload("opencode usage has no usage")
+        }
+        return UsageResult(windows: OpenCodeUsageParser.parse(payload))
+    }
+
+    /// A key has no refresh grant.
+    public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
+}

@@ -1,0 +1,377 @@
+package com.usagelimits.core.network
+
+import com.usagelimits.core.model.ProviderRegion
+
+/**
+ * Every provider URL, client identifier and request header the app sends, in one place.
+ *
+ * These values are reverse-engineered from the first-party CLI/desktop clients by way of
+ * CLIProxyAPI and its Management Center (see the docs/providers-*.md provider guides and
+ * docs/security.md). They are *not* a documented third-party
+ * API and can change without notice, so they are centralised here: an upstream change should
+ * be a one-file edit, never a hunt through parsers.
+ *
+ * Nothing here is a secret. The OAuth client IDs are the public identifiers the official
+ * clients ship; see [Antigravity.CLIENT_SECRET] for the one value that needs a caveat.
+ */
+object ProviderEndpoints {
+
+    /**
+     * OpenAI Codex / ChatGPT subscription.
+     *
+     * Source: CLIProxyAPI internal/auth/codex/openai_auth.go, sdk/auth/codex_device.go, and
+     * Management Center src/utils/quota/constants.ts.
+     */
+    object Codex {
+        const val CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+
+        /**
+         * Authorization code + PKCE with a loopback redirect — the flow the Codex CLI itself
+         * runs, and the default here. The client registration pins this exact redirect, so
+         * the app binds this port (see LoopbackServer) just as it does for Claude and
+         * Antigravity. The extra parameters are the ones the first-party client sends; the
+         * authorize page shapes what it shows by them.
+         */
+        const val AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
+        const val REDIRECT_PORT = 1455
+        const val REDIRECT_URI = "http://localhost:$REDIRECT_PORT/auth/callback"
+        const val AUTHORIZE_SCOPE = "openid profile email offline_access"
+        val AUTHORIZE_EXTRA_PARAMS = mapOf(
+            "id_token_add_organizations" to "true",
+            "codex_cli_simplified_flow" to "true",
+            "originator" to "codex_cli_rs",
+        )
+
+        // Device authorization — the fallback when the redirect port is taken. No redirect
+        // URI has to be registered and no loopback server has to run. The provider generates
+        // the PKCE pair and returns it with the code.
+        const val DEVICE_USER_CODE_URL = "https://auth.openai.com/api/accounts/deviceauth/usercode"
+        const val DEVICE_TOKEN_URL = "https://auth.openai.com/api/accounts/deviceauth/token"
+        const val DEVICE_VERIFICATION_URL = "https://auth.openai.com/codex/device"
+
+        /** Redirect the device-issued code must be exchanged against. Never navigated to. */
+        const val DEVICE_EXCHANGE_REDIRECT_URI = "https://auth.openai.com/deviceauth/callback"
+
+        const val TOKEN_URL = "https://auth.openai.com/oauth/token"
+
+        const val USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+        const val RESET_CREDITS_URL =
+            "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+        const val RESET_CREDITS_CONSUME_URL =
+            "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume"
+
+        /**
+         * Identifies the app as a Codex client. The backend varies its response by client, so
+         * this is a compatibility marker rather than an attempt to look like something else.
+         */
+        const val USER_AGENT = "codex-tui/0.149.1 (Android; arm64) UsageLimits"
+
+        /** Sent on the refresh grant only. Neither the device flow nor the code exchange uses it. */
+        const val SCOPE = "openid email profile offline_access"
+
+        /** Sent on the usage and reset-credit calls to select the account. */
+        const val HEADER_ACCOUNT_ID = "Chatgpt-Account-Id"
+
+        /**
+         * Only the reset-credit endpoints require these; the usage endpoint does not send
+         * them. Verified in Management Center codex/data.ts (fetchCodexResetCredits).
+         */
+        val RESET_CREDIT_HEADERS = mapOf(
+            "OpenAI-Beta" to "codex-1",
+            "Originator" to "Codex Desktop",
+        )
+    }
+
+    /**
+     * Claude / Anthropic subscription.
+     *
+     * Source: CLIProxyAPI internal/auth/claude/anthropic_auth.go and Management Center
+     * src/utils/quota/constants.ts.
+     */
+    object Claude {
+        const val CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+        const val AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
+
+        /** Both the code exchange and the refresh go here (platform.claude.com, not api.). */
+        const val TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
+
+        const val PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"
+        const val USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+
+        /**
+         * Loopback redirect, per RFC 8252 for native apps. The port is fixed because the
+         * provider's client registration pins it, so the app must bind exactly this port.
+         */
+        const val REDIRECT_URI = "http://localhost:54545/callback"
+        const val REDIRECT_PORT = 54545
+
+        const val SCOPE =
+            "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+
+        const val BETA_HEADER = "oauth-2025-04-20"
+
+        /**
+         * Usage window keys, in display order.
+         *
+         * `iguana_necktie` is upstream's current key for the Fable weekly window — a codename,
+         * not a typo. The parser tolerates its absence and ignores unknown siblings, so a
+         * rename upstream degrades to "one window missing" rather than a failed parse.
+         */
+        val USAGE_WINDOW_KEYS = listOf(
+            "five_hour" to "5h limit",
+            "seven_day" to "Weekly",
+            "seven_day_oauth_apps" to "Weekly (OAuth apps)",
+            "seven_day_opus" to "Weekly (Opus)",
+            "seven_day_sonnet" to "Weekly (Sonnet)",
+            "seven_day_cowork" to "Weekly (Cowork)",
+            "iguana_necktie" to "Weekly (Fable)",
+        )
+    }
+
+    /**
+     * Google Antigravity.
+     *
+     * Source: CLIProxyAPI internal/auth/antigravity/constants.go and Management Center
+     * src/utils/quota/constants.ts.
+     */
+    object Antigravity {
+        const val CLIENT_ID =
+            "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+
+        /**
+         * Google "installed application" client secret.
+         *
+         * This is not a confidential credential: RFC 8252 §8.5 and Google's own installed-app
+         * documentation treat it as public, and it ships in the desktop client already. It is
+         * required because Google's token endpoint rejects the exchange without it for this
+         * client type, and the Antigravity quota scopes are bound to this specific client —
+         * a self-registered Android client cannot reach them.
+         *
+         * PKCE is still used, so possession of this string alone does not let an attacker
+         * complete a flow. See docs/security.md for the full argument and the alternatives
+         * that were rejected.
+         */
+        const val CLIENT_SECRET = "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"
+
+        const val AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
+        const val TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+        const val USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v2/userinfo?alt=json"
+
+        const val REDIRECT_PORT = 51121
+        const val REDIRECT_URI = "http://localhost:$REDIRECT_PORT/oauth-callback"
+
+        val SCOPES = listOf(
+            "https://www.googleapis.com/auth/cloud-platform",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
+            "https://www.googleapis.com/auth/cclog",
+            "https://www.googleapis.com/auth/experimentsandconfigs",
+        )
+
+        /**
+         * Tried in order. The stable host is first because this call gates account creation:
+         * CLIProxyAPI and the Quota Inspector both use `cloudcode-pa` for it, and only the
+         * quota read needs the daily hosts' wider rollout.
+         */
+        val LOAD_CODE_ASSIST_URLS = listOf(
+            "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+            "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        )
+
+        /**
+         * Tried in order until one answers. The daily/sandbox hosts are rolled out ahead of
+         * the stable one, and which host serves a given account varies.
+         */
+        val QUOTA_URLS = listOf(
+            "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+            "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
+            "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
+        )
+
+        // Cloud Code gates newer models on the Hub version reported by the public updater manifest.
+        const val HUB_VERSION = "2.25.0"
+        const val USER_AGENT = "antigravity/hub/$HUB_VERSION (aidev_client; os_type=darwin; arch=arm64)"
+    }
+
+    /**
+     * xAI / Grok.
+     *
+     * Source: CLIProxyAPI internal/auth/xai/{xai,types}.go and Management Center
+     * src/utils/quota/constants.ts.
+     */
+    object Xai {
+        const val CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
+        const val ISSUER = "https://auth.x.ai"
+
+        /** Endpoints are discovered rather than hardcoded; see XaiProvider.discover(). */
+        const val DISCOVERY_URL = "$ISSUER/.well-known/openid-configuration"
+
+        const val SCOPE = "openid profile email offline_access grok-cli:access api:access"
+        const val DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
+
+        const val BILLING_CREDITS_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
+        const val BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing"
+        const val ME_URL = "https://api.x.ai/v1/me"
+
+        const val CLIENT_VERSION = "0.2.91"
+        const val USER_AGENT = "grok-pager/$CLIENT_VERSION grok-shell/$CLIENT_VERSION (android; aarch64)"
+
+        val IDENTITY_HEADERS = mapOf(
+            "x-xai-token-auth" to "xai-grok-cli",
+            "x-grok-client-version" to CLIENT_VERSION,
+        )
+    }
+
+    /**
+     * Kimi Code.
+     *
+     * OAuth, under this app's OWN name. Kimi's RFC 8628 device flow uses one public client id
+     * for every program that drives it — the first-party CLI, CLIProxyAPI, pi and others all
+     * present the same one — and what `api.kimi.com/coding` gates on is the `X-Msh-Platform`
+     * header, which names the calling program. Moonshot allowlists third-party programs on
+     * request and forbids exactly one thing: presenting another program's identity. So this
+     * app says who it is, never `kimi_cli`, and asks to be allowlisted under that name. Until
+     * that is granted the coding API may answer `403 access_terminated`, and a key from the
+     * user's own console stays available as the other way in. See docs/providers-kimi.md.
+     *
+     * Source: CLIProxyAPI internal/auth/kimi/kimi.go.
+     */
+    object Kimi {
+        /** The public client id every Kimi Code device-flow client presents, on both hosts. */
+        const val CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098"
+        const val DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
+
+        /** One region's hosts. A token or key only works on the host that issued it. */
+        data class Urls(
+            val deviceCodeUrl: String,
+            val tokenUrl: String,
+            val usageEndpoint: String,
+            val consoleUrl: String,
+        )
+
+        val CHINA = Urls(
+            deviceCodeUrl = "https://auth.kimi.com/api/oauth/device_authorization",
+            tokenUrl = "https://auth.kimi.com/api/oauth/token",
+            usageEndpoint = "https://api.kimi.com/coding/v1/usages",
+            consoleUrl = "https://www.kimi.com/code/console",
+        )
+        val INTERNATIONAL = Urls(
+            deviceCodeUrl = "https://auth.kimi.ai/api/oauth/device_authorization",
+            tokenUrl = "https://auth.kimi.ai/api/oauth/token",
+            usageEndpoint = "https://api.kimi.ai/coding/v1/usages",
+            consoleUrl = "https://www.kimi.ai/code/console",
+        )
+
+        fun urls(region: ProviderRegion): Urls = if (region == ProviderRegion.INTL) INTERNATIONAL else CHINA
+
+        /** This app's own name, sent wherever Kimi asks which program is calling. */
+        const val PLATFORM = "UsageLimits"
+
+        /** Who is calling, truthfully. The version is the app's, so the two never disagree. */
+        fun identityHeaders(version: String): Map<String, String> = mapOf(
+            "User-Agent" to "$PLATFORM/$version (Android)",
+            "X-Msh-Platform" to PLATFORM,
+            "X-Msh-Version" to version,
+        )
+    }
+
+    /**
+     * Z.ai GLM Coding Plan. Undocumented quota route, API key only. The China service
+     * (open.bigmodel.cn) serves the same path with its own keys. See docs/providers-zai.md.
+     */
+    object Zai {
+        fun usageEndpoint(region: ProviderRegion): String =
+            (if (region == ProviderRegion.CN) "https://open.bigmodel.cn" else "https://api.z.ai") +
+                "/api/monitor/usage/quota/limit"
+
+        fun consoleUrl(region: ProviderRegion): String =
+            if (region == ProviderRegion.CN) {
+                "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys"
+            } else {
+                "https://z.ai/manage-apikey/apikey-list"
+            }
+    }
+
+    /** OpenCode Go. Undocumented usage route, API key only. See docs/providers-opencode.md. */
+    object OpenCode {
+        const val USAGE_ENDPOINT = "https://opencode.ai/zen/go/v1/usage"
+        const val CONSOLE_URL = "https://opencode.ai/auth"
+    }
+
+    /**
+     * Devin / Cognition.
+     *
+     * Devin's CLI login is a PKCE authorization-code flow with an ephemeral loopback
+     * redirect.  The quota call is the same Connect-RPC method used by the official
+     * integration; the JSON encoding is supported by the endpoint and keeps the mobile
+     * client independent of a generated protobuf runtime.
+     *
+     * Source: CLIProxyAPI internal/auth/devin/{devin_auth,user_status}.go and the
+     * CLIProxyAPI Management Center quota provider.
+     */
+    object Devin {
+        const val APP_BASE_URL = "https://app.devin.ai"
+        const val API_BASE_URL = "https://api.devin.ai"
+        const val SERVER_BASE_URL = "https://server.codeium.com"
+        const val AUTHORIZE_PATH = "/auth/cli/continue"
+        const val TOKEN_PATH = "/auth/cli/token"
+        const val PROFILE_PATH = "/v3/self"
+        const val STATUS_PATH = "/exa.seat_management_pb.SeatManagementService/GetUserStatus"
+
+        const val USER_AGENT = "UsageLimits/1.0"
+        const val IDE_NAME = "chisel"
+        const val IDE_VERSION = "3000.10.21"
+        const val LOCALE = "en"
+
+        const val SESSION_TOKEN_PREFIX = "devin-session-token\$"
+    }
+
+    /**
+     * Meta Muse.
+     *
+     * Meta exposes OAuth as an RFC 8628 device flow.  The device token is retained separately
+     * from the short-lived/minted LLM key: the same `muse-code/key` endpoint returns both the
+     * subscription quota and a usable API key, but only the DCA token is valid for that query.
+     *
+     * Source: CLIProxyAPI internal/auth/meta/meta.go and the CLIProxyAPI Management Center
+     * quota provider (Meta Muse).
+     */
+    object Meta {
+        const val AUTH_HOST = "https://auth.meta.com"
+        const val DEVICE_AUTHORIZATION_ENDPOINT = "$AUTH_HOST/oidc/device/authorization/"
+        const val TOKEN_ENDPOINT = "$AUTH_HOST/oidc/device/token/"
+        const val CLIENT_ID = "1031625952748946"
+        const val DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
+
+        const val KEY_ENDPOINT = "https://api.meta.ai/muse-code/key"
+        const val API_BASE_URL = "https://api.meta.ai/v1"
+        const val USER_AGENT = "muse-code/1.0.2"
+        const val API_VERSION = "1.0.0"
+    }
+
+    /**
+     * Prepaid balance endpoints (the Credit Viewer). Documented where the provider documents
+     * them; none is reverse-engineered. See docs/credits.md.
+     */
+    object Credits {
+        const val OPENROUTER_CREDITS = "https://openrouter.ai/api/v1/credits"
+        const val OPENROUTER_KEY = "https://openrouter.ai/api/v1/key"
+        const val DEEPSEEK_BALANCE = "https://api.deepseek.com/user/balance"
+
+        /** A key from one host answers 401 on the other, so the region picks the host. */
+        fun moonshotBalance(region: ProviderRegion): String =
+            (if (region == ProviderRegion.CN) "https://api.moonshot.cn" else "https://api.moonshot.ai") +
+                "/v1/users/me/balance"
+
+        const val XAI_VALIDATION = "https://management-api.x.ai/auth/management-keys/validation"
+
+        fun xaiBalance(teamId: String): String {
+            // Typed by the user, so it cannot be trusted to be a path segment.
+            val segment = java.net.URLEncoder.encode(teamId, "UTF-8").replace("+", "%20").replace("*", "%2A")
+            return "https://management-api.x.ai/v1/billing/teams/$segment/prepaid/balance"
+        }
+
+        const val FAL_BILLING = "https://api.fal.ai/v1/account/billing?expand=credits"
+        const val NOVITA_BALANCE = "https://api.novita.ai/openapi/v1/billing/balance/detail"
+    }
+}

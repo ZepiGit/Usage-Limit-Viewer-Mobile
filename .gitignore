@@ -1,0 +1,64 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build/
+*.apk
+*.ap_
+*.dex
+*.class
+*.jks
+*.keystore
+# The ONE keystore that is repository content: the shared debug key. Its password is the
+# Android default and it signs nothing distributed; it exists so every debug-signed build,
+# from any machine or CI run, can update the one before it instead of forcing a reinstall
+# that wipes the user's accounts. See docs/release.md.
+!/app/debug.keystore
+__pycache__/
+*.pyc
+
+# Swift Package Manager
+ios/**/.build/
+ios/**/.swiftpm/
+*.xcuserdatad
+DerivedData/
+
+# Generated from ios/UsageLimits/project.yml by XcodeGen; never committed.
+ios/UsageLimits/*.xcodeproj/
+# Generated from project.yml by XcodeGen, like the project itself.
+ios/UsageLimits/Info.plist
+
+# Kotlin daemon crash logs. Build noise, and they embed this machine's proxy and
+# truststore paths, so they are not something to put in a public repository.
+.kotlin/
+ios/Tools/AppleShims/.build/
+
+# Scratch worktrees for delegated agents. Repository content, not the repository: an agent that
+# dies mid-run leaves one behind, and one did — holding a deliberate sabotage of SyncEngine it
+# never got to draw a conclusion from. `.claude/skills/` stays tracked.
+.claude/worktrees/
+
+# Local security-scanner hook state. Session baselines and continue markers churn on every
+# agent run and kept leaking into commits; they are machine-local tool state, like .gradle/.
+.mimosa/
+
+# Local agent tool state (research notes, design drafts). Machine-local, like .mimosa/.
+.omc/
+.taste-skill/
+/.omp
+AGENTS.md
+docs/agents/domain.md
+docs/agents/issue-tracker.md
+docs/agents/triage-labels.md
+/.scratch/
+
+# Local agent work directories: briefings, device dumps, review notes. Machine-local, and
+# one of them holds a 45 MB framework.jar that a careless `git add -A` would stage.
+/.omp-work/
+/.claude-work/

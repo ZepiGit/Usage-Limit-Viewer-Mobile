@@ -1,0 +1,40 @@
+name: Merge gate
+
+# Meant as the one required check for main: Android and iOS filter on paths and the status icon
+# evidence runs on push only, so none of their checks can be required. This workflow runs on every
+# pull request, waits for the pull_request and push runs it can see on the head commit (not its own,
+# not release.yml) and fails if one of them failed (tools/merge_gate.py, docs/release.md). It
+# decides from the runs visible when it stops polling and cannot know that no other run will
+# appear. It runs the script from the pull request itself, so a pull request that changes it proves
+# nothing about itself by passing. A tag pushed onto the head commit starts CI too (path filters do
+# not apply to tags, #98); those push runs are judged like any other, so a failed one blocks the
+# pull request until it is re-run or the head moves on by a commit, and a passed one can stand in
+# for a cancelled run of the same workflow.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: merge-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Merge gate
+    runs-on: ubuntu-latest
+    # Above the script's 120 minute deadline, so the gate fails with its own reason, not GitHub's.
+    timeout-minutes: 130
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test the gate's own decisions
+        run: python3 -m unittest discover -s tools -p 'test_merge_gate.py'
+      - name: Wait for the other runs on the head commit and judge them
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 tools/merge_gate.py "$SHA"

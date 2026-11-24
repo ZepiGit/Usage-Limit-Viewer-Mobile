@@ -1,0 +1,444 @@
+package com.usagelimits.core.database
+
+import com.usagelimits.core.model.ConnectionStatus
+import com.usagelimits.core.model.ProviderAccount
+import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.ResetCredit
+import com.usagelimits.core.model.SnapshotStatus
+import com.usagelimits.core.model.UsageSnapshot
+import com.usagelimits.core.model.UsageSegment
+import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.UsageScope
+import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.model.inOverviewOrder
+import com.usagelimits.core.model.confirmedResetWindowIds
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.update
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import java.util.UUID
+
+/** An account paired with its latest snapshot — what every screen and widget renders. */
+data class AccountUsage(
+    val account: ProviderAccount,
+    val snapshot: UsageSnapshot?,
+) {
+    /** A first failed attempt has a timestamp but has never produced a measurement. */
+    val measurementAt: Long?
+        get() = snapshot?.takeIf {
+            it.status != SnapshotStatus.FAILED || account.lastSuccessfulSync != null ||
+                it.windows.isNotEmpty() || it.resetCredits.isNotEmpty() || it.resetCreditCount != null
+        }?.fetchedAt
+}
+
+/** A failed cache read keeps the last readable accounts until an explicit retry succeeds. */
+data class AccountUsageRead(val accounts: List<AccountUsage>, val unreadable: Boolean = false)
+
+/** Overview's automatic order (ADR 0004); see [com.usagelimits.core.model.inOverviewOrder]. */
+fun List<AccountUsage>.inOverviewOrder(nowMs: Long): List<AccountUsage> =
+    inOverviewOrder(nowMs, AccountUsage::account, AccountUsage::snapshot)
+
+/**
+ * Runs a block with the database's write serialisation held for its whole duration.
+ *
+ * Exists because several writes here are read-then-write: they check a row, then act on what
+ * they read. Between those two statements the row can change, and every such pair in this file
+ * had a way to go wrong — a snapshot written for an account deleted a moment earlier, a failure
+ * blanking a success that landed in between, two logins minting two ids for one account.
+ * Wrapping the pair makes the decision and the write one step.
+ *
+ * An interface rather than the database itself, so the unit tests can keep handing the
+ * repository fake DAOs with no Room behind them.
+ */
+interface TransactionRunner {
+    suspend fun <T> inTransaction(block: suspend () -> T): T
+}
+
+/**
+ * Runs the block as-is.
+ *
+ * The default, and correct for the tests: a fake DAO pair has no shared connection to serialise
+ * against, and no concurrency for a transaction to protect them from.
+ */
+object DirectTransactionRunner : TransactionRunner {
+    override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+}
+
+/**
+ * The app's single read/write surface over the local cache.
+ *
+ * Converts between Room entities and domain models, keeping JSON serialisation of the
+ * normalised window list an implementation detail. Callers never see an entity.
+ */
+class UsageRepository(
+    private val accountDao: AccountDao,
+    private val snapshotDao: UsageSnapshotDao,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val transactions: TransactionRunner = DirectTransactionRunner,
+    /** When a new account counts as added; Overview breaks ties by it (ADR 0004). */
+    private val nowMs: () -> Long = System::currentTimeMillis,
+) {
+
+    // Persisted shapes. Kept separate from the domain models so a UI-facing change (adding a
+    // computed property, renaming a label) cannot silently alter the on-disk format.
+
+    @Serializable
+    private data class StoredWindow(
+        val id: String,
+        val label: String,
+        val category: String,
+        val usedPercent: Double? = null,
+        val periodSeconds: Long? = null,
+        val resetAt: Long? = null,
+        val exhausted: Boolean = false,
+        val group: String? = null,
+        val scope: String? = null,
+        val segments: List<StoredSegment> = emptyList(),
+        val measured: Boolean = true,
+    )
+
+    @Serializable
+    private data class StoredSegment(val label: String, val usedPercent: Double)
+
+    @Serializable
+    private data class StoredCredit(
+        val id: String,
+        val grantedAt: Long? = null,
+        val expiresAt: Long? = null,
+        val status: String,
+    )
+
+    @Serializable
+    private data class StoredAttributes(val values: Map<String, String> = emptyMap())
+
+    fun observeAccountUsage(): Flow<List<AccountUsage>> =
+        combine(accountDao.observeAll(), snapshotDao.observeAll()) { accounts, snapshots ->
+            val byAccount = snapshots.associateBy { it.accountId }
+            accounts.mapNotNull { entity ->
+                AccountUsage(
+                    account = entity.toDomain() ?: return@mapNotNull null,
+                    snapshot = byAccount[entity.localId]?.toDomain(ProviderId.fromId(entity.provider)),
+                )
+            }
+        }
+
+    private val readRetries = MutableStateFlow(0L)
+
+    /** Only the account cache is caught here, never settings, credits or a downstream consumer. */
+    fun observeAccountUsageRead(): Flow<AccountUsageRead> {
+        var known = emptyList<AccountUsage>()
+        return flow {
+            emitAll(observeAccountUsage().map { accounts ->
+                known = accounts
+                AccountUsageRead(accounts)
+            })
+        }.retryWhen { cause, _ ->
+            if (cause is CancellationException || cause !is Exception) throw cause
+            val generation = readRetries.value
+            emit(AccountUsageRead(known, unreadable = true))
+            readRetries.first { it != generation }
+            true
+        }
+    }
+
+    fun retryAccountRead() { readRetries.update { it + 1 } }
+
+    fun observeAccounts(): Flow<List<ProviderAccount>> =
+        accountDao.observeAll().map { list -> list.mapNotNull { it.toDomain() } }
+
+    suspend fun accounts(): List<ProviderAccount> = accountDao.getAll().mapNotNull { it.toDomain() }
+
+    suspend fun account(localId: String): ProviderAccount? = accountDao.getById(localId)?.toDomain()
+
+    suspend fun snapshot(accountId: String): UsageSnapshot? =
+        snapshotDao.getForAccount(accountId)?.toDomain(account(accountId)?.provider)
+
+    internal suspend fun backgroundNotBefore(accountId: String): Long? =
+        snapshotDao.backgroundNotBefore(accountId)
+
+    /** Snapshot of the whole cache, for widget rendering off the main thread. */
+    suspend fun accountUsageOnce(): List<AccountUsage> {
+        val snapshots = snapshotDao.getAll().associateBy { it.accountId }
+        return accountDao.getAll().mapNotNull { entity ->
+            AccountUsage(entity.toDomain() ?: return@mapNotNull null, snapshots[entity.localId]?.toDomain(ProviderId.fromId(entity.provider)))
+        }
+    }
+
+    /**
+     * Creates or updates an account from a completed login.
+     *
+     * Identity is provider + external account id, so re-authenticating an existing account
+     * refreshes it in place — including its local id, which widgets may already reference —
+     * instead of producing a second entry.
+     */
+    suspend fun upsertFromLogin(
+        provider: ProviderId,
+        externalAccountId: String,
+        email: String?,
+        displayName: String?,
+        plan: String?,
+        attributes: Map<String, String>,
+    ): ProviderAccount = transactions.inTransaction {
+        // Read and write together. Two concurrent logins for the same external account could
+        // otherwise both miss this lookup, both mint a local id, and the second insert would
+        // meet the unique index on (provider, externalAccountId).
+        val existing = accountDao.getByExternalId(provider.id, externalAccountId)
+        val localId = existing?.localId ?: UUID.randomUUID().toString()
+        val entity = AccountEntity(
+            localId = localId,
+            provider = provider.id,
+            externalAccountId = externalAccountId,
+            email = email,
+            displayName = displayName,
+            plan = plan,
+            // Reference stays stable across re-auth so the stored credential is replaced,
+            // not orphaned alongside a new one.
+            credentialReference = existing?.credentialReference ?: "${provider.id}_$localId",
+            createdAt = existing?.createdAt ?: nowMs(),
+            lastSuccessfulSync = existing?.lastSuccessfulSync,
+            attributesJson = json.encodeToString(
+                StoredAttributes.serializer(),
+                StoredAttributes(attributes),
+            ),
+            // A new account joins the end of the list, not the front of it.
+            sortOrder = existing?.sortOrder ?: accountDao.nextSortOrder(),
+            pendingResetConfirmationAt = existing?.pendingResetConfirmationAt,
+        )
+        accountDao.upsert(entity)
+        // Built from a known ProviderId a moment ago, so this cannot be null.
+        checkNotNull(entity.toDomain())
+    }
+
+    /**
+     * Writes the order the user dragged the accounts into.
+     *
+     * The whole list is renumbered in one transaction rather than swapping two rows, because a
+     * partial write leaves an order that is neither the old one nor the new one — and the list
+     * is short enough that renumbering it costs nothing.
+     *
+     * Ids the caller does not know about are left alone: an account added on another screen
+     * while this one was open keeps whatever place it had rather than being renumbered to 0.
+     */
+    suspend fun reorderAccounts(idsInOrder: List<String>) = transactions.inTransaction {
+        idsInOrder.forEachIndexed { index, id -> accountDao.setSortOrder(id, index) }
+    }
+
+    /**
+     * Removes an account and everything hanging off it.
+     *
+     * The snapshot delete is redundant — the foreign key cascades — but it is explicit and
+     * costs nothing, and both statements are in one transaction so a failure between them
+     * cannot leave the account gone and its snapshot behind.
+     */
+    suspend fun deleteAccount(localId: String) = transactions.inTransaction {
+        snapshotDao.deleteForAccount(localId)
+        accountDao.deleteById(localId)
+    }
+
+    /**
+     * Records a reading and any new automatic pause together.
+     *
+     * No-ops when the account is gone. `usage_snapshots.accountId` is a foreign key onto
+     * `accounts`, so writing a snapshot for a row the user removed while the fetch was in
+     * flight raises SQLITE_CONSTRAINT_FOREIGNKEY — which Room rethrows, which escapes the
+     * sync pass, cancels the sibling accounts' writes and reaches the uncaught handler.
+     * An account that no longer exists has no usage worth recording.
+     */
+    suspend fun saveSnapshot(snapshot: UsageSnapshot, backgroundNotBefore: Long? = null) = transactions.inTransaction {
+        // The guard and the write are one step. Apart, the account could be deleted in the gap
+        // between them and the insert would raise the very constraint violation the guard
+        // exists to prevent — the failure the paragraph above describes, still reachable.
+        val account = accountDao.getById(snapshot.accountId)
+        if (account != null) {
+            if (account.provider == ProviderId.CLAUDE.id && account.pendingResetConfirmationAt == null &&
+                snapshot.confirmedResetWindowIds(snapshotDao.getForAccount(snapshot.accountId)?.toDomain(ProviderId.CLAUDE)).isNotEmpty()
+            ) {
+                accountDao.upsert(account.copy(pendingResetConfirmationAt = snapshot.fetchedAt))
+            }
+            snapshotDao.upsert(
+                UsageSnapshotEntity(
+                    accountId = snapshot.accountId,
+                    fetchedAt = snapshot.fetchedAt,
+                    status = snapshot.status.name,
+                    errorMessage = snapshot.errorMessage,
+                    windowsJson = json.encodeToString(
+                        kotlinx.serialization.builtins.ListSerializer(StoredWindow.serializer()),
+                        snapshot.windows.map { it.toStored() },
+                    ),
+                    resetCreditsJson = json.encodeToString(
+                        kotlinx.serialization.builtins.ListSerializer(StoredCredit.serializer()),
+                        snapshot.resetCredits.map { it.toStored() },
+                    ),
+                    resetCreditCount = snapshot.resetCreditCount,
+                    applicableResetCreditCount = snapshot.applicableResetCreditCount,
+                    connectionStatus = snapshot.connectionStatus.name,
+                    lastAttemptAt = snapshot.lastAttemptAt,
+                    backgroundNotBefore = backgroundNotBefore ?: if (snapshot.status == SnapshotStatus.FAILED) {
+                        snapshotDao.backgroundNotBefore(snapshot.accountId)
+                    } else null,
+                ),
+            )
+            if (snapshot.status != SnapshotStatus.FAILED) {
+                accountDao.markSynced(snapshot.accountId, snapshot.fetchedAt)
+            }
+        }
+    }
+
+    /** Claims and clears together, ordered against every snapshot commit and account removal. */
+    suspend fun claimPendingResetConfirmations(): Set<String> = transactions.inTransaction {
+        val pending = accountDao.getAll().filter { it.pendingResetConfirmationAt != null }
+        for (account in pending) accountDao.upsert(account.copy(pendingResetConfirmationAt = null))
+        pending.mapTo(linkedSetOf()) { it.localId }
+    }
+
+    /**
+     * Records a failed sync while preserving the previous numbers.
+     *
+     * The UI keeps showing the last known usage with a staleness note, which is far more
+     * useful than blanking a card because one refresh failed.
+     *
+     * No-ops for a removed account, for the same foreign-key reason as [saveSnapshot].
+     */
+    suspend fun saveFailure(
+        accountId: String,
+        message: String,
+        nowMs: Long,
+        requiresReauthentication: Boolean = false,
+        backgroundNotBefore: Long? = null,
+    ) =
+        transactions.inTransaction {
+            // Reading the previous row and replacing it must be one step. Between them a
+            // concurrent successful sync can land, and this would then overwrite fresh
+            // numbers with a FAILED row carrying the values it read before they arrived —
+            // the card flipping from just-refreshed back to blank.
+            if (accountDao.getById(accountId) != null) {
+                val previous = snapshotDao.getForAccount(accountId)
+                snapshotDao.upsert(
+                    UsageSnapshotEntity(
+                        accountId = accountId,
+                        // Keep the original fetch time: the data is as old as it was, and
+                        // the failure is carried separately.
+                        fetchedAt = previous?.fetchedAt ?: nowMs,
+                        lastAttemptAt = nowMs,
+                        status = SnapshotStatus.FAILED.name,
+                        errorMessage = message,
+                        windowsJson = previous?.windowsJson ?: "[]",
+                        resetCreditsJson = previous?.resetCreditsJson ?: "[]",
+                        resetCreditCount = previous?.resetCreditCount,
+                        applicableResetCreditCount = previous?.applicableResetCreditCount,
+                        backgroundNotBefore = backgroundNotBefore ?: previous?.backgroundNotBefore,
+                        connectionStatus = if (requiresReauthentication) ConnectionStatus.RECONNECT_REQUIRED.name
+                            else previous?.toDomain()?.connectionStatus?.name ?: ConnectionStatus.UNKNOWN.name,
+                    ),
+                )
+            }
+        }
+
+    /**
+     * Null for an unsupported provider: routing its credentials to another provider is unsafe.
+     * The account stays hidden until a build can interpret its provider.
+     */
+    private fun AccountEntity.toDomain(): ProviderAccount? {
+        val providerId = ProviderId.fromId(provider) ?: return null
+        return ProviderAccount(
+        localId = localId,
+        provider = providerId,
+        externalAccountId = externalAccountId,
+        email = email,
+        displayName = displayName,
+        plan = plan,
+        credentialReference = credentialReference,
+        createdAt = createdAt,
+        lastSuccessfulSync = lastSuccessfulSync,
+        attributes = runCatching {
+            json.decodeFromString(StoredAttributes.serializer(), attributesJson).values
+        }.getOrDefault(emptyMap()),
+        )
+    }
+
+    private fun UsageSnapshotEntity.toDomain(provider: ProviderId? = null): UsageSnapshot = UsageSnapshot(
+        accountId = accountId,
+        fetchedAt = fetchedAt,
+        lastAttemptAt = lastAttemptAt ?: fetchedAt,
+        status = runCatching { SnapshotStatus.valueOf(status) }.getOrDefault(SnapshotStatus.FAILED),
+        windows = runCatching {
+            val storedWindows = json.decodeFromString(
+                kotlinx.serialization.builtins.ListSerializer(StoredWindow.serializer()),
+                windowsJson,
+            )
+            // Before scope was stored, xAI emitted on-demand only for a positive cap.
+            // Its presence proves monthly and on-demand were alternative billing pools.
+            val hasLegacyXaiOnDemand = provider == ProviderId.XAI && storedWindows.any {
+                it.id == "xai-on-demand" && it.scope == null
+            }
+            storedWindows.map { it.toDomain(provider, hasLegacyXaiOnDemand) }.let { windows ->
+                if (provider == ProviderId.XAI) {
+                    com.usagelimits.providers.xai.XaiBillingParser.merge(windows, emptyList())
+                } else windows
+            }
+        }.getOrDefault(emptyList()),
+        resetCredits = runCatching {
+            json.decodeFromString(
+                kotlinx.serialization.builtins.ListSerializer(StoredCredit.serializer()),
+                resetCreditsJson,
+            ).map { it.toDomain() }
+        }.getOrDefault(emptyList()),
+        resetCreditCount = resetCreditCount,
+        applicableResetCreditCount = applicableResetCreditCount,
+        errorMessage = errorMessage,
+        connectionStatus = ConnectionStatus.fromStored(connectionStatus,
+            runCatching { SnapshotStatus.valueOf(status) }.getOrDefault(SnapshotStatus.FAILED), errorMessage),
+    )
+
+    private fun UsageWindow.toStored() = StoredWindow(
+        id = id,
+        label = label,
+        category = category.name,
+        usedPercent = usedPercent,
+        periodSeconds = periodSeconds,
+        resetAt = resetAt,
+        exhausted = exhausted,
+        group = group,
+        scope = scope.name,
+        segments = segments.map { StoredSegment(it.label, it.usedPercent) },
+        measured = measured,
+    )
+
+    private fun StoredWindow.toDomain(provider: ProviderId?, hasLegacyXaiOnDemand: Boolean) = UsageWindow(
+        segments = segments.map { UsageSegment(it.label, it.usedPercent) },
+        measured = measured,
+        id = id,
+        label = label,
+        category = runCatching { WindowCategory.valueOf(category) }
+            .getOrDefault(WindowCategory.OTHER),
+        usedPercent = usedPercent,
+        periodSeconds = periodSeconds,
+        resetAt = resetAt,
+        exhausted = exhausted,
+        group = group,
+        scope = scope?.let { stored ->
+            runCatching { UsageScope.valueOf(stored) }.getOrDefault(UsageScope.UNKNOWN)
+        } ?: when {
+            provider == ProviderId.XAI && id == "xai-on-demand" -> UsageScope.MODEL
+            provider == ProviderId.XAI && id == "xai-monthly" && hasLegacyXaiOnDemand -> UsageScope.MODEL
+            provider == ProviderId.ANTIGRAVITY -> UsageScope.MODEL
+            provider == ProviderId.CODEX && (id.startsWith("code-review-") || id.startsWith("additional-")) -> UsageScope.MODEL
+            provider != ProviderId.CLAUDE -> UsageScope.GLOBAL
+            id == "five-hour" || id == "seven-day" -> UsageScope.GLOBAL
+            id.startsWith("seven-day-") -> UsageScope.MODEL
+            else -> UsageScope.UNKNOWN
+        },
+    )
+
+    private fun ResetCredit.toStored() = StoredCredit(id, grantedAt, expiresAt, status)
+
+    private fun StoredCredit.toDomain() = ResetCredit(id, grantedAt, expiresAt, status)
+}

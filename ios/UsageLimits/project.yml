@@ -1,0 +1,243 @@
+# XcodeGen spec for the iOS app.
+#
+# A readable spec rather than a committed .pbxproj, for two reasons. A pbxproj is a generated
+# file with unstable ordering, so it conflicts on every branch and nobody can review a diff of
+# it. And this project cannot be opened in Xcode from the environment it was written in, so a
+# hand-maintained one would be a file nobody could check — whereas CI regenerates from this and
+# either compiles or does not.
+#
+#   brew install xcodegen && xcodegen generate
+name: UsageLimits
+options:
+  bundleIdPrefix: com.usagelimits
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  UsageLimitsKit:
+    path: ../UsageLimitsKit
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.5.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Strict concurrency across the app too, not only the package. The kit is already clean, and
+    # letting the app lag behind is how a @MainActor violation reaches a user as a crash on a
+    # slow network rather than as a compile error here.
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    CODE_SIGNING_ALLOWED: NO
+
+targets:
+  UsageLimits:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+        excludes:
+          - Widget/**
+          # Listed once, explicitly, below, the same way the widget lists it.
+          - Resources/**
+      # One catalog for the app and the widget. Both targets compile Theme, whose words
+      # (percent figures, severity names, countdowns) are looked up from the bundle they run in,
+      # so a widget whose bundle lacked the catalog would show English in every language.
+      - path: Sources/Resources/Localizable.xcstrings
+        buildPhase: resources
+      # Folder reference preserves byte-identical canonical files without a copied asset tree.
+      - path: ../../third_party/fonts/android-res
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: UsageLimitsKit
+      # The widget must be EMBEDDED, not merely built. Listing both targets in the scheme
+      # compiles the extension and stops there: it produces a .appex next to the app rather
+      # than inside it, so the installed bundle has no widget at all and the tile never
+      # appears in the system picker. Nothing catches that — both targets compile, every test
+      # passes, and the feature is simply absent from the artefact.
+      - target: UsageLimitsWidget
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.usagelimits.app
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-GaugeCoin AppIcon-AIGauge AppIcon-AIHourglass AppIcon-AIRefreshRing AppIcon-AIBattery"
+        TARGETED_DEVICE_FAMILY: "1,2"
+    # A generated Info.plist rather than INFOPLIST_KEY_* build settings, because two of the keys
+    # below are arrays and the build-setting spelling cannot express one. Written by XcodeGen,
+    # so it is still generated rather than hand-maintained.
+    info:
+      path: Info.plist
+      properties:
+        CFBundleShortVersionString: '$(MARKETING_VERSION)'
+        CFBundleVersion: '$(CURRENT_PROJECT_VERSION)'
+        UILaunchScreen:
+          UIColorName: LaunchNeutral
+        UIAppFonts:
+          - android-res/font/roboto_flex.ttf
+          - android-res/font/ibm_plex_sans_regular.ttf
+          - android-res/font/ibm_plex_sans_medium.ttf
+          - android-res/font/figtree.ttf
+          - android-res/font/roboto_mono.ttf
+          - android-res/font/jetbrains_mono.ttf
+          - android-res/font/ibm_plex_mono_regular.ttf
+          - android-res/font/ibm_plex_mono_medium.ttf
+          - android-res/font/ibm_plex_mono_bold.ttf
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Without this the app can never refresh while closed, so the widget shows whatever was
+        # on screen when the user last opened it and a limit can run out unannounced.
+        UIBackgroundModes:
+          - fetch
+        # Must match BackgroundRefresh.taskIdentifier exactly. A mismatch is not reported: the
+        # registration throws at launch and background refresh silently never happens again.
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.usagelimits.app.refresh
+        # The scheme the widget's links use. Without it the system cannot route
+        # usagelimits:// at all, so every tap on a tile did nothing — the widget had
+        # shipped its links against a scheme no bundle claimed.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.usagelimits.app
+            CFBundleURLSchemes:
+              - usagelimits
+    # The app and the widget are separate processes; the shared container is the only thing
+    # they have in common, and a missing entitlement makes the container URL nil at runtime —
+    # which shows up as a permanently blank tile rather than as any kind of error.
+    entitlements:
+      path: UsageLimits.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.usagelimits.shared
+
+  UsageLimitsWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Widget
+      - path: Sources/Theme
+      - path: Sources/Assets.xcassets
+      - path: Sources/Resources/Localizable.xcstrings
+        buildPhase: resources
+      # The status icon silhouettes, the same file Android's status bar draws from.
+      - path: ../../shared/glyphs/status-icon-glyphs.json
+        buildPhase: resources
+    dependencies:
+      - package: UsageLimitsKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.usagelimits.app.widget
+    # Written out rather than left to INFOPLIST_KEY_NSExtensionPointIdentifier. That build
+    # setting only reaches the bundle when Xcode is the one generating the Info.plist, and what
+    # an extension actually needs is a nested NSExtension dictionary — a shape no
+    # INFOPLIST_KEY_* spelling can express. An extension whose plist lacks it is not recognised
+    # as a widget provider, which looks exactly like a widget that was never installed.
+    info:
+      path: UsageLimitsWidget-Info.plist
+      properties:
+        CFBundleShortVersionString: '$(MARKETING_VERSION)'
+        CFBundleVersion: '$(CURRENT_PROJECT_VERSION)'
+        CFBundleDisplayName: Usage Limits
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: UsageLimitsWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.usagelimits.shared
+
+  # The only target that runs the real binary. Everything else in this repository is verified
+  # without ever starting the app — the kit's tests run on Linux, and the build job compiles the
+  # SwiftUI code without executing a line of it. Compiling proves the types line up; it does not
+  # prove the app launches.
+  UsageLimitsUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+      - path: TestSupport/MotionLogEntries.swift
+      - path: ../../shared/test-vectors/credit-widget-compact-status.json
+        buildPhase: resources
+    dependencies:
+      - target: UsageLimits
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.usagelimits.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: UsageLimits
+
+  UsageLimitsScreenshotTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ScreenshotTests
+      - path: TestSupport/MotionLogEntries.swift
+    dependencies:
+      - target: UsageLimits
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.usagelimits.app.screenshottests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: UsageLimits
+
+  # Renders the Pinned accounts widget's views at accessory sizes for a person to look at
+  # (.github/workflows/screenshots.yml). Hosted in the app, because `String(localized:)` reads the
+  # main bundle's catalog; it compiles the widget's views itself, since the app target leaves
+  # Widget/** to the extension.
+  UsageLimitsRenderingTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RenderingTests
+      - path: Sources/Theme
+      - path: Sources/Widget
+      - path: ../../shared/glyphs/status-icon-glyphs.json
+        buildPhase: resources
+      - path: ../../shared/test-vectors/credit-widget-compact-status.json
+        buildPhase: resources
+    dependencies:
+      - target: UsageLimits
+      - package: UsageLimitsKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.usagelimits.app.renderingtests
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) WIDGET_RENDERING_TESTS"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/UsageLimits.app/UsageLimits
+        BUNDLE_LOADER: $(TEST_HOST)
+
+schemes:
+  UsageLimitsRendering:
+    build:
+      targets:
+        UsageLimits: all
+    test:
+      config: Debug
+      # The host must not put a notification permission alert over native rendering tests.
+      commandLineArguments:
+        "-ui-testing": true
+      targets:
+        - UsageLimitsRenderingTests
+  UsageLimitsScreenshots:
+    build:
+      targets:
+        UsageLimits: all
+    test:
+      config: Debug
+      targets:
+        - UsageLimitsScreenshotTests
+  UsageLimits:
+    build:
+      targets:
+        UsageLimits: all
+        UsageLimitsWidget: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - UsageLimitsUITests

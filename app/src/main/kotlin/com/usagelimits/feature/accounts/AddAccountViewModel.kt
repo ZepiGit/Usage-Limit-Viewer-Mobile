@@ -1,0 +1,309 @@
+package com.usagelimits.feature.accounts
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.usagelimits.R
+import com.usagelimits.core.di.AppContainer
+import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.ProviderRegion
+import com.usagelimits.core.network.ProviderException
+import com.usagelimits.core.oauth.SignInKeepAliveService
+import com.usagelimits.core.sync.userMessage
+import com.usagelimits.ui.text.storedMessageText
+import com.usagelimits.providers.DeviceCodeLoginCapable
+import com.usagelimits.providers.LoginChallenge
+import com.usagelimits.providers.KeyLoginCapable
+import com.usagelimits.providers.codex.CodexProvider
+import com.usagelimits.providers.kimi.KimiProvider
+import com.usagelimits.providers.meta.MetaProvider
+import com.usagelimits.providers.xai.XaiProvider
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+/** Where the add-account flow currently is. */
+sealed interface AddAccountState {
+    data object PickProvider : AddAccountState
+
+    /** Kimi and Z.ai run a China and an international service; keys and sign-ins do not cross. */
+    data class ChoosingRegion(val provider: ProviderId) : AddAccountState
+
+    data class Starting(val provider: ProviderId) : AddAccountState
+
+    /** Device flow: the user types [userCode] at [verificationUri] while the app polls. */
+    data class AwaitingDeviceCode(
+        val provider: ProviderId,
+        val userCode: String,
+        val verificationUri: String,
+        /** True where the provider also takes a pasted key, so the screen can offer it. */
+        val keyAlternative: Boolean = false,
+    ) : AddAccountState
+
+    /**
+     * No flow to drive: the user has to fetch a key from the provider's console and paste it.
+     *
+     * The login job parks here rather than unwinding, so cancelling the screen still closes
+     * everything the attempt opened.
+     */
+    data class AwaitingApiKey(
+        val provider: ProviderId,
+        val consoleUrl: String,
+        val hint: String,
+    ) : AddAccountState
+
+    /** Redirect flow: the browser is open and the loopback listener is waiting. */
+    data class AwaitingBrowser(
+        val provider: ProviderId,
+        /** True where the provider also signs in with a device code, so the wait has a way out. */
+        val deviceCodeAlternative: Boolean = false,
+        /** The page the browser was sent to, so it can be opened again if the tab was lost. */
+        val authorizationUrl: String? = null,
+    ) : AddAccountState
+
+    data class Success(val provider: ProviderId, val accountLabel: String) : AddAccountState
+
+    data class Failed(
+        val provider: ProviderId?,
+        val message: String,
+        /** True where the provider also takes a pasted key, so "try again" has a sibling. */
+        val keyAlternative: Boolean = false,
+        /** True where the provider also signs in with a device code. */
+        val deviceCodeAlternative: Boolean = false,
+        /** True when the failed attempt was the device flow, so "try again" repeats that. */
+        val viaDeviceCode: Boolean = false,
+    ) : AddAccountState
+}
+
+/**
+ * Drives one login attempt.
+ *
+ * Deliberately separate from [com.usagelimits.feature.UsageViewModel]: a login is a bounded,
+ * cancellable transaction with its own failure states, and folding it into the shared state
+ * would leak half-finished attempts into every screen.
+ */
+class AddAccountViewModel(private val container: AppContainer) : ViewModel() {
+
+    private val _state = MutableStateFlow<AddAccountState>(AddAccountState.PickProvider)
+    val state: StateFlow<AddAccountState> = _state.asStateFlow()
+
+    private var loginJob: Job? = null
+
+    /** The region picked for a regional provider; kept so "try again" and "use a key" reuse it. */
+    private var chosenRegion: Pair<ProviderId, ProviderRegion>? = null
+
+    /** A retained route view model must not restart sign-in when its composition returns. */
+    fun startInitialLogin(context: Context, providerId: ProviderId) {
+        if (_state.value == AddAccountState.PickProvider && loginJob == null) startLogin(context, providerId)
+    }
+
+    /** Records the picked region and carries on with the login it was asked for. */
+    fun chooseRegion(context: Context, providerId: ProviderId, region: ProviderRegion) {
+        chosenRegion = providerId to region
+        startLogin(context, providerId)
+    }
+
+    fun availableProviders(): List<ProviderId> =
+        container.providerRegistry.available().map { it.providerId }
+
+    /**
+     * Runs a full login: challenge, user step, completion, profile, first sync.
+     *
+     * The whole thing is one job so cancelling closes the loopback listener and stops polling
+     * rather than leaving either running in the background.
+     */
+    /** Set while a login is parked waiting for a pasted key. */
+    private var pendingApiKey: CompletableDeferred<String>? = null
+
+    /** Hands the key the user pasted to the login job that is waiting for it. */
+    fun submitApiKey(key: String) {
+        val trimmed = key.trim()
+        if (trimmed.isNotEmpty()) pendingApiKey?.complete(trimmed)
+    }
+
+    /**
+     * [withKey] picks the pasted-key way in, for a provider that offers one beside its flow.
+     * The flow is the default; the key is the button under it.
+     */
+    fun startLogin(
+        context: Context,
+        providerId: ProviderId,
+        withKey: Boolean = false,
+        /** The device-code way in, for a provider whose browser redirect did not land. */
+        withDeviceCode: Boolean = false,
+    ) {
+        val regionChoice = ProviderRegion.options(providerId)
+        val region = chosenRegion?.takeIf { it.first == providerId }?.second
+        if (regionChoice.isNotEmpty() && region == null) {
+            loginJob?.cancel()
+            _state.value = AddAccountState.ChoosingRegion(providerId)
+            return
+        }
+        val previous = loginJob
+        previous?.cancel()
+        // A key is an alternative only where a flow exists beside it.
+        val keyAlternative = (container.providerRegistry.forId(providerId) as? KeyLoginCapable)?.keyOnly == false
+        val deviceCodeAlternative = container.providerRegistry.forId(providerId) is DeviceCodeLoginCapable
+        loginJob = viewModelScope.launch {
+            _state.value = AddAccountState.Starting(providerId)
+            // Wait for cancellation cleanup before retrying: the listener must release its pinned
+            // port and finish clearing PKCE state before a new attempt creates either.
+            previous?.join()
+            var keepAlive: Long? = null
+            try {
+                val provider = container.providerRegistry.forId(providerId)
+                    ?: throw ProviderException.Unexpected("Provider unavailable")
+
+                val challenge = when {
+                    withKey -> (provider as? KeyLoginCapable)?.keyLoginChallenge(region)
+                        ?: throw ProviderException.Unexpected("This provider takes no key")
+                    withDeviceCode -> (provider as? DeviceCodeLoginCapable)?.deviceLoginChallenge()
+                        ?: throw ProviderException.Unexpected("This provider has no device code")
+                    region != null -> provider.beginLogin(region)
+                    else -> provider.beginLogin()
+                }
+
+                when (challenge) {
+                    is LoginChallenge.DeviceCode -> {
+                        // The packed challenge carries the device code and token endpoint
+                        // alongside the user code; only the user code may ever be shown.
+                        val display = when (providerId) {
+                            ProviderId.CODEX -> CodexProvider.displayCode(challenge.userCode)
+                            ProviderId.XAI -> XaiProvider.displayCode(challenge.userCode)
+                            ProviderId.KIMI -> KimiProvider.displayCode(challenge.userCode)
+                            ProviderId.META -> MetaProvider.displayCode(challenge.userCode)
+                            else -> challenge.userCode.substringBefore('|')
+                        }
+                        _state.value = AddAccountState.AwaitingDeviceCode(
+                            provider = providerId,
+                            userCode = display,
+                            verificationUri = challenge.verificationUriComplete
+                                ?: challenge.verificationUri,
+                            keyAlternative = keyAlternative,
+                        )
+                        // The code is typed in a browser tab too, so a deferred icon switch
+                        // would drop the task under it just as it would for a redirect.
+                        SignInKeepAliveService.signingIn = true
+                        openUrl(context, challenge.verificationUriComplete ?: challenge.verificationUri)
+                    }
+
+                    is LoginChallenge.Redirect -> {
+                        _state.value = AddAccountState.AwaitingBrowser(
+                            provider = providerId,
+                            deviceCodeAlternative = deviceCodeAlternative,
+                            authorizationUrl = challenge.authorizationUrl,
+                        )
+                        // The redirect lands on a socket in this process, which the cached-apps
+                        // freezer would freeze while the browser is in front.
+                        keepAlive = SignInKeepAliveService.start(context.applicationContext)
+                        openUrl(context, challenge.authorizationUrl)
+                    }
+
+                    is LoginChallenge.ApiKey -> {
+                        _state.value = AddAccountState.AwaitingApiKey(
+                            provider = providerId,
+                            consoleUrl = challenge.consoleUrl,
+                            hint = challenge.hint,
+                        )
+                    }
+                }
+
+                // Parks the job until the key arrives, rather than returning and resuming
+                // later: cancelling the screen then cancels the await along with everything
+                // else the attempt opened.
+                val typed = if (challenge is LoginChallenge.ApiKey) {
+                    CompletableDeferred<String>().also { pendingApiKey = it }.await()
+                } else {
+                    null
+                }
+
+                val credentials = provider.completeLogin(challenge, typed)
+                val profile = provider.fetchProfile(credentials)
+
+                val account = container.repository.upsertFromLogin(
+                    provider = providerId,
+                    externalAccountId = profile.externalAccountId,
+                    email = profile.email,
+                    displayName = profile.displayName,
+                    plan = profile.plan,
+                    attributes = profile.attributes,
+                )
+
+                // Store credentials only once the account row exists, so a crash cannot leave
+                // a credential nothing references.
+                container.credentialStore.save(account.credentialReference, credentials)
+
+                container.syncEngine.syncAccount(account)
+                container.publication.cacheMoved()
+
+                chosenRegion = null
+                _state.value = AddAccountState.Success(providerId, account.label)
+            } catch (e: ProviderException) {
+                _state.value = AddAccountState.Failed(
+                    providerId, storedMessageText(context.resources, e.userMessage()), keyAlternative, deviceCodeAlternative, withDeviceCode,
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.value = AddAccountState.Failed(
+                    providerId, context.getString(R.string.add_signin_failed), keyAlternative, deviceCodeAlternative, withDeviceCode,
+                )
+            } finally {
+                val lease = keepAlive
+                if (lease != null) SignInKeepAliveService.stop(context.applicationContext, lease)
+                else SignInKeepAliveService.signingIn = false
+            }
+        }
+    }
+
+    fun cancel() {
+        loginJob?.cancel()
+        loginJob = null
+        chosenRegion = null
+        _state.value = AddAccountState.PickProvider
+    }
+
+    fun reset() {
+        chosenRegion = null
+        _state.value = AddAccountState.PickProvider
+    }
+
+    /**
+     * Opens the system browser via Custom Tabs.
+     *
+     * Never a WebView: the user must be able to see the real address bar and use their saved
+     * credentials, and an embedded WebView would put this app in a position to observe the
+     * password. Falls back to a plain intent when no Custom Tabs provider exists.
+     */
+    private fun openUrl(context: Context, url: String) {
+        runCatching {
+            CustomTabsIntent.Builder()
+                .setShowTitle(true)
+                .build()
+                .launchUrl(context, Uri.parse(url))
+        }.recoverCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
+    override fun onCleared() {
+        loginJob?.cancel()
+        super.onCleared()
+    }
+
+    class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            AddAccountViewModel(container) as T
+    }
+}

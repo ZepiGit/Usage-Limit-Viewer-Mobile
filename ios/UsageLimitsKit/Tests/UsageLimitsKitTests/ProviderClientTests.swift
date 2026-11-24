@@ -1,0 +1,499 @@
+import XCTest
+@testable import UsageLimitsKit
+
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
+/// The fetch-and-assemble layer, driven by the payloads a live account actually returned.
+///
+/// These go through a scripted transport rather than the network, but the bodies are the ones
+/// captured from real endpoints — which is the point. Every defect this project has had was an
+/// assumption about payload shape, and a client tested against a body I invented would confirm
+/// my own assumption rather than the provider's behaviour.
+///
+/// Bodies are lightly trimmed and all identifiers are synthetic; no token appears anywhere.
+final class ProviderClientTests: XCTestCase {
+
+    private let now = Date(timeIntervalSince1970: 1_757_000_000)
+
+    private let credentials = OAuthCredentials(
+        accessToken: "synthetic-access", refreshToken: "synthetic-refresh")
+
+    /// Replies from a script, and records what was asked.
+    private actor Transport: HTTPTransport {
+        private var replies: [(status: Int, body: String)]
+        private(set) var requests: [URLRequest] = []
+
+        init(_ replies: [(status: Int, body: String)]) { self.replies = replies }
+
+        func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+            requests.append(request)
+            let reply: (status: Int, body: String) =
+                replies.isEmpty ? (status: 200, body: "{}") : replies.removeFirst()
+            let response = HTTPURLResponse(
+                url: request.url ?? URL(string: "https://example.invalid")!,
+                statusCode: reply.status, httpVersion: "HTTP/1.1", headerFields: [:])!
+            return (Data(reply.body.utf8), response)
+        }
+    }
+
+    private func client(_ replies: [(status: Int, body: String)]) -> (UsageHTTPClient, Transport) {
+        let transport = Transport(replies)
+        return (UsageHTTPClient(transport: transport, maxRetries: 0, now: { [now] in now }),
+                transport)
+    }
+
+    // MARK: - Codex
+
+    /// The `/wham/usage` body a live Plus account returned, trimmed.
+    private let codexUsage = """
+    { "plan_type": "plus",
+      "rate_limit": { "allowed": false, "limit_reached": true,
+        "primary_window": { "used_percent": 100, "limit_window_seconds": 604800,
+                            "reset_after_seconds": 469200, "reset_at": 1789457449 },
+        "secondary_window": null },
+      "additional_rate_limits": null,
+      "rate_limit_reset_credits": { "available_count": 2, "applicable_available_count": 0 } }
+    """
+
+    /// The dedicated credits endpoint, which carries different fields from the embedded copy.
+    private let codexCredits = """
+    { "credits": [], "available_count": 2, "total_earned_count": 3,
+      "immediate_reset_purchase_eligible": false, "history_enabled": true }
+    """
+
+    func testCodexReadsEachCountFromTheSourceThatCarriesIt() async throws {
+        // The two sources are not the same payload. The dedicated endpoint reports `credits`
+        // and `available_count` and NO applicable count; the copy embedded in the usage payload
+        // reports both counts and no `credits` array. Reading the applicable count off
+        // whichever answered left the redeem button ungated exactly when the authoritative call
+        // succeeded.
+        let (http, _) = client([(200, codexUsage), (200, codexCredits)])
+
+        let result = try await CodexClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: [:])
+
+        XCTAssertEqual(result.resetCreditCount, 2)
+        XCTAssertEqual(result.applicableResetCreditCount, 0)
+        XCTAssertEqual(result.plan, "Plus")
+    }
+
+    func testCodexClassifiesAWeeklyWindowInThePrimarySlot() async throws {
+        // The live payload's primary window declares 604800 seconds with a null secondary.
+        // Reading by position would label a week as a five-hour limit.
+        let (http, _) = client([(200, codexUsage), (200, codexCredits)])
+
+        let result = try await CodexClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: [:])
+
+        XCTAssertEqual(result.windows.count, 1)
+        XCTAssertEqual(result.windows.first?.category, .weekly)
+        XCTAssertEqual(result.windows.first?.resetAt, Date(timeIntervalSince1970: 1_789_457_449))
+    }
+
+    func testAFailedCreditsCallCostsTheCreditRowsNotTheRefresh() async throws {
+        // The whole usage refresh must survive the optional second call failing; the embedded
+        // copy is what keeps a count on screen.
+        let (http, _) = client([(200, codexUsage), (500, "upstream is unwell")])
+
+        let result = try await CodexClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: [:])
+
+        XCTAssertEqual(result.windows.count, 1)
+        XCTAssertEqual(result.resetCreditCount, 2)
+    }
+
+    func testTheAccountHeaderIsSentOnlyWhenThereIsOne() async throws {
+        let (withID, withIDTransport) = client([(200, codexUsage), (200, codexCredits)])
+        _ = try await CodexClient(httpClient: withID)
+            .fetchUsage(credentials: credentials, attributes: ["chatgpt_account_id": "acct-123"])
+
+        let (without, withoutTransport) = client([(200, codexUsage), (200, codexCredits)])
+        _ = try await CodexClient(httpClient: without)
+            .fetchUsage(credentials: credentials, attributes: [:])
+
+        let sentWith = await withIDTransport.requests
+        let sentWithout = await withoutTransport.requests
+        XCTAssertEqual(
+            sentWith.first?.value(forHTTPHeaderField: "chatgpt-account-id"), "acct-123")
+        // Sending an empty header is not the same as sending none; some endpoints treat a blank
+        // value as a request for an account that does not exist.
+        XCTAssertNil(sentWithout.first?.value(forHTTPHeaderField: "chatgpt-account-id"))
+    }
+
+    func testARejectedCredentialIsDistinguishableSoItCanBeRepaired() async {
+        let (http, _) = client([(401, "unauthorised")])
+
+        do {
+            _ = try await CodexClient(httpClient: http)
+                .fetchUsage(credentials: credentials, attributes: [:])
+            XCTFail("expected a rejection")
+        } catch let error as ProviderError {
+            guard case .unauthorised = error else { return XCTFail("wrong error: \(error)") }
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+    }
+
+    // MARK: - Claude
+
+    func testClaudeSendsTheBetaHeaderThatGatesTheEndpoint() async throws {
+        // Without it these paths 404, which reads as "the endpoint moved" rather than "you
+        // forgot a header".
+        let (http, transport) = client([(200, #"{"five_hour":{"utilization":21.0}}"#)])
+
+        _ = try await ClaudeClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: [:])
+
+        let sent = await transport.requests
+        XCTAssertEqual(
+            sent.first?.value(forHTTPHeaderField: "anthropic-beta"), "oauth-2025-04-20")
+    }
+
+    // MARK: - Antigravity
+
+    func testAntigravitySendsTheSupportedHubIdentityToEveryQuotaHost() async throws {
+        let (http, transport) = client([(200, """
+            {"groups":[{"displayName":"Gemini Models","buckets":[
+                {"bucketId":"gemini-5h","window":"5h","remainingFraction":0.25},
+                {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.6}
+            ]}]}
+            """), (200, "{}"), (200, "{}")])
+        let result = try await AntigravityClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: ["project_id": "p"])
+
+        let requests = await transport.requests
+        XCTAssertEqual(requests.compactMap { $0.url?.absoluteString }, ProviderEndpoints.Antigravity.quotaURLs)
+        for request in requests {
+            XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"),
+                "antigravity/hub/2.25.0 (aidev_client; os_type=darwin; arch=arm64)")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-access")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: String])
+            XCTAssertEqual(body, ["project": "p"])
+        }
+        XCTAssertEqual(result.windows.map(\.id), ["gemini-5h", "gemini-weekly"])
+        XCTAssertEqual(result.windows.map(\.usedPercent), [75, 40])
+    }
+
+    func testAnEmptyAnswerFromOneHostTriesTheNext() async throws {
+        // An empty 2xx means this host does not serve the account, not that the account has no
+        // quota. Returning there would render zero windows, which the model reads as an error.
+        let (http, transport) = client([
+            (200, #"{"groups":[]}"#),
+            (200, """
+            { "groups": [ { "displayName": "Gemini Models", "buckets": [
+                { "bucketId": "gemini-weekly", "window": "weekly",
+                  "resetTime": "2026-09-10T18:54:44Z", "remainingFraction": 0.53 } ] } ] }
+            """),
+        ])
+
+        let result = try await AntigravityClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: ["project_id": "aicode-consumers"])
+
+        XCTAssertEqual(result.windows.count, 1)
+        let attempts = await transport.requests.count
+        XCTAssertEqual(attempts, 3)
+    }
+
+    func testEveryHostAnsweringEmptyIsReportedRatherThanShownAsNoQuota() async {
+        let (http, _) = client([(200, #"{"groups":[]}"#), (200, #"{"groups":[]}"#),
+                                (200, #"{"groups":[]}"#), (200, #"{"groups":[]}"#)])
+
+        do {
+            _ = try await AntigravityClient(httpClient: http)
+                .fetchUsage(credentials: credentials, attributes: ["project_id": "p"])
+            XCTFail("expected the empty answer to be reported")
+        } catch let error as ProviderError {
+            guard case .noData = error else { return XCTFail("wrong error: \(error)") }
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+    }
+
+    /// A quota group as the service shapes it: two buckets, ids derived from `id`.
+    private func antigravityGroup(_ id: String, _ name: String, fraction: Double = 0.5) -> String {
+        """
+        { "displayName": "\(name)", "buckets": [
+            { "bucketId": "\(id)-5h", "window": "5h", "remainingFraction": \(fraction) },
+            { "bucketId": "\(id)-weekly", "window": "weekly", "remainingFraction": \(fraction) } ] }
+        """
+    }
+
+    private func antigravityWindows(_ replies: [(status: Int, body: String)]) async throws -> [UsageWindow] {
+        let (http, _) = client(replies)
+        return try await AntigravityClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: ["project_id": "p"]).windows
+    }
+
+    /// A retry budget spent on a shard that does not serve the account only delays the one
+    /// that does: the fallbacks are asked once, whatever the client's budget.
+    func testSecondaryHostsAreAskedOnceWhateverTheRetryBudget() async throws {
+        let transport = Transport([
+            (200, #"{"groups":[\#(antigravityGroup("gemini", "Gemini Models"))]}"#), (503, ""), (429, ""),
+        ])
+        let http = UsageHTTPClient(transport: transport, maxRetries: 2, now: { [now] in now })
+
+        let result = try await AntigravityClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: ["project_id": "p"])
+
+        XCTAssertEqual(result.windows.map(\.id), ["gemini-5h", "gemini-weekly"])
+        let urls = await transport.requests.compactMap { $0.url?.absoluteString }
+        XCTAssertEqual(urls, ProviderEndpoints.Antigravity.quotaURLs)
+    }
+
+    func testEveryHostContributesWindowsAndTheFirstMeasurementWinsForDuplicateIDs() async throws {
+        let windows = try await antigravityWindows([
+            (200, #"{"groups":[\#(antigravityGroup("3p", "Claude and GPT models"))]}"#),
+            (200, #"{"groups":[]}"#),
+            (200, #"{"groups":[\#(antigravityGroup("gemini", "Gemini Models")),\#(antigravityGroup("3p", "Claude and GPT models", fraction: 0.9))]}"#),
+        ])
+
+        XCTAssertEqual(windows.map(\.id), ["3p-5h", "3p-weekly", "gemini-5h", "gemini-weekly"])
+        XCTAssertEqual(windows.first?.usedPercent, 50)
+    }
+
+    func testARealGroupFromAnotherHostReplacesThePlaceholderInEitherOrder() async throws {
+        let placeholder = #"{"groups":[{"displayName":"Gemini Models"}]}"#
+        let real = #"{"groups":[\#(antigravityGroup("gemini", "Gemini Models"))]}"#
+        for bodies in [[placeholder, real, "{}"], [real, placeholder, "{}"]] {
+            let windows = try await antigravityWindows(bodies.map { (status: 200, body: $0) })
+            XCTAssertEqual(windows.map(\.id), ["gemini-5h", "gemini-weekly"])
+        }
+    }
+
+    func testLaterHostFailuresDoNotDiscardAnEarlierSuccess() async throws {
+        let real = (status: 200, body: #"{"groups":[\#(antigravityGroup("gemini", "Gemini Models"))]}"#)
+        let later: [[(status: Int, body: String)]] = [[real, (503, ""), (401, "")], [real, (403, ""), (404, "")]]
+        for replies in later {
+            let (http, _) = client(replies)
+            let result = try await AntigravityClient(httpClient: http)
+                .fetchUsage(credentials: credentials, attributes: ["project_id": "p"])
+            XCTAssertEqual(result.windows.count, 2)
+            XCTAssertEqual(result.status, .ok)
+            XCTAssertNil(result.errorMessage)
+        }
+    }
+
+    func testAMissingProjectIsAnErrorRatherThanARequestForNothing() async {
+        let (http, _) = client([])
+
+        do {
+            _ = try await AntigravityClient(httpClient: http)
+                .fetchUsage(credentials: credentials, attributes: [:])
+            XCTFail("expected a missing-project error")
+        } catch let error as ProviderError {
+            guard case .noData = error else { return XCTFail("wrong error: \(error)") }
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+    }
+
+    // MARK: - xAI
+
+    func testXaiUsesMeasuredCreditsInsteadOfDeprecatedMonthlyAllowance() async throws {
+        // Captured shapes: the enum period type and `{"val": n}` cents.
+        let (http, _) = client([
+            (200, """
+            { "config": { "currentPeriod": { "type": "USAGE_PERIOD_TYPE_WEEKLY",
+                                             "start": "2026-09-03T18:32:26Z",
+                                             "end": "2026-09-10T18:32:26Z" },
+                          "creditUsagePercent": 64.0, "onDemandCap": { "val": 0 } } }
+            """),
+            (200, """
+            { "config": { "monthlyLimit": { "val": 1000 }, "used": { "val": 341 },
+                          "onDemandCap": { "val": 0 } } }
+            """),
+        ])
+
+        let result = try await XaiClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: [:])
+
+        let ids = Set(result.windows.map(\.id))
+        XCTAssertTrue(ids.contains("xai-credits"))
+        XCTAssertFalse(ids.contains("xai-monthly"), "Monthly included is the deprecated fallback for measured credits")
+        XCTAssertEqual(result.windows.first?.remainingPercent, 36)
+        // A zero on-demand cap is not a window.
+        XCTAssertFalse(ids.contains("xai-on-demand"))
+    }
+
+    func testOneXaiViewSucceedingIsStillAResult() async throws {
+        // Reporting a failure because the second of two optional views was unavailable would
+        // blank an account whose numbers the app actually has.
+        let (http, _) = client([
+            (200, #"{"config":{"creditUsagePercent":64.0}}"#),
+            (503, "unavailable"),
+        ])
+
+        let result = try await XaiClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: [:])
+
+        XCTAssertFalse(result.windows.isEmpty)
+    }
+
+    func testBothXaiViewsFailingIsReported() async {
+        let (http, _) = client([(503, "unavailable"), (503, "unavailable")])
+
+        do {
+            _ = try await XaiClient(httpClient: http)
+                .fetchUsage(credentials: credentials, attributes: [:])
+            XCTFail("expected a failure when neither view answered")
+        } catch ProviderError.noData(let detail) {
+            // `ProviderHTTP.translate` turns a non-2xx into `noData` carrying only the endpoint
+            // name and status, and `preferredFailure` surfaces the first route's failure when
+            // neither was a credential rejection. The status is the one fact a user can act on;
+            // the body and the bearer token must never reach a description.
+            XCTAssertTrue(detail.contains("HTTP 503"), "status must be reported: \(detail)")
+            XCTAssertFalse(detail.contains("unavailable"), "body must not be echoed: \(detail)")
+            XCTAssertFalse(detail.contains("synthetic-access"), "token must not leak: \(detail)")
+        } catch {
+            XCTFail("both routes failing must be reported as noData, not \(error)")
+        }
+    }
+    // MARK: - Errors that have to reach the engine in its own terms
+
+    /// Claude called the client directly, so a 401 surfaced as `HTTPError.status` before the
+    /// translation step ran and the adapter never produced `ProviderError.unauthorised` — the
+    /// one error the engine's reactive refresh is triggered by. An expired Claude credential
+    /// read as a generic failure, refreshed nothing, and failed the same way every sync after.
+    func testClaudeReportsARejectedCredentialAsUnauthorised() async {
+        let (http, _) = client([(401, #"{"error":"unauthorized"}"#)])
+
+        do {
+            _ = try await ClaudeClient(httpClient: http)
+                .fetchUsage(credentials: credentials, attributes: [:])
+            XCTFail("a 401 must be an error")
+        } catch ProviderError.unauthorised {
+            // Expected.
+        } catch {
+            XCTFail("a 401 must be reported as unauthorised, not \(error)")
+        }
+    }
+
+    /// The documented policy — prefer a credential rejection over an unrelated shard failure —
+    /// was never applied: `ProviderHTTP.request` throws the 401 as `unauthorised`, and the
+    /// status check meant to catch it ran only on responses that came back. The generic catch
+    /// filed it as "first failure" behind an earlier shard's 503.
+    func testAntigravityPrefersARejectionOverAnEarlierShardFailure() async {
+        let (http, _) = client([(503, ""), (401, ""), (200, "")])
+
+        do {
+            _ = try await AntigravityClient(httpClient: http)
+                .fetchUsage(credentials: credentials, attributes: ["project_id": "p"])
+            XCTFail("no shard answered with windows")
+        } catch ProviderError.unauthorised {
+            // Expected.
+        } catch {
+            XCTFail("the rejection must outrank the 503, not \(error)")
+        }
+    }
+
+    /// The row parser accepted both spellings of the credits container; the two count lookups
+    /// read only the snake-case one, so a camel-case summary kept its rows and lost both counts.
+    func testCodexReadsCreditCountsFromACamelCaseSummary() async throws {
+        let camel = #"""
+            {"rateLimitResetCredits": {"availableCount": 4, "applicableAvailableCount": 2,
+              "credits": []},
+             "rate_limit": {"primary_window": {"used_percent": 10, "limit_window_seconds": 18000}}}
+            """#
+        let (http, _) = client([(200, camel), (500, "")])
+
+        let result = try await CodexClient(httpClient: http)
+            .fetchUsage(credentials: credentials, attributes: [:])
+
+        XCTAssertEqual([result.resetCreditCount, result.applicableResetCreditCount], [4, 2])
+    }
+
+}
+
+extension ProviderClientTests {
+    func testDevinDoesNotRetryAThrottledBinaryEndpointAsJSON() async {
+        let (http, transport) = client([(429, ""), (200, "{}")])
+        do {
+            _ = try await DevinClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+            XCTFail("expected the terminal 429")
+        } catch ProviderError.rateLimited(let endpoint, _) {
+            XCTAssertEqual(endpoint, "devin user status")
+        } catch {
+            XCTFail("expected a rate limit, got \(error)")
+        }
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map { $0.value(forHTTPHeaderField: "Content-Type") }, ["application/proto"])
+    }
+
+    func testDevinReturnsAThrottleFromTheJSONFallback() async {
+        let (http, transport) = client([(200, ""), (429, "")])
+        do {
+            _ = try await DevinClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+            XCTFail("expected the terminal 429")
+        } catch ProviderError.rateLimited(let endpoint, _) {
+            XCTAssertEqual(endpoint, "devin user status")
+        } catch {
+            XCTFail("expected a rate limit, got \(error)")
+        }
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map { $0.value(forHTTPHeaderField: "Content-Type") },
+            ["application/proto", "application/json"])
+    }
+
+    func testAntigravityPreservesThrottleWhenNoShardSucceeds() async {
+        let (http, _) = client([(503, ""), (429, ""), (401, "")])
+        do {
+            _ = try await AntigravityClient(httpClient: http)
+                .fetchUsage(credentials: credentials, attributes: ["project_id": "p"])
+            XCTFail("no shard supplied a reading")
+        } catch ProviderError.rateLimited(let endpoint, _) {
+            XCTAssertEqual(endpoint, "antigravity quota")
+        } catch {
+            XCTFail("expected a rate limit, got \(error)")
+        }
+    }
+
+    func testXaiPreservesThrottleWhenBothRoutesFail() async {
+        let (http, _) = client([(401, ""), (429, "")])
+        do {
+            _ = try await XaiClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+            XCTFail("neither route supplied a reading")
+        } catch ProviderError.rateLimited(let endpoint, _) {
+            XCTAssertEqual(endpoint, "billing")
+        } catch {
+            XCTFail("expected a rate limit, got \(error)")
+        }
+    }
+
+    func testPartialXaiFailureKeepsQuotaAndWarning() async throws {
+        let (http, _) = client([(200, #"{"config":{"creditUsagePercent":20}}"#), (503, "unavailable")])
+        let result = try await XaiClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+        XCTAssertEqual(result.windows.first?.remainingPercent, 80)
+        XCTAssertEqual(result.status, .partial)
+        XCTAssertNotNil(result.errorMessage)
+        XCTAssertEqual(result.connectionStatus, .connected)
+    }
+
+    func testPartialXaiAuthenticationFailureDoesNotClaimFullConnection() async throws {
+        let (http, _) = client([(200, #"{"config":{"creditUsagePercent":20}}"#), (401, "rejected")])
+        let result = try await XaiClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+        XCTAssertEqual(result.windows.first?.remainingPercent, 80)
+        XCTAssertEqual(result.status, .partial)
+        XCTAssertEqual(result.connectionStatus, .unknown)
+        XCTAssertTrue(result.errorMessage?.contains("authentication") == true)
+    }
+
+    func testMalformedXaiPercentageDoesNotDiscardValidBillingRows() async throws {
+        let (http, _) = client([(200, #"{"config":{"creditUsagePercent":-1}}"#),
+            (200, #"{"config":{"monthlyLimit":{"val":100},"used":{"val":20}}}"#)])
+        let result = try await XaiClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+        XCTAssertEqual(result.status, .partial)
+        XCTAssertNil(result.windows.first { $0.id == "xai-credits" }?.remainingPercent)
+        XCTAssertEqual(result.windows.first { $0.id == "xai-monthly" }?.remainingPercent, 80)
+    }
+
+    func testMalformedClaudePercentageIsReportedWithoutLosingValidWindow() async throws {
+        let (http, _) = client([(200, #"{"five_hour":{"utilization":-1},"seven_day":{"utilization":63}}"#)])
+        let result = try await ClaudeClient(httpClient: http).fetchUsage(credentials: credentials, attributes: [:])
+        XCTAssertEqual(result.status, .partial)
+        XCTAssertNil(result.windows.first { $0.id == "five-hour" }?.remainingPercent)
+        XCTAssertEqual(result.windows.first { $0.id == "seven-day" }?.remainingPercent, 37)
+    }
+}

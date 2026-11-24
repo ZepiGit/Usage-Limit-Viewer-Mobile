@@ -1,0 +1,373 @@
+package com.usagelimits.widget
+
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProviderInfo
+import android.appwidget.AppWidgetHostView
+import android.content.ComponentName
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.view.View
+import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.TextView
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.glance.ExperimentalGlanceApi
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.runComposition
+import androidx.test.core.app.ApplicationProvider
+import com.usagelimits.UsageLimitsApp
+import com.usagelimits.core.database.WidgetConfigEntity
+import com.usagelimits.core.model.*
+import com.usagelimits.core.settings.AppTheme
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowLooper
+
+/** Host-applied RemoteViews, including their persisted style. No launcher is simulated here. */
+@OptIn(ExperimentalGlanceApi::class, ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(application = UsageLimitsApp::class, sdk = [36, 37], qualifiers = "mdpi")
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class WidgetAppearanceRenderingTest {
+    @Before fun initializeApplication() {
+        runBlocking { ApplicationProvider.getApplicationContext<UsageLimitsApp>().startupJob?.join() }
+    }
+
+    @Test fun `detailed widget retains more than ten independent limits`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        val repository = app.container.repository
+        val account = repository.upsertFromLogin(ProviderId.CLAUDE, "many-widget-limits",
+            "limits@example.invalid", "Many limits fixture", "Pro", emptyMap())
+        val now = System.currentTimeMillis()
+        val windows = (1..11).map { index ->
+            UsageWindow("model-$index", "Model limit $index", WindowCategory.OTHER,
+                index.toDouble(), 604_800, now + index * 86_400_000L, false, scope = UsageScope.MODEL)
+        }
+        repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.PARTIAL, windows = windows))
+        val config = WidgetConfigEntity(200, "CUSTOM", null, null, now,
+            customAccountIdsJson = "[\"${account.localId}\"]")
+        app.container.widgetConfigDao.upsert(config)
+        shadowOf(AppWidgetManager.getInstance(app)).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
+            provider = ComponentName(app, DetailedUsageWidgetReceiver::class.java)
+        })
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            DetailedUsageWidget().runComposition(app,
+                id = GlanceAppWidgetManager(app).getGlanceIdBy(config.appWidgetId),
+                sizes = listOf(DpSize(300.dp, 700.dp))).first { remote ->
+                val host = AppWidgetHostView(app).apply { setAppWidget(config.appWidgetId, null) }
+                val view = remote.apply(app, host)
+                host.addView(view)
+                remote.reapply(app, view)
+                ShadowLooper.idleMainLooper()
+                export(draw(view, 300, 700), "DetailedUsageWidget-eleven-limits")
+                val text = textViews(view).map { it.text.toString() }
+                assertTrue("The account header remains visible", account.label in text)
+                assertTrue("The independent fetch warning remains visible", "Some limits could not be updated" in text)
+                val expectedPercents = (1..11).map { index -> "${100 - index}% left" }
+                windows.forEachIndexed { index, window ->
+                    assertTrue("The collection retains ${window.label}", window.label in text)
+                    assertTrue("The collection retains the value for ${window.label}", expectedPercents[index] in text)
+                }
+                // This checks retention, not date formatting (covered by CountdownTest).
+                val nonResetText = windows.map { it.label } + expectedPercents + listOf(
+                    "Claude Pro", "Many limits fixture", "Some limits could not be updated")
+                val resetText = text.filterNot { it in nonResetText }
+                assertEquals("Every limit retains its reset text", 11, resetText.size)
+                assertTrue("All resets are present", resetText.all { it.isNotBlank() && it != "—" })
+                true
+            }
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    /**
+     * The ring scenes the owner judges the centre rule by (#38), exported at xxhdpi so a ring's
+     * centre is legible: Account Rings in Left at 100 and 42, Account Rings in Used with an
+     * exhausted window beside one at 42, and Mini Rings in Left at 100 and 42. Every scene is
+     * exported before any is checked, so a failing check still leaves all three pictures.
+     */
+    @Config(qualifiers = "xxhdpi")
+    @Test fun `ring scenes render a ring at one hundred beside one at forty two`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        val repository = app.container.repository
+        val now = System.currentTimeMillis()
+        suspend fun seed(name: String, used: Double, exhausted: Boolean = false): String {
+            val account = repository.upsertFromLogin(ProviderId.CLAUDE, "scene-$name",
+                "scene@example.invalid", name, "Pro", emptyMap())
+            repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.OK, windows = listOf(
+                UsageWindow("week", "Weekly", WindowCategory.WEEKLY, used, 604_800, now + 86_400_000, exhausted))))
+            return account.localId
+        }
+        val full = seed("At 100 left", 0.0)
+        val part = seed("At 42 left", 58.0)
+        val spent = seed("Exhausted", 100.0, exhausted = true)
+        val partUsed = seed("At 42 used", 42.0)
+        class Scene(val file: String, val widget: String, val receiver: Class<*>, val mode: PercentDisplay,
+            val ids: List<String>, val size: DpSize)
+        val scenes = listOf(
+            Scene("rings-account-left-100-and-42", "MinimalUsageWidget", MinimalUsageWidgetReceiver::class.java,
+                PercentDisplay.LEFT, listOf(full, part), DpSize(220.dp, 140.dp)),
+            Scene("rings-account-used-exhausted-and-42", "MinimalUsageWidget", MinimalUsageWidgetReceiver::class.java,
+                PercentDisplay.USED, listOf(spent, partUsed), DpSize(220.dp, 140.dp)),
+            Scene("rings-mini-left-100-and-42", "MiniRingsWidget", MiniRingsWidgetReceiver::class.java,
+                PercentDisplay.LEFT, listOf(full, part), DpSize(130.dp, 90.dp)),
+        )
+        val density = app.resources.displayMetrics.density
+        val manager = AppWidgetManager.getInstance(app)
+        val shown = mutableMapOf<String, Pair<List<String>, List<String>>>()
+        val originalMode = app.container.settingsStore.settings.first().percentDisplay
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            for ((index, scene) in scenes.withIndex()) {
+                app.container.settingsStore.setPercentDisplay(scene.mode)
+                val config = WidgetConfigEntity(400 + index, "CUSTOM", null, null, now,
+                    customAccountIdsJson = scene.ids.joinToString(prefix = "[", postfix = "]") { "\"$it\"" })
+                app.container.widgetConfigDao.upsert(config)
+                shadowOf(manager).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
+                    provider = ComponentName(app, scene.receiver)
+                })
+                WidgetUpdater.allWidgets.first { it.name == scene.widget }.widget().runComposition(app,
+                    id = GlanceAppWidgetManager(app).getGlanceIdBy(config.appWidgetId), sizes = listOf(scene.size)).first { remote ->
+                    val host = AppWidgetHostView(app).apply { setAppWidget(config.appWidgetId, null) }
+                    val view = remote.apply(app, host)
+                    host.addView(view)
+                    remote.reapply(app, view)
+                    ShadowLooper.idleMainLooper()
+                    export(draw(view, (scene.size.width.value * density).toInt(), (scene.size.height.value * density).toInt()), scene.file)
+                    shown[scene.file] = textViews(view).map { it.text.toString() } to imageDescriptions(view)
+                    true
+                }
+            }
+        } finally {
+            app.container.settingsStore.setPercentDisplay(originalMode)
+            Dispatchers.resetMain()
+        }
+        val (leftText, leftSaid) = shown.getValue(scenes[0].file)
+        assertTrue("Account Rings Left: the ring at 42 writes 42%, got $leftText", "42%" in leftText)
+        assertTrue("Account Rings Left: the full ring writes nothing, got $leftText", leftText.none { it.startsWith("100") })
+        assertTrue("Account Rings Left: the full ring still says it, got $leftSaid", leftSaid.any { "100% remaining" in it })
+        val (usedText, usedSaid) = shown.getValue(scenes[1].file)
+        assertTrue("Account Rings Used: the ring at 42 writes 42%, got $usedText", "42%" in usedText)
+        assertTrue("Account Rings Used: the exhausted ring writes a bare 100, got $usedText",
+            "100" in usedText && "100%" !in usedText)
+        assertTrue("Account Rings Used: the exhausted ring still says it, got $usedSaid", usedSaid.any { "100% used" in it })
+        val (miniText, miniSaid) = shown.getValue(scenes[2].file)
+        assertTrue("Mini Rings: no ring writes a figure, got $miniText", miniText.none { it.endsWith("%") || it == "100" })
+        assertEquals("Mini Rings: both rings are there, got $miniSaid",
+            2, miniSaid.count { "100% remaining" in it || "42% remaining" in it })
+    }
+
+    @Test fun `saving app themes leaves placed widget panel pixels and RemoteViews ink unchanged`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        val settings = app.container.settingsStore
+        val originalTheme = settings.settings.first().appTheme
+        val account = app.container.repository.upsertFromLogin(ProviderId.CLAUDE, "app-theme-widget",
+            "theme@example.invalid", "Theme fixture", "Pro", emptyMap())
+        val now = System.currentTimeMillis()
+        app.container.repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.OK,
+            windows = listOf(UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 40.0, 604_800, null, false))))
+        val configs = listOf(
+            WidgetConfigEntity(520, "CUSTOM", null, null, now,
+                customAccountIdsJson = "[\"${account.localId}\"]"),
+            WidgetConfigEntity(521, "CUSTOM", null, null, now,
+                customAccountIdsJson = "[\"${account.localId}\"]", backgroundArgb = 0xFFFFFFFF.toInt()),
+        )
+        for (config in configs) {
+            app.container.widgetConfigDao.upsert(config)
+            shadowOf(AppWidgetManager.getInstance(app)).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
+                provider = ComponentName(app, CompactUsageWidgetReceiver::class.java)
+            })
+        }
+        val baselineInk = mutableMapOf<Int, List<Int>>()
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            for (theme in AppTheme.entries) {
+                settings.setAppTheme(theme)
+                assertEquals("the shared settings flow has saved the selected app theme", theme, settings.settings.first().appTheme)
+                for ((index, config) in configs.withIndex()) {
+                    CompactUsageWidget().runComposition(app,
+                        id = GlanceAppWidgetManager(app).getGlanceIdBy(config.appWidgetId),
+                        sizes = listOf(DpSize(420.dp, 130.dp))).first { remote ->
+                        val host = AppWidgetHostView(app).apply { setAppWidget(config.appWidgetId, null) }
+                        val view = remote.apply(app, host)
+                        host.addView(view)
+                        remote.reapply(app, view)
+                        ShadowLooper.idleMainLooper()
+                        val bitmap = draw(view, 420, 130)
+                        try {
+                            val panel = bitmap.getPixel(bitmap.width / 2, 2)
+                            assertEquals("$theme: the known widget panel, not the app ground",
+                                if (index == 0) 0xFF0F0F0E.toInt() else 0xFFFFFFFF.toInt(), panel)
+                        } finally {
+                            bitmap.recycle()
+                        }
+                        val texts = textViews(view)
+                        val owner = texts.single { it.text.toString() == account.label }
+                        assertEquals("$theme: the known widget ink remains readable",
+                            if (index == 0) 0xFFF0EEE6.toInt() else 0xFF1A1918.toInt(), owner.currentTextColor)
+                        val ink = texts.map { it.currentTextColor }
+                        val baseline = baselineInk.getOrPut(config.appWidgetId) { ink }
+                        assertEquals("$theme: every RemoteViews text style keeps its pre-change ink", baseline, ink)
+                        true
+                    }
+                }
+            }
+        } finally {
+            settings.setAppTheme(originalTheme)
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun `saved panel and text survive theme changes resizing and host reapply for every widget`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<UsageLimitsApp>()
+        val repository = app.container.repository
+        val account = repository.upsertFromLogin(ProviderId.CLAUDE, "widget-appearance-fixture",
+            "fixture@example.invalid", "Widget fixture", "Pro", emptyMap())
+        val now = System.currentTimeMillis()
+        repository.saveSnapshot(UsageSnapshot(account.localId, now, SnapshotStatus.PARTIAL, windows = listOf(
+            UsageWindow("5h", "5h limit", WindowCategory.FIVE_HOUR, 0.0, 18_000, now + 3_600_000, false),
+            UsageWindow("week", "Weekly", WindowCategory.WEEKLY, 63.0, 604_800, now + 86_400_000, false),
+            UsageWindow("fable", "Weekly (Fable)", WindowCategory.WEEKLY, 100.0, 604_800,
+                now + 86_400_000, true, scope = UsageScope.MODEL),
+        )))
+        val manager = AppWidgetManager.getInstance(app)
+        val glanceManager = GlanceAppWidgetManager(app)
+        val dao = app.container.widgetConfigDao
+        val sizes = mapOf(
+            "CompactUsageWidget" to listOf(DpSize(420.dp, 130.dp), DpSize(180.dp, 150.dp)),
+            "DetailedUsageWidget" to listOf(DpSize(300.dp, 260.dp)),
+            "MinimalUsageWidget" to listOf(DpSize(180.dp, 240.dp)),
+            "MiniRingsWidget" to listOf(DpSize(62.dp, 180.dp)),
+        )
+        val styles = listOf(
+            WidgetStyle(WidgetBackground(0xFF16213A.toInt(), 100)),
+            WidgetStyle(WidgetBackground(0xFFFFFFFF.toInt(), 100)),
+        )
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        try {
+            for ((widgetIndex, placed) in WidgetUpdater.allWidgets.withIndex()) {
+                // Credits has no configuration screen, so no saved panel or text tone to survive;
+                // CreditsWidgetRenderingTest composes it at each of its sizes.
+                if (placed.name !in sizes) continue
+                val configs = styles.mapIndexed { styleIndex, style ->
+                    WidgetConfigEntity(100 + widgetIndex * 10 + styleIndex, "CUSTOM", null, null, now,
+                        customAccountIdsJson = "[\"${account.localId}\"]",
+                        backgroundArgb = style.background.argb, backgroundOpacity = style.background.clampedOpacity,
+                        textTone = style.textTone.name)
+                }
+                configs.forEach { config ->
+                    shadowOf(manager).addBoundWidget(config.appWidgetId, AppWidgetProviderInfo().apply {
+                        provider = ComponentName(app, placed.receiver)
+                    })
+                    dao.upsert(config)
+                }
+                for (night in listOf(false, true)) {
+                    RuntimeEnvironment.setQualifiers(if (night) "+night" else "+notnight")
+                    for ((styleIndex, config) in configs.withIndex()) {
+                        for ((sizeIndex, size) in sizes.getValue(placed.name).withIndex()) {
+                            // Keep the composition alive until its collection views have been
+                            // applied, laid out and inspected inside the first-emission callback.
+                            placed.widget().runComposition(app,
+                                id = glanceManager.getGlanceIdBy(config.appWidgetId), sizes = listOf(size)).first { remote ->
+                                // Android refuses collection adapters unless rootParent is an
+                                // AppWidgetHostView. FrameLayout silently produced blank list widgets.
+                                val host = AppWidgetHostView(app).apply { setAppWidget(config.appWidgetId, null) }
+                                val view = remote.apply(app, host)
+                                host.addView(view)
+                                remote.reapply(app, view)
+                                ShadowLooper.idleMainLooper()
+                                val bitmap = draw(view, size.width.value.toInt(), size.height.value.toInt())
+                                val name = "${placed.name}-${styleIndex}-${if (night) "night" else "day"}-$sizeIndex"
+                                export(bitmap, name)
+                                assertEquals("$name preserves the selected background",
+                                    config.backgroundArgb, bitmap.getPixel(bitmap.width / 2, 2))
+                                if (placed.name == "CompactUsageWidget") {
+                                    val owner = textViews(view).firstOrNull { it.text.toString() == account.label }
+                                    assertNotNull("$name identifies whose quota is displayed", owner)
+                                    assertEquals("$name keeps readable saved ink", styles[styleIndex].textPrimary.toArgb(), owner!!.currentTextColor)
+                                    assertTrue("$name displays the partial-sync warning",
+                                        textViews(view).any { it.text.toString().contains("Sync issue") })
+                                }
+                                if (placed.name == "MiniRingsWidget") {
+                                    // The partial-update mark is a 6dp dot (no text); the ring says it for screen readers.
+                                    assertTrue("$name keeps a partial-update mark",
+                                        imageDescriptions(view).any { "some limits could not be updated" in it })
+                                    assertTrue("$name no longer draws an exclamation badge",
+                                        textViews(view).none { it.text.toString() == "!" })
+                                }
+                                if (placed.name == "DetailedUsageWidget" || placed.name == "MinimalUsageWidget") {
+                                    val collections = adapterViews(view)
+                                    assertEquals("$name has one account collection", 1, collections.size)
+                                    assertEquals("$name binds the selected account to its adapter", 1, collections.single().adapter?.count)
+                                    val text = textViews(view).map { it.text.toString() }
+                                    assertTrue("$name materializes the account row, not only the panel", account.label in text)
+                                    if (placed.name == "DetailedUsageWidget") {
+                                        assertTrue("$name retains the scoped limit", "Weekly (Fable)" in text)
+                                        assertTrue("$name renders the global remaining quota", "37% left" in text)
+                                        assertTrue("$name renders the independent fetch warning", "Some limits could not be updated" in text)
+                                    } else {
+                                        assertTrue("$name renders the fetch warning", "Partial update" in text)
+                                    }
+                                }
+                                assertEquals(config, dao.get(config.appWidgetId))
+                                true
+                            }
+                        }
+                    }
+                }
+                // Composing either instance must not rewrite its neighbour's appearance or order.
+                configs.forEach { assertEquals(it, dao.get(it.appWidgetId)) }
+            }
+        } finally {
+            RuntimeEnvironment.setQualifiers("+notnight")
+            Dispatchers.resetMain()
+        }
+    }
+
+    private fun textViews(view: View): List<TextView> = buildList {
+        if (view is TextView) add(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(textViews(view.getChildAt(index)))
+    }
+
+    private fun imageDescriptions(view: View): List<String> = buildList {
+        view.contentDescription?.let { add(it.toString()) }
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(imageDescriptions(view.getChildAt(index)))
+    }
+
+    private fun adapterViews(view: View): List<AdapterView<*>> = buildList {
+        if (view is AdapterView<*>) add(view)
+        if (view is ViewGroup) for (index in 0 until view.childCount) addAll(adapterViews(view.getChildAt(index)))
+    }
+
+    private fun draw(view: View, width: Int, height: Int): Bitmap {
+        view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+        view.layout(0, 0, width, height)
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { view.draw(Canvas(it)) }
+    }
+
+    private fun export(bitmap: Bitmap, name: String) {
+        val directory = File("build/reports/widget-renderings").apply { mkdirs() }
+        File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+}

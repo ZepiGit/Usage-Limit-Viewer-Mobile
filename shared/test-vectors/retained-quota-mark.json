@@ -1,0 +1,82 @@
+{
+  "description": "A failed refresh retains the previous windows. The Overview List mark uses their quota scope verdict, not the failed reading's error validity. A scoped exhausted window with an available global window is Limited. Expected values are hand-written.",
+  "vectors": [
+    {
+      "name": "failed retained model exhaustion with global allowance",
+      "status": "failed",
+      "windows": [
+        {"id": "global", "scope": "global", "remainingPercent": 63, "exhausted": false},
+        {"id": "model", "scope": "model", "remainingPercent": 0, "exhausted": true}
+      ],
+      "expectedMark": "limited",
+      "expectedValidity": "error",
+      "expectedHeadline": "global"
+    },
+    {
+      "name": "failed healthy global allowance outranks low model window",
+      "status": "failed",
+      "windows": [
+        {"id": "global", "scope": "global", "remainingPercent": 63, "exhausted": false},
+        {"id": "model", "scope": "model", "remainingPercent": 10, "exhausted": false}
+      ],
+      "expectedMark": "healthy",
+      "expectedValidity": "error",
+      "expectedHeadline": "global"
+    },
+    {
+      "name": "failed healthy global allowance outranks medium model window",
+      "status": "failed",
+      "windows": [
+        {"id": "global", "scope": "global", "remainingPercent": 63, "exhausted": false},
+        {"id": "model", "scope": "model", "remainingPercent": 30, "exhausted": false}
+      ],
+      "expectedMark": "healthy",
+      "expectedValidity": "error",
+      "expectedHeadline": "global"
+    },
+    {
+      "name": "failed medium global allowance outranks low model window",
+      "status": "failed",
+      "windows": [
+        {"id": "global", "scope": "global", "remainingPercent": 30, "exhausted": false},
+        {"id": "model", "scope": "model", "remainingPercent": 10, "exhausted": false}
+      ],
+      "expectedMark": "medium",
+      "expectedValidity": "error",
+      "expectedHeadline": "global"
+    },
+    {
+      "name": "failed low global allowance keeps low mark",
+      "status": "failed",
+      "windows": [
+        {"id": "global", "scope": "global", "remainingPercent": 10, "exhausted": false},
+        {"id": "model", "scope": "model", "remainingPercent": 63, "exhausted": false}
+      ],
+      "expectedMark": "low",
+      "expectedValidity": "error",
+      "expectedHeadline": "global"
+    },
+    {
+      "name": "failed exhausted global allowance blocks healthy model window",
+      "status": "failed",
+      "windows": [
+        {"id": "global", "scope": "global", "remainingPercent": 0, "exhausted": true},
+        {"id": "model", "scope": "model", "remainingPercent": 63, "exhausted": false}
+      ],
+      "expectedMark": "exhausted",
+      "expectedValidity": "error",
+      "expectedHeadline": "global"
+    },
+    {
+      "name": "failed unknown global allowance is not inferred from low model window",
+      "status": "failed",
+      "windows": [
+        {"id": "global", "scope": "global", "remainingPercent": null, "exhausted": false},
+        {"id": "model", "scope": "model", "remainingPercent": 10, "exhausted": false}
+      ],
+      "expectedMark": "unknown",
+      "expectedValidity": "error",
+      "expectedHeadline": "global"
+    }
+  ]
+}

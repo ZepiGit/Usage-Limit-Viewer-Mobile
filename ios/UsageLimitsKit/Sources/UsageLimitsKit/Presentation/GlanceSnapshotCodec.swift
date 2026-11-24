@@ -1,0 +1,156 @@
+import Foundation
+
+/// The app and widget share this wire contract across separate processes.
+/// Encode and decode the complete reduced snapshot without recomputing its derived
+/// values so the app and home screen retain the same verdict.
+public enum GlanceSnapshotCodec {
+
+    /// The file name inside the shared container, so neither side hard-codes it twice.
+    public static let fileName = "glance-snapshot.json"
+
+    private static let iso8601 = Date.ISO8601FormatStyle()
+
+    private static func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var value = encoder.singleValueContainer()
+            let seconds = date.timeIntervalSinceReferenceDate
+            // Keep whole seconds readable. A fractional reset or fetch instant must not be
+            // rounded: it can change which headline ranks at the same presentation date.
+            if seconds.rounded(.towardZero) == seconds {
+                try value.encode(iso8601.format(date))
+            } else {
+                try value.encode(seconds)
+            }
+        }
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+
+    private static func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let value = try decoder.singleValueContainer()
+            if let seconds = try? value.decode(Double.self) {
+                return Date(timeIntervalSinceReferenceDate: seconds)
+            }
+            return try iso8601.parse(value.decode(String.self))
+        }
+        return decoder
+    }
+
+    public static func encode(_ snapshot: GlanceSnapshot) throws -> Data {
+        try encoder().encode(snapshot)
+    }
+
+    /// Decodes, or reports the empty snapshot.
+    ///
+    /// A widget cannot open a dialogue or ask for a retry, so every failure — a missing file, a
+    /// half-written one, a field this build does not understand — has the same available
+    /// outcome. Empty renders as "stale", never as an all-clear, so an absence of data is not
+    /// laundered into a reassuring tile.
+    public static func decode(_ data: Data?) -> GlanceSnapshot {
+        guard let data, !data.isEmpty else { return .empty }
+        return (try? decoder().decode(GlanceSnapshot.self, from: data)) ?? .empty
+    }
+
+    /// Writes the snapshot into a container directory, atomically.
+    ///
+    /// Atomic because the widget can be reading while the app writes: a partial file decodes to
+    /// nothing, and a tile that blanks every half hour is worse than one that lags.
+    public static func write(_ snapshot: GlanceSnapshot, toDirectory directory: URL) throws {
+        try encode(snapshot).write(
+            to: directory.appendingPathComponent(fileName),
+            options: ContainerFile.writingOptions)
+    }
+
+    public static func read(fromDirectory directory: URL) -> GlanceSnapshot {
+        load(fromDirectory: directory).snapshot
+    }
+
+    /// Why a read produced what it did.
+    ///
+    /// `read` collapses every outcome to a snapshot, and a widget that only sees "no accounts"
+    /// cannot tell a user with no accounts apart from one whose file it could not open. Both
+    /// render the same blank tile and the message has to be a guess — and guessing from file
+    /// existence alone got it wrong in the obvious case: a readable file holding a perfectly
+    /// good empty snapshot, which exists as soon as the app refreshes with no accounts
+    /// connected, is not a locked device, and no amount of unlocking changes it.
+    ///
+    /// So the outcome is carried rather than inferred. Nothing here decides what to SHOW; the
+    /// widget does that, from a fact instead of a guess.
+    public enum Load: Sendable, Equatable {
+        /// Read and decoded, with at least one account to render.
+        case loaded(GlanceSnapshot)
+        /// Read and decoded, and genuinely empty. No accounts are connected.
+        case empty
+        /// No file. The app has not written one yet.
+        case missing
+        /// The file is there and could not be opened — data protection before the first
+        /// unlock is the expected cause, and the only one that unlocking fixes.
+        case unreadable
+        /// The file was read and could not be decoded: truncated, or written by a build
+        /// whose format this one does not understand.
+        case corrupt
+
+        /// What to render, for callers that do not care why.
+        public var snapshot: GlanceSnapshot {
+            if case .loaded(let snapshot) = self { return snapshot }
+            return .empty
+        }
+    }
+
+    public static func load(fromDirectory directory: URL) -> Load {
+        switch decodeFile(in: directory) {
+        case .missing: return .missing
+        case .unreadable: return .unreadable
+        case .corrupt: return .corrupt
+        case .decoded(let snapshot): return snapshot.accounts.isEmpty ? .empty : .loaded(snapshot)
+        }
+    }
+
+    /// The credits widget's view of the same file. Separate from `Load` because that one calls
+    /// a snapshot with no usage accounts empty, and a user with only credit accounts is not.
+    public enum CreditsLoad: Sendable, Equatable {
+        case loaded(GlanceSnapshot)
+        case empty
+        case missing
+        case unreadable
+        case corrupt
+    }
+
+    public static func loadCredits(fromDirectory directory: URL) -> CreditsLoad {
+        switch decodeFile(in: directory) {
+        case .missing: return .missing
+        case .unreadable: return .unreadable
+        case .corrupt: return .corrupt
+        case .decoded(let snapshot): return snapshot.credits.isEmpty ? .empty : .loaded(snapshot)
+        }
+    }
+
+    private enum FileState {
+        case missing, unreadable, corrupt
+        case decoded(GlanceSnapshot)
+    }
+
+    private static func decodeFile(in directory: URL) -> FileState {
+        let url = directory.appendingPathComponent(fileName)
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            // `fileExists` answers even when the contents cannot be opened, which is exactly
+            // the protected case; anything else means there is nothing there to read.
+            return FileManager.default.fileExists(atPath: url.path) ? .unreadable : .missing
+        }
+
+        // Zero bytes is the atomic writer caught mid-replace, not a decodable empty snapshot.
+        guard !data.isEmpty else { return .corrupt }
+
+        guard let snapshot = try? decoder().decode(GlanceSnapshot.self, from: data) else {
+            return .corrupt
+        }
+        return .decoded(snapshot)
+    }
+}

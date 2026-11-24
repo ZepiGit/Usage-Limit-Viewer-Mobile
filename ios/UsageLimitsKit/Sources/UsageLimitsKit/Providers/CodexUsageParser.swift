@@ -1,0 +1,353 @@
+import Foundation
+
+public struct ResetCredit: Sendable, Codable, Equatable {
+    public let id: String
+    public let grantedAt: Date?
+    public let expiresAt: Date?
+    public let status: String
+
+    public init(id: String, grantedAt: Date?, expiresAt: Date?, status: String) {
+        self.id = id
+        self.grantedAt = grantedAt
+        self.expiresAt = expiresAt
+        self.status = status
+    }
+}
+
+public enum CodexUsageParser: Sendable {
+    public static func parse(_ payload: [String: Any], now: Date) -> [UsageWindow] {
+        var windows = windowsFor(
+            JSONSupport.object(payload, "rate_limit", "rateLimit"),
+            idPrefix: "codex",
+            labelPrefix: nil,
+            now: now
+        )
+
+        windows += windowsFor(
+            JSONSupport.object(payload, "code_review_rate_limit", "codeReviewRateLimit"),
+            idPrefix: "code-review",
+            labelPrefix: "Code review",
+            now: now,
+            group: "Code review"
+        )
+
+        for (index, element) in JSONSupport.array(
+            payload, "additional_rate_limits", "additionalRateLimits"
+        ).enumerated() {
+            guard let entry = element as? [String: Any] else { continue }
+
+            // Extras nest their windows one level deeper. Missing them can hide the
+            // account's only exhausted limit; flat entries remain a legacy fallback.
+            let info = JSONSupport.object(entry, "rate_limit", "rateLimit") ?? entry
+            let name = JSONSupport.string(
+                entry,
+                "name",
+                "limit_name",
+                "limitName",
+                "metered_feature",
+                "meteredFeature"
+            ) ?? "Additional \(index + 1)"
+
+            windows += windowsFor(
+                info,
+                idPrefix: "additional-\(slug(name))-\(index)",
+                labelPrefix: name,
+                now: now,
+                group: name
+            )
+        }
+
+        return windows
+    }
+
+    public static func parseResetCredits(_ payload: [String: Any]?) -> [ResetCredit] {
+        JSONSupport.array(payload, "credits").compactMap { element -> ResetCredit? in
+            guard let credit = element as? [String: Any] else { return nil }
+
+            // Older responses omit the type. Explicitly unrelated or spent credits
+            // must not be offered as usable Codex resets.
+            let resetType = JSONSupport.string(credit, "reset_type", "resetType")
+            guard resetType == nil || resetType == "codex_rate_limits",
+                  let status = JSONSupport.string(credit, "status"),
+                  status == "available",
+                  let id = JSONSupport.string(credit, "id")
+            else {
+                return nil
+            }
+
+            return ResetCredit(
+                id: id,
+                grantedAt: JSONSupport.date(
+                    JSONSupport.string(credit, "granted_at", "grantedAt")
+                ) ?? JSONSupport.date(
+                    epoch: JSONSupport.int64(credit, "granted_at", "grantedAt")
+                ),
+                expiresAt: JSONSupport.date(
+                    JSONSupport.string(credit, "expires_at", "expiresAt")
+                ) ?? JSONSupport.date(
+                    epoch: JSONSupport.int64(credit, "expires_at", "expiresAt")
+                ),
+                status: status
+            )
+        }
+    }
+
+    public static func parseEmbeddedResetCredits(
+        _ payload: [String: Any]
+    ) -> [ResetCredit] {
+        // This summary remains useful if the authoritative credits endpoint fails.
+        parseResetCredits(
+            JSONSupport.object(payload, "rate_limit_reset_credits", "rateLimitResetCredits")
+        )
+    }
+
+    public static func availableCreditCount(_ payload: [String: Any]?) -> Int? {
+        count(payload, "available_count", "availableCount")
+    }
+
+    /// How many of those credits can be spent against the limit that is currently reached.
+    ///
+    /// Production payloads carry `available_count` and `applicable_available_count` side by
+    /// side and no `credits` array at all, so these are the only two numbers there are. They
+    /// are kept apart rather than collapsed because one sample cannot settle what a zero here
+    /// means: it may be "you hold credits but none apply to this limit", or simply "no limit is
+    /// currently reached". Under the first reading, spending the held count offers a button the
+    /// server will refuse; under the second, showing only the applicable count hides credits the
+    /// user really holds. Carrying both is correct under either.
+    public static func applicableCreditCount(_ payload: [String: Any]?) -> Int? {
+        count(payload, "applicable_available_count", "applicableAvailableCount")
+    }
+
+    private static func count(_ payload: [String: Any]?, _ names: String...) -> Int? {
+        guard let value = JSONSupport.double(payload, names[0], names[1]) else { return nil }
+
+        // Only a non-negative whole count that fits a 32-bit Int is known, matching Kotlin.
+        // Negative, fractional or oversized values are unstated, not rounded or saturated.
+        guard value.isFinite, value >= 0, value <= Double(Int32.max),
+              value == value.rounded(.towardZero) else { return nil }
+        return Int(value)
+    }
+
+    public static func parsePlan(_ payload: [String: Any]) -> String? {
+        planLabel(JSONSupport.string(payload, "plan_type", "planType"))
+    }
+
+    private static func windowsFor(
+        _ limitInfo: [String: Any]?,
+        idPrefix: String,
+        labelPrefix: String?,
+        now: Date,
+        group: String? = nil
+    ) -> [UsageWindow] {
+        guard let limitInfo else { return [] }
+
+        let windows = [
+            JSONSupport.object(limitInfo, "primary_window", "primaryWindow"),
+            JSONSupport.object(limitInfo, "secondary_window", "secondaryWindow")
+        ]
+
+        // Exhaustion belongs to the family, not necessarily to either child window.
+        let limitReached =
+            JSONSupport.bool(limitInfo, "limit_reached", "limitReached") == true ||
+            JSONSupport.bool(limitInfo, "allowed") == false
+
+        let classified = classify(windows)
+        var result: [UsageWindow] = []
+
+        if let index = classified.short, let window = windows[index] {
+            result.append(
+                toWindow(
+                    window,
+                    id: "\(idPrefix)-short",
+                    labelPrefix: labelPrefix,
+                    now: now,
+                    group: group
+                )
+            )
+        }
+
+        if let index = classified.long, let window = windows[index] {
+            result.append(
+                toWindow(
+                    window,
+                    id: "\(idPrefix)-long",
+                    labelPrefix: labelPrefix,
+                    now: now,
+                    group: group
+                )
+            )
+        }
+
+        // Two windows can share a category (weekly and monthly, or two 5-hour limits). Slots
+        // are identities only, so a window that found none keeps its own id by position.
+        for index in windows.indices where index != classified.short && index != classified.long {
+            guard let window = windows[index] else { continue }
+            result.append(
+                toWindow(
+                    window,
+                    id: "\(idPrefix)-\(index == 0 ? "primary" : "secondary")",
+                    labelPrefix: labelPrefix,
+                    now: now,
+                    group: group
+                )
+            )
+        }
+
+        // An explicit block with no child window is still a reported block. Keep it as an
+        // unmeasured window instead of inventing a percentage, duration or reset time.
+        if limitReached, result.isEmpty {
+            return [
+                UsageWindow(
+                    id: "\(idPrefix)-blocked",
+                    label: labelPrefix.map { "\($0) · Limit reached" } ?? "Limit reached",
+                    category: .other,
+                    usedPercent: nil,
+                    periodSeconds: nil,
+                    resetAt: nil,
+                    exhausted: true,
+                    group: group,
+                    scope: group == nil ? .global : .model
+                )
+            ]
+        }
+
+        if limitReached, !result.contains(where: \.exhausted),
+           let index = result.indices.min(by: {
+               (result[$0].remainingPercent ?? .greatestFiniteMagnitude)
+                   < (result[$1].remainingPercent ?? .greatestFiniteMagnitude)
+           }) {
+            let window = result[index]
+            result[index] = UsageWindow(
+                id: window.id, label: window.label, category: window.category,
+                usedPercent: window.usedPercent, periodSeconds: window.periodSeconds,
+                resetAt: window.resetAt, exhausted: true, group: window.group, scope: window.scope)
+        }
+        return result
+    }
+
+    private static func classify(
+        _ windows: [[String: Any]?]
+    ) -> (short: Int?, long: Int?) {
+        var shortIndex: Int?
+        var longIndex: Int?
+
+        // Slot indices preserve identity without comparing dictionary contents.
+        // Team plans can place a monthly limit in the nominally weekly slot.
+        for (index, candidate) in windows.enumerated() {
+            guard let window = candidate else { continue }
+
+            switch WindowCategory.from(periodSeconds: periodSeconds(window)) {
+            case .fiveHour:
+                if shortIndex == nil { shortIndex = index }
+            case .weekly, .monthly:
+                if longIndex == nil { longIndex = index }
+            case .other:
+                break
+            }
+        }
+
+        // Position is only meaningful for legacy windows with no duration field.
+        // A present but malformed or unfamiliar duration is not an omitted field.
+        if shortIndex == nil,
+           let primary = windows[0],
+           longIndex != 0,
+           // Absence of a DURATION, not of a key. `JSONSerialization` turns an explicit JSON
+           // null into `NSNull`, so the key is present and a key test blocks the fallback for a
+           // payload that carries no duration information at all — the exact case the fallback
+           // exists for.
+           periodSeconds(primary) == nil {
+            shortIndex = 0
+        }
+
+        if longIndex == nil,
+           let secondary = windows[1],
+           shortIndex != 1,
+           periodSeconds(secondary) == nil {
+            longIndex = 1
+        }
+
+        // Known and legacy slots retain priority. With only two inputs, every unassigned
+        // unknown window has a free slot; its category and label still come from its duration.
+        for (index, candidate) in windows.enumerated() {
+            guard index != shortIndex, index != longIndex,
+                  let window = candidate, let period = periodSeconds(window),
+                  WindowCategory.from(periodSeconds: period) == .other else { continue }
+            if longIndex == nil { longIndex = index }
+            else if shortIndex == nil { shortIndex = index }
+        }
+
+        return (shortIndex, longIndex)
+    }
+
+    private static func toWindow(
+        _ window: [String: Any],
+        id: String,
+        labelPrefix: String?,
+        now: Date,
+        group: String?
+    ) -> UsageWindow {
+        let period = periodSeconds(window)
+        let category = WindowCategory.from(periodSeconds: period)
+
+        // The block flag and measured percentage are separate evidence.
+        let usedPercent = JSONSupport.double(window, "used_percent", "usedPercent")
+            .flatMap { $0.isFinite && (0...100).contains($0) ? $0 : nil }
+
+        let absoluteReset = JSONSupport.date(
+            JSONSupport.string(window, "reset_at", "resetAt")
+        ) ?? JSONSupport.date(
+            epoch: JSONSupport.int64(window, "reset_at", "resetAt")
+        )
+
+        // Through the same bounds Kotlin applies in `Instants.fromOffsetSeconds`, which this
+        // had no equivalent of: a negative offset produced a reset already in the PAST, and
+        // because an account's next reset is a minimum over its windows, that one bogus value
+        // dragged the whole account's clock backwards on every screen and both widgets. An
+        // absurdly large one did the reverse and won the same minimum.
+        let resetAt = absoluteReset ?? JSONSupport.int64(
+            window, "reset_after_seconds", "resetAfterSeconds"
+        ).flatMap { offset -> Date? in
+            guard offset >= 0, offset <= JSONSupport.secondsBound else { return nil }
+            return now.addingTimeInterval(TimeInterval(offset))
+        }
+
+        return UsageWindow(
+            id: id,
+            label: label(category: category, prefix: labelPrefix),
+            category: category,
+            usedPercent: usedPercent,
+            periodSeconds: period,
+            resetAt: resetAt,
+            exhausted: usedPercent == 100.0,
+            group: group,
+            scope: group == nil ? .global : .model
+        )
+    }
+
+    private static func periodSeconds(_ window: [String: Any]?) -> Int64? {
+        JSONSupport.int64(window, "limit_window_seconds", "limitWindowSeconds")
+    }
+
+    private static func label(category: WindowCategory, prefix: String?) -> String {
+        let base: String
+        switch category {
+        case .fiveHour:
+            base = "5h limit"
+        case .weekly:
+            base = "Weekly"
+        case .monthly:
+            base = "Monthly"
+        case .other:
+            base = "Limit"
+        }
+
+        return prefix.map { "\($0) · \(base)" } ?? base
+    }
+
+    private static func slug(_ value: String) -> String {
+        let result = value.lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return result.isEmpty ? "limit" : result
+    }
+}

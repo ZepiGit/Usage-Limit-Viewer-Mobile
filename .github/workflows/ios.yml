@@ -1,0 +1,400 @@
+name: iOS
+
+# Linux checks portable logic and framework shims; macOS checks Darwin code and the real iOS SDK.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'ios/**'
+      - 'shared/**'
+      - 'third_party/fonts/**'
+      - 'tools/check_font_bundle.py'
+      - 'tools/check_glyph_file.py'
+      - 'tools/test_check_glyph_file.py'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'shared/**'
+      - 'third_party/fonts/**'
+      - 'tools/check_font_bundle.py'
+      - 'tools/check_glyph_file.py'
+      - 'tools/test_check_glyph_file.py'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+    inputs:
+      measure_settings_gaps:
+        description: Sample Settings preview display callback gaps
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kit-linux:
+    name: UsageLimitsKit (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: swift:6.0.3
+    steps:
+      - uses: actions/checkout@v7
+      # Shims catch missing declarations; real Apple SDK validation runs on macOS.
+      - name: The app and widget type-check against framework shims
+        run: |
+          flock /tmp/ulv-gradle.lock ./ios/Tools/typecheck-app.sh
+          flock /tmp/ulv-gradle.lock ./ios/Tools/typecheck-app.sh -D DEBUG
+      - name: Test
+        working-directory: ios/UsageLimitsKit
+        run: swift test --parallel
+
+  # Python only, so a tiny runner instead of the Swift container. It proves the String Catalog and
+  # the call sites agree (every localized literal is a key, every key has German); compiling stays
+  # with the macOS job.
+  catalog:
+    name: String Catalog (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # The glyph file ships inside the widget; nothing malformed may reach it. Python is here,
+      # not in the Swift container.
+      - name: Check the status icon glyph file
+        run: |
+          python3 -m unittest discover -s tools -p 'test_check_glyph_file.py'
+          python3 tools/check_glyph_file.py
+      - name: The checker's own tests
+        run: python3 -m unittest discover -s ios/Tools -p 'test_check_xcstrings.py'
+      - name: Check the iOS font bundle checker
+        run: python3 -m unittest discover -s ios/Tools -p 'test_check_font_bundle.py'
+      # MarketingDemo is DEBUG-only screenshot fixtures with fixed English text.
+      - name: The catalog and the app and widget sources agree
+        run: >-
+          python3 ios/Tools/check-xcstrings.py
+          --catalog ios/UsageLimits/Sources/Resources/Localizable.xcstrings
+          ios/UsageLimits/Sources
+          --exclude ios/UsageLimits/Sources/App/MarketingDemo.swift
+
+  kit-macos:
+    name: UsageLimitsKit (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test
+        working-directory: ios/UsageLimitsKit
+        run: swift test --parallel
+      # Needs Apple's Foundation, so it cannot run in the Linux jobs. It does not depend on the Kit
+      # tests, so it still runs when they fail and each failure shows on its own.
+      - name: Localized percent signs resolve on the host
+        if: ${{ !cancelled() }}
+        run: ./ios/Tools/check-localized-percent.sh
+
+  # The Pinned accounts widget's real views, rendered at the three accessory sizes with synthetic
+  # accounts in English and German for a person to look at. View renderings, not Lock Screen
+  # screenshots: placement and the system's vibrancy are a device check.
+  pinned-widget-renderings:
+    name: Pinned widget renderings (simulator)
+    needs: kit-linux
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install XcodeGen and generate the project
+        working-directory: ios/UsageLimits
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Render every family in English and German
+        working-directory: ios/UsageLimits
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | last | .udid')
+          test -n "$udid" && test "$udid" != "null"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+          out="$GITHUB_WORKSPACE/pinned-widget-renderings"
+          mkdir -p "$out"
+          {
+            echo "View renderings of the Pinned accounts widget at accessory sizes (160x72, 72x72, 234x26 pt)."
+            echo "NOT Lock Screen screenshots: drawn with ImageRenderer, white on black, no wallpaper or vibrancy."
+            echo "Synthetic accounts only. Source commit: $GITHUB_SHA"
+            # Whole, not piped into head: under pipefail a closed pipe aborts xcodebuild.
+            xcodebuild -version
+            xcrun simctl list devices --json | jq -r --arg id "$udid" '.devices[][] | select(.udid == $id) | .name'
+          } > "$out/CAPTURE.txt"
+          xcodebuild build-for-testing \
+            -scheme UsageLimitsRendering \
+            -destination "platform=iOS Simulator,id=$udid" \
+            -derivedDataPath "$GITHUB_WORKSPACE/rendering-build" \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
+          for language in en de; do
+            region=$([ "$language" = de ] && echo DE || echo US)
+            tests=(-only-testing:UsageLimitsRenderingTests/PinnedAccountsRenderingTests
+              -only-testing:UsageLimitsRenderingTests/AppearanceRenderingTests)
+            if [ "$language" = en ]; then
+              tests+=(-only-testing:UsageLimitsRenderingTests/SignInMotionTests
+                -only-testing:UsageLimitsRenderingTests/HoorayRenderingTests)
+            fi
+            TEST_RUNNER_PINNED_RENDERINGS="$out" TEST_RUNNER_PINNED_LANGUAGE="$language" \
+            xcodebuild test-without-building \
+              -scheme UsageLimitsRendering \
+              -destination "platform=iOS Simulator,id=$udid" \
+              -derivedDataPath "$GITHUB_WORKSPACE/rendering-build" \
+              -resultBundlePath "$GITHUB_WORKSPACE/rendering-$language.xcresult" \
+              -testLanguage "$language" -testRegion "$region" \
+              -parallel-testing-enabled NO \
+              "${tests[@]}"
+          done
+          find "$out" -type f | sort
+      - name: Upload the renderings
+        uses: actions/upload-artifact@v7
+        with:
+          name: pinned-widget-renderings
+          path: pinned-widget-renderings
+          if-no-files-found: error
+          retention-days: 7
+      - name: Render non-pinned Home Screen and accessory views in English and German
+        if: ${{ !cancelled() }}
+        working-directory: ios/UsageLimits
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices booted --json \
+            | jq -r '[.devices[][] | select(.name | startswith("iPhone"))] | last | .udid')
+          test -n "$udid" && test "$udid" != "null"
+          out="$GITHUB_WORKSPACE/non-pinned-widget-renderings"
+          mkdir -p "$out"
+          {
+            echo "Production SwiftUI Home Screen and accessory views at native family sizes."
+            echo "NOT installed WidgetKit or Lock Screen captures: no host tint, vibrancy, edit UI or timeline delivery proof."
+            echo "Synthetic accounts only. Source commit: $GITHUB_SHA"
+            xcodebuild -version
+            xcrun simctl list devices --json | jq -r --arg id "$udid" '.devices[][] | select(.udid == $id) | .name'
+          } > "$out/CAPTURE.txt"
+          for language in en de; do
+            region=$([ "$language" = de ] && echo DE || echo US)
+            TEST_RUNNER_NON_PINNED_RENDERINGS="$out" TEST_RUNNER_NON_PINNED_LANGUAGE="$language" \
+            xcodebuild test-without-building \
+              -scheme UsageLimitsRendering \
+              -destination "platform=iOS Simulator,id=$udid" \
+              -derivedDataPath "$GITHUB_WORKSPACE/rendering-build" \
+              -resultBundlePath "$GITHUB_WORKSPACE/non-pinned-rendering-$language.xcresult" \
+              -testLanguage "$language" -testRegion "$region" \
+              -parallel-testing-enabled NO \
+              -only-testing:UsageLimitsRenderingTests/NonPinnedWidgetRenderingTests
+          done
+      - name: Upload non-pinned widget view renderings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: non-pinned-widget-renderings
+          path: non-pinned-widget-renderings
+          if-no-files-found: error
+          retention-days: 7
+      - name: Keep non-pinned rendering failures
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: non-pinned-widget-rendering-failure
+          path: non-pinned-rendering-*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Measure Settings preview display callback gaps
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.measure_settings_gaps == true }}
+        working-directory: ios/UsageLimits
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices booted --json \
+            | jq -r '[.devices[][] | select(.name | startswith("iPhone"))] | last | .udid')
+          test -n "$udid" && test "$udid" != "null"
+          xcodebuild test \
+            -scheme UsageLimits \
+            -destination "platform=iOS Simulator,id=$udid" \
+            -derivedDataPath "$GITHUB_WORKSPACE/rendering-build" \
+            -resultBundlePath "$GITHUB_WORKSPACE/settings-gaps.xcresult" \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -maximum-test-execution-time-allowance 300 \
+            -only-testing:UsageLimitsUITests/AppLaunchUITests/testMeasureSettingsPreviewMainThreadGaps \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
+
+      - name: Keep native rendering and sign-in motion evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pinned-widget-rendering-failure
+          path: |
+            rendering-*.xcresult
+            settings-gaps.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+  app-ios:
+    name: iOS app (real SDK)
+    needs: kit-linux
+    runs-on: macos-latest
+    # Debug and Release builds, 27 iPhone tests and adaptive iPad checks reached 45:07
+    # before GitHub cancelled run 44792508707, after XCTest had passed both iPad cases.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Show toolchain
+        run: xcodebuild -version && xcrun --sdk iphonesimulator --show-sdk-version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate the project
+        working-directory: ios/UsageLimits
+        run: xcodegen generate
+      # A generic destination avoids depending on a specific simulator model.
+      - name: Build for simulator
+        working-directory: ios/UsageLimits
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -scheme UsageLimits \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
+
+      # Building the extension alone does not prove it is embedded in the app, or that it carries
+      # the shared glyph file.
+      - name: The widget is embedded in the app bundle
+        working-directory: ios/UsageLimits
+        run: |
+          set -euo pipefail
+          # Build settings contain every scheme target; select the app explicitly.
+          settings=$(xcodebuild -showBuildSettings -json \
+            -scheme UsageLimits \
+            -destination 'generic/platform=iOS Simulator' 2>/dev/null | sed -n '/^\[/,$p')
+          app=$(printf '%s' "$settings" | jq -r \
+            'map(select(.target == "UsageLimits")) | last | .buildSettings
+             | "\(.BUILT_PRODUCTS_DIR)/\(.FULL_PRODUCT_NAME)"')
+          products=$(dirname "$app")
+          echo "app bundle: $app"
+          case "$app" in
+            *.app) ;;
+            *) echo "::error::resolved '$app', which is not an app bundle - the build-settings lookup picked the wrong target" >&2
+               exit 1 ;;
+          esac
+          appex="$app/PlugIns/UsageLimitsWidget.appex"
+          if [ ! -d "$appex" ]; then
+            echo "::error::UsageLimitsWidget.appex is not embedded in the app bundle" >&2
+            echo "-- contents of the app bundle:" >&2; ls -1 "$app" >&2 || true
+            echo "-- .appex in the products dir:" >&2; ls -1d "$products"/*.appex >&2 || true
+            exit 1
+          fi
+          point=$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$appex/Info.plist")
+          echo "extension point: $point"
+          [ "$point" = "com.apple.widgetkit-extension" ] || {
+            echo "::error::wrong NSExtensionPointIdentifier: $point" >&2; exit 1; }
+          python3 ../Tools/check_font_bundle.py "$app"
+          # The status icon glyphs ship inside the extension, byte for byte the shared file. The
+          # rendering test bundles its own copy, so it cannot prove this one is there.
+          glyphs="$appex/status-icon-glyphs.json"
+          if ! cmp -s "$glyphs" "$GITHUB_WORKSPACE/shared/glyphs/status-icon-glyphs.json"; then
+            echo "::error::$glyphs is missing or differs from shared/glyphs/status-icon-glyphs.json" >&2
+            exit 1
+          fi
+
+      # Debug-only code is compiled out with `#if DEBUG`, so a symbol that only the Release branch
+      # still needs breaks no Debug build. release.yml builds Release only for a tag or a manual
+      # dispatch; this compiles the same configuration for the same destination on every pull
+      # request. It compiles only: nothing is signed, archived or run.
+      - name: Build the Release configuration
+        working-directory: ios/UsageLimits
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -scheme UsageLimits \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      # Discover an installed iPhone simulator; fail if none is available.
+      - name: Pick and boot a simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices[][] | select(.isAvailable and (.name | startswith("iPhone")))] | last | .udid')
+          if [ -z "$udid" ] || [ "$udid" = "null" ]; then
+            echo "no available iPhone simulator on this runner" >&2
+            xcrun simctl list devices available >&2
+            exit 1
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+
+      - name: Run the app on the simulator
+        working-directory: ios/UsageLimits
+        run: |
+          set -o pipefail
+          # Bound test duration and keep one simulator with a fixed result bundle path.
+          xcodebuild test \
+            -scheme UsageLimits \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -resultBundlePath "$GITHUB_WORKSPACE/ios-tests.xcresult" \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -maximum-test-execution-time-allowance 300 \
+            -skip-testing:UsageLimitsUITests/AppLaunchUITests/testMeasureSettingsPreviewMainThreadGaps \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual
+
+      - name: Collect Settings trace from simulator logs
+        if: ${{ !cancelled() && steps.simulator.outcome == 'success' }}
+        run: |
+          xcrun simctl spawn '${{ steps.simulator.outputs.udid }}' log show \
+            --last 60m --style compact --predicate 'subsystem == "com.usagelimits.app" AND category == "SettingsTrace"'
+
+      # Run simulators sequentially to avoid launchd conflicts; retry once on a fresh iPad.
+      - name: Run adaptive UI checks on an iPad
+        working-directory: ios/UsageLimits
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices[][] | select(.isAvailable and (.name | startswith("iPad")))] | last | .udid')
+          test -n "$udid" && test "$udid" != "null"
+          xcrun simctl shutdown all || true
+          for attempt in 1 2; do
+            if [ "$attempt" -eq 2 ]; then
+              echo "::warning::first iPad attempt hit a simulator failure; retrying on a fresh device" >&2
+              xcrun simctl shutdown all || true
+              xcrun simctl delete "$udid" || true
+              devicetype=$(xcrun simctl list devicetypes | grep 'iPad-Pro' | tail -1 | sed 's/.*(//' | sed 's/)//')
+              udid=$(xcrun simctl create "iPad CI retry" "$devicetype")
+            fi
+            xcrun simctl erase "$udid" || true
+            xcrun simctl boot "$udid" || true
+            xcrun simctl bootstatus "$udid" -b
+            if xcodebuild test \
+              -scheme UsageLimits \
+              -destination "platform=iOS Simulator,id=$udid" \
+              -resultBundlePath "$GITHUB_WORKSPACE/ios-ipad-tests-$attempt.xcresult" \
+              -parallel-testing-enabled NO \
+              -test-timeouts-enabled YES \
+              -maximum-test-execution-time-allowance 300 \
+              -only-testing:UsageLimitsUITests/AppLaunchUITests/testEachScreenOpensWithNoAccountsConnected \
+              -only-testing:UsageLimitsUITests/AppLaunchUITests/testLandscapeAndLargeTextKeepTheProviderPickerReachable \
+              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual; then
+              exit 0
+            fi
+          done
+          exit 1
+
+      - name: Upload the test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-ui-test-results
+          path: |
+            ios-tests.xcresult
+            ios-ipad-tests-*.xcresult
+          if-no-files-found: ignore

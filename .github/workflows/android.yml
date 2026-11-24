@@ -1,0 +1,425 @@
+name: Android
+
+# Runtime smoke upgrades the previous release with this run's minified APK.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - '*.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
+      - 'tools/android_runtime_smoke.py'
+      - 'tools/test_android_runtime_smoke.py'
+      - 'tools/run_android_runtime.sh'
+      - 'shared/**'
+      - 'tools/check_glyph_file.py'
+      - 'tools/test_check_glyph_file.py'
+      - 'third_party/fonts/**'
+      - 'tools/check_font_bundle.py'
+      - 'tools/test_check_font_bundle.py'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - '*.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'ios/UsageLimits/Sources/Screens/AppIconScreen.swift'
+      - 'tools/android_runtime_smoke.py'
+      - 'tools/test_android_runtime_smoke.py'
+      - 'tools/run_android_runtime.sh'
+      - 'shared/**'
+      - 'tools/check_glyph_file.py'
+      - 'tools/test_check_glyph_file.py'
+      - 'third_party/fonts/**'
+      - 'tools/check_font_bundle.py'
+      - 'tools/test_check_font_bundle.py'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # Robolectric Android 16/17 requires JDK 21; app bytecode still targets Java 17.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          # Enhanced caching has separate Terms of Use; keep the MIT cache provider.
+          cache-provider: basic
+
+      # The glyph file ships inside both apps; nothing malformed may reach them.
+      - name: Check the status icon glyph file
+        run: |
+          python3 -m unittest discover -s tools -p 'test_check_glyph_file.py'
+          python3 tools/check_glyph_file.py
+
+      - name: Test the font bundle integrity checker
+        run: python3 -m unittest discover -s tools -p 'test_check_font_bundle.py'
+
+      # The emulator smoke's pixel logic, on synthetic frames; no device needed.
+      - name: Test the runtime smoke's own checks
+        run: python3 -m unittest discover -s tools -p 'test_android_runtime_smoke.py'
+
+      # captureDir makes the capture tests write what they render: every screen, and the motion
+      # tests' frame sequences under motion/ (one PNG per 16 ms step of the test clock).
+      - name: Test
+        run: |
+          diagnostics="$PWD/app/build/reports/test-diagnostics"
+          mkdir -p "$diagnostics" || echo "::warning::Could not create the test diagnostics directory"
+          ./gradlew --no-daemon testDebugUnitTest lintDebug \
+            -PcaptureDir="$PWD/app/build/reports/captures" \
+            -PtestEventLog="$diagnostics/test-events.tsv" &
+          gradle_pid=$!
+
+          # One observation, not a test timeout: leave Gradle and its existing deadline alone.
+          collect_test_stacks() {
+            child_pid=
+            cleanup() {
+              if [ -n "$child_pid" ]; then
+                kill "$child_pid" 2>/dev/null || true
+                wait "$child_pid" 2>/dev/null || true
+              fi
+            }
+            trap cleanup EXIT
+            trap 'exit 0' INT TERM
+            sleep 600 &
+            child_pid=$!
+            wait "$child_pid"
+            child_pid=
+            kill -0 "$gradle_pid" 2>/dev/null || exit 0
+            # Retain this invocation's process tree even when no worker identity matches.
+            ps -eo pid=,ppid=,args= | awk -v root="$gradle_pid" '
+              { parent[$1] = $2; command[$1] = $0 }
+              END {
+                for (pid in parent) {
+                  ancestor = pid
+                  while (ancestor in parent && ancestor != root && ancestor > 1) ancestor = parent[ancestor]
+                  if (ancestor == root) print command[pid]
+                }
+              }
+            ' > "$diagnostics/processes.txt" || exit 0
+            # Gradle passes literal quotes around its worker display name, not shell quoting.
+            worker_pattern='(^|[[:space:]/])worker[.]org[.]gradle[.]process[.]internal[.]worker[.]GradleWorkerMain([[:space:]]|$)'
+            name_pattern='(^|[[:space:]])Gradle Test Executor [0-9]+([[:space:]]|$)'
+            awk -v worker="$worker_pattern" -v name="$name_pattern" '
+              { gsub(/[\047"]/, " "); if ($0 ~ worker && $0 ~ name) print $1 }
+            ' "$diagnostics/processes.txt" > "$diagnostics/worker-pids.txt"
+            while read -r pid; do
+              timeout --kill-after=5s 20s "$JAVA_HOME/bin/jcmd" "$pid" Thread.print -l \
+                > "$diagnostics/worker-$pid-threads.txt" 2>&1 &
+              child_pid=$!
+              wait "$child_pid" || true
+              child_pid=
+            done < "$diagnostics/worker-pids.txt"
+          }
+          collect_test_stacks &
+          diagnostic_pid=$!
+          cleanup() {
+            kill "$diagnostic_pid" 2>/dev/null || true
+            wait "$diagnostic_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          if wait "$gradle_pid"; then result=0; else result=$?; fi
+          exit "$result"
+
+      - name: Upload the test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-verification-evidence
+          path: |
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/test-diagnostics
+            app/build/reports/captures
+            app/build/reports/lint-results-debug.*
+            app/build/reports/widget-renderings
+            app/build/reports/status-icons
+            app/schemas
+          if-no-files-found: error
+
+      # The renderer's contact and true-size sheets are written on every test run; a missing
+      # one means the status icons went unreviewed, which the upload above would not notice.
+      - name: Check the status icon sheets are there
+        if: always()
+        run: |
+          missing=0
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            for kind in contact true-size; do
+              f="app/build/reports/status-icons/status-icons-$kind-$density.png"
+              if [ ! -s "$f" ]; then echo "::error::missing $f"; missing=1; fi
+            done
+          done
+          exit $missing
+
+  assemble:
+    name: Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # versionCode is the full Git commit count.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          # Enhanced caching has separate Terms of Use; keep the MIT cache provider.
+          cache-provider: basic
+
+      # Debug APKs use the repository debug key; minified APKs use the release key when configured.
+      - name: Decode the release signing key when configured
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+            chmod 600 "$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: Assemble
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          export ANDROID_VERSION_CODE="$(git rev-list --count HEAD)"
+          ./gradlew --no-daemon --no-configuration-cache assembleDebug assembleRelease
+          mkdir -p app/build/reports
+          ./gradlew --no-daemon --no-configuration-cache :app:dependencies --configuration releaseRuntimeClasspath --console=plain > app/build/reports/apk-runtime-dependencies.txt
+
+      - name: Verify debug and release font bundles
+        run: |
+          set -euo pipefail
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          for variant in debug release; do
+            apk="app/build/outputs/apk/$variant/app-$variant.apk"
+            resources="app/build/reports/apk-font-resources-$variant.txt"
+            "$build_tools/aapt2" dump resources "$apk" > "$resources"
+            python3 tools/check_font_bundle.py "$apk" --resource-table "$resources"
+          done
+
+      - name: Verify APK identity and signing continuity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          apk=app/build/outputs/apk/release/app-release.apk
+          mkdir -p app/build/reports
+          "$build_tools/aapt" dump badging "$apk" > app/build/reports/apk-metadata.txt
+          "$build_tools/apksigner" verify --verbose --print-certs "$apk" > app/build/reports/apk-signature.txt
+          sha256sum "$apk" > app/build/reports/apk-sha256.txt
+          # The status icon glyphs ship as a Java resource at the APK root, byte for byte the shared
+          # file, as the iOS job checks for the widget extension. Without it every status icon
+          # publication fails and is only logged, so a packaging change must fail here instead.
+          if ! unzip -p "$apk" status-icon-glyphs.json | cmp -s - shared/glyphs/status-icon-glyphs.json; then
+            echo "::error::$apk lacks status-icon-glyphs.json or it differs from shared/glyphs/status-icon-glyphs.json" >&2
+            exit 1
+          fi
+          if [ -n "${ANDROID_KEYSTORE_PATH:-}" ]; then
+            mkdir -p "$RUNNER_TEMP/previous-release"
+            # Baseline: the newest published release other than the version being built, so a run that
+            # starts after its own tag is published still compares against the release before it.
+            current_version=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            baseline_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+              --json tagName -q '.[].tagName' | grep -vxF "v$current_version" | head -n 1)
+            gh release download "$baseline_tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'UsageLimits-*.apk' --dir "$RUNNER_TEMP/previous-release"
+            previous_apk=$(ls "$RUNNER_TEMP"/previous-release/UsageLimits-*.apk)
+            "$build_tools/aapt" dump badging "$previous_apk" > app/build/reports/apk-previous-metadata.txt
+            "$build_tools/apksigner" verify --print-certs "$previous_apk" > "$RUNNER_TEMP/previous-signature.txt"
+            # apksigner uses either "Signer #1" or a scheme prefix such as "V2 Signer:".
+            # A certificate repeated across schemes is one signer; distinct digests are ambiguous.
+            certificate_pattern='s/^(Signer #[0-9]+|V[0-9]+(\.[0-9]+)* Signer:) certificate SHA-256 digest: (.*)$/\3/p'
+            previous=$(sed -nE "$certificate_pattern" "$RUNNER_TEMP/previous-signature.txt" | tr '[:upper:]' '[:lower:]' | sort -u)
+            current=$(sed -nE "$certificate_pattern" app/build/reports/apk-signature.txt | tr '[:upper:]' '[:lower:]' | sort -u)
+            if [[ ! "$previous" =~ ^[0-9a-f]{64}$ || ! "$current" =~ ^[0-9a-f]{64}$ ]]; then
+              echo '::error::Expected exactly one nonempty SHA-256 signing certificate in each APK report.' >&2
+              exit 1
+            fi
+            if [ "$previous" != "$current" ]; then
+              echo '::error::Release signing certificate differs from the latest release.' >&2
+              exit 1
+            fi
+            previous_package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" app/build/reports/apk-previous-metadata.txt)
+            current_package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            previous_code=$(sed -n "s/^package: .* versionCode='\([^']*\)'.*/\1/p" app/build/reports/apk-previous-metadata.txt)
+            current_code=$(sed -n "s/^package: .* versionCode='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            previous_version=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" app/build/reports/apk-previous-metadata.txt)
+            current_version=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" app/build/reports/apk-metadata.txt)
+            if [[ ! "$previous_package" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ || "$previous_package" != "$current_package" ]]; then
+              echo '::error::Expected the same valid package name in both APK reports.' >&2
+              exit 1
+            fi
+            if [[ ! "$previous_code" =~ ^[1-9][0-9]{0,9}$ || ! "$current_code" =~ ^[1-9][0-9]{0,9}$ ]]; then
+              echo '::error::Expected a positive numeric versionCode in both APK reports.' >&2
+              exit 1
+            fi
+            if (( previous_code > 2100000000 || current_code > 2100000000 || current_code <= previous_code )); then
+              echo '::error::APK versionCodes must be in range and the new versionCode must increase.' >&2
+              exit 1
+            fi
+            if [[ -z "$previous_version" || -z "$current_version" ]]; then
+              echo '::error::Expected a versionName in both APK reports.' >&2
+              exit 1
+            fi
+            {
+              printf 'Previous APK: package=%s versionName=%s versionCode=%s\n' "$previous_package" "$previous_version" "$previous_code"
+              printf 'Current APK: package=%s versionName=%s versionCode=%s\n' "$current_package" "$current_version" "$current_code"
+              echo 'Package matches, versionCode increased, and signing certificate matches the latest release.'
+            } > app/build/reports/apk-upgrade.txt
+          else
+            echo 'Verification build only; release signing is unavailable.' > app/build/reports/apk-upgrade.txt
+          fi
+
+      - name: Upload APK verification
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: apk-verification
+          path: app/build/reports/apk-*.txt
+          if-no-files-found: ignore
+
+      - name: Forget the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - name: Upload the minified verification APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-release-verification
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+  runtime:
+    name: API 37 release upgrade smoke
+    needs: assemble
+    # Fork PRs cannot access release signing, and neither can Dependabot's (it only gets Dependabot
+    # secrets). A debug-signed build cannot update the published release.
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    # Eight rounds revisit all four widget configurations, plus placement and geometry checks.
+    # Individual UI/control deadlines remain bounded in the smoke script.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Same-run artifacts bind this test to the exact SHA/version produced by `assemble`.
+      - uses: actions/download-artifact@v8
+        with:
+          name: app-release-verification
+          path: runtime/apk
+      - uses: actions/download-artifact@v8
+        with:
+          name: apk-verification
+          path: runtime/verification
+      # This run's debug build: the smoke installs it beside the release app for the seeded List.
+      - uses: actions/download-artifact@v8
+        with:
+          name: app-debug
+          path: runtime/debug
+
+      - name: Download the published upgrade baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/previous
+          current_version=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" runtime/verification/apk-metadata.txt)
+          baseline_tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | grep -vxF "v$current_version" | head -n 1)
+          gh release download "$baseline_tag" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'UsageLimits-*.apk' --dir runtime/previous
+
+      # Pin tools that parse the decimal API 37.0 image target correctly.
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+          cmdline-tools-version: '15859902'
+
+      - name: Check the AOSP API 37 image is available
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/evidence
+          sdkmanager --list > runtime/evidence/sdk-packages.txt
+          if ! grep -Eq '^[[:space:]]*system-images;android-37\.0;default;x86_64[[:space:]]*\|' runtime/evidence/sdk-packages.txt; then
+            echo '::error::The SDK repository does not list the required AOSP API 37 x86_64 image.' >&2
+            exit 1
+          fi
+
+      # KVM setup from https://github.com/ReactiveCircus/android-emulator-runner
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # The runner treats --debug-apk as optional because the release workflow has no debug build.
+      # Here it is required: without it the seeded List steps would be skipped, not checked.
+      - name: Require this run's debug build for the seeded List
+        run: test -s runtime/debug/app-debug.apk || { echo '::error::runtime/debug/app-debug.apk is missing; the seeded List steps need it.' >&2; exit 1; }
+
+      - name: Upgrade, verify themed launches and navigate the release APK
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1440x3120x24 -nolisten tcp' bash tools/run_android_runtime.sh --previous-apk runtime/previous/UsageLimits-*.apk --apk runtime/apk/app-release.apk --debug-apk runtime/debug/app-debug.apk --apk-sha256-file runtime/verification/apk-sha256.txt --evidence runtime/evidence
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-runtime-evidence-${{ github.sha }}
+          path: runtime/evidence
+          if-no-files-found: warn

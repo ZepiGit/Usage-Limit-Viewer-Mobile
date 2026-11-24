@@ -1,0 +1,137 @@
+import XCTest
+@testable import UsageLimitsKit
+
+final class WidgetSelectionContractTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func account(_ id: String, used: Double?, reset: Date?, connection: ConnectionStatus = .connected,
+        fetchedAt: Date? = nil, status: SnapshotStatus = .ok) -> AccountUsage {
+        AccountUsage(account: ProviderAccount(id: id, provider: .codex, externalAccountID: id,
+            email: "\(id)@example.com", displayName: id, plan: "Plus", credentialReference: id,
+            createdAt: now, lastSuccessfulSync: now), snapshot: UsageSnapshot(accountID: id, fetchedAt: fetchedAt ?? now,
+            status: status, windows: [UsageWindow(id: "short", label: "5h limit", category: .fiveHour,
+                usedPercent: used, periodSeconds: 18_000, resetAt: reset, exhausted: (used ?? 0) >= 100)],
+            connectionStatus: connection))
+    }
+
+    func testQuotaAndConnectionAreIndependent() {
+        let values = [account("empty", used: 100, reset: nil), account("low", used: 97, reset: nil),
+            account("revoked", used: 0, reset: nil, connection: .reconnectRequired)]
+        let result = GlanceModel.build(values, now: now, scope: .allAccounts)
+        XCTAssertEqual(result.accounts.filter { $0.connectionStatus == .connected }.count, 2)
+        XCTAssertEqual(result.accounts.first?.severity, .exhausted)
+        XCTAssertEqual(result.accounts.last?.connectionStatus, .reconnectRequired)
+    }
+
+    func testClosestResetsUsesFutureTimeNotQuota() {
+        let values = [account("later", used: 100, reset: now.addingTimeInterval(900)),
+            account("soon", used: 0, reset: now.addingTimeInterval(10)), account("past", used: 10, reset: now.addingTimeInterval(-1))]
+        XCTAssertEqual(GlanceModel.build(values, now: now, scope: .closestResets).accounts.map(\.id), ["soon", "later", "past"])
+    }
+
+    func testCustomPreservesTheExactSubsetAndOrder() {
+        let values = [account("a", used: 0, reset: nil), account("b", used: 50, reset: nil), account("c", used: 100, reset: nil)]
+        XCTAssertEqual(GlanceModel.build(values, now: now, scope: .custom,
+            customAccountIDs: ["c", "missing", "c", "a"]).accounts.map(\.id), ["c", "a"])
+        XCTAssertTrue(GlanceModel.build(values, now: now, scope: .custom).accounts.isEmpty)
+        XCTAssertEqual(GlanceModel.build(values, now: now, scope: .account, accountID: "b").accounts.map(\.id), ["b"])
+    }
+
+    func testLegacyAuthenticationMappingIsNarrow() {
+        XCTAssertEqual(ConnectionStatus.legacy(status: .failed, message: NotificationEvaluator.signInExpiredMessage), .reconnectRequired)
+        XCTAssertEqual(ConnectionStatus.legacy(status: .failed, message: "Request deadline expired"), .unknown)
+        XCTAssertEqual(ConnectionStatus.legacy(status: .ok, message: nil), .connected)
+    }
+
+    // MARK: the two automatic scopes are different policies
+
+    /// Overview, urgency and reset order are distinct. The exporter publishes overview order;
+    /// selecting mostCritical must rerank by urgency even when reset order differs.
+    func testSelectingMostCriticalDoesNotUseResetOrder() {
+        let values = [account("exhausted-later", used: 100, reset: now.addingTimeInterval(9000)),
+            account("healthy-soon", used: 0, reset: now.addingTimeInterval(10)),
+            account("low-middle", used: 97, reset: now.addingTimeInterval(500))]
+        let export = GlanceModel.build(values, now: now, scope: .allAccounts)
+
+        XCTAssertEqual(export.selecting(scope: .mostCritical, now: now).accounts.map(\.id),
+            ["exhausted-later", "low-middle", "healthy-soon"])
+        XCTAssertEqual(export.selecting(scope: .closestResets, now: now).accounts.map(\.id),
+            ["healthy-soon", "low-middle", "exhausted-later"])
+    }
+
+    /// Selection re-cuts the accounts a widget shows, never how the user reads them: a scope that
+    /// rebuilt the snapshot without the mode would show LEFT on a widget the user set to USED.
+    func testSelectingKeepsThePercentDisplayForEveryScope() {
+        let values = [account("a", used: 10, reset: now.addingTimeInterval(10)),
+            account("b", used: 90, reset: now.addingTimeInterval(500))]
+        let scopes: [GlanceScope] = [.allAccounts, .account, .provider, .custom, .mostCritical, .closestResets]
+
+        for mode in [PercentDisplay.left, .used] {
+            let export = GlanceModel.build(values, now: now, scope: .allAccounts, percentDisplay: mode)
+            for scope in scopes {
+                let selected = export.selecting(scope: scope, now: now, accountID: "a",
+                    providerID: ProviderID.codex.rawValue, customAccountIDs: ["b", "a"])
+                XCTAssertFalse(selected.accounts.isEmpty, "\(scope) selected nothing")
+                XCTAssertEqual(selected.percentDisplay, mode, "\(scope) lost the mode")
+            }
+        }
+    }
+
+    /// The legacy tiles' contract is the account most in need of attention, read from the
+    /// all-accounts export. Selection must also carry the LEAD's own clock: a critical lead
+    /// whose reset is far away must not borrow the soonest account's reset instant.
+    func testLegacyProviderSelectsCriticalAccountFromAllAccountsExport() {
+        let values = [account("healthy-soon", used: 0, reset: now.addingTimeInterval(10)),
+            account("exhausted-later", used: 100, reset: now.addingTimeInterval(9000))]
+        let export = GlanceModel.build(values, now: now, scope: .allAccounts)
+
+        let selected = export.selecting(scope: .mostCritical, now: now)
+        XCTAssertEqual(selected.accounts.first?.id, "exhausted-later")
+        XCTAssertEqual(selected.summaryLineShort?.category, .fiveHour)
+        XCTAssertEqual(selected.nextResetAt, now.addingTimeInterval(9000))
+    }
+
+    func testConfiguredAllAccountsRanksWithoutMovingStoredOrder() {
+        let values = [account("c", used: 0, reset: nil), account("a", used: 100, reset: nil),
+            account("b", used: 50, reset: nil)]
+        let export = GlanceModel.build(values, now: now, scope: .allAccounts)
+        XCTAssertEqual(export.accounts.map(\.id), ["c", "a", "b"])
+        XCTAssertEqual(export.selecting(scope: .allAccounts, now: now).accounts.map(\.id), ["a", "b", "c"])
+        XCTAssertEqual(export.selecting(scope: .provider, now: now, providerID: "codex").accounts.map(\.id),
+            ["c", "a", "b"])
+        XCTAssertEqual(export.selecting(scope: .custom, now: now, customAccountIDs: ["c", "b"]).accounts.map(\.id),
+            ["c", "b"])
+    }
+
+    /// "Is anything wrong anywhere" across the SELECTION — the lead's own severity would
+    /// hide a broken account behind a healthy one that sorts first.
+    func testSelectionOverallSeveritySpansTheWholeSelection() {
+        let values = [account("lead", used: 0, reset: nil), account("spent", used: 100, reset: nil)]
+        let export = GlanceModel.build(values, now: now, scope: .allAccounts)
+        XCTAssertEqual(export.accounts.first?.id, "lead")
+        XCTAssertEqual(export.overallSeverity, .exhausted)
+        XCTAssertEqual(export.selecting(scope: .allAccounts, now: now).overallSeverity, .exhausted)
+    }
+
+    /// The legacy tiles re-rank a published export at timeline time. An account that was
+    /// exhausted when published but has since aged stale must rank as stale — exactly where a
+    /// fresh `GlanceModel.build` at that instant (and Android's builder) puts it — not keep
+    /// leading on a verdict from write time while a fresh account's real number is pushed down.
+    func testSelectingMostCriticalRanksBySeverityAgedAtSelectionTime() {
+        let published = now
+        let values = [account("aging", used: 100, reset: nil, fetchedAt: published.addingTimeInterval(-50 * 60)),
+            account("fresh", used: 40, reset: nil, fetchedAt: published)]
+        let export = GlanceModel.build(values, now: published, scope: .allAccounts)
+        let later = published.addingTimeInterval(20 * 60)
+
+        XCTAssertEqual(GlanceModel.build(values, now: later, scope: .mostCritical).accounts.map(\.id), ["fresh", "aging"])
+        XCTAssertEqual(export.selecting(scope: .mostCritical, now: later).accounts.map(\.id), ["fresh", "aging"])
+    }
+
+    /// Android's `Severity.urgency` ranks ERROR (5) ahead of UNKNOWN (6); the two platforms
+    /// must lead a most-critical tile with the same account for the same data.
+    func testMostCriticalRanksErrorAheadOfUnknownLikeAndroid() {
+        let values = [account("unknown", used: nil, reset: nil), account("failed", used: 10, reset: nil, status: .failed)]
+        XCTAssertEqual(GlanceModel.build(values, now: now, scope: .mostCritical).accounts.map(\.id), ["failed", "unknown"])
+    }
+}

@@ -1,0 +1,260 @@
+// Framework stand-ins let Linux type-check app/widget declarations and call sites.
+// Permissive argument types and Self-returning modifiers do not reproduce SwiftUI
+// overload resolution; real-SDK macOS builds remain authoritative.
+import Foundation
+
+// MARK: - View
+
+/// `@MainActor`, as real SwiftUI declares it.
+///
+/// Not cosmetic: this project builds with Swift 6 strict concurrency, and the isolation of
+/// `body` is what makes a call from it to main-actor state legal. Without the annotation the
+/// app's perfectly correct code reports isolation errors that exist only here — and, worse,
+/// a genuine isolation mistake would go unreported.
+@MainActor
+public protocol View {
+    associatedtype Body: View
+    // `@ViewBuilder`, as in real SwiftUI, and not optional: without it an `if`/`else` in a
+    // `body` demands both branches have the same type, and the app's perfectly ordinary
+    // conditional views fail to type-check for a reason that exists only in this shim.
+    @ViewBuilder var body: Body { get }
+}
+
+/// The leaf every stub returns.
+///
+/// Real SwiftUI uses `Never` here, whose `body` traps. That cannot work under a
+/// `@ViewBuilder` requirement — the transform rewrites the trap into a call returning a view,
+/// which does not type-check against `Never`. A self-returning leaf satisfies the recursion
+/// instead, and nothing in this package is ever rendered.
+public struct ShimLeaf: View {
+    public init() {}
+    // Opaque, like every other stub here. Declaring the concrete `ShimLeaf` made the builder
+    // transform's result — which it is free to widen — fail to match the annotation.
+    public var body: some View { EmptyShimView() }
+}
+
+public struct AnyShimView: View {
+    public init() {}
+    public init(_ any: Any) {}
+    public var body: some View { ShimLeaf() }
+}
+
+public struct EmptyShimView: View {
+    public init() {}
+    public var body: some View { ShimLeaf() }
+}
+
+/// The content a `ViewModifier`'s body receives.
+///
+/// Real SwiftUI declares a dedicated content type whose plumbing the builder machinery
+/// provides; one concrete leaf satisfies the recursion here, where nothing is rendered.
+public struct ViewModifierContent: View {
+    public init() {}
+    public var body: some View { ShimLeaf() }
+}
+
+/// `ViewModifier`, as real SwiftUI declares it: a `body(content:)` producing another view.
+///
+/// Real SwiftUI publishes `Content` as a TYPEALIAS IN A PROTOCOL EXTENSION, not as an
+/// associated type with a default — Apple's own interface shows `typealias Content` with no
+/// assignment beside the associatedtype `Body`. The two spellings are not interchangeable:
+/// a defaulted `associatedtype Content = ViewModifierContent` makes the conformer's own
+/// `func body(content: Content)` unresolvable — the witness would have to infer the
+/// associated type from a parameter spelled as the type being inferred, and Swift reports
+/// "reference to invalid associated type 'Content'" for every conformer. With the extension
+/// typealias the name resolves concretely, the witness matches, and the protocol requirement
+/// itself references the same typealias.
+@MainActor
+public protocol ViewModifier {
+    associatedtype Body: View
+    @ViewBuilder func body(content: Content) -> Body
+}
+
+public protocol VectorArithmetic: AdditiveArithmetic {
+    mutating func scale(by rhs: Double)
+    var magnitudeSquared: Double { get }
+}
+
+extension Double: VectorArithmetic {
+    public mutating func scale(by rhs: Double) { self *= rhs }
+    public var magnitudeSquared: Double { self * self }
+}
+
+public protocol Animatable {
+    associatedtype AnimatableData: VectorArithmetic
+    var animatableData: AnimatableData { get set }
+}
+
+public protocol AnimatableModifier: Animatable, ViewModifier {}
+
+@MainActor
+extension ViewModifier {
+    /// The content a `ViewModifier`'s body receives, spelled `Content` at every call site —
+    /// which is how the app's modifiers are written and how real SwiftUI spells it.
+    public typealias Content = ViewModifierContent
+}
+
+@resultBuilder
+@MainActor
+public enum ViewBuilder {
+    public static func buildBlock() -> EmptyShimView { EmptyShimView() }
+    public static func buildBlock<V: View>(_ view: V) -> V { view }
+    public static func buildBlock(_ views: any View...) -> AnyShimView { AnyShimView() }
+    public static func buildOptional(_ view: (any View)?) -> AnyShimView { AnyShimView() }
+    public static func buildEither<V: View>(first: V) -> AnyShimView { AnyShimView() }
+    public static func buildEither<V: View>(second: V) -> AnyShimView { AnyShimView() }
+    public static func buildArray(_ views: [any View]) -> AnyShimView { AnyShimView() }
+    public static func buildExpression<V: View>(_ view: V) -> V { view }
+    public static func buildExpression(_ view: any View) -> AnyShimView { AnyShimView() }
+    public static func buildLimitedAvailability(_ view: any View) -> AnyShimView { AnyShimView() }
+}
+
+// Every modifier the app uses, returning Self so chains type-check without modelling
+// SwiftUI's real modifier types.
+extension View {
+    public func modifier(_ modifier: some ViewModifier) -> Self { self }
+    public func font(_ value: Font?) -> Self { self }
+    public func accessibilityElement(children: AccessibilityChildBehavior = .ignore) -> Self { self }
+    public func accessibilityHidden(_ value: Bool) -> Self { self }
+    public func accessibilityRepresentation<V: View>(@ViewBuilder representation: () -> V) -> Self { self }
+    public func hidden() -> Self { self }
+    public func allowsHitTesting(_ enabled: Bool) -> Self { self }
+    public func accessibilityValue(_ value: Any) -> Self { self }
+    public func accessibilityAddTraits(_ value: Any) -> Self { self }
+    public func accessibilityAddTraits(_ traits: AccessibilityTraits) -> Self { self }
+    public func dynamicTypeSize(_ value: Any) -> Self { self }
+    public func privacySensitive(_ value: Bool = true) -> Self { self }
+    public func unredacted() -> Self { self }
+    public func foregroundStyle<S: ShapeStyle>(_ value: S) -> Self { self }
+    public func foregroundColor(_ value: Color?) -> Self { self }
+    public func padding(_ value: CGFloat? = nil) -> Self { self }
+    public func padding(_ edges: Edge.Set, _ length: CGFloat? = nil) -> Self { self }
+    public func lineLimit(_ value: Int?) -> Self { self }
+    public func frame(width: CGFloat? = nil, height: CGFloat? = nil,
+                      alignment: Alignment? = nil) -> Self { self }
+    public func frame(minWidth: CGFloat? = nil, idealWidth: CGFloat? = nil, maxWidth: CGFloat? = nil,
+                      minHeight: CGFloat? = nil, idealHeight: CGFloat? = nil, maxHeight: CGFloat? = nil,
+                      alignment: Alignment? = nil) -> Self { self }
+    public func background(_ value: Any) -> Self { self }
+    public func background(_ value: Any, in shape: Any) -> Self { self }
+    public func cornerRadius(_ radius: CGFloat, style: RoundedCornerStyle? = nil) -> Self { self }
+    public func tint(_ value: Any?) -> Self { self }
+    public func tabItem(@ViewBuilder content: () -> any View) -> Self { self }
+    public func preferredColorScheme(_ value: ColorScheme?) -> Self { self }
+    public func ignoresSafeArea() -> Self { self }
+    public func badge(_ value: Any?) -> Self { self }
+    public func accessibilityLabel(_ value: Any) -> Self { self }
+    public func accessibilityHint(_ value: Any) -> Self { self }
+    public func accessibilityAction(named name: Any, _ handler: @escaping () -> Void) -> Self { self }
+    public func onTapGesture(count: Int = 1, perform action: @escaping () -> Void) -> Self { self }
+    public func accessibilityIdentifier(_ value: String) -> Self { self }
+    public func buttonStyle(_ value: ButtonStyleShim) -> Self { self }
+    public func buttonStyle<S: ButtonStyle>(_ style: S) -> Self { self }
+    public func navigationBarTitleDisplayMode(_ mode: NavigationBarItem.TitleDisplayMode) -> Self { self }
+    public func navigationDestination<Value: Hashable>(
+        for type: Value.Type, @ViewBuilder destination: (Value) -> any View
+    ) -> Self { self }
+    public func focused(_ condition: FocusState<Bool>.Binding) -> Self { self }
+    public func controlSize(_ size: ControlSize) -> Self { self }
+    public func tracking(_ value: CGFloat) -> Self { self }
+    public func navigationTitle(_ value: Any) -> Self { self }
+    public func listRowBackground(_ value: Any?) -> Self { self }
+    public func listRowSeparator(_ value: Visibility) -> Self { self }
+    public func listRowInsets(_ value: EdgeInsets?) -> Self { self }
+    public func moveDisabled(_ value: Bool) -> Self { self }
+    public func deleteDisabled(_ value: Bool) -> Self { self }
+    public func environment<T>(_ keyPath: WritableKeyPath<EnvironmentValues, T>,
+                               _ value: T) -> Self { self }
+    public func listStyle(_ value: ListStyleShim) -> Self { self }
+    public func scrollContentBackground(_ value: Visibility) -> Self { self }
+    public func toolbar(@ViewBuilder content: () -> any View) -> Self { self }
+    public func toolbarBackground(_ visibility: Visibility, for bars: Any) -> Self { self }
+    public func toolbarBackground<S: ShapeStyle>(_ style: S, for bars: Any) -> Self { self }
+    public func sheet(isPresented: Binding<Bool>, onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: () -> any View) -> Self { self }
+    public func sheet<Item: Identifiable>(item: Binding<Item?>, onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: (Item) -> any View) -> Self { self }
+    public func fullScreenCover<Item: Identifiable>(item: Binding<Item?>,
+        @ViewBuilder content: @escaping (Item) -> any View) -> Self { self }
+    public func onReceive<P>(_ publisher: P, perform: @escaping (Notification) -> Void) -> Self { self }
+    public func alert(_ title: Any, isPresented: Binding<Bool>,
+                      @ViewBuilder actions: () -> any View) -> Self { self }
+    public func alert(_ title: Any, isPresented: Binding<Bool>,
+                      @ViewBuilder actions: () -> any View,
+                      @ViewBuilder message: () -> any View) -> Self { self }
+    public func confirmationDialog(_ title: Any, isPresented: Binding<Bool>,
+                                   titleVisibility: Visibility? = nil,
+                                   @ViewBuilder actions: () -> any View) -> Self { self }
+    public func confirmationDialog(_ title: Any, isPresented: Binding<Bool>,
+                                   titleVisibility: Visibility? = nil,
+                                   @ViewBuilder actions: () -> any View,
+                                   @ViewBuilder message: () -> any View) -> Self { self }
+    public func refreshable(action: @escaping () async -> Void) -> Self { self }
+    public func task(_ action: @escaping () async -> Void) -> Self { self }
+    public func task<T: Equatable>(id: T, _ action: @escaping () async -> Void) -> Self { self }
+    public func anchorPreference<K: PreferenceKey, A>(key: K.Type = K.self,
+        value: Anchor<A>.Source, transform: @escaping (Anchor<A>) -> K.Value) -> Self { self }
+    public func transformAnchorPreference<K: PreferenceKey, A>(key: K.Type = K.self,
+        value: Anchor<A>.Source, transform: @escaping (inout K.Value, Anchor<A>) -> Void) -> Self { self }
+    public func overlayPreferenceValue<K: PreferenceKey, V: View>(_ key: K.Type = K.self,
+        @ViewBuilder _ transform: @escaping (K.Value) -> V) -> Self { self }
+    public func onAppear(perform: (() -> Void)? = nil) -> Self { self }
+    public func onDisappear(perform: (() -> Void)? = nil) -> Self { self }
+    public func onChange<T: Equatable>(of value: T, perform: @escaping (T) -> Void) -> Self { self }
+    public func onOpenURL(perform: @escaping (URL) -> Void) -> Self { self }
+    public func environmentObject(_ object: Any) -> Self { self }
+    public func disabled(_ value: Bool) -> Self { self }
+    public func opacity(_ value: Double) -> Self { self }
+    public func overlay(_ value: Any) -> Self { self }
+    public func overlay(@ViewBuilder content: () -> any View) -> Self { self }
+    public func overlay(alignment: Alignment, @ViewBuilder content: () -> any View) -> Self { self }
+    public func clipShape(_ shape: Any) -> Self { self }
+    public func cornerRadius(_ radius: Any) -> Self { self }
+    public func contentShape(_ shape: Any) -> Self { self }
+    public func fixedSize(horizontal: Bool = false, vertical: Bool = false) -> Self { self }
+    public func multilineTextAlignment(_ value: TextAlignment) -> Self { self }
+    public func textCase(_ value: Any?) -> Self { self }
+    public func monospacedDigit() -> Self { self }
+    public func textSelection(_ value: TextSelectability) -> Self { self }
+    public func monospaced(_ enabled: Bool = true) -> Self { self }
+    public func redacted(reason: Any) -> Self { self }
+    public func id<T: Hashable>(_ value: T) -> Self { self }
+    public func tag<T: Hashable>(_ value: T) -> Self { self }
+    public func labelsHidden() -> Self { self }
+    public func textFieldStyle(_ value: TextFieldStyleShim) -> Self { self }
+    public func autocorrectionDisabled(_ disabled: Bool = true) -> Self { self }
+    public func keyboardType(_ value: KeyboardTypeShim) -> Self { self }
+    public func textInputAutocapitalization(
+        _ value: TextInputAutocapitalizationShim?
+    ) -> Self { self }
+    public func pickerStyle(_ value: PickerStyleShim) -> Self { self }
+    public func containerBackground<S: ShapeStyle>(_ style: S, for container: Any) -> Self { self }
+    public func containerBackground(for container: ContainerBackgroundPlacement,
+                                    @ViewBuilder content: () -> any View) -> Self { self }
+    public func widgetURL(_ url: URL?) -> Self { self }
+    public func fill(_ value: Any) -> Self { self }
+    public func stroke(_ value: Any, lineWidth: Any? = nil) -> Self { self }
+    public func stroke<S: ShapeStyle>(_ content: S, style: StrokeStyle) -> Self { self }
+    public func trim(from: CGFloat, to: CGFloat) -> Self { self }
+    public func rotationEffect(_ angle: Angle, anchor: Any? = nil) -> Self { self }
+    public func symbolRenderingMode(_ value: Any) -> Self { self }
+    public func imageScale(_ value: Any) -> Self { self }
+    public func bold() -> Self { self }
+    public func italic() -> Self { self }
+    public func underline(_ isActive: Bool = true) -> Self { self }
+    public func minimumScaleFactor(_ value: Double) -> Self { self }
+    public func truncationMode(_ value: Any) -> Self { self }
+    public func animation(_ value: Any?, value other: Any) -> Self { self }
+    public func transition(_ value: Any) -> Self { self }
+    public func contentTransition(_ value: ContentTransition) -> Self { self }
+    public func transaction(_ transform: (inout Transaction) -> Void) -> Self { self }
+    public func zIndex(_ value: Double) -> Self { self }
+    public func offset(x: Any? = nil, y: Any? = nil) -> Self { self }
+    public func scaleEffect(_ value: Any) -> Self { self }
+    public func rotationEffect(_ value: Any) -> Self { self }
+    public func shadow(color: Any? = nil, radius: Any, x: Any? = nil, y: Any? = nil) -> Self { self }
+    public func border(_ value: Any, width: Any? = nil) -> Self { self }
+    public func safeAreaInset(edge: Any, @ViewBuilder content: () -> any View) -> Self { self }
+    public func swipeActions(edge: Any? = nil, allowsFullSwipe: Bool = true,
+                             @ViewBuilder content: () -> any View) -> Self { self }
+}

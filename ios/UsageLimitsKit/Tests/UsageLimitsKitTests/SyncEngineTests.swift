@@ -1,0 +1,939 @@
+import XCTest
+@testable import UsageLimitsKit
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
+/// The refresh path, which is the most expensive thing in this codebase to get wrong.
+///
+/// These providers ROTATE the refresh token on use: spending one invalidates the previous one,
+/// and presenting a spent one commonly makes the provider revoke the whole grant. So a second,
+/// concurrent refresh does not merely waste a call — it can cost the user access to a paid
+/// account, with no local corruption to point at and no way back but signing in again.
+///
+/// Every credential here is invented.
+final class SyncEngineTests: XCTestCase {
+
+    private let now = Date(timeIntervalSince1970: 1_757_000_000)
+
+    private func account(_ id: String, reference: String? = nil) -> ProviderAccount {
+        ProviderAccount(
+            id: id,
+            provider: .codex,
+            externalAccountID: "ext-\(id)",
+            email: "\(id)@example.com",
+            displayName: nil,
+            plan: nil,
+            credentialReference: reference ?? "ref-\(id)",
+            createdAt: Date(timeIntervalSince1970: 0),
+            lastSuccessfulSync: nil)
+    }
+
+    private func expired(_ token: String) -> OAuthCredentials {
+        OAuthCredentials(
+            accessToken: token,
+            refreshToken: "refresh-1",
+            expiresAt: Date(timeIntervalSince1970: 0))
+    }
+
+    /// Counts exchanges and models rotation: presenting a spent refresh token is fatal.
+    private actor RotatingProvider: SyncProvider {
+        nonisolated let providerID = "codex"
+
+        private var liveRefreshToken = "refresh-1"
+        private var generation = 1
+        private(set) var exchanges = 0
+        private(set) var fetches = 0
+        private(set) var fetchedAccessTokens: [String] = []
+        var rejectFetchUntilRefreshed = false
+        /// A provider that does not rotate: its response omits the refresh token entirely.
+        var omitsRefreshTokenInResponse = false
+
+        struct GrantRevoked: Error {}
+
+        func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials {
+            exchanges += 1
+            guard credentials.refreshToken == liveRefreshToken else {
+                // What a real provider does with a reused token: the whole grant goes.
+                throw GrantRevoked()
+            }
+            generation += 1
+            rejectFetchUntilRefreshed = false
+
+            if omitsRefreshTokenInResponse {
+                return OAuthCredentials(
+                    accessToken: "access-\(generation)",
+                    refreshToken: nil,
+                    expiresAt: Date(timeIntervalSince1970: 4_000_000_000))
+            }
+
+            liveRefreshToken = "refresh-\(generation)"
+            return OAuthCredentials(
+                accessToken: "access-\(generation)",
+                refreshToken: liveRefreshToken,
+                expiresAt: Date(timeIntervalSince1970: 4_000_000_000))
+        }
+
+        func fetchUsage(
+            credentials: OAuthCredentials,
+            attributes: [String: String]
+        ) async throws -> UsageResult {
+            fetches += 1
+            fetchedAccessTokens.append(credentials.accessToken)
+            if rejectFetchUntilRefreshed { throw ProviderError.unauthorised }
+            return UsageResult(
+                windows: [], resetCredits: [], resetCreditCount: nil,
+                applicableResetCreditCount: nil, plan: nil)
+        }
+
+        func setRejectingUntilRefreshed() { rejectFetchUntilRefreshed = true }
+        func setOmittingRefreshToken() { omitsRefreshTokenInResponse = true }
+    }
+
+    /// Rotates like the one above, but its response never states an expiry — the case that
+    /// exposed the inherited-expiry loop.
+    private actor SilentExpiryProvider: SyncProvider {
+        nonisolated let providerID = "codex"
+        private var liveRefreshToken = "refresh-1"
+        private var generation = 1
+        private(set) var exchanges = 0
+
+        struct GrantRevoked: Error {}
+
+        func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials {
+            exchanges += 1
+            guard credentials.refreshToken == liveRefreshToken else { throw GrantRevoked() }
+            generation += 1
+            liveRefreshToken = "refresh-\(generation)"
+            // No `expires_in` in the response, which is a shape real endpoints do serve.
+            return OAuthCredentials(
+                accessToken: "access-\(generation)", refreshToken: liveRefreshToken)
+        }
+
+        func fetchUsage(
+            credentials: OAuthCredentials, attributes: [String: String]
+        ) async throws -> UsageResult {
+            UsageResult()
+        }
+    }
+
+    /// Accepts every read and refuses every write, so a rotation can be made to succeed while
+    /// the pair that came out of it cannot be stored.
+    private actor UnwritableCredentialStore: CredentialStore {
+        struct Unwritable: Error {}
+        private var stored: [String: OAuthCredentials]
+        private(set) var attemptedSaves = 0
+        /// Counted separately from `save` so a test can prove WHICH write the engine used.
+        private(set) var attemptedUpdates = 0
+
+        init(_ stored: [String: OAuthCredentials]) { self.stored = stored }
+
+        func load(reference: String) async throws -> OAuthCredentials? { stored[reference] }
+        func save(_ credentials: OAuthCredentials, reference: String) async throws {
+            attemptedSaves += 1
+            throw Unwritable()
+        }
+        /// Refuses exactly as `save` does, and counts the same way: the engine persists
+        /// rotations through this method now, and the point of the double is that no write
+        /// of either kind can succeed.
+        func updateIfPresent(
+            _ credentials: OAuthCredentials, reference: String
+        ) async throws -> Bool {
+            attemptedSaves += 1
+            attemptedUpdates += 1
+            throw Unwritable()
+        }
+        func delete(reference: String) async throws {}
+        func removeAll() async throws {}
+        func allReferences() async throws -> [String] { Array(stored.keys) }
+    }
+
+    private actor RecordingSink: SyncSink {
+        private(set) var outcomes: [SyncOutcome] = []
+        func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date, accountInstanceID: String?) async {
+            outcomes.append(outcome)
+        }
+        func automaticSyncNotBefore(accountID: String) async -> TimeInterval? { nil }
+    }
+
+    private func engine(
+        provider: RotatingProvider,
+        store: InMemoryCredentialStore,
+        sink: RecordingSink
+    ) -> SyncEngine {
+        SyncEngine(
+            providers: ["codex": provider],
+            credentials: store,
+            sink: sink,
+            now: { [now] in now })
+    }
+
+    // MARK: - The rotation race
+
+    func testTwoAccountsSharingACredentialExchangeOnlyOnce() async throws {
+        // The reason the lock is keyed by credential reference and not by account: two accounts
+        // can point at one credential, and both refreshing means one presents a spent token.
+        let store = InMemoryCredentialStore(credentials: ["shared": expired("access-1")])
+        let provider = RotatingProvider()
+        let sink = RecordingSink()
+
+        let outcomes = try await engine(provider: provider, store: store, sink: sink).sync(
+            accounts: [
+                account("a", reference: "shared"),
+                account("b", reference: "shared"),
+            ])
+
+        let exchanges = await provider.exchanges
+        XCTAssertEqual(exchanges, 1)
+        XCTAssertEqual(outcomes.count, 2)
+        for outcome in outcomes {
+            guard case .success = outcome else { return XCTFail("expected success: \(outcome)") }
+        }
+    }
+
+    func testTheSecondCallerReReadsRatherThanTrustingWhatItLoaded() async throws {
+        // A caller that loaded the credential before waiting must not exchange again on the
+        // strength of that stale copy — that is exactly the double refresh that strands an
+        // account. It re-reads, finds the pair the first exchange saved, and uses it.
+        let store = InMemoryCredentialStore(credentials: ["shared": expired("access-1")])
+        let provider = RotatingProvider()
+
+        _ = try await engine(provider: provider, store: store, sink: RecordingSink()).sync(
+            accounts: [
+                account("a", reference: "shared"),
+                account("b", reference: "shared"),
+                account("c", reference: "shared"),
+            ])
+
+        let exchanges = await provider.exchanges
+        XCTAssertEqual(exchanges, 1)
+        let saved = try await store.load(reference: "shared")
+        XCTAssertEqual(saved?.accessToken, "access-2")
+    }
+
+    func testTheRefreshedPairIsPersistedBeforeItIsUsed() async throws {
+        // If the process dies between the exchange and the fetch, the old refresh token is
+        // already dead. A pair that was never written back loses the account outright.
+        let store = InMemoryCredentialStore(credentials: ["ref-a": expired("access-1")])
+        let provider = RotatingProvider()
+
+        _ = try await engine(provider: provider, store: store, sink: RecordingSink())
+            .sync(accounts: [account("a")])
+
+        let saved = try await store.load(reference: "ref-a")
+        XCTAssertEqual(saved?.accessToken, "access-2")
+        XCTAssertEqual(saved?.refreshToken, "refresh-2")
+    }
+
+    // MARK: - What a refresh response may omit
+
+    func testAProviderThatDoesNotRotateKeepsItsRefreshToken() async throws {
+        // Providers that do not rotate simply omit `refresh_token` from the response. Storing
+        // that response as-is deletes the token the account depends on — the account is lost
+        // although nothing revoked it, which looks exactly like a revocation.
+        let store = InMemoryCredentialStore(credentials: ["ref-a": expired("access-1")])
+        let provider = RotatingProvider()
+        await provider.setOmittingRefreshToken()
+
+        _ = try await engine(provider: provider, store: store, sink: RecordingSink())
+            .sync(accounts: [account("a")])
+
+        let saved = try await store.load(reference: "ref-a")
+        XCTAssertEqual(saved?.accessToken, "access-2")
+        XCTAssertEqual(saved?.refreshToken, "refresh-1")
+    }
+
+    // MARK: - When to exchange at all
+
+    func testAValidCredentialIsNotExchanged() async throws {
+        // Refreshing a live token spends a rotation for nothing, and with these providers a
+        // spent rotation is not free.
+        let store = InMemoryCredentialStore(credentials: [
+            "ref-a": OAuthCredentials(
+                accessToken: "access-1", refreshToken: "refresh-1",
+                expiresAt: Date(timeIntervalSince1970: 4_000_000_000)),
+        ])
+        let provider = RotatingProvider()
+
+        _ = try await engine(provider: provider, store: store, sink: RecordingSink())
+            .sync(accounts: [account("a")])
+
+        let exchanges = await provider.exchanges
+        XCTAssertEqual(exchanges, 0)
+    }
+
+    func testAnUnknownExpiryIsNotRefreshedProactively() async throws {
+        // Several of these providers return no `expires_in`. Treating that as expired would
+        // burn a rotation on every single sync.
+        let store = InMemoryCredentialStore(credentials: [
+            "ref-a": OAuthCredentials(
+                accessToken: "access-1", refreshToken: "refresh-1", expiresAt: nil),
+        ])
+        let provider = RotatingProvider()
+
+        _ = try await engine(provider: provider, store: store, sink: RecordingSink())
+            .sync(accounts: [account("a")])
+
+        let exchanges = await provider.exchanges
+        XCTAssertEqual(exchanges, 0)
+    }
+
+    func testARejectionTriggersTheExchangeThatTheClockNeverWould() async throws {
+        // The other half of that policy, and what makes the conservative half safe. An account
+        // whose provider never states an expiry would otherwise 401 for ever, silently: the
+        // proactive branch can never fire for it. The provider saying "this token is dead" is
+        // better evidence than any clock.
+        let store = InMemoryCredentialStore(credentials: [
+            "ref-a": OAuthCredentials(
+                accessToken: "access-1", refreshToken: "refresh-1", expiresAt: nil),
+        ])
+        let provider = RotatingProvider()
+        await provider.setRejectingUntilRefreshed()
+
+        let outcomes = try await engine(provider: provider, store: store, sink: RecordingSink())
+            .sync(accounts: [account("a")])
+
+        let exchanges = await provider.exchanges
+        XCTAssertEqual(exchanges, 1)
+        guard case .success = outcomes.first else {
+            return XCTFail("expected the retry to succeed: \(String(describing: outcomes.first))")
+        }
+    }
+
+    // MARK: - Isolation
+
+    func testOneAccountFailingDoesNotAffectAnother() async throws {
+        // A batch is not a transaction. One provider being unwell must not blank every other
+        // account on the screen.
+        let store = InMemoryCredentialStore(credentials: ["ref-b": expired("access-1")])
+        let provider = RotatingProvider()
+
+        // "a" has no stored credential at all; "b" does.
+        let outcomes = try await engine(provider: provider, store: store, sink: RecordingSink())
+            .sync(accounts: [account("a"), account("b")])
+
+        XCTAssertEqual(outcomes.count, 2)
+        guard case .failure(let failedID, _) = outcomes[0] else {
+            return XCTFail("expected the first account to fail: \(outcomes[0])")
+        }
+        XCTAssertEqual(failedID, "a")
+        guard case .success(let okID, _) = outcomes[1] else {
+            return XCTFail("expected the second account to succeed: \(outcomes[1])")
+        }
+        XCTAssertEqual(okID, "b")
+    }
+
+    func testAnUnknownProviderFailsOnlyItsOwnAccount() async throws {
+        let store = InMemoryCredentialStore(credentials: ["ref-a": expired("access-1")])
+        let engine = SyncEngine(
+            providers: [:], credentials: store, sink: RecordingSink(), now: { [now] in now })
+
+        let outcomes = try await engine.sync(accounts: [account("a")])
+
+        guard case .failure = outcomes.first else {
+            return XCTFail("expected a failure: \(String(describing: outcomes.first))")
+        }
+    }
+
+    func testEveryOutcomeReachesTheSink() async throws {
+        let store = InMemoryCredentialStore(credentials: ["ref-b": expired("access-1")])
+        let sink = RecordingSink()
+
+        _ = try await engine(provider: RotatingProvider(), store: store, sink: sink)
+            .sync(accounts: [account("a"), account("b")])
+
+        // A count proves outcomes reached the sink, not WHICH accounts they belonged to: a
+        // run that recorded "b" twice and "a" never would pass it untouched. Recording order
+        // is not fixed, so the identities are compared without it.
+        let recorded = await sink.outcomes
+        XCTAssertEqual(recorded.count, 2)
+        XCTAssertEqual(recorded.map(outcomeAccountID).sorted(), ["a", "b"])
+        for outcome in recorded {
+            switch outcome {
+            case .success(let accountID, _):
+                XCTAssertEqual(accountID, "b", "the only account that can succeed here is \"b\"")
+            case .failure(let accountID, _), .rateLimited(let accountID, _, _):
+                XCTAssertEqual(accountID, "a", "the only account that can fail here is \"a\"")
+            }
+        }
+    }
+
+    // MARK: - What must never leak
+
+    func testAFailureMessageCarriesNoTokenMaterial() async throws {
+        let store = InMemoryCredentialStore(credentials: [
+            "ref-a": OAuthCredentials(
+                accessToken: "synthetic-secret-access",
+                refreshToken: "synthetic-secret-refresh",
+                expiresAt: Date(timeIntervalSince1970: 0)),
+        ])
+        let provider = RotatingProvider()
+        // A stored refresh token the provider does not recognise: the grant is revoked.
+        let outcomes = try await engine(provider: provider, store: store, sink: RecordingSink())
+            .sync(accounts: [account("a")])
+
+        guard case .failure(_, let message) = outcomes.first else {
+            return XCTFail("expected a failure: \(String(describing: outcomes.first))")
+        }
+        XCTAssertFalse(message.contains("synthetic-secret-access"))
+        XCTAssertFalse(message.contains("synthetic-secret-refresh"))
+    }
+}
+
+// MARK: - What a refresh response that states no expiry must not cause
+
+extension SyncEngineTests {
+
+    func testAResponseWithNoExpiryDoesNotRefreshOnEverySync() async throws {
+        // The stored pair is expired and the provider's response omits `expires_in`. Carrying
+        // the old expiry forward would stamp a dead timestamp onto a brand-new access token, so
+        // the very next sync would judge it expired and exchange again — burning a rotation per
+        // sync, for ever, over a field the provider simply did not mention.
+        let provider = SilentExpiryProvider()
+        let store = InMemoryCredentialStore(credentials: [
+            "ref-a": OAuthCredentials(
+                accessToken: "access-1", refreshToken: "refresh-1",
+                expiresAt: Date(timeIntervalSince1970: 0)),
+        ])
+        let engine = SyncEngine(
+            providers: ["codex": provider], credentials: store,
+            sink: RecordingSink(), now: { [now] in now })
+
+        _ = try await engine.sync(accounts: [account("a")])
+        _ = try await engine.sync(accounts: [account("a")])
+        _ = try await engine.sync(accounts: [account("a")])
+
+        let exchanges = await provider.exchanges
+        XCTAssertEqual(exchanges, 1, "an unstated expiry must not mean 'expired'")
+    }
+
+    func testARotationThatCannotBeStoredStillCompletesTheSync() async throws {
+        // By the time the save runs, the OLD refresh token is already dead: a failed write does
+        // not leave things as they were, it loses the account. Throwing would discard the only
+        // working pair in existence and turn a storage fault into a signed-out paid account
+        // within the same second. The sign-out is deferred to the next launch instead.
+        let provider = RotatingProvider()
+        let store = UnwritableCredentialStore([
+            "ref-a": OAuthCredentials(
+                accessToken: "access-1", refreshToken: "refresh-1",
+                expiresAt: Date(timeIntervalSince1970: 0)),
+        ])
+        let sink = RecordingSink()
+        let engine = SyncEngine(
+            providers: ["codex": provider], credentials: store, sink: sink,
+            now: { [now] in now })
+
+        let outcomes = try await engine.sync(accounts: [account("a")])
+
+        guard case .success = outcomes[0] else {
+            return XCTFail("an unwritable store must not fail the account: \(outcomes[0])")
+        }
+        // Retried rather than surrendered on the first refusal, since the plausible causes are
+        // momentary and the cost of not writing is the whole account.
+        let attempts = await store.attemptedSaves
+        XCTAssertGreaterThan(attempts, 1)
+
+        // And every one of them went through the update-only path. `save` is an upsert: were
+        // the engine still persisting rotations with it, a refresh completing after the user
+        // removed the account would put the deleted credential back.
+        let updates = await store.attemptedUpdates
+        XCTAssertEqual(updates, attempts, "rotations must persist update-only, never upsert")
+        let fetchedTokens = await provider.fetchedAccessTokens
+        XCTAssertEqual(fetchedTokens, ["access-2"], "the accepted in-memory rotation must still serve the request")
+    }
+
+    // MARK: - A removal must beat a refresh that is already running
+
+    func testRotationDoesNotRecreateACredentialThatWasRemoved() async throws {
+        // The defect: `persist` used `save`, an upsert. A refresh that began before the user
+        // removed an account finished afterwards and wrote its rotated pair back, inserting
+        // the credential the removal had just deleted. The account was gone from the list
+        // while a working token stayed in the keychain, referenced by nothing and cleaned up
+        // by nothing — the opposite of what the user asked for when they removed it.
+        let store = InMemoryCredentialStore(credentials: [:])
+
+        let recreated = try await store.updateIfPresent(expired("access-9"), reference: "ref-gone")
+
+        XCTAssertFalse(recreated, "an absent reference must not be brought back")
+        let references = try await store.allReferences()
+        XCTAssertEqual(references, [], "update-only must never insert")
+    }
+
+    func testUpdateIfPresentReplacesWhatIsAlreadyThere() async throws {
+        // The other half of the contract: when the account still exists, a rotation must land.
+        // A method that never wrote anything would pass the test above and lose every token.
+        let store = InMemoryCredentialStore(credentials: ["ref-a": expired("access-1")])
+
+        let updated = try await store.updateIfPresent(expired("access-2"), reference: "ref-a")
+
+        XCTAssertTrue(updated)
+        let stored = try await store.load(reference: "ref-a")
+        XCTAssertEqual(stored?.accessToken, "access-2")
+    }
+
+    func testALoginDuringARefreshIsNotOverwritten() async throws {
+        // The user reconnects the same provider while a refresh is in the air. The login
+        // writes fresh credentials under the same reference; the refresh must not then
+        // overwrite them with a pair derived from the session that was just replaced — which
+        // users report as "I logged in and it signed me straight back out".
+        //
+        // The store is made to hand back a DIFFERENT pair than the exchange started from,
+        // which is exactly what a completed login looks like from here. A presence check
+        // cannot tell the difference: the reference very much exists.
+        let login = OAuthCredentials(accessToken: "login-access", refreshToken: "login-refresh")
+        let store = SwappingCredentialStore(
+            initial: expired("access-1"),
+            afterFirstLoad: login)
+        let provider = RotatingProvider()
+        let sink = RecordingSink()
+        let engine = SyncEngine(
+            providers: ["codex": provider], credentials: store, sink: sink,
+            now: { [now] in now })
+
+        let outcomes = try await engine.sync(accounts: [account("a")])
+
+        let stored = await store.current
+        XCTAssertEqual(stored?.accessToken, "login-access",
+                       "the sign-in the user just completed must survive the refresh")
+        guard case .success = outcomes[0] else { return XCTFail("the current login should fetch usage") }
+        let fetchedTokens = await provider.fetchedAccessTokens
+        XCTAssertEqual(fetchedTokens, ["login-access"], "a discarded rotation must never reach the usage endpoint")
+    }
+
+    func testACredentialRemovedDuringRefreshDoesNotReachTheUsageEndpoint() async throws {
+        let store = SwappingCredentialStore(initial: expired("access-1"), afterFirstLoad: nil)
+        let provider = RotatingProvider()
+        let engine = SyncEngine(
+            providers: ["codex": provider], credentials: store, sink: RecordingSink(),
+            now: { [now] in now })
+
+        let outcomes = try await engine.sync(accounts: [account("a")])
+
+        guard case .failure = outcomes[0] else { return XCTFail("removed credentials cannot authorize a fetch") }
+        let fetchedTokens = await provider.fetchedAccessTokens
+        XCTAssertTrue(fetchedTokens.isEmpty, "a rotation discarded after removal must never be used")
+        let stored = await store.current
+        XCTAssertNil(stored)
+    }
+
+    /// Hands back the original pair for the first reads and the login afterwards — a sign-in
+    /// landing while a refresh is in flight, without needing real concurrency to schedule it.
+    ///
+    /// The count matters and is the whole reason this double is delicate. The first reads
+    /// check whether the token is usable, check inside the exchange, then persist the result.
+    /// Swapping any earlier than that
+    /// third read means the exchange itself sees the login, decides nothing needs doing, and
+    /// never persists at all — so the test passes with the fix removed and proves nothing. It
+    /// did exactly that on the first attempt.
+    private actor SwappingCredentialStore: CredentialStore {
+        private var stored: OAuthCredentials?
+        private let afterFirstLoad: OAuthCredentials?
+        private var loads = 0
+
+        init(initial: OAuthCredentials, afterFirstLoad: OAuthCredentials?) {
+            stored = initial
+            self.afterFirstLoad = afterFirstLoad
+        }
+
+        var current: OAuthCredentials? { stored }
+
+        func load(reference: String) async throws -> OAuthCredentials? {
+            loads += 1
+            if loads > 2, stored != afterFirstLoad { stored = afterFirstLoad }
+            return stored
+        }
+        func save(_ credentials: OAuthCredentials, reference: String) async throws {
+            stored = credentials
+        }
+        func updateIfPresent(
+            _ credentials: OAuthCredentials, reference: String
+        ) async throws -> Bool {
+            guard stored != nil else { return false }
+            stored = credentials
+            return true
+        }
+        func delete(reference: String) async throws { stored = nil }
+        func removeAll() async throws { stored = nil }
+        func allReferences() async throws -> [String] { stored == nil ? [] : ["ref-a"] }
+    }
+
+    // MARK: - Overlapping syncs for one account
+
+    func testOverlappingSyncsForOneAccountDoNotInterleave() async throws {
+        // An actor is reentrant at every `await`, and the span from usage request to stored
+        // snapshot was not coordinated at all. Foreground and background refreshes overlap, so
+        // a request started EARLIER could finish LATER and be written last — an 80% reading
+        // from an age ago overwriting the 10% a newer request had just recorded, and taking
+        // the newer timestamp with it.
+        //
+        // Hold the first fetch, then its recording. The serial executor lets the second
+        // caller reach its wait before either gate opens, without an elapsed-time guess.
+        try await SerialScheduling.run {
+            let store = InMemoryCredentialStore(credentials: ["ref-a": fresh("access-1")])
+            let boundary = GatedSyncBoundary()
+            let engine = SyncEngine(
+                providers: ["codex": boundary], credentials: store, sink: boundary,
+                now: { [now] in now })
+
+            let syncing = account("a")
+            let first = Task { try await engine.sync(accounts: [syncing]) }
+            await boundary.waitForFetch()
+            await SerialScheduling.settle()
+            let entered = await boundary.events
+            XCTAssertEqual(entered, ["fetch 1 started"], "the first request is held at the provider")
+
+            let second = Task { try await engine.sync(accounts: [syncing]) }
+            await SerialScheduling.settle()
+            let whileFetching = await boundary.events
+            XCTAssertEqual(whileFetching, ["fetch 1 started"],
+                           "the second fetch must wait while the first is in flight")
+
+            await boundary.releaseFetch()
+            await SerialScheduling.settle()
+            let whileRecording = await boundary.events
+            XCTAssertEqual(whileRecording, ["fetch 1 started", "fetch 1 ended", "record 1 started"],
+                           "the second fetch must also wait until the first reading is recorded")
+
+            // Always release and await both tasks, even when an assertion above failed.
+            await boundary.releaseRecord()
+            let firstResult = await first.result
+            let secondResult = await second.result
+            for result in [firstResult, secondResult] {
+                let outcomes = try result.get()
+                guard case .success(let id, _) = outcomes.first else {
+                    return XCTFail("both syncs must succeed: \(outcomes)")
+                }
+                XCTAssertEqual(id, "a")
+            }
+            let events = await boundary.events
+            XCTAssertEqual(events, [
+                "fetch 1 started", "fetch 1 ended", "record 1 started", "record 1 ended",
+                "fetch 2 started", "fetch 2 ended", "record 2 started", "record 2 ended",
+            ], "a fetch and its recorded reading are one ordered operation")
+        }
+    }
+
+    private func fresh(_ token: String) -> OAuthCredentials {
+        OAuthCredentials(
+            accessToken: token,
+            refreshToken: "refresh-1",
+            expiresAt: Date(timeIntervalSince1970: 4_000_000_000))
+    }
+
+    private actor GatedSyncBoundary: SyncProvider, SyncSink {
+        nonisolated let providerID = "codex"
+        private(set) var events: [String] = []
+        private var fetches = 0
+        private var records = 0
+        private var fetchGate: CheckedContinuation<Void, Never>?
+        private var recordGate: CheckedContinuation<Void, Never>?
+        private var enteredGate: CheckedContinuation<Void, Never>?
+        private var fetchReleased = false
+        private var recordReleased = false
+
+        func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
+        func automaticSyncNotBefore(accountID: String) async -> TimeInterval? { nil }
+
+        func fetchUsage(
+            credentials: OAuthCredentials, attributes: [String: String]
+        ) async throws -> UsageResult {
+            fetches += 1
+            let fetch = fetches
+            events.append("fetch \(fetch) started")
+            enteredGate?.resume()
+            enteredGate = nil
+            if fetch == 1 && !fetchReleased {
+                await withCheckedContinuation { fetchGate = $0 }
+            }
+            events.append("fetch \(fetch) ended")
+            return UsageResult()
+        }
+
+        func record(_ outcome: SyncOutcome, at time: Date, accountCreatedAt: Date, accountInstanceID: String?) async {
+            records += 1
+            let record = records
+            events.append("record \(record) started")
+            if record == 1 && !recordReleased {
+                await withCheckedContinuation { recordGate = $0 }
+            }
+            events.append("record \(record) ended")
+        }
+
+        func waitForFetch() async {
+            guard fetches == 0 else { return }
+            await withCheckedContinuation { enteredGate = $0 }
+        }
+
+        func releaseFetch() {
+            fetchReleased = true
+            fetchGate?.resume()
+            fetchGate = nil
+        }
+
+        func releaseRecord() {
+            recordReleased = true
+            recordGate?.resume()
+            recordGate = nil
+        }
+    }
+
+    func testAnUnwritablePairSurvivesIntoTheNextSyncOfTheSameProcess() async throws {
+        // `persist` gives up quietly on the grounds that the rotation has already happened and
+        // this session should keep working. It kept working for exactly one sync: the refresh
+        // task's entry is dropped when it ends, so the NEXT sync read the store again, got the
+        // superseded pair back, and presented a refresh grant the provider had already spent.
+        // On a provider that treats reuse as theft, that kills the whole grant — the opposite
+        // of what returning quietly was for.
+        //
+        // The provider here is strict about it: presenting a spent refresh token throws.
+        let store = UnwritableCredentialStore(["ref-a": expired("access-1")])
+        let provider = RotatingProvider()
+        let sink = RecordingSink()
+        let engine = SyncEngine(
+            providers: ["codex": provider], credentials: store, sink: sink,
+            now: { [now] in now })
+
+        _ = try await engine.sync(accounts: [account("a")])
+        _ = try await engine.sync(accounts: [account("a")])
+
+        let exchanges = await provider.exchanges
+        XCTAssertEqual(exchanges, 1, "the second sync must not spend the grant again")
+        let fetchedTokens = await provider.fetchedAccessTokens
+        XCTAssertEqual(fetchedTokens, ["access-2", "access-2"])
+        let outcomes = await sink.outcomes
+        XCTAssertEqual(outcomes.count, 2)
+        for outcome in outcomes {
+            guard case .success = outcome else {
+                return XCTFail("both syncs should succeed on the rotated pair, got \(outcome)")
+            }
+        }
+    }
+
+    /// Rotates strictly — a spent refresh token is fatal — and always hands back a pair that
+    /// is ALREADY expired, so each sync must exchange again rather than coast on the last one.
+    private actor AlwaysExpiredRotatingProvider: SyncProvider {
+        nonisolated let providerID = "codex"
+        private var live = "refresh-1"
+        private var generation = 1
+        private(set) var exchanges = 0
+
+        struct GrantRevoked: Error {}
+
+        func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials {
+            exchanges += 1
+            guard credentials.refreshToken == live else { throw GrantRevoked() }
+            generation += 1
+            live = "refresh-\(generation)"
+            return OAuthCredentials(
+                accessToken: "access-\(generation)",
+                refreshToken: live,
+                expiresAt: Date(timeIntervalSince1970: 0))
+        }
+
+        func fetchUsage(
+            credentials: OAuthCredentials, attributes: [String: String]
+        ) async throws -> UsageResult {
+            UsageResult()
+        }
+    }
+
+    func testTwoConsecutiveUnwritableRotationsStillLeaveTheNewestPairInUse() async throws {
+        // Three syncs with refused writes must use three rotations, without reuse.
+        // The override must advance on every rotation even when storage lags behind.
+        // Return already-expired rotated pairs so each sync must exchange again.
+        let store = UnwritableCredentialStore(["ref-a": expired("access-1")])
+        let provider = AlwaysExpiredRotatingProvider()
+        let sink = RecordingSink()
+        let engine = SyncEngine(
+            providers: ["codex": provider], credentials: store, sink: sink,
+            now: { [now] in now })
+
+        for _ in 0..<3 {
+            _ = try await engine.sync(accounts: [account("a")])
+        }
+
+        let outcomes = await sink.outcomes
+        XCTAssertEqual(outcomes.count, 3)
+        for outcome in outcomes {
+            guard case .success = outcome else {
+                return XCTFail("a spent grant was presented again: \(outcome)")
+            }
+        }
+    }
+
+    // A test for "a cancelled waiter does not strand the account lock" was written here and
+    // then deleted, which is worth recording so it is not written again.
+    //
+    // It could not fail. The lock is built on `withCheckedContinuation`, which is not
+    // cancellation-aware, so a waiter blocked on it is not woken by cancelling its task. Any
+    // test that waits for a stranded holder therefore hangs rather than failing — including
+    // through a task group, because the group awaits every child at scope exit and the child
+    // waiting on the holder never returns. Verified by deliberately stranding the lock: the
+    // run was killed at 200 seconds with no assertion message either time.
+    //
+    // A test that can only pass or hang is worse than none: green implies a guarantee nothing
+    // checked. The property itself does hold by construction — the holder always releases
+    // through `defer`, and release hands ownership straight to the next waiter rather than
+    // clearing the flag — and a stranded lock requires a holder that never finishes, which is
+    // a different bug with different symptoms. Making the lock cancellation-aware would make
+    // this testable, and is the right change if a cancelled sync ever needs to stop promptly
+    // rather than merely eventually; it is not worth reworking a correct primitive for the
+    // convenience of a test.
+
+    // MARK: - A login that lands while a rotation cannot be written
+
+    /// Every write refuses, and a login replaces the pair AFTER the last attempt but before the
+    /// fallback reads the store to record what it holds.
+    private actor StoreWithALateLogin: CredentialStore {
+        private var stored: OAuthCredentials
+        private let login: OAuthCredentials
+        private var failedWrites = 0
+
+        init(initial: OAuthCredentials, login: OAuthCredentials) {
+            self.stored = initial
+            self.login = login
+        }
+
+        func load(reference: String) async throws -> OAuthCredentials? {
+            // The login lands once the writes have all failed — exactly the window between the
+            // final attempt and the fallback's own load.
+            failedWrites >= 3 ? login : stored
+        }
+        func save(_ credentials: OAuthCredentials, reference: String) async throws { stored = credentials }
+        func updateIfPresent(_ credentials: OAuthCredentials, reference: String) async throws -> Bool {
+            failedWrites += 1
+            throw URLError(.cannotWriteToFile)
+        }
+        func delete(reference: String) async throws {}
+        func removeAll() async throws {}
+        func allReferences() async throws -> [String] { ["ref-a"] }
+    }
+
+    private actor FixedRotationProvider: SyncProvider {
+        let providerID = "codex"
+        private(set) var fetchedAccessTokens: [String] = []
+        func fetchUsage(credentials: OAuthCredentials, attributes: [String: String]) async throws -> UsageResult {
+            fetchedAccessTokens.append(credentials.accessToken)
+            return UsageResult()
+        }
+        func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials {
+            OAuthCredentials(accessToken: "access-A1", refreshToken: "refresh-A1",
+                             expiresAt: Date(timeIntervalSince1970: 1_757_000_000 + 3_600))
+        }
+    }
+
+    /// A fallback rotation derived from an earlier session must not replace a fresh login
+    /// or become authoritative for later rotations.
+    func testAFailedRotationDoesNotOverrideALoginThatLandedMeanwhile() async throws {
+        let login = fresh("access-B")
+        let store = StoreWithALateLogin(initial: expired("access-A"), login: login)
+        let provider = FixedRotationProvider()
+        let engine = SyncEngine(
+            providers: ["codex": provider], credentials: store,
+            sink: RecordingSink(), now: { [now] in now })
+
+        _ = try await engine.sync(accounts: [account("a")])
+
+        let current = try await engine.usableCredentials(reference: "ref-a", provider: "codex")
+        XCTAssertEqual(current.accessToken, "access-B", "the login must win, not the old session's rotation")
+        let fetchedTokens = await provider.fetchedAccessTokens
+        XCTAssertEqual(fetchedTokens, ["access-B"], "the request must use the accepted login, not the discarded rotation")
+    }
+
+}
+
+// MARK: - A run the caller abandons while a request is in the air
+
+extension SyncEngineTests {
+    func testARequestAbandonedByCancellationIsNotAnAccountFailure() async throws {
+        try await checkCancelledRequest(.cancelledURLError)
+    }
+
+    func testARejectionOnACancelledRunBeginsNoRotation() async throws {
+        try await checkCancelledRequest(.unauthorised)
+    }
+
+    private func checkCancelledRequest(_ reply: GatedTransport.Reply) async throws {
+        let started = expectation(description: "usage request started")
+        let transport = GatedTransport(reply: reply, started: started)
+        // Budget zero makes the parked send the last attempt. Real HTTP/provider error
+        // mapping runs; no URLSession, external request or live credential is involved.
+        let http = UsageHTTPClient(transport: transport, maxRetries: 0)
+        let provider = ClaudeClient(httpClient: http, now: { [now] in now })
+        let seeded = fresh("access-1")
+        let store = InMemoryCredentialStore(credentials: ["ref-a": seeded])
+        let sink = RecordingSink()
+        let account = ProviderAccount(
+            id: "a", provider: .claude, externalAccountID: "synthetic-a",
+            email: nil, displayName: nil, plan: nil, credentialReference: "ref-a",
+            createdAt: now, lastSuccessfulSync: nil)
+        let engine = SyncEngine(
+            providers: ["claude": provider], credentials: store, sink: sink,
+            now: { [now] in now })
+        let syncTask = Task { try await engine.sync(accounts: [account]) }
+        await fulfillment(of: [started], timeout: 5)
+        syncTask.cancel()
+        await transport.release()
+        do {
+            _ = try await syncTask.value
+            XCTFail("expected CancellationError")
+        } catch is CancellationError {
+            // A cancelled request must not become a persisted account failure.
+        } catch {
+            XCTFail("expected CancellationError, got \(error)")
+        }
+        let recorded = await sink.outcomes
+        XCTAssertTrue(recorded.isEmpty, "cancelled request recorded \(recorded)")
+        let exchanges = await transport.exchanges
+        XCTAssertEqual(exchanges, 0, "cancelled request started a token exchange")
+        let stored = try await store.load(reference: "ref-a")
+        XCTAssertEqual(stored, seeded)
+    }
+
+    private func outcomeAccountID(_ outcome: SyncOutcome) -> String {
+        switch outcome {
+        case .success(let accountID, _): return accountID
+        case .failure(let accountID, _), .rateLimited(let accountID, _, _): return accountID
+        }
+    }
+
+    private actor GatedTransport: HTTPTransport {
+        enum Reply { case cancelledURLError, unauthorised }
+        private let reply: Reply
+        private let started: XCTestExpectation
+        private var continuation: CheckedContinuation<Void, Never>?
+        private var released = false
+        private(set) var exchanges = 0
+
+        init(reply: Reply, started: XCTestExpectation) {
+            self.reply = reply
+            self.started = started
+        }
+
+        func release() {
+            released = true
+            continuation?.resume()
+            continuation = nil
+        }
+
+        func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+            if request.httpMethod == "POST" {
+                exchanges += 1
+                // A forbidden exchange really rotates the synthetic stored pair on baseline.
+                let body = #"{"access_token":"access-2","refresh_token":"refresh-2","expires_in":3600}"#
+                return (Data(body.utf8), HTTPURLResponse(
+                    url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            started.fulfill()
+            if !released {
+                await withCheckedContinuation { continuation = $0 }
+            }
+            switch reply {
+            case .cancelledURLError: throw URLError(.cancelled)
+            case .unauthorised:
+                return (Data(), HTTPURLResponse(
+                    url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!)
+            }
+        }
+    }
+}

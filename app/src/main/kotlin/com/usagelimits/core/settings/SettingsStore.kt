@@ -1,0 +1,340 @@
+package com.usagelimits.core.settings
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import com.usagelimits.core.model.PercentDisplay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+
+/** The stored names are independent of the labels in Settings. */
+enum class OverviewLayout { LIST, DIALS }
+enum class OverviewCreditLayout { NORMAL, COMPACT }
+enum class OverviewShowFirst { USAGE_PROVIDERS, CREDIT_ACCOUNTS }
+
+/** User-configurable preferences. */
+data class AppSettings(
+    val syncIntervalMinutes: Int = DEFAULT_SYNC_INTERVAL_MINUTES,
+    /** Whether first-launch permission handling ran, including an existing Android grant. */
+    val notificationPermissionHandled: Boolean = false,
+    /** Warn once when a limit first drops below 20 % remaining. */
+    val notifyBelow20Percent: Boolean = true,
+    /** Escalate once when it drops below 10 %, even if the 20 % warning already fired. */
+    val notifyBelow10Percent: Boolean = true,
+    val notifyOnExhausted: Boolean = true,
+    val notifyOnResetCreditAvailable: Boolean = true,
+    val notifyOnAuthExpired: Boolean = true,
+    /**
+     * Off by default: an approaching reset is usually information rather than something to act
+     * on, and a limit that resets nightly would otherwise notify every night.
+     */
+    val notifyOnResetApproaching: Boolean = false,
+    val resetApproachingMinutes: Int = DEFAULT_RESET_LEAD_MINUTES,
+    val notifyOnResetCreditExpiring: Boolean = true,
+    val resetCreditExpiryLeadMinutes: Int = DEFAULT_CREDIT_LEAD_MINUTES,
+    /**
+     * Whether the user dragged an account in a build that still allowed it. Kept as stored and
+     * no longer written; no view reads it (ADR 0004).
+     */
+    val accountsManuallyOrdered: Boolean = false,
+    /** Show the plan tier — Plus, Pro, Max — beside the provider name. */
+    val showSubscriptionTier: Boolean = true,
+    /** Kept for existing installs; both Overview layouts now show reset stamps unconditionally. */
+    val showRenewalTime: Boolean = false,
+    /**
+     * Accounts that should never notify, by local id.
+     *
+     * A set of ids rather than a column on the account, because it is a preference about an
+     * account and not a fact about it — and adding a column costs a migration. A stale id left
+     * behind by a deleted account is inert: ids are UUIDs, so re-adding the same provider
+     * account mints a new one and cannot inherit an old mute.
+     */
+    val mutedAccountIds: Set<String> = emptySet(),
+    val providerIcons: Map<String, String> = emptyMap(),
+    /** Whether quota figures count down what is left or up what has been used. */
+    val percentDisplay: PercentDisplay = PercentDisplay.LEFT,
+    /** Off until the person turns it on: the app puts nothing into the status bar on its own. */
+    val statusIconsEnabled: Boolean = false,
+    /**
+     * The pinned account ids as stored, in the order they were pinned.
+     *
+     * Raw on purpose: which of them count, and in which order they show, is
+     * [com.usagelimits.core.model.pinnedAccountIds]'s decision against the live account list, so
+     * a removed account or a stored fourth id never needs a write to stop mattering.
+     */
+    val pinnedAccountIds: List<String> = emptyList(),
+    val appTheme: AppTheme = AppTheme.PURE_BLACK,
+    val textFont: TextFont = TextFont.ROBOTO,
+    val figureFont: FigureFont = FigureFont.ROBOTO_MONO,
+    val overviewLayout: OverviewLayout = OverviewLayout.LIST,
+    val overviewCreditLayout: OverviewCreditLayout = OverviewCreditLayout.NORMAL,
+    val overviewShowFirst: OverviewShowFirst = OverviewShowFirst.USAGE_PROVIDERS,
+    val overviewShowCredits: Boolean = true,
+    /** Whether Claude's two Claude Code icons move; on by default (CH-3). */
+    val animateClaudeCodeIcon: Boolean = true,
+) {
+    companion object {
+        const val DEFAULT_SYNC_INTERVAL_MINUTES = 30
+        const val MIN_SYNC_INTERVAL_MINUTES = 5
+        const val DEFAULT_RESET_LEAD_MINUTES = 30
+
+        /** A day: long enough to act on, short enough not to be background noise. */
+        const val DEFAULT_CREDIT_LEAD_MINUTES = 1_440
+    }
+}
+
+/**
+ * When the background machinery last moved, for the Settings diagnostics.
+ *
+ * Timestamps only. Kept apart from [AppSettings] because they change on every sync and every
+ * widget repaint, and the widgets observe [AppSettings]: folding them in would have every
+ * repaint re-emit into the very flow that drives the repaint.
+ */
+data class SyncDiagnostics(
+    /** When a sync pass last started, whether or not it succeeded. */
+    val lastSyncAttemptAt: Long? = null,
+    /** When a sync pass last ran to completion, successful or not. */
+    val lastSyncFinishedAt: Long? = null,
+    /** When the widgets were last asked to repaint from the cache. */
+    val lastWidgetRefreshAt: Long? = null,
+)
+
+private val Context.dataStore by preferencesDataStore(name = "usage_limits_settings")
+
+/**
+ * Reads and writes [AppSettings].
+ *
+ * DataStore rather than SharedPreferences because reads are a Flow the UI can collect
+ * directly, and writes are transactional. Nothing sensitive is stored here — credentials live
+ * in the Keystore-backed store.
+ */
+class SettingsStore internal constructor(private val dataStore: DataStore<Preferences>) {
+    constructor(context: Context) : this(context.applicationContext.dataStore)
+
+    // Distinct, because the diagnostics below share this file: a timestamp written after
+    // every sync would otherwise re-emit an unchanged AppSettings into every collector,
+    // including the widgets' own observe flow.
+    val settings: Flow<AppSettings> = dataStore.data.map { it.toSettings() }.distinctUntilChanged()
+
+    val diagnostics: Flow<SyncDiagnostics> = dataStore.data.map { it.toDiagnostics() }.distinctUntilChanged()
+
+    /** Last observed OS eligibility, not a display preference: it must not repaint widgets. */
+    internal val statusIconEligibility: Flow<Boolean?> = dataStore.data
+        .map { it[Keys.STATUS_ICON_ELIGIBILITY] }.distinctUntilChanged()
+
+    /** Records one observation and claims only a known blocked-to-allowed edge, atomically. */
+    internal suspend fun recordStatusIconEligibility(allowed: Boolean): Boolean {
+        var allowedAgain = false
+        dataStore.edit { prefs ->
+            allowedAgain = prefs[Keys.STATUS_ICON_ELIGIBILITY] == false && allowed
+            prefs[Keys.STATUS_ICON_ELIGIBILITY] = allowed
+        }
+        return allowedAgain
+    }
+
+    suspend fun recordSyncAttempt(atMs: Long) = edit { it[Keys.LAST_SYNC_ATTEMPT] = atMs }
+
+    suspend fun recordSyncFinished(atMs: Long) = edit { it[Keys.LAST_SYNC_FINISHED] = atMs }
+
+    suspend fun recordWidgetRefresh(atMs: Long) = edit { it[Keys.LAST_WIDGET_REFRESH] = atMs }
+
+    suspend fun setProviderIcon(providerId: String, iconId: String) = edit { prefs ->
+        val previous = prefs[Keys.PROVIDER_ICONS].orEmpty()
+        prefs[Keys.PROVIDER_ICONS] = previous.filterNot { it.substringBefore(':') == providerId }.toSet() + "$providerId:$iconId"
+    }
+
+    suspend fun setSyncInterval(minutes: Int) = edit {
+        it[Keys.SYNC_INTERVAL] = minutes.coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES)
+    }
+
+    suspend fun recordNotificationPermissionHandled() = edit { it[Keys.NOTIFICATION_PERMISSION_ASKED] = true }
+
+    /** Robolectric reuses this DataStore across classes within an SDK sandbox. */
+    @androidx.annotation.VisibleForTesting
+    internal suspend fun clearNotificationPermissionHandled() = edit { it.remove(Keys.NOTIFICATION_PERMISSION_ASKED) }
+
+    suspend fun setNotifyBelow20Percent(enabled: Boolean) = edit {
+        it[Keys.NOTIFY_BELOW_20] = enabled
+    }
+
+    suspend fun setNotifyBelow10Percent(enabled: Boolean) = edit {
+        it[Keys.NOTIFY_BELOW_10] = enabled
+    }
+
+    suspend fun setNotifyOnExhausted(enabled: Boolean) = edit { it[Keys.NOTIFY_EXHAUSTED] = enabled }
+
+    suspend fun setNotifyOnResetCredit(enabled: Boolean) = edit { it[Keys.NOTIFY_CREDIT] = enabled }
+
+    suspend fun setNotifyOnAuthExpired(enabled: Boolean) = edit { it[Keys.NOTIFY_AUTH] = enabled }
+
+    suspend fun setNotifyOnResetApproaching(enabled: Boolean) = edit {
+        it[Keys.NOTIFY_RESET_APPROACHING] = enabled
+    }
+
+    suspend fun setResetApproachingMinutes(minutes: Int) = edit {
+        it[Keys.RESET_LEAD_MINUTES] = minutes.coerceIn(5, 24 * 60)
+    }
+
+    suspend fun setNotifyOnResetCreditExpiring(enabled: Boolean) = edit {
+        it[Keys.NOTIFY_CREDIT_EXPIRING] = enabled
+    }
+
+    suspend fun setResetCreditExpiryLeadMinutes(minutes: Int) = edit {
+        it[Keys.CREDIT_LEAD_MINUTES] = minutes.coerceIn(60, 7 * 24 * 60)
+    }
+
+    suspend fun setShowSubscriptionTier(show: Boolean) = edit { it[Keys.SHOW_TIER] = show }
+
+    suspend fun setOverviewLayout(layout: OverviewLayout) = edit { it[Keys.OVERVIEW_LAYOUT] = layout.name }
+
+    suspend fun setOverviewCreditLayout(layout: OverviewCreditLayout) = edit {
+        it[Keys.OVERVIEW_CREDIT_LAYOUT] = layout.name
+    }
+
+    suspend fun setOverviewShowFirst(showFirst: OverviewShowFirst) = edit {
+        it[Keys.OVERVIEW_SHOW_FIRST] = showFirst.name
+    }
+
+    suspend fun setOverviewShowCredits(show: Boolean) = edit {
+        it[Keys.OVERVIEW_SHOW_CREDITS] = show
+    }
+
+    suspend fun setAnimateClaudeCodeIcon(animate: Boolean) = edit { it[Keys.ANIMATE_CLAUDE_CODE_ICON] = animate }
+
+    /**
+     * Counts the figures down (LEFT) or up (USED). Widgets observe this like every other setting;
+     * the ViewModel additionally refreshes them so cold compositions repaint at once.
+     */
+    suspend fun setPercentDisplay(mode: PercentDisplay) = edit {
+        it[Keys.PERCENT_DISPLAY] = mode.name
+    }
+
+    suspend fun setStatusIconsEnabled(enabled: Boolean) = edit { it[Keys.STATUS_ICONS_ENABLED] = enabled }
+
+    /** Replaces the stored pin list; [ids] keep their order. */
+    suspend fun setPinnedAccounts(ids: List<String>) = edit {
+        it[Keys.PINNED_ACCOUNTS] = ids.distinct().joinToString(PINNED_SEPARATOR)
+    }
+
+    /** Silences one account, or lets it speak again. */
+    suspend fun setAccountNotifications(accountId: String, enabled: Boolean) = edit { prefs ->
+        val current = prefs[Keys.MUTED_ACCOUNTS] ?: emptySet()
+        prefs[Keys.MUTED_ACCOUNTS] =
+            if (enabled) current - accountId else current + accountId
+    }
+
+    suspend fun setAppTheme(theme: AppTheme) = edit { it[Keys.APP_THEME] = theme.name }
+
+    suspend fun setTextFont(font: TextFont) = edit { it[Keys.TEXT_FONT] = font.name }
+
+    suspend fun setFigureFont(font: FigureFont) = edit { it[Keys.FIGURE_FONT] = font.name }
+
+    private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
+        dataStore.edit(block)
+    }
+
+}
+
+/**
+ * Internal so preference fallback and upgrade rules can be tested without a Context.
+ */
+internal fun Preferences.toSettings() = AppSettings(
+    // Restored or downgraded preferences can contain an interval below the supported minimum.
+    syncIntervalMinutes = (this[Keys.SYNC_INTERVAL] ?: AppSettings.DEFAULT_SYNC_INTERVAL_MINUTES)
+        .coerceAtLeast(AppSettings.MIN_SYNC_INTERVAL_MINUTES),
+    notificationPermissionHandled = this[Keys.NOTIFICATION_PERMISSION_ASKED] ?: false,
+    // The legacy low-quota opt-out applies to both tiers, preserving the choice on upgrade.
+    notifyBelow20Percent = this[Keys.NOTIFY_BELOW_20] ?: this[Keys.NOTIFY_LOW] ?: true,
+    notifyBelow10Percent = this[Keys.NOTIFY_BELOW_10] ?: this[Keys.NOTIFY_LOW] ?: true,
+    notifyOnExhausted = this[Keys.NOTIFY_EXHAUSTED] ?: true,
+    notifyOnResetCreditAvailable = this[Keys.NOTIFY_CREDIT] ?: true,
+    notifyOnAuthExpired = this[Keys.NOTIFY_AUTH] ?: true,
+    notifyOnResetApproaching = this[Keys.NOTIFY_RESET_APPROACHING] ?: false,
+    resetApproachingMinutes =
+        this[Keys.RESET_LEAD_MINUTES] ?: AppSettings.DEFAULT_RESET_LEAD_MINUTES,
+    notifyOnResetCreditExpiring = this[Keys.NOTIFY_CREDIT_EXPIRING] ?: true,
+    resetCreditExpiryLeadMinutes =
+        this[Keys.CREDIT_LEAD_MINUTES] ?: AppSettings.DEFAULT_CREDIT_LEAD_MINUTES,
+    accountsManuallyOrdered = this[Keys.ACCOUNTS_MANUAL_ORDER] ?: false,
+    showSubscriptionTier = this[Keys.SHOW_TIER] ?: true,
+    showRenewalTime = this[Keys.SHOW_RENEWAL] ?: false,
+    mutedAccountIds = this[Keys.MUTED_ACCOUNTS] ?: emptySet(),
+    providerIcons = this[Keys.PROVIDER_ICONS].orEmpty().filter { ":" in it }.associate { it.substringBefore(':') to it.substringAfter(':') },
+    percentDisplay = PercentDisplay.fromNameOrNull(this[Keys.PERCENT_DISPLAY]) ?: PercentDisplay.LEFT,
+    statusIconsEnabled = this[Keys.STATUS_ICONS_ENABLED] ?: false,
+    pinnedAccountIds = this[Keys.PINNED_ACCOUNTS].orEmpty().split(PINNED_SEPARATOR).filter { it.isNotBlank() },
+    appTheme = AppTheme.fromStored(this[Keys.APP_THEME]),
+    textFont = this[Keys.TEXT_FONT].let { name -> TextFont.entries.firstOrNull { it.name == name } } ?: TextFont.ROBOTO,
+    figureFont = this[Keys.FIGURE_FONT].let { name -> FigureFont.entries.firstOrNull { it.name == name } } ?: FigureFont.ROBOTO_MONO,
+    overviewLayout = this[Keys.OVERVIEW_LAYOUT]?.let { stored ->
+        OverviewLayout.entries.firstOrNull { it.name == stored }
+    } ?: OverviewLayout.LIST,
+    overviewCreditLayout = this[Keys.OVERVIEW_CREDIT_LAYOUT]?.let { stored ->
+        OverviewCreditLayout.entries.firstOrNull { it.name == stored }
+    } ?: OverviewCreditLayout.NORMAL,
+    overviewShowFirst = this[Keys.OVERVIEW_SHOW_FIRST]?.let { stored ->
+        OverviewShowFirst.entries.firstOrNull { it.name == stored }
+    } ?: OverviewShowFirst.USAGE_PROVIDERS,
+    overviewShowCredits = this[Keys.OVERVIEW_SHOW_CREDITS] ?: true,
+    animateClaudeCodeIcon = this[Keys.ANIMATE_CLAUDE_CODE_ICON] ?: true,
+)
+
+/**
+ * Preferences have no ordered list, and a string set loses the order, so the pins are one string.
+ * Account ids are UUIDs and never contain a line break.
+ */
+private const val PINNED_SEPARATOR = "\n"
+
+internal fun Preferences.toDiagnostics() = SyncDiagnostics(
+    lastSyncAttemptAt = this[Keys.LAST_SYNC_ATTEMPT],
+    lastSyncFinishedAt = this[Keys.LAST_SYNC_FINISHED],
+    lastWidgetRefreshAt = this[Keys.LAST_WIDGET_REFRESH],
+)
+
+/**
+ * File-scoped storage keys let the preference mapper be tested without a Context.
+ * The names are a storage contract: renaming one hides persisted values and restores defaults.
+ */
+private object Keys {
+    val PROVIDER_ICONS = stringSetPreferencesKey("provider_icons")
+    val SYNC_INTERVAL = intPreferencesKey("sync_interval_minutes")
+    val NOTIFICATION_PERMISSION_ASKED = booleanPreferencesKey("notification_permission_asked")
+    /** Read only to carry a pre-tier opt-out forward; nothing writes it any more. */
+    val NOTIFY_LOW = booleanPreferencesKey("notify_low_usage")
+    val NOTIFY_BELOW_20 = booleanPreferencesKey("notify_below_20_percent")
+    val NOTIFY_BELOW_10 = booleanPreferencesKey("notify_below_10_percent")
+    val NOTIFY_EXHAUSTED = booleanPreferencesKey("notify_exhausted")
+    val NOTIFY_CREDIT = booleanPreferencesKey("notify_reset_credit")
+    val NOTIFY_AUTH = booleanPreferencesKey("notify_auth_expired")
+    val NOTIFY_RESET_APPROACHING = booleanPreferencesKey("notify_reset_approaching")
+    val RESET_LEAD_MINUTES = intPreferencesKey("reset_approaching_minutes")
+    val NOTIFY_CREDIT_EXPIRING = booleanPreferencesKey("notify_reset_credit_expiring")
+    val CREDIT_LEAD_MINUTES = intPreferencesKey("reset_credit_expiry_lead_minutes")
+    val ACCOUNTS_MANUAL_ORDER = booleanPreferencesKey("accounts_manually_ordered")
+    val SHOW_TIER = booleanPreferencesKey("show_subscription_tier")
+    val SHOW_RENEWAL = booleanPreferencesKey("show_renewal_time")
+    val OVERVIEW_LAYOUT = stringPreferencesKey("overview_layout")
+    val OVERVIEW_CREDIT_LAYOUT = stringPreferencesKey("overview_credit_layout")
+    val OVERVIEW_SHOW_FIRST = stringPreferencesKey("overview_show_first")
+    val OVERVIEW_SHOW_CREDITS = booleanPreferencesKey("overview_show_credits")
+    val ANIMATE_CLAUDE_CODE_ICON = booleanPreferencesKey("animate_claude_code_icon")
+    val MUTED_ACCOUNTS = stringSetPreferencesKey("muted_account_ids")
+    val PERCENT_DISPLAY = stringPreferencesKey("percent_display")
+    val STATUS_ICON_ELIGIBILITY = booleanPreferencesKey("status_icon_eligibility")
+    val STATUS_ICONS_ENABLED = booleanPreferencesKey("status_icons_enabled")
+    val PINNED_ACCOUNTS = stringPreferencesKey("pinned_account_ids")
+    val APP_THEME = stringPreferencesKey("appearance_theme")
+    val TEXT_FONT = stringPreferencesKey("appearance_text_font")
+    val FIGURE_FONT = stringPreferencesKey("appearance_figure_font")
+    val LAST_SYNC_ATTEMPT = longPreferencesKey("last_sync_attempt_at")
+    val LAST_SYNC_FINISHED = longPreferencesKey("last_sync_finished_at")
+    val LAST_WIDGET_REFRESH = longPreferencesKey("last_widget_refresh_at")
+}

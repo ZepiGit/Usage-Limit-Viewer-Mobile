@@ -1,0 +1,51 @@
+# Weekly version checks for libraries and GitHub Actions.
+#
+# AGP, the Gradle wrapper, Kotlin, KSP and the Compose compiler require coordinated manual updates.
+# Kotlin 2.4.21's fully supported ranges end at AGP 9.3.1 and Gradle 9.7.0; Dependabot does not
+# resolve these compatibility constraints. See https://kotlinlang.org/docs/gradle-configure-project.html.
+# Unbounded kotlinx-coroutines and kotlinx-serialization releases can use Kotlin metadata newer than
+# the pinned compiler supports; CI consumer checks guard against incompatible updates.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "com.android.application"
+      - dependency-name: "com.android.tools.build:gradle"
+      - dependency-name: "gradle-wrapper"
+      - dependency-name: "org.jetbrains.kotlin.plugin.serialization"
+      - dependency-name: "org.jetbrains.kotlin.plugin.compose"
+      - dependency-name: "org.jetbrains.kotlin:*"
+      - dependency-name: "com.google.devtools.ksp"
+      # API 37 and the coordinated Kotlin/AGP upgrade remove the first-wave library bounds.
+      # Library and security updates may advance normally; the coupled toolchain stays manual.
+    # Keep coupled artifacts together without making unrelated AndroidX families one upgrade.
+    groups:
+      compose:
+        patterns:
+          - "androidx.compose*"
+      room:
+        patterns:
+          - "androidx.room:*"
+      workmanager:
+        patterns:
+          - "androidx.work:*"
+      lifecycle:
+        patterns:
+          - "androidx.lifecycle:*"
+      glance:
+        patterns:
+          - "androidx.glance:*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # Review action runtime and artifact changes together, then run the maintainer smoke gate.
+    groups:
+      github-actions:
+        patterns:
+          - "*"

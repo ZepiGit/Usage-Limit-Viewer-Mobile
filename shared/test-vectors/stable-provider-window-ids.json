@@ -1,0 +1,206 @@
+{
+  "description": "Kimi rate-window IDs are kimi-limit:<label>:<seconds>. Z.ai IDs are zai:<type>:<name>:<seconds-or-unknown>: type is the parser's uppercase type, name is the first provider name/label or the existing display label. Every text component is its exact UTF-8 bytes encoded as unpadded Base64URL, without case folding or Unicode normalization; existing provider-field trimming still applies. Kimi's weekly block keeps kimi-weekly. Colons separate components because they cannot appear in Base64URL. Equal base IDs get :2, :3, ... in provider order, with the first unsuffixed even in a shortened response. These suffixes keep IDs unique and the ID set stable on reorder, but cannot track individual entries with indistinguishable stable fields. Values, reset times and list positions never enter a base ID. Expected IDs and readings are hand-written.",
+  "schema": "Each vector holds one actual provider payload and the complete expected windows in provider order; resetAt is epoch milliseconds, category uses the Swift spelling. Groups of original/reordered/shortened payloads keep stable identities while readings change.",
+  "vectors": [
+    {
+      "name": "kimi-original",
+      "provider": "kimi",
+      "payload": {
+        "usage": {"limit": 100, "used": 40},
+        "limits": [
+          {"name": "A", "windowSeconds": 18000, "detail": {"limit": 100, "remaining": 75, "resetTime": 1800000000}},
+          {"label": "B", "window_seconds": 604800, "detail": {"limit": 100, "remaining": 0}}
+        ]
+      },
+      "expected": [
+        {"id": "kimi-weekly", "label": "Weekly", "category": "weekly", "usedPercent": 40, "periodSeconds": 604800, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:QQ:18000", "label": "A", "category": "fiveHour", "usedPercent": 25, "periodSeconds": 18000, "resetAt": 1800000000000, "exhausted": false},
+        {"id": "kimi-limit:Qg:604800", "label": "B", "category": "weekly", "usedPercent": 100, "periodSeconds": 604800, "resetAt": null, "exhausted": true}
+      ]
+    },
+    {
+      "name": "kimi-reordered-new-readings",
+      "provider": "kimi",
+      "payload": {
+        "usage": {"limit": 100, "used": 50},
+        "limits": [
+          {"label": "B", "window_seconds": 604800, "detail": {"limit": 100, "remaining": 50}},
+          {"name": "A", "windowSeconds": 18000, "detail": {"limit": 200, "remaining": 100, "resetTime": 1800000100}}
+        ]
+      },
+      "expected": [
+        {"id": "kimi-weekly", "label": "Weekly", "category": "weekly", "usedPercent": 50, "periodSeconds": 604800, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:Qg:604800", "label": "B", "category": "weekly", "usedPercent": 50, "periodSeconds": 604800, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:QQ:18000", "label": "A", "category": "fiveHour", "usedPercent": 50, "periodSeconds": 18000, "resetAt": 1800000100000, "exhausted": false}
+      ]
+    },
+    {
+      "name": "kimi-shortened",
+      "provider": "kimi",
+      "payload": {"limits": [{"label": "B", "window_seconds": 604800, "detail": {"limit": 100, "remaining": 25}}]},
+      "expected": [{"id": "kimi-limit:Qg:604800", "label": "B", "category": "weekly", "usedPercent": 75, "periodSeconds": 604800, "resetAt": null, "exhausted": false}]
+    },
+    {
+      "name": "kimi-duration-and-label-sources",
+      "provider": "kimi",
+      "payload": {"limits": [
+        {"name": "A", "label": "ignored", "windowSeconds": 3600, "detail": {"name": "ignored", "limit": 100, "remaining": 100}},
+        {"detail": {"name": "A", "window_seconds": 18000, "limit": 100, "remaining": 50}},
+        {"detail": {"label": "B", "limit": 100, "remaining": 25}, "window": {"duration": 7, "timeUnit": "TIME_UNIT_DAY"}},
+        {"detail": {"limit": 0, "remaining": 0}}
+      ]},
+      "expected": [
+        {"id": "kimi-limit:QQ:3600", "label": "A", "category": "other", "usedPercent": 0, "periodSeconds": 3600, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:QQ:18000", "label": "A", "category": "fiveHour", "usedPercent": 50, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:Qg:604800", "label": "B", "category": "weekly", "usedPercent": 75, "periodSeconds": 604800, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:NWggbGltaXQ:18000", "label": "5h limit", "category": "fiveHour", "usedPercent": null, "periodSeconds": 18000, "resetAt": null, "exhausted": false}
+      ]
+    },
+    {
+      "name": "kimi-unicode-exact-bytes",
+      "provider": "kimi",
+      "payload": {"limits": [
+        {"name": " 雪 ", "windowSeconds": 18000},
+        {"name": "🚀", "windowSeconds": 18000},
+        {"name": "Café", "windowSeconds": 18000},
+        {"name": "Cafe\u0301", "windowSeconds": 18000},
+        {"name": "a/b?", "windowSeconds": 18000}
+      ]},
+      "expected": [
+        {"id": "kimi-limit:6Zuq:18000", "label": "雪", "category": "fiveHour", "usedPercent": null, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:8J-agA:18000", "label": "🚀", "category": "fiveHour", "usedPercent": null, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:Q2Fmw6k:18000", "label": "Café", "category": "fiveHour", "usedPercent": null, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:Q2FmZcyB:18000", "label": "Cafe\u0301", "category": "fiveHour", "usedPercent": null, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:YS9iPw:18000", "label": "a/b?", "category": "fiveHour", "usedPercent": null, "periodSeconds": 18000, "resetAt": null, "exhausted": false}
+      ]
+    },
+    {
+      "name": "kimi-ambiguous-original",
+      "provider": "kimi",
+      "payload": {"limits": [{"name": "A", "detail": {"limit": 100, "remaining": 75}}, {"name": "B"}, {"name": "A", "detail": {"limit": 100, "remaining": 25}}]},
+      "expected": [
+        {"id": "kimi-limit:QQ:18000", "label": "A", "category": "fiveHour", "usedPercent": 25, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:Qg:18000", "label": "B", "category": "fiveHour", "usedPercent": null, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:QQ:18000:2", "label": "A", "category": "fiveHour", "usedPercent": 75, "periodSeconds": 18000, "resetAt": null, "exhausted": false}
+      ]
+    },
+    {
+      "name": "kimi-ambiguous-reordered-id-set-not-individual-mapping",
+      "provider": "kimi",
+      "payload": {"limits": [{"name": "A", "detail": {"limit": 100, "remaining": 25}}, {"name": "A", "detail": {"limit": 100, "remaining": 75}}, {"name": "B"}]},
+      "expected": [
+        {"id": "kimi-limit:QQ:18000", "label": "A", "category": "fiveHour", "usedPercent": 75, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:QQ:18000:2", "label": "A", "category": "fiveHour", "usedPercent": 25, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "kimi-limit:Qg:18000", "label": "B", "category": "fiveHour", "usedPercent": null, "periodSeconds": 18000, "resetAt": null, "exhausted": false}
+      ]
+    },
+    {
+      "name": "kimi-ambiguous-shortened",
+      "provider": "kimi",
+      "payload": {"limits": [{"name": "A", "detail": {"limit": 100, "remaining": 25}}]},
+      "expected": [{"id": "kimi-limit:QQ:18000", "label": "A", "category": "fiveHour", "usedPercent": 75, "periodSeconds": 18000, "resetAt": null, "exhausted": false}]
+    },
+    {
+      "name": "zai-original-including-missing-duration",
+      "provider": "zai",
+      "payload": {"data": {"limits": [
+        {"type": "credit_limit", "unit": 3, "number": 5, "percentage": 20, "nextResetTime": 1800000000},
+        {"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "percentage": 100},
+        {"type": "TOKENS_LIMIT", "name": "A", "percentage": 25},
+        {"type": "TOKENS_LIMIT", "label": "B", "percentage": 75}
+      ]}},
+      "expected": [
+        {"id": "zai:Q1JFRElUX0xJTUlU:NWggbGltaXQ:18000", "label": "5h limit", "category": "fiveHour", "usedPercent": 20, "periodSeconds": 18000, "resetAt": 1800000000000, "exhausted": false},
+        {"id": "zai:Q1JFRElUX0xJTUlU:V2Vla2x5:604800", "label": "Weekly", "category": "weekly", "usedPercent": 100, "periodSeconds": 604800, "resetAt": null, "exhausted": true},
+        {"id": "zai:VE9LRU5TX0xJTUlU:QQ:unknown", "label": "Token limit", "category": "other", "usedPercent": 25, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:VE9LRU5TX0xJTUlU:Qg:unknown", "label": "Token limit", "category": "other", "usedPercent": 75, "periodSeconds": null, "resetAt": null, "exhausted": false}
+      ]
+    },
+    {
+      "name": "zai-reordered-new-readings",
+      "provider": "zai",
+      "payload": {"data": {"limits": [
+        {"type": "TOKENS_LIMIT", "label": "B", "percentage": 50},
+        {"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "percentage": 50},
+        {"type": "credit_limit", "unit": 3, "number": 5, "percentage": 25, "nextResetTime": 1800000100000},
+        {"type": "TOKENS_LIMIT", "name": "A", "percentage": 0}
+      ]}},
+      "expected": [
+        {"id": "zai:VE9LRU5TX0xJTUlU:Qg:unknown", "label": "Token limit", "category": "other", "usedPercent": 50, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:Q1JFRElUX0xJTUlU:V2Vla2x5:604800", "label": "Weekly", "category": "weekly", "usedPercent": 50, "periodSeconds": 604800, "resetAt": null, "exhausted": false},
+        {"id": "zai:Q1JFRElUX0xJTUlU:NWggbGltaXQ:18000", "label": "5h limit", "category": "fiveHour", "usedPercent": 25, "periodSeconds": 18000, "resetAt": 1800000100000, "exhausted": false},
+        {"id": "zai:VE9LRU5TX0xJTUlU:QQ:unknown", "label": "Token limit", "category": "other", "usedPercent": 0, "periodSeconds": null, "resetAt": null, "exhausted": false}
+      ]
+    },
+    {
+      "name": "zai-shortened-missing-duration",
+      "provider": "zai",
+      "payload": {"data": {"limits": [{"type": "TOKENS_LIMIT", "label": "B", "percentage": 100}]}},
+      "expected": [{"id": "zai:VE9LRU5TX0xJTUlU:Qg:unknown", "label": "Token limit", "category": "other", "usedPercent": 100, "periodSeconds": null, "resetAt": null, "exhausted": true}]
+    },
+    {
+      "name": "zai-duration-type-and-name-separate-identities",
+      "provider": "zai",
+      "payload": {"data": {"limits": [
+        {"type": "TOKENS_LIMIT", "name": "A", "unit": 3, "number": 5, "percentage": 25},
+        {"type": "TOKENS_LIMIT", "name": "A", "unit": 6, "number": 1, "percentage": 50},
+        {"type": "CREDIT_LIMIT", "name": "A", "unit": 3, "number": 5, "percentage": 75},
+        {"type": "TIME_LIMIT", "unit": 5, "number": 1, "usage": 100, "currentValue": 25}
+      ]}},
+      "expected": [
+        {"id": "zai:VE9LRU5TX0xJTUlU:QQ:18000", "label": "5h limit", "category": "fiveHour", "usedPercent": 25, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "zai:VE9LRU5TX0xJTUlU:QQ:604800", "label": "Weekly", "category": "weekly", "usedPercent": 50, "periodSeconds": 604800, "resetAt": null, "exhausted": false},
+        {"id": "zai:Q1JFRElUX0xJTUlU:QQ:18000", "label": "5h limit", "category": "fiveHour", "usedPercent": 75, "periodSeconds": 18000, "resetAt": null, "exhausted": false},
+        {"id": "zai:VElNRV9MSU1JVA:TW9udGhseQ:2592000", "label": "Monthly", "category": "monthly", "usedPercent": 25, "periodSeconds": 2592000, "resetAt": null, "exhausted": false}
+      ]
+    },
+    {
+      "name": "zai-unicode-name-precedence-and-fallback",
+      "provider": "zai",
+      "payload": {"data": {"limits": [
+        {"type": "TOKENS_LIMIT", "name": " 雪 ", "label": "ignored"},
+        {"type": "TOKENS_LIMIT", "label": "🚀"},
+        {"type": "TOKENS_LIMIT", "name": "Café"},
+        {"type": "TOKENS_LIMIT", "name": "Cafe\u0301"},
+        {"type": "CREDIT_LIMIT", "unit": 9, "number": 2, "percentage": 140},
+        {"type": "TIME_LIMIT", "percentage": 0},
+        {"percentage": 0}
+      ]}},
+      "expected": [
+        {"id": "zai:VE9LRU5TX0xJTUlU:6Zuq:unknown", "label": "Token limit", "category": "other", "usedPercent": null, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:VE9LRU5TX0xJTUlU:8J-agA:unknown", "label": "Token limit", "category": "other", "usedPercent": null, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:VE9LRU5TX0xJTUlU:Q2Fmw6k:unknown", "label": "Token limit", "category": "other", "usedPercent": null, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:VE9LRU5TX0xJTUlU:Q2FmZcyB:unknown", "label": "Token limit", "category": "other", "usedPercent": null, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:Q1JFRElUX0xJTUlU:Q3JlZGl0IGxpbWl0:unknown", "label": "Credit limit", "category": "other", "usedPercent": null, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:VElNRV9MSU1JVA:VGltZSBsaW1pdA:unknown", "label": "Time limit", "category": "other", "usedPercent": 0, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai::TGltaXQ:unknown", "label": "Limit", "category": "other", "usedPercent": 0, "periodSeconds": null, "resetAt": null, "exhausted": false}
+      ]
+    },
+    {
+      "name": "zai-ambiguous-original",
+      "provider": "zai",
+      "payload": {"data": {"limits": [{"type": "TOKENS_LIMIT", "percentage": 25}, {"type": "CREDIT_LIMIT", "percentage": 50}, {"type": "TOKENS_LIMIT", "percentage": 75}]}},
+      "expected": [
+        {"id": "zai:VE9LRU5TX0xJTUlU:VG9rZW4gbGltaXQ:unknown", "label": "Token limit", "category": "other", "usedPercent": 25, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:Q1JFRElUX0xJTUlU:Q3JlZGl0IGxpbWl0:unknown", "label": "Credit limit", "category": "other", "usedPercent": 50, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:VE9LRU5TX0xJTUlU:VG9rZW4gbGltaXQ:unknown:2", "label": "Token limit", "category": "other", "usedPercent": 75, "periodSeconds": null, "resetAt": null, "exhausted": false}
+      ]
+    },
+    {
+      "name": "zai-ambiguous-reordered-id-set-not-individual-mapping",
+      "provider": "zai",
+      "payload": {"data": {"limits": [{"type": "TOKENS_LIMIT", "percentage": 75}, {"type": "TOKENS_LIMIT", "percentage": 25}, {"type": "CREDIT_LIMIT", "percentage": 50}]}},
+      "expected": [
+        {"id": "zai:VE9LRU5TX0xJTUlU:VG9rZW4gbGltaXQ:unknown", "label": "Token limit", "category": "other", "usedPercent": 75, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:VE9LRU5TX0xJTUlU:VG9rZW4gbGltaXQ:unknown:2", "label": "Token limit", "category": "other", "usedPercent": 25, "periodSeconds": null, "resetAt": null, "exhausted": false},
+        {"id": "zai:Q1JFRElUX0xJTUlU:Q3JlZGl0IGxpbWl0:unknown", "label": "Credit limit", "category": "other", "usedPercent": 50, "periodSeconds": null, "resetAt": null, "exhausted": false}
+      ]
+    },
+    {
+      "name": "zai-ambiguous-shortened",
+      "provider": "zai",
+      "payload": {"data": {"limits": [{"type": "TOKENS_LIMIT", "percentage": 75}]}},
+      "expected": [{"id": "zai:VE9LRU5TX0xJTUlU:VG9rZW4gbGltaXQ:unknown", "label": "Token limit", "category": "other", "usedPercent": 75, "periodSeconds": null, "resetAt": null, "exhausted": false}]
+    }
+  ]
+}

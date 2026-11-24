@@ -1,0 +1,425 @@
+import XCTest
+@testable import UsageLimitsKit
+
+/// The contract between the app process and the widget process.
+///
+/// Neither can see the other's memory, so this file is the whole of what the home screen knows.
+/// A mismatch does not raise anything — the widget simply renders empty — which is why the
+/// round trip is pinned here rather than discovered on a device.
+final class GlanceSnapshotCodecTests: XCTestCase {
+
+    private let now = Date(timeIntervalSince1970: 1_757_000_000)
+
+    private func snapshot(percentDisplay: PercentDisplay = .left) -> GlanceSnapshot {
+        let short = GlanceRow(
+            label: "5h limit", category: .fiveHour, remainingPercent: 12.5,
+            resetAt: now.addingTimeInterval(3_600), severity: .low,
+            segments: [UsageSegment(label: "GrokBuild", usedPercent: 56)])
+        let long = GlanceRow(
+            label: "Weekly", category: .weekly, remainingPercent: nil,
+            resetAt: nil, severity: .error)
+
+        return GlanceSnapshot(
+            accounts: [
+                GlanceAccount(
+                    id: "a", title: "OpenAI Codex Plus", subtitle: "a***@example.com",
+                    rows: [short, long], severity: .low),
+            ],
+            accountCount: 1,
+            updatedAt: now,
+            nextResetAt: now.addingTimeInterval(3_600),
+            overallSeverity: .error,
+            summaryLineShort: short,
+            summaryLineLong: long,
+            percentDisplay: percentDisplay,
+            statusIconsEnabled: false, pinnedAccountIDs: [])
+    }
+
+    func testSourceWindowIDStaysInMemoryWithoutChangingRowEqualityOrWireKeys() throws {
+        let row = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 20,
+            resetAt: now, severity: .low, sourceWindowID: "selected-window")
+        let encoded = try JSONEncoder().encode(row)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(Set(json.keys), ["label", "category", "remainingPercent", "resetAt", "severity", "scope", "segments"])
+        let decoded = try JSONDecoder().decode(GlanceRow.self, from: encoded)
+        XCTAssertNil(decoded.sourceWindowID)
+        XCTAssertEqual(decoded, row)
+        let other = GlanceRow(label: "Weekly", category: .weekly, remainingPercent: 20,
+            resetAt: now, severity: .low, sourceWindowID: "another-window")
+        XCTAssertEqual(row, other)
+    }
+
+    func testTheRoundTripPreservesEverything() throws {
+        let original = snapshot()
+
+        let decoded = GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(original))
+
+        XCTAssertEqual(decoded, original)
+    }
+
+    func testTheRoundTripPreservesTheUsedPercentDisplay() throws {
+        let original = snapshot(percentDisplay: .used)
+
+        let decoded = GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(original))
+
+        XCTAssertEqual(decoded.percentDisplay, .used)
+        XCTAssertEqual(decoded, original)
+    }
+
+    /// The top-level object the current encoder really writes, so the cases below start from
+    /// the real format rather than from a hand-typed document that could drift from it.
+    private func encodedJSON(_ original: GlanceSnapshot) throws -> [String: Any] {
+        try XCTUnwrap(
+            JSONSerialization.jsonObject(with: GlanceSnapshotCodec.encode(original)) as? [String: Any])
+    }
+
+    func testExportWritesTheAccountAddedTime() throws {
+        let date = now.addingTimeInterval(-900.125)
+        let account = ProviderAccount(id: "a", provider: .codex, externalAccountID: "a",
+            email: nil, displayName: nil, plan: nil, credentialReference: "ref",
+            createdAt: date, lastSuccessfulSync: nil)
+        let export = GlanceModel.build([AccountUsage(account: account, snapshot: nil)],
+            now: now, scope: .allAccounts)
+        let json = try encodedJSON(export)
+        let accounts = try XCTUnwrap(json["accounts"] as? [[String: Any]])
+        XCTAssertEqual(accounts.first?["createdAt"] as? Double, date.timeIntervalSinceReferenceDate)
+        XCTAssertEqual(GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(export)).accounts.first?.createdAt, date)
+    }
+
+    func testOldExportKeepsCacheOrderUntilRepublished() throws {
+        let accounts = ["healthy", "tight"].enumerated().map { index, id in
+            let account = ProviderAccount(id: id, provider: .codex, externalAccountID: id,
+                email: nil, displayName: nil, plan: nil, credentialReference: id,
+                createdAt: now, lastSuccessfulSync: now)
+            let window = UsageWindow(id: "short", label: "5h", category: .fiveHour,
+                usedPercent: index == 0 ? 30 : 90, periodSeconds: 18_000, resetAt: nil, exhausted: false)
+            return AccountUsage(account: account, snapshot: UsageSnapshot(accountID: id, fetchedAt: now,
+                status: .ok, windows: [window]))
+        }
+        let export = GlanceModel.build(accounts, now: now, scope: .allAccounts)
+        var json = try encodedJSON(export)
+        json["accounts"] = try XCTUnwrap(json["accounts"] as? [[String: Any]]).map { account in
+            account.filter { $0.key != "createdAt" }
+        }
+        let old = GlanceSnapshotCodec.decode(try JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(old.selecting(scope: .allAccounts, now: now).accounts.map(\.id), ["healthy", "tight"])
+        XCTAssertTrue(old.accounts.allSatisfy { $0.createdAt == nil })
+        let republished = GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(export))
+        XCTAssertEqual(republished.accounts.map(\.id), ["healthy", "tight"])
+        XCTAssertEqual(republished.selecting(scope: .allAccounts, now: now).accounts.map(\.id), ["tight", "healthy"])
+    }
+
+    func testSnapshotWrittenBeforePercentDisplayStillDecodesAsLeft() throws {
+        // The file already on a user's phone at the moment of upgrade. If the missing key failed
+        // the decode, every widget would go blank until the app next ran and republished.
+        var json = try encodedJSON(snapshot(percentDisplay: .used))
+        XCTAssertNotNil(json["percentDisplay"])
+        json.removeValue(forKey: "percentDisplay")
+
+        let decoded = GlanceSnapshotCodec.decode(try JSONSerialization.data(withJSONObject: json))
+
+        XCTAssertEqual(decoded.percentDisplay, .left)
+        XCTAssertEqual(decoded.accounts.count, 1)
+        XCTAssertEqual(decoded.accounts.first?.rows.first?.remainingPercent, 12.5)
+    }
+
+    func testAnUnknownPercentDisplayDecodesAsLeftWithoutFailingTheSnapshot() throws {
+        // A later build may add a mode. This one must keep drawing the rest of the file rather
+        // than collapsing to the empty snapshot.
+        var json = try encodedJSON(snapshot(percentDisplay: .used))
+        json["percentDisplay"] = "sideways"
+
+        let decoded = GlanceSnapshotCodec.decode(try JSONSerialization.data(withJSONObject: json))
+
+        XCTAssertEqual(decoded.percentDisplay, .left)
+        XCTAssertEqual(decoded.accounts.count, 1)
+        XCTAssertNotEqual(decoded, .empty)
+    }
+
+    func testUsageWindowRoundTripPreservesSegments() throws {
+        let window = UsageWindow(id: "xai-credits", label: "Weekly credits", category: .weekly,
+            usedPercent: 98, periodSeconds: 604_800, resetAt: nil, exhausted: false,
+            segments: [UsageSegment(label: "GrokBuild", usedPercent: 90),
+                UsageSegment(label: "GrokChat", usedPercent: 7), UsageSegment(label: "GrokImagine", usedPercent: 1)])
+        let decoded = try JSONDecoder().decode(UsageWindow.self, from: JSONEncoder().encode(window))
+        XCTAssertEqual(decoded, window)
+        let account = ProviderAccount(id: "grok", provider: .xai, externalAccountID: "ext-grok",
+            email: nil, displayName: nil, plan: nil, credentialReference: "grok-ref",
+            createdAt: now, lastSuccessfulSync: now)
+        let usage = AccountUsage(account: account, snapshot: UsageSnapshot(accountID: account.id,
+            fetchedAt: now, status: .ok, windows: [window]))
+        let glance = GlanceModel.build([usage], now: now, scope: .allAccounts)
+        XCTAssertEqual(glance.accounts.first?.rows.first?.segments, window.segments)
+        XCTAssertEqual(glance.accounts.first?.candidates.first?.segments, window.segments)
+        XCTAssertEqual(GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(glance)), glance)
+    }
+
+    func testUsageWindowWrittenBeforeSegmentsStillDecodes() throws {
+        let legacy = Data("""
+        {"id":"xai-credits","label":"Weekly credits","category":"weekly","usedPercent":98,"exhausted":false}
+        """.utf8)
+        let window = try JSONDecoder().decode(UsageWindow.self, from: legacy)
+        XCTAssertEqual(window.remainingPercent, 2)
+        XCTAssertEqual(window.segments, [])
+    }
+
+    func testSnapshotWrittenBeforeSegmentsStillDecodes() throws {
+        let original = snapshot()
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: GlanceSnapshotCodec.encode(original)) as? [String: Any])
+        func removingSegments(_ value: Any) -> Any {
+            if let object = value as? [String: Any] {
+                return object.filter { $0.key != "segments" }.mapValues(removingSegments)
+            }
+            if let array = value as? [Any] { return array.map(removingSegments) }
+            return value
+        }
+        json = try XCTUnwrap(removingSegments(json) as? [String: Any])
+        let decoded = GlanceSnapshotCodec.decode(try JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(decoded.accounts.count, original.accounts.count)
+        XCTAssertEqual(decoded.accounts.first?.rows.first?.remainingPercent, 12.5)
+        XCTAssertEqual(decoded.accounts.first?.rows.first?.segments, [])
+        XCTAssertEqual(decoded.summaryLineShort?.segments, [])
+    }
+
+    func testAnUnknownPercentageSurvivesAsUnknown() throws {
+        // The one value that must not be normalised in transit. A nil that arrives as 0 tells
+        // the user a limit is spent; a nil that arrives as 100 tells them it is untouched.
+        let decoded = GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(snapshot()))
+
+        XCTAssertNil(decoded.summaryLineLong?.remainingPercent ?? nil)
+    }
+
+    func testTheOverallSeverityIsCarriedRatherThanRecomputed() throws {
+        // The defect this codec replaced: the widget re-derived this from the accounts it had
+        // decoded, and derived it differently from GlanceModel — so the same data produced one
+        // verdict in the app and another on the home screen. Here the account is `.low` while
+        // the snapshot as a whole is `.error`, which only survives if it is carried.
+        let decoded = GlanceSnapshotCodec.decode(try GlanceSnapshotCodec.encode(snapshot()))
+
+        XCTAssertEqual(decoded.overallSeverity, Severity.error)
+        XCTAssertEqual(decoded.accounts.first?.severity, Severity.low)
+    }
+
+    func testAnAccountWrittenBeforeCandidatesAndTheSeverityTimelineStillDecodes() throws {
+        let legacy = Data("""
+        {"id":"a","title":"Codex","rows":[{"label":"Weekly","category":"weekly","remainingPercent":40,\
+        "resetAt":null,"severity":1}],"severity":1}
+        """.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let account = try decoder.decode(GlanceAccount.self, from: legacy)
+
+        XCTAssertEqual(account.candidates, account.rows)
+        XCTAssertEqual(account.rows.first?.segments, [])
+        XCTAssertNil(account.rows.first?.sourceWindowID)
+        XCTAssertEqual(account.representative(at: now)?.label, "Weekly")
+        XCTAssertEqual(account.severity(at: now, staleAfter: 3600), .medium)
+    }
+
+    func testAMissingFileIsEmptyRatherThanAnAllClear() {
+        // A widget cannot ask for a retry, so every failure has the same available outcome. It
+        // must be the pessimistic one: empty renders as stale, never as "everything is fine".
+        XCTAssertEqual(GlanceSnapshotCodec.decode(nil), .empty)
+        XCTAssertEqual(GlanceSnapshotCodec.decode(Data()), .empty)
+        XCTAssertEqual(GlanceSnapshotCodec.empty(from: "not json at all"), .empty)
+        XCTAssertEqual(GlanceSnapshot.empty.overallSeverity, Severity.stale)
+    }
+
+    func testAHalfWrittenFileDecodesToEmptyRatherThanToNonsense() throws {
+        // The widget can be reading while the app writes, which is why the write is atomic —
+        // but a truncated file must still be survivable rather than fatal.
+        let complete = try GlanceSnapshotCodec.encode(snapshot())
+        let truncated = complete.prefix(complete.count / 2)
+
+        XCTAssertEqual(GlanceSnapshotCodec.decode(Data(truncated)), .empty)
+    }
+
+    func testDatesAreReadableInTheFile() throws {
+        // This file is the first thing anyone opens when a widget shows the wrong time, and the
+        // default strategy writes a floating-point count of seconds since 2001.
+        let json = String(decoding: try GlanceSnapshotCodec.encode(snapshot()), as: UTF8.self)
+
+        XCTAssertTrue(json.contains("2025-") || json.contains("2026-"), json.prefix(200).description)
+    }
+
+    func testWritingThenReadingADirectoryRoundTrips() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("glance-codec-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try GlanceSnapshotCodec.write(snapshot(), toDirectory: directory)
+
+        XCTAssertEqual(GlanceSnapshotCodec.read(fromDirectory: directory), snapshot())
+    }
+
+    func testReadingADirectoryWithNoSnapshotIsEmpty() {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("glance-codec-missing-\(UUID().uuidString)")
+
+        XCTAssertEqual(GlanceSnapshotCodec.read(fromDirectory: directory), .empty)
+    }
+
+    // MARK: - Which nothing it is
+
+    private func scratchDirectory() throws -> URL {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("glance-load-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    func testAReadableEmptySnapshotIsEmptyAndNotLocked() throws {
+        // The regression this whole enum exists for. A tile that had only "does the file
+        // exist" to go on called a perfectly readable empty snapshot a locked device, and
+        // told the user to unlock a phone that was already unlocked. An empty snapshot is
+        // the ORDINARY state as soon as the app refreshes with no accounts connected.
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try GlanceSnapshotCodec.write(.empty, toDirectory: directory)
+
+        XCTAssertEqual(GlanceSnapshotCodec.load(fromDirectory: directory), .empty)
+    }
+
+    func testAMissingFileIsMissingRatherThanLocked() throws {
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        XCTAssertEqual(GlanceSnapshotCodec.load(fromDirectory: directory), .missing)
+    }
+
+    func testAFileWithAccountsLoads() throws {
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try GlanceSnapshotCodec.write(snapshot(), toDirectory: directory)
+
+        XCTAssertEqual(GlanceSnapshotCodec.load(fromDirectory: directory), .loaded(snapshot()))
+    }
+
+    func testCreditsOnlyLoadKeepsEmptyBuildDefaultsAndRawPins() throws {
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let credit = GlanceCredit(id: "credit", title: "DeepSeek", providerID: "deepseek",
+            balances: [CreditBalance(currency: "USD", amount: 8)], severity: .healthy,
+            baseSeverity: .healthy, fetchedAt: now, statusMessage: nil)
+        let pins = ["gone", "other", "gone", "third", "fourth"]
+        let source = GlanceModel.build([], now: now, scope: .allAccounts, staleAfter: 17,
+            percentDisplay: .used, statusIconsEnabled: true, pinnedAccountIDs: pins)
+            .with(credits: [credit])
+        let expected = GlanceSnapshot(
+            accounts: [], accountCount: 0, updatedAt: nil, nextResetAt: nil,
+            overallSeverity: .stale, summaryLineShort: nil, summaryLineLong: nil,
+            staleAfter: Severity.staleAfter, credits: [credit], percentDisplay: .left,
+            statusIconsEnabled: true, pinnedAccountIDs: pins)
+
+        try GlanceSnapshotCodec.write(source, toDirectory: directory)
+
+        XCTAssertEqual(GlanceSnapshotCodec.loadCredits(fromDirectory: directory), .loaded(expected))
+        XCTAssertEqual(GlanceSnapshotCodec.load(fromDirectory: directory), .empty)
+    }
+
+    func testUndecodableContentIsCorruptRatherThanEmpty() throws {
+        // A build whose format this one does not understand, or a truncated write. Reporting
+        // it as "no accounts yet" invites the user to add accounts they already have.
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data("{\"nope\":1}".utf8).write(
+            to: directory.appendingPathComponent(GlanceSnapshotCodec.fileName))
+
+        XCTAssertEqual(GlanceSnapshotCodec.load(fromDirectory: directory), .corrupt)
+    }
+
+    func testAZeroByteFileIsCorruptRatherThanEmpty() throws {
+        // The atomic writer caught mid-replace. Zero bytes is not a decodable empty snapshot,
+        // and calling it one would render an all-clear built from nothing.
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data().write(to: directory.appendingPathComponent(GlanceSnapshotCodec.fileName))
+
+        XCTAssertEqual(GlanceSnapshotCodec.load(fromDirectory: directory), .corrupt)
+    }
+
+    func testAnUnopenableFileIsUnreadableRatherThanMissing() throws {
+        // The only case that unlocking actually fixes. A directory standing where the file
+        // should be reproduces "exists, cannot be read as data" without needing a device.
+        let directory = try scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent(GlanceSnapshotCodec.fileName),
+            withIntermediateDirectories: true)
+
+        XCTAssertEqual(GlanceSnapshotCodec.load(fromDirectory: directory), .unreadable)
+    }
+
+    func testEveryNonLoadedOutcomeStillRendersTheEmptySnapshot() throws {
+        // Whatever went wrong, a widget must still have something to draw, and it must never
+        // be an all-clear: `.empty` carries `.stale`.
+        for outcome in [GlanceSnapshotCodec.Load.empty, .missing, .unreadable, .corrupt] {
+            XCTAssertEqual(outcome.snapshot, .empty)
+            XCTAssertEqual(outcome.snapshot.overallSeverity, .stale)
+        }
+    }
+}
+
+final class GlanceSnapshotWireTests: XCTestCase {
+    func testSummaryPropertiesKeepLegacyWireKeys() throws {
+        let legacy = Data("""
+        {"accounts":[],"accountCount":0,"overallSeverity":0,
+         "headlineShort":{"label":"5h limit","category":"fiveHour","remainingPercent":12.5,"severity":2},
+         "headlineLong":{"label":"Weekly","category":"weekly","remainingPercent":80,"severity":0}}
+        """.utf8)
+        let decoded = GlanceSnapshotCodec.decode(legacy)
+        XCTAssertEqual(decoded.summaryLineShort?.remainingPercent, 12.5)
+        XCTAssertEqual(decoded.summaryLineLong?.remainingPercent, 80)
+
+        let encoded = try GlanceSnapshotCodec.encode(decoded)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let short = try XCTUnwrap(json["headlineShort"] as? [String: Any])
+        let long = try XCTUnwrap(json["headlineLong"] as? [String: Any])
+        XCTAssertEqual(short["remainingPercent"] as? Double, 12.5)
+        XCTAssertEqual(long["remainingPercent"] as? Double, 80)
+        XCTAssertNil(json["summaryLineShort"])
+        XCTAssertNil(json["summaryLineLong"])
+        XCTAssertEqual(GlanceSnapshotCodec.decode(encoded), decoded)
+    }
+}
+
+final class GlanceRowBoundaryTests: XCTestCase {
+    func testConstructionAndDecodingSanitiseRemainingPercent() throws {
+        let decoder = JSONDecoder()
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(
+            positiveInfinity: "Infinity", negativeInfinity: "-Infinity", nan: "NaN")
+        let cases: [(raw: Double?, json: String, expected: Double?)] = [
+            (-1, "-1", nil),
+            (101, "101", nil),
+            (.nan, "\"NaN\"", nil),
+            (.infinity, "\"Infinity\"", nil),
+            (-.infinity, "\"-Infinity\"", nil),
+            (nil, "null", nil),
+            (0, "0", 0),
+            (12.5, "12.5", 12.5),
+            (100, "100", 100),
+        ]
+        for value in cases {
+            let constructed = GlanceRow(label: "Weekly", category: .weekly,
+                remainingPercent: value.raw, resetAt: nil, severity: .healthy)
+            XCTAssertEqual(constructed.remainingPercent, value.expected,
+                "Direct construction with \(value.json)")
+
+            let json = Data("""
+            {"label":"Weekly","category":"weekly","remainingPercent":\(value.json),"severity":0}
+            """.utf8)
+            let decoded = try decoder.decode(GlanceRow.self, from: json)
+            XCTAssertEqual(decoded.remainingPercent, value.expected,
+                "Direct decoding with \(value.json)")
+        }
+    }
+}
+
+private extension GlanceSnapshotCodec {
+    /// Test convenience: decode a string body.
+    static func empty(from body: String) -> GlanceSnapshot {
+        decode(Data(body.utf8))
+    }
+}

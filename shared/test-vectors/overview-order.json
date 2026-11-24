@@ -1,0 +1,202 @@
+{
+  "description": "The automatic order of usage accounts that Overview and the All accounts widget share, against the stored order other consumers keep. Rule: (1) accounts whose connection is reconnectRequired (expired sign-in) come first; every other connection, including unknown with a failed reading, is one group. (2) Within each group, rank by the account headline at now (the account-headline.json rule, reset-due windows included) by its unrounded remaining percentage, lowest first. A headline that is exhausted (provider flag, or exactly 0 left) ranks as 0 whatever its figure. A headline whose percentage is unknown (missing, non-finite or outside 0-100) and not exhausted, a reading with no windows, and no reading at all rank after every known figure in the group. (3) Ties go to the earlier createdAt, then to the id compared by Unicode scalar values (not UTF-16 code units, not locale collation, not canonical equivalence). Display mode never enters the order. The stored order is the order the accounts are listed in and no reading changes it: pins, Provider scope and the export keep it. Custom keeps its saved ids in saved order, an id counted once and an id whose account is gone dropped. Times are epoch milliseconds. Expected lists are written by hand from the rule, never generated from an implementation.",
+  "schema": "vectors: array of { name: string (unique, says what the case proves); now: number; accounts: array, in stored order, of { id: string; createdAt: number; connection: \"connected\" | \"reconnectRequired\" | \"unknown\"; reading: null (no reading yet; connection is then \"unknown\") or { fetchedAt: number; status: \"ok\" | \"partial\" | \"failed\"; windows: array of { id: string; scope: \"global\" | \"model\" | \"unknown\"; remainingPercent: number or null; exhausted: boolean; resetAt: number or null } in provider order } }; custom: array of string (a Custom selection's saved ids, in saved order); expected: { automatic: array of string (Overview and All accounts); stored: array of string; custom: array of string } }. Every key is present in every object, null where the value is absent.",
+  "vectors": [
+    {
+      "name": "an expired sign-in comes first, whatever its figure",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 10, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "reconnectRequired", "reading": { "fetchedAt": 1799999400000, "status": "failed", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 90, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "c", "createdAt": 1700000003000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": ["c", "a"],
+      "expected": { "automatic": ["b", "a", "c"], "stored": ["a", "b", "c"], "custom": ["c", "a"] }
+    },
+    {
+      "name": "inside the expired group the lowest headline leads and an unknown one trails",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "reconnectRequired", "reading": { "fetchedAt": 1799999400000, "status": "failed", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": null, "exhausted": false, "resetAt": null }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "reconnectRequired", "reading": { "fetchedAt": 1799999400000, "status": "failed", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "c", "createdAt": 1700000003000, "connection": "reconnectRequired", "reading": { "fetchedAt": 1799999400000, "status": "failed", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 5, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "d", "createdAt": 1700000004000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 0, "exhausted": true, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["c", "b", "a", "d"], "stored": ["a", "b", "c", "d"], "custom": [] }
+    },
+    {
+      "name": "a provider-declared exhausted headline ranks as 0 despite a positive figure and ties a real 0 by added time",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 0.4, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000003000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 35, "exhausted": true, "resetAt": 1800003600000 }] } },
+        { "id": "c", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 0, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["c", "b", "a"], "stored": ["a", "b", "c"], "custom": [] }
+    },
+    {
+      "name": "an exhausted headline with no figure ranks as 0, ahead of 0.4 left and of an unknown figure",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 0.4, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": null, "exhausted": true, "resetAt": 1800003600000 }] } },
+        { "id": "c", "createdAt": 1700000000500, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": null, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["b", "a", "c"], "stored": ["a", "b", "c"], "custom": [] }
+    },
+    {
+      "name": "every unknown headline sorts after the known ones, then by added time",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000003000, "connection": "unknown", "reading": null },
+        { "id": "b", "createdAt": 1700000004000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [] } },
+        { "id": "c", "createdAt": 1700000005000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": null, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "d", "createdAt": 1700000009000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 99.5, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "e", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 130, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["d", "e", "a", "b", "c"], "stored": ["a", "b", "c", "d", "e"], "custom": [] }
+    },
+    {
+      "name": "a scoped window does not rank an account that has a global one",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 60, "exhausted": false, "resetAt": 1800003600000 }, { "id": "opus-weekly", "scope": "model", "remainingPercent": 2, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 30, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "c", "createdAt": 1700000003000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "pool-a", "scope": "model", "remainingPercent": 45, "exhausted": false, "resetAt": 1800003600000 }, { "id": "pool-b", "scope": "model", "remainingPercent": 20, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["c", "b", "a"], "stored": ["a", "b", "c"], "custom": [] }
+    },
+    {
+      "name": "before its reset falls due the tight window still ranks the account",
+      "now": 1799999600000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "5h", "scope": "global", "remainingPercent": 5, "exhausted": false, "resetAt": 1799999700000 }, { "id": "weekly", "scope": "global", "remainingPercent": 70, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["a", "b"], "stored": ["a", "b"], "custom": [] }
+    },
+    {
+      "name": "once that reset is due the account ranks by the window still open, with no new reading",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "5h", "scope": "global", "remainingPercent": 5, "exhausted": false, "resetAt": 1799999700000 }, { "id": "weekly", "scope": "global", "remainingPercent": 70, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["b", "a"], "stored": ["a", "b"], "custom": [] }
+    },
+    {
+      "name": "a reset at a fractional second is not yet due at the whole second before it",
+      "now": 1799999700000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "5h", "scope": "global", "remainingPercent": 5, "exhausted": false, "resetAt": 1799999700125 }, { "id": "weekly", "scope": "global", "remainingPercent": 70, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["a", "b"], "stored": ["a", "b"], "custom": [] }
+    },
+    {
+      "name": "a reset at a fractional second is due at exactly that millisecond",
+      "now": 1799999700125,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "5h", "scope": "global", "remainingPercent": 5, "exhausted": false, "resetAt": 1799999700125 }, { "id": "weekly", "scope": "global", "remainingPercent": 70, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["b", "a"], "stored": ["a", "b"], "custom": [] }
+    },
+    {
+      "name": "when every window is reset due the last figure still ranks the account",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "b", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 20, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "a", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 10, "exhausted": false, "resetAt": 1799999700000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["a", "b"], "stored": ["b", "a"], "custom": [] }
+    },
+    {
+      "name": "the unrounded figure decides where two accounts display the same number",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 12.6, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000003000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 12.4, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "c", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 12.45, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["b", "c", "a"], "stored": ["a", "b", "c"], "custom": [] }
+    },
+    {
+      "name": "equal figures go by added time, not by id or stored order",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "alpha", "createdAt": 1700000003000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "beta", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "gamma", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 50, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["beta", "gamma", "alpha"], "stored": ["alpha", "beta", "gamma"], "custom": [] }
+    },
+    {
+      "name": "equal figures and added times go by id in Unicode scalar order, not locale order",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "\u00e9", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 25, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "ab", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 25, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "z", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 25, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "B", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 25, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 25, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["B", "a", "ab", "z", "\u00e9"], "stored": ["\u00e9", "ab", "z", "B", "a"], "custom": [] }
+    },
+    {
+      "name": "an id tie compares Unicode scalars, not UTF-16 code units",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "\ud83d\ude00", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 25, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "\uff5e", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 25, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["\uff5e", "\ud83d\ude00"], "stored": ["\ud83d\ude00", "\uff5e"], "custom": [] }
+    },
+    {
+      "name": "an id tie compares the scalars as written, not their canonical composition",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "f", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 25, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "e\u0301", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 25, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["e\u0301", "f"], "stored": ["f", "e\u0301"], "custom": [] }
+    },
+    {
+      "name": "a failed reading without an expired sign-in ranks by its last figure, not as expired",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 30, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "unknown", "reading": { "fetchedAt": 1799990000000, "status": "failed", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 15, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "c", "createdAt": 1700000003000, "connection": "reconnectRequired", "reading": { "fetchedAt": 1799999400000, "status": "failed", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 80, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": [],
+      "expected": { "automatic": ["c", "b", "a"], "stored": ["a", "b", "c"], "custom": [] }
+    },
+    {
+      "name": "Custom keeps its saved order against the rank, counts a repeated id once and drops a gone one",
+      "now": 1800000000000,
+      "accounts": [
+        { "id": "a", "createdAt": 1700000001000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 70, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "b", "createdAt": 1700000002000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "partial", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 10, "exhausted": false, "resetAt": 1800003600000 }] } },
+        { "id": "c", "createdAt": 1700000003000, "connection": "connected", "reading": { "fetchedAt": 1799999400000, "status": "ok", "windows": [{ "id": "weekly", "scope": "global", "remainingPercent": 40, "exhausted": false, "resetAt": 1800003600000 }] } }
+      ],
+      "custom": ["c", "gone", "a", "c"],
+      "expected": { "automatic": ["b", "c", "a"], "stored": ["a", "b", "c"], "custom": ["c", "a"] }
+    }
+  ]
+}

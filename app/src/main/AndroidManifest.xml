@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
+      Adaptive by default: resizeable so the app is a first-class citizen in split-screen,
+      freeform and desktop windowing, and no orientation or aspect-ratio lock, so unfolding a
+      foldable simply re-lays-out rather than letterboxing.
+    -->
+    <supports-screens
+        android:largeScreens="true"
+        android:normalScreens="true"
+        android:smallScreens="true"
+        android:xlargeScreens="true"
+        android:resizeable="true" />
+
+    <application
+        android:name=".UsageLimitsApp"
+        android:resizeableActivity="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.UsageLimits">
+
+        <activity
+            android:name=".UsageLimitsActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:screenOrientation="unspecified"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode"
+            android:theme="@style/Theme.UsageLimits.App">
+        </activity>
+
+        <activity-alias
+            android:name=".MainActivity"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconGaugeCoin"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_gauge_coin"
+            android:roundIcon="@mipmap/ic_launcher_gauge_coin">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconAiGauge"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_ai_gauge"
+            android:roundIcon="@mipmap/ic_launcher_ai_gauge">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconAiHourglass"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_ai_hourglass"
+            android:roundIcon="@mipmap/ic_launcher_ai_hourglass">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconAiRefreshRing"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_ai_refresh_ring"
+            android:roundIcon="@mipmap/ic_launcher_ai_refresh_ring">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconAiBattery"
+            android:targetActivity=".UsageLimitsActivity"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_ai_battery"
+            android:roundIcon="@mipmap/ic_launcher_ai_battery">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!--
+          Opened by the launcher when a widget is dropped. Not exported: only the system
+          starts it, via the APPWIDGET_CONFIGURE action.
+        -->
+        <activity
+            android:name=".widget.WidgetConfigActivity"
+            android:exported="false"
+            android:theme="@style/Theme.UsageLimits">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Keeps the process out of the cached state while a browser sign-in waits on the loopback
+          listener; see SignInKeepAliveService. Short service: no extra permission, 3-minute cap.
+        -->
+        <service
+            android:name=".core.oauth.SignInKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
+
+        <receiver
+            android:name=".widget.CompactUsageWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_label_usage_summary">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_compact_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.DetailedUsageWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_label_usage_bars">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_detailed_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.MinimalUsageWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_label_account_rings">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_minimal_info" />
+        </receiver>
+
+        <receiver android:name=".widget.MiniRingsWidgetReceiver" android:exported="true" android:label="@string/widget_label_mini_rings">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_mini_rings_info" />
+        </receiver>
+
+        <receiver android:name=".widget.CreditsWidgetReceiver" android:exported="true" android:label="@string/widget_label_credits">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_credits_info" />
+        </receiver>
+
+        <!--
+          WorkManager initialises on demand, not from a content provider.
+
+          WorkManager's default initializer runs before `Application.onCreate` and is invisible
+          from anywhere: if it does not run, `WorkManager.getInstance` throws, the app's start-up
+          scheduling fails, and nothing on screen says the background refresh will never happen.
+          Removing it and declaring the Application as `Configuration.Provider` makes
+          initialisation deterministic, ordered after `onCreate`, and reachable from a test — which
+          is how the failure above was found in the first place.
+
+          Keep only ProcessLifecycleInitializer for the process foreground signal. WorkManager
+          remains on demand, and OkHttp is initialized explicitly by UsageLimitsApp.
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+                android:value="androidx.startup" />
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                tools:node="remove" />
+            <meta-data
+                android:name="okhttp3.internal.platform.PlatformInitializer"
+                tools:node="remove" />
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+                tools:node="remove" />
+            <meta-data
+                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+                tools:node="remove" />
+        </provider>
+    </application>
+</manifest>

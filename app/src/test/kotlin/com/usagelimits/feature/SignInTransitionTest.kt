@@ -1,0 +1,124 @@
+package com.usagelimits.feature
+
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.semantics.SemanticsActions
+import com.usagelimits.core.model.ProviderId
+import com.usagelimits.feature.accounts.AddAccountScreen
+import com.usagelimits.feature.accounts.AddAccountState
+import com.usagelimits.ui.theme.LocalMotionEnabled
+import com.usagelimits.ui.theme.UsageLimitsTheme
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.Assert.assertEquals
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class SignInTransitionTest {
+    @get:Rule val compose = createComposeRule()
+
+    @Test fun `provider hints describe their default login flow`() {
+        val provider = mutableStateOf(ProviderId.KIMI)
+        compose.setContent {
+            UsageLimitsTheme {
+                AddAccountScreen(
+                    state = AddAccountState.PickProvider, providers = listOf(provider.value),
+                    onStart = {}, onCancel = {}, onDone = {}, onSubmitApiKey = {},
+                )
+            }
+        }
+        compose.onNodeWithText("Sign in with a device code").assertExists()
+        compose.runOnIdle { provider.value = ProviderId.CODEX }
+        compose.onNodeWithText("Sign in in your browser").assertExists()
+    }
+
+    @Test fun `the region step lists the provider's regions and reports the pick`() {
+        var picked: Pair<ProviderId, com.usagelimits.core.model.ProviderRegion>? = null
+        compose.setContent {
+            UsageLimitsTheme {
+                AddAccountScreen(
+                    state = AddAccountState.ChoosingRegion(ProviderId.ZAI), providers = listOf(ProviderId.ZAI),
+                    onStart = {}, onCancel = {}, onDone = {}, onSubmitApiKey = {},
+                    onChooseRegion = { provider, region -> picked = provider to region },
+                )
+            }
+        }
+        compose.onNodeWithText("China (bigmodel.cn)").assertExists()
+        compose.onNodeWithText("International (z.ai)").assertExists().performClick()
+        compose.runOnIdle { assertEquals(ProviderId.ZAI to com.usagelimits.core.model.ProviderRegion.INTL, picked) }
+    }
+
+    @Test fun `the browser wait offers the device code and a failed code attempt retries the code`() {
+        val state = mutableStateOf<AddAccountState>(
+            AddAccountState.AwaitingBrowser(ProviderId.CODEX, deviceCodeAlternative = true, authorizationUrl = "https://example.test/auth"),
+        )
+        var browserStarts = 0
+        var codeStarts = 0
+        compose.setContent {
+            UsageLimitsTheme {
+                AddAccountScreen(
+                    state = state.value, providers = listOf(ProviderId.CODEX),
+                    onStart = { browserStarts++ }, onCancel = {}, onDone = {}, onSubmitApiKey = {},
+                    onStartWithDeviceCode = { codeStarts++ },
+                )
+            }
+        }
+        compose.onNodeWithText("Use a device code").assertExists().performClick()
+        compose.runOnIdle { assertEquals(1, codeStarts) }
+
+        compose.runOnIdle {
+            state.value = AddAccountState.Failed(ProviderId.CODEX, "Device login expired", deviceCodeAlternative = true, viaDeviceCode = true)
+        }
+        compose.onNodeWithText("Try again").performClick()
+        compose.onNodeWithText("Use the browser").assertExists()
+        compose.runOnIdle {
+            assertEquals("try again repeats the flow that failed", 2, codeStarts)
+            assertEquals(0, browserStarts)
+        }
+    }
+
+    @Test fun `the outgoing provider chooser cannot start another login`() {
+        val state = mutableStateOf<AddAccountState>(AddAccountState.PickProvider)
+        var starts = 0
+        compose.setContent {
+            UsageLimitsTheme {
+                CompositionLocalProvider(LocalMotionEnabled provides true) {
+                    AddAccountScreen(
+                        state = state.value, providers = listOf(ProviderId.KIMI),
+                        onStart = { starts++ }, onCancel = {}, onDone = {}, onSubmitApiKey = {},
+                    )
+                }
+            }
+        }
+        compose.onNodeWithText(ProviderId.KIMI.displayName).assertExists()
+        val outgoingClick = compose.onNodeWithText(ProviderId.KIMI.displayName)
+            .fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnUiThread {
+                state.value = AddAccountState.Starting(ProviderId.KIMI)
+                // The paused clock does not deliver the snapshot write to composition.
+                Snapshot.sendApplyNotifications()
+            }
+            compose.mainClock.advanceTimeByFrame()
+            compose.mainClock.advanceTimeBy(32)
+            compose.onNodeWithText(ProviderId.KIMI.displayName).assertDoesNotExist()
+            // Der alte Callback kann noch in der Eingabewarteschlange liegen.
+            compose.runOnIdle {
+                outgoingClick()
+                assertEquals(0, starts)
+            }
+            compose.mainClock.advanceTimeBy(1_000)
+            compose.onNodeWithText("Contacting ${ProviderId.KIMI.displayName}…").assertExists()
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+    }
+}

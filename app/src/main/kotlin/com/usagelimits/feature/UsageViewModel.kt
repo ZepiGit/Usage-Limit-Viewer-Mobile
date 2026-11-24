@@ -1,0 +1,472 @@
+package com.usagelimits.feature
+
+import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.usagelimits.core.database.AccountUsage
+import com.usagelimits.core.database.inOverviewOrder
+import com.usagelimits.R
+import com.usagelimits.core.di.AppContainer
+import com.usagelimits.core.model.CreditEntry
+import com.usagelimits.core.model.MAX_PINNED_ACCOUNTS
+import com.usagelimits.core.model.PercentDisplay
+import com.usagelimits.core.model.ProviderId
+import com.usagelimits.core.model.Severity
+import com.usagelimits.core.model.UsageScope
+import com.usagelimits.core.model.UsageWindow
+import com.usagelimits.core.model.WindowCategory
+import com.usagelimits.core.settings.AppSettings
+import com.usagelimits.core.settings.AppTheme
+import com.usagelimits.core.settings.FigureFont
+import com.usagelimits.core.settings.TextFont
+import com.usagelimits.core.settings.OverviewCreditLayout
+import com.usagelimits.core.settings.OverviewLayout
+import com.usagelimits.core.settings.OverviewShowFirst
+import com.usagelimits.core.settings.SyncDiagnostics
+import com.usagelimits.core.sync.SyncWorker
+import com.usagelimits.core.sync.userMessage
+import com.usagelimits.ui.text.storedMessageText
+import com.usagelimits.core.network.ProviderException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
+
+/** A reset event on the Resets timeline. */
+data class UpcomingReset(
+    val accountId: String,
+    val accountLabel: String,
+    val provider: ProviderId,
+    /**
+     * The originating window's id, not its label.
+     *
+     * Labels are provider display text and repeat freely — Antigravity names a bucket
+     * "Weekly" once per quota group — so accountId + label + resetAt is not unique and made a
+     * duplicate LazyColumn key, which Compose throws on. Ids are unique per account.
+     */
+    val windowId: String,
+    val windowLabel: String,
+    /** With [windowScope], what the screen needs to put an app-chosen [windowLabel] into the user's language. */
+    val windowCategory: WindowCategory,
+    val windowScope: UsageScope,
+    val resetAt: Long,
+    val severity: Severity,
+)
+
+/** Everything the screens render. */
+data class UsageUiState(
+    val accounts: List<AccountUsage> = emptyList(),
+    val settings: AppSettings = AppSettings(),
+    val isRefreshing: Boolean = false,
+    val message: String? = null,
+    /** When the background machinery last moved — the Settings diagnostics. */
+    val diagnostics: SyncDiagnostics = SyncDiagnostics(),
+    /** Prepaid balances, kept apart from the usage accounts. */
+    val credits: List<CreditEntry> = emptyList(),
+    /** False only before the first repository emission, so an empty list is not read as "no accounts". */
+    val loaded: Boolean = true,
+    val accountStorageUnreadable: Boolean = false,
+    /**
+     * Pin changes made but not yet stored, by account id: true to pin, false to unpin. Settings
+     * shows them at once, so a toggle does not spring back while earlier changes are published.
+     */
+    val pendingPins: Map<String, Boolean> = emptyMap(),
+) {
+    val accountCount: Int get() = accounts.size
+
+    /**
+     * How old a snapshot may be before this screen stops trusting it.
+     *
+     * Derived from the interval the user chose rather than fixed, because at the three-hour
+     * setting the app offers, a fixed hour marks every account stale permanently.
+     */
+    val staleAfterMs: Long get() = Severity.staleAfterMs(settings.syncIntervalMinutes)
+
+    /**
+     * The accounts in Overview's automatic order at [nowMs], the one All accounts widgets use too
+     * (ADR 0004). [accounts] keeps the stored order for pins and the other consumers.
+     */
+    fun overviewAccountsAt(nowMs: Long): List<AccountUsage> = accounts.inOverviewOrder(nowMs)
+
+    /** Newest data wins for the "last updated" line — it describes the screen as a whole. */
+    val lastUpdated: Long?
+        get() = accounts.mapNotNull { it.measurementAt }.maxOrNull()
+
+    fun overallSeverityAt(nowMs: Long): Severity =
+        accounts.mapNotNull { it.snapshot?.severityAt(nowMs, staleAfterMs) }.maxOrNull()
+            ?: Severity.STALE
+
+    /** Chronological reset timeline; past events are dropped by the screen. */
+    fun upcomingResets(nowMs: Long): List<UpcomingReset> =
+        accounts.flatMap { usage ->
+            usage.snapshot?.windows.orEmpty().mapNotNull { window ->
+                val resetAt = window.resetAt ?: return@mapNotNull null
+                if (resetAt <= nowMs) return@mapNotNull null
+                UpcomingReset(
+                    accountId = usage.account.localId,
+                    accountLabel = usage.account.label,
+                    provider = usage.account.provider,
+                    windowId = window.id,
+                    windowLabel = window.label,
+                    windowCategory = window.category,
+                    windowScope = window.scope,
+                    resetAt = resetAt,
+                    severity = window.severity,
+                )
+            }
+        }.sortedBy { it.resetAt }
+}
+
+/**
+ * Shared state for every screen.
+ *
+ * One view model rather than four: all four tabs project the same cache, and splitting it
+ * would mean four collectors over the same Flow and four ways for them to disagree about
+ * refresh state.
+ */
+class UsageViewModel internal constructor(
+    private val container: AppContainer,
+    private val appContext: Context,
+    scope: CoroutineScope,
+) : ViewModel(scope) {
+    constructor(container: AppContainer, appContext: Context) :
+        this(container, appContext, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
+
+    private val refreshing = MutableStateFlow(false)
+    private val transientMessage = MutableStateFlow<String?>(null)
+
+    /** The latest pin request per account not yet done; see [UsageUiState.pendingPins]. */
+    private val pinRequests = MutableStateFlow<Map<String, PinRequest>>(emptyMap())
+
+    val state: StateFlow<UsageUiState> = combine(
+        combine(container.repository.observeAccountUsageRead(), container.creditRepository.observeEntries()) { read, credits ->
+            read to credits
+        },
+        container.settingsStore.settings,
+        refreshing,
+        transientMessage,
+        combine(container.settingsStore.diagnostics, pinRequests) { diagnostics, pending -> diagnostics to pending.mapValues { it.value.pinned } },
+    ) { (read, credits), settings, isRefreshing, message, (diagnostics, pending) ->
+        UsageUiState(read.accounts, settings, isRefreshing, message, diagnostics, credits,
+            accountStorageUnreadable = read.unreadable, pendingPins = pending)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UsageUiState(loaded = false))
+
+    private val _resetCreditInFlight = MutableStateFlow<String?>(null)
+
+    /** Account id whose reset credit is currently being spent, for a per-card spinner. */
+    val resetCreditInFlight: StateFlow<String?> = _resetCreditInFlight.asStateFlow()
+
+    fun setProviderIcon(provider: ProviderId, iconId: String) {
+        viewModelScope.launch {
+            try {
+                container.settingsStore.setProviderIcon(provider.id, iconId)
+                container.publication.presentationChanged()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { transientMessage.value = appContext.getString(R.string.message_icon_save_failed) }
+        }
+    }
+
+    fun retryAccountStorage() { container.repository.retryAccountRead() }
+
+    fun refresh() {
+        if (state.value.accountStorageUnreadable) {
+            retryAccountStorage()
+            return
+        }
+        if (refreshing.value) return
+        viewModelScope.launch {
+            refreshing.value = true
+            try {
+                SyncWorker.reconcileForManualRefresh(appContext, container.settingsStore.settings)
+                val outcomes = container.syncEngine.syncAll() + container.creditSyncEngine.syncAll()
+                val failures = outcomes.count { !it.success }
+                transientMessage.value = when {
+                    outcomes.isEmpty() -> null
+                    failures == 0 -> null
+                    failures == outcomes.size -> appContext.getString(R.string.message_refresh_failed)
+                    else -> appContext.getString(R.string.message_refresh_partly_failed, failures, outcomes.size)
+                }
+                container.publication.cacheMoved()
+            } finally {
+                refreshing.value = false
+            }
+        }
+    }
+
+    fun refreshAccount(accountId: String) {
+        if (state.value.accountStorageUnreadable) {
+            retryAccountStorage()
+            return
+        }
+        viewModelScope.launch {
+            refreshing.value = true
+            try {
+                SyncWorker.reconcileForManualRefresh(appContext, container.settingsStore.settings)
+                container.syncEngine.syncAccount(accountId)
+                container.publication.cacheMoved()
+            } finally {
+                refreshing.value = false
+            }
+        }
+    }
+
+    /**
+     * Spends one Codex reset credit, then immediately re-syncs.
+     *
+     * Only ever reached from a confirmed dialog. The re-sync is what makes the result visible:
+     * both the quota windows and the remaining credit count change server-side.
+     */
+    fun consumeResetCredit(accountId: String) {
+        if (_resetCreditInFlight.value != null) return
+        viewModelScope.launch {
+            _resetCreditInFlight.value = accountId
+            try {
+                val account = container.repository.account(accountId) ?: return@launch
+                val provider = container.providerRegistry.forId(account.provider) ?: return@launch
+                if (!provider.supportsResetCredits) return@launch
+
+                val credentials = container.syncEngine.validCredentials(account)
+                provider.consumeResetCredit(account, credentials)
+
+                // The spend has HAPPENED at the provider from here on. The follow-up sync is
+                // what makes it visible, and it can fail on its own — and when it does, the
+                // message must not say "applied" over a card still showing the pre-spend quota
+                // and an unspent-looking credit, or the user will try again.
+                val outcome = container.syncEngine.syncAccount(account)
+                container.publication.cacheMoved()
+                transientMessage.value = if (outcome.success) {
+                    appContext.getString(R.string.message_reset_applied)
+                } else {
+                    appContext.getString(R.string.message_reset_requested)
+                }
+            } catch (e: CancellationException) {
+                // Not a failure, and not ours to swallow: the credit may already be spent, and
+                // the next sync will show whatever the provider did.
+                throw e
+            } catch (e: ProviderException) {
+                transientMessage.value = storedMessageText(appContext.resources, e.userMessage())
+            } catch (e: Exception) {
+                transientMessage.value = appContext.getString(R.string.message_reset_failed)
+            } finally {
+                _resetCreditInFlight.value = null
+            }
+        }
+    }
+
+    /** Renames a credit account and sets or clears its own low-balance figure. */
+    fun updateCredit(id: String, label: String, lowThreshold: java.math.BigDecimal?) {
+        viewModelScope.launch {
+            try {
+                container.creditAccounts.update(id, label, lowThreshold)
+                container.publication.presentationChanged()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                transientMessage.value = appContext.getString(R.string.message_changes_save_failed)
+            }
+        }
+    }
+
+    /** Deletes the key from this device and the account with it. Not cancellable once begun. */
+    fun removeCredit(id: String) {
+        viewModelScope.launch {
+            withContext(NonCancellable) {
+                try {
+                    container.creditAccounts.remove(id)
+                } catch (_: Exception) {
+                    transientMessage.value = appContext.getString(R.string.message_credit_remove_failed)
+                }
+                container.publication.presentationChanged()
+            }
+        }
+    }
+
+    fun removeAccount(accountId: String) {
+        viewModelScope.launch {
+            // Not cancellable once begun. The screen that owns this scope is the one the user
+            // leaves right after tapping "remove", and a cancellation between the row's
+            // deletion and the widget refresh left the home screen showing the account that
+            // was just removed — widgets do not observe the database, they are told.
+            withContext(NonCancellable) {
+                val account = container.repository.account(accountId) ?: return@withContext
+                // Under the same lock a refresh holds, which this did not take before. A
+                // refresh checks that the reference still exists and then writes the rotated
+                // pair back; a delete landing between those two steps was undone by the write,
+                // and the account the user removed kept a live credential in the keystore with
+                // no row naming it. Each store call is atomic on its own — it is the SEQUENCE
+                // that has to be serialised, so sign-out and refresh share one lock.
+                container.syncEngine.withCredentialLock(account.credentialReference) {
+                    // Credentials go first: if this crashed between the two, an orphaned
+                    // account row is recoverable, an orphaned credential is not visible to
+                    // the user at all.
+                    container.credentialStore.delete(account.credentialReference)
+                    container.repository.deleteAccount(accountId)
+                }
+                // Its pin goes with it, so it no longer counts against the three a person may pin.
+                // release stores that change in turn with the other status icon changes and
+                // publishes the presentation event, which also repaints the widgets. A widget
+                // set to this account keeps its exact scope and shows nothing, rather than
+                // silently exposing other accounts through the automatic scope.
+                container.statusIconChanges.release(accountId)
+            }
+        }
+    }
+
+    fun setSyncInterval(minutes: Int) {
+        viewModelScope.launch {
+            withContext(NonCancellable) {
+                container.settingsStore.setSyncInterval(minutes)
+                // Read the persisted choice during scheduling so an older caller cannot undo it.
+                SyncWorker.scheduleBackgroundSync(appContext)
+            }
+            // Staleness uses this interval at render time, so repaint widgets when it changes.
+            container.publication.presentationChanged()
+        }
+    }
+
+    /** Silences one account, or lets it speak again. */
+    fun setAccountNotifications(accountId: String, enabled: Boolean) {
+        viewModelScope.launch {
+            container.settingsStore.setAccountNotifications(accountId, enabled)
+        }
+    }
+
+    fun setAppTheme(theme: AppTheme) {
+        viewModelScope.launch { container.settingsStore.setAppTheme(theme) }
+    }
+
+    fun setTextFont(font: TextFont) {
+        viewModelScope.launch { container.settingsStore.setTextFont(font) }
+    }
+
+    fun setFigureFont(font: FigureFont) {
+        viewModelScope.launch { container.settingsStore.setFigureFont(font) }
+    }
+
+    fun setShowSubscriptionTier(enabled: Boolean) {
+        viewModelScope.launch { container.settingsStore.setShowSubscriptionTier(enabled) }
+    }
+
+    fun setOverviewLayout(layout: OverviewLayout) {
+        viewModelScope.launch { container.settingsStore.setOverviewLayout(layout) }
+    }
+
+    fun setOverviewCreditLayout(layout: OverviewCreditLayout) {
+        viewModelScope.launch { container.settingsStore.setOverviewCreditLayout(layout) }
+    }
+
+    fun setOverviewShowFirst(showFirst: OverviewShowFirst) {
+        viewModelScope.launch { container.settingsStore.setOverviewShowFirst(showFirst) }
+    }
+
+    fun setOverviewShowCredits(show: Boolean) {
+        viewModelScope.launch { container.settingsStore.setOverviewShowCredits(show) }
+    }
+
+    fun setAnimateClaudeCodeIcon(animate: Boolean) {
+        viewModelScope.launch { container.settingsStore.setAnimateClaudeCodeIcon(animate) }
+    }
+
+    fun setPercentDisplay(mode: PercentDisplay) {
+        viewModelScope.launch {
+            container.settingsStore.setPercentDisplay(mode)
+            // Widgets render the mode from the observed settings; refresh so cold compositions
+            // repaint immediately rather than on their next tick.
+            container.publication.presentationChanged()
+        }
+    }
+
+    /** Turns the status icons on or off; stored and published in turn with every other change. */
+    fun setStatusIcons(enabled: Boolean) {
+        viewModelScope.launch { container.statusIconChanges.setEnabled(enabled) }
+    }
+
+    /**
+     * Pins or unpins one account, applied in turn to the pins stored then. A pin the rules no
+     * longer allow when its turn comes (three pinned, or the account gone) is refused.
+     */
+    fun setPinned(accountId: String, pinned: Boolean) {
+        val request = PinRequest(nextPinRequest++, pinned)
+        pinRequests.update { it + (accountId to request) }
+        viewModelScope.launch {
+            try {
+                val applied = container.statusIconChanges.setPinned(accountId, pinned)
+                // A refusal of the person's latest wish for this account is told, not dropped:
+                // the account went away or the limit was reached while the pin waited its turn.
+                if (!applied && pinRequests.value[accountId] == request) {
+                    transientMessage.value = if (container.repository.account(accountId) == null) {
+                        appContext.getString(R.string.message_pin_refused_gone)
+                    } else {
+                        appContext.getString(R.string.message_pin_refused_full, MAX_PINNED_ACCOUNTS)
+                    }
+                }
+            } finally {
+                // Only this request's own entry: a later tap on the same account, even one asking
+                // for the same state, is a request of its own and stays shown until its turn.
+                pinRequests.update { if (it[accountId] == request) it - accountId else it }
+            }
+        }
+    }
+
+    /** One tap on a pin toggle: its own identity, and the state it asks for. */
+    private data class PinRequest(val generation: Long, val pinned: Boolean)
+
+    private var nextPinRequest = 0L
+
+
+    fun recordNotificationPermissionHandled() {
+        viewModelScope.launch { container.settingsStore.recordNotificationPermissionHandled() }
+    }
+
+    fun setNotifyBelow20(enabled: Boolean) {
+        viewModelScope.launch { container.settingsStore.setNotifyBelow20Percent(enabled) }
+    }
+
+    fun setNotifyBelow10(enabled: Boolean) {
+        viewModelScope.launch { container.settingsStore.setNotifyBelow10Percent(enabled) }
+    }
+
+    fun setNotifyResetApproaching(enabled: Boolean) {
+        viewModelScope.launch { container.settingsStore.setNotifyOnResetApproaching(enabled) }
+    }
+
+    fun setNotifyCreditExpiring(enabled: Boolean) {
+        viewModelScope.launch { container.settingsStore.setNotifyOnResetCreditExpiring(enabled) }
+    }
+
+    fun setNotifyExhausted(enabled: Boolean) {
+        viewModelScope.launch { container.settingsStore.setNotifyOnExhausted(enabled) }
+    }
+
+    fun setNotifyResetCredit(enabled: Boolean) {
+        viewModelScope.launch { container.settingsStore.setNotifyOnResetCredit(enabled) }
+    }
+
+    fun setNotifyAuthExpired(enabled: Boolean) {
+        viewModelScope.launch { container.settingsStore.setNotifyOnAuthExpired(enabled) }
+    }
+
+    fun clearMessage() {
+        transientMessage.value = null
+    }
+
+    class Factory(
+        private val container: AppContainer,
+        private val appContext: Context,
+    ) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            UsageViewModel(container, appContext) as T
+    }
+}
