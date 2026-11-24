@@ -16,7 +16,7 @@
 
 <p align="center"><img src="docs/redesign/android/overview-list.png" width="280" alt="Android Overview List rendered with synthetic accounts"><img src="docs/redesign/android/overview-dials.png" width="280" alt="Android Overview Dials rendered with synthetic accounts"></p>
 
-Android List and Dials, rendered from native Compose views by `RedesignCaptureTest` at `a0857ee7d8b70a46a733c364bc36f636abb2414f` (Robolectric API 34, synthetic accounts). These tall scrolling-view captures are not emulator or phone screenshots. [Capture provenance and before/after selection](docs/release.md#selected-android-captures).
+Android List and Dials, rendered from native Compose views by `RedesignCaptureTest` at `0b51086` (Robolectric API 34, synthetic accounts, Pure black). The empty area below the content is cropped; the captures are not emulator or phone screenshots. [Capture provenance and before/after selection](docs/release.md#selected-android-captures).
 
 ## What the app does
 
