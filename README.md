@@ -10,11 +10,11 @@
 
 <p align="center"><a href="#what-the-app-does">What it does</a> · <a href="#supported-services">Services</a> · <a href="#prepaid-credits">Credits</a> · <a href="#widgets">Widgets</a> · <a href="#your-data">Your data</a> · <a href="#build-it-yourself">Build</a></p>
 
-> **0.5.0 release candidate, not a published release.** These instructions describe `release/0.5.0`, not `main` or a released APK. The Android and iOS software changes are integrated; full CI for this combined candidate remains pending. Earlier green Android runs do not verify the newer changes. Physical-device checks remain open on both platforms. See [candidate evidence and remaining gates](docs/release.md#release-050-checkpoint).
+> **0.5.0 is tagged and its draft is ready.** The signed Android APK and AAB, the R8 mapping and the unsigned iOS archive are attached to the draft of [`v0.5.0`](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0). The tag points at `b8d861f`, and `main` has the same source tree. The release workflow for the tag passed Android unit tests and lint, the shared Swift tests and the API 37 emulator smoke before packaging. Physical-device checks remain open. See [release evidence and remaining gates](docs/release.md#release-050-checkpoint).
 >
 > Build from source or download the debug APK from an Android run under **Actions**. Match the artifact to its commit.
 
-<p align="center"><img src="docs/redesign/android/overview-list.png" width="280" alt="Android candidate Overview List rendered with synthetic accounts"><img src="docs/redesign/android/overview-dials.png" width="280" alt="Android candidate Overview Dials rendered with synthetic accounts"></p>
+<p align="center"><img src="docs/redesign/android/overview-list.png" width="280" alt="Android Overview List rendered with synthetic accounts"><img src="docs/redesign/android/overview-dials.png" width="280" alt="Android Overview Dials rendered with synthetic accounts"></p>
 
 Android List and Dials, rendered from native Compose views by `RedesignCaptureTest` at `a0857ee7d8b70a46a733c364bc36f636abb2414f` (Robolectric API 34, synthetic accounts). These tall scrolling-view captures are not emulator or phone screenshots. [Capture provenance and before/after selection](docs/release.md#selected-android-captures).
 
@@ -87,7 +87,7 @@ Both apps remember a reset only when a new measured reading confirms the same ac
 
 At the next qualifying main-app opening, the app claims the mark before refreshing. After the loaded, active screen's first ready placement, each qualifying account with a visible eligible figure gets one shared four-second Hooray presentation. Motion off uses its still pose for the same time. Android counts a process foreground transition with the main activity started; recreation, resume alone and widget configuration do not count. iOS counts initial activation and a return from background to active, not an inactive-only interruption. Returning from browser sign-in counts only when the platform's opening rule applies.
 
-An interrupted or unseen opportunity does not replay later. Placed Usage Bars, Account Rings and Mini Rings use each account's steady mood, never Hooray; configuration keeps static catalog artwork. Both implementations use the same dated-reset vectors. See [candidate proof and remaining CI/device gates](docs/release.md#release-050-checkpoint). Real foreground transitions, first placement and animation pacing still need device checks.
+An interrupted or unseen opportunity does not replay later. Placed Usage Bars, Account Rings and Mini Rings use each account's steady mood, never Hooray; configuration keeps static catalog artwork. Both implementations use the same dated-reset vectors. See [release evidence and remaining device gates](docs/release.md#release-050-checkpoint). Real foreground transitions, first placement and animation pacing still need device checks.
 
 ## Supported services
 
@@ -184,7 +184,7 @@ More about how widgets stay current: [docs/widgets.md](docs/widgets.md).
 
 ## App tour
 
-The [archived app tour](docs/01-terracotta/DEMO.md) shows an earlier interface, including the removed Accounts destination. Its [asset notes](docs/01-terracotta/ASSET-SOURCES.md) distinguish illustrations from old iOS simulator captures. It is not a walkthrough of the 0.5.0 candidate. The [selected Android captures](docs/release.md#selected-android-captures) show earlier redesign revisions; the older `docs/redesign/after` directory predates this candidate too. Current combined-candidate and new iOS capture coverage remains pending; no new gallery is claimed.
+The [archived app tour](docs/01-terracotta/DEMO.md) shows an earlier interface, including the removed Accounts destination. Its [asset notes](docs/01-terracotta/ASSET-SOURCES.md) distinguish illustrations from old iOS simulator captures. It is not a walkthrough of 0.5.0. The [selected Android captures](docs/release.md#selected-android-captures) show earlier redesign revisions; the older `docs/redesign/after` directory predates this release too. Current phone, tablet and physical-device captures remain pending; no new gallery is claimed.
 
 ## Your data
 
