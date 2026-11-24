@@ -10,7 +10,7 @@
 
 <p align="center"><a href="#what-the-app-does">What it does</a> · <a href="#supported-services">Services</a> · <a href="#prepaid-credits">Credits</a> · <a href="#widgets">Widgets</a> · <a href="#your-data">Your data</a> · <a href="#build-it-yourself">Build</a></p>
 
-> **0.5.0 is tagged and its draft is ready.** The signed Android APK and AAB, the R8 mapping and the unsigned iOS archive are attached to the draft of [`v0.5.0`](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0). The tag points at `b8d861f`, and `main` has the same source tree. Before signing, the release workflow passed Android unit tests and lint, plus the shared Swift tests, on that commit. The API 37 emulator smoke passed for the earlier build of the same tree. Physical-device checks remain open. See [release evidence and remaining gates](docs/release.md#release-050-checkpoint).
+> **0.5.0 is tagged and its draft is ready.** The signed Android APK and AAB, the R8 mapping and the unsigned iOS archive are attached to the draft of [`v0.5.0`](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0). The tag points at `b8d861f`, and `main` has the same source tree. The release workflow for the tag passed Android unit tests and lint, the shared Swift tests and the API 37 emulator smoke before packaging. Physical-device checks remain open. See [release evidence and remaining gates](docs/release.md#release-050-checkpoint).
 >
 > Build from source or download the debug APK from an Android run under **Actions**. Match the artifact to its commit.
 
