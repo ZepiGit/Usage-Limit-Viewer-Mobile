@@ -6,7 +6,7 @@ import com.usagelimits.core.model.ProviderRegion
  * Every provider URL, client identifier and request header the app sends, in one place.
  *
  * These values are reverse-engineered from the first-party CLI/desktop clients by way of
- * CLIProxyAPI and its Management Center (see the docs/providers-*.md provider guides and
+ * CLIProxyAPI and its Management Center (see the docs/providers/*.md provider guides and
  * docs/security.md). They are *not* a documented third-party
  * API and can change without notice, so they are centralised here: an upstream change should
  * be a one-file edit, never a hunt through parsers.
@@ -232,7 +232,7 @@ object ProviderEndpoints {
      * request and forbids exactly one thing: presenting another program's identity. So this
      * app says who it is, never `kimi_cli`, and asks to be allowlisted under that name. Until
      * that is granted the coding API may answer `403 access_terminated`, and a key from the
-     * user's own console stays available as the other way in. See docs/providers-kimi.md.
+     * user's own console stays available as the other way in. See docs/providers/kimi.md.
      *
      * Source: CLIProxyAPI internal/auth/kimi/kimi.go.
      */
@@ -277,7 +277,7 @@ object ProviderEndpoints {
 
     /**
      * Z.ai GLM Coding Plan. Undocumented quota route, API key only. The China service
-     * (open.bigmodel.cn) serves the same path with its own keys. See docs/providers-zai.md.
+     * (open.bigmodel.cn) serves the same path with its own keys. See docs/providers/zai.md.
      */
     object Zai {
         fun usageEndpoint(region: ProviderRegion): String =
@@ -292,7 +292,7 @@ object ProviderEndpoints {
             }
     }
 
-    /** OpenCode Go. Undocumented usage route, API key only. See docs/providers-opencode.md. */
+    /** OpenCode Go. Undocumented usage route, API key only. See docs/providers/opencode.md. */
     object OpenCode {
         const val USAGE_ENDPOINT = "https://opencode.ai/zen/go/v1/usage"
         const val CONSOLE_URL = "https://opencode.ai/auth"

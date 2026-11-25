@@ -368,7 +368,7 @@ struct AddAccountSheet: View {
     /// The sign-in with nothing to drive: a key from the provider's console.
     ///
     /// Kimi Code's second way in, under its device flow, for the time before Moonshot has
-    /// allowlisted this app's name on the coding API (see docs/providers-kimi.md), and the only
+    /// allowlisted this app's name on the coding API (see docs/providers/kimi.md), and the only
     /// way in for Z.ai and OpenCode Go.
     private func awaitingKey(_ provider: ProviderID) -> some View {
         UsageCard {

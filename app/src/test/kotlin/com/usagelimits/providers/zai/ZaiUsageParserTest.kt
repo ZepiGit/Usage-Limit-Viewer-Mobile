@@ -8,7 +8,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Z.ai quota shapes from docs/providers-zai.md. All values synthetic. */
+/** Z.ai quota shapes from docs/providers/zai.md. All values synthetic. */
 class ZaiUsageParserTest {
 
     private fun parse(json: String) = ZaiUsageParser.parse(JsonSupport.parseObject(json))

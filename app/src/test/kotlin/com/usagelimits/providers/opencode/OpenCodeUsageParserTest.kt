@@ -7,7 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** OpenCode Go usage shape from docs/providers-opencode.md. All values synthetic. */
+/** OpenCode Go usage shape from docs/providers/opencode.md. All values synthetic. */
 class OpenCodeUsageParserTest {
 
     private fun parse(json: String) = OpenCodeUsageParser.parse(JsonSupport.parseObject(json))

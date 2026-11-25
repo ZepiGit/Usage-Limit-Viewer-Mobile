@@ -1,5 +1,5 @@
 {
-  "description": "Path data and whole glyph files both status icon glyph readers accept or reject. Grammar: docs/provider-assets.md, 'Glyph path grammar'. Android (StatusIconGlyphsTest) and iOS (StatusIconGlyphsTests) read this file. Whole files name every provider this build knows; 'providers' lists those ids, and both suites check it against their own provider enum (tools/check_glyph_file.py reads it).",
+  "description": "Path data and whole glyph files both status icon glyph readers accept or reject. Grammar: docs/providers/assets.md, 'Glyph path grammar'. Android (StatusIconGlyphsTest) and iOS (StatusIconGlyphsTests) read this file. Whole files name every provider this build knows; 'providers' lists those ids, and both suites check it against their own provider enum (tools/check_glyph_file.py reads it).",
   "providers": [
     "codex",
     "claude",

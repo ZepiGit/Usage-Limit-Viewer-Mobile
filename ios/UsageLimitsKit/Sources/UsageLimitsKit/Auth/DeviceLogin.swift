@@ -737,7 +737,7 @@ public enum LoginStyle: Sendable, Equatable {
     /// No flow at all: the user creates a key on the provider's console and pastes it.
     ///
     /// No provider's default any more — Kimi Code signs in with its device flow — but still
-    /// the shape of Kimi's second way in, offered under the flow. See docs/providers-kimi.md.
+    /// the shape of Kimi's second way in, offered under the flow. See docs/providers/kimi.md.
     case pastedKey
 }
 

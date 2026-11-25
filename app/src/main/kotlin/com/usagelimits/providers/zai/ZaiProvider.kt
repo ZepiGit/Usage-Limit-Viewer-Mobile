@@ -17,7 +17,7 @@ import com.usagelimits.providers.keyIdentity
 import kotlinx.serialization.json.JsonObject
 
 /**
- * Z.ai GLM Coding Plan, reached with an API key the user pasted. See docs/providers-zai.md.
+ * Z.ai GLM Coding Plan, reached with an API key the user pasted. See docs/providers/zai.md.
  *
  * The key is region-bound (see [ProviderRegion]) and the response names no user, so the account
  * is filed under a digest of the key. There is no refresh grant.

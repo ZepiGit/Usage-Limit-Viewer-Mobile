@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Ported from the Android `ProviderEndpoints.kt`, value for value. These are reverse-engineered
 /// from the first-party CLI and desktop clients by way of CLIProxyAPI and its Management Center
-/// (see the `docs/providers-*.md` provider guides and `docs/security.md`). They are
+/// (see the `docs/providers/*.md` provider guides and `docs/security.md`). They are
 /// **not** a documented third-party API and can change without notice, which is why they are
 /// centralised: an upstream change should be a one-file edit on each platform, never a hunt
 /// through parsers.
@@ -201,7 +201,7 @@ public enum ProviderEndpoints {
     /// and forbids exactly one thing: presenting another program's identity. So this app says
     /// who it is, never `kimi_cli`. Until its name is allowlisted the coding API may answer
     /// `403 access_terminated`, and a key from the user's own console stays the other way in.
-    /// See docs/providers-kimi.md.
+    /// See docs/providers/kimi.md.
     public enum Kimi {
         /// The public client id every Kimi Code device-flow client presents, on both hosts.
         public static let clientID = "17e5f671-d194-4dfb-9706-5516cb48c098"
@@ -246,7 +246,7 @@ public enum ProviderEndpoints {
     }
 
     /// Z.ai GLM Coding Plan. Undocumented quota route, API key only. The China service
-    /// (open.bigmodel.cn) serves the same path with its own keys. See docs/providers-zai.md.
+    /// (open.bigmodel.cn) serves the same path with its own keys. See docs/providers/zai.md.
     public enum Zai {
         public static func usageEndpoint(_ region: ProviderRegion) -> String {
             (region == .cn ? "https://open.bigmodel.cn" : "https://api.z.ai") + "/api/monitor/usage/quota/limit"
@@ -258,7 +258,7 @@ public enum ProviderEndpoints {
         }
     }
 
-    /// OpenCode Go. Undocumented usage route, API key only. See docs/providers-opencode.md.
+    /// OpenCode Go. Undocumented usage route, API key only. See docs/providers/opencode.md.
     public enum OpenCode {
         public static let usageEndpoint = "https://opencode.ai/zen/go/v1/usage"
         public static let consoleURL = "https://opencode.ai/auth"

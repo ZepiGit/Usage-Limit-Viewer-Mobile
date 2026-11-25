@@ -690,7 +690,7 @@ public struct XaiClient: SyncProvider, Sendable {
 /// Kimi Code, reached with either an OAuth token from `KimiDeviceLogin` or a key the user
 /// pasted. Every request names this app as the caller — `api.kimi.com/coding` admits programs
 /// by name, and presenting another program's is the one thing Moonshot forbids. See
-/// docs/providers-kimi.md.
+/// docs/providers/kimi.md.
 public struct KimiClient: SyncProvider, Sendable {
     public let providerID = "kimi"
 
@@ -772,7 +772,7 @@ public struct KimiClient: SyncProvider, Sendable {
 
 /// Z.ai GLM Coding Plan, reached with an API key the user pasted. The key is region-bound (see
 /// `ProviderRegion`) and the response names no user, so the account is filed under a digest of
-/// the key. See docs/providers-zai.md.
+/// the key. See docs/providers/zai.md.
 public struct ZaiClient: SyncProvider, Sendable {
     public let providerID = "zai"
 
@@ -809,7 +809,7 @@ public struct ZaiClient: SyncProvider, Sendable {
 }
 
 /// OpenCode Go, reached with an API key the user pasted. The response names no user, so the
-/// account is filed under a digest of the key. See docs/providers-opencode.md.
+/// account is filed under a digest of the key. See docs/providers/opencode.md.
 public struct OpenCodeClient: SyncProvider, Sendable {
     public let providerID = "opencode"
 

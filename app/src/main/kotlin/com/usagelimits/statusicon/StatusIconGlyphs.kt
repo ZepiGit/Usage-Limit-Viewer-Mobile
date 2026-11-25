@@ -11,10 +11,10 @@ import kotlinx.serialization.json.doubleOrNull
  * disc, read from `shared/glyphs/status-icon-glyphs.json`.
  *
  * The iOS Lock Screen widget draws the same file, so the two platforms cannot drift apart; that
- * file is the one place to change a glyph. Sources and licences are in `docs/provider-assets.md`.
+ * file is the one place to change a glyph. Sources and licences are in `docs/providers/assets.md`.
  * The build packages only that JSON file as a Java resource, so reading it needs no Context.
  *
- * Both readers accept exactly the grammar in `docs/provider-assets.md` ("Glyph path grammar") and
+ * Both readers accept exactly the grammar in `docs/providers/assets.md` ("Glyph path grammar") and
  * reject the rest, so a path that one platform would draw cannot be skipped or misread by the
  * other. AndroidX's parser is more lenient (it skips unknown letters), so [validatePath] runs first.
  */

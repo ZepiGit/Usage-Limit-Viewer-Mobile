@@ -8,7 +8,7 @@ import FoundationNetworking
 /// Kimi's China / International regions, and the two key-only providers Z.ai and OpenCode Go.
 ///
 /// Every key and token is synthetic. Fixtures are the shapes recorded in
-/// docs/providers-zai.md and docs/providers-opencode.md.
+/// docs/providers/zai.md and docs/providers/opencode.md.
 final class RegionalProvidersTests: XCTestCase {
 
     private let now = Date(timeIntervalSince1970: 1_757_000_000)

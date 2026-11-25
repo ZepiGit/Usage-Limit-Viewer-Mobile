@@ -14,10 +14,10 @@ Why it is built this way is recorded in [ADR 0003](adr/0003-status-icons-and-loc
 
 Turning the switch on or off, pinning and unpinning make the app post or remove the icons without waiting for a sync. After that the icons follow every refresh, by hand or in the background. When a reading turns stale or a reset time passes without a refresh, the app schedules a repaint for that moment; Android may run it later. Removing an account also releases its pin.
 
-<p align="center"><img src="images/status-icons/android-16-status-bar.png" width="900" alt="Android 16 status bar, enlarged: the clock, then a Claude icon with 42, a Codex icon with 5, and the Antigravity glyph alone"></p>
+<p align="center"><img src="media/status-icons/android-16-status-bar.png" width="900" alt="Android 16 status bar, enlarged: the clock, then a Claude icon with 42, a Codex icon with 5, and the Antigravity glyph alone"></p>
 <p align="center"><em>Android 16 emulator in CI, status bar enlarged four times: Claude 42, Codex 5, Antigravity at 100 (glyph alone). Synthetic accounts.</em></p>
 
-<p align="center"><img src="images/status-icons/android-17-status-bar.png" width="900" alt="Android 17 status bar, enlarged: the clock, then a Claude icon with 42, a Codex icon with 5, and the Antigravity glyph alone"></p>
+<p align="center"><img src="media/status-icons/android-17-status-bar.png" width="900" alt="Android 17 status bar, enlarged: the clock, then a Claude icon with 42, a Codex icon with 5, and the Antigravity glyph alone"></p>
 <p align="center"><em>Android 17 emulator in CI, with "Hide silent notifications in status bar" left at its default (on): Claude 42, Codex 5, Antigravity glyph alone.</em></p>
 
 ## Setup on iOS
@@ -43,7 +43,7 @@ An underline under the number or the lone glyph means the reading is stale or it
 
 If a provider rate-limits the app, automatic refresh for that account pauses for 15 minutes to 6 hours; if the refresh failed and you see "!", you can refresh manually to try again or wait for the pause to end.
 
-<p align="center"><img src="images/status-icons/legend.png" width="900" alt="Every provider glyph with 42, 5, 0, 99, an underlined 42, the glyph alone, the underlined glyph alone, a crossed circle, an exclamation mark and a dash"></p>
+<p align="center"><img src="media/status-icons/legend.png" width="900" alt="Every provider glyph with 42, 5, 0, 99, an underlined 42, the glyph alone, the underlined glyph alone, a crossed circle, an exclamation mark and a dash"></p>
 <p align="center"><em>Every state for every provider, drawn by the app's own renderer in a unit test at xxhdpi size, not captured on a device. The last row is the disc used for a provider the app does not know.</em></p>
 
 ## Android notification rows
@@ -59,7 +59,7 @@ The provider's name is in the header as text that accessibility services can rea
 
 The notifications use their own channel, **Status bar icons**, separate from usage alerts. The app creates it with default importance and no sound, vibration, light or badge, and asks Android not to alert for the group. The rows therefore sort with normal notifications rather than under "Silent".
 
-<p align="center"><img src="images/status-icons/android-16-shade-and-lock-screen.png" width="1000" alt="Five emulator frames: the shade with three status rows; two Claude rows told apart by account name; the shade after a repository reorder written by the test driver of an earlier build; a lock screen with three account rows; a lock screen with the two Claude rows"></p>
+<p align="center"><img src="media/status-icons/android-16-shade-and-lock-screen.png" width="1000" alt="Five emulator frames: the shade with three status rows; two Claude rows told apart by account name; the shade after a repository reorder written by the test driver of an earlier build; a lock screen with three account rows; a lock screen with the two Claude rows"></p>
 <p align="center"><em>Android 16 emulator in CI, synthetic accounts, from historical <a href="https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/actions/runs/44216665612">run 44216665612</a> on <code>facd42e</code>; a repository fixture from that older build. From left: the shade with three pinned accounts; two Claude accounts, told apart by name in the header; the shade after the test driver rewrote the stored order; the lock screen with three accounts; the lock screen with only the two Claude accounts pinned. The lock screen is the emulator's swipe lock without a PIN.</em></p>
 
 ## iOS Lock Screen forms
@@ -72,7 +72,7 @@ Each cell's accessibility label is the account's title (provider, plus plan wher
 
 If the widget cannot read the app's data before the first unlock after a restart, it shows "Locked" (the circular form a lock symbol) and asks iOS to try again in 15 minutes.
 
-<p align="center"><img src="images/status-icons/ios-pinned-accounts-views.png" width="900" alt="The Pinned accounts widget in rectangular, circular and inline sizes: three accounts with 42, an underlined 7 and the Kimi glyph alone; exhausted, error and unknown; one account; a stale first account"></p>
+<p align="center"><img src="media/status-icons/ios-pinned-accounts-views.png" width="900" alt="The Pinned accounts widget in rectangular, circular and inline sizes: three accounts with 42, an underlined 7 and the Kimi glyph alone; exhausted, error and unknown; one account; a stale first account"></p>
 <p align="center"><em>View renderings at the three accessory sizes, made on macOS in CI with synthetic accounts, white on black. These are not Lock Screen screenshots: there is no wallpaper and no system tinting, and the third column is the app's inline view, not the system's inline slot.</em></p>
 
 ## Swiping an icon away

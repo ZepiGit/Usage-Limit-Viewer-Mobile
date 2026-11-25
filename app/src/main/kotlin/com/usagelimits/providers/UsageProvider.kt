@@ -69,7 +69,7 @@ sealed interface LoginChallenge {
      * The clumsiest of the three, and Kimi Code's second way in: its device flow is the
      * default, but the coding API admits only programs Moonshot has allowlisted by name, and
      * a key from the user's own console works whether or not this app is on that list yet.
-     * See docs/providers-kimi.md.
+     * See docs/providers/kimi.md.
      */
     data class ApiKey(
         val consoleUrl: String,

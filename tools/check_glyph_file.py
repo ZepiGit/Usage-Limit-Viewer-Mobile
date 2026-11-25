@@ -2,7 +2,7 @@
 """Fail unless the status icon glyph file is strict JSON of the documented shape.
 
 The file ships inside both apps, and their loaders trust it beyond their own schema check, so CI
-runs this before it can ship. The shape and the path grammar are in docs/provider-assets.md
+runs this before it can ship. The shape and the path grammar are in docs/providers/assets.md
 ("Glyph path grammar"). The expected provider ids come from shared/test-vectors/
 glyph-path-grammar.json ("providers"), which the Android and iOS suites check against their own
 provider enums.

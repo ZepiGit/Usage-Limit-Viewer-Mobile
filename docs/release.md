@@ -119,17 +119,16 @@ At the original figure head `160d5c02b1f7ca0eee05480b21bb633f0856cbe5`, [run 448
 
 ### Selected Android captures
 
-These are original retained Android artifacts, not reference HTML, retouched phone mockups or new device proof. None shows the corrected next-open Hooray behavior or the new placed-widget mood stills. `RedesignCaptureTest` draws native views with synthetic accounts in a 393 × 1,800 dp test window, taller than a phone; it does not include the full installed navigation shell. The `dark`/`light` names in the old directories are not evidence of the four new palettes.
+These are original retained Android artifacts, not reference HTML, retouched phone mockups or new device proof. None shows the corrected next-open Hooray behavior or the new placed-widget mood stills. `RedesignCaptureTest` draws native views with synthetic accounts in a 393 × 1,800 dp test window, taller than a phone; it does not include the full installed navigation shell.
 
 | Capture | Provenance and visible scope |
 | --- | --- |
-| [Before: Overview](redesign/before/screen-overview-dark.png) | Historical native test render from `7066d4ce65e4bced97713e60d4eaef33c0c2cc22`, API 34/xhdpi; not the redesign candidate. It shows the older connected-accounts strip and Reorder control, not current Android instructions. |
-| [After: List](redesign/android/overview-list.png) and [Dials](redesign/android/overview-dials.png) | `a0857ee7d8b70a46a733c364bc36f636abb2414f`, native Robolectric API 34/xhdpi, `RedesignCaptureTest` figure scenes, Pure black, English, motion off. Dials shows headline rings and the Add account tile; List shows every window. These predate the final Hooray review. |
-| [Settings / Appearance](redesign/android/settings-appearance.png) | Same revision and test environment, English. Shows the native appearance controls; the tall view is not a phone viewport or cold-launch frame. |
-| [Resets](redesign/android/resets.png) | Same revision and test environment, English. Recorded reset rows and still Hooray artwork, not next-open animation proof. |
-| [German Compact credits](redesign/android/credits-compact-de-emulator.png) | Actual installed API 37 CI emulator frame from run `44881140432`, artifact `android-runtime-evidence-1f5f042a36bb321ecc51ed92e7e04ffe081427ec`. Synthetic credit account, after force-stop/reopen; `3,18 $` and the compact block precede the empty usage state. This is an emulator, not a physical device. |
+| [List](media/captures/overview-list.png) and [Dials](media/captures/overview-dials.png) | `a0857ee7d8b70a46a733c364bc36f636abb2414f`, native Robolectric API 34/xhdpi, `RedesignCaptureTest` figure scenes, Pure black, English, motion off. Dials shows headline rings and the Add account tile; List shows every window. These predate the final Hooray review. |
+| [Settings / Appearance](media/captures/settings-appearance.png) | Same revision and test environment, English. Shows the native appearance controls; the tall view is not a phone viewport or cold-launch frame. |
+| [Resets](media/captures/resets.png) | Same revision and test environment, English. Recorded reset rows and still Hooray artwork, not next-open animation proof. |
+| [German Compact credits](media/captures/credits-compact-de-emulator.png) | Actual installed API 37 CI emulator frame from run `44881140432`, artifact `android-runtime-evidence-1f5f042a36bb321ecc51ed92e7e04ffe081427ec`. Synthetic credit account, after force-stop/reopen; `3,18 $` and the compact block precede the empty usage state. This is an emulator, not a physical device. |
 
-The README uses only the List/Dials pair rather than another full gallery. The older `redesign/after` captures and `01-terracotta` illustrations remain historical references, not current marketing proof. Current Android tablet/foldable, new iOS phone/tablet and physical-device captures remain pending. The new native capture matrix has source coverage, not new CI screenshots or a completed marketing gallery.
+The README uses only the List/Dials pair rather than another full gallery. Current Android tablet/foldable, new iOS phone/tablet and physical-device captures remain pending. The new native capture matrix has source coverage, not new CI screenshots or a completed marketing gallery.
 
 ## Device checklist
 

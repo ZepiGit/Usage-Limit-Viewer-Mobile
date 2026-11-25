@@ -19,7 +19,7 @@ import kotlinx.serialization.json.JsonObject
 /**
  * OpenCode Go, reached with an API key the user pasted. No regions, no refresh grant. The
  * response names no user, so the account is filed under a digest of the key. See
- * docs/providers-opencode.md.
+ * docs/providers/opencode.md.
  */
 class OpenCodeProvider(private val http: HttpClient) : UsageProvider, KeyLoginCapable {
 

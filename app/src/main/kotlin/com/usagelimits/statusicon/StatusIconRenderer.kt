@@ -129,7 +129,7 @@ object StatusIconRenderer {
 
     /**
      * One bold silhouette per provider on a 24-unit square, simplified from the marks in
-     * `assets/providers/` (sources and licences in `docs/provider-assets.md`). They are judged at
+     * `assets/providers/` (sources and licences in `docs/providers/assets.md`). They are judged at
      * the size the status bar draws them, about 10 px high on a 280 dpi screen: thin strokes,
      * small counters and fine detail of the real marks vanish there, so each glyph keeps only the
      * one shape that tells it apart. The path data lives in `shared/glyphs/status-icon-glyphs.json`,

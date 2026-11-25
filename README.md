@@ -1,11 +1,11 @@
-<p align="center"><img src="docs/01-terracotta/app-icon.png" width="76" alt="Usage Limits app icon"></p>
+<p align="center"><img src="docs/media/brand/app-icon.png" width="76" alt="Usage Limits app icon"></p>
 
 <h1 align="center">Usage Limits Mobile</h1>
 
 <p align="center">Usage readings and reset times for supported AI subscriptions, plus prepaid API balances, in the app and on home-screen widgets.</p>
 
 <p align="center">
-<a href="#build-it-yourself"><img src="docs/01-terracotta/android-badge.png" height="25" alt="Android 8.0+"></a> <a href="#build-it-yourself"><img src="docs/01-terracotta/ios-badge.png" height="25" alt="iOS 16.0+"></a> <a href="#build-it-yourself"><img src="docs/01-terracotta/source-badge.png" height="25" alt="Build from source"></a>
+<a href="#build-it-yourself"><img src="docs/media/brand/android-badge.png" height="25" alt="Android 8.0+"></a> <a href="#build-it-yourself"><img src="docs/media/brand/ios-badge.png" height="25" alt="iOS 16.0+"></a> <a href="#build-it-yourself"><img src="docs/media/brand/source-badge.png" height="25" alt="Build from source"></a>
 </p>
 
 <p align="center"><a href="#what-the-app-does">What it does</a> · <a href="#supported-services">Services</a> · <a href="#prepaid-credits">Credits</a> · <a href="#widgets">Widgets</a> · <a href="#your-data">Your data</a> · <a href="#build-it-yourself">Build</a></p>
@@ -14,9 +14,9 @@
 >
 > Install the signed APK from the [0.5.0 release](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0), or build from source. A debug APK from an Android run under **Actions** is a separate build; match it to its commit.
 
-<p align="center"><img src="docs/redesign/android/overview-list.png" width="280" alt="Android Overview List rendered with synthetic accounts"><img src="docs/redesign/android/overview-dials.png" width="280" alt="Android Overview Dials rendered with synthetic accounts"></p>
+<p align="center"><img src="docs/media/captures/overview-list.png" width="280" alt="Android Overview List rendered with synthetic accounts"><img src="docs/media/captures/overview-dials.png" width="280" alt="Android Overview Dials rendered with synthetic accounts"></p>
 
-Android List and Dials, rendered from native Compose views by `RedesignCaptureTest` at `0b51086` (Robolectric API 34, synthetic accounts, Pure black). The empty area below the content is cropped; the captures are not emulator or phone screenshots. [Capture provenance and before/after selection](docs/release.md#selected-android-captures).
+Android List and Dials, rendered from native Compose views by `RedesignCaptureTest` at `0b51086` (Robolectric API 34, synthetic accounts, Pure black). The empty area below the content is cropped; the captures are not emulator or phone screenshots. [Capture provenance](docs/release.md#selected-android-captures).
 
 ## What the app does
 
@@ -182,9 +182,9 @@ iOS version.
 
 More about how widgets stay current: [docs/widgets.md](docs/widgets.md).
 
-## App tour
+## Screenshots
 
-The [archived app tour](docs/01-terracotta/DEMO.md) shows an earlier interface, including the removed Accounts destination. Its [asset notes](docs/01-terracotta/ASSET-SOURCES.md) distinguish illustrations from old iOS simulator captures. It is not a walkthrough of 0.5.0. The [selected Android captures](docs/release.md#selected-android-captures) show earlier redesign revisions; the older `docs/redesign/after` directory predates this release too. Current phone, tablet and physical-device captures remain pending; no new gallery is claimed.
+The [selected Android captures](docs/release.md#selected-android-captures) show earlier redesign revisions. Current phone, tablet and physical-device captures remain pending; no new gallery is claimed.
 
 ## Your data
 
@@ -225,7 +225,7 @@ Then open the generated project in Xcode, set up signing and run it.
 | understand the widgets | [Widgets](docs/widgets.md) |
 | keep accounts in the status bar or on the Lock Screen | [Status icons](docs/status-icons.md) |
 | know how your data is protected | [Security](docs/security.md) |
-| set up a specific service | the `docs/providers-*` guides, e.g. [Codex](docs/providers-codex.md), [Kimi](docs/providers-kimi.md), [Z.ai](docs/providers-zai.md) |
+| set up a specific service | the [provider guides](docs/providers/), e.g. [Codex](docs/providers/codex.md), [Kimi](docs/providers/kimi.md), [Z.ai](docs/providers/zai.md) |
 | use the Credits section | [Credits](docs/credits.md) |
 
 For development, read the [Architecture](docs/architecture.md) and [Release guide](docs/release.md). Reviews check changes against the [Coding standards](CODING_STANDARDS.md).
@@ -236,4 +236,4 @@ For vulnerabilities, follow the [security policy](SECURITY.md) to report private
 ## License
 
 [MIT](LICENSE), copyright (c) 2026 ZepiGit. Third-party artwork notices and trademark
-rights remain as documented in [Provider artwork](docs/provider-assets.md).
+rights remain as documented in [Provider artwork](docs/providers/assets.md).
