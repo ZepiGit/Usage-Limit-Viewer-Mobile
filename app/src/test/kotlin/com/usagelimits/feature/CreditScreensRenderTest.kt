@@ -325,7 +325,7 @@ class CreditScreensRenderTest {
             compose.onNode(hasText(name)).assertExists()
         }
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("No balance endpoint for API keys"))
-        assertEquals(6, compose.onAllNodesWithText("Open").fetchSemanticsNodes().size)
+        assertEquals(10, compose.onAllNodesWithText("Open").fetchSemanticsNodes().size)
     }
 
     @Test fun `open buttons launch the provider key page without selecting a provider`() {
@@ -351,7 +351,7 @@ class CreditScreensRenderTest {
 
     @Test fun `each credit provider has its own readable icon`() {
         val resources = ApplicationProvider.getApplicationContext<Context>().resources
-        assertEquals(6, CreditProviderId.entries.map(::creditIcon).distinct().size)
+        assertEquals(10, CreditProviderId.entries.map(::creditIcon).distinct().size)
         CreditProviderId.entries.forEach { provider ->
             val icon = creditIcon(provider)
             assertTrue(icon != 0)

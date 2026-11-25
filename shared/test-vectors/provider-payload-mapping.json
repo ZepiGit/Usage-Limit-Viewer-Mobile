@@ -1,0 +1,9 @@
+{
+  "description": "How each provider's documented response becomes credit rows or usage windows, and which failures stay unknown rather than zero. Every expected value was worked out by hand from the vendor's documented response, not produced by running either parser. Android (ProviderPayloadMappingVectorsTest) and iOS (ProviderPayloadMappingVectorsTests) read this file directly; one section per provider, added as each parser lands.",
+  "openrouterKeyWindow": [],
+  "vercelAiGateway": [],
+  "deepinfra": [],
+  "tokenrouter": [],
+  "ollama": [],
+  "minimax": []
+}

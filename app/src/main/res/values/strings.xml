@@ -500,6 +500,10 @@
     <string name="credit_key_hint_xai">xAI management key (console.x.ai, Settings, Management Keys), not an inference key.</string>
     <string name="credit_key_hint_fal">fal key with the billing:usage:read scope (the BILLING preset), not an inference key.</string>
     <string name="credit_key_hint_novita">Novita API key.</string>
+    <string name="credit_key_hint_vercel">AI Gateway API key (vck_…) or a Vercel access token.</string>
+    <string name="credit_key_hint_deepinfra">DeepInfra API key.</string>
+    <string name="credit_key_hint_tokenrouter">Management key, not an inference key.</string>
+    <string name="credit_key_hint_ollama">Ollama API key (ollama.com/settings/keys).</string>
     <string name="credit_region_china">China (moonshot.cn, CNY)</string>
     <string name="credit_region_international">International (moonshot.ai, USD)</string>
     <string name="credit_unavailable_no_balance_endpoint">No balance endpoint for API keys</string>
@@ -510,6 +514,8 @@
     <string name="add_api_key_hint_zai">Create a key in your Z.ai console and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
     <string name="add_api_key_hint_kimi">Create a key in your Kimi Code console and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
     <string name="add_api_key_hint_opencode">Create an OpenCode Go key in your OpenCode console and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
+    <string name="add_api_key_hint_ollama">Create a key in your Ollama account (ollama.com/settings/keys) and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
+    <string name="add_api_key_hint_minimax">Create a MiniMax key in your MiniMax console and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
     <string name="credit_balance_key_limit">Key limit</string>
     <string name="credit_balance_no_limit">No limit</string>
     <string name="credit_balance_unavailable">Unavailable</string>

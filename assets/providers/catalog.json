@@ -128,5 +128,21 @@
       "opencode-text",
       "OpenCode · Wordmark"
     ]
+  ],
+  "ollama": [
+    [
+      "ollama",
+      "Ollama · Monochrome"
+    ]
+  ],
+  "minimax": [
+    [
+      "minimax-color",
+      "MiniMax · Color"
+    ],
+    [
+      "minimax",
+      "MiniMax · Monochrome"
+    ]
   ]
 }

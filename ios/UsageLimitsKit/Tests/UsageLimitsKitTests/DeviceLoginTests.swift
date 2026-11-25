@@ -67,6 +67,8 @@ final class DeviceLoginTests: XCTestCase {
         XCTAssertEqual(DeviceLoginSupport.style(for: .meta), .deviceCode)
         XCTAssertEqual(DeviceLoginSupport.style(for: .zai), .pastedKey)
         XCTAssertEqual(DeviceLoginSupport.style(for: .opencode), .pastedKey)
+        XCTAssertEqual(DeviceLoginSupport.style(for: .ollama), .pastedKey)
+        XCTAssertEqual(DeviceLoginSupport.style(for: .minimax), .pastedKey)
         XCTAssertTrue(DeviceLoginSupport.acceptsPastedKey(.kimi))
         XCTAssertFalse(DeviceLoginSupport.acceptsPastedKey(.codex))
         XCTAssertEqual(DeviceLoginSupport.supported, ProviderID.allCases)

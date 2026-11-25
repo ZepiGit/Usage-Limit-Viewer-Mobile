@@ -15,7 +15,9 @@ enum class ProviderId(val id: String, val displayName: String) {
     DEVIN("devin", "Devin"),
     META("meta", "Meta Muse"),
     ZAI("zai", "Z.ai GLM"),
-    OPENCODE("opencode", "OpenCode Go");
+    OPENCODE("opencode", "OpenCode Go"),
+    OLLAMA("ollama", "Ollama Cloud"),
+    MINIMAX("minimax", "MiniMax Token Plan");
 
     companion object {
         fun fromId(value: String?): ProviderId? = entries.firstOrNull { it.id == value }

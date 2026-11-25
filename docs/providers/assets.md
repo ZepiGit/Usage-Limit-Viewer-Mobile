@@ -4,11 +4,11 @@ Provider marks are bundled locally; displaying them makes no network request. Th
 
 Sources live in `assets/providers/lobehub/`, with Devin and Meta Muse artwork beside them. `assets/providers/catalog.json` records the choices. Devin comes from [LobeHub icons](https://lobehub.com/icons); Meta uses the open Meta glyph from [Simple Icons](https://simpleicons.org/).
 
-Z.ai, ChatGLM, OpenCode and the six credit marks come from [LobeHub icons v1.96.0](https://www.npmjs.com/package/@lobehub/icons-static-svg/v/1.96.0), licensed under [MIT](https://github.com/lobehub/lobe-icons/blob/master/LICENSE), copyright © 2023 LobeHub. The SVG sources include the license notice; Android PNGs retain it in `Copyright` and `License` metadata. Keep those notices with redistributed artwork.
+Z.ai, ChatGLM, OpenCode, Ollama, MiniMax and nine of the ten credit marks — OpenRouter, DeepSeek, Moonshot, xAI, fal.ai, Novita, Vercel, DeepInfra and Ollama, every mark but TokenRouter's — come from [LobeHub icons v1.96.0](https://www.npmjs.com/package/@lobehub/icons-static-svg/v/1.96.0), licensed under [MIT](https://github.com/lobehub/lobe-icons/blob/master/LICENSE), copyright © 2023 LobeHub. The SVG sources include the license notice; Android PNGs retain it in `Copyright` and `License` metadata. Keep those notices with redistributed artwork.
 
 In Settings → Provider icons, choose a mark for each service. The selection applies throughout the app and its widgets on that device. Unknown choice IDs fall back to the default. Claude and Claude Code share an account identity, as do Antigravity and Gemini; changing artwork does not change authentication or quota.
 
-Credit providers each have one fixed mark: OpenRouter, DeepSeek, Moonshot, xAI, fal.ai and Novita. Packaged artwork uses transparent PNGs. Android app artwork takes the palette's ink where the mark needs a one-color tint; color artwork retains its colors. Placed widgets use their own ink rules, not the app palette. Vector sources remain available alongside the exported platform assets.
+Credit providers each have one fixed mark: OpenRouter, DeepSeek, Moonshot, xAI, fal.ai, Novita, Vercel, DeepInfra, Ollama and TokenRouter. Packaged artwork uses transparent PNGs. Android app artwork takes the palette's ink where the mark needs a one-color tint; color artwork retains its colors. Placed widgets use their own ink rules, not the app palette. Vector sources remain available alongside the exported platform assets. TokenRouter's mark, a TR monogram in `assets/providers/tokenrouter.svg`, was drawn for this app and has no third-party source.
 
 ## Android Claude Code figure
 
@@ -22,7 +22,7 @@ Fonts are not provider artwork. The [canonical font manifest](../../third_party/
 
 ## Status bar glyphs
 
-The status icons on Android (`app/src/main/kotlin/com/usagelimits/statusicon/StatusIconRenderer.kt`) and the iOS Pinned accounts Lock Screen widget do not reuse the artwork above. Both draw the path data from one file, `shared/glyphs/status-icon-glyphs.json`; changing a glyph means changing that file only, and both platforms' tests read it. The status bar draws the whole icon about 10 px high and keeps only its alpha, so a logo's thin strokes and small holes disappear. Each provider instead has one bold monochrome silhouette, drawn as path data on a 24-unit square. These paths were drawn for this app after the mark each row names; none is a copy of a source path. Some stay close to the mark (Claude, Antigravity, Kimi, OpenCode), the others are freer abstractions of it (Codex, Grok, Devin, Meta Muse, Z.ai). The provider marks remain their owners' trademarks.
+The status icons on Android (`app/src/main/kotlin/com/usagelimits/statusicon/StatusIconRenderer.kt`) and the iOS Pinned accounts Lock Screen widget do not reuse the artwork above. Both draw the path data from one file, `shared/glyphs/status-icon-glyphs.json`; changing a glyph means changing that file only, and both platforms' tests read it. The status bar draws the whole icon about 10 px high and keeps only its alpha, so a logo's thin strokes and small holes disappear. Each provider instead has one bold monochrome silhouette, drawn as path data on a 24-unit square. These paths were drawn for this app after the mark each row names; none is a copy of a source path. Some stay close to the mark (Claude, Antigravity, Kimi, OpenCode, Ollama Cloud), the others are freer abstractions of it (Codex, Grok, Devin, Meta Muse, Z.ai, MiniMax Token Plan). The provider marks remain their owners' trademarks.
 
 | Provider | Glyph | Drawn after | Licence of that source |
 |---|---|---|---|
@@ -35,6 +35,8 @@ The status icons on Android (`app/src/main/kotlin/com/usagelimits/statusicon/Sta
 | Meta Muse | Two rings side by side, standing for the infinity loop | `assets/providers/lobehub/meta-mono.svg` | Simple Icons, CC0 1.0 |
 | Z.ai GLM | A bold Z | `assets/providers/lobehub/zai.svg` | LobeHub icons, MIT, © 2023 LobeHub |
 | OpenCode Go | An upright frame around a hollow, the mark's frame redrawn with its edges half a unit further in | `assets/providers/lobehub/opencode.svg` | LobeHub icons, MIT, © 2023 LobeHub |
+| Ollama Cloud | A llama head with two upright oval ears and the eyes cut out | `assets/providers/lobehub/ollama.svg` | LobeHub icons, MIT, © 2023 LobeHub |
+| MiniMax Token Plan | The mark's wave as one bold M, its middle dipping lowest | `assets/providers/lobehub/minimax.svg` | LobeHub icons, MIT, © 2023 LobeHub |
 | Unknown provider | A plain disc | Drawn for this app | No third-party source |
 
 ### Glyph path grammar

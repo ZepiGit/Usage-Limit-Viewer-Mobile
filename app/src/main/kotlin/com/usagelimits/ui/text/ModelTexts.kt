@@ -30,6 +30,10 @@ fun creditKeyHintRes(provider: CreditProviderId): Int = when (provider) {
     CreditProviderId.XAI -> R.string.credit_key_hint_xai
     CreditProviderId.FAL -> R.string.credit_key_hint_fal
     CreditProviderId.NOVITA -> R.string.credit_key_hint_novita
+    CreditProviderId.VERCEL_AI_GATEWAY -> R.string.credit_key_hint_vercel
+    CreditProviderId.DEEPINFRA -> R.string.credit_key_hint_deepinfra
+    CreditProviderId.TOKENROUTER -> R.string.credit_key_hint_tokenrouter
+    CreditProviderId.OLLAMA -> R.string.credit_key_hint_ollama
 }
 
 /** The segment label of a Moonshot region; the model's [CreditProviderId.regionLabel] in English. */
@@ -66,6 +70,8 @@ fun apiKeyHintRes(provider: ProviderId): Int? = when (provider) {
     ProviderId.ZAI -> R.string.add_api_key_hint_zai
     ProviderId.KIMI -> R.string.add_api_key_hint_kimi
     ProviderId.OPENCODE -> R.string.add_api_key_hint_opencode
+    ProviderId.OLLAMA -> R.string.add_api_key_hint_ollama
+    ProviderId.MINIMAX -> R.string.add_api_key_hint_minimax
     else -> null
 }
 

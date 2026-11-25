@@ -248,7 +248,7 @@ public struct LoopbackLogin: Sendable {
                 accessToken: DevinClient.sessionToken(rawToken),
                 expiresAt: nil)
 
-        case .xai, .kimi, .meta, .zai, .opencode:
+        case .xai, .kimi, .meta, .zai, .opencode, .ollama, .minimax:
             throw DeviceLoginError.unsupportedOnThisPlatform(
                 "This provider signs in with a device code, not a redirect.")
         }
@@ -323,7 +323,7 @@ public struct LoopbackLogin: Sendable {
         case .devin:
             return try await DevinClient(httpClient: httpClient, now: now).profile(credentials)
 
-        case .xai, .kimi, .meta, .zai, .opencode:
+        case .xai, .kimi, .meta, .zai, .opencode, .ollama, .minimax:
             throw DeviceLoginError.unsupportedOnThisPlatform(
                 "This provider signs in with a device code, not a redirect.")
         }
@@ -404,7 +404,7 @@ public struct LoopbackLogin: Sendable {
         case .claude: return Redirect(ProviderEndpoints.Claude.redirectURI)
         case .antigravity: return Redirect(ProviderEndpoints.Antigravity.redirectURI)
         case .devin: return Redirect(ProviderEndpoints.Devin.redirectURI)
-        case .xai, .kimi, .meta, .zai, .opencode: return nil
+        case .xai, .kimi, .meta, .zai, .opencode, .ollama, .minimax: return nil
         }
     }
 
@@ -414,7 +414,7 @@ public struct LoopbackLogin: Sendable {
         case .claude: return ProviderEndpoints.Claude.authorizeURL
         case .antigravity: return ProviderEndpoints.Antigravity.authEndpoint
         case .devin: return ProviderEndpoints.Devin.authorizationURL
-        case .xai, .kimi, .meta, .zai, .opencode: return ""
+        case .xai, .kimi, .meta, .zai, .opencode, .ollama, .minimax: return ""
         }
     }
 
@@ -423,7 +423,7 @@ public struct LoopbackLogin: Sendable {
         case .codex: return ProviderEndpoints.Codex.clientID
         case .claude: return ProviderEndpoints.Claude.clientID
         case .antigravity: return ProviderEndpoints.Antigravity.clientID
-        case .devin, .xai, .kimi, .meta, .zai, .opencode: return ""
+        case .devin, .xai, .kimi, .meta, .zai, .opencode, .ollama, .minimax: return ""
         }
     }
 
@@ -432,7 +432,7 @@ public struct LoopbackLogin: Sendable {
         case .codex: return ProviderEndpoints.Codex.authorizeScope
         case .claude: return ProviderEndpoints.Claude.scope
         case .antigravity: return ProviderEndpoints.Antigravity.scopes.joined(separator: " ")
-        case .devin, .xai, .kimi, .meta, .zai, .opencode: return ""
+        case .devin, .xai, .kimi, .meta, .zai, .opencode, .ollama, .minimax: return ""
         }
     }
 
@@ -446,7 +446,7 @@ public struct LoopbackLogin: Sendable {
         case .codex:
             // What the Codex CLI sends; the authorize page shapes its response by them.
             return ProviderEndpoints.Codex.authorizeExtraParameters
-        case .claude, .devin, .meta, .xai, .kimi, .zai, .opencode:
+        case .claude, .devin, .meta, .xai, .kimi, .zai, .opencode, .ollama, .minimax:
             return [:]
         }
     }

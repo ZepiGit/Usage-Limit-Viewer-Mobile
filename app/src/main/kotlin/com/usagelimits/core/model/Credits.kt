@@ -35,7 +35,18 @@ enum class CreditProviderId(val id: String, val displayName: String, val keyHint
         "fal", "fal.ai", "fal key with the billing:usage:read scope (the BILLING preset), not an inference key.",
         "https://fal.ai/dashboard/keys",
     ),
-    NOVITA("novita", "Novita AI", "Novita API key.", "https://novita.ai/settings/key-management");
+    NOVITA("novita", "Novita AI", "Novita API key.", "https://novita.ai/settings/key-management"),
+    VERCEL_AI_GATEWAY(
+        "vercel", "Vercel AI Gateway",
+        "AI Gateway API key (vck_…) or a Vercel access token.",
+        "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys",
+    ),
+    DEEPINFRA("deepinfra", "DeepInfra", "DeepInfra API key.", "https://deepinfra.com/dash/api_keys"),
+    TOKENROUTER("tokenrouter", "TokenRouter", "Management key, not an inference key.", "https://tokenrouter.com"),
+    OLLAMA(
+        "ollama", "Ollama Cloud", "Ollama API key (ollama.com/settings/keys).",
+        "https://ollama.com/settings/keys",
+    );
 
     /** Only Moonshot runs two hosts (and two currencies) that keys do not cross. */
     val hasRegion: Boolean get() = this == MOONSHOT

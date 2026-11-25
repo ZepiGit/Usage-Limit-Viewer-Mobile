@@ -85,6 +85,14 @@ object ProviderIconCatalog {
             ProviderIconChoice("opencode", "OpenCode", IconStyle.MONOCHROME, R.drawable.icon_opencode),
             ProviderIconChoice("opencode-text", "OpenCode", IconStyle.WORDMARK, R.drawable.icon_opencode_text),
         )
+        ProviderId.OLLAMA -> listOf(
+            ProviderIconChoice("ollama", "Ollama", IconStyle.MONOCHROME, R.drawable.icon_ollama),
+        )
+        ProviderId.MINIMAX -> listOf(
+            ProviderIconChoice("minimax-color", "MiniMax", IconStyle.COLOR, R.drawable.icon_minimax_color,
+                backedShadeArtwork = R.drawable.status_icon_artwork_minimax_color),
+            ProviderIconChoice("minimax", "MiniMax", IconStyle.MONOCHROME, R.drawable.icon_minimax),
+        )
     }
     fun selected(provider: ProviderId, id: String?): ProviderIconChoice =
         choices(provider).firstOrNull { it.id == id } ?: choices(provider).first()

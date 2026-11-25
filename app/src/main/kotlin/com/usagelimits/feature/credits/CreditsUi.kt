@@ -53,6 +53,10 @@ internal fun creditIcon(id: CreditProviderId): Int = when (id) {
     CreditProviderId.XAI -> R.drawable.icon_credit_xai
     CreditProviderId.FAL -> R.drawable.icon_credit_fal
     CreditProviderId.NOVITA -> R.drawable.icon_credit_novita
+    CreditProviderId.VERCEL_AI_GATEWAY -> R.drawable.icon_credit_vercel
+    CreditProviderId.DEEPINFRA -> R.drawable.icon_credit_deepinfra
+    CreditProviderId.TOKENROUTER -> R.drawable.icon_credit_tokenrouter
+    CreditProviderId.OLLAMA -> R.drawable.icon_credit_ollama
 }
 
 @Composable

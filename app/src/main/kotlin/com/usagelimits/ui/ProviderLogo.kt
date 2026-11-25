@@ -48,8 +48,16 @@ internal fun ProviderArtwork(choice: ProviderIconChoice, description: String?, m
 
 @Composable
 internal fun ProviderArtwork(@androidx.annotation.DrawableRes drawable: Int, description: String?, modifier: Modifier) =
-    ProviderArtwork(drawable, drawable == R.drawable.icon_credit_xai || drawable == R.drawable.icon_credit_moonshot,
-        description, modifier)
+    ProviderArtwork(drawable, drawable in MONOCHROME_CREDIT_MARKS, description, modifier)
+
+/** White artwork that needs the palette's ink on the light theme. */
+private val MONOCHROME_CREDIT_MARKS = setOf(
+    R.drawable.icon_credit_xai,
+    R.drawable.icon_credit_moonshot,
+    R.drawable.icon_credit_ollama,
+    R.drawable.icon_credit_vercel,
+    R.drawable.icon_credit_tokenrouter,
+)
 
 @Composable
 private fun ProviderArtwork(@androidx.annotation.DrawableRes drawable: Int, whiteInk: Boolean, description: String?, modifier: Modifier) {

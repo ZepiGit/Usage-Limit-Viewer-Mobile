@@ -274,6 +274,11 @@ enum DisplayText {
         case .fal:
             return String(localized: "fal key with the billing:usage:read scope (the BILLING preset), not an inference key.")
         case .novita: return String(localized: "Novita API key.")
+        case .vercelAiGateway:
+            return String(localized: "AI Gateway API key (vck_…) or a Vercel access token.")
+        case .deepinfra: return String(localized: "DeepInfra API key.")
+        case .tokenrouter: return String(localized: "Management key, not an inference key.")
+        case .ollama: return String(localized: "Ollama API key (ollama.com/settings/keys).")
         }
     }
 

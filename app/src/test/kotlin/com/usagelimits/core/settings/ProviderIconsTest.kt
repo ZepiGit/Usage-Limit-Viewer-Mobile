@@ -9,7 +9,7 @@ import org.junit.Test
 
 class ProviderIconsTest {
     @Test fun `two logo families share one provider and have the requested defaults`() {
-        assertEquals(9, ProviderId.entries.size)
+        assertEquals(11, ProviderId.entries.size)
         assertEquals("claudecode-color", ProviderIconCatalog.selected(ProviderId.CLAUDE, null).id)
         assertEquals("gemini-color", ProviderIconCatalog.selected(ProviderId.ANTIGRAVITY, null).id)
         assertEquals(6, ProviderIconCatalog.choices(ProviderId.CLAUDE).size)
@@ -18,7 +18,11 @@ class ProviderIconsTest {
         assertEquals(listOf("meta-color", "meta"), ProviderIconCatalog.choices(ProviderId.META).map { it.id })
         assertEquals(listOf("zai", "zai-text", "chatglm-color"), ProviderIconCatalog.choices(ProviderId.ZAI).map { it.id })
         assertEquals(listOf("opencode", "opencode-text"), ProviderIconCatalog.choices(ProviderId.OPENCODE).map { it.id })
-        assertEquals(28, ProviderId.entries.sumOf { ProviderIconCatalog.choices(it).size })
+        assertEquals(listOf("ollama"), ProviderIconCatalog.choices(ProviderId.OLLAMA).map { it.id })
+        assertEquals(listOf("minimax-color", "minimax"), ProviderIconCatalog.choices(ProviderId.MINIMAX).map { it.id })
+        assertEquals("minimax-color", ProviderIconCatalog.selected(ProviderId.MINIMAX, null).id)
+        assertEquals("ollama", ProviderIconCatalog.selected(ProviderId.OLLAMA, "deleted-variant").id)
+        assertEquals(31, ProviderId.entries.sumOf { ProviderIconCatalog.choices(it).size })
     }
 
     @Test fun `stored selections remain independent and unknown icons fall back safely`() {

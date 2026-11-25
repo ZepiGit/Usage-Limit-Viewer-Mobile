@@ -621,7 +621,9 @@ final class CreditsTests: XCTestCase {
     func testEndpointsAreTheDocumentedOnes() {
         XCTAssertEqual(ProviderEndpoints.Credits.moonshotBalance(.intl), "https://api.moonshot.ai/v1/users/me/balance")
         XCTAssertEqual(ProviderEndpoints.Credits.novitaBalance, "https://api.novita.ai/openapi/v1/billing/balance/detail")
-        XCTAssertEqual(CreditProviderID.allCases.map(\.rawValue), ["openrouter", "deepseek", "moonshot", "xai", "fal", "novita"])
+        XCTAssertEqual(
+            CreditProviderID.allCases.map(\.rawValue),
+            ["openrouter", "deepseek", "moonshot", "xai", "fal", "novita", "vercel", "deepinfra", "tokenrouter", "ollama"])
         XCTAssertEqual(CreditProviderID.notPossible.map(\.id), ["anthropic", "openai"])
         XCTAssertEqual(CreditProviderID.xai.consoleURL, "https://console.x.ai/team/default/api-keys")
     }
@@ -630,7 +632,7 @@ final class CreditsTests: XCTestCase {
         let assets = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("UsageLimits/Sources/Assets.xcassets")
-        XCTAssertEqual(Set(CreditProviderID.allCases.map(\.iconAssetName)).count, 6)
+        XCTAssertEqual(Set(CreditProviderID.allCases.map(\.iconAssetName)).count, 10)
         for provider in CreditProviderID.allCases {
             XCTAssertFalse(provider.iconAssetName.isEmpty)
             let directory = assets.appendingPathComponent("\(provider.iconAssetName).imageset")

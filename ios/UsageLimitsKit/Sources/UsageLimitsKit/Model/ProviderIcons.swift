@@ -55,6 +55,13 @@ public enum ProviderIconCatalog {
             ProviderIconChoice(id: "opencode", label: "OpenCode · Monochrome", assetName: "ProviderIconOpencode"),
             ProviderIconChoice(id: "opencode-text", label: "OpenCode · Wordmark", assetName: "ProviderIconOpencodeText"),
         ]
+        case .ollama: return [
+            ProviderIconChoice(id: "ollama", label: "Ollama · Monochrome", assetName: "ProviderIconOllama"),
+        ]
+        case .minimax: return [
+            ProviderIconChoice(id: "minimax-color", label: "MiniMax · Color", assetName: "ProviderIconMinimaxColor"),
+            ProviderIconChoice(id: "minimax", label: "MiniMax · Monochrome", assetName: "ProviderIconMinimax"),
+        ]
         }
     }
 

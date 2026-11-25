@@ -4035,6 +4035,58 @@
           }
         }
       }
+    },
+    "AI Gateway API key (vck_…) or a Vercel access token." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI-Gateway-API-Schlüssel (vck_…) oder ein Vercel-Zugriffstoken."
+          }
+        }
+      }
+    },
+    "DeepInfra API key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DeepInfra-API-Schlüssel."
+          }
+        }
+      }
+    },
+    "Management key, not an inference key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Management-Schlüssel, kein Inferenz-Schlüssel."
+          }
+        }
+      }
+    },
+    "MiniMax Token Plan" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
+    },
+    "Ollama API key (ollama.com/settings/keys)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ollama-API-Schlüssel (ollama.com/settings/keys)."
+          }
+        }
+      }
+    },
+    "Ollama Cloud" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
     }
   },
   "version" : "1.0"

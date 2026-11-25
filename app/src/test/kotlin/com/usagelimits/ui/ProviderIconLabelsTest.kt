@@ -46,6 +46,9 @@ private val SHIPPED_ENGLISH_LABELS = mapOf(
     "chatglm-color" to "ChatGLM \u00B7 Color",
     "opencode" to "OpenCode \u00B7 Monochrome",
     "opencode-text" to "OpenCode \u00B7 Wordmark",
+    "ollama" to "Ollama \u00B7 Monochrome",
+    "minimax-color" to "MiniMax \u00B7 Color",
+    "minimax" to "MiniMax \u00B7 Monochrome",
 )
 
 @RunWith(RobolectricTestRunner::class)

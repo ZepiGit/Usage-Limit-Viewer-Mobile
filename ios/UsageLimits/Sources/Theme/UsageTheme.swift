@@ -638,7 +638,8 @@ struct ProviderMark: View {
         "ProviderIconKimi", "ProviderIconKimiText", "ProviderIconClaude", "ProviderIconClaudeText",
         "ProviderIconClaudecode", "ProviderIconClaudecodeText", "ProviderIconGemini", "ProviderIconGeminiText",
         "ProviderIconAntigravity", "ProviderIconAntigravityText", "ProviderIconDevin", "ProviderIconMeta",
-        "ProviderIconZai", "ProviderIconZaiText", "ProviderIconOpencode", "ProviderIconOpencodeText"
+        "ProviderIconZai", "ProviderIconZaiText", "ProviderIconOpencode", "ProviderIconOpencodeText",
+        "ProviderIconOllama", "ProviderIconMinimax"
     ]
 
     var body: some View {

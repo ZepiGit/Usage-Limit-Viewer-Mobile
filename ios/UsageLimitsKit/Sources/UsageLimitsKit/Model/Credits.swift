@@ -14,6 +14,10 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
     case xai
     case fal
     case novita
+    case vercelAiGateway = "vercel"
+    case deepinfra
+    case tokenrouter
+    case ollama
 
     public var displayName: String {
         switch self {
@@ -23,6 +27,10 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         case .xai: return "xAI (prepaid)"
         case .fal: return "fal.ai"
         case .novita: return "Novita AI"
+        case .vercelAiGateway: return "Vercel AI Gateway"
+        case .deepinfra: return "DeepInfra"
+        case .tokenrouter: return "TokenRouter"
+        case .ollama: return "Ollama Cloud"
         }
     }
 
@@ -34,6 +42,10 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         case .xai: return "CreditIconXai"
         case .fal: return "CreditIconFal"
         case .novita: return "CreditIconNovita"
+        case .vercelAiGateway: return "CreditIconVercel"
+        case .deepinfra: return "CreditIconDeepinfra"
+        case .tokenrouter: return "CreditIconTokenrouter"
+        case .ollama: return "CreditIconOllama"
         }
     }
 
@@ -46,6 +58,10 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         case .xai: return "xAI management key (console.x.ai, Settings, Management Keys), not an inference key."
         case .fal: return "fal key with the billing:usage:read scope (the BILLING preset), not an inference key."
         case .novita: return "Novita API key."
+        case .vercelAiGateway: return "AI Gateway API key (vck_…) or a Vercel access token."
+        case .deepinfra: return "DeepInfra API key."
+        case .tokenrouter: return "Management key, not an inference key."
+        case .ollama: return "Ollama API key (ollama.com/settings/keys)."
         }
     }
 
@@ -63,6 +79,10 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         case .xai: return "https://console.x.ai/team/default/api-keys"
         case .fal: return "https://fal.ai/dashboard/keys"
         case .novita: return "https://novita.ai/settings/key-management"
+        case .vercelAiGateway: return "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys"
+        case .deepinfra: return "https://deepinfra.com/dash/api_keys"
+        case .tokenrouter: return "https://tokenrouter.com"
+        case .ollama: return "https://ollama.com/settings/keys"
         }
     }
 
