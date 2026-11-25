@@ -48,7 +48,7 @@ Five home-screen styles, each able to show all accounts, one service, one accoun
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/08-widgets-usage-dark.png">
-  <img src="docs/images/readme/08-widgets-usage-light.png" width="880" alt="Usage Summary widget (4×1 and 2×2) for Claude Pro at 34% left, and the Usage Bars widget (4×4 and 2×2) listing accounts by closest reset.">
+  <img src="docs/images/readme/08-widgets-usage-light.png" width="880" alt="Usage Bars widget (4×4 and 2×2) listing accounts by closest reset, and the Usage Summary widget (4×1 and 2×2) for Claude Pro at 34% left.">
 </picture>
 
 ## Services
