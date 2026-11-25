@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="Click through Usage Limits, the Android app for AI usage limits, prepaid credits, widgets and status bar icons.">
+  <title>Usage Limits — interactive preview</title>
+  <link rel="stylesheet" href="assets/app.css">
+  <link rel="icon" href="assets/try-the-demo.svg" type="image/svg+xml">
+</head>
+<body>
+  <div class="page">
+    <header class="intro">
+      <h1>Usage Limits</h1>
+      <p>Tap through the Android app. Use the buttons under the phone for the home screen, list or dials, and theme.</p>
+    </header>
+
+    <div class="phone-scale" aria-hidden="false">
+      <div class="side-btn vol"></div>
+      <div class="side-btn pwr"></div>
+      <div class="device">
+        <div class="screen" id="screen" data-screen="overview-list">
+          <img id="screen-image" alt="Overview, list of accounts" width="840" height="1885" src="assets/screens/dark/overview-list.webp">
+          <div class="hotspots" id="hotspots"></div>
+          <div class="punch" aria-hidden="true"></div>
+          <div class="sheet" id="sheet" hidden aria-hidden="true" role="dialog" aria-labelledby="sheet-title">
+            <div class="sheet-card">
+              <h2 id="sheet-title">Add account</h2>
+              <p id="sheet-body"></p>
+              <button type="button" id="sheet-close">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="ctrl">
+        <button type="button" id="home-btn" aria-pressed="false">Home screen</button>
+      </div>
+      <div class="seg" id="layout-toggle" role="group" aria-label="Overview layout">
+        <button type="button" data-layout="list" aria-pressed="true">List</button>
+        <button type="button" data-layout="dials" aria-pressed="false">Dials</button>
+      </div>
+      <div class="seg" id="theme-toggle" role="group" aria-label="App theme">
+        <button type="button" data-theme="dark" aria-pressed="true">Pure black</button>
+        <button type="button" data-theme="light" aria-pressed="false">Light paper</button>
+      </div>
+    </div>
+
+    <p class="note">Swipe down from the clock for the notification shade. On a detail screen, swipe in from the left edge or tap the bar at the bottom to go back.</p>
+  </div>
+  <script src="assets/app.js"></script>
+</body>
+</html>
