@@ -6,7 +6,7 @@ import com.usagelimits.core.model.ProviderRegion
  * Every provider URL, client identifier and request header the app sends, in one place.
  *
  * These values are reverse-engineered from the first-party CLI/desktop clients by way of
- * CLIProxyAPI and its Management Center (see the docs/providers/*.md provider guides and
+ * CLIProxyAPI and its Management Center (see the provider guides under docs/providers/ and
  * docs/security.md). They are *not* a documented third-party
  * API and can change without notice, so they are centralised here: an upstream change should
  * be a one-file edit, never a hunt through parsers.

@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Ported from the Android `ProviderEndpoints.kt`, value for value. These are reverse-engineered
 /// from the first-party CLI and desktop clients by way of CLIProxyAPI and its Management Center
-/// (see the `docs/providers/*.md` provider guides and `docs/security.md`). They are
+/// (see the provider guides under `docs/providers/` and `docs/security.md`). They are
 /// **not** a documented third-party API and can change without notice, which is why they are
 /// centralised: an upstream change should be a one-file edit on each platform, never a hunt
 /// through parsers.
