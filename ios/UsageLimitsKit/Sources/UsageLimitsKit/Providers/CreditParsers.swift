@@ -99,7 +99,11 @@ public enum OpenRouterCreditParser {
 
     /// `/key` (any key): the key's own budget. `effective_budget` wins when it states a
     /// remainder; `limit` null means no cap, so there is no balance and the month's spend shows.
-    public static func parseKey(_ payload: [String: Any]) throws -> [CreditBalance] {
+    ///
+    /// `now` only places the next period boundary of a capped key: the payload names the period
+    /// (`limit_reset`) but never its instant. The budget row is left alone, because a budget's
+    /// scope can be a member or a workspace rather than this key.
+    public static func parseKey(_ payload: [String: Any], now: Date) throws -> [CreditBalance] {
         guard let data = JSONSupport.object(payload, "data") else {
             throw CreditError.malformed("openrouter key has no data")
         }
@@ -123,9 +127,49 @@ public enum OpenRouterCreditParser {
         guard let remaining = CreditJSON.decimal(data, "limit_remaining") else {
             throw CreditError.malformed("openrouter key has a limit but no remainder")
         }
+        let cap = CreditJSON.decimal(data, "limit")
+        let window = (cap.map { $0 > 0 } ?? false)
+            ? keyLimitWindow(JSONSupport.string(data, "limit_reset"), now: now) : nil
         return [CreditBalance(
-            currency: "USD", amount: remaining, total: CreditJSON.decimal(data, "limit"), label: "Key limit")]
+            currency: "USD", amount: remaining, total: cap,
+            label: window?.label ?? "Key limit", resetsAt: window?.resetsAt)]
     }
+
+    /// A key limit's period label and the next boundary strictly after `now`, or nil for
+    /// `limit_reset == nil` (a lifetime cap) and for a value this app does not know — no reset is
+    /// invented. The boundaries are OpenRouter's: daily 00:00 UTC, weekly Monday 00:00 UTC,
+    /// monthly on the first at 00:00 UTC.
+    private static func keyLimitWindow(
+        _ limitReset: String?, now: Date
+    ) -> (label: String, resetsAt: Date)? {
+        let calendar = utcCalendar
+        let today = calendar.startOfDay(for: now)
+        switch limitReset {
+        case "daily":
+            guard let at = calendar.date(byAdding: .day, value: 1, to: today) else { return nil }
+            return ("Daily key limit", at)
+        case "weekly":
+            // 1 is Sunday and 2 Monday in Foundation's Gregorian calendar; a Monday today means
+            // the boundary is seven days out, never today.
+            let ahead = (2 - calendar.component(.weekday, from: today) + 7) % 7
+            guard let at = calendar.date(byAdding: .day, value: ahead == 0 ? 7 : ahead, to: today) else { return nil }
+            return ("Weekly key limit", at)
+        case "monthly":
+            var parts = calendar.dateComponents([.year, .month], from: today)
+            parts.day = 1
+            guard let monthStart = calendar.date(from: parts),
+                  let at = calendar.date(byAdding: .month, value: 1, to: monthStart) else { return nil }
+            return ("Monthly key limit", at)
+        default:
+            return nil
+        }
+    }
+
+    private static let utcCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        return calendar
+    }()
 }
 
 public enum DeepSeekCreditParser {

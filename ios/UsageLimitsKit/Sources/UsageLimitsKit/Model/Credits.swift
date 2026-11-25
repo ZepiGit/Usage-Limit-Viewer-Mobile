@@ -125,13 +125,20 @@ public struct CreditBalance: Sendable, Equatable, Codable {
     /// An uncapped OpenRouter key: there is no balance to be low on. `amount` then holds what
     /// the key spent this month and `label` is "No limit".
     public let unlimited: Bool
+    /// When the cap refills (a key limit's period boundary). Nil when the provider states no
+    /// reset, which is the lifetime cap of an OpenRouter key without `limit_reset`.
+    public let resetsAt: Date?
 
-    public init(currency: String, amount: Decimal, total: Decimal? = nil, label: String? = nil, unlimited: Bool = false) {
+    public init(
+        currency: String, amount: Decimal, total: Decimal? = nil, label: String? = nil,
+        unlimited: Bool = false, resetsAt: Date? = nil
+    ) {
         self.currency = currency
         self.amount = amount
         self.total = total
         self.label = label
         self.unlimited = unlimited
+        self.resetsAt = resetsAt
     }
 
     /// Remaining share of `total`, 0...100, or nil without a positive total.
@@ -141,7 +148,7 @@ public struct CreditBalance: Sendable, Equatable, Codable {
         return min(max(NSDecimalNumber(decimal: share).doubleValue, 0), 100)
     }
 
-    private enum CodingKeys: String, CodingKey { case currency, amount, total, label, unlimited }
+    private enum CodingKeys: String, CodingKey { case currency, amount, total, label, unlimited, resetsAt }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -154,6 +161,8 @@ public struct CreditBalance: Sendable, Equatable, Codable {
         total = try Self.decimal(c, .total)
         label = try c.decodeIfPresent(String.self, forKey: .label)
         unlimited = try c.decodeIfPresent(Bool.self, forKey: .unlimited) ?? false
+        // Absent in files written before this existed, which stay readable as "no reset".
+        resetsAt = try c.decodeIfPresent(Date.self, forKey: .resetsAt)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -163,6 +172,7 @@ public struct CreditBalance: Sendable, Equatable, Codable {
         try c.encodeIfPresent(total.map { "\($0)" }, forKey: .total)
         try c.encodeIfPresent(label, forKey: .label)
         if unlimited { try c.encode(true, forKey: .unlimited) }
+        try c.encodeIfPresent(resetsAt, forKey: .resetsAt)
     }
 
     /// A decimal string, or a bare JSON number from a hand-edited file.

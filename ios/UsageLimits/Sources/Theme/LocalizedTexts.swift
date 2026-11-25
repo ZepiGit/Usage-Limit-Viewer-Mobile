@@ -222,10 +222,13 @@ enum DisplayText {
         }
     }
 
-    /// The three balance labels the credit parsers write.
+    /// The balance labels the credit parsers write.
     static func creditBalanceLabel(_ label: String) -> String {
         switch label {
         case "Key limit": return String(localized: "Key limit")
+        case "Daily key limit": return String(localized: "Daily key limit")
+        case "Weekly key limit": return String(localized: "Weekly key limit")
+        case "Monthly key limit": return String(localized: "Monthly key limit")
         case "No limit": return String(localized: "No limit")
         case "Unavailable": return String(localized: "Unavailable")
         default: return label

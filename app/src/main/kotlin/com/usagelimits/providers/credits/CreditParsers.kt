@@ -10,6 +10,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import java.math.BigDecimal
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.temporal.TemporalAdjusters
 
 /**
  * Why a balance could not be read. Messages are built from endpoint names and status codes only,
@@ -65,8 +70,12 @@ object OpenRouterCreditParser {
     /**
      * `/key` (any key): the key's own budget. `effective_budget` wins when it states a
      * remainder; `limit` null means no cap, so there is no balance and the month's spend shows.
+     *
+     * [nowMs] only places the next period boundary of a capped key: the payload names the period
+     * (`limit_reset`) but never its instant. The budget row is left alone, because a budget's
+     * scope can be a member or a workspace rather than this key.
      */
-    fun parseKey(payload: JsonObject): List<CreditBalance> {
+    fun parseKey(payload: JsonObject, nowMs: Long): List<CreditBalance> {
         val data = JsonSupport.obj(payload, "data") ?: throw CreditError.Malformed("openrouter key has no data")
         val budget = JsonSupport.obj(data, "effective_budget")
         CreditJson.decimal(budget, "remaining_usd")?.let { remaining ->
@@ -82,8 +91,38 @@ object OpenRouterCreditParser {
         }
         val remaining = CreditJson.decimal(data, "limit_remaining")
             ?: throw CreditError.Malformed("openrouter key has a limit but no remainder")
-        return listOf(CreditBalance("USD", remaining, CreditJson.decimal(data, "limit"), "Key limit"))
+        val cap = CreditJson.decimal(data, "limit")
+        val window = cap?.takeIf { it.signum() > 0 }?.let { keyLimitWindow(JsonSupport.string(data, "limit_reset"), nowMs) }
+        return listOf(
+            CreditBalance(
+                currency = "USD",
+                amount = remaining,
+                total = cap,
+                label = window?.first ?: "Key limit",
+                resetsAt = window?.second,
+            ),
+        )
     }
+
+    /**
+     * A key limit's period label and the next boundary strictly after [nowMs], or null for
+     * `limit_reset == null` (a lifetime cap) and for a value this app does not know — no reset is
+     * invented. The boundaries are OpenRouter's: daily 00:00 UTC, weekly Monday 00:00 UTC,
+     * monthly on the first at 00:00 UTC.
+     */
+    private fun keyLimitWindow(limitReset: String?, nowMs: Long): Pair<String, Long>? = when (limitReset) {
+        "daily" -> "Daily key limit" to nextUtcBoundary(nowMs) { it.plusDays(1) }
+        "weekly" -> "Weekly key limit" to
+            nextUtcBoundary(nowMs) { it.with(TemporalAdjusters.next(DayOfWeek.MONDAY)) }
+        "monthly" -> "Monthly key limit" to nextUtcBoundary(nowMs) { it.withDayOfMonth(1).plusMonths(1) }
+        else -> null
+    }
+
+    private fun nextUtcBoundary(nowMs: Long, next: (LocalDate) -> LocalDate): Long =
+        next(Instant.ofEpochMilli(nowMs).atZone(ZoneOffset.UTC).toLocalDate())
+            .atStartOfDay(ZoneOffset.UTC)
+            .toInstant()
+            .toEpochMilli()
 }
 
 object DeepSeekCreditParser {

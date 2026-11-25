@@ -1,6 +1,77 @@
 {
   "description": "How each provider's documented response becomes credit rows or usage windows, and which failures stay unknown rather than zero. Every expected value was worked out by hand from the vendor's documented response, not produced by running either parser. Android (ProviderPayloadMappingVectorsTest) and iOS (ProviderPayloadMappingVectorsTests) read this file directly; one section per provider, added as each parser lands.",
-  "openrouterKeyWindow": [],
+  "openrouterKeyWindow": [
+    {
+      "name": "a daily key limit reports the remaining share and resets at the next UTC midnight",
+      "status": 200,
+      "body": {"data": {"label": "sk-or-v1-a", "limit": 10, "limit_remaining": 2.5, "limit_reset": "daily", "usage_monthly": 7.5, "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "2.5", "total": "10", "usedPercent": 75, "resetAt": "2026-11-26T00:00:00Z"}]}
+    },
+    {
+      "name": "a weekly key limit resets on Monday 00:00 UTC, not the end of the UTC week on Sunday",
+      "status": 200,
+      "body": {"data": {"limit": 40, "limit_remaining": 10, "limit_reset": "weekly", "effective_budget": null}},
+      "now": "2026-11-22T23:59:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "10", "total": "40", "usedPercent": 75, "resetAt": "2026-11-23T00:00:00Z"}]}
+    },
+    {
+      "name": "a monthly key limit read on 31 December resets on 1 January of the next year",
+      "status": 200,
+      "body": {"data": {"limit": 200, "limit_remaining": 50, "limit_reset": "monthly", "effective_budget": null}},
+      "now": "2026-12-31T10:00:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "50", "total": "200", "usedPercent": 75, "resetAt": "2027-01-01T00:00:00Z"}]}
+    },
+    {
+      "name": "a null limit_reset keeps the plain Key limit row and adds no reset",
+      "status": 200,
+      "body": {"data": {"limit": 50, "limit_remaining": 40.25, "limit_reset": null, "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "40.25", "total": "50", "usedPercent": 19.5, "resetAt": null}]}
+    },
+    {
+      "name": "an unrecognised limit_reset invents no reset",
+      "status": 200,
+      "body": {"data": {"limit": 10, "limit_remaining": 5, "limit_reset": "yearly", "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "5", "total": "10", "usedPercent": 50, "resetAt": null}]}
+    },
+    {
+      "name": "a remainder above the limit clamps the used share to 0",
+      "status": 200,
+      "body": {"data": {"limit": 10, "limit_remaining": 12.5, "limit_reset": "daily", "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "12.5", "total": "10", "usedPercent": 0, "resetAt": "2026-11-26T00:00:00Z"}]}
+    },
+    {
+      "name": "a negative remainder clamps the used share to 100",
+      "status": 200,
+      "body": {"data": {"limit": 10, "limit_remaining": -2.5, "limit_reset": "monthly", "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "-2.5", "total": "10", "usedPercent": 100, "resetAt": "2026-12-01T00:00:00Z"}]}
+    },
+    {
+      "name": "a zero limit stays a plain row with no bar and no reset",
+      "status": 200,
+      "body": {"data": {"limit": 0, "limit_remaining": 5, "limit_reset": "daily", "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "5", "total": "0", "usedPercent": null, "resetAt": null}]}
+    },
+    {
+      "name": "an effective budget row is unchanged and carries no key-limit reset",
+      "status": 200,
+      "body": {"data": {"limit": 50, "limit_remaining": 40, "limit_reset": "monthly", "effective_budget": {"limit_usd": 20, "spend_usd": 5, "remaining_usd": 15, "reset_interval": "monthly", "resets_at": "2026-12-01T00:00:00.000Z"}}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "15", "total": "20", "usedPercent": 25, "resetAt": null}]}
+    },
+    {
+      "name": "a limit whose remainder is missing stays unknown, never a zero balance",
+      "status": 200,
+      "body": {"data": {"label": "sk-or-v1-b", "limit": 10, "limit_reset": "daily", "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"error": "unknown"}
+    }
+  ],
   "vercelAiGateway": [],
   "deepinfra": [],
   "tokenrouter": [],

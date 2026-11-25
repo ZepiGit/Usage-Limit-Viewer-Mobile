@@ -90,7 +90,7 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
                     for (row, element) in balances.enumerated() {
                         let where_ = "\(section)[\(index)].expect.balances[\(row)]"
                         let balance = try XCTUnwrap(element as? [String: Any], "\(where_) must be a JSON object")
-                        let allowed: Set<String> = ["currency", "amount", "total"]
+                        let allowed: Set<String> = ["currency", "amount", "total", "resetAt", "usedPercent"]
                         XCTAssertTrue(allowed.isSuperset(of: balance.keys),
                                       "\(where_) has unexpected keys \(balance.keys)")
                         XCTAssertTrue(Set(balance.keys).isSuperset(of: ["currency", "amount"]),
@@ -98,6 +98,12 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
                         _ = try string("\(where_).currency", balance["currency"])
                         try decimalText("\(where_).amount", balance["amount"])
                         if let total = balance["total"], !(total is NSNull) { try decimalText("\(where_).total", total) }
+                        if let reset = balance["resetAt"], !(reset is NSNull) { try instant("\(where_).resetAt", reset) }
+                        if let used = balance["usedPercent"], !(used is NSNull) {
+                            let text = try XCTUnwrap(numberText(used),
+                                                     "\(where_).usedPercent must be a JSON number or null")
+                            XCTAssertNotNil(Double(text), "\(where_).usedPercent must be a JSON number or null")
+                        }
                     }
                 }
                 if let windows = expect["windows"] as? [Any] {
@@ -115,6 +121,71 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// The OpenRouter key window: one row per key, its reset at the next UTC boundary of
+    /// `limit_reset`, and its used share clamped to 0...100. A limit with no remainder must stay
+    /// unknown rather than read as an empty balance.
+    func testAnOpenRouterKeyLimitCarriesItsPeriodResetAndClampedUsedShare() throws {
+        for (index, vector) in try cases("openrouterKeyWindow").enumerated() {
+            let where_ = "openrouterKeyWindow[\(index)]"
+            let nowValue = try XCTUnwrap(vector["now"], "\(where_) needs a now instant")
+            let now = try XCTUnwrap(Self.instantFormatter.date(from: try string("\(where_).now", nowValue)))
+            let body = try XCTUnwrap(vector["body"] as? [String: Any], "\(where_).body must be a JSON object")
+            let expect = try XCTUnwrap(vector["expect"] as? [String: Any])
+            let balances: [CreditBalance]
+            do {
+                balances = try OpenRouterCreditParser.parseKey(body, now: now)
+            } catch {
+                let creditError = try XCTUnwrap(error as? CreditError, "\(where_): \(error)")
+                XCTAssertEqual(Self.errorKind(creditError),
+                               try string("\(where_).expect.error", expect["error"]),
+                               "\(where_): \(error)")
+                continue
+            }
+            XCTAssertNil(expect["error"], "\(where_): the parse succeeded but the case expects an error")
+            let rows = try XCTUnwrap(expect["balances"] as? [Any], "\(where_).expect.balances")
+            XCTAssertEqual(rows.count, balances.count, "\(where_): row count")
+            for (row, element) in rows.enumerated() {
+                let at = "\(where_).expect.balances[\(row)]"
+                let expected = try XCTUnwrap(element as? [String: Any], "\(at) must be a JSON object")
+                let balance = balances[row]
+                XCTAssertEqual(balance.currency, try string("\(at).currency", expected["currency"]), at)
+                XCTAssertEqual(balance.amount,
+                               Self.decimal(try string("\(at).amount", expected["amount"])), at)
+                if let total = expected["total"], !(total is NSNull) {
+                    XCTAssertEqual(balance.total, Self.decimal(try string("\(at).total", total)), at)
+                } else {
+                    XCTAssertNil(balance.total, at)
+                }
+                if let reset = expected["resetAt"], !(reset is NSNull) {
+                    XCTAssertEqual(balance.resetsAt,
+                                   Self.instantFormatter.date(from: try string("\(at).resetAt", reset)), at)
+                } else {
+                    XCTAssertNil(balance.resetsAt, at)
+                }
+                if let used = expected["usedPercent"], !(used is NSNull) {
+                    let text = try XCTUnwrap(numberText(used), "\(at).usedPercent must be a JSON number")
+                    let expectedUsed = try XCTUnwrap(Double(text))
+                    let percent = try XCTUnwrap(balance.remainingPercent, "\(at) has no bar to measure")
+                    XCTAssertEqual(100 - percent, expectedUsed, accuracy: 1e-9, at)
+                } else {
+                    XCTAssertNil(balance.remainingPercent, "\(at): a row without a used share has no bar")
+                }
+            }
+        }
+    }
+
+    /// The failure kinds the vectors name; a malformed payload is unknown, never zero.
+    private static func errorKind(_ error: CreditError) -> String {
+        switch error {
+        case .rejected(let status): return status == 403 ? "forbidden" : "invalidKey"
+        default: return "unknown"
+        }
+    }
+
+    private static func decimal(_ text: String) -> Decimal? {
+        Decimal(string: text, locale: Locale(identifier: "en_US_POSIX"))
     }
 
     private func checkExpect(_ where_: String, _ expect: [String: Any]) throws {

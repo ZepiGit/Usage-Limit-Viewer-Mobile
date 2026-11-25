@@ -1,6 +1,8 @@
 package com.usagelimits.providers
 
 import com.usagelimits.core.model.SharedVectors
+import com.usagelimits.providers.credits.CreditError
+import com.usagelimits.providers.credits.OpenRouterCreditParser
 import java.math.BigDecimal
 import java.time.Instant
 import kotlinx.serialization.json.JsonArray
@@ -9,6 +11,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -106,13 +109,20 @@ class ProviderPayloadMappingVectorsTest {
                     val where = "$section[$index].expect.balances[$row]"
                     assertTrue("$where must be a JSON object", element is JsonObject)
                     val balance = element as JsonObject
-                    val allowed = setOf("currency", "amount", "total")
+                    val allowed = setOf("currency", "amount", "total", "resetAt", "usedPercent")
                     assertTrue("$where has unexpected keys ${balance.keys - allowed}", allowed.containsAll(balance.keys))
                     assertTrue("$where is missing ${setOf("currency", "amount") - balance.keys}",
                         balance.keys.containsAll(setOf("currency", "amount")))
                     string("$where.currency", balance["currency"])
                     decimalText("$where.amount", balance["amount"])
                     balance["total"]?.takeUnless { it is JsonNull }?.let { decimalText("$where.total", it) }
+                    balance["resetAt"]?.takeUnless { it is JsonNull }?.let { instant("$where.resetAt", it) }
+                    balance["usedPercent"]?.takeUnless { it is JsonNull }?.let {
+                        assertTrue(
+                            "$where.usedPercent must be a JSON number or null",
+                            it is JsonPrimitive && !it.isString && it.content.toDoubleOrNull() != null,
+                        )
+                    }
                 }
                 (expect["windows"] as? JsonArray)?.forEachIndexed { row, element ->
                     val where = "$section[$index].expect.windows[$row]"
@@ -130,6 +140,70 @@ class ProviderPayloadMappingVectorsTest {
                 }
             }
         }
+    }
+
+    /**
+     * The OpenRouter key window: one row per key, its reset at the next UTC boundary of
+     * `limit_reset`, and its used share clamped to 0..100. A limit with no remainder must stay
+     * unknown rather than read as an empty balance.
+     */
+    @Test
+    fun `an openrouter key limit carries its period reset and clamped used share`() {
+        for ((index, case) in cases("openrouterKeyWindow").withIndex()) {
+            val where = "openrouterKeyWindow[$index]"
+            val now = case["now"] ?: throw AssertionError("$where needs a now instant")
+            val nowMs = Instant.parse(string("$where.now", now)).toEpochMilli()
+            val body = case["body"] as JsonObject
+            val expect = case["expect"] as JsonObject
+            val balances = try {
+                OpenRouterCreditParser.parseKey(body, nowMs)
+            } catch (error: CreditError) {
+                assertEquals(
+                    "$where: ${error.message}",
+                    string("$where.expect.error", expect["error"]),
+                    errorKind(error),
+                )
+                continue
+            }
+            assertNull("$where: the parse succeeded but the case expects an error", expect["error"])
+            val rows = expect["balances"] as JsonArray
+            assertEquals("$where: row count", rows.size, balances.size)
+            for ((row, element) in rows.withIndex()) {
+                val at = "$where.expect.balances[$row]"
+                val expected = element as JsonObject
+                val balance = balances[row]
+                assertEquals("$at: currency", string("$at.currency", expected["currency"]), balance.currency)
+                assertDecimal("$at: amount", decimalTextOrNull("$at.amount", expected["amount"]), balance.amount)
+                assertDecimal("$at: total", decimalTextOrNull("$at.total", expected["total"]), balance.total)
+                val reset = expected["resetAt"]?.takeUnless { it is JsonNull }
+                    ?.let { Instant.parse(string("$at.resetAt", it)).toEpochMilli() }
+                assertEquals("$at: resetAt", reset, balance.resetsAt)
+                val used = expected["usedPercent"]?.takeUnless { it is JsonNull }
+                    ?.let { (it as JsonPrimitive).content.toDouble() }
+                if (used == null) {
+                    assertNull("$at: a row without a used share has no bar", balance.remainingPercent)
+                } else {
+                    assertEquals("$at: usedPercent", used, 100.0 - balance.remainingPercent!!, 1e-9)
+                }
+            }
+        }
+    }
+
+    private fun decimalTextOrNull(where: String, element: JsonElement?): BigDecimal? =
+        element?.takeUnless { it is JsonNull }?.let { BigDecimal(string(where, it)) }
+
+    private fun assertDecimal(where: String, expected: BigDecimal?, actual: BigDecimal?) {
+        if (expected == null) {
+            assertNull("$where must be absent", actual)
+        } else {
+            assertTrue("$where: expected $expected but was $actual", actual != null && expected.compareTo(actual) == 0)
+        }
+    }
+
+    /** The failure kinds the vectors name; a malformed payload is unknown, never zero. */
+    private fun errorKind(error: CreditError): String = when (error) {
+        is CreditError.Rejected -> if (error.status == 403) "forbidden" else "invalidKey"
+        else -> "unknown"
     }
 
     private fun checkExpect(where: String, expect: JsonObject) {

@@ -1417,6 +1417,17 @@
         }
       }
     },
+    "Daily key limit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tägliches Schlüssellimit"
+          }
+        }
+      }
+    },
     "Dark" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1968,6 +1979,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Monatlich"
+          }
+        }
+      }
+    },
+    "Monthly key limit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monatliches Schlüssellimit"
           }
         }
       }
@@ -3728,6 +3750,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wöchentlich"
+          }
+        }
+      }
+    },
+    "Weekly key limit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wöchentliches Schlüssellimit"
           }
         }
       }

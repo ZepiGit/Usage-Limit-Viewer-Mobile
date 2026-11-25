@@ -45,7 +45,12 @@ enum CreditHTTP {
 public struct OpenRouterCreditClient: CreditProvider {
     public let providerID = CreditProviderID.openrouter
     let http: UsageHTTPClient
-    public init(httpClient: UsageHTTPClient) { http = httpClient }
+    /// The clock the key limit's period boundary is placed from.
+    let now: @Sendable () -> Date
+    public init(httpClient: UsageHTTPClient, now: @escaping @Sendable () -> Date = { Date() }) {
+        http = httpClient
+        self.now = now
+    }
 
     /// `/credits` needs a management key and answers 403 to any other; that 403 (and only that
     /// one) falls back to `/key`, which any key can read for its own limit.
@@ -59,7 +64,7 @@ public struct OpenRouterCreditClient: CreditProvider {
             let payload = try await CreditHTTP.getJSON(
                 http, url: ProviderEndpoints.Credits.openRouterKey,
                 headers: CreditHTTP.bearer(key), endpoint: "openrouter key")
-            return try OpenRouterCreditParser.parseKey(payload)
+            return try OpenRouterCreditParser.parseKey(payload, now: now())
         }
     }
 }

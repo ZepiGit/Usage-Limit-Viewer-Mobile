@@ -72,7 +72,11 @@ internal object CreditHttp {
         mapOf("Authorization" to "Bearer $key", "Accept" to "application/json")
 }
 
-class OpenRouterCreditClient(private val http: HttpClient) : CreditProvider {
+class OpenRouterCreditClient(
+    private val http: HttpClient,
+    /** The clock the key limit's period boundary is placed from. */
+    private val nowMs: () -> Long = System::currentTimeMillis,
+) : CreditProvider {
     override val providerId = CreditProviderId.OPENROUTER
 
     /**
@@ -88,6 +92,7 @@ class OpenRouterCreditClient(private val http: HttpClient) : CreditProvider {
             if (e.status != 403) throw e
             OpenRouterCreditParser.parseKey(
                 CreditHttp.getJson(http, Credits.OPENROUTER_KEY, CreditHttp.bearer(key), "openrouter key"),
+                nowMs(),
             )
         }
 }

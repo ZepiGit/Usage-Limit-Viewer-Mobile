@@ -12,6 +12,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.math.BigDecimal
+import java.time.Instant
 
 /**
  * The balance payloads, with the quirks recorded in docs/credits.md. The same cases as the iOS
@@ -25,6 +26,11 @@ class CreditParsersTest {
 
     private fun assertAmount(expected: String, actual: BigDecimal?) =
         assertTrue("expected $expected but was $actual", actual != null && dec(expected).compareTo(actual) == 0)
+
+    /** A fixed clock for the payloads that place a period boundary; Wednesday 13:45 UTC. */
+    private val nowMs = Instant.parse("2026-11-25T13:45:00Z").toEpochMilli()
+
+    private fun parseKey(body: String): CreditBalance = OpenRouterCreditParser.parseKey(json(body), nowMs)[0]
 
     // MARK: Decimal handling
 
@@ -63,25 +69,61 @@ class CreditParsersTest {
             {"data":{"label":"k","limit":50,"limit_remaining":40,"usage_monthly":3,
              "effective_budget":{"limit_usd":20,"spend_usd":5,"remaining_usd":15,"reset_interval":"monthly"}}}
         """
-        val balance = OpenRouterCreditParser.parseKey(json(body))[0]
+        val balance = parseKey(body)
         assertAmount("15", balance.amount)
         assertAmount("20", balance.total)
         assertEquals("Key limit", balance.label)
         assertFalse(balance.unlimited)
+        // A budget row names no key period, so the row keeps the plain label and no reset.
+        assertNull(balance.resetsAt)
     }
 
     @Test fun `openrouter key falls back to limit remaining`() {
-        val balance = OpenRouterCreditParser.parseKey(
-            json("""{"data":{"limit":50,"limit_remaining":40.25,"effective_budget":null}}"""),
-        )[0]
+        val balance = parseKey("""{"data":{"limit":50,"limit_remaining":40.25,"effective_budget":null}}""")
         assertAmount("40.25", balance.amount)
         assertAmount("50", balance.total)
+        assertEquals("Key limit", balance.label)
+        assertNull(balance.resetsAt)
+    }
+
+    /** The period label and the next UTC boundary, by hand: Wednesday 13:45 UTC. */
+    @Test fun `openrouter key limit names its period and next reset`() {
+        val daily = parseKey("""{"data":{"limit":10,"limit_remaining":2.5,"limit_reset":"daily","effective_budget":null}}""")
+        assertEquals("Daily key limit", daily.label)
+        assertEquals(Instant.parse("2026-11-26T00:00:00Z").toEpochMilli(), daily.resetsAt)
+        assertEquals(75.0, 100.0 - daily.remainingPercent!!, 1e-9)
+
+        val weekly = parseKey("""{"data":{"limit":40,"limit_remaining":10,"limit_reset":"weekly","effective_budget":null}}""")
+        assertEquals("Weekly key limit", weekly.label)
+        assertEquals(Instant.parse("2026-11-30T00:00:00Z").toEpochMilli(), weekly.resetsAt)
+
+        val monthly = parseKey("""{"data":{"limit":200,"limit_remaining":50,"limit_reset":"monthly","effective_budget":null}}""")
+        assertEquals("Monthly key limit", monthly.label)
+        assertEquals(Instant.parse("2026-12-01T00:00:00Z").toEpochMilli(), monthly.resetsAt)
+    }
+
+    @Test fun `openrouter key limit without a known reset adds none`() {
+        for (reset in listOf("""null""", """absent""", """"yearly"""")) {
+            val field = if (reset == "absent") "" else """"limit_reset":$reset,"""
+            val balance = parseKey("""{"data":{"limit":10,"limit_remaining":5,$field"effective_budget":null}}""")
+            assertEquals("Key limit", balance.label)
+            assertNull(balance.resetsAt)
+        }
+    }
+
+    @Test fun `openrouter key used share clamps and a zero limit draws no bar`() {
+        val over = parseKey("""{"data":{"limit":10,"limit_remaining":12.5,"limit_reset":"daily","effective_budget":null}}""")
+        assertEquals(0.0, 100.0 - over.remainingPercent!!, 1e-9)
+        val under = parseKey("""{"data":{"limit":10,"limit_remaining":-2.5,"limit_reset":"daily","effective_budget":null}}""")
+        assertEquals(100.0, 100.0 - under.remainingPercent!!, 1e-9)
+        val zero = parseKey("""{"data":{"limit":0,"limit_remaining":5,"limit_reset":"daily","effective_budget":null}}""")
+        assertEquals("Key limit", zero.label)
+        assertNull(zero.remainingPercent)
+        assertNull(zero.resetsAt)
     }
 
     @Test fun `openrouter key with no limit is unlimited not zero`() {
-        val balance = OpenRouterCreditParser.parseKey(
-            json("""{"data":{"limit":null,"limit_remaining":null,"usage_monthly":12.5,"effective_budget":null}}"""),
-        )[0]
+        val balance = parseKey("""{"data":{"limit":null,"limit_remaining":null,"usage_monthly":12.5,"effective_budget":null}}""")
         assertTrue(balance.unlimited)
         assertEquals("No limit", balance.label)
         assertAmount("12.5", balance.amount)
@@ -90,7 +132,7 @@ class CreditParsersTest {
 
     @Test fun `openrouter key with a limit but no remainder is malformed not guessed`() {
         assertThrows(CreditError.Malformed::class.java) {
-            OpenRouterCreditParser.parseKey(json("""{"data":{"limit":10}}"""))
+            OpenRouterCreditParser.parseKey(json("""{"data":{"limit":10}}"""), nowMs)
         }
     }
 
@@ -101,10 +143,12 @@ class CreditParsersTest {
             """{"data":{"limit":null}}""", // unlimited, but no spend to show
             """{"data":{"limit":null,"usage_monthly":"abc"}}""",
         )) {
-            assertThrows(body, CreditError.Malformed::class.java) { OpenRouterCreditParser.parseKey(json(body)) }
+            assertThrows(body, CreditError.Malformed::class.java) {
+                OpenRouterCreditParser.parseKey(json(body), nowMs)
+            }
         }
         // An explicit null limit with a spend is the genuine unlimited key, even at $0.
-        val balance = OpenRouterCreditParser.parseKey(json("""{"data":{"limit":null,"usage_monthly":0}}"""))[0]
+        val balance = parseKey("""{"data":{"limit":null,"usage_monthly":0}}""")
         assertTrue(balance.unlimited)
         assertAmount("0", balance.amount)
     }

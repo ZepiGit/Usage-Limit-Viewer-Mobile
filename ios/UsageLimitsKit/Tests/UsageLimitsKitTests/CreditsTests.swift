@@ -29,6 +29,13 @@ final class CreditsTests: XCTestCase {
 
     private func dec(_ text: String) -> Decimal { Decimal(string: text, locale: Locale(identifier: "en_US_POSIX"))! }
 
+    /// An ISO-8601 UTC instant, for the payloads that place a period boundary.
+    private func utc(_ text: String) -> Date {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)!
+    }
+
     /// Answers by URL fragment, in order per route, repeating the last. Records every request.
     private actor Transport: HTTPTransport {
         private var routes: [(match: String, replies: [(status: Int, body: String)])]
@@ -114,10 +121,10 @@ final class CreditsTests: XCTestCase {
             #"{"data":{"limit":null}}"#,       // unlimited, but no spend to show
             #"{"data":{"limit":null,"usage_monthly":"abc"}}"#,
         ] {
-            assertMalformed(try OpenRouterCreditParser.parseKey(json(body)), body)
+            assertMalformed(try OpenRouterCreditParser.parseKey(json(body), now: now), body)
         }
         // An explicit null limit with a spend is the genuine unlimited key, even at $0.
-        let balance = try OpenRouterCreditParser.parseKey(json(#"{"data":{"limit":null,"usage_monthly":0}}"#))[0]
+        let balance = try OpenRouterCreditParser.parseKey(json(#"{"data":{"limit":null,"usage_monthly":0}}"#), now: now)[0]
         XCTAssertTrue(balance.unlimited)
         XCTAssertEqual(balance.amount, 0)
     }
@@ -142,22 +149,89 @@ final class CreditsTests: XCTestCase {
         {"data":{"label":"k","limit":50,"limit_remaining":40,"usage_monthly":3,
          "effective_budget":{"limit_usd":20,"spend_usd":5,"remaining_usd":15,"reset_interval":"monthly"}}}
         """#
-        let balance = try OpenRouterCreditParser.parseKey(json(body))[0]
+        let balance = try OpenRouterCreditParser.parseKey(json(body), now: now)[0]
         XCTAssertEqual(balance.amount, 15)
         XCTAssertEqual(balance.total, 20)
         XCTAssertFalse(balance.unlimited)
+        // A budget row names no key period, so it keeps the plain label and no reset.
+        XCTAssertEqual(balance.label, "Key limit")
+        XCTAssertNil(balance.resetsAt)
     }
 
     func testOpenRouterKeyFallsBackToLimitRemaining() throws {
         let balance = try OpenRouterCreditParser.parseKey(
-            json(#"{"data":{"limit":50,"limit_remaining":40.25,"effective_budget":null}}"#))[0]
+            json(#"{"data":{"limit":50,"limit_remaining":40.25,"effective_budget":null}}"#), now: now)[0]
         XCTAssertEqual(balance.amount, dec("40.25"))
         XCTAssertEqual(balance.total, 50)
+        XCTAssertEqual(balance.label, "Key limit")
+        XCTAssertNil(balance.resetsAt)
+    }
+
+    /// The period label and the next UTC boundary, by hand.
+    func testOpenRouterKeyLimitNamesItsPeriodAndNextReset() throws {
+        let daily = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":10,"limit_remaining":2.5,"limit_reset":"daily","effective_budget":null}}"#),
+            now: utc("2026-11-25T13:45:00Z"))[0]
+        XCTAssertEqual(daily.label, "Daily key limit")
+        XCTAssertEqual(daily.resetsAt, utc("2026-11-26T00:00:00Z"))
+        let dailyPercent = try XCTUnwrap(daily.remainingPercent)
+        XCTAssertEqual(100 - dailyPercent, 75, accuracy: 1e-9)
+
+        // Sunday 23:59: the week boundary is the next Monday, not the end of the UTC day.
+        let weekly = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":40,"limit_remaining":10,"limit_reset":"weekly","effective_budget":null}}"#),
+            now: utc("2026-11-22T23:59:00Z"))[0]
+        XCTAssertEqual(weekly.label, "Weekly key limit")
+        XCTAssertEqual(weekly.resetsAt, utc("2026-11-23T00:00:00Z"))
+
+        // A Monday is the start of its own week, so the next boundary is seven days out.
+        let monday = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":40,"limit_remaining":10,"limit_reset":"weekly","effective_budget":null}}"#),
+            now: utc("2026-11-30T00:00:00Z"))[0]
+        XCTAssertEqual(monday.resetsAt, utc("2026-12-07T00:00:00Z"))
+
+        let monthly = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":200,"limit_remaining":50,"limit_reset":"monthly","effective_budget":null}}"#),
+            now: utc("2026-12-31T10:00:00Z"))[0]
+        XCTAssertEqual(monthly.label, "Monthly key limit")
+        XCTAssertEqual(monthly.resetsAt, utc("2027-01-01T00:00:00Z"))
+    }
+
+    func testOpenRouterKeyLimitWithoutAKnownResetAddsNone() throws {
+        for body in [
+            #"{"data":{"limit":10,"limit_remaining":5,"limit_reset":null,"effective_budget":null}}"#,
+            #"{"data":{"limit":10,"limit_remaining":5,"effective_budget":null}}"#,
+            #"{"data":{"limit":10,"limit_remaining":5,"limit_reset":"yearly","effective_budget":null}}"#,
+        ] {
+            let balance = try OpenRouterCreditParser.parseKey(json(body), now: now)[0]
+            XCTAssertEqual(balance.label, "Key limit", body)
+            XCTAssertNil(balance.resetsAt, body)
+        }
+    }
+
+    func testOpenRouterKeyUsedShareClampsAndAZeroLimitDrawsNoBar() throws {
+        let over = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":10,"limit_remaining":12.5,"limit_reset":"daily","effective_budget":null}}"#),
+            now: now)[0]
+        let overPercent = try XCTUnwrap(over.remainingPercent)
+        XCTAssertEqual(100 - overPercent, 0, accuracy: 1e-9)
+        let under = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":10,"limit_remaining":-2.5,"limit_reset":"daily","effective_budget":null}}"#),
+            now: now)[0]
+        let underPercent = try XCTUnwrap(under.remainingPercent)
+        XCTAssertEqual(100 - underPercent, 100, accuracy: 1e-9)
+        let zero = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":0,"limit_remaining":5,"limit_reset":"daily","effective_budget":null}}"#),
+            now: now)[0]
+        XCTAssertEqual(zero.label, "Key limit")
+        XCTAssertNil(zero.remainingPercent)
+        XCTAssertNil(zero.resetsAt)
     }
 
     func testOpenRouterKeyWithNoLimitIsUnlimitedNotZero() throws {
         let balance = try OpenRouterCreditParser.parseKey(
-            json(#"{"data":{"limit":null,"limit_remaining":null,"usage_monthly":12.5,"effective_budget":null}}"#))[0]
+            json(#"{"data":{"limit":null,"limit_remaining":null,"usage_monthly":12.5,"effective_budget":null}}"#),
+            now: now)[0]
         XCTAssertTrue(balance.unlimited)
         XCTAssertEqual(balance.label, "No limit")
         XCTAssertEqual(balance.amount, dec("12.5"))

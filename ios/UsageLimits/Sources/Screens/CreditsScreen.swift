@@ -132,7 +132,9 @@ struct CreditCard: View {
                     .foregroundStyle(colors.muted)
             }
             ForEach(Array(glance.balances.enumerated()), id: \.offset) { _, balance in
-                BalanceRow(balance: balance, severity: severity, preview: preview)
+                BalanceRow(
+                    balance: balance, severity: severity, now: now,
+                    calendar: store.presentationCalendar, preview: preview)
             }
 
             if let error = entry.snapshot?.error {
@@ -152,6 +154,8 @@ private struct BalanceRow: View {
     let balance: CreditBalance
     /// The account's aged severity: stale data must not keep its last colour.
     let severity: Severity
+    let now: Date
+    let calendar: Calendar
     let preview: Bool
 
     private var amount: String { money(balance.amount) }
@@ -181,6 +185,14 @@ private struct BalanceRow: View {
                     // Money, not a quota window: the percentage toggle does not apply here.
                     UsageBar(remainingPercent: percent, severity: severity)
                         .accessibilityLabel("\(amount) of \(money(total)) left")
+                }
+                // A capped key limit refills on a period; the app's existing absolute stamp says when.
+                if let stamp = Countdown.resetLine(
+                    resetAt: balance.resetsAt, now: now, calendar: calendar,
+                    texts: LocalizedCountdownTexts()) {
+                    Text(verbatim: stamp)
+                        .usageFont(.small)
+                        .foregroundStyle(colors.faint)
                 }
             }
         }

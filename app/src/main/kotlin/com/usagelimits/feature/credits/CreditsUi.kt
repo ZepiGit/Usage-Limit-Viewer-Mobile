@@ -126,7 +126,7 @@ fun CreditCard(
             }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 12.dp)) {
-                balances.forEach { balance -> BalanceRow(balance, severity, compact) }
+                balances.forEach { balance -> BalanceRow(balance, severity, compact, nowMs) }
             }
             if (snapshot?.error != null) {
                 ErrorBlock(
@@ -146,9 +146,10 @@ private fun CreditFreshness(text: String) {
 
 /** The amount in ink (never severity-coloured, a real zero included), its cap, and a data bar. */
 @Composable
-private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity, compact: Boolean) {
+private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity, compact: Boolean, nowMs: Long) {
     val locale = LocalConfiguration.current.locales[0]
     val resources = LocalContext.current.resources
+    val countdownTexts = rememberCountdownTexts()
     // The parsers' own labels are stored in English and translated here; any other label is shown as stored.
     val balanceLabel = balance.label?.let { stored -> creditBalanceLabelRes(stored)?.let { stringResource(it) } ?: stored }
     // A stale or failed account keeps the grey of its age in the bar.
@@ -175,6 +176,12 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity, compac
         balance.remainingPercent?.let { percent ->
             // Money, not a quota window: the percent display mode does not apply.
             UsageBar(percent, barSeverity, Modifier.fillMaxWidth(), height = if (compact) 3.dp else 6.dp)
+        }
+        // A capped key limit refills on a period; the app's existing absolute stamp says when.
+        balance.resetsAt?.let { resetAt ->
+            Countdown.absoluteResetLabel(resetAt, nowMs, texts = countdownTexts)?.let { stamp ->
+                Text(stamp, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
+            }
         }
         // An uncapped key has no bar: its existing label says so instead.
         if (balance.unlimited) balanceLabel?.let {

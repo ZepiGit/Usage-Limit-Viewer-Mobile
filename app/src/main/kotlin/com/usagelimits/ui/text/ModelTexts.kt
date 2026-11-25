@@ -83,6 +83,9 @@ fun apiKeyHintRes(provider: ProviderId): Int? = when (provider) {
 @StringRes
 fun creditBalanceLabelRes(label: String): Int? = when (label) {
     "Key limit" -> R.string.credit_balance_key_limit
+    "Daily key limit" -> R.string.credit_balance_daily_key_limit
+    "Weekly key limit" -> R.string.credit_balance_weekly_key_limit
+    "Monthly key limit" -> R.string.credit_balance_monthly_key_limit
     "No limit" -> R.string.credit_balance_no_limit
     "Unavailable" -> R.string.credit_balance_unavailable
     else -> null

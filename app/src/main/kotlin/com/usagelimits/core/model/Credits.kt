@@ -7,7 +7,8 @@ import java.util.Locale
 
 /*
  * Prepaid / API balances ("credits"), kept apart from the usage-limit accounts: a credit account
- * has no windows and no reset, only an amount of money left.
+ * has no quota windows, only an amount of money left and, when the provider caps it, when that cap
+ * refills.
  *
  * Raw values, field names and the severity rules are the shared Android/iOS contract written down
  * in docs/credits.md; change them on both platforms or neither. Money is BigDecimal end to end:
@@ -86,6 +87,11 @@ data class CreditBalance(
      * key spent this month and [label] is "No limit".
      */
     val unlimited: Boolean = false,
+    /**
+     * When the cap refills, epoch millis (a key limit's period boundary). Null when the provider
+     * states no reset, which is the lifetime cap of an OpenRouter key without `limit_reset`.
+     */
+    val resetsAt: Long? = null,
 ) {
     /** Remaining share of [total], 0..100, or null without a positive total. */
     val remainingPercent: Double?

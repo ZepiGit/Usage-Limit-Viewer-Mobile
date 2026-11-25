@@ -501,6 +501,9 @@
     <string name="add_api_key_hint_ollama">Erstelle in deinem Ollama-Konto (ollama.com/settings/keys) einen Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
     <string name="add_api_key_hint_minimax">Erstelle in deiner MiniMax-Konsole einen MiniMax-Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
     <string name="credit_balance_key_limit">Schlüssel-Limit</string>
+    <string name="credit_balance_daily_key_limit">Tägliches Schlüssellimit</string>
+    <string name="credit_balance_weekly_key_limit">Wöchentliches Schlüssellimit</string>
+    <string name="credit_balance_monthly_key_limit">Monatliches Schlüssellimit</string>
     <string name="credit_balance_no_limit">Kein Limit</string>
     <string name="credit_balance_unavailable">Nicht verfügbar</string>
     <string name="credit_error_rejected">Der Schlüssel wurde abgelehnt (HTTP %1$d). Prüfe, ob es die richtige Art von Schlüssel ist.</string>

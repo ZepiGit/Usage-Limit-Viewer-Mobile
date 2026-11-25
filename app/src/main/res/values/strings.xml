@@ -517,6 +517,9 @@
     <string name="add_api_key_hint_ollama">Create a key in your Ollama account (ollama.com/settings/keys) and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
     <string name="add_api_key_hint_minimax">Create a MiniMax key in your MiniMax console and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
     <string name="credit_balance_key_limit">Key limit</string>
+    <string name="credit_balance_daily_key_limit">Daily key limit</string>
+    <string name="credit_balance_weekly_key_limit">Weekly key limit</string>
+    <string name="credit_balance_monthly_key_limit">Monthly key limit</string>
     <string name="credit_balance_no_limit">No limit</string>
     <string name="credit_balance_unavailable">Unavailable</string>
     <string name="credit_error_rejected">The key was rejected (HTTP %1$d). Check that it is the right kind of key.</string>
