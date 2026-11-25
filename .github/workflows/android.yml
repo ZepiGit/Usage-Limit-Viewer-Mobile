@@ -346,8 +346,11 @@ jobs:
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     # Eight rounds revisit all four widget configurations, plus placement and geometry checks.
-    # Individual UI/control deadlines remain bounded in the smoke script.
-    timeout-minutes: 60
+    # Individual UI/control deadlines remain bounded in the smoke script, but the whole matrix
+    # outgrew 60 minutes: the first run that reached this job (main 0f0cf8fb) had written 2,950
+    # evidence files across every stage up to the widget lifecycle and was still inside it when
+    # the budget ran out, with no result.json.
+    timeout-minutes: 90
     permissions:
       contents: read
       actions: read
