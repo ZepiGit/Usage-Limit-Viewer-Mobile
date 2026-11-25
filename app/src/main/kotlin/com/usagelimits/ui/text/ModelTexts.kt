@@ -85,7 +85,7 @@ fun apiKeyHintRes(provider: ProviderId): Int? = when (provider) {
 }
 
 /**
- * A balance label as the credit cards show it. The parsers write three of them and they are stored
+ * A balance label as the credit cards show it. The parsers write these and they are stored
  * with the balance, so the English text is data to match and these are what the screen prints;
  * anything else is shown as stored.
  */
@@ -98,6 +98,7 @@ fun creditBalanceLabelRes(label: String): Int? = when (label) {
     "No limit" -> R.string.credit_balance_no_limit
     "Unavailable" -> R.string.credit_balance_unavailable
     "Token Pass" -> R.string.credit_balance_token_pass
+    "Prepaid balance" -> R.string.credit_balance_prepaid
     else -> null
 }
 
@@ -162,6 +163,7 @@ private val STORED_MESSAGES = listOf(
         Regex("Vercel refused this key \\(HTTP 403\\)\\. Enter the team id the key belongs to\\."),
         R.string.credit_error_vercel_team,
     ),
+    StoredMessage(Regex(Regex.escape("This key lacks the account:read scope.")), R.string.credit_error_missing_scope),
     StoredMessage(Regex("No key was entered\\."), R.string.credit_error_no_key),
     StoredMessage(Regex("The key could not be read from the device\\."), R.string.stored_credit_unreadable),
 )

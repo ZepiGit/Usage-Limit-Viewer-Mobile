@@ -185,3 +185,22 @@ public struct VercelCreditClient: CreditProvider {
         }
     }
 }
+
+public struct DeepInfraCreditClient: CreditProvider {
+    public let providerID = CreditProviderID.deepinfra
+    let http: UsageHTTPClient
+    public init(httpClient: UsageHTTPClient) { http = httpClient }
+
+    /// A 403 means the key lacks `account:read`, which no retry fixes; it is translated once here.
+    /// A 401 stays a rejected key. Nothing is retried.
+    public func fetchBalances(key: String, attributes: [String: String]) async throws -> [CreditBalance] {
+        do {
+            return try DeepInfraCreditParser.parse(
+                try await CreditHTTP.getJSON(
+                    http, url: ProviderEndpoints.Credits.deepInfraMe,
+                    headers: CreditHTTP.bearer(key), endpoint: "deepinfra me"))
+        } catch CreditError.rejected(403) {
+            throw CreditError.missingScope
+        }
+    }
+}

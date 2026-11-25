@@ -2609,6 +2609,17 @@
         }
       }
     },
+    "Prepaid balance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prepaid-Guthaben"
+          }
+        }
+      }
+    },
     "Preview" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3485,6 +3496,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vercel hat diesen Schlüssel abgelehnt (HTTP 403). Gib die Team-ID ein, zu der der Schlüssel gehört."
+          }
+        }
+      }
+    },
+    "This key lacks the account:read scope." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesem Schlüssel fehlt die Berechtigung account:read."
           }
         }
       }

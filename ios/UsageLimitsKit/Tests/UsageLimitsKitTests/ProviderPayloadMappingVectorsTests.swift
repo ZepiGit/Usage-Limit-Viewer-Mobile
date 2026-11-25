@@ -228,6 +228,48 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
         }
     }
 
+    /// DeepInfra's billing checklist: `stripe_balance` is signed cents where NEGATIVE is money left
+    /// to spend, so a positive (owed) figure reads as a negative row. Each live scoped credit is one
+    /// more row, an expired one adds none, and `limit` is a spending cap that never becomes a
+    /// balance. A missing checklist and an unreadable figure must stay unknown, never zero.
+    func testDeepinfraReadsTheSignedPrepaidBalanceAndTheLiveScopedCredits() async throws {
+        for (index, vector) in try cases("deepinfra").enumerated() {
+            let where_ = "deepinfra[\(index)]"
+            let status = try XCTUnwrap(Int(try XCTUnwrap(jsonText(vector["status"] as Any))),
+                                       "\(where_).status must be a JSON integer")
+            let body = try XCTUnwrap(jsonText(vector["body"] as Any), "\(where_).body must be JSON")
+            let expect = try XCTUnwrap(vector["expect"] as? [String: Any])
+            let client = DeepInfraCreditClient(httpClient: UsageHTTPClient(
+                transport: StatusTransport(status: status, body: body), maxRetries: 0))
+            let balances: [CreditBalance]
+            do {
+                balances = try await client.fetchBalances(key: "di-test", attributes: [:])
+            } catch {
+                let creditError = try XCTUnwrap(error as? CreditError, "\(where_): \(error)")
+                XCTAssertEqual(Self.errorKind(creditError),
+                               try string("\(where_).expect.error", expect["error"]),
+                               "\(where_): \(error)")
+                continue
+            }
+            XCTAssertNil(expect["error"], "\(where_): the read succeeded but the case expects an error")
+            let rows = try XCTUnwrap(expect["balances"] as? [Any], "\(where_).expect.balances")
+            XCTAssertEqual(rows.count, balances.count, "\(where_): row count")
+            for (row, element) in rows.enumerated() {
+                let at = "\(where_).expect.balances[\(row)]"
+                let expected = try XCTUnwrap(element as? [String: Any], "\(at) must be a JSON object")
+                let balance = balances[row]
+                XCTAssertEqual(balance.currency, try string("\(at).currency", expected["currency"]), at)
+                XCTAssertEqual(balance.amount, Self.decimal(try string("\(at).amount", expected["amount"])), at)
+                if let total = expected["total"], !(total is NSNull) {
+                    XCTAssertEqual(balance.total, Self.decimal(try string("\(at).total", total)), at)
+                } else {
+                    XCTAssertNil(balance.total, at)
+                }
+                XCTAssertNil(balance.remainingPercent, "\(at): no row of this provider draws a bar")
+            }
+        }
+    }
+
     /// One scripted reply, so a vector can pin a status as well as a body.
     private actor StatusTransport: HTTPTransport {
         let status: Int
@@ -252,6 +294,8 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
         case .rejected(let status): return status == 403 ? "forbidden" : "invalidKey"
         // Vercel's 403 asks for a team id instead of naming a rejected key; it is still a 403.
         case .teamDenied: return "forbidden"
+        // DeepInfra's 403 names the scope the key lacks; it is still a 403.
+        case .missingScope: return "forbidden"
         default: return "unknown"
         }
     }

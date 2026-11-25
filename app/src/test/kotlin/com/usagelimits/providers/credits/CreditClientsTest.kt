@@ -157,9 +157,39 @@ class CreditClientsTest {
         assertEquals(1, unauthorized.size)
     }
 
+    @Test fun `deepinfra sends the bearer key to the documented checklist url`() = runBlocking {
+        val seen = mutableListOf<RecordedRequest>()
+        val client = DeepInfraCreditClient(
+            scriptedHttp(
+                200 to """{"checklist":{"stripe_balance":-1234,"recent":0,"limit":null,"suspend_reason":null}}""",
+                seen = seen,
+            ),
+        )
+        assertAmount("12.34", client.fetchBalances("di-test", emptyMap())[0].amount)
+        assertEquals(listOf(Credits.DEEPINFRA_ME), seen.map { it.request.url.toString() })
+        assertEquals("Bearer di-test", seen[0].request.header("Authorization"))
+    }
+
+    @Test fun `deepinfra names the missing scope on 403 and never retries it`() {
+        val forbidden = mutableListOf<RecordedRequest>()
+        val missing = failure<CreditError.MissingScope> {
+            runBlocking { DeepInfraCreditClient(scriptedHttp(403 to "{}", seen = forbidden)).fetchBalances("di", emptyMap()) }
+        }
+        assertEquals("This key lacks the account:read scope.", missing.message)
+        assertEquals(1, forbidden.size)
+
+        val unauthorized = mutableListOf<RecordedRequest>()
+        val rejected = failure<CreditError.Rejected> {
+            runBlocking { DeepInfraCreditClient(scriptedHttp(401 to "{}", seen = unauthorized)).fetchBalances("di", emptyMap()) }
+        }
+        assertEquals(401, rejected.status)
+        assertEquals(1, unauthorized.size)
+    }
+
     @Test fun `endpoints are the documented ones`() {
         assertEquals("https://api.novita.ai/openapi/v1/billing/balance/detail", Credits.NOVITA_BALANCE)
         assertEquals("https://api.deepseek.com/user/balance", Credits.DEEPSEEK_BALANCE)
         assertEquals("https://ai-gateway.vercel.sh/v1/credits", Credits.VERCEL_CREDITS)
+        assertEquals("https://api.deepinfra.com/v1/me?checklist=true", Credits.DEEPINFRA_ME)
     }
 }

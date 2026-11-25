@@ -125,7 +125,62 @@
       "expect": {"error": "forbidden"}
     }
   ],
-  "deepinfra": [],
+  "deepinfra": [
+    {
+      "name": "a negative stripe balance is money left to spend, and one live and one expired scoped credit give two rows",
+      "status": 200,
+      "body": {"uid": "u-1", "email": "a@example.com", "checklist": {"stripe_balance": -1234, "recent": 0, "limit": null, "suspend_reason": null, "scoped_credits": [
+        {"name": "H100 grant", "granted_cents": 1000, "remaining_cents": 500, "granted_ts": 1760000000, "expires_ts": 1790000000, "expired": false, "covers_everything": false},
+        {"name": "Expired grant", "granted_cents": 300, "remaining_cents": 300, "granted_ts": 1700000000, "expires_ts": 1710000000, "expired": true, "covers_everything": false}
+      ]}},
+      "expect": {"balances": [
+        {"currency": "USD", "amount": "12.34", "total": null},
+        {"currency": "USD", "amount": "5", "total": null}
+      ]}
+    },
+    {
+      "name": "a checklist without scoped credits is one prepaid row, and an exhausted one is a real zero",
+      "status": 200,
+      "body": {"uid": "u-1", "checklist": {"stripe_balance": 0, "recent": 0, "limit": 25, "suspend_reason": null}},
+      "expect": {"balances": [{"currency": "USD", "amount": "0", "total": null}]}
+    },
+    {
+      "name": "a positive stripe balance is money owed, so the row is a negative amount that stays visible",
+      "status": 200,
+      "body": {"uid": "u-1", "checklist": {"stripe_balance": 500, "recent": 4.5, "limit": null, "suspend_reason": null}},
+      "expect": {"balances": [{"currency": "USD", "amount": "-5", "total": null}]}
+    },
+    {
+      "name": "a null checklist stays unknown, never a zero balance",
+      "status": 200,
+      "body": {"uid": "u-1", "checklist": null},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a reply without a checklist stays unknown, never a zero balance",
+      "status": 200,
+      "body": {"uid": "u-1", "email": "a@example.com"},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a stripe balance that is not a number stays unknown",
+      "status": 200,
+      "body": {"uid": "u-1", "checklist": {"stripe_balance": "lots", "recent": 0, "limit": null, "suspend_reason": null}},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a rejected key is invalid, never unknown",
+      "status": 401,
+      "body": {"detail": "Not authenticated"},
+      "expect": {"error": "invalidKey"}
+    },
+    {
+      "name": "a key without the account:read scope is forbidden, not a bad key",
+      "status": 403,
+      "body": {"detail": "Not enough permissions"},
+      "expect": {"error": "forbidden"}
+    }
+  ],
   "tokenrouter": [],
   "ollama": [],
   "minimax": []

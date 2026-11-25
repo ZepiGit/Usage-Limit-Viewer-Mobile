@@ -348,6 +348,9 @@ public enum ProviderEndpoints {
             let query = teamID.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
             return "\(base)?teamId=\(query)"
         }
+
+        /// The billing checklist is opt-in, so the balance is only there when it is asked for.
+        public static let deepInfraMe = "https://api.deepinfra.com/v1/me?checklist=true"
     }
 
     /// Where the user creates the key or signs in for a provider, or nil if it has no console.

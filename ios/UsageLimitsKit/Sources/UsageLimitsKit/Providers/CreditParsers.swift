@@ -13,6 +13,9 @@ public enum CreditError: Error, LocalizedError, Equatable {
     /// Vercel answers 403 when the key belongs to another team. Not a broken key, and a retry
     /// cannot help, so the sentence says what to change instead.
     case teamDenied
+    /// DeepInfra answers 403 to a key without the `account:read` scope. The balance is closed to
+    /// this key until the scope is granted, so the sentence names the scope.
+    case missingScope
     case noKey
 
     public var errorDescription: String? {
@@ -29,6 +32,8 @@ public enum CreditError: Error, LocalizedError, Equatable {
             return "This xAI key is not tied to one team. Enter the team id from console.x.ai."
         case .teamDenied:
             return "Vercel refused this key (HTTP 403). Enter the team id the key belongs to."
+        case .missingScope:
+            return "This key lacks the account:read scope."
         }
     }
 }
@@ -295,5 +300,37 @@ public enum VercelCreditParser {
             throw CreditError.malformed("vercel credits has no readable \(name)")
         }
         return figure
+    }
+}
+
+public enum DeepInfraCreditParser {
+
+    /// The billing checklist. `stripe_balance` is signed: NEGATIVE is money left to spend and
+    /// positive is money owed, so the amount is its negation. The cents reading is the spec's
+    /// inference — the OpenAPI types the field `number` and states no unit — while the scoped
+    /// credits name their cents outright. Each live scoped credit is one more row named after it,
+    /// an expired one adds none, and `limit` is a spending cap that never becomes a balance. A
+    /// checklist that is null or absent is a failed read, never a zero balance.
+    public static func parse(_ payload: [String: Any]) throws -> [CreditBalance] {
+        guard let checklist = JSONSupport.object(payload, "checklist") else {
+            throw CreditError.unavailable("deepinfra me returned no checklist")
+        }
+        guard let stripe = CreditJSON.decimal(checklist, "stripe_balance") else {
+            throw CreditError.malformed("deepinfra checklist has no stripe_balance")
+        }
+        var rows = [CreditBalance(currency: "USD", amount: -stripe / 100, label: "Prepaid balance")]
+        for element in (JSONSupport.field(checklist, ["scoped_credits"]) as? [Any]) ?? [] {
+            guard let credit = element as? [String: Any] else {
+                throw CreditError.malformed("deepinfra scoped_credits holds a non-object")
+            }
+            if JSONSupport.bool(credit, "expired") == true { continue }
+            guard let remaining = CreditJSON.decimal(credit, "remaining_cents") else {
+                throw CreditError.malformed("deepinfra scoped credit has no remaining_cents")
+            }
+            rows.append(CreditBalance(
+                currency: "USD", amount: remaining / 100,
+                label: JSONSupport.string(credit, "name")))
+        }
+        return rows
     }
 }

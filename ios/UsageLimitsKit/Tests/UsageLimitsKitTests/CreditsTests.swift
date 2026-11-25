@@ -479,6 +479,87 @@ final class CreditsTests: XCTestCase {
         XCTAssertEqual(unauthorizedRequests, 1)
     }
 
+    // MARK: - DeepInfra
+
+    func testDeepinfraNegatesASignedStripeBalanceAndKeepsEachLiveScopedCredit() throws {
+        let rows = try DeepInfraCreditParser.parse(json(
+            #"{"uid":"u-1","checklist":{"stripe_balance":-1234,"recent":0,"limit":25,"suspend_reason":null,"scoped_credits":[{"name":"H100 grant","granted_cents":1000,"remaining_cents":500,"granted_ts":1,"expires_ts":2,"expired":false},{"name":"Expired grant","granted_cents":300,"remaining_cents":300,"granted_ts":1,"expires_ts":2,"expired":true}]}}"#))
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].currency, "USD")
+        // Negative cents are money left to spend, and the spending limit is never a balance.
+        XCTAssertEqual(rows[0].amount, dec("12.34"))
+        XCTAssertNil(rows[0].total, "a spending limit is never a balance")
+        XCTAssertEqual(rows[0].label, "Prepaid balance")
+        XCTAssertEqual(rows[1].amount, dec("5"))
+        XCTAssertEqual(rows[1].label, "H100 grant")
+        XCTAssertNil(rows[1].total)
+    }
+
+    func testDeepinfraKeepsAnOwedBalanceNegativeAndRefusesToReadNothingAsZero() throws {
+        let owed = try DeepInfraCreditParser.parse(json(
+            #"{"checklist":{"stripe_balance":500,"recent":4.5,"limit":null,"suspend_reason":null}}"#))
+        XCTAssertEqual(owed.count, 1)
+        // Positive cents are money owed, and the row says so instead of reading as healthy.
+        XCTAssertEqual(owed[0].amount, dec("-5"))
+        XCTAssertEqual(
+            try DeepInfraCreditParser.parse(json(
+                #"{"checklist":{"stripe_balance":0,"recent":0,"limit":null,"suspend_reason":null}}"#))[0].amount,
+            dec("0"))
+        // A credit whose `expired` is absent is live, as the schema's default says.
+        XCTAssertEqual(
+            try DeepInfraCreditParser.parse(json(
+                #"{"checklist":{"stripe_balance":0,"scoped_credits":[{"name":"Live","remaining_cents":250}]}}"#)).count,
+            2)
+        for body in [
+            #"{"uid":"u-1"}"#,
+            #"{"checklist":null}"#,
+            #"{"checklist":{"recent":0,"limit":null,"suspend_reason":null}}"#,
+            #"{"checklist":{"stripe_balance":"lots"}}"#,
+        ] {
+            XCTAssertThrowsError(try DeepInfraCreditParser.parse(json(body)), body)
+        }
+        XCTAssertThrowsError(try DeepInfraCreditParser.parse(json(
+            #"{"checklist":{"stripe_balance":0,"scoped_credits":[{"name":"No figure"}]}}"#)))
+    }
+
+    func testDeepinfraSendsTheBearerKeyToTheDocumentedChecklistURL() async throws {
+        let transport = Transport([
+            ("api.deepinfra.com", [(200, #"{"checklist":{"stripe_balance":-1234,"recent":0,"limit":null,"suspend_reason":null}}"#)]),
+        ])
+        let rows = try await DeepInfraCreditClient(httpClient: http(transport))
+            .fetchBalances(key: "di-test", attributes: [:])
+        XCTAssertEqual(rows.first?.amount, dec("12.34"))
+        let urls = await transport.urls
+        XCTAssertEqual(urls, ["https://api.deepinfra.com/v1/me?checklist=true"])
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer di-test")
+    }
+
+    func testDeepinfraNamesTheMissingScopeOn403AndNeverRetries() async throws {
+        let forbidden = Transport([("api.deepinfra.com", [(403, "{}")])])
+        do {
+            _ = try await DeepInfraCreditClient(httpClient: http(forbidden))
+                .fetchBalances(key: "di", attributes: [:])
+            XCTFail("expected missingScope")
+        } catch {
+            XCTAssertEqual(error as? CreditError, .missingScope)
+            XCTAssertEqual((error as? CreditError)?.errorDescription, "This key lacks the account:read scope.")
+        }
+        let forbiddenRequests = await forbidden.urls.count
+        XCTAssertEqual(forbiddenRequests, 1)
+
+        let unauthorized = Transport([("api.deepinfra.com", [(401, "{}")])])
+        do {
+            _ = try await DeepInfraCreditClient(httpClient: http(unauthorized))
+                .fetchBalances(key: "di", attributes: [:])
+            XCTFail("expected rejected(401)")
+        } catch {
+            XCTAssertEqual(error as? CreditError, .rejected(401))
+        }
+        let unauthorizedRequests = await unauthorized.urls.count
+        XCTAssertEqual(unauthorizedRequests, 1)
+    }
+
     // MARK: - Severity and formatting
 
     private func account(_ attributes: [String: String] = [:]) -> CreditAccount {

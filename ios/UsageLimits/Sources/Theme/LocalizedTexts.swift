@@ -190,6 +190,8 @@ enum DisplayText {
             return String(localized: "This xAI key is not tied to one team. Enter the team id from console.x.ai.")
         case .vercelTeamRequired:
             return String(localized: "Vercel refused this key (HTTP 403). Enter the team id the key belongs to.")
+        case .keyLacksAccountScope:
+            return String(localized: "This key lacks the account:read scope.")
         case .providerUnreachable:
             return String(localized: "The provider could not be reached.")
         case .keyUnreadable:
@@ -234,6 +236,7 @@ enum DisplayText {
         case "No limit": return String(localized: "No limit")
         case "Unavailable": return String(localized: "Unavailable")
         case "Token Pass": return String(localized: "Token Pass")
+        case "Prepaid balance": return String(localized: "Prepaid balance")
         default: return label
         }
     }

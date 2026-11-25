@@ -30,6 +30,7 @@ class CreditRegistry(http: HttpClient) {
     private val clients: Map<CreditProviderId, CreditProvider> = listOf(
         OpenRouterCreditClient(http), DeepSeekCreditClient(http), MoonshotCreditClient(http),
         xai, FalCreditClient(http), NovitaCreditClient(http), VercelCreditClient(http),
+        DeepInfraCreditClient(http),
     ).associateBy { it.providerId }
 
     fun forId(id: CreditProviderId): CreditProvider? = clients[id]
@@ -188,5 +189,23 @@ class VercelCreditClient(private val http: HttpClient) : CreditProvider {
         } catch (e: CreditError.Rejected) {
             if (e.status != 403) throw e
             throw CreditError.TeamDenied()
+        }
+}
+
+class DeepInfraCreditClient(private val http: HttpClient) : CreditProvider {
+    override val providerId = CreditProviderId.DEEPINFRA
+
+    /**
+     * A 403 means the key lacks `account:read`, which no retry fixes; it is translated once here.
+     * A 401 stays a rejected key. Nothing is retried.
+     */
+    override suspend fun fetchBalances(key: String, attributes: Map<String, String>): List<CreditBalance> =
+        try {
+            DeepInfraCreditParser.parse(
+                CreditHttp.getJson(http, Credits.DEEPINFRA_ME, CreditHttp.bearer(key), "deepinfra me"),
+            )
+        } catch (e: CreditError.Rejected) {
+            if (e.status != 403) throw e
+            throw CreditError.MissingScope()
         }
 }

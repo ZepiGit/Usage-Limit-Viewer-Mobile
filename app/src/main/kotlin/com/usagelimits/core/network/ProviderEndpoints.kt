@@ -387,5 +387,8 @@ object ProviderEndpoints {
             val query = java.net.URLEncoder.encode(id, "UTF-8").replace("+", "%20").replace("*", "%2A")
             return "$VERCEL_CREDITS?teamId=$query"
         }
+
+        /** The billing checklist is opt-in, so the balance is only there when it is asked for. */
+        const val DEEPINFRA_ME = "https://api.deepinfra.com/v1/me?checklist=true"
     }
 }

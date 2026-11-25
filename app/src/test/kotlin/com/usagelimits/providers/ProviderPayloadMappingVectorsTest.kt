@@ -2,6 +2,7 @@ package com.usagelimits.providers
 
 import com.usagelimits.core.model.SharedVectors
 import com.usagelimits.providers.credits.CreditError
+import com.usagelimits.providers.credits.DeepInfraCreditClient
 import com.usagelimits.providers.credits.OpenRouterCreditParser
 import com.usagelimits.providers.credits.VercelCreditClient
 import com.usagelimits.providers.scriptedHttp
@@ -232,6 +233,44 @@ class ProviderPayloadMappingVectorsTest {
         }
     }
 
+    /**
+     * DeepInfra's billing checklist: `stripe_balance` is signed cents where NEGATIVE is money left
+     * to spend, so a positive (owed) figure reads as a negative row. Each live scoped credit is
+     * one more row, an expired one adds none, and `limit` is a spending cap that never becomes a
+     * balance. A missing checklist and an unreadable figure must stay unknown, never zero.
+     */
+    @Test
+    fun `deepinfra reads the signed prepaid balance and the live scoped credits`() {
+        for ((index, case) in cases("deepinfra").withIndex()) {
+            val where = "deepinfra[$index]"
+            val status = (case["status"] as JsonPrimitive).content.toInt()
+            val client = DeepInfraCreditClient(scriptedHttp(status to (case["body"] as JsonObject).toString()))
+            val expect = case["expect"] as JsonObject
+            val balances = try {
+                runBlocking { client.fetchBalances("di-test", emptyMap()) }
+            } catch (error: CreditError) {
+                assertEquals(
+                    "$where: ${error.message}",
+                    string("$where.expect.error", expect["error"]),
+                    errorKind(error),
+                )
+                continue
+            }
+            assertNull("$where: the read succeeded but the case expects an error", expect["error"])
+            val rows = expect["balances"] as JsonArray
+            assertEquals("$where: row count", rows.size, balances.size)
+            for ((row, element) in rows.withIndex()) {
+                val at = "$where.expect.balances[$row]"
+                val expected = element as JsonObject
+                val balance = balances[row]
+                assertEquals("$at: currency", string("$at.currency", expected["currency"]), balance.currency)
+                assertDecimal("$at: amount", decimalTextOrNull("$at.amount", expected["amount"]), balance.amount)
+                assertDecimal("$at: total", decimalTextOrNull("$at.total", expected["total"]), balance.total)
+                assertNull("$at: no row of this provider draws a bar", balance.remainingPercent)
+            }
+        }
+    }
+
     private fun decimalTextOrNull(where: String, element: JsonElement?): BigDecimal? =
         element?.takeUnless { it is JsonNull }?.let { BigDecimal(string(where, it)) }
 
@@ -248,6 +287,8 @@ class ProviderPayloadMappingVectorsTest {
         is CreditError.Rejected -> if (error.status == 403) "forbidden" else "invalidKey"
         // Vercel's 403 asks for a team id instead of naming a rejected key; it is still a 403.
         is CreditError.TeamDenied -> "forbidden"
+        // DeepInfra's 403 names the scope the key lacks; it is still a 403.
+        is CreditError.MissingScope -> "forbidden"
         else -> "unknown"
     }
 

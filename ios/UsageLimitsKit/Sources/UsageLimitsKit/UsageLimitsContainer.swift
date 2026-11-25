@@ -90,6 +90,7 @@ public actor UsageLimitsContainer {
             .fal: FalCreditClient(httpClient: http),
             .novita: NovitaCreditClient(httpClient: http),
             .vercelAiGateway: VercelCreditClient(httpClient: http),
+            .deepinfra: DeepInfraCreditClient(httpClient: http),
         ]
         self.creditRepository = creditRepository
         self.creditProviders = creditProviders

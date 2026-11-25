@@ -42,6 +42,12 @@ sealed class CreditError(message: String) : Exception(message) {
     class TeamDenied :
         CreditError("Vercel refused this key (HTTP 403). Enter the team id the key belongs to.")
 
+    /**
+     * DeepInfra answers 403 to a key without the `account:read` scope. The balance is closed to
+     * this key until the scope is granted, so the sentence names the scope.
+     */
+    class MissingScope : CreditError("This key lacks the account:read scope.")
+
     class NoKey : CreditError("No key was entered.")
 }
 
@@ -254,5 +260,35 @@ object VercelCreditParser {
             ?: throw CreditError.Malformed("vercel credits states $name as something other than a decimal string")
         return CreditNumbers.parse(primitive.content)
             ?: throw CreditError.Malformed("vercel credits has no readable $name")
+    }
+}
+
+object DeepInfraCreditParser {
+
+    /**
+     * The billing checklist. `stripe_balance` is signed: NEGATIVE is money left to spend and
+     * positive is money owed, so the amount is its negation. The cents reading is the spec's
+     * inference — the OpenAPI types the field `number` and states no unit — while the scoped
+     * credits name their cents outright. Each live scoped credit is one more row named after it,
+     * an expired one adds none, and `limit` is a spending cap that never becomes a balance. A
+     * checklist that is null or absent is a failed read, never a zero balance.
+     */
+    fun parse(payload: JsonObject): List<CreditBalance> {
+        val checklist = JsonSupport.obj(payload, "checklist")
+            ?: throw CreditError.Unavailable("deepinfra me returned no checklist")
+        val stripe = CreditJson.decimal(checklist, "stripe_balance")
+            ?: throw CreditError.Malformed("deepinfra checklist has no stripe_balance")
+        val rows = mutableListOf(
+            CreditBalance("USD", stripe.negate().movePointLeft(2), label = "Prepaid balance"),
+        )
+        for (element in JsonSupport.array(checklist, "scoped_credits")) {
+            val credit = element as? JsonObject
+                ?: throw CreditError.Malformed("deepinfra scoped_credits holds a non-object")
+            if (JsonSupport.boolean(credit, "expired") == true) continue
+            val remaining = CreditJson.decimal(credit, "remaining_cents")
+                ?: throw CreditError.Malformed("deepinfra scoped credit has no remaining_cents")
+            rows += CreditBalance("USD", remaining.movePointLeft(2), label = JsonSupport.string(credit, "name"))
+        }
+        return rows
     }
 }

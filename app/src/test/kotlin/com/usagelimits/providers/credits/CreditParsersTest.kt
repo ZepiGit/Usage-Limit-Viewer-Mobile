@@ -303,6 +303,58 @@ class CreditParsersTest {
         assertNull(rows[1].resetsAt)
     }
 
+    @Test fun `deepinfra negates a signed stripe balance and keeps each live scoped credit`() {
+        val rows = DeepInfraCreditParser.parse(
+            json(
+                """{"uid":"u-1","checklist":{"stripe_balance":-1234,"recent":0,"limit":25,"suspend_reason":null,
+                   "scoped_credits":[
+                     {"name":"H100 grant","granted_cents":1000,"remaining_cents":500,"granted_ts":1,"expires_ts":2,"expired":false},
+                     {"name":"Expired grant","granted_cents":300,"remaining_cents":300,"granted_ts":1,"expires_ts":2,"expired":true}]}}""",
+            ),
+        )
+        assertEquals(2, rows.size)
+        assertEquals("USD", rows[0].currency)
+        // Negative cents are money left to spend, and the spending limit is never a balance.
+        assertAmount("12.34", rows[0].amount)
+        assertNull("a spending limit is never a balance", rows[0].total)
+        assertEquals("Prepaid balance", rows[0].label)
+        assertAmount("5", rows[1].amount)
+        assertEquals("H100 grant", rows[1].label)
+        assertNull(rows[1].total)
+    }
+
+    @Test fun `deepinfra keeps an owed balance negative and refuses to read nothing as zero`() {
+        val owed = DeepInfraCreditParser.parse(
+            json("""{"checklist":{"stripe_balance":500,"recent":4.5,"limit":null,"suspend_reason":null}}"""),
+        )
+        assertEquals(1, owed.size)
+        // Positive cents are money owed, and the row says so instead of reading as healthy.
+        assertAmount("-5", owed[0].amount)
+        assertAmount("0", DeepInfraCreditParser.parse(
+            json("""{"checklist":{"stripe_balance":0,"recent":0,"limit":null,"suspend_reason":null}}"""),
+        )[0].amount)
+        // A credit whose `expired` is absent is live, as the schema's default says.
+        assertEquals(
+            2,
+            DeepInfraCreditParser.parse(
+                json("""{"checklist":{"stripe_balance":0,"scoped_credits":[{"name":"Live","remaining_cents":250}]}}"""),
+            ).size,
+        )
+        for (body in listOf(
+            """{"uid":"u-1"}""",
+            """{"checklist":null}""",
+            """{"checklist":{"recent":0,"limit":null,"suspend_reason":null}}""",
+            """{"checklist":{"stripe_balance":"lots"}}""",
+        )) {
+            assertThrows(CreditError::class.java) { DeepInfraCreditParser.parse(json(body)) }
+        }
+        assertThrows(CreditError.Malformed::class.java) {
+            DeepInfraCreditParser.parse(
+                json("""{"checklist":{"stripe_balance":0,"scoped_credits":[{"name":"No figure"}]}}"""),
+            )
+        }
+    }
+
     @Test fun `errors never carry a payload`() {
         // Built from endpoint names and statuses only.
         assertTrue(CreditError.Rejected(401).message!!.contains("HTTP 401"))
