@@ -7,6 +7,8 @@
 <p align="center">
   <a href="https://rookieenough.github.io/Orion-Data/redirect.html?id=firefin"><img src="https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png" height="44" alt="Get it on Orion Store"></a>
   &nbsp;
+  <a href="https://zepigit.github.io/Usage-Limit-Viewer-Mobile/demo/"><img src="docs/demo/assets/try-the-demo.svg" height="44" alt="Try the demo"></a>
+  &nbsp;
   <a href="https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0"><img src="https://img.shields.io/github/v/release/ZepiGit/Usage-Limit-Viewer-Mobile?label=GitHub%20Releases&style=for-the-badge" height="44" alt="Download v0.5.0 from GitHub Releases"></a>
   &nbsp;
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ZepiGit/Usage-Limit-Viewer-Mobile?style=for-the-badge" height="44" alt="MIT license"></a>
