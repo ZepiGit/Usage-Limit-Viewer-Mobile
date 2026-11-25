@@ -41,7 +41,7 @@ enum class CreditProviderId(val id: String, val displayName: String, val keyHint
         "AI Gateway API key (vck_…) or a Vercel access token.",
         "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys",
     ),
-    DEEPINFRA("deepinfra", "DeepInfra", "DeepInfra API key.", "https://deepinfra.com/dash/api_keys"),
+    DEEPINFRA("deepinfra", "DeepInfra", "DeepInfra API key.", "https://deepinfra.com/dash/keys"),
     TOKENROUTER("tokenrouter", "TokenRouter", "Management key, not an inference key.", "https://tokenrouter.com"),
     OLLAMA(
         "ollama", "Ollama Cloud", "Ollama API key (ollama.com/settings/keys).",

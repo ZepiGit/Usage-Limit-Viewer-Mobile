@@ -80,7 +80,7 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         case .fal: return "https://fal.ai/dashboard/keys"
         case .novita: return "https://novita.ai/settings/key-management"
         case .vercelAiGateway: return "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys"
-        case .deepinfra: return "https://deepinfra.com/dash/api_keys"
+        case .deepinfra: return "https://deepinfra.com/dash/keys"
         case .tokenrouter: return "https://tokenrouter.com"
         case .ollama: return "https://ollama.com/settings/keys"
         }
