@@ -1,0 +1,399 @@
+/* Usage Limits click dummy — no external fonts or CDNs */
+:root {
+  --bg: #0e0e10;
+  --fg: #f4f1ea;
+  --muted: #9a948a;
+  --line: rgba(255, 255, 255, 0.12);
+  --accent: #c85a3a;
+  --chip: #1a1a1c;
+  --chip-border: #3a3a3e;
+  --highlight: rgba(255, 255, 255, 0.1);
+  --highlight-ring: rgba(255, 236, 210, 0.55);
+  --pulse: rgba(232, 140, 96, 0.22);
+  --pulse-ring: rgba(232, 140, 96, 0.7);
+  --shadow: rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f3f0e8;
+    --fg: #1a1814;
+    --muted: #5c574e;
+    --line: rgba(26, 24, 20, 0.12);
+    --accent: #b44a2c;
+    --chip: #fffdf8;
+    --chip-border: #d4cfc4;
+    --highlight: rgba(20, 16, 12, 0.08);
+    --highlight-ring: rgba(180, 74, 44, 0.45);
+    --pulse: rgba(196, 90, 58, 0.16);
+    --pulse-ring: rgba(196, 90, 58, 0.7);
+    --shadow: rgba(40, 30, 20, 0.18);
+    color-scheme: light;
+  }
+}
+
+:root[data-theme="light"] {
+  --bg: #f3f0e8;
+  --fg: #1a1814;
+  --muted: #5c574e;
+  --line: rgba(26, 24, 20, 0.12);
+  --accent: #b44a2c;
+  --chip: #fffdf8;
+  --chip-border: #d4cfc4;
+  --highlight: rgba(20, 16, 12, 0.08);
+  --highlight-ring: rgba(180, 74, 44, 0.45);
+  --pulse: rgba(196, 90, 58, 0.16);
+  --pulse-ring: rgba(196, 90, 58, 0.7);
+  --shadow: rgba(40, 30, 20, 0.18);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0e0e10;
+  --fg: #f4f1ea;
+  --muted: #9a948a;
+  --line: rgba(255, 255, 255, 0.12);
+  --accent: #c85a3a;
+  --chip: #1a1a1c;
+  --chip-border: #3a3a3e;
+  --highlight: rgba(255, 255, 255, 0.1);
+  --highlight-ring: rgba(255, 236, 210, 0.55);
+  --pulse: rgba(232, 140, 96, 0.22);
+  --pulse-ring: rgba(232, 140, 96, 0.7);
+  --shadow: rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  padding: 20px 16px 28px;
+}
+
+.page {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+header.intro {
+  text-align: center;
+  width: 100%;
+}
+
+header.intro h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+header.intro p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+/* Pixel 11 (Obsidian) — same geometry as the store/README frames */
+.phone-scale {
+  /* Frame aspect ~ 1 : 2.1206 so the 1080×2424 screen fits the inner cutout */
+  --frame-w: min(420px, calc(100vw - 32px), calc((100dvh - 200px) / 2.1206));
+  width: var(--frame-w);
+  height: calc(var(--frame-w) * 2.1206);
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.side-btn {
+  position: absolute;
+  right: calc(var(--frame-w) * -0.009);
+  width: calc(var(--frame-w) * 0.014);
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(90deg, #1a1a1c, #3a3a3e);
+  pointer-events: none;
+}
+.side-btn.vol { top: 24%; height: 7.5%; }
+.side-btn.pwr { top: 34.5%; height: 13%; }
+
+.device {
+  position: absolute;
+  inset: 0;
+  border-radius: 13.5% / 6.4%;
+  background: linear-gradient(135deg, #3b3b3f 0%, #161618 18%, #0e0e10 50%, #1b1b1e 82%, #3a3a3e 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.10),
+    inset 0 0 0 7px #0b0b0c,
+    0 18px 48px var(--shadow);
+  overflow: hidden;
+}
+
+.screen {
+  position: absolute;
+  left: 4.8%;
+  top: 2.16%;
+  width: 90.4%;
+  height: 95.68%;
+  border-radius: 10.6% / 4.75%;
+  overflow: hidden;
+  background: #000;
+  touch-action: none;
+}
+
+.screen img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.screen img.is-leaving {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.punch {
+  position: absolute;
+  top: 1.55%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4.4%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 35%, #2b2f3a 0%, #0a0a0c 55%, #000 100%);
+  box-shadow: 0 0 0 2px #050505;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.hotspots {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+.hotspot {
+  position: absolute;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 18px;
+  appearance: none;
+  -webkit-appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.hotspot:focus { outline: none; }
+
+.hotspot:hover,
+.hotspot:focus-visible,
+.hotspot.is-hover {
+  background: var(--highlight);
+  box-shadow: inset 0 0 0 2px var(--highlight-ring);
+}
+
+.hotspot:active {
+  background: var(--highlight);
+}
+
+.hotspot.nav,
+.hotspot.edge,
+.hotspot.status,
+.hotspot.gesture {
+  border-radius: 0;
+}
+
+.hotspot.chip { border-radius: 14px; }
+.hotspot.dial { border-radius: 22px; }
+.hotspot.round { border-radius: 50%; }
+
+.hotspot.hint {
+  animation: hint-pulse 1.7s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hotspot.hint { animation: none; box-shadow: inset 0 0 0 2px var(--pulse-ring); }
+  .screen img { transition: none; }
+}
+
+@keyframes hint-pulse {
+  0%, 100% { background: transparent; box-shadow: inset 0 0 0 2px transparent; }
+  45%, 55% { background: var(--pulse); box-shadow: inset 0 0 0 2px var(--pulse-ring); }
+}
+
+.hint-label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 14.2%;
+  z-index: 4;
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(20, 16, 14, 0.78);
+  padding: 5px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  animation: hint-label 1.7s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hint-label { animation: none; }
+}
+
+@keyframes hint-label {
+  0%, 100% { opacity: 0; }
+  40%, 60% { opacity: 1; }
+}
+
+.sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.sheet[hidden] { display: none; }
+
+.sheet-card {
+  width: 100%;
+  background: var(--chip);
+  color: var(--fg);
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+  padding: 18px 20px 28px;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.35);
+}
+
+.sheet-card h2 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.sheet-card p {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.sheet-card button {
+  width: 100%;
+  border: 1px solid var(--chip-border);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.sheet-card button:hover,
+.sheet-card button:focus-visible {
+  border-color: var(--accent);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.seg,
+.ctrl {
+  display: inline-flex;
+  align-items: center;
+  background: var(--chip);
+  border: 1px solid var(--chip-border);
+  border-radius: 999px;
+  overflow: hidden;
+  min-height: 36px;
+}
+
+.seg button,
+.ctrl button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 7px 12px;
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.seg button[aria-pressed="true"],
+.ctrl button[aria-pressed="true"] {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 28%, var(--chip));
+}
+
+.seg button:hover,
+.ctrl button:hover,
+.seg button:focus-visible,
+.ctrl button:focus-visible {
+  color: var(--fg);
+  outline: none;
+}
+
+.seg button + button,
+.ctrl button + button {
+  border-left: 1px solid var(--chip-border);
+}
+
+.note {
+  margin: 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  max-width: 36em;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

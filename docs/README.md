@@ -2,6 +2,8 @@
 
 Every document in this directory, and what it answers.
 
+[DETAILS.md](DETAILS.md) is the long-form reference the README links to: install, build, features and the capture notes.
+
 ## Using the app
 
 | Document | Covers |
@@ -40,4 +42,6 @@ One guide per provider, with the sign-in flow, the payload shape and the limits 
 
 ## Media
 
-`media/` holds the images the README and the release guide display: app icon and store badges under `brand/`, the Android captures under `captures/`, and the status icon evidence under `status-icons/`. Nothing else belongs there.
+`media/` holds the images the guides display: the app icon and store badges under `brand/`, the Android captures under `captures/`, and the status icon evidence under `status-icons/`. Nothing else belongs there.
+
+`images/readme/` holds the README artwork in light and dark variants, `store-previews/` the full-size store screenshots, and `demo/` the static click-through demo published on GitHub Pages.
