@@ -189,7 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      # versionCode is the full Git commit count.
+      # Full history: the signing-continuity gate below reads the latest release.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -222,7 +222,6 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          export ANDROID_VERSION_CODE="$(git rev-list --count HEAD)"
           ./gradlew --no-daemon --no-configuration-cache assembleDebug assembleRelease
           mkdir -p app/build/reports
           ./gradlew --no-daemon --no-configuration-cache :app:dependencies --configuration releaseRuntimeClasspath --console=plain > app/build/reports/apk-runtime-dependencies.txt

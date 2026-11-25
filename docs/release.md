@@ -61,7 +61,9 @@ With every signing value absent, release builds use the debug key for local inst
 ./gradlew --no-configuration-cache :app:bundleRelease :app:assembleRelease
 ```
 
-The bundle is `app/build/outputs/bundle/release/app-release.aab`. Retain the matching R8 `mapping.txt` with the minified APK and AAB. Set `ANDROID_VERSION_NAME` and `ANDROID_VERSION_CODE` for distribution; local defaults are the source version name and reachable commit count.
+The bundle is `app/build/outputs/bundle/release/app-release.aab`. Retain the matching R8 `mapping.txt` with the minified APK and AAB. Set `ANDROID_VERSION_NAME` and `ANDROID_VERSION_CODE` for distribution; local builds take the version name from the build script and the version code from `app.versionCode` in `gradle.properties`.
+
+`app.versionCode` is maintained by hand and only ever rises: it must stay above the code of the last published release, so bump it in the same commit that prepares the next one. The release workflow reads the same value, so a release and a branch build of that commit share one code.
 
 ## Preserving data on upgrade
 
