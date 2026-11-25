@@ -301,6 +301,14 @@ enum DisplayText {
         }
     }
 
+    /// When a provider's team id has to be filled in. xAI needs one for a key that names no
+    /// team; Vercel's is optional and only narrows a key or token that covers several teams.
+    static func creditTeamIDHint(_ provider: CreditProviderID) -> String {
+        provider == .xai
+            ? String(localized: "Only needed when the key is not tied to one team.")
+            : String(localized: "Optional. Your Vercel team ID, needed when the key or token covers several teams.")
+    }
+
     /// Why a credit provider cannot be added.
     static func creditUnavailableReason(_ reason: String) -> String {
         reason == "No balance endpoint for API keys"

@@ -323,10 +323,15 @@ struct AddCreditSheet: View {
                 })
             }
             if provider.acceptsTeamID {
-                TextField("Team id (only if the key is not team-scoped)", text: $teamID)
-                    .ledgerField()
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField("Team id", text: $teamID)
+                        .ledgerField()
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    Text(verbatim: DisplayText.creditTeamIDHint(provider))
+                        .usageFont(.small)
+                        .foregroundStyle(colors.muted)
+                }
             }
             TextField("Low balance below (optional)", text: $threshold)
                 .ledgerField()

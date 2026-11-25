@@ -425,14 +425,18 @@ public actor UsageLimitsContainer {
         }
         if provider.acceptsTeamID {
             let typed = teamID?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-            // A team-scoped key names its team; asking the user for it would be a needless step.
-            // Resolving also proves the key, so a rejected one stops here.
-            let resolved: String?
-            if let typed { resolved = typed } else if let xai = client as? XaiCreditClient {
-                resolved = try await xai.resolveTeamID(key: trimmed)
-            } else { resolved = nil }
-            guard let resolved else { throw CreditError.teamIDRequired }
-            attributes[CreditAccount.teamIDKey] = resolved
+            if let typed {
+                attributes[CreditAccount.teamIDKey] = typed
+            } else if provider == .xai {
+                // A team-scoped xAI key names its team; asking the user for it would be a needless
+                // step. Resolving also proves the key, so a rejected one stops here. Vercel's team
+                // id stays the user's choice — its key already names its team, and no Vercel key is
+                // sent to x.ai's management API.
+                guard let xai = client as? XaiCreditClient else { throw CreditError.teamIDRequired }
+                let resolved = try await xai.resolveTeamID(key: trimmed)
+                guard let resolved else { throw CreditError.teamIDRequired }
+                attributes[CreditAccount.teamIDKey] = resolved
+            }
         }
         if let lowThreshold, lowThreshold > 0 {
             attributes[CreditAccount.lowThresholdKey] = "\(lowThreshold)"

@@ -68,8 +68,10 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
     /// Only Moonshot runs two hosts (and two currencies) that keys do not cross.
     public var hasRegion: Bool { self == .moonshot }
 
-    /// xAI needs a team id when the management key is not scoped to one team.
-    public var acceptsTeamID: Bool { self == .xai }
+    /// A provider whose call can take a team id. xAI needs one when the management key is not
+    /// scoped to a single team; Vercel's gateway key names its team already, so the id is
+    /// optional there and is only sent when the user enters one.
+    public var acceptsTeamID: Bool { self == .xai || self == .vercelAiGateway }
 
     public var consoleURL: String {
         switch self {

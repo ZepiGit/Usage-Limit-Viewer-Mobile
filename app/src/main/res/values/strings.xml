@@ -346,7 +346,9 @@
     <string name="credit_connect_title">Connect %1$s</string>
     <string name="credit_region_hint">Keys only work on the service they were issued by. Pick the one your account is on.</string>
     <string name="credit_name_label">Name (optional)</string>
-    <string name="credit_team_label">Team id (only if the key is not tied to one team)</string>
+    <string name="credit_team_label">Team id</string>
+    <string name="credit_team_hint_xai">Only needed when the key is not tied to one team.</string>
+    <string name="credit_team_hint_vercel">Optional. Your Vercel team ID, needed when the key or token covers several teams.</string>
     <string name="credit_threshold_label">Low-balance figure (optional)</string>
     <string name="credit_threshold_supporting">Default 5, or 35 for CNY. Below it the balance reads low.</string>
     <string name="credit_checking">Checking…</string>

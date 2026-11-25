@@ -42,6 +42,14 @@ fun creditKeyHintRes(provider: CreditProviderId): Int = when (provider) {
 fun creditRegionLabelRes(region: ProviderRegion): Int =
     if (region == ProviderRegion.CN) R.string.credit_region_china else R.string.credit_region_international
 
+/**
+ * When a provider's team id has to be filled in. xAI needs one for a key that names no team;
+ * Vercel's is optional and only narrows a key or token that covers several teams.
+ */
+@StringRes
+fun creditTeamHintRes(provider: CreditProviderId): Int =
+    if (provider == CreditProviderId.XAI) R.string.credit_team_hint_xai else R.string.credit_team_hint_vercel
+
 /** Why a provider cannot be tracked; null for a reason this mapping does not know. */
 @StringRes
 fun creditUnavailableReasonRes(provider: CreditUnavailableProvider): Int? = when (provider.id) {

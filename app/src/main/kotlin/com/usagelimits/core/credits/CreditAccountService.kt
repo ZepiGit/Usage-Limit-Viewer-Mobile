@@ -43,15 +43,18 @@ class CreditAccountService(
         val attributes = buildMap {
             if (provider.hasRegion) put(CreditAccount.REGION_KEY, region.id)
             lowThreshold?.takeIf { it.signum() > 0 }?.let { put(CreditAccount.LOW_THRESHOLD_KEY, it.toPlainString()) }
-            // Resolved now, not at the first sync: a key that names no team and no typed id
-            // should fail while the user is looking at the form.
+            // A team-scoped xAI key names its team, so the validation call resolves it now rather
+            // than at the first sync: a key that names no team and no typed id should fail while
+            // the user is looking at the form. Vercel's team id stays the user's choice — its key
+            // already names its team, and no Vercel key is sent to x.ai's management API.
             if (provider.acceptsTeamId) {
-                put(
-                    CreditAccount.TEAM_ID_KEY,
-                    teamId?.trim()?.takeIf { it.isNotEmpty() }
-                        ?: registry.xai.resolveTeamId(secret)
-                        ?: throw CreditError.TeamIdRequired(),
-                )
+                val typed = teamId?.trim()?.takeIf { it.isNotEmpty() }
+                val resolved = typed ?: if (provider == CreditProviderId.XAI) {
+                    registry.xai.resolveTeamId(secret) ?: throw CreditError.TeamIdRequired()
+                } else {
+                    null
+                }
+                if (resolved != null) put(CreditAccount.TEAM_ID_KEY, resolved)
             }
         }
         val balances = client.fetchBalances(secret, attributes)

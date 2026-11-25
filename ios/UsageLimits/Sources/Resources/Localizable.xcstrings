@@ -3181,13 +3181,35 @@
         }
       }
     },
-    "Team id (only if the key is not team-scoped)" : {
+    "Team id" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Team-ID (nur, wenn der Schlüssel nicht an ein Team gebunden ist)"
+            "value" : "Team-ID"
+          }
+        }
+      }
+    },
+    "Only needed when the key is not tied to one team." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur nötig, wenn der Schlüssel nicht an ein Team gebunden ist."
+          }
+        }
+      }
+    },
+    "Optional. Your Vercel team ID, needed when the key or token covers several teams." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Optional. Deine Vercel-Team-ID, nötig, wenn der Schlüssel oder das Token mehrere Teams umfasst."
           }
         }
       }

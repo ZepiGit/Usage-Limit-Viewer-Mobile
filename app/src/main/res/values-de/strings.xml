@@ -332,7 +332,9 @@
     <string name="credit_connect_title">%1$s verbinden</string>
     <string name="credit_region_hint">Schlüssel funktionieren nur bei dem Dienst, der sie ausgestellt hat. Wähle den, bei dem dein Konto liegt.</string>
     <string name="credit_name_label">Name (optional)</string>
-    <string name="credit_team_label">Team-ID (nur, wenn der Schlüssel nicht an ein Team gebunden ist)</string>
+    <string name="credit_team_label">Team-ID</string>
+    <string name="credit_team_hint_xai">Nur nötig, wenn der Schlüssel nicht an ein Team gebunden ist.</string>
+    <string name="credit_team_hint_vercel">Optional. Deine Vercel-Team-ID, nötig, wenn der Schlüssel oder das Token mehrere Teams umfasst.</string>
     <string name="credit_threshold_label">Warnschwelle für niedriges Guthaben (optional)</string>
     <string name="credit_threshold_supporting">Standard 5, bei CNY 35. Darunter gilt das Guthaben als niedrig.</string>
     <string name="credit_checking">Wird geprüft…</string>

@@ -49,6 +49,7 @@ import com.usagelimits.ui.components.TextAction
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.text.creditKeyHintRes
 import com.usagelimits.ui.text.creditRegionLabelRes
+import com.usagelimits.ui.text.creditTeamHintRes
 import com.usagelimits.ui.text.creditUnavailableReasonRes
 import com.usagelimits.ui.theme.UsageColors
 
@@ -195,6 +196,7 @@ private fun KeyForm(
             LedgerField(
                 label = stringResource(R.string.credit_team_label), value = teamId,
                 onValueChange = { teamId = it }, enabled = !busy,
+                supporting = stringResource(creditTeamHintRes(provider)),
             )
             Spacer(Modifier.height(12.dp))
         }

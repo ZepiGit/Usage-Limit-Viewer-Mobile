@@ -52,8 +52,12 @@ enum class CreditProviderId(val id: String, val displayName: String, val keyHint
     /** Only Moonshot runs two hosts (and two currencies) that keys do not cross. */
     val hasRegion: Boolean get() = this == MOONSHOT
 
-    /** xAI needs a team id when the management key is not scoped to one team. */
-    val acceptsTeamId: Boolean get() = this == XAI
+    /**
+     * A provider whose call can take a team id. xAI needs one when the management key is not
+     * scoped to a single team; Vercel's gateway key names its team already, so the id is
+     * optional there and is only sent when the user enters one.
+     */
+    val acceptsTeamId: Boolean get() = this == XAI || this == VERCEL_AI_GATEWAY
 
     companion object {
         fun fromId(id: String?): CreditProviderId? = entries.firstOrNull { it.id == id }

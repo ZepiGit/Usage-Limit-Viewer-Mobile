@@ -698,6 +698,30 @@ final class CreditsTests: XCTestCase {
         } catch { XCTAssertEqual(error as? CreditError, .teamIDRequired) }
     }
 
+    func testAVercelAccountWithoutATeamIDAsksNoOtherHostAndStoresNone() async throws {
+        let (subject, _, transport) = container([
+            ("ai-gateway.vercel.sh", [(200, #"{"balance":"95.50","total_used":"4.50"}"#)]),
+        ], clock: { [now] in now })
+
+        let added = try await subject.addCreditAccount(provider: .vercelAiGateway, key: "vck-abc")
+        XCTAssertNil(added.teamID)
+        // The key itself names the team: no validation call, and certainly not one to x.ai.
+        let urls = await transport.urls
+        XCTAssertEqual(urls, ["https://ai-gateway.vercel.sh/v1/credits"])
+    }
+
+    func testATypedVercelTeamIDIsStoredAndSentAsAQueryParameter() async throws {
+        let (subject, _, transport) = container([
+            ("ai-gateway.vercel.sh", [(200, #"{"balance":"95.50","total_used":"4.50"}"#)]),
+        ], clock: { [now] in now })
+
+        let added = try await subject.addCreditAccount(
+            provider: .vercelAiGateway, key: "vck-abc", teamID: " team/1 ")
+        XCTAssertEqual(added.teamID, "team/1")
+        let urls = await transport.urls
+        XCTAssertEqual(urls, ["https://ai-gateway.vercel.sh/v1/credits?teamId=team%2F1"])
+    }
+
     func testRefreshUpdatesCreditsAndAFailureKeepsTheLastBalance() async throws {
         let transport = Transport([
             ("api.novita.ai", [
