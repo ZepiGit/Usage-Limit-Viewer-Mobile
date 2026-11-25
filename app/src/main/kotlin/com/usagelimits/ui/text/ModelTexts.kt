@@ -11,6 +11,7 @@ import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.network.RATE_LIMITED_REQUEST_MESSAGE
 import com.usagelimits.core.sync.RATE_LIMITED_PAUSE_MESSAGE
+import java.math.BigDecimal
 
 /*
  * Resource ids for the user-facing sentences that live in the model and provider layers.
@@ -88,8 +89,21 @@ fun creditBalanceLabelRes(label: String): Int? = when (label) {
     "Monthly key limit" -> R.string.credit_balance_monthly_key_limit
     "No limit" -> R.string.credit_balance_no_limit
     "Unavailable" -> R.string.credit_balance_unavailable
+    "Token Pass" -> R.string.credit_balance_token_pass
     else -> null
 }
+
+/**
+ * The lifetime spend a "Used: 4.50" label carries — the figure the parsers write, as a plain
+ * decimal with no currency symbol, so the screen can print it in the user's own money format.
+ * Null for every other label, which [creditBalanceLabelRes] then handles.
+ */
+fun creditBalanceUsedAmount(label: String): BigDecimal? {
+    val figure = USED_LABEL.matchEntire(label)?.groupValues?.get(1) ?: return null
+    return runCatching { BigDecimal(figure) }.getOrNull()
+}
+
+private val USED_LABEL = Regex("^Used: ([+-]?[0-9]+(?:\\.[0-9]+)?)$")
 
 private class StoredMessage(val pattern: Regex, @StringRes val res: Int)
 
@@ -136,6 +150,10 @@ private val STORED_MESSAGES = listOf(
         R.string.credit_error_xai_no_prepaid,
     ),
     StoredMessage(Regex("This xAI key is not tied to one team\\. Enter the team id from console\\.x\\.ai\\."), R.string.credit_error_team_required),
+    StoredMessage(
+        Regex("Vercel refused this key \\(HTTP 403\\)\\. Enter the team id the key belongs to\\."),
+        R.string.credit_error_vercel_team,
+    ),
     StoredMessage(Regex("No key was entered\\."), R.string.credit_error_no_key),
     StoredMessage(Regex("The key could not be read from the device\\."), R.string.stored_credit_unreadable),
 )

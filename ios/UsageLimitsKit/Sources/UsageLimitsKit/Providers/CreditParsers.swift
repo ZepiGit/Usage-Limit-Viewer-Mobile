@@ -10,6 +10,9 @@ public enum CreditError: Error, LocalizedError, Equatable {
     case unavailable(String)
     case rateLimited(endpoint: String, retryAfter: TimeInterval?)
     case teamIDRequired
+    /// Vercel answers 403 when the key belongs to another team. Not a broken key, and a retry
+    /// cannot help, so the sentence says what to change instead.
+    case teamDenied
     case noKey
 
     public var errorDescription: String? {
@@ -24,6 +27,8 @@ public enum CreditError: Error, LocalizedError, Equatable {
         case .noKey: return "No key was entered."
         case .teamIDRequired:
             return "This xAI key is not tied to one team. Enter the team id from console.x.ai."
+        case .teamDenied:
+            return "Vercel refused this key (HTTP 403). Enter the team id the key belongs to."
         }
     }
 }
@@ -246,5 +251,49 @@ public enum NovitaCreditParser {
             throw CreditError.malformed("novita balance has no availableBalance")
         }
         return [CreditBalance(currency: "USD", amount: units / 10_000)]
+    }
+}
+
+public enum VercelCreditParser {
+
+    /// Takes the body **text**, not the normalised object: `CreditJSON.object` quotes every JSON
+    /// number to keep its digits, which would hide the one thing the gateway's documentation says
+    /// about the figures — they are strings. A number is a payload this app refuses rather than
+    /// rounds, and only a plain `JSONSerialization` pass still knows the difference.
+    ///
+    /// `balance` is what is left and excludes the Token Pass; `total_used` is lifetime spend and
+    /// rides on the row's label. An active Token Pass becomes a second row with its reset and no
+    /// bar, and one whose remainder is null adds no row at all — never a zero.
+    public static func parse(_ body: String) throws -> [CreditBalance] {
+        guard let payload = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any] else {
+            throw CreditError.malformed("vercel credits did not return a JSON object")
+        }
+        guard let balance = try stringDecimal(payload, "balance") else {
+            throw CreditError.malformed("vercel credits has no balance")
+        }
+        var rows = [CreditBalance(
+            currency: "USD", amount: balance,
+            label: try stringDecimal(payload, "total_used").map { "Used: \($0)" })]
+        let pass = JSONSupport.object(payload, "token_pass")
+        if let remaining = try stringDecimal(pass, "remaining") {
+            rows.append(CreditBalance(
+                currency: "USD", amount: remaining, label: "Token Pass",
+                resetsAt: JSONSupport.date(JSONSupport.string(pass, "resets_at"))))
+        }
+        return rows
+    }
+
+    /// A figure the provider states as a decimal string, or nil when it states none. A JSON number
+    /// (or any other type) is a payload this app does not read: returning nil would hide it, and
+    /// reading it as a float would lose digits.
+    private static func stringDecimal(_ source: [String: Any]?, _ name: String) throws -> Decimal? {
+        guard let raw = JSONSupport.field(source, [name]) else { return nil }
+        guard let text = raw as? String else {
+            throw CreditError.malformed("vercel credits states \(name) as something other than a decimal string")
+        }
+        guard let figure = CreditJSON.decimal(text: text) else {
+            throw CreditError.malformed("vercel credits has no readable \(name)")
+        }
+        return figure
     }
 }

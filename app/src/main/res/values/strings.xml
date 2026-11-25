@@ -522,11 +522,14 @@
     <string name="credit_balance_monthly_key_limit">Monthly key limit</string>
     <string name="credit_balance_no_limit">No limit</string>
     <string name="credit_balance_unavailable">Unavailable</string>
+    <string name="credit_balance_used">Used: %1$s</string>
+    <string name="credit_balance_token_pass">Token Pass</string>
     <string name="credit_error_rejected">The key was rejected (HTTP %1$d). Check that it is the right kind of key.</string>
     <string name="credit_error_malformed">The provider answered in a shape this app does not understand (%1$s).</string>
     <string name="credit_error_unavailable">No balance could be read (%1$s).</string>
     <string name="credit_error_xai_no_prepaid">xAI has no prepaid balance for this team (HTTP 404). Check the team id, and that the team prepays.</string>
     <string name="credit_error_team_required">This xAI key is not tied to one team. Enter the team id from console.x.ai.</string>
+    <string name="credit_error_vercel_team">Vercel refused this key (HTTP 403). Enter the team id the key belongs to.</string>
     <string name="credit_error_no_key">No key was entered.</string>
 
     <!-- Failure sentences the sync layer and providers store in English; recognised and translated at the display (ui/text/ModelTexts.kt). -->

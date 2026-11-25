@@ -206,7 +206,9 @@ private struct BalanceRow: View {
             Text("of \(money(total))").usageFont(.body).foregroundStyle(colors.muted)
         }
         if let label = balance.label {
-            Text(verbatim: DisplayText.creditBalanceLabel(label))
+            Text(verbatim: DisplayText.creditUsedBalanceLabel(
+                label, currency: balance.currency, locale: locale)
+                ?? DisplayText.creditBalanceLabel(label))
                 .usageFont(.small).foregroundStyle(colors.muted)
         }
     }

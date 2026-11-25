@@ -373,5 +373,19 @@ object ProviderEndpoints {
 
         const val FAL_BILLING = "https://api.fal.ai/v1/account/billing?expand=credits"
         const val NOVITA_BALANCE = "https://api.novita.ai/openapi/v1/billing/balance/detail"
+
+        const val VERCEL_CREDITS = "https://ai-gateway.vercel.sh/v1/credits"
+
+        /**
+         * The gateway's credits call names no team in its documentation: the key is the team, and
+         * `teamId` is documented only for the API-key management calls on api.vercel.com. A team id
+         * the account stores is still sent, as the spec asks, and only when one is stored.
+         */
+        fun vercelCredits(teamId: String?): String {
+            val id = teamId?.takeIf { it.isNotEmpty() } ?: return VERCEL_CREDITS
+            // Typed by the user, so it cannot be trusted to be a query value.
+            val query = java.net.URLEncoder.encode(id, "UTF-8").replace("+", "%20").replace("*", "%2A")
+            return "$VERCEL_CREDITS?teamId=$query"
+        }
     }
 }

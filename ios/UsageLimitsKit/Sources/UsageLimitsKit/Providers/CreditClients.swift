@@ -13,9 +13,10 @@ public protocol CreditProvider: Sendable {
 /// act on (401/403 wrong key, 404 wrong team) are translated here, once.
 enum CreditHTTP {
 
-    static func getJSON(
+    /// The body text of a 2xx answer, after the status translation below.
+    static func getText(
         _ client: UsageHTTPClient, url: String, headers: [String: String], endpoint: String
-    ) async throws -> [String: Any] {
+    ) async throws -> String {
         let response: HTTPResponse
         do {
             response = try await client.request(url: url, headers: headers)
@@ -31,7 +32,14 @@ enum CreditHTTP {
                 throw CreditError.unavailable("\(endpoint) could not be reached")
             }
         }
-        guard let object = CreditJSON.object(fromText: response.body) else {
+        return response.body
+    }
+
+    static func getJSON(
+        _ client: UsageHTTPClient, url: String, headers: [String: String], endpoint: String
+    ) async throws -> [String: Any] {
+        let text = try await getText(client, url: url, headers: headers, endpoint: endpoint)
+        guard let object = CreditJSON.object(fromText: text) else {
             throw CreditError.malformed("\(endpoint) did not return a JSON object")
         }
         return object
@@ -154,5 +162,26 @@ public struct NovitaCreditClient: CreditProvider {
                 http, url: ProviderEndpoints.Credits.novitaBalance,
                 headers: CreditHTTP.bearer(key).merging(["Content-Type": "application/json"]) { a, _ in a },
                 endpoint: "novita balance"))
+    }
+}
+
+public struct VercelCreditClient: CreditProvider {
+    public let providerID = CreditProviderID.vercelAiGateway
+    let http: UsageHTTPClient
+    public init(httpClient: UsageHTTPClient) { http = httpClient }
+
+    /// The key names its team, so no extra lookup is needed. A 403 means the key belongs to
+    /// another team; it is translated once here, and a 401 stays a rejected key. Nothing is
+    /// retried.
+    public func fetchBalances(key: String, attributes: [String: String]) async throws -> [CreditBalance] {
+        let teamID = attributes[CreditAccount.teamIDKey].flatMap { $0.isEmpty ? nil : $0 }
+        do {
+            return try VercelCreditParser.parse(
+                try await CreditHTTP.getText(
+                    http, url: ProviderEndpoints.Credits.vercelCredits(teamID: teamID),
+                    headers: CreditHTTP.bearer(key), endpoint: "vercel credits"))
+        } catch CreditError.rejected(403) {
+            throw CreditError.teamDenied
+        }
     }
 }

@@ -506,11 +506,14 @@
     <string name="credit_balance_monthly_key_limit">Monatliches Schlüssellimit</string>
     <string name="credit_balance_no_limit">Kein Limit</string>
     <string name="credit_balance_unavailable">Nicht verfügbar</string>
+    <string name="credit_balance_used">Verbraucht: %1$s</string>
+    <string name="credit_balance_token_pass">Token Pass</string>
     <string name="credit_error_rejected">Der Schlüssel wurde abgelehnt (HTTP %1$d). Prüfe, ob es die richtige Art von Schlüssel ist.</string>
     <string name="credit_error_malformed">Der Anbieter hat in einem Format geantwortet, das diese App nicht versteht (%1$s).</string>
     <string name="credit_error_unavailable">Es konnte kein Guthaben gelesen werden (%1$s).</string>
     <string name="credit_error_xai_no_prepaid">xAI hat für dieses Team kein Prepaid-Guthaben (HTTP 404). Prüfe die Team-ID und ob das Team im Voraus bezahlt.</string>
     <string name="credit_error_team_required">Dieser xAI-Schlüssel gehört nicht zu einem einzelnen Team. Gib die Team-ID aus console.x.ai ein.</string>
+    <string name="credit_error_vercel_team">Vercel hat diesen Schlüssel abgelehnt (HTTP 403). Gib die Team-ID ein, zu der der Schlüssel gehört.</string>
     <string name="credit_error_no_key">Es wurde kein Schlüssel eingegeben.</string>
 
     <!-- Failure sentences the sync layer and providers store in English; recognised and translated at the display (ui/text/ModelTexts.kt). -->

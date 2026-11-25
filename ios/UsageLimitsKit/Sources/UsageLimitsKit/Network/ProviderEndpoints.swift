@@ -334,6 +334,20 @@ public enum ProviderEndpoints {
         }
         public static let falBilling = "https://api.fal.ai/v1/account/billing?expand=credits"
         public static let novitaBalance = "https://api.novita.ai/openapi/v1/billing/balance/detail"
+        public static let vercelCredits = "https://ai-gateway.vercel.sh/v1/credits"
+
+        /// The gateway's credits call names no team in its documentation: the key is the team, and
+        /// `teamId` is documented only for the API-key management calls on api.vercel.com. A team id
+        /// the account stores is still sent, as the spec asks, and only when one is stored.
+        public static func vercelCredits(teamID: String?) -> String {
+            let base = "https://ai-gateway.vercel.sh/v1/credits"
+            guard let teamID, !teamID.isEmpty else { return base }
+            // Typed by the user, so it cannot be trusted to be a query value.
+            var allowed = CharacterSet.alphanumerics
+            allowed.insert(charactersIn: "-_.~")
+            let query = teamID.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+            return "\(base)?teamId=\(query)"
+        }
     }
 
     /// Where the user creates the key or signs in for a provider, or nil if it has no console.

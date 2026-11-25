@@ -89,6 +89,7 @@ public actor UsageLimitsContainer {
             .xai: XaiCreditClient(httpClient: http),
             .fal: FalCreditClient(httpClient: http),
             .novita: NovitaCreditClient(httpClient: http),
+            .vercelAiGateway: VercelCreditClient(httpClient: http),
         ]
         self.creditRepository = creditRepository
         self.creditProviders = creditProviders

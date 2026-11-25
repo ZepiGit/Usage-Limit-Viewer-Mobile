@@ -126,8 +126,40 @@ class CreditClientsTest {
         for (e in listOf(rejected, other, notJson)) assertTrue(!e.message!!.contains(key))
     }
 
+    @Test fun `vercel sends the bearer key and no team id unless one is stored`() = runBlocking {
+        val seen = mutableListOf<RecordedRequest>()
+        val client = VercelCreditClient(scriptedHttp(200 to """{"balance":"95.50","total_used":"4.50"}""", seen = seen))
+        client.fetchBalances("vck-abc", emptyMap())
+        client.fetchBalances("vck-abc", mapOf("teamId" to "team/1"))
+        assertEquals(
+            listOf(
+                "https://ai-gateway.vercel.sh/v1/credits",
+                "https://ai-gateway.vercel.sh/v1/credits?teamId=team%2F1",
+            ),
+            seen.map { it.request.url.toString() },
+        )
+        assertEquals("Bearer vck-abc", seen[0].request.header("Authorization"))
+    }
+
+    @Test fun `vercel asks for a team id on 403 and never retries it`() {
+        val forbidden = mutableListOf<RecordedRequest>()
+        val denied = failure<CreditError.TeamDenied> {
+            runBlocking { VercelCreditClient(scriptedHttp(403 to "{}", seen = forbidden)).fetchBalances("vck", emptyMap()) }
+        }
+        assertEquals("Vercel refused this key (HTTP 403). Enter the team id the key belongs to.", denied.message)
+        assertEquals(1, forbidden.size)
+
+        val unauthorized = mutableListOf<RecordedRequest>()
+        val rejected = failure<CreditError.Rejected> {
+            runBlocking { VercelCreditClient(scriptedHttp(401 to "{}", seen = unauthorized)).fetchBalances("vck", emptyMap()) }
+        }
+        assertEquals(401, rejected.status)
+        assertEquals(1, unauthorized.size)
+    }
+
     @Test fun `endpoints are the documented ones`() {
         assertEquals("https://api.novita.ai/openapi/v1/billing/balance/detail", Credits.NOVITA_BALANCE)
         assertEquals("https://api.deepseek.com/user/balance", Credits.DEEPSEEK_BALANCE)
+        assertEquals("https://ai-gateway.vercel.sh/v1/credits", Credits.VERCEL_CREDITS)
     }
 }

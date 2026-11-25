@@ -29,7 +29,7 @@ class CreditRegistry(http: HttpClient) {
 
     private val clients: Map<CreditProviderId, CreditProvider> = listOf(
         OpenRouterCreditClient(http), DeepSeekCreditClient(http), MoonshotCreditClient(http),
-        xai, FalCreditClient(http), NovitaCreditClient(http),
+        xai, FalCreditClient(http), NovitaCreditClient(http), VercelCreditClient(http),
     ).associateBy { it.providerId }
 
     fun forId(id: CreditProviderId): CreditProvider? = clients[id]
@@ -166,4 +166,27 @@ class NovitaCreditClient(private val http: HttpClient) : CreditProvider {
         NovitaCreditParser.parse(
             CreditHttp.getJson(http, Credits.NOVITA_BALANCE, CreditHttp.bearer(key), "novita balance"),
         )
+}
+
+class VercelCreditClient(private val http: HttpClient) : CreditProvider {
+    override val providerId = CreditProviderId.VERCEL_AI_GATEWAY
+
+    /**
+     * The key names its team, so no extra lookup is needed. A 403 means the key belongs to another
+     * team; it is translated once here, and a 401 stays a rejected key. Nothing is retried.
+     */
+    override suspend fun fetchBalances(key: String, attributes: Map<String, String>): List<CreditBalance> =
+        try {
+            VercelCreditParser.parse(
+                CreditHttp.getJson(
+                    http,
+                    Credits.vercelCredits(attributes[CreditAccount.TEAM_ID_KEY]),
+                    CreditHttp.bearer(key),
+                    "vercel credits",
+                ),
+            )
+        } catch (e: CreditError.Rejected) {
+            if (e.status != 403) throw e
+            throw CreditError.TeamDenied()
+        }
 }

@@ -3,8 +3,11 @@ package com.usagelimits.providers
 import com.usagelimits.core.model.SharedVectors
 import com.usagelimits.providers.credits.CreditError
 import com.usagelimits.providers.credits.OpenRouterCreditParser
+import com.usagelimits.providers.credits.VercelCreditClient
+import com.usagelimits.providers.scriptedHttp
 import java.math.BigDecimal
 import java.time.Instant
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -189,6 +192,46 @@ class ProviderPayloadMappingVectorsTest {
         }
     }
 
+    /**
+     * The Vercel AI Gateway credits call: decimal strings only, an optional Token Pass row with
+     * its reset, and 401/403 as the documented failures. A JSON number must stay unknown rather
+     * than be rounded into a balance, and a null Token Pass must not become a second zero.
+     */
+    @Test
+    fun `vercel ai gateway reads decimal strings and refuses the rest`() {
+        for ((index, case) in cases("vercelAiGateway").withIndex()) {
+            val where = "vercelAiGateway[$index]"
+            val status = (case["status"] as JsonPrimitive).content.toInt()
+            val client = VercelCreditClient(scriptedHttp(status to (case["body"] as JsonObject).toString()))
+            val expect = case["expect"] as JsonObject
+            val balances = try {
+                runBlocking { client.fetchBalances("vck-test", emptyMap()) }
+            } catch (error: CreditError) {
+                assertEquals(
+                    "$where: ${error.message}",
+                    string("$where.expect.error", expect["error"]),
+                    errorKind(error),
+                )
+                continue
+            }
+            assertNull("$where: the read succeeded but the case expects an error", expect["error"])
+            val rows = expect["balances"] as JsonArray
+            assertEquals("$where: row count", rows.size, balances.size)
+            for ((row, element) in rows.withIndex()) {
+                val at = "$where.expect.balances[$row]"
+                val expected = element as JsonObject
+                val balance = balances[row]
+                assertEquals("$at: currency", string("$at.currency", expected["currency"]), balance.currency)
+                assertDecimal("$at: amount", decimalTextOrNull("$at.amount", expected["amount"]), balance.amount)
+                assertDecimal("$at: total", decimalTextOrNull("$at.total", expected["total"]), balance.total)
+                val reset = expected["resetAt"]?.takeUnless { it is JsonNull }
+                    ?.let { Instant.parse(string("$at.resetAt", it)).toEpochMilli() }
+                assertEquals("$at: resetAt", reset, balance.resetsAt)
+                assertNull("$at: no row of this provider draws a bar", balance.remainingPercent)
+            }
+        }
+    }
+
     private fun decimalTextOrNull(where: String, element: JsonElement?): BigDecimal? =
         element?.takeUnless { it is JsonNull }?.let { BigDecimal(string(where, it)) }
 
@@ -203,6 +246,8 @@ class ProviderPayloadMappingVectorsTest {
     /** The failure kinds the vectors name; a malformed payload is unknown, never zero. */
     private fun errorKind(error: CreditError): String = when (error) {
         is CreditError.Rejected -> if (error.status == 403) "forbidden" else "invalidKey"
+        // Vercel's 403 asks for a team id instead of naming a rejected key; it is still a 403.
+        is CreditError.TeamDenied -> "forbidden"
         else -> "unknown"
     }
 

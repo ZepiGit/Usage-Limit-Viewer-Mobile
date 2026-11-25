@@ -72,7 +72,59 @@
       "expect": {"error": "unknown"}
     }
   ],
-  "vercelAiGateway": [],
+  "vercelAiGateway": [
+    {
+      "name": "a balance and its token pass are decimal strings and become two rows, the pass carrying its reset",
+      "status": 200,
+      "body": {"balance": "95.50", "total_used": "4.50", "token_pass": {"remaining": "12.34", "resets_at": "2026-12-01T00:00:00.000Z"}},
+      "expect": {"balances": [
+        {"currency": "USD", "amount": "95.50", "total": null},
+        {"currency": "USD", "amount": "12.34", "total": null, "resetAt": "2026-12-01T00:00:00Z"}
+      ]}
+    },
+    {
+      "name": "a null token pass leaves the single balance row",
+      "status": 200,
+      "body": {"balance": "95.50", "total_used": "4.50", "token_pass": null},
+      "expect": {"balances": [{"currency": "USD", "amount": "95.50", "total": null}]}
+    },
+    {
+      "name": "a token pass whose remaining is null adds no row and never a zero",
+      "status": 200,
+      "body": {"balance": "95.50", "total_used": "4.50", "token_pass": {"remaining": null, "resets_at": "2026-12-01T00:00:00.000Z"}},
+      "expect": {"balances": [{"currency": "USD", "amount": "95.50", "total": null}]}
+    },
+    {
+      "name": "an exhausted balance is a real zero and a missing total_used only drops the used figure",
+      "status": 200,
+      "body": {"balance": "0.00"},
+      "expect": {"balances": [{"currency": "USD", "amount": "0.00", "total": null}]}
+    },
+    {
+      "name": "a balance sent as a JSON number is refused rather than rounded",
+      "status": 200,
+      "body": {"balance": 95.5, "total_used": "4.50"},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a token pass remaining sent as a JSON number is refused",
+      "status": 200,
+      "body": {"balance": "1.00", "total_used": "0", "token_pass": {"remaining": 12.34, "resets_at": "2026-12-01T00:00:00.000Z"}},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a rejected key is invalid, never unknown",
+      "status": 401,
+      "body": {"error": "unauthorized"},
+      "expect": {"error": "invalidKey"}
+    },
+    {
+      "name": "a forbidden key is forbidden, and asks for the team id rather than a retry",
+      "status": 403,
+      "body": {"error": "forbidden"},
+      "expect": {"error": "forbidden"}
+    }
+  ],
   "deepinfra": [],
   "tokenrouter": [],
   "ollama": [],

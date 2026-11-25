@@ -1,6 +1,10 @@
 import XCTest
 @testable import UsageLimitsKit
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 /// The shape of the shared provider payload vectors.
 ///
 /// The file pins how a documented response becomes credit rows or usage windows, and which
@@ -47,8 +51,9 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
                         "\(where_) must be an ISO-8601 UTC instant, was \"\(text)\"")
     }
 
-    /// A JSON number stays a number: `true` serialized back is text, not digits.
-    private func numberText(_ value: Any) -> String? {
+    /// A JSON value as the text a parser receives. A number stays a number: `true` serialized
+    /// back is text, not digits, and a case's body can be handed over whole.
+    private func jsonText(_ value: Any) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) else {
             return nil
         }
@@ -72,7 +77,7 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
                               "\(where_) is missing \(required.subtracting(vector.keys))")
                 XCTAssertFalse(try string("\(where_).name", vector["name"]).isEmpty)
                 let status = try XCTUnwrap(vector["status"], "\(where_).status is missing")
-                XCTAssertNotNil(Int(try XCTUnwrap(numberText(status), "\(where_).status is not a number")),
+                XCTAssertNotNil(Int(try XCTUnwrap(jsonText(status), "\(where_).status is not a number")),
                                 "\(where_).status must be a JSON integer")
                 if let now = vector["now"] { try instant("\(where_).now", now) }
                 let expect = try XCTUnwrap(vector["expect"] as? [String: Any],
@@ -100,7 +105,7 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
                         if let total = balance["total"], !(total is NSNull) { try decimalText("\(where_).total", total) }
                         if let reset = balance["resetAt"], !(reset is NSNull) { try instant("\(where_).resetAt", reset) }
                         if let used = balance["usedPercent"], !(used is NSNull) {
-                            let text = try XCTUnwrap(numberText(used),
+                            let text = try XCTUnwrap(jsonText(used),
                                                      "\(where_).usedPercent must be a JSON number or null")
                             XCTAssertNotNil(Double(text), "\(where_).usedPercent must be a JSON number or null")
                         }
@@ -113,7 +118,7 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
                         XCTAssertEqual(Set(window.keys), ["id", "usedPercent", "resetAt"])
                         _ = try string("\(where_).id", window["id"])
                         if let used = window["usedPercent"], !(used is NSNull) {
-                            let text = try XCTUnwrap(numberText(used), "\(where_).usedPercent must be a JSON number or null")
+                            let text = try XCTUnwrap(jsonText(used), "\(where_).usedPercent must be a JSON number or null")
                             XCTAssertNotNil(Double(text), "\(where_).usedPercent must be a JSON number or null")
                         }
                         if let reset = window["resetAt"], !(reset is NSNull) { try instant("\(where_).resetAt", reset) }
@@ -165,7 +170,7 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
                     XCTAssertNil(balance.resetsAt, at)
                 }
                 if let used = expected["usedPercent"], !(used is NSNull) {
-                    let text = try XCTUnwrap(numberText(used), "\(at).usedPercent must be a JSON number")
+                    let text = try XCTUnwrap(jsonText(used), "\(at).usedPercent must be a JSON number")
                     let expectedUsed = try XCTUnwrap(Double(text))
                     let percent = try XCTUnwrap(balance.remainingPercent, "\(at) has no bar to measure")
                     XCTAssertEqual(100 - percent, expectedUsed, accuracy: 1e-9, at)
@@ -176,10 +181,77 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
         }
     }
 
+    /// The Vercel AI Gateway credits call: decimal strings only, an optional Token Pass row with
+    /// its reset, and 401/403 as the documented failures. A JSON number must stay unknown rather
+    /// than be rounded into a balance, and a null Token Pass must not become a second zero.
+    func testVercelAiGatewayReadsDecimalStringsAndRefusesTheRest() async throws {
+        for (index, vector) in try cases("vercelAiGateway").enumerated() {
+            let where_ = "vercelAiGateway[\(index)]"
+            let status = try XCTUnwrap(Int(try XCTUnwrap(jsonText(vector["status"] as Any))),
+                                       "\(where_).status must be a JSON integer")
+            let body = try XCTUnwrap(jsonText(vector["body"] as Any), "\(where_).body must be JSON")
+            let expect = try XCTUnwrap(vector["expect"] as? [String: Any])
+            let client = VercelCreditClient(httpClient: UsageHTTPClient(
+                transport: StatusTransport(status: status, body: body), maxRetries: 0))
+            let balances: [CreditBalance]
+            do {
+                balances = try await client.fetchBalances(key: "vck-test", attributes: [:])
+            } catch {
+                let creditError = try XCTUnwrap(error as? CreditError, "\(where_): \(error)")
+                XCTAssertEqual(Self.errorKind(creditError),
+                               try string("\(where_).expect.error", expect["error"]),
+                               "\(where_): \(error)")
+                continue
+            }
+            XCTAssertNil(expect["error"], "\(where_): the read succeeded but the case expects an error")
+            let rows = try XCTUnwrap(expect["balances"] as? [Any], "\(where_).expect.balances")
+            XCTAssertEqual(rows.count, balances.count, "\(where_): row count")
+            for (row, element) in rows.enumerated() {
+                let at = "\(where_).expect.balances[\(row)]"
+                let expected = try XCTUnwrap(element as? [String: Any], "\(at) must be a JSON object")
+                let balance = balances[row]
+                XCTAssertEqual(balance.currency, try string("\(at).currency", expected["currency"]), at)
+                XCTAssertEqual(balance.amount, Self.decimal(try string("\(at).amount", expected["amount"])), at)
+                if let total = expected["total"], !(total is NSNull) {
+                    XCTAssertEqual(balance.total, Self.decimal(try string("\(at).total", total)), at)
+                } else {
+                    XCTAssertNil(balance.total, at)
+                }
+                if let reset = expected["resetAt"], !(reset is NSNull) {
+                    XCTAssertEqual(balance.resetsAt,
+                                   Self.instantFormatter.date(from: try string("\(at).resetAt", reset)), at)
+                } else {
+                    XCTAssertNil(balance.resetsAt, at)
+                }
+                XCTAssertNil(balance.remainingPercent, "\(at): no row of this provider draws a bar")
+            }
+        }
+    }
+
+    /// One scripted reply, so a vector can pin a status as well as a body.
+    private actor StatusTransport: HTTPTransport {
+        let status: Int
+        let body: String
+
+        init(status: Int, body: String) {
+            self.status = status
+            self.body = body
+        }
+
+        func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
+            let response = HTTPURLResponse(
+                url: request.url ?? URL(string: "https://example.invalid")!,
+                statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!
+            return (Data(body.utf8), response)
+        }
+    }
+
     /// The failure kinds the vectors name; a malformed payload is unknown, never zero.
     private static func errorKind(_ error: CreditError) -> String {
         switch error {
         case .rejected(let status): return status == 403 ? "forbidden" : "invalidKey"
+        // Vercel's 403 asks for a team id instead of naming a rejected key; it is still a 403.
+        case .teamDenied: return "forbidden"
         default: return "unknown"
         }
     }

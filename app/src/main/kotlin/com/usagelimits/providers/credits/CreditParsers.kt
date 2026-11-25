@@ -5,6 +5,7 @@ import com.usagelimits.core.model.CreditNumbers
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.network.RATE_LIMITED_REQUEST_MESSAGE
+import com.usagelimits.core.time.Instants
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -33,6 +34,14 @@ sealed class CreditError(message: String) : Exception(message) {
         CreditError(RATE_LIMITED_REQUEST_MESSAGE)
     class TeamIdRequired :
         CreditError("This xAI key is not tied to one team. Enter the team id from console.x.ai.")
+
+    /**
+     * Vercel answers 403 when the key belongs to another team. It is not a broken key and a retry
+     * cannot help, so it says what to change instead.
+     */
+    class TeamDenied :
+        CreditError("Vercel refused this key (HTTP 403). Enter the team id the key belongs to.")
+
     class NoKey : CreditError("No key was entered.")
 }
 
@@ -200,5 +209,50 @@ object NovitaCreditParser {
         val units = CreditJson.decimal(payload, "availableBalance")
             ?: throw CreditError.Malformed("novita balance has no availableBalance")
         return listOf(CreditBalance("USD", units.movePointLeft(4)))
+    }
+}
+
+object VercelCreditParser {
+
+    /**
+     * The gateway states every figure as a decimal **string**, so a JSON number is refused rather
+     * than rounded through a binary float. `balance` is what is left and excludes the Token Pass;
+     * `total_used` is lifetime spend and rides on the row's label. An active Token Pass becomes a
+     * second row with its reset and no bar, and one whose remainder is null adds no row at all —
+     * never a second zero.
+     */
+    fun parse(payload: JsonObject): List<CreditBalance> {
+        val balance = stringDecimal(payload, "balance")
+            ?: throw CreditError.Malformed("vercel credits has no balance")
+        val rows = mutableListOf(
+            CreditBalance(
+                currency = "USD",
+                amount = balance,
+                label = stringDecimal(payload, "total_used")?.let { "Used: ${it.toPlainString()}" },
+            ),
+        )
+        val pass = JsonSupport.obj(payload, "token_pass")
+        stringDecimal(pass, "remaining")?.let { remaining ->
+            rows += CreditBalance(
+                currency = "USD",
+                amount = remaining,
+                label = "Token Pass",
+                resetsAt = Instants.parse(JsonSupport.string(pass, "resets_at")),
+            )
+        }
+        return rows
+    }
+
+    /**
+     * A figure the provider states as a decimal string, or null when it states none. A JSON number
+     * (or any other type) is a payload this app does not read: returning null would hide it, and
+     * reading it as a float would lose digits.
+     */
+    private fun stringDecimal(source: JsonObject?, name: String): BigDecimal? {
+        val element = JsonSupport.field(source, name) ?: return null
+        val primitive = (element as? JsonPrimitive)?.takeIf { it.isString }
+            ?: throw CreditError.Malformed("vercel credits states $name as something other than a decimal string")
+        return CreditNumbers.parse(primitive.content)
+            ?: throw CreditError.Malformed("vercel credits has no readable $name")
     }
 }

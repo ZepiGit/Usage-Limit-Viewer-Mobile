@@ -241,6 +241,68 @@ class CreditParsersTest {
         assertThrows(CreditError.Malformed::class.java) { NovitaCreditParser.parse(json("{}")) }
     }
 
+    @Test fun `vercel reads the balance and an optional token pass`() {
+        val rows = VercelCreditParser.parse(
+            json(
+                """{"balance":"95.50","total_used":"4.50",
+                   "token_pass":{"remaining":"12.34","resets_at":"2026-12-01T00:00:00.000Z"}}""",
+            ),
+        )
+        assertEquals(2, rows.size)
+        assertEquals("USD", rows[0].currency)
+        assertAmount("95.50", rows[0].amount)
+        assertNull("the balance draws no bar, the gateway states no cap", rows[0].total)
+        assertNull(rows[0].resetsAt)
+        assertEquals("Used: 4.50", rows[0].label)
+        assertAmount("12.34", rows[1].amount)
+        assertNull(rows[1].total)
+        assertEquals("Token Pass", rows[1].label)
+        assertEquals(Instant.parse("2026-12-01T00:00:00Z").toEpochMilli(), rows[1].resetsAt)
+    }
+
+    @Test fun `vercel without a token pass keeps one row and never invents a second zero`() {
+        val nullPass = VercelCreditParser.parse(json("""{"balance":"95.50","total_used":"4.50","token_pass":null}"""))
+        assertEquals(1, nullPass.size)
+        assertAmount("95.50", nullPass[0].amount)
+        // The docs let `remaining` be null while the pass cannot be read: no row, not a zero.
+        val unreadable = VercelCreditParser.parse(
+            json("""{"balance":"95.50","total_used":"4.50","token_pass":{"remaining":null,"resets_at":"2026-12-01T00:00:00Z"}}"""),
+        )
+        assertEquals(1, unreadable.size)
+        // An exhausted balance is a real zero, and a missing total_used only drops the used figure.
+        val exhausted = VercelCreditParser.parse(json("""{"balance":"0.00"}"""))
+        assertAmount("0.00", exhausted[0].amount)
+        assertNull(exhausted[0].label)
+    }
+
+    @Test fun `vercel refuses a figure that is not a decimal string`() {
+        // A JSON number would have to go through a float, which loses the digits it was sent with.
+        assertThrows(CreditError.Malformed::class.java) {
+            VercelCreditParser.parse(json("""{"balance":95.5,"total_used":"4.50"}"""))
+        }
+        assertThrows(CreditError.Malformed::class.java) {
+            VercelCreditParser.parse(
+                json("""{"balance":"1.00","total_used":4.5,"token_pass":null}"""),
+            )
+        }
+        assertThrows(CreditError.Malformed::class.java) {
+            VercelCreditParser.parse(
+                json("""{"balance":"1.00","token_pass":{"remaining":12.34,"resets_at":"2026-12-01T00:00:00Z"}}"""),
+            )
+        }
+        assertThrows(CreditError.Malformed::class.java) { VercelCreditParser.parse(json("""{}""")) }
+        assertThrows(CreditError.Malformed::class.java) { VercelCreditParser.parse(json("""{"balance":"12abc"}""")) }
+    }
+
+    @Test fun `vercel keeps a row when the pass names no readable reset`() {
+        val rows = VercelCreditParser.parse(
+            json("""{"balance":"1.00","token_pass":{"remaining":"2.00","resets_at":"soon"}}"""),
+        )
+        assertEquals(2, rows.size)
+        assertAmount("2.00", rows[1].amount)
+        assertNull(rows[1].resetsAt)
+    }
+
     @Test fun `errors never carry a payload`() {
         // Built from endpoint names and statuses only.
         assertTrue(CreditError.Rejected(401).message!!.contains("HTTP 401"))

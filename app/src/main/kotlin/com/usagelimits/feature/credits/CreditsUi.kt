@@ -39,6 +39,7 @@ import com.usagelimits.ui.components.StatusMark
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.text.creditBalanceLabelRes
+import com.usagelimits.ui.text.creditBalanceUsedAmount
 import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.ui.theme.UsageColors
@@ -151,7 +152,15 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity, compac
     val resources = LocalContext.current.resources
     val countdownTexts = rememberCountdownTexts()
     // The parsers' own labels are stored in English and translated here; any other label is shown as stored.
-    val balanceLabel = balance.label?.let { stored -> creditBalanceLabelRes(stored)?.let { stringResource(it) } ?: stored }
+    val usedAmount = balance.label?.let(::creditBalanceUsedAmount)
+    val balanceLabel = when {
+        // A lifetime spend travels as a plain figure, so the money format is the reader's own.
+        usedAmount != null -> stringResource(
+            R.string.credit_balance_used,
+            CreditFormat.string(usedAmount, balance.currency, locale),
+        )
+        else -> balance.label?.let { stored -> creditBalanceLabelRes(stored)?.let { stringResource(it) } ?: stored }
+    }
     // A stale or failed account keeps the grey of its age in the bar.
     val barSeverity = if (accountSeverity == Severity.STALE || accountSeverity == Severity.ERROR) Severity.STALE else Severity.HEALTHY
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {

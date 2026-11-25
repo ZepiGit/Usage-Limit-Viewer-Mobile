@@ -54,6 +54,7 @@ public enum StoredMessage: Sendable, Equatable {
     case noBalance(detail: String)
     case xaiNoPrepaidBalance
     case xaiTeamRequired
+    case vercelTeamRequired
     case providerUnreachable
     case keyUnreadable
 
@@ -97,6 +98,8 @@ public enum StoredMessage: Sendable, Equatable {
             return .xaiNoPrepaidBalance
         case "This xAI key is not tied to one team. Enter the team id from console.x.ai.":
             return .xaiTeamRequired
+        case "Vercel refused this key (HTTP 403). Enter the team id the key belongs to.":
+            return .vercelTeamRequired
         case "The provider could not be reached.": return .providerUnreachable
         case "The key could not be read from the keychain.": return .keyUnreadable
         case "This account cannot use reset credits.": return .resetCreditsUnavailable

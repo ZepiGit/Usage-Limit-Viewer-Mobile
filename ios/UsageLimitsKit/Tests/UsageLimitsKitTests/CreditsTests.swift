@@ -384,6 +384,101 @@ final class CreditsTests: XCTestCase {
         XCTAssertThrowsError(try NovitaCreditParser.parse(json(#"{}"#)))
     }
 
+    // MARK: - Vercel AI Gateway
+
+    func testVercelReadsDecimalStringsAndAnOptionalTokenPass() throws {
+        let rows = try VercelCreditParser.parse(
+            #"{"balance":"95.50","total_used":"4.50","token_pass":{"remaining":"12.34","resets_at":"2026-12-01T00:00:00.000Z"}}"#)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].currency, "USD")
+        XCTAssertEqual(rows[0].amount, dec("95.50"))
+        XCTAssertNil(rows[0].total, "the balance draws no bar, the gateway states no cap")
+        XCTAssertNil(rows[0].resetsAt)
+        XCTAssertEqual(rows[0].label, "Used: 4.5")
+        XCTAssertEqual(rows[1].amount, dec("12.34"))
+        XCTAssertNil(rows[1].total)
+        XCTAssertEqual(rows[1].label, "Token Pass")
+        XCTAssertEqual(rows[1].resetsAt, utc("2026-12-01T00:00:00Z"))
+    }
+
+    func testVercelWithoutATokenPassKeepsOneRowAndNeverInventsAZero() throws {
+        let nullPass = try VercelCreditParser.parse(
+            #"{"balance":"95.50","total_used":"4.50","token_pass":null}"#)
+        XCTAssertEqual(nullPass.count, 1)
+        // The docs let `remaining` be null while the pass cannot be read: no row, not a zero.
+        let unreadable = try VercelCreditParser.parse(
+            #"{"balance":"95.50","total_used":"4.50","token_pass":{"remaining":null,"resets_at":"2026-12-01T00:00:00Z"}}"#)
+        XCTAssertEqual(unreadable.count, 1)
+        // An exhausted balance is a real zero, and a missing total_used only drops the used figure.
+        let exhausted = try VercelCreditParser.parse(#"{"balance":"0.00"}"#)
+        XCTAssertEqual(exhausted[0].amount, 0)
+        XCTAssertNil(exhausted[0].label)
+    }
+
+    func testVercelRefusesAFigureThatIsNotADecimalString() throws {
+        // A JSON number would have to go through a float, which loses the digits it was sent with.
+        for body in [
+            #"{"balance":95.5,"total_used":"4.50"}"#,
+            #"{"balance":"1.00","total_used":4.5,"token_pass":null}"#,
+            #"{"balance":"1.00","token_pass":{"remaining":12.34,"resets_at":"2026-12-01T00:00:00Z"}}"#,
+            "{}",
+            #"{"balance":"12abc"}"#,
+        ] {
+            assertMalformed(try VercelCreditParser.parse(body), body)
+        }
+    }
+
+    func testVercelKeepsARowWhenThePassNamesNoReadableReset() throws {
+        let rows = try VercelCreditParser.parse(
+            #"{"balance":"1.00","token_pass":{"remaining":"2.00","resets_at":"soon"}}"#)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[1].amount, dec("2.00"))
+        XCTAssertNil(rows[1].resetsAt)
+    }
+
+    func testVercelSendsTheBearerKeyAndOnlyAStoredTeamID() async throws {
+        let transport = Transport([("/v1/credits", [(200, #"{"balance":"95.50","total_used":"4.50"}"#)])])
+        let client = VercelCreditClient(httpClient: http(transport))
+        let plain = try await client.fetchBalances(key: "vck-abc", attributes: [:])
+        XCTAssertEqual(plain.first?.amount, dec("95.50"))
+        _ = try await client.fetchBalances(
+            key: "vck-abc", attributes: [CreditAccount.teamIDKey: "team/1"])
+        let urls = await transport.urls
+        XCTAssertEqual(urls, [
+            "https://ai-gateway.vercel.sh/v1/credits",
+            "https://ai-gateway.vercel.sh/v1/credits?teamId=team%2F1",
+        ])
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer vck-abc")
+    }
+
+    func testVercelAsksForATeamIDOn403AndNeverRetries() async throws {
+        let forbidden = Transport([("/v1/credits", [(403, "{}")])])
+        do {
+            _ = try await VercelCreditClient(httpClient: http(forbidden))
+                .fetchBalances(key: "vck", attributes: [:])
+            XCTFail("expected teamDenied")
+        } catch {
+            XCTAssertEqual(error as? CreditError, .teamDenied)
+            XCTAssertEqual(
+                (error as? CreditError)?.errorDescription,
+                "Vercel refused this key (HTTP 403). Enter the team id the key belongs to.")
+        }
+        let forbiddenRequests = await forbidden.urls.count
+        XCTAssertEqual(forbiddenRequests, 1)
+
+        let unauthorized = Transport([("/v1/credits", [(401, "{}")])])
+        do {
+            _ = try await VercelCreditClient(httpClient: http(unauthorized))
+                .fetchBalances(key: "vck", attributes: [:])
+            XCTFail("expected rejected(401)")
+        } catch {
+            XCTAssertEqual(error as? CreditError, .rejected(401))
+        }
+        let unauthorizedRequests = await unauthorized.urls.count
+        XCTAssertEqual(unauthorizedRequests, 1)
+    }
+
     // MARK: - Severity and formatting
 
     private func account(_ attributes: [String: String] = [:]) -> CreditAccount {

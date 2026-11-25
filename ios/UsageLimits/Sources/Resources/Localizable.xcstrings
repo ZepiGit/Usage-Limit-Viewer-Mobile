@@ -3434,6 +3434,39 @@
         }
       }
     },
+    "Token Pass" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token Pass"
+          }
+        }
+      }
+    },
+    "Used: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbraucht: %@"
+          }
+        }
+      }
+    },
+    "Vercel refused this key (HTTP 403). Enter the team id the key belongs to." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vercel hat diesen Schlüssel abgelehnt (HTTP 403). Gib die Team-ID ein, zu der der Schlüssel gehört."
+          }
+        }
+      }
+    },
     "Today" : {
       "extractionState" : "manual",
       "localizations" : {

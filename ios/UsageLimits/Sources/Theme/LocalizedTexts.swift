@@ -188,6 +188,8 @@ enum DisplayText {
             return String(localized: "xAI has no prepaid balance for this team (HTTP 404). Check the team id, and that the team prepays.")
         case .xaiTeamRequired:
             return String(localized: "This xAI key is not tied to one team. Enter the team id from console.x.ai.")
+        case .vercelTeamRequired:
+            return String(localized: "Vercel refused this key (HTTP 403). Enter the team id the key belongs to.")
         case .providerUnreachable:
             return String(localized: "The provider could not be reached.")
         case .keyUnreadable:
@@ -231,8 +233,22 @@ enum DisplayText {
         case "Monthly key limit": return String(localized: "Monthly key limit")
         case "No limit": return String(localized: "No limit")
         case "Unavailable": return String(localized: "Unavailable")
+        case "Token Pass": return String(localized: "Token Pass")
         default: return label
         }
+    }
+
+    /// The lifetime spend a "Used: 4.50" label carries — the figure the parsers write, as a plain
+    /// decimal with no currency symbol, so the row can print it in the reader's own money format.
+    /// Nil for every other label, which `creditBalanceLabel` then handles.
+    static func creditUsedBalanceLabel(_ label: String, currency: String, locale: Locale) -> String? {
+        let prefix = "Used: "
+        guard label.hasPrefix(prefix) else { return nil }
+        let figure = String(label.dropFirst(prefix.count))
+        guard figure.range(of: #"^[+-]?[0-9]+(\.[0-9]+)?$"#, options: .regularExpression) != nil,
+              let amount = Decimal(string: figure, locale: Locale(identifier: "en_US_POSIX"))
+        else { return nil }
+        return String(localized: "Used: \(CreditFormat.string(amount, currency: currency, locale: locale))")
     }
 
     /// "Claude · Color": the brand is data and stays, the style word is translated.
