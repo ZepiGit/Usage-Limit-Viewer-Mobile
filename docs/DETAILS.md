@@ -95,7 +95,7 @@ Usage Limits, Usage Limits (Clear) and Usage Ring pick accounts by the app's own
 
 ## Services
 
-Both Android and iOS support all nine subscriptions. Not every sign-in has been tried with a real account yet, and Kimi may still need to approve the app's name before its sign-in can read usage (a pasted key works either way).
+Both Android and iOS support all eleven subscriptions. Not every sign-in has been tried with a real account yet, and Kimi may still need to approve the app's name before its sign-in can read usage (a pasted key works either way).
 
 | Service | What you see | How you connect |
 | :--- | :--- | :--- |
@@ -108,6 +108,8 @@ Both Android and iOS support all nine subscriptions. Not every sign-in has been 
 | **Meta Muse** | Rolling window and weekly quota | Device code |
 | **Z.ai GLM Coding Plan** | Five-hour, weekly and monthly limits, on z.ai or bigmodel.cn | API key |
 | **OpenCode Go** | Five-hour, weekly and monthly limits | API key |
+| **Ollama Cloud** | Included allowance, or a legacy plan's session and weekly limits | API key |
+| **MiniMax Token Plan** | Five-hour and weekly limits per model, on minimax.io or minimaxi.com | API key |
 
 For Claude, Codex, Antigravity and Devin you sign in on the service's own web page, in your normal browser. The app never sees your password; it only receives the sign-in result. A **Sign-in** notification keeps the app awake so it can catch that result (Android 14 and later can pause background apps while the browser is open). If signing in takes longer than three minutes, the notification asks you to come back to the app.
 
@@ -128,6 +130,10 @@ If you use AI through API keys, the **Credits** section shows how much money is 
 | **xAI** | A management key (the team is found automatically, or you type it in) |
 | **fal.ai** | A key with billing access |
 | **Novita** | Your normal API key |
+| **Vercel AI Gateway** | An AI Gateway key or a Vercel access token; the team id is optional |
+| **DeepInfra** | Your normal API key, with the account:read scope |
+| **TokenRouter** | A management key, not an inference key |
+| **Ollama Cloud** | Your Ollama API key, the same key the usage account reads |
 
 **Anthropic and OpenAI can't be shown.** Neither offers a way to read the remaining balance with an API key, so the app says so instead of guessing. Set a low-balance threshold per account, and choose Normal or Compact under **Settings → Overview**. See [Credit balances](credits.md).
 
@@ -194,7 +200,7 @@ Full-size Play Store screenshots (1080×1920) are in [store-previews](store-prev
 | understand the widgets | [Widgets](widgets.md) |
 | keep accounts in the status bar or on the Lock Screen | [Status icons](status-icons.md) |
 | know how your data is protected | [Security](security.md) |
-| set up a specific service | [Codex](providers/codex.md), [Kimi](providers/kimi.md), [Z.ai](providers/zai.md) and the other [provider guides](providers/) |
+| set up a specific service | [Codex](providers/codex.md), [Kimi](providers/kimi.md), [Z.ai](providers/zai.md), [Ollama](providers/ollama.md), [MiniMax](providers/minimax.md) and the other [provider guides](providers/) |
 | use the Credits section | [Credits](credits.md) |
 
 For development, read the [Architecture](architecture.md) and [Release guide](release.md). Reviews check changes against the [Coding standards](../CODING_STANDARDS.md).
