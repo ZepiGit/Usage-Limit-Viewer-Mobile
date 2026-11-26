@@ -89,6 +89,86 @@ struct SettingsTraceProbe: UIViewRepresentable {
         }
     }
 
+    /// Samples a segmented control every frame for half a second after the touch began, so a
+    /// tracking sequence that ends without a selection is visible without a line per frame.
+    @MainActor
+    private final class SegmentSampler: NSObject {
+        private weak var control: UISegmentedControl?
+        private let touchID: Int
+        private var link: CADisplayLink?
+        private var startUptime: TimeInterval = 0
+        private var frames = 0
+        private var previous: (index: Int, tracking: Bool, highlighted: Bool)?
+        private var changes = 0
+        private var truncated = false
+        private static let maximumChanges = 6
+
+        init(touchID: Int, control: UISegmentedControl) {
+            self.touchID = touchID
+            self.control = control
+        }
+
+        func start() {
+            startUptime = ProcessInfo.processInfo.systemUptime
+            let link = CADisplayLink(target: self, selector: #selector(callback))
+            link.add(to: .main, forMode: .common)
+            self.link = link
+        }
+
+        func stop() {
+            link?.invalidate()
+            link = nil
+        }
+
+        @objc private func callback() {
+            guard link != nil else { return }
+            frames += 1
+            let milliseconds = Int(((ProcessInfo.processInfo.systemUptime - startUptime) * 1000).rounded())
+            guard let control else {
+                SettingsTrace.record("native segment sample touchID=\(touchID) frame=\(frames) "
+                    + "ms=\(milliseconds) released=true")
+                stop()
+                return
+            }
+            let state = (index: control.selectedSegmentIndex,
+                         tracking: control.isTracking,
+                         highlighted: control.isHighlighted)
+            let isLast = milliseconds >= 500
+            let text = "selectedSegmentIndex=\(state.index) tracking=\(state.tracking) "
+                + "highlighted=\(state.highlighted)"
+            func record(_ marker: String) {
+                SettingsTrace.record("native segment sample touchID=\(touchID) frame=\(frames) "
+                    + "ms=\(milliseconds) \(marker) \(text)")
+            }
+            let changed = previous != nil && previous! != state
+            if isLast {
+                // This line carries the final frame's own state; a change here spends a change slot.
+                var marker = "last"
+                if changed {
+                    if changes < Self.maximumChanges {
+                        changes += 1
+                        marker += " change=true"
+                    } else {
+                        truncated = true
+                    }
+                }
+                if truncated { marker += " truncated=true" }
+                record(marker)
+                stop()
+            } else if previous == nil {
+                record("first")
+            } else if changed {
+                if changes < Self.maximumChanges {
+                    changes += 1
+                    record("change")
+                } else {
+                    truncated = true
+                }
+            }
+            previous = state
+        }
+    }
+
     @MainActor
     private final class TouchObserver: UIGestureRecognizer {
         private struct WeakRecognizer {
@@ -102,6 +182,13 @@ struct SettingsTraceProbe: UIViewRepresentable {
             (.touchCancel, #selector(TouchObserver.switchTouchCancel(_:)))
         ]
 
+        private static let segmentEvents: [(event: UIControl.Event, action: Selector)] = [
+            (.touchDown, #selector(TouchObserver.segmentTouchDown(_:forEvent:))),
+            (.touchUpInside, #selector(TouchObserver.segmentTouchUpInside(_:forEvent:))),
+            (.touchUpOutside, #selector(TouchObserver.segmentTouchUpOutside(_:forEvent:))),
+            (.touchCancel, #selector(TouchObserver.segmentTouchCancel(_:forEvent:)))
+        ]
+
         private var nextTouchID = 0
         private var activeTouches: [ObjectIdentifier: Int] = [:]
         private let tracesNativeControls: Bool
@@ -112,8 +199,11 @@ struct SettingsTraceProbe: UIViewRepresentable {
         private var nativeIdentifier = "unavailable"
         private var nativeTouchID: Int?
         private var nativeDeliveryTouchID: Int?
+        private var nativeTouchPoint: CGPoint?
+        private weak var nativeTouch: UITouch?
         private var nativeValueChangedCount = 0
         private var nativePrimaryActionCount = 0
+        private var segmentSampler: SegmentSampler?
 
         override init(target: Any?, action: Selector?) {
             let arguments = ProcessInfo.processInfo.arguments
@@ -144,10 +234,17 @@ struct SettingsTraceProbe: UIViewRepresentable {
             }
         }
 
-        private func stopSwitchEvents() {
+        private func stopControlEvents() {
+            segmentSampler?.stop()
+            segmentSampler = nil
             if tracesSwitchEvents, let toggle = nativeView as? UISwitch {
                 for (event, action) in Self.switchEvents {
                     toggle.removeTarget(self, action: action, for: event)
+                }
+            }
+            if let segment = nativeView as? UISegmentedControl {
+                for (event, action) in Self.segmentEvents {
+                    segment.removeTarget(self, action: action, for: event)
                 }
             }
             for recognizer in switchRecognizers {
@@ -157,7 +254,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
         }
 
         func stopNativeControlTrace() {
-            stopSwitchEvents()
+            stopControlEvents()
             if let control = nativeView as? UIControl {
                 control.removeTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
                 control.removeTarget(self, action: #selector(nativePrimaryAction(_:)), for: .primaryActionTriggered)
@@ -165,14 +262,17 @@ struct SettingsTraceProbe: UIViewRepresentable {
             nativeView = nil
             nativeTouchID = nil
             nativeDeliveryTouchID = nil
+            nativeTouchPoint = nil
+            nativeTouch = nil
             nativeValueChangedCount = 0
             nativePrimaryActionCount = 0
             SettingsTrace.nativeControlBoundary = nil
         }
 
         private func observeNativeControl(for touch: UITouch, id: Int) {
+            // A new touch ends the previous control's tracking trace before any early return.
+            stopControlEvents()
             guard tracesNativeControls else { return }
-            stopSwitchEvents()
             var ancestor = touch.view
             var candidate: UIControl?
             var identifier = "unavailable"
@@ -203,6 +303,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
             nativeView = hit
             nativeIdentifier = identifier
             nativeTouchID = id
+            nativeTouch = touch
             nativeDeliveryTouchID = id
             if let toggle = candidate as? UISwitch {
                 nativeKind = "switch"
@@ -213,6 +314,9 @@ struct SettingsTraceProbe: UIViewRepresentable {
             } else if let segment = candidate as? UISegmentedControl {
                 nativeKind = "segment"
                 segment.addTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
+                for (event, action) in Self.segmentEvents {
+                    segment.addTarget(self, action: action, for: event)
+                }
             } else if let button = candidate as? UIButton {
                 nativeKind = "menu"
                 button.addTarget(self, action: #selector(nativePrimaryAction(_:)), for: .primaryActionTriggered)
@@ -234,6 +338,13 @@ struct SettingsTraceProbe: UIViewRepresentable {
             }
             SettingsTrace.record("native \(nativeKind) observed touchID=\(id) control=\(ObjectIdentifier(hit)) "
                 + "axID=\(identifier) class=\(String(describing: type(of: hit))) \(nativeState(hit))")
+            if let segment = hit as? UISegmentedControl {
+                nativeTouchPoint = touch.location(in: segment)
+                segmentSampler?.stop()
+                let sampler = SegmentSampler(touchID: id, control: segment)
+                segmentSampler = sampler
+                sampler.start()
+            }
         }
 
         private func observeSwitchEvents(on toggle: UISwitch, from hit: UIView?) {
@@ -261,6 +372,51 @@ struct SettingsTraceProbe: UIViewRepresentable {
             guard sender === nativeView, let id = nativeTouchID else { return }
             SettingsTrace.record("native switch control-event touchID=\(id) control=\(ObjectIdentifier(sender)) "
                 + "event=\(event) switchOn=\(sender.isOn) tracking=\(sender.isTracking) inside=\(sender.isTouchInside)")
+        }
+
+        @objc private func segmentTouchDown(_ sender: UISegmentedControl, forEvent event: UIEvent) {
+            recordSegmentEvent("touchDown", sender, event: event, phase: .began)
+        }
+        @objc private func segmentTouchUpInside(_ sender: UISegmentedControl, forEvent event: UIEvent) {
+            recordSegmentEvent("touchUpInside", sender, event: event, phase: .ended)
+        }
+        @objc private func segmentTouchUpOutside(_ sender: UISegmentedControl, forEvent event: UIEvent) {
+            recordSegmentEvent("touchUpOutside", sender, event: event, phase: .ended)
+        }
+        @objc private func segmentTouchCancel(_ sender: UISegmentedControl, forEvent event: UIEvent) {
+            recordSegmentEvent("touchCancel", sender, event: event, phase: .cancelled)
+        }
+
+        private func recordSegmentEvent(_ name: String, _ sender: UISegmentedControl,
+                                        event: UIEvent, phase: UITouch.Phase) {
+            guard sender === nativeView, let id = nativeTouchID else { return }
+            SettingsTrace.record("native segment control-event touchID=\(id) control=\(ObjectIdentifier(sender)) "
+                + "event=\(name) selectedSegmentIndex=\(sender.selectedSegmentIndex) "
+                + "tracking=\(sender.isTracking) highlighted=\(sender.isHighlighted) "
+                + segmentPoint(event, phase: phase, control: sender))
+        }
+
+        /// `allTouches` is unordered, so the point must come from the touch this control owns.
+        private func segmentPoint(_ event: UIEvent, phase: UITouch.Phase,
+                                  control: UISegmentedControl) -> String {
+            let touches = Array(event.allTouches ?? [])
+            let own = touches.filter { touch in
+                guard let view = touch.view else { return false }
+                return view === control || view.isDescendant(of: control)
+            }
+            let phased = own.filter { $0.phase == phase }
+            let pool = phased.isEmpty ? own : phased
+            if pool.count == 1 {
+                return "point=\(pool[0].location(in: control)) pointSource=control-event"
+            }
+            if let stored = nativeTouch, pool.contains(where: { $0 === stored }) {
+                return "point=\(stored.location(in: control)) pointSource=control-event"
+            }
+            if !pool.isEmpty { return "point=unavailable pointSource=ambiguous" }
+            if let stored = nativeTouchPoint {
+                return "point=\(stored) pointSource=recognizer"
+            }
+            return "point=unavailable pointSource=none"
         }
 
         @objc private func switchGestureChanged(_ sender: UIGestureRecognizer) {
@@ -359,6 +515,10 @@ struct SettingsTraceProbe: UIViewRepresentable {
         private func record(_ touch: UITouch, phase: String, event: UIEvent) {
             guard let window = view as? UIWindow,
                   let id = activeTouches[ObjectIdentifier(touch)] else { return }
+            // The control's own actions run after the recognizer, so the latest point is the one they see.
+            if let control = nativeView, id == nativeTouchID {
+                nativeTouchPoint = touch.location(in: control)
+            }
             let point = touch.location(in: window)
             SettingsTrace.record(
                 "touch id=\(id) phase=\(phase) touchTime=\(touch.timestamp) eventTime=\(event.timestamp) "
