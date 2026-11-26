@@ -274,12 +274,15 @@ public enum ProviderEndpoints {
 
     /// MiniMax Token Plan. The route MiniMax's own CLI reads — `GET {host}/v1/token_plan/remains`
     /// with `Authorization: Bearer <plan key>` and nothing else (MiniMax-AI/cli, commit
-    /// ae29aae57b05c2140c7ea6aba0a852763ffe7859: `src/client/endpoints.ts`, `src/utils/quota.ts`).
-    /// MiniMax publishes no API-reference page for it.
+    /// ae29aae57b05c2140c7ea6aba0a852763ffe7859: `src/config/schema.ts`, `src/client/endpoints.ts`,
+    /// `src/utils/quota.ts`). MiniMax publishes no API-reference page for it.
     ///
-    /// The CLI's own hosts are api.minimax.io / api.minimaxi.com, but api.minimax.io answers 404
-    /// for this path while www.minimax.io answers 200 with an auth error, so the hosts below are
-    /// the ones that serve the route. A plan key is region-bound, like Kimi's and Z.ai's.
+    /// The CLI's hosts, from `REGIONS`, are https://api.minimax.io (global) and
+    /// https://api.minimax.cn (cn). An unauthenticated research probe on 2026-11-25, sending no
+    /// key, got 404 from api.minimax.io for this path while www.minimax.io, www.minimaxi.com and
+    /// api.minimaxi.com answered HTTP 200 with `base_resp` 1004, so the hosts below are the ones
+    /// the route answers on. No live account was checked. A plan key is region-bound, like Kimi's
+    /// and Z.ai's.
     public enum MiniMax {
         public static func usageEndpoint(_ region: ProviderRegion) -> String {
             (region == .cn ? "https://www.minimaxi.com" : "https://www.minimax.io") + "/v1/token_plan/remains"

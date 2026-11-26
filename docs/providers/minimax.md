@@ -4,7 +4,7 @@ Add MiniMax Token Plan in Accounts, choose the region that issued your key and p
 
 Usage is `GET https://www.minimax.io/v1/token_plan/remains` or `https://www.minimaxi.com/v1/token_plan/remains` with `Authorization: Bearer <plan key>` and `Accept: application/json`, and nothing else.
 
-MiniMax publishes no API reference for this route. The route, the header and the reading rules come from MiniMax's own CLI ([MiniMax-AI/cli](https://github.com/MiniMax-AI/cli), commit `ae29aae57b05c2140c7ea6aba0a852763ffe7859`, `src/client/endpoints.ts`, `src/commands/quota/show.ts`, `src/utils/quota.ts`); the CLI's `User-Agent: mmx-cli/<version>` is deliberately not copied. The CLI's own hosts are `api.minimax.io` and `api.minimaxi.com`, but `api.minimax.io` answers 404 for this path while `www.minimax.io` answers 200 with the auth error, so the app uses the `www` hosts.
+MiniMax publishes no API reference for this route. The route, the header and the reading rules come from MiniMax's own CLI ([MiniMax-AI/cli](https://github.com/MiniMax-AI/cli), commit `ae29aae57b05c2140c7ea6aba0a852763ffe7859`, `src/config/schema.ts`, `src/client/endpoints.ts`, `src/commands/quota/show.ts`, `src/utils/quota.ts`); the CLI's `User-Agent: mmx-cli/<version>` is deliberately not copied. The CLI's hosts are `api.minimax.io` (global) and `api.minimax.cn` (China), from `REGIONS` in `src/config/schema.ts`. An unauthenticated research probe on 2026-11-25, sending no key, got 404 from `api.minimax.io/v1/token_plan/remains`, while `www.minimax.io`, `www.minimaxi.com` and `api.minimaxi.com` answered HTTP 200 with `base_resp` 1004, the rejected-key code. The app therefore uses the `www` hosts. No live MiniMax account was checked.
 
 ## Reading quota
 
