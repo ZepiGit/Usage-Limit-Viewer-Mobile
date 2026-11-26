@@ -181,7 +181,38 @@
       "expect": {"error": "forbidden"}
     }
   ],
-  "tokenrouter": [],
+  "tokenrouter": [
+    {
+      "name": "the topped-up balance plus the valid voucher balance is the amount, and no cap is documented so there is no bar",
+      "status": 200,
+      "body": {"success": true, "message": "", "data": {"topUpBalance": 120.50, "voucherEfficientAmount": 30.00, "toppedUpSpent": 80.25, "voucherSpent": 10.00}},
+      "expect": {"balances": [{"currency": "USD", "amount": "150.50", "total": null}]}
+    },
+    {
+      "name": "a wallet with no voucher left and no spend figures is just the topped-up balance",
+      "status": 200,
+      "body": {"success": true, "message": "", "data": {"topUpBalance": 42.50, "voucherEfficientAmount": 0}},
+      "expect": {"balances": [{"currency": "USD", "amount": "42.5", "total": null}]}
+    },
+    {
+      "name": "a negative topped-up balance stays negative and the vouchers still add to it",
+      "status": 200,
+      "body": {"success": true, "message": "", "data": {"topUpBalance": -5.25, "voucherEfficientAmount": 10.00, "toppedUpSpent": 0, "voucherSpent": 0}},
+      "expect": {"balances": [{"currency": "USD", "amount": "4.75", "total": null}]}
+    },
+    {
+      "name": "a wallet without a topped-up balance stays unknown, never a voucher-only zero-sized guess",
+      "status": 200,
+      "body": {"success": true, "message": "", "data": {"voucherEfficientAmount": 30.00}},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "an invalid management key is invalid, never unknown",
+      "status": 401,
+      "body": {"message": "management key is invalid", "success": false},
+      "expect": {"error": "invalidKey"}
+    }
+  ],
   "ollama": [],
   "minimax": []
 }

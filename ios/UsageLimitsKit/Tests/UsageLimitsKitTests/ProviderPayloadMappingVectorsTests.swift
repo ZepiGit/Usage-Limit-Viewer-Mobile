@@ -270,6 +270,47 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
         }
     }
 
+    /// TokenRouter's management wallet: the topped-up balance plus the currently valid voucher
+    /// balance is the amount, and no cap is documented, so there is no bar. A wallet without a
+    /// topped-up balance must stay unknown rather than read as the vouchers alone.
+    func testTokenrouterAddsTheValidVouchersToTheToppedUpBalance() async throws {
+        for (index, vector) in try cases("tokenrouter").enumerated() {
+            let where_ = "tokenrouter[\(index)]"
+            let status = try XCTUnwrap(Int(try XCTUnwrap(jsonText(vector["status"] as Any))),
+                                       "\(where_).status must be a JSON integer")
+            let body = try XCTUnwrap(jsonText(vector["body"] as Any), "\(where_).body must be JSON")
+            let expect = try XCTUnwrap(vector["expect"] as? [String: Any])
+            let client = TokenRouterCreditClient(httpClient: UsageHTTPClient(
+                transport: StatusTransport(status: status, body: body), maxRetries: 0))
+            let balances: [CreditBalance]
+            do {
+                balances = try await client.fetchBalances(key: "tr-test", attributes: [:])
+            } catch {
+                let creditError = try XCTUnwrap(error as? CreditError, "\(where_): \(error)")
+                XCTAssertEqual(Self.errorKind(creditError),
+                               try string("\(where_).expect.error", expect["error"]),
+                               "\(where_): \(error)")
+                continue
+            }
+            XCTAssertNil(expect["error"], "\(where_): the read succeeded but the case expects an error")
+            let rows = try XCTUnwrap(expect["balances"] as? [Any], "\(where_).expect.balances")
+            XCTAssertEqual(rows.count, balances.count, "\(where_): row count")
+            for (row, element) in rows.enumerated() {
+                let at = "\(where_).expect.balances[\(row)]"
+                let expected = try XCTUnwrap(element as? [String: Any], "\(at) must be a JSON object")
+                let balance = balances[row]
+                XCTAssertEqual(balance.currency, try string("\(at).currency", expected["currency"]), at)
+                XCTAssertEqual(balance.amount, Self.decimal(try string("\(at).amount", expected["amount"])), at)
+                if let total = expected["total"], !(total is NSNull) {
+                    XCTAssertEqual(balance.total, Self.decimal(try string("\(at).total", total)), at)
+                } else {
+                    XCTAssertNil(balance.total, at)
+                }
+                XCTAssertNil(balance.remainingPercent, "\(at): the wallet states no cap, so the row draws no bar")
+            }
+        }
+    }
+
     /// One scripted reply, so a vector can pin a status as well as a body.
     private actor StatusTransport: HTTPTransport {
         let status: Int

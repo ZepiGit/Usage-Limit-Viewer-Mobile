@@ -259,6 +259,32 @@ public enum NovitaCreditParser {
     }
 }
 
+public enum TokenRouterCreditParser {
+
+    /// The management wallet. Available is the remaining topped-up balance plus the vouchers that
+    /// are still valid; no cap is documented, so the row draws no bar. The two spent figures ride
+    /// on the label only and never derive a share. Currency is USD, assumed: the docs name none.
+    /// A spend figure the wallet omits drops the label rather than the balance, and a missing
+    /// topped-up balance or voucher figure is a failed read, never a zero.
+    public static func parse(_ payload: [String: Any]) throws -> [CreditBalance] {
+        guard let data = JSONSupport.object(payload, "data") else {
+            throw CreditError.unavailable("tokenrouter wallet has no data")
+        }
+        guard let topUp = CreditJSON.decimal(data, "topUpBalance") else {
+            throw CreditError.malformed("tokenrouter wallet has no topUpBalance")
+        }
+        guard let vouchers = CreditJSON.decimal(data, "voucherEfficientAmount") else {
+            throw CreditError.malformed("tokenrouter wallet has no voucherEfficientAmount")
+        }
+        let spentTopUp = CreditJSON.decimal(data, "toppedUpSpent")
+        let spentVouchers = CreditJSON.decimal(data, "voucherSpent")
+        let label: String? = spentTopUp.flatMap { spent in
+            spentVouchers.map { "Spent: \(spent) top-up, \($0) vouchers" }
+        }
+        return [CreditBalance(currency: "USD", amount: topUp + vouchers, label: label)]
+    }
+}
+
 public enum VercelCreditParser {
 
     /// Takes the body **text**, not the normalised object: `CreditJSON.object` quotes every JSON

@@ -204,3 +204,17 @@ public struct DeepInfraCreditClient: CreditProvider {
         }
     }
 }
+
+public struct TokenRouterCreditClient: CreditProvider {
+    public let providerID = CreditProviderID.tokenrouter
+    let http: UsageHTTPClient
+    public init(httpClient: UsageHTTPClient) { http = httpClient }
+
+    /// A 401 is a bad key and a 403 a disabled or expired one; both are the shared rejection.
+    public func fetchBalances(key: String, attributes: [String: String]) async throws -> [CreditBalance] {
+        try TokenRouterCreditParser.parse(
+            try await CreditHTTP.getJSON(
+                http, url: ProviderEndpoints.Credits.tokenRouterWallet,
+                headers: CreditHTTP.bearer(key), endpoint: "tokenrouter wallet"))
+    }
+}

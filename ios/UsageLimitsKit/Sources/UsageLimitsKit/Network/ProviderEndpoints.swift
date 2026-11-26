@@ -334,6 +334,8 @@ public enum ProviderEndpoints {
         }
         public static let falBilling = "https://api.fal.ai/v1/account/billing?expand=credits"
         public static let novitaBalance = "https://api.novita.ai/openapi/v1/billing/balance/detail"
+        /// A management key, not an inference key; the wallet is what one account holds.
+        public static let tokenRouterWallet = "https://api.tokenrouter.com/api/management/self/wallet"
         public static let vercelCredits = "https://ai-gateway.vercel.sh/v1/credits"
 
         /// The gateway's credits call names no team in its documentation: the key is the team, and

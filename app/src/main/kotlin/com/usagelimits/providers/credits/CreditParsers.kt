@@ -218,6 +218,33 @@ object NovitaCreditParser {
     }
 }
 
+object TokenRouterCreditParser {
+
+    /**
+     * The management wallet. Available is the remaining topped-up balance plus the vouchers that
+     * are still valid; no cap is documented, so the row draws no bar. The two spent figures ride
+     * on the label only and never derive a share. Currency is USD, assumed: the docs name none.
+     * A spend figure the wallet omits drops the label rather than the balance, and a missing
+     * topped-up balance or voucher figure is a failed read, never a zero.
+     */
+    fun parse(payload: JsonObject): List<CreditBalance> {
+        val data = JsonSupport.obj(payload, "data")
+            ?: throw CreditError.Unavailable("tokenrouter wallet has no data")
+        val topUp = CreditJson.decimal(data, "topUpBalance")
+            ?: throw CreditError.Malformed("tokenrouter wallet has no topUpBalance")
+        val vouchers = CreditJson.decimal(data, "voucherEfficientAmount")
+            ?: throw CreditError.Malformed("tokenrouter wallet has no voucherEfficientAmount")
+        val spentTopUp = CreditJson.decimal(data, "toppedUpSpent")
+        val spentVouchers = CreditJson.decimal(data, "voucherSpent")
+        val label = if (spentTopUp != null && spentVouchers != null) {
+            "Spent: ${spentTopUp.toPlainString()} top-up, ${spentVouchers.toPlainString()} vouchers"
+        } else {
+            null
+        }
+        return listOf(CreditBalance("USD", topUp + vouchers, label = label))
+    }
+}
+
 object VercelCreditParser {
 
     /**

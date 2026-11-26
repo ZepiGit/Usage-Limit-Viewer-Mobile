@@ -30,7 +30,7 @@ class CreditRegistry(http: HttpClient) {
     private val clients: Map<CreditProviderId, CreditProvider> = listOf(
         OpenRouterCreditClient(http), DeepSeekCreditClient(http), MoonshotCreditClient(http),
         xai, FalCreditClient(http), NovitaCreditClient(http), VercelCreditClient(http),
-        DeepInfraCreditClient(http),
+        DeepInfraCreditClient(http), TokenRouterCreditClient(http),
     ).associateBy { it.providerId }
 
     fun forId(id: CreditProviderId): CreditProvider? = clients[id]
@@ -208,4 +208,14 @@ class DeepInfraCreditClient(private val http: HttpClient) : CreditProvider {
             if (e.status != 403) throw e
             throw CreditError.MissingScope()
         }
+}
+
+class TokenRouterCreditClient(private val http: HttpClient) : CreditProvider {
+    override val providerId = CreditProviderId.TOKENROUTER
+
+    /** A 401 is a bad key and a 403 a disabled or expired one; both are the shared rejection. */
+    override suspend fun fetchBalances(key: String, attributes: Map<String, String>): List<CreditBalance> =
+        TokenRouterCreditParser.parse(
+            CreditHttp.getJson(http, Credits.TOKENROUTER_WALLET, CreditHttp.bearer(key), "tokenrouter wallet"),
+        )
 }

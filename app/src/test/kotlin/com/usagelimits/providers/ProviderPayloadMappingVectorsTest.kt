@@ -4,6 +4,7 @@ import com.usagelimits.core.model.SharedVectors
 import com.usagelimits.providers.credits.CreditError
 import com.usagelimits.providers.credits.DeepInfraCreditClient
 import com.usagelimits.providers.credits.OpenRouterCreditParser
+import com.usagelimits.providers.credits.TokenRouterCreditClient
 import com.usagelimits.providers.credits.VercelCreditClient
 import com.usagelimits.providers.scriptedHttp
 import java.math.BigDecimal
@@ -267,6 +268,43 @@ class ProviderPayloadMappingVectorsTest {
                 assertDecimal("$at: amount", decimalTextOrNull("$at.amount", expected["amount"]), balance.amount)
                 assertDecimal("$at: total", decimalTextOrNull("$at.total", expected["total"]), balance.total)
                 assertNull("$at: no row of this provider draws a bar", balance.remainingPercent)
+            }
+        }
+    }
+
+    /**
+     * TokenRouter's management wallet: the topped-up balance plus the currently valid voucher
+     * balance is the amount, and no cap is documented, so there is no bar. A wallet without a
+     * topped-up balance must stay unknown rather than read as the vouchers alone.
+     */
+    @Test
+    fun `tokenrouter adds the valid vouchers to the topped-up balance`() {
+        for ((index, case) in cases("tokenrouter").withIndex()) {
+            val where = "tokenrouter[$index]"
+            val status = (case["status"] as JsonPrimitive).content.toInt()
+            val client = TokenRouterCreditClient(scriptedHttp(status to (case["body"] as JsonObject).toString()))
+            val expect = case["expect"] as JsonObject
+            val balances = try {
+                runBlocking { client.fetchBalances("tr-test", emptyMap()) }
+            } catch (error: CreditError) {
+                assertEquals(
+                    "$where: ${error.message}",
+                    string("$where.expect.error", expect["error"]),
+                    errorKind(error),
+                )
+                continue
+            }
+            assertNull("$where: the read succeeded but the case expects an error", expect["error"])
+            val rows = expect["balances"] as JsonArray
+            assertEquals("$where: row count", rows.size, balances.size)
+            for ((row, element) in rows.withIndex()) {
+                val at = "$where.expect.balances[$row]"
+                val expected = element as JsonObject
+                val balance = balances[row]
+                assertEquals("$at: currency", string("$at.currency", expected["currency"]), balance.currency)
+                assertDecimal("$at: amount", decimalTextOrNull("$at.amount", expected["amount"]), balance.amount)
+                assertDecimal("$at: total", decimalTextOrNull("$at.total", expected["total"]), balance.total)
+                assertNull("$at: the wallet states no cap, so the row draws no bar", balance.remainingPercent)
             }
         }
     }

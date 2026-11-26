@@ -254,6 +254,27 @@ enum DisplayText {
         return String(localized: "Used: \(CreditFormat.string(amount, currency: currency, locale: locale))")
     }
 
+    /// The top-up and voucher spend a "Spent: 80.25 top-up, 10 vouchers" label carries — plain
+    /// decimals, so the row prints them in the reader's own money format — or nil for any other
+    /// label. Never a share: the wallet documents no cap to measure them against.
+    static func creditSpentBalanceLabel(_ label: String, currency: String, locale: Locale) -> String? {
+        let prefix = "Spent: "
+        let suffix = " vouchers"
+        guard label.hasPrefix(prefix), label.hasSuffix(suffix), label.count > prefix.count + suffix.count
+        else { return nil }
+        let figures = label.dropFirst(prefix.count).dropLast(suffix.count)
+            .components(separatedBy: " top-up, ")
+        guard figures.count == 2 else { return nil }
+        let amounts = figures.map { figure -> Decimal? in
+            guard figure.range(of: #"^[+-]?[0-9]+(\.[0-9]+)?$"#, options: .regularExpression) != nil
+            else { return nil }
+            return Decimal(string: figure, locale: Locale(identifier: "en_US_POSIX"))
+        }
+        guard let topUp = amounts[0], let vouchers = amounts[1] else { return nil }
+        return String(localized:
+            "Spent: \(CreditFormat.string(topUp, currency: currency, locale: locale)) top-up, \(CreditFormat.string(vouchers, currency: currency, locale: locale)) vouchers")
+    }
+
     /// "Claude · Color": the brand is data and stays, the style word is translated.
     static func providerIconLabel(_ label: String) -> String {
         guard let separator = label.range(of: " · ", options: .backwards) else { return label }

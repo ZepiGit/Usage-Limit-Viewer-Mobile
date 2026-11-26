@@ -509,6 +509,7 @@
     <string name="credit_balance_no_limit">Kein Limit</string>
     <string name="credit_balance_unavailable">Nicht verfügbar</string>
     <string name="credit_balance_used">Verbraucht: %1$s</string>
+    <string name="credit_balance_spent">Ausgegeben: %1$s Aufladung, %2$s Gutscheine</string>
     <string name="credit_balance_token_pass">Token Pass</string>
     <string name="credit_balance_prepaid">Prepaid-Guthaben</string>
     <string name="credit_error_rejected">Der Schlüssel wurde abgelehnt (HTTP %1$d). Prüfe, ob es die richtige Art von Schlüssel ist.</string>

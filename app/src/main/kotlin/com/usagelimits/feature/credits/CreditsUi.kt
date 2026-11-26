@@ -39,6 +39,7 @@ import com.usagelimits.ui.components.StatusMark
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.text.creditBalanceLabelRes
+import com.usagelimits.ui.text.creditBalanceSpentAmounts
 import com.usagelimits.ui.text.creditBalanceUsedAmount
 import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.text.storedMessageText
@@ -153,11 +154,18 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity, compac
     val countdownTexts = rememberCountdownTexts()
     // The parsers' own labels are stored in English and translated here; any other label is shown as stored.
     val usedAmount = balance.label?.let(::creditBalanceUsedAmount)
+    val spentAmounts = balance.label?.let(::creditBalanceSpentAmounts)
     val balanceLabel = when {
         // A lifetime spend travels as a plain figure, so the money format is the reader's own.
         usedAmount != null -> stringResource(
             R.string.credit_balance_used,
             CreditFormat.string(usedAmount, balance.currency, locale),
+        )
+        // Two spend figures travel the same way, so both read in the reader's own money format.
+        spentAmounts != null -> stringResource(
+            R.string.credit_balance_spent,
+            CreditFormat.string(spentAmounts.first, balance.currency, locale),
+            CreditFormat.string(spentAmounts.second, balance.currency, locale),
         )
         else -> balance.label?.let { stored -> creditBalanceLabelRes(stored)?.let { stringResource(it) } ?: stored }
     }

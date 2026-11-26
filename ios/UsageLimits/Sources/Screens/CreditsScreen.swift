@@ -208,6 +208,8 @@ private struct BalanceRow: View {
         if let label = balance.label {
             Text(verbatim: DisplayText.creditUsedBalanceLabel(
                 label, currency: balance.currency, locale: locale)
+                ?? DisplayText.creditSpentBalanceLabel(
+                    label, currency: balance.currency, locale: locale)
                 ?? DisplayText.creditBalanceLabel(label))
                 .usageFont(.small).foregroundStyle(colors.muted)
         }

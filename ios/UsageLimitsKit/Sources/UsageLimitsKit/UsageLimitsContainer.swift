@@ -91,6 +91,7 @@ public actor UsageLimitsContainer {
             .novita: NovitaCreditClient(httpClient: http),
             .vercelAiGateway: VercelCreditClient(httpClient: http),
             .deepinfra: DeepInfraCreditClient(httpClient: http),
+            .tokenrouter: TokenRouterCreditClient(httpClient: http),
         ]
         self.creditRepository = creditRepository
         self.creditProviders = creditProviders

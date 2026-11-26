@@ -560,6 +560,72 @@ final class CreditsTests: XCTestCase {
         XCTAssertEqual(unauthorizedRequests, 1)
     }
 
+    // MARK: - TokenRouter
+
+    func testTokenrouterAddsValidVouchersToTheToppedUpBalanceAndLabelsTheSpend() throws {
+        let rows = try TokenRouterCreditParser.parse(json(
+            #"{"success":true,"message":"","data":{"topUpBalance":120.50,"voucherEfficientAmount":30.00,"toppedUpSpent":80.25,"voucherSpent":10.00}}"#))
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].currency, "USD")
+        XCTAssertEqual(rows[0].amount, dec("150.50"))
+        XCTAssertNil(rows[0].total, "the wallet states no cap, so there is no bar")
+        XCTAssertEqual(rows[0].label, "Spent: 80.25 top-up, 10 vouchers")
+        // A figure sent as a string is the same figure; the digits are read, never a float.
+        XCTAssertEqual(
+            try TokenRouterCreditParser.parse(json(
+                #"{"data":{"topUpBalance":"42.50","voucherEfficientAmount":0}}"#))[0].amount,
+            dec("42.5"))
+    }
+
+    func testTokenrouterKeepsANegativeTopUpAndRefusesToReadNothingAsZero() throws {
+        let negative = try TokenRouterCreditParser.parse(json(
+            #"{"data":{"topUpBalance":-5.25,"voucherEfficientAmount":10.00,"toppedUpSpent":0,"voucherSpent":0}}"#))
+        XCTAssertEqual(negative[0].amount, dec("4.75"))
+        // Without both spend figures there is no sentence to show, and the balance still reads.
+        XCTAssertNil(try TokenRouterCreditParser.parse(json(
+            #"{"data":{"topUpBalance":42.50,"voucherEfficientAmount":0}}"#))[0].label)
+        XCTAssertNil(try TokenRouterCreditParser.parse(json(
+            #"{"data":{"topUpBalance":1,"voucherEfficientAmount":0,"toppedUpSpent":5}}"#))[0].label)
+        for body in [
+            #"{"success":true}"#,
+            #"{"data":null}"#,
+            #"{"data":{"voucherEfficientAmount":30.00}}"#,
+            #"{"data":{"topUpBalance":120.50}}"#,
+            #"{"data":{"topUpBalance":"lots","voucherEfficientAmount":0}}"#,
+        ] {
+            XCTAssertThrowsError(try TokenRouterCreditParser.parse(json(body)), body)
+        }
+    }
+
+    func testTokenrouterSendsTheBearerKeyToTheWalletAndNeverRetries() async throws {
+        let transport = Transport([
+            ("api.tokenrouter.com", [(200,
+                #"{"success":true,"data":{"topUpBalance":120.50,"voucherEfficientAmount":30.00,"toppedUpSpent":80.25,"voucherSpent":10.00}}"#)]),
+        ])
+        let rows = try await TokenRouterCreditClient(httpClient: http(transport))
+            .fetchBalances(key: "tr-test", attributes: [:])
+        XCTAssertEqual(rows.first?.amount, dec("150.50"))
+        let urls = await transport.urls
+        XCTAssertEqual(urls, ["https://api.tokenrouter.com/api/management/self/wallet"])
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer tr-test")
+
+        for status in [401, 403] {
+            let rejected = Transport([
+                ("api.tokenrouter.com", [(status, #"{"message":"management key is invalid","success":false}"#)]),
+            ])
+            do {
+                _ = try await TokenRouterCreditClient(httpClient: http(rejected))
+                    .fetchBalances(key: "tr", attributes: [:])
+                XCTFail("expected rejected(\(status))")
+            } catch {
+                XCTAssertEqual(error as? CreditError, .rejected(status))
+            }
+            let attempts = await rejected.urls.count
+            XCTAssertEqual(attempts, 1, "one attempt for HTTP \(status)")
+        }
+    }
+
     // MARK: - Severity and formatting
 
     private func account(_ attributes: [String: String] = [:]) -> CreditAccount {
@@ -895,6 +961,9 @@ final class CreditsTests: XCTestCase {
     func testEndpointsAreTheDocumentedOnes() {
         XCTAssertEqual(ProviderEndpoints.Credits.moonshotBalance(.intl), "https://api.moonshot.ai/v1/users/me/balance")
         XCTAssertEqual(ProviderEndpoints.Credits.novitaBalance, "https://api.novita.ai/openapi/v1/billing/balance/detail")
+        XCTAssertEqual(
+            ProviderEndpoints.Credits.tokenRouterWallet,
+            "https://api.tokenrouter.com/api/management/self/wallet")
         XCTAssertEqual(
             CreditProviderID.allCases.map(\.rawValue),
             ["openrouter", "deepseek", "moonshot", "xai", "fal", "novita", "vercel", "deepinfra", "tokenrouter", "ollama"])

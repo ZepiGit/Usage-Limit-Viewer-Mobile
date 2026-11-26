@@ -114,6 +114,21 @@ fun creditBalanceUsedAmount(label: String): BigDecimal? {
 
 private val USED_LABEL = Regex("^Used: ([+-]?[0-9]+(?:\\.[0-9]+)?)$")
 
+/**
+ * The top-up and voucher spend a "Spent: 80.25 top-up, 10.00 vouchers" label carries — plain
+ * decimals, so the screen prints them in the user's own money format — or null for any other
+ * label. Never a share: the wallet documents no cap to measure them against.
+ */
+fun creditBalanceSpentAmounts(label: String): Pair<BigDecimal, BigDecimal>? {
+    val match = SPENT_LABEL.matchEntire(label) ?: return null
+    val topUp = runCatching { BigDecimal(match.groupValues[1]) }.getOrNull() ?: return null
+    val vouchers = runCatching { BigDecimal(match.groupValues[2]) }.getOrNull() ?: return null
+    return topUp to vouchers
+}
+
+private val SPENT_LABEL =
+    Regex("^Spent: ([+-]?[0-9]+(?:\\.[0-9]+)?) top-up, ([+-]?[0-9]+(?:\\.[0-9]+)?) vouchers$")
+
 private class StoredMessage(val pattern: Regex, @StringRes val res: Int)
 
 /*

@@ -3181,6 +3181,17 @@
         }
       }
     },
+    "Spent: %@ top-up, %@ vouchers" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgegeben: %@ Aufladung, %@ Gutscheine"
+          }
+        }
+      }
+    },
     "Stale" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -186,10 +186,39 @@ class CreditClientsTest {
         assertEquals(1, unauthorized.size)
     }
 
+    @Test fun `tokenrouter sends the bearer management key to the wallet`() = runBlocking {
+        val seen = mutableListOf<RecordedRequest>()
+        val client = TokenRouterCreditClient(
+            scriptedHttp(
+                200 to """{"success":true,"data":{"topUpBalance":120.50,"voucherEfficientAmount":30.00,"toppedUpSpent":80.25,"voucherSpent":10.00}}""",
+                seen = seen,
+            ),
+        )
+        assertAmount("150.50", client.fetchBalances("tr-test", emptyMap())[0].amount)
+        assertEquals(listOf(Credits.TOKENROUTER_WALLET), seen.map { it.request.url.toString() })
+        assertEquals("Bearer tr-test", seen[0].request.header("Authorization"))
+    }
+
+    @Test fun `tokenrouter reports a rejected key on 401 and 403 and never retries`() {
+        for (status in listOf(401, 403)) {
+            val seen = mutableListOf<RecordedRequest>()
+            val rejected = failure<CreditError.Rejected> {
+                runBlocking {
+                    TokenRouterCreditClient(
+                        scriptedHttp(status to """{"message":"management key is invalid","success":false}""", seen = seen),
+                    ).fetchBalances("tr", emptyMap())
+                }
+            }
+            assertEquals(status, rejected.status)
+            assertEquals("one attempt for HTTP $status", 1, seen.size)
+        }
+    }
+
     @Test fun `endpoints are the documented ones`() {
         assertEquals("https://api.novita.ai/openapi/v1/billing/balance/detail", Credits.NOVITA_BALANCE)
         assertEquals("https://api.deepseek.com/user/balance", Credits.DEEPSEEK_BALANCE)
         assertEquals("https://ai-gateway.vercel.sh/v1/credits", Credits.VERCEL_CREDITS)
         assertEquals("https://api.deepinfra.com/v1/me?checklist=true", Credits.DEEPINFRA_ME)
+        assertEquals("https://api.tokenrouter.com/api/management/self/wallet", Credits.TOKENROUTER_WALLET)
     }
 }

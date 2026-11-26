@@ -18,10 +18,12 @@ import com.usagelimits.providers.scriptedHttp
 import com.usagelimits.providers.zai.ZaiProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.math.BigDecimal
 
 /**
  * The sentences of the model and provider layers, read from resources (R4).
@@ -74,11 +76,27 @@ class ModelTextsEnglishTest {
     }
 
     @Test
-    fun `the three stored balance labels are translated and any other is left to the caller`() {
-        assertEquals("Key limit", resources.getString(creditBalanceLabelRes("Key limit")!!))
-        assertEquals("No limit", resources.getString(creditBalanceLabelRes("No limit")!!))
-        assertEquals("Unavailable", resources.getString(creditBalanceLabelRes("Unavailable")!!))
+    fun `every stored balance label is translated, and the figure labels are formatted at the display`() {
+        // Every fixed label the parsers write, as of the providers that ship one.
+        val fixed = listOf(
+            "Key limit", "Daily key limit", "Weekly key limit", "Monthly key limit",
+            "No limit", "Unavailable", "Token Pass", "Prepaid balance",
+        )
+        for (label in fixed) assertEquals(label, resources.getString(creditBalanceLabelRes(label)!!))
         assertNull(creditBalanceLabelRes("Trial credit"))
+
+        // A figure label is not a fixed sentence: it is formatted here in the reader's money.
+        assertEquals(BigDecimal("4.50"), creditBalanceUsedAmount("Used: 4.50"))
+        assertNull(creditBalanceUsedAmount("Key limit"))
+        val spent = creditBalanceSpentAmounts("Spent: 80.25 top-up, 10.00 vouchers")
+            ?: error("the spend label must be recognised")
+        assertTrue(BigDecimal("80.25").compareTo(spent.first) == 0)
+        assertTrue(BigDecimal("10.00").compareTo(spent.second) == 0)
+        assertNull(creditBalanceSpentAmounts("Used: 4.50"))
+        assertEquals(
+            "Spent: $80.25 top-up, $10.00 vouchers",
+            resources.getString(com.usagelimits.R.string.credit_balance_spent, "$80.25", "$10.00"),
+        )
     }
 
     @Test
@@ -169,6 +187,10 @@ class ModelTextsGermanTest {
     @Test
     fun `balance labels and credit errors read German, keeping the diagnostic detail as written`() {
         assertEquals("Kein Limit", resources.getString(creditBalanceLabelRes("No limit")!!))
+        assertEquals(
+            "Ausgegeben: 80,25 $ Aufladung, 10,00 $ Gutscheine",
+            resources.getString(com.usagelimits.R.string.credit_balance_spent, "80,25 $", "10,00 $"),
+        )
         assertEquals("Der Schlüssel wurde abgelehnt (HTTP 401). Prüfe, ob es die richtige Art von Schlüssel ist.",
             storedMessageText(resources, CreditError.Rejected(401).message.orEmpty()))
         assertEquals("Es konnte kein Guthaben gelesen werden (fal returned no credits).",

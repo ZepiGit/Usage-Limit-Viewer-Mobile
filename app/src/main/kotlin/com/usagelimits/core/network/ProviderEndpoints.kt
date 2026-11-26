@@ -374,6 +374,9 @@ object ProviderEndpoints {
         const val FAL_BILLING = "https://api.fal.ai/v1/account/billing?expand=credits"
         const val NOVITA_BALANCE = "https://api.novita.ai/openapi/v1/billing/balance/detail"
 
+        /** A management key, not an inference key; the wallet is what one account holds. */
+        const val TOKENROUTER_WALLET = "https://api.tokenrouter.com/api/management/self/wallet"
+
         const val VERCEL_CREDITS = "https://ai-gateway.vercel.sh/v1/credits"
 
         /**

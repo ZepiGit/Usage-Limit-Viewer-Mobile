@@ -525,6 +525,7 @@
     <string name="credit_balance_no_limit">No limit</string>
     <string name="credit_balance_unavailable">Unavailable</string>
     <string name="credit_balance_used">Used: %1$s</string>
+    <string name="credit_balance_spent">Spent: %1$s top-up, %2$s vouchers</string>
     <string name="credit_balance_token_pass">Token Pass</string>
     <string name="credit_balance_prepaid">Prepaid balance</string>
     <string name="credit_error_rejected">The key was rejected (HTTP %1$d). Check that it is the right kind of key.</string>

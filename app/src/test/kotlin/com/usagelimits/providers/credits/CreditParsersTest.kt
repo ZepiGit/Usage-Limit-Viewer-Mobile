@@ -355,6 +355,56 @@ class CreditParsersTest {
         }
     }
 
+    @Test fun `tokenrouter adds valid vouchers to the topped-up balance and labels the spend`() {
+        val rows = TokenRouterCreditParser.parse(
+            json(
+                """{"success":true,"message":"","data":{"topUpBalance":120.50,"voucherEfficientAmount":30.00,
+                   "toppedUpSpent":80.25,"voucherSpent":10.00}}""",
+            ),
+        )
+        assertEquals(1, rows.size)
+        assertEquals("USD", rows[0].currency)
+        assertAmount("150.50", rows[0].amount)
+        assertNull("the wallet states no cap, so there is no bar", rows[0].total)
+        assertEquals("Spent: 80.25 top-up, 10.00 vouchers", rows[0].label)
+        // A figure sent as a string is the same figure; the digits are read, never a float.
+        assertAmount(
+            "42.5",
+            TokenRouterCreditParser.parse(
+                json("""{"data":{"topUpBalance":"42.50","voucherEfficientAmount":0}}"""),
+            )[0].amount,
+        )
+    }
+
+    @Test fun `tokenrouter keeps a negative topped-up balance and refuses to read nothing as zero`() {
+        val negative = TokenRouterCreditParser.parse(
+            json(
+                """{"data":{"topUpBalance":-5.25,"voucherEfficientAmount":10.00,"toppedUpSpent":0,"voucherSpent":0}}""",
+            ),
+        )
+        assertAmount("4.75", negative[0].amount)
+        // Without both spend figures there is no sentence to show, and the balance still reads.
+        val noSpend = TokenRouterCreditParser.parse(
+            json("""{"data":{"topUpBalance":42.50,"voucherEfficientAmount":0}}"""),
+        )
+        assertEquals(1, noSpend.size)
+        assertNull("a wallet without spend figures shows no spend label", noSpend[0].label)
+        assertNull(
+            TokenRouterCreditParser.parse(
+                json("""{"data":{"topUpBalance":1,"voucherEfficientAmount":0,"toppedUpSpent":5}}"""),
+            )[0].label,
+        )
+        for (body in listOf(
+            """{"success":true}""",
+            """{"data":null}""",
+            """{"data":{"voucherEfficientAmount":30.00}}""",
+            """{"data":{"topUpBalance":120.50}}""",
+            """{"data":{"topUpBalance":"lots","voucherEfficientAmount":0}}""",
+        )) {
+            assertThrows(CreditError::class.java) { TokenRouterCreditParser.parse(json(body)) }
+        }
+    }
+
     @Test fun `errors never carry a payload`() {
         // Built from endpoint names and statuses only.
         assertTrue(CreditError.Rejected(401).message!!.contains("HTTP 401"))
