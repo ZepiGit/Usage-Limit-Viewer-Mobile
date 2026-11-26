@@ -40,7 +40,7 @@ android {
         // of an already published release, and an installer that sees a lower code refuses the
         // update. See `app.versionCode`.
         versionCode = System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull() ?: storedVersionCode
-        versionName = System.getenv("ANDROID_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.5.0"
+        versionName = System.getenv("ANDROID_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.5.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
