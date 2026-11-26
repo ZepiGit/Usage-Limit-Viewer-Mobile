@@ -1212,6 +1212,19 @@ class SettingsReadinessTest(unittest.TestCase):
             scroll.assert_called_once_with(lower, up=False)
             tap.assert_not_called()
 
+    def test_current_settings_searches_down_when_the_section_sits_below_the_first_screen(self):
+        # Since 0.5.0 Appearance is above Provider icons, so a list already at its top has the section below it.
+        first, below = self.settings("Appearance"), self.settings("Provider icons")
+        with TemporaryDirectory() as directory:
+            smoke = Smoke(Path(directory), "test-device")
+            with patch.object(smoke, "dump", side_effect=[first] * 12 + [below] * 2), \
+                    patch.object(smoke, "scroll") as scroll, patch.object(smoke, "tap") as tap, \
+                    patch.object(smoke, "capture"), patch.object(smoke, "adb", return_value="1234"):
+                smoke.navigate("Settings", "Provider icons", "below-first-screen")
+            self.assertEqual([unittest.mock.call(first, up=False)] * 9 + [unittest.mock.call(first, up=True)],
+                             scroll.call_args_list)
+            tap.assert_not_called()
+
     def test_main_reaches_current_appearance_before_searching_for_the_persisted_tier(self):
         with TemporaryDirectory() as directory:
             directory = Path(directory)

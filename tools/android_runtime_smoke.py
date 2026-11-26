@@ -1436,13 +1436,20 @@ class Smoke:
             assert target.get("clickable") == "true", f"Unselected {tab} tab is not clickable"
             self.tap(target)
         self.wait_for(name + "-selected", lambda root: selected_tab(root, tab, package))
-        # A restored Settings destination can retain the previous scroll position.
+        # A restored Settings destination can retain the previous scroll position, and since 0.5.0 the
+        # Appearance card sits above Provider icons, so the marker can be above or below the first screen.
         if tab == "Settings":
             for attempt in range(9):
                 root = self.dump(f"{name}-top-{attempt}")
                 if matches(root, marker, package):
                     break
                 self.scroll(root, up=False)
+            if not matches(root, marker, package):
+                for attempt in range(9):
+                    root = self.dump(f"{name}-down-{attempt}")
+                    if matches(root, marker, package):
+                        break
+                    self.scroll(root, up=True)
         self.wait_for(name, lambda root: selected_tab(root, tab, package) and bool(matches(root, marker, package)))
         self.capture(name)
         assert self.adb("shell", "pidof", package), "App process exited after navigation"
