@@ -99,6 +99,9 @@ struct SettingsTraceProbe: UIViewRepresentable {
         private var startUptime: TimeInterval = 0
         private var frames = 0
         private var previous: (index: Int, tracking: Bool, highlighted: Bool)?
+        private var changes = 0
+        private var truncated = false
+        private static let maximumChanges = 6
 
         init(touchID: Int, control: UISegmentedControl) {
             self.touchID = touchID
@@ -140,11 +143,16 @@ struct SettingsTraceProbe: UIViewRepresentable {
             if previous == nil {
                 record("first")
             } else if previous! != state, !isLast {
-                record("change")
+                if changes < Self.maximumChanges {
+                    changes += 1
+                    record("change")
+                } else {
+                    truncated = true
+                }
             }
             previous = state
             if isLast {
-                record("last")
+                record(truncated ? "last truncated=true" : "last")
                 stop()
             }
         }
@@ -164,10 +172,10 @@ struct SettingsTraceProbe: UIViewRepresentable {
         ]
 
         private static let segmentEvents: [(event: UIControl.Event, action: Selector)] = [
-            (.touchDown, #selector(TouchObserver.segmentTouchDown(_:))),
-            (.touchUpInside, #selector(TouchObserver.segmentTouchUpInside(_:))),
-            (.touchUpOutside, #selector(TouchObserver.segmentTouchUpOutside(_:))),
-            (.touchCancel, #selector(TouchObserver.segmentTouchCancel(_:)))
+            (.touchDown, #selector(TouchObserver.segmentTouchDown(_:forEvent:))),
+            (.touchUpInside, #selector(TouchObserver.segmentTouchUpInside(_:forEvent:))),
+            (.touchUpOutside, #selector(TouchObserver.segmentTouchUpOutside(_:forEvent:))),
+            (.touchCancel, #selector(TouchObserver.segmentTouchCancel(_:forEvent:)))
         ]
 
         private var nextTouchID = 0
@@ -215,6 +223,8 @@ struct SettingsTraceProbe: UIViewRepresentable {
         }
 
         private func stopControlEvents() {
+            segmentSampler?.stop()
+            segmentSampler = nil
             if tracesSwitchEvents, let toggle = nativeView as? UISwitch {
                 for (event, action) in Self.switchEvents {
                     toggle.removeTarget(self, action: action, for: event)
@@ -237,8 +247,6 @@ struct SettingsTraceProbe: UIViewRepresentable {
                 control.removeTarget(self, action: #selector(nativeValueChanged(_:)), for: .valueChanged)
                 control.removeTarget(self, action: #selector(nativePrimaryAction(_:)), for: .primaryActionTriggered)
             }
-            segmentSampler?.stop()
-            segmentSampler = nil
             nativeView = nil
             nativeTouchID = nil
             nativeDeliveryTouchID = nil
@@ -249,8 +257,9 @@ struct SettingsTraceProbe: UIViewRepresentable {
         }
 
         private func observeNativeControl(for touch: UITouch, id: Int) {
-            guard tracesNativeControls else { return }
+            // A new touch ends the previous control's tracking trace before any early return.
             stopControlEvents()
+            guard tracesNativeControls else { return }
             var ancestor = touch.view
             var candidate: UIControl?
             var identifier = "unavailable"
@@ -351,22 +360,32 @@ struct SettingsTraceProbe: UIViewRepresentable {
                 + "event=\(event) switchOn=\(sender.isOn) tracking=\(sender.isTracking) inside=\(sender.isTouchInside)")
         }
 
-        @objc private func segmentTouchDown(_ sender: UISegmentedControl) { recordSegmentEvent("touchDown", sender) }
-        @objc private func segmentTouchUpInside(_ sender: UISegmentedControl) {
-            recordSegmentEvent("touchUpInside", sender)
+        @objc private func segmentTouchDown(_ sender: UISegmentedControl, forEvent event: UIEvent) {
+            recordSegmentEvent("touchDown", sender, event: event)
         }
-        @objc private func segmentTouchUpOutside(_ sender: UISegmentedControl) {
-            recordSegmentEvent("touchUpOutside", sender)
+        @objc private func segmentTouchUpInside(_ sender: UISegmentedControl, forEvent event: UIEvent) {
+            recordSegmentEvent("touchUpInside", sender, event: event)
         }
-        @objc private func segmentTouchCancel(_ sender: UISegmentedControl) {
-            recordSegmentEvent("touchCancel", sender)
+        @objc private func segmentTouchUpOutside(_ sender: UISegmentedControl, forEvent event: UIEvent) {
+            recordSegmentEvent("touchUpOutside", sender, event: event)
+        }
+        @objc private func segmentTouchCancel(_ sender: UISegmentedControl, forEvent event: UIEvent) {
+            recordSegmentEvent("touchCancel", sender, event: event)
         }
 
-        private func recordSegmentEvent(_ event: String, _ sender: UISegmentedControl) {
+        private func recordSegmentEvent(_ name: String, _ sender: UISegmentedControl, event: UIEvent) {
             guard sender === nativeView, let id = nativeTouchID else { return }
-            let point = nativeTouchPoint.map { "point=\($0)" } ?? "point=unavailable"
+            // The event's own touch is where the control saw it; the stored point is the recognizer's.
+            let point: String
+            if let touch = event.allTouches?.first {
+                point = "point=\(touch.location(in: sender)) pointSource=control-event"
+            } else if let stored = nativeTouchPoint {
+                point = "point=\(stored) pointSource=recognizer"
+            } else {
+                point = "point=unavailable pointSource=none"
+            }
             SettingsTrace.record("native segment control-event touchID=\(id) control=\(ObjectIdentifier(sender)) "
-                + "event=\(event) selectedSegmentIndex=\(sender.selectedSegmentIndex) "
+                + "event=\(name) selectedSegmentIndex=\(sender.selectedSegmentIndex) "
                 + "tracking=\(sender.isTracking) highlighted=\(sender.isHighlighted) \(point)")
         }
 
