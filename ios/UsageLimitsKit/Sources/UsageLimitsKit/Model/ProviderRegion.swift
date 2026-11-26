@@ -2,9 +2,9 @@ import Foundation
 
 /// Which deployment of a provider an account lives on, for the providers that run two.
 ///
-/// Kimi Code and Z.ai each operate a China and an international service with separate accounts,
-/// so a credential only works against the host it was issued by. The region is therefore stored
-/// with the credential (`OAuthCredentials.providerData`, which a token refresh can read) and
+/// Kimi Code, Z.ai and MiniMax each operate a China and an international service with separate
+/// accounts, so a credential only works against the host it was issued by. The region is therefore
+/// stored with the credential (`OAuthCredentials.providerData`, which a token refresh can read) and
 /// mirrored in `ProviderAccount.attributes` for display. Raw values are persisted.
 public enum ProviderRegion: String, CaseIterable, Sendable, Codable {
     case cn

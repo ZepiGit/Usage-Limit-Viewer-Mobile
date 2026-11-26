@@ -220,7 +220,7 @@ public struct CreditAccount: Sendable, Equatable, Codable, Identifiable {
     public let provider: CreditProviderID
     public let label: String
     public let credentialReference: String
-    /// Non-secret extras: `region` (Moonshot), `teamId` (xAI), `lowThreshold` (decimal string).
+    /// Non-secret extras: `region` (Moonshot), `teamId` (xAI and Vercel AI Gateway), `lowThreshold`.
     public let attributes: [String: String]
     public let sortOrder: Int
     public let createdAt: Date

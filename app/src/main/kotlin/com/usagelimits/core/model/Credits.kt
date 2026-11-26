@@ -131,7 +131,7 @@ data class CreditAccount(
     val provider: CreditProviderId,
     val label: String,
     val credentialReference: String,
-    /** Non-secret extras: `region` (Moonshot), `teamId` (xAI), `lowThreshold` (decimal string). */
+    /** Non-secret extras: `region` (Moonshot), `teamId` (xAI and Vercel AI Gateway), `lowThreshold`. */
     val attributes: Map<String, String> = emptyMap(),
     val sortOrder: Int = 0,
     val createdAt: Long = 0L,
