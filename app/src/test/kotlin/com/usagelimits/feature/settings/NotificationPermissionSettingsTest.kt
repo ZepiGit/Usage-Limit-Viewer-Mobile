@@ -298,6 +298,7 @@ class NotificationPermissionSettingsTest {
         shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
         render(AppSettings(notificationPermissionHandled = true))
         scrollTo("Notifications not allowed")
+        scrollTo("Open notification settings")
         compose.onNodeWithText("Open notification settings").assertIsEnabled().performClick()
         val intent = shadowOf(compose.activity).nextStartedActivity
         assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, intent.action)
@@ -424,6 +425,7 @@ class NotificationPermissionSettingsTest {
         scrollTo("Notifications not allowed")
         compose.onNodeWithText("Notifications not allowed").assertIsDisplayed()
         compose.onNodeWithText("Allow notifications").assertDoesNotExist()
+        scrollTo("Open notification settings")
         compose.onNodeWithText("Open notification settings").assertIsEnabled().performClick()
         val intent = shadowOf(compose.activity).nextStartedActivity
         assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, intent.action)
@@ -443,6 +445,7 @@ class NotificationPermissionSettingsTest {
         render()
         scrollTo("Notifications not allowed")
         compose.onNodeWithText("Allow notifications").assertDoesNotExist()
+        scrollTo("Open notification settings")
         compose.onNodeWithText("Open notification settings").performClick()
         assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, shadowOf(compose.activity).nextStartedActivity.action)
         org.junit.Assert.assertNull(shadowOf(compose.activity).lastRequestedPermission)

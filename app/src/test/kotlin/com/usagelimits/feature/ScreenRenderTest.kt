@@ -657,8 +657,12 @@ class ScreenRenderTest {
         }
 
         compose.onNode(hasScrollToNodeAction())
-            .performScrollToNode(hasText("Used"))
-        compose.onNodeWithText("Used").performClick()
+            .performScrollToNode(hasText("Show percentages as", substring = true))
+        // The segment row is below the card's first line, and its own Row scrolls horizontally;
+        // so the vertical list is scrolled by hand until the segment itself is visible.
+        compose.onNode(hasScrollToNodeAction())
+            .performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 160f) }
+        compose.onNodeWithText("Used").assertIsDisplayed().performClick()
         assertEquals(PercentDisplay.USED, chosen)
     }
 

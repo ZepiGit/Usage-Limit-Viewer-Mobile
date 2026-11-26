@@ -10,7 +10,7 @@ A current plan's `included` block states `balance_usd` and `allowance_usd` over 
 
 A legacy plan states `session` and `weekly` inside `included` instead, each with `remaining_percent` and `resets_at`. That percentage is what remains, so the app shows `100 − remaining_percent` as used; a value outside 0–100 leaves that window unknown. `weekly` is categorised as a week.
 
-Neither the legacy session limit nor the included period has a documented duration — the included period follows the plan's own reset schedule, annual plans included — so both keep their label and reset with no category. The windows appear in the order **Session**, **Weekly** and **Included allowance**. The names are the app's own rather than payload field names: it translates Session and Included allowance, and Weekly was already one of its labels.
+Neither the legacy session limit nor the included period has a documented duration — the included period follows the plan's own reset schedule, annual plans included — so both keep their label and reset with no category. The app names the windows **Session**, **Weekly** and **Included allowance**; those are its own names rather than payload field names, and it translates Session and Included allowance, while Weekly was already one of its labels.
 
 `purchased.balance_usd` is the credit row: unexpired prepaid credit in USD, labelled **Purchased**. The documentation states no cap, so the row draws no bar. A missing `purchased` block fails the credit account's read, never a zero; a stated `0` is a reading.
 
