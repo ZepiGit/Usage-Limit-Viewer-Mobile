@@ -63,7 +63,7 @@ With every signing value absent, release builds use the debug key for local inst
 
 The bundle is `app/build/outputs/bundle/release/app-release.aab`. Retain the matching R8 `mapping.txt` with the minified APK and AAB. Set `ANDROID_VERSION_NAME` and `ANDROID_VERSION_CODE` for distribution; local builds take the version name from the build script and the version code from `app.versionCode` in `gradle.properties`.
 
-`app.versionCode` is maintained by hand and only ever rises: it must stay above the code of the last published release, so bump it in the same commit that prepares the next one. The release workflow reads the same value, so a release and a branch build of that commit share one code.
+`app.versionCode` is maintained by hand and only ever rises: it must stay above the code of the last published release, so bump it in the same commit that prepares the next one. The one exception is 0.5.1: its code, 885, was set when the property was introduced (`0f0cf8fb`), before its preparation commit. The release workflow reads the same value, so a release and a branch build of that commit share one code.
 
 ## Preserving data on upgrade
 
@@ -71,7 +71,7 @@ An in-place Android update requires the same application ID, the same signing ke
 
 Use `adb install -r` to update a compatible installation. If Android rejects it, obtain the correctly signed build instead of uninstalling. Uninstalling deletes accounts, encrypted credentials, cached readings and widget configuration. Debug and release application IDs have separate storage, and debug and release signers cannot replace each other.
 
-The committed `app/debug.keystore` gives local and CI builds a consistent debug identity. Production keeps its existing release signer. Room uses additive migrations from shipped schemas rather than destructive fallback. Full history is required when deriving version codes from commit count; shallow checkouts and divergent branches need an explicit code above the previous release.
+The committed `app/debug.keystore` gives local and CI builds a consistent debug identity. Production keeps its existing release signer. Room uses additive migrations from shipped schemas rather than destructive fallback. Version codes come from `app.versionCode`, not from the commit count, so a shallow checkout or a rewritten history builds the same code.
 
 ## Release artifacts
 
