@@ -9,7 +9,7 @@
   &nbsp;
   <a href="https://zepigit.github.io/Usage-Limit-Viewer-Mobile/demo/"><img src="docs/demo/assets/try-the-demo.svg" height="44" alt="Try the demo"></a>
   &nbsp;
-  <a href="https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0"><img src="https://img.shields.io/github/v/release/ZepiGit/Usage-Limit-Viewer-Mobile?label=GitHub%20Releases&style=for-the-badge" height="44" alt="Download v0.5.0 from GitHub Releases"></a>
+  <a href="https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.1"><img src="https://img.shields.io/github/v/release/ZepiGit/Usage-Limit-Viewer-Mobile?label=GitHub%20Releases&style=for-the-badge" height="44" alt="Download v0.5.1 from GitHub Releases"></a>
   &nbsp;
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ZepiGit/Usage-Limit-Viewer-Mobile?style=for-the-badge" height="44" alt="MIT license"></a>
 </p>
@@ -75,7 +75,7 @@ The app talks straight to each service with your own account. There is no server
 
 ## Install
 
-Get the signed Android APK of [0.5.0](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0) from GitHub Releases or from the Orion Store:&nbsp;<a href="https://rookieenough.github.io/Orion-Data/app/?id=usage-limit-viewer-mobile"><img src="https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png" height="40" alt="Get it on Orion Store" valign="middle"></a>
+Get the signed Android APK of [0.5.1](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.1) from GitHub Releases or from the Orion Store:&nbsp;<a href="https://rookieenough.github.io/Orion-Data/app/?id=usage-limit-viewer-mobile"><img src="https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png" height="40" alt="Get it on Orion Store" valign="middle"></a>
 
 Build steps, tables and the rest of the reference are in [Details](docs/DETAILS.md).
 

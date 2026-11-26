@@ -168,7 +168,7 @@ Several services don't officially publish the usage pages the app reads, so an u
 
 ## Install and build
 
-**[0.5.0 is published](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.0).** The release carries the signed Android APK and AAB, the R8 mapping and the unsigned iOS archive. Physical-device checks remain open; see [release evidence and remaining gates](release.md#release-050-checkpoint).
+**[0.5.1 is published](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.1).** The release carries the signed Android APK and AAB, the R8 mapping and the unsigned iOS archive. Physical-device checks remain open; see [release evidence and remaining gates](release.md#release-050-checkpoint).
 
 A debug APK from an Android run under **Actions** is a separate build; match it to its commit.
 
