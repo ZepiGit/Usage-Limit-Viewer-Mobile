@@ -66,6 +66,7 @@ public actor UsageLimitsContainer {
             ProviderID.zai.rawValue: ZaiClient(httpClient: http),
             ProviderID.opencode.rawValue: OpenCodeClient(httpClient: http),
             ProviderID.ollama.rawValue: OllamaClient(httpClient: http),
+            ProviderID.minimax.rawValue: MiniMaxClient(httpClient: http),
         ]
         self.providers = providers
 

@@ -11,6 +11,7 @@ import com.usagelimits.providers.credits.OllamaCreditClient
 import com.usagelimits.providers.credits.OpenRouterCreditParser
 import com.usagelimits.providers.credits.TokenRouterCreditClient
 import com.usagelimits.providers.credits.VercelCreditClient
+import com.usagelimits.providers.minimax.MiniMaxProvider
 import com.usagelimits.providers.ollama.OllamaProvider
 import com.usagelimits.providers.scriptedHttp
 import java.math.BigDecimal
@@ -379,6 +380,78 @@ class ProviderPayloadMappingVectorsTest {
             }
         }
     }
+
+    /**
+     * The MiniMax Token Plan: one five-hour and one weekly window per `model_name`, with the
+     * ambiguous `*_usage_count` resolved the way the vendor's own CLI resolves it — read as a
+     * remaining count, flipped to consumed when a stated percentage agrees better with that
+     * reading. A rejected key arrives as HTTP 200 with `base_resp.status_code` 1004, any other
+     * envelope code stays unknown, and a plan without a weekly allowance is one window rather
+     * than a zero-percent week.
+     */
+    @Test
+    fun `minimax reads one five-hour and one weekly window per model and honours the base_resp envelope`() {
+        for ((index, case) in cases("minimax").withIndex()) {
+            val where = "minimax[$index]"
+            val status = (case["status"] as JsonPrimitive).content.toInt()
+            val http = scriptedHttp(status to (case["body"] as JsonObject).toString())
+            val expect = case["expect"] as JsonObject
+            val read = runCatching {
+                runBlocking { MiniMaxProvider(http).fetchUsage(minimaxAccount(), minimaxCredentials).windows }
+            }
+
+            if (expect.containsKey("error")) {
+                assertEquals(
+                    "$where: ${read.exceptionOrNull()}",
+                    string("$where.expect.error", expect["error"]),
+                    usageErrorKind(read.exceptionOrNull()),
+                )
+                continue
+            }
+            val windows = read.getOrElse { throw AssertionError("$where: the windows did not read: $it") }
+            val expectedWindows = expect["windows"] as JsonArray
+            assertEquals("$where: window count", expectedWindows.size, windows.size)
+            for ((row, element) in expectedWindows.withIndex()) {
+                val at = "$where.expect.windows[$row]"
+                val expected = element as JsonObject
+                val window = windows[row]
+                assertEquals("$at: id", string("$at.id", expected["id"]), window.id)
+                val used = expected["usedPercent"]?.takeUnless { it is JsonNull }
+                    ?.let { (it as JsonPrimitive).content.toDouble() }
+                val actual = window.usedPercent
+                if (used == null) {
+                    assertNull("$at: an unreadable share stays unknown", actual)
+                } else {
+                    assertTrue("$at: expected $used but was null", actual != null)
+                    assertEquals("$at: usedPercent", used, actual!!, 1e-9)
+                }
+                val reset = expected["resetAt"]?.takeUnless { it is JsonNull }
+                    ?.let { Instant.parse(string("$at.resetAt", it)).toEpochMilli() }
+                assertEquals("$at: resetAt", reset, window.resetAt)
+            }
+        }
+    }
+
+    /** The usage account's key; the fixtures are synthetic and nothing leaves the process. */
+    private val minimaxCredentials = OAuthCredentials(
+        "mm-test",
+        null,
+        null,
+        null,
+        providerData = mapOf("region" to "intl"),
+    )
+
+    private fun minimaxAccount() = ProviderAccount(
+        localId = "minimax-test",
+        provider = ProviderId.MINIMAX,
+        externalAccountId = "key-minimax-test",
+        email = null,
+        displayName = null,
+        plan = null,
+        credentialReference = "minimax-test",
+        createdAt = 0L,
+        lastSuccessfulSync = null,
+    )
 
     /** The usage account's key; the fixtures are synthetic and nothing leaves the process. */
     private val ollamaCredentials = OAuthCredentials("ollama-test", null, null, null)

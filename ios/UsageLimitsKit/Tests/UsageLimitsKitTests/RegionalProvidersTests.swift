@@ -340,6 +340,127 @@ final class RegionalProvidersTests: XCTestCase {
         }
     }
 
+    // MARK: - MiniMax Token Plan
+
+    static let minimax = #"""
+    {"base_resp":{"status_code":0,"status_msg":"success"},"model_remains":[
+      {"model_name":"general","start_time":1767225600000,"end_time":1767243600000,
+       "current_interval_total_count":100,"current_interval_usage_count":40,
+       "current_interval_status":1,"current_weekly_total_count":1000,
+       "current_weekly_usage_count":250,"current_weekly_status":1,
+       "weekly_start_time":1767225600000,"weekly_end_time":1767830400000}
+    ]}
+    """#
+
+    func testMiniMaxHostsRegionsAndLabels() {
+        XCTAssertEqual(ProviderEndpoints.MiniMax.usageEndpoint(.intl), "https://www.minimax.io/v1/token_plan/remains")
+        XCTAssertEqual(ProviderEndpoints.MiniMax.usageEndpoint(.cn), "https://www.minimaxi.com/v1/token_plan/remains")
+        XCTAssertEqual(ProviderEndpoints.consoleURL(for: .minimax, region: .intl), "https://platform.minimax.io")
+        XCTAssertEqual(ProviderEndpoints.consoleURL(for: .minimax, region: .cn), "https://platform.minimaxi.com")
+        XCTAssertEqual(ProviderRegion.options(for: .minimax), [.intl, .cn])
+        XCTAssertEqual(ProviderRegion.defaultRegion(for: .minimax), .intl)
+        XCTAssertEqual(ProviderRegion.intl.label(for: .minimax), "International (minimax.io)")
+        XCTAssertEqual(ProviderRegion.cn.label(for: .minimax), "China (minimaxi.com)")
+        // A MiniMax credential is region-bound exactly like Kimi's.
+        let bare = OAuthCredentials(accessToken: "k")
+        XCTAssertEqual(ProviderRegion.stored(provider: .minimax, credentials: bare), .intl)
+        XCTAssertEqual(ProviderRegion.stored(provider: .minimax, credentials: bare, attributes: ["region": "cn"]), .cn)
+    }
+
+    func testMiniMaxWindowsPerModel() {
+        let windows = MiniMaxUsageParser.parse(payload(Self.minimax))
+        XCTAssertEqual(windows.map(\.id), ["general:5h", "general:weekly"])
+        XCTAssertEqual(windows.map(\.label), ["general · 5-hour", "general · Weekly"])
+        XCTAssertEqual(windows.map(\.category), [.fiveHour, .weekly])
+        XCTAssertEqual(windows.map(\.periodSeconds), [18_000, 604_800])
+        XCTAssertEqual(windows.map(\.scope), [.model, .model])
+        // Counts are what REMAINS until a percentage says otherwise: 40 of 100 spent 60.
+        XCTAssertEqual(windows[0].usedPercent ?? -1, 60, accuracy: 1e-9)
+        XCTAssertEqual(windows[1].usedPercent ?? -1, 75, accuracy: 1e-9)
+        XCTAssertEqual(windows[0].resetAt, JSONSupport.date(epoch: 1_767_243_600_000))
+        XCTAssertEqual(windows[1].resetAt, JSONSupport.date(epoch: 1_767_830_400_000))
+    }
+
+    func testMiniMaxInvertedCountAndStatuses() {
+        // The percentage says only 10 % remains, so the count is a consumed one: 90 % used.
+        let flipped = MiniMaxUsageParser.parse(payload(
+            #"{"model_remains":[{"model_name":"g","current_interval_total_count":100,"current_interval_usage_count":90,"current_interval_remaining_percent":10}]}"#))
+        XCTAssertEqual(flipped[0].usedPercent ?? -1, 90, accuracy: 1e-9)
+
+        let statuses = MiniMaxUsageParser.parse(payload(#"""
+        {"model_remains":[
+          {"model_name":"spent","current_interval_total_count":100,"current_interval_usage_count":0,"current_interval_status":2,
+           "current_weekly_total_count":0},
+          {"model_name":"unlimited","current_interval_total_count":100,"current_interval_usage_count":100,"current_interval_status":3,
+           "current_weekly_total_count":500,"current_weekly_usage_count":500,"current_weekly_status":3}]}
+        """#))
+        XCTAssertEqual(statuses.map(\.id), ["spent:5h", "unlimited:5h"])
+        XCTAssertEqual(statuses[0].usedPercent ?? -1, 100, accuracy: 1e-9)
+        XCTAssertTrue(statuses[0].exhausted)
+        XCTAssertNil(statuses[1].usedPercent)
+        XCTAssertFalse(statuses[1].exhausted)
+    }
+
+    func testMiniMaxClientFollowsTheRegionAndTheEnvelope() async throws {
+        let (http, transport) = client([(200, Self.minimax)])
+        let minimax = MiniMaxClient(httpClient: http)
+        let result = try await minimax.fetchUsage(
+            credentials: OAuthCredentials(accessToken: "mmk", providerData: ["region": "cn"]), attributes: [:])
+        XCTAssertEqual(result.windows.count, 2)
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.url?.absoluteString, "https://www.minimaxi.com/v1/token_plan/remains")
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer mmk")
+
+        // No stored region is the international service.
+        let (intlHTTP, intlTransport) = client([(200, Self.minimax)])
+        _ = try await MiniMaxClient(httpClient: intlHTTP)
+            .fetchUsage(credentials: OAuthCredentials(accessToken: "mmk"), attributes: [:])
+        let intlRequest = await intlTransport.requests.first
+        XCTAssertEqual(intlRequest?.url?.absoluteString, "https://www.minimax.io/v1/token_plan/remains")
+
+        // A 200 carrying base_resp 1004 is a rejected key, not a plan without windows.
+        let (rejected, _) = client([(200, #"{"base_resp":{"status_code":1004,"status_msg":"login fail"}}"#)])
+        do {
+            _ = try await MiniMaxClient(httpClient: rejected)
+                .fetchUsage(credentials: OAuthCredentials(accessToken: "bad"), attributes: [:])
+            XCTFail("expected unauthorised")
+        } catch {
+            guard case ProviderError.unauthorised = error else {
+                return XCTFail("expected unauthorised, got \(error)")
+            }
+        }
+
+        // Any other envelope code, or a body without model_remains, is unreadable, never empty.
+        for body in [#"{"base_resp":{"status_code":2013}}"#, #"{"base_resp":{"status_code":0}}"#] {
+            let (broken, _) = client([(200, body)])
+            do {
+                _ = try await MiniMaxClient(httpClient: broken)
+                    .fetchUsage(credentials: OAuthCredentials(accessToken: "mmk"), attributes: [:])
+                XCTFail("expected a malformed payload for \(body)")
+            } catch {
+                guard case ProviderError.malformedPayload = error else {
+                    return XCTFail("expected malformedPayload, got \(error)")
+                }
+            }
+        }
+    }
+
+    func testMiniMaxKeyIsStoredWithItsRegionAndNamespacedInChina() async throws {
+        let (subject, store) = container([(200, Self.minimax)])
+        let abroad = try await subject.completePastedKeyLogin(provider: .minimax, key: " mm-same ")
+        XCTAssertEqual(abroad.attributes["region"], "intl")
+        XCTAssertEqual(abroad.externalAccountID, UsageLimitsContainer.pastedKeyIdentity("mm-same"))
+
+        let china = try await subject.completePastedKeyLogin(provider: .minimax, key: "mm-same", region: .cn)
+        XCTAssertEqual(china.attributes["region"], "cn")
+        XCTAssertEqual(china.externalAccountID,
+                       "cn:" + UsageLimitsContainer.pastedKeyIdentity("mm-same"))
+        let saved = try await store.load(reference: china.credentialReference)
+        XCTAssertEqual(saved?.providerData["region"], "cn")
+        let accounts = await subject.usage()
+        XCTAssertEqual(accounts.count, 2)
+    }
+
     // MARK: - Adding accounts
 
     private var directory: URL!

@@ -18,14 +18,15 @@ public enum ProviderRegion: String, CaseIterable, Sendable, Codable {
         switch provider {
         case .kimi: return [.cn, .intl]
         case .zai: return [.intl, .cn]
+        case .minimax: return [.intl, .cn]
         default: return []
         }
     }
 
     /// What an account with no stored region means. Kimi accounts predate the choice and were
-    /// all China (kimi.com); Z.ai leads with its international host.
+    /// all China (kimi.com); Z.ai and MiniMax lead with their international host.
     public static func defaultRegion(for provider: ProviderID) -> ProviderRegion {
-        provider == .zai ? .intl : .cn
+        provider == .zai || provider == .minimax ? .intl : .cn
     }
 
     /// The id an account is filed under. The two regions are separate user and key spaces, so the
@@ -42,6 +43,8 @@ public enum ProviderRegion: String, CaseIterable, Sendable, Codable {
         case (.kimi, .intl): return "International (kimi.ai)"
         case (.zai, .cn): return "China (bigmodel.cn)"
         case (.zai, .intl): return "International (z.ai)"
+        case (.minimax, .cn): return "China (minimaxi.com)"
+        case (.minimax, .intl): return "International (minimax.io)"
         default: return rawValue
         }
     }

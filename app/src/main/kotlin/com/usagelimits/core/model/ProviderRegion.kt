@@ -17,6 +17,8 @@ enum class ProviderRegion(val id: String) {
         ProviderId.KIMI to INTL -> "International (kimi.ai)"
         ProviderId.ZAI to CN -> "China (bigmodel.cn)"
         ProviderId.ZAI to INTL -> "International (z.ai)"
+        ProviderId.MINIMAX to CN -> "China (minimaxi.com)"
+        ProviderId.MINIMAX to INTL -> "International (minimax.io)"
         else -> id
     }
 
@@ -28,11 +30,16 @@ enum class ProviderRegion(val id: String) {
         fun options(provider: ProviderId): List<ProviderRegion> = when (provider) {
             ProviderId.KIMI -> listOf(CN, INTL)
             ProviderId.ZAI -> listOf(INTL, CN)
+            ProviderId.MINIMAX -> listOf(INTL, CN)
             else -> emptyList()
         }
 
-        /** What an account with no stored region means: Kimi predates the choice and was all China. */
-        fun default(provider: ProviderId): ProviderRegion = if (provider == ProviderId.ZAI) INTL else CN
+        /**
+         * What an account with no stored region means: Kimi predates the choice and was all
+         * China; Z.ai and MiniMax lead with their international service.
+         */
+        fun default(provider: ProviderId): ProviderRegion =
+            if (provider == ProviderId.ZAI || provider == ProviderId.MINIMAX) INTL else CN
 
         /**
          * The region a stored credential belongs to: the credential's own record first, because

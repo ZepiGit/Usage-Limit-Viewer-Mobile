@@ -309,6 +309,32 @@ object ProviderEndpoints {
     }
 
     /**
+     * MiniMax Token Plan. The route MiniMax's own CLI reads — `GET {host}/v1/token_plan/remains`
+     * with `Authorization: Bearer <plan key>` and nothing else (MiniMax-AI/cli, commit
+     * ae29aae57b05c2140c7ea6aba0a852763ffe7859: src/client/endpoints.ts `quotaEndpoint`,
+     * src/commands/quota/show.ts). MiniMax publishes no API-reference page for it.
+     *
+     * The CLI's own hosts are api.minimax.io / api.minimaxi.com, but api.minimax.io answers 404
+     * for this path while www.minimax.io answers 200 with an auth error, so the hosts below are
+     * the ones that serve the route. A plan key is region-bound, like Kimi's and Z.ai's.
+     */
+    object MiniMax {
+        data class Urls(val usageEndpoint: String, val consoleUrl: String)
+
+        val CHINA = Urls(
+            usageEndpoint = "https://www.minimaxi.com/v1/token_plan/remains",
+            // The research evidence named the platform host, not a key page beneath it.
+            consoleUrl = "https://platform.minimaxi.com",
+        )
+        val INTERNATIONAL = Urls(
+            usageEndpoint = "https://www.minimax.io/v1/token_plan/remains",
+            consoleUrl = "https://platform.minimax.io",
+        )
+
+        fun urls(region: ProviderRegion): Urls = if (region == ProviderRegion.CN) CHINA else INTERNATIONAL
+    }
+
+    /**
      * Devin / Cognition.
      *
      * Devin's CLI login is a PKCE authorization-code flow with an ephemeral loopback

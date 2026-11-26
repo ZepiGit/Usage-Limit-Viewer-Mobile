@@ -1118,6 +1118,17 @@
         }
       }
     },
+    "China (minimaxi.com)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "China (minimaxi.com)"
+          }
+        }
+      }
+    },
     "China (moonshot.cn, CNY)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1707,6 +1718,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "International (moonshot.ai, USD)"
+          }
+        }
+      }
+    },
+    "International (minimax.io)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "International (minimax.io)"
           }
         }
       }

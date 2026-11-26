@@ -302,6 +302,8 @@ enum DisplayText {
         case (.kimi, .intl): return String(localized: "International (kimi.ai)")
         case (.zai, .cn): return String(localized: "China (bigmodel.cn)")
         case (.zai, .intl): return String(localized: "International (z.ai)")
+        case (.minimax, .cn): return String(localized: "China (minimaxi.com)")
+        case (.minimax, .intl): return String(localized: "International (minimax.io)")
         default: return region.label(for: provider)
         }
     }

@@ -272,6 +272,25 @@ public enum ProviderEndpoints {
         public static let consoleURL = "https://ollama.com/settings/keys"
     }
 
+    /// MiniMax Token Plan. The route MiniMax's own CLI reads — `GET {host}/v1/token_plan/remains`
+    /// with `Authorization: Bearer <plan key>` and nothing else (MiniMax-AI/cli, commit
+    /// ae29aae57b05c2140c7ea6aba0a852763ffe7859: `src/client/endpoints.ts`, `src/utils/quota.ts`).
+    /// MiniMax publishes no API-reference page for it.
+    ///
+    /// The CLI's own hosts are api.minimax.io / api.minimaxi.com, but api.minimax.io answers 404
+    /// for this path while www.minimax.io answers 200 with an auth error, so the hosts below are
+    /// the ones that serve the route. A plan key is region-bound, like Kimi's and Z.ai's.
+    public enum MiniMax {
+        public static func usageEndpoint(_ region: ProviderRegion) -> String {
+            (region == .cn ? "https://www.minimaxi.com" : "https://www.minimax.io") + "/v1/token_plan/remains"
+        }
+
+        /// The platform host; the research evidence named no key page beneath it.
+        public static func consoleURL(_ region: ProviderRegion) -> String {
+            region == .cn ? "https://platform.minimaxi.com" : "https://platform.minimax.io"
+        }
+    }
+
     /// Devin / Cognition.
     ///
     /// Devin's CLI uses a PKCE authorization-code flow with a loopback callback. The callback
@@ -373,6 +392,7 @@ public enum ProviderEndpoints {
         case .zai: return Zai.consoleURL(region)
         case .opencode: return OpenCode.consoleURL
         case .ollama: return Ollama.consoleURL
+        case .minimax: return MiniMax.consoleURL(region)
         default: return nil
         }
     }

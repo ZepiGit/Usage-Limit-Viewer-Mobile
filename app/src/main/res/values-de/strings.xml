@@ -499,6 +499,8 @@
     <string name="region_kimi_international">International (kimi.ai)</string>
     <string name="region_zai_china">China (bigmodel.cn)</string>
     <string name="region_zai_international">International (z.ai)</string>
+    <string name="region_minimax_china">China (minimaxi.com)</string>
+    <string name="region_minimax_international">International (minimax.io)</string>
     <string name="add_api_key_hint_zai">Erstelle in deiner Z.ai-Konsole einen Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
     <string name="add_api_key_hint_kimi">Erstelle in deiner Kimi-Code-Konsole einen Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
     <string name="add_api_key_hint_opencode">Erstelle in deiner OpenCode-Konsole einen OpenCode-Go-Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>

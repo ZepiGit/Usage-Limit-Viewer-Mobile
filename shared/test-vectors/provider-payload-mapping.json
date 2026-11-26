@@ -287,5 +287,214 @@
       "expect": {"error": "invalidKey"}
     }
   ],
-  "minimax": []
+  "minimax": [
+    {
+      "name": "two models, both windows, counts read as remaining (the legacy reading the CLI preserves)",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0, "status_msg": "success"},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "start_time": 1767225600000,
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 40,
+            "current_interval_status": 1,
+            "current_weekly_total_count": 1000,
+            "current_weekly_usage_count": 250,
+            "current_weekly_status": 1,
+            "weekly_start_time": 1767225600000,
+            "weekly_end_time": 1767830400000
+          },
+          {
+            "model_name": "MiniMax-M2",
+            "start_time": 1767225600000,
+            "end_time": 1767243600000,
+            "current_interval_total_count": 200,
+            "current_interval_usage_count": 150,
+            "current_weekly_total_count": 400,
+            "current_weekly_usage_count": 400,
+            "weekly_start_time": 1767225600000,
+            "weekly_end_time": 1767830400000
+          }
+        ]
+      },
+      "expect": {
+        "windows": [
+          {"id": "general:5h", "usedPercent": 60, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "general:weekly", "usedPercent": 75, "resetAt": "2026-01-08T00:00:00Z"},
+          {"id": "MiniMax-M2:5h", "usedPercent": 25, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "MiniMax-M2:weekly", "usedPercent": 0, "resetAt": "2026-01-08T00:00:00Z"}
+        ]
+      }
+    },
+    {
+      "name": "an entry without the weekly fields reports one window, not a zero-percent week",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 80,
+            "current_interval_usage_count": 20
+          }
+        ]
+      },
+      "expect": {
+        "windows": [{"id": "general:5h", "usedPercent": 75, "resetAt": "2026-01-01T05:00:00Z"}]
+      }
+    },
+    {
+      "name": "a server percentage that agrees with the consumed reading flips the inverted counts",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 90,
+            "current_interval_remaining_percent": 10,
+            "current_weekly_total_count": 50,
+            "current_weekly_usage_count": 40,
+            "current_weekly_remaining_percent": 20,
+            "weekly_end_time": 1767830400000
+          }
+        ]
+      },
+      "expect": {
+        "windows": [
+          {"id": "general:5h", "usedPercent": 90, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "general:weekly", "usedPercent": 80, "resetAt": "2026-01-08T00:00:00Z"}
+        ]
+      }
+    },
+    {
+      "name": "a zero weekly total states no weekly limit, so only the five-hour window is reported",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 25,
+            "current_interval_status": 1,
+            "current_weekly_total_count": 0,
+            "current_weekly_usage_count": 0,
+            "current_weekly_status": 1
+          }
+        ]
+      },
+      "expect": {
+        "windows": [{"id": "general:5h", "usedPercent": 75, "resetAt": "2026-01-01T05:00:00Z"}]
+      }
+    },
+    {
+      "name": "status 3 is unlimited: one barless five-hour window and no weekly window",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 100,
+            "current_interval_status": 3,
+            "current_weekly_total_count": 500,
+            "current_weekly_usage_count": 500,
+            "current_weekly_status": 3,
+            "weekly_end_time": 1767830400000
+          }
+        ]
+      },
+      "expect": {
+        "windows": [{"id": "general:5h", "usedPercent": null, "resetAt": "2026-01-01T05:00:00Z"}]
+      }
+    },
+    {
+      "name": "status 2 is exhausted at 100 percent whatever the counts say, and the week keeps its own status",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 10,
+            "current_interval_status": 2,
+            "current_weekly_total_count": 1000,
+            "current_weekly_usage_count": 750,
+            "current_weekly_status": 1,
+            "weekly_end_time": 1767830400000
+          }
+        ]
+      },
+      "expect": {
+        "windows": [
+          {"id": "general:5h", "usedPercent": 100, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "general:weekly", "usedPercent": 25, "resetAt": "2026-01-08T00:00:00Z"}
+        ]
+      }
+    },
+    {
+      "name": "base_resp 1004 on HTTP 200 is a rejected key, not a plan without windows",
+      "status": 200,
+      "body": {
+        "base_resp": {
+          "status_code": 1004,
+          "status_msg": "login fail: Please carry the API secret key in the 'Authorization' field of the request header"
+        }
+      },
+      "expect": {"error": "invalidKey"}
+    },
+    {
+      "name": "any other base_resp error keeps the reading unknown, never zero",
+      "status": 200,
+      "body": {"base_resp": {"status_code": 2013, "status_msg": "invalid params"}},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a zero total, a count above the total and a percentage that matches neither reading all stay unknown",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 0,
+            "current_interval_usage_count": 0
+          },
+          {
+            "model_name": "MiniMax-M2",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 150
+          },
+          {
+            "model_name": "video",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 40,
+            "current_interval_remaining_percent": 50
+          }
+        ]
+      },
+      "expect": {
+        "windows": [
+          {"id": "general:5h", "usedPercent": null, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "MiniMax-M2:5h", "usedPercent": null, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "video:5h", "usedPercent": null, "resetAt": "2026-01-01T05:00:00Z"}
+        ]
+      }
+    }
+  ]
 }

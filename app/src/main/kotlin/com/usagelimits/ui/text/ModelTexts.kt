@@ -67,6 +67,8 @@ fun providerRegionLabelRes(provider: ProviderId, region: ProviderRegion): Int? =
     ProviderId.KIMI to ProviderRegion.INTL -> R.string.region_kimi_international
     ProviderId.ZAI to ProviderRegion.CN -> R.string.region_zai_china
     ProviderId.ZAI to ProviderRegion.INTL -> R.string.region_zai_international
+    ProviderId.MINIMAX to ProviderRegion.CN -> R.string.region_minimax_china
+    ProviderId.MINIMAX to ProviderRegion.INTL -> R.string.region_minimax_international
     else -> null
 }
 

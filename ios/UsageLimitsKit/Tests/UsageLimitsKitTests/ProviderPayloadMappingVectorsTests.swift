@@ -390,6 +390,64 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
         }
     }
 
+    /// The MiniMax Token Plan: one five-hour and one weekly window per `model_name`, with the
+    /// ambiguous `*_usage_count` resolved the way the vendor's own CLI resolves it — read as a
+    /// remaining count, flipped to consumed when a stated percentage agrees better with that
+    /// reading. A rejected key arrives as HTTP 200 with `base_resp.status_code` 1004, any other
+    /// envelope code stays unknown, and a plan without a weekly allowance is one window rather
+    /// than a zero-percent week.
+    func testMinimaxReadsOneFiveHourAndOneWeeklyWindowPerModelAndHonoursTheEnvelope() async throws {
+        for (index, vector) in try cases("minimax").enumerated() {
+            let where_ = "minimax[\(index)]"
+            let status = try XCTUnwrap(Int(try XCTUnwrap(jsonText(vector["status"] as Any))),
+                                       "\(where_).status must be a JSON integer")
+            let body = try XCTUnwrap(jsonText(vector["body"] as Any), "\(where_).body must be JSON")
+            let expect = try XCTUnwrap(vector["expect"] as? [String: Any])
+
+            var windows: [UsageWindow] = []
+            var errorKind: String?
+            do {
+                let client = MiniMaxClient(httpClient: UsageHTTPClient(
+                    transport: StatusTransport(status: status, body: body), maxRetries: 0))
+                windows = try await client.fetchUsage(
+                    credentials: OAuthCredentials(
+                        accessToken: "mm-test", providerData: ["region": "intl"]),
+                    attributes: [:]).windows
+            } catch {
+                errorKind = Self.usageErrorKind(error)
+            }
+
+            if let expected = expect["error"] as? String {
+                XCTAssertEqual(errorKind, expected, "\(where_): usage windows")
+                continue
+            }
+            XCTAssertNil(errorKind, "\(where_): the windows did not read")
+
+            let expectedWindows = try XCTUnwrap(expect["windows"] as? [Any], "\(where_).expect.windows")
+            XCTAssertEqual(expectedWindows.count, windows.count, "\(where_): window count")
+            for (row, element) in expectedWindows.enumerated() {
+                let at = "\(where_).expect.windows[\(row)]"
+                let expected = try XCTUnwrap(element as? [String: Any], "\(at) must be a JSON object")
+                let window = windows[row]
+                XCTAssertEqual(window.id, try string("\(at).id", expected["id"]), at)
+                if let used = expected["usedPercent"], !(used is NSNull) {
+                    let text = try XCTUnwrap(jsonText(used), "\(at).usedPercent must be a JSON number")
+                    let expectedUsed = try XCTUnwrap(Double(text))
+                    let actual = try XCTUnwrap(window.usedPercent, "\(at) has no used share")
+                    XCTAssertEqual(actual, expectedUsed, accuracy: 1e-9, at)
+                } else {
+                    XCTAssertNil(window.usedPercent, "\(at): an unreadable share stays unknown")
+                }
+                if let reset = expected["resetAt"], !(reset is NSNull) {
+                    XCTAssertEqual(window.resetAt,
+                                   Self.instantFormatter.date(from: try string("\(at).resetAt", reset)), at)
+                } else {
+                    XCTAssertNil(window.resetAt, at)
+                }
+            }
+        }
+    }
+
     /// One scripted reply, so a vector can pin a status as well as a body.
     private actor StatusTransport: HTTPTransport {
         let status: Int

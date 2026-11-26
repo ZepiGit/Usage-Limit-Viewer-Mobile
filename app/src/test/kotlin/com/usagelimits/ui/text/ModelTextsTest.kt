@@ -13,6 +13,8 @@ import com.usagelimits.core.network.ProviderException
 import com.usagelimits.core.sync.userMessage
 import com.usagelimits.providers.credits.CreditError
 import com.usagelimits.providers.kimi.KimiProvider
+import com.usagelimits.providers.minimax.MiniMaxProvider
+import com.usagelimits.providers.ollama.OllamaProvider
 import com.usagelimits.providers.opencode.OpenCodeProvider
 import com.usagelimits.providers.scriptedHttp
 import com.usagelimits.providers.zai.ZaiProvider
@@ -52,7 +54,7 @@ class ModelTextsEnglishTest {
 
     @Test
     fun `provider region labels equal the model's text and fall back where the label is an id`() {
-        for (provider in listOf(ProviderId.KIMI, ProviderId.ZAI)) {
+        for (provider in listOf(ProviderId.KIMI, ProviderId.ZAI, ProviderId.MINIMAX)) {
             for (region in ProviderRegion.options(provider)) {
                 assertEquals(region.label(provider), resources.getString(providerRegionLabelRes(provider, region)!!))
             }
@@ -67,6 +69,8 @@ class ModelTextsEnglishTest {
             ProviderId.ZAI to ZaiProvider(http),
             ProviderId.KIMI to KimiProvider(http, nowMs = { 0 }, version = "test"),
             ProviderId.OPENCODE to OpenCodeProvider(http),
+            ProviderId.OLLAMA to OllamaProvider(http),
+            ProviderId.MINIMAX to MiniMaxProvider(http),
         )
         for ((id, provider) in challenges) {
             val hint = provider.keyLoginChallenge().hint
@@ -80,7 +84,7 @@ class ModelTextsEnglishTest {
         // Every fixed label the parsers write, as of the providers that ship one.
         val fixed = listOf(
             "Key limit", "Daily key limit", "Weekly key limit", "Monthly key limit",
-            "No limit", "Unavailable", "Token Pass", "Prepaid balance",
+            "No limit", "Unavailable", "Token Pass", "Prepaid balance", "Purchased",
         )
         for (label in fixed) assertEquals(label, resources.getString(creditBalanceLabelRes(label)!!))
         assertNull(creditBalanceLabelRes("Trial credit"))
@@ -173,6 +177,8 @@ class ModelTextsGermanTest {
             resources.getString(creditUnavailableReasonRes(CreditProviderId.notPossible.first())!!))
         assertEquals("China (kimi.com)", resources.getString(providerRegionLabelRes(ProviderId.KIMI, ProviderRegion.CN)!!))
         assertEquals("International (z.ai)", resources.getString(providerRegionLabelRes(ProviderId.ZAI, ProviderRegion.INTL)!!))
+        assertEquals("International (minimax.io)", resources.getString(providerRegionLabelRes(ProviderId.MINIMAX, ProviderRegion.INTL)!!))
+        assertEquals("China (minimaxi.com)", resources.getString(providerRegionLabelRes(ProviderId.MINIMAX, ProviderRegion.CN)!!))
     }
 
     @Test
@@ -187,6 +193,8 @@ class ModelTextsGermanTest {
     @Test
     fun `balance labels and credit errors read German, keeping the diagnostic detail as written`() {
         assertEquals("Kein Limit", resources.getString(creditBalanceLabelRes("No limit")!!))
+        // Ollama's prepaid money is a purchase, not a cap.
+        assertEquals("Gekauft", resources.getString(creditBalanceLabelRes("Purchased")!!))
         assertEquals(
             "Ausgegeben: 80,25 $ Aufladung, 10,00 $ Gutscheine",
             resources.getString(com.usagelimits.R.string.credit_balance_spent, "80,25 $", "10,00 $"),
