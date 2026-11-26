@@ -218,3 +218,19 @@ public struct TokenRouterCreditClient: CreditProvider {
                 headers: CreditHTTP.bearer(key), endpoint: "tokenrouter wallet"))
     }
 }
+
+public struct OllamaCreditClient: CreditProvider {
+    public let providerID = CreditProviderID.ollama
+    let http: UsageHTTPClient
+    public init(httpClient: UsageHTTPClient) { http = httpClient }
+
+    /// The same call the usage account reads. A 401 is a bad key and a 403 is a suspended account
+    /// (the doc's own word for it); both are the shared rejection, since no other key and no retry
+    /// changes either. Nothing is retried.
+    public func fetchBalances(key: String, attributes: [String: String]) async throws -> [CreditBalance] {
+        try OllamaCreditParser.parse(
+            try await CreditHTTP.getJSON(
+                http, url: ProviderEndpoints.Credits.ollamaBalance,
+                headers: CreditHTTP.bearer(key), endpoint: "ollama balance"))
+    }
+}

@@ -176,6 +176,8 @@
     <string name="window_label_five_hour">5‑Std.-Limit</string>
     <string name="window_label_weekly">Wöchentlich</string>
     <string name="window_label_monthly">Monatlich</string>
+    <string name="window_label_session">Sitzung</string>
+    <string name="window_label_included_allowance">Inklusivkontingent</string>
     <string name="usage_segment_legend">%1$s verbraucht: %2$s</string>
     <string name="usage_breakdown">Verbrauchsaufschlüsselung</string>
     <string name="usage_conflicting_availability">Der Anbieter meldet dieses Limit als gesperrt, obwohl noch ein positiver Restwert vorhanden ist.</string>
@@ -512,6 +514,7 @@
     <string name="credit_balance_spent">Ausgegeben: %1$s Aufladung, %2$s Gutscheine</string>
     <string name="credit_balance_token_pass">Token Pass</string>
     <string name="credit_balance_prepaid">Prepaid-Guthaben</string>
+    <string name="credit_balance_purchased">Gekauft</string>
     <string name="credit_error_rejected">Der Schlüssel wurde abgelehnt (HTTP %1$d). Prüfe, ob es die richtige Art von Schlüssel ist.</string>
     <string name="credit_error_malformed">Der Anbieter hat in einem Format geantwortet, das diese App nicht versteht (%1$s).</string>
     <string name="credit_error_unavailable">Es konnte kein Guthaben gelesen werden (%1$s).</string>

@@ -183,6 +183,8 @@
     <string name="window_label_five_hour">5h limit</string>
     <string name="window_label_weekly">Weekly</string>
     <string name="window_label_monthly">Monthly</string>
+    <string name="window_label_session">Session</string>
+    <string name="window_label_included_allowance">Included allowance</string>
     <string name="usage_segment_legend">%1$s usage: %2$s</string>
     <string name="usage_breakdown">Usage breakdown</string>
     <string name="usage_conflicting_availability">Provider reports this limit as blocked despite a positive remaining value.</string>
@@ -528,6 +530,7 @@
     <string name="credit_balance_spent">Spent: %1$s top-up, %2$s vouchers</string>
     <string name="credit_balance_token_pass">Token Pass</string>
     <string name="credit_balance_prepaid">Prepaid balance</string>
+    <string name="credit_balance_purchased">Purchased</string>
     <string name="credit_error_rejected">The key was rejected (HTTP %1$d). Check that it is the right kind of key.</string>
     <string name="credit_error_malformed">The provider answered in a shape this app does not understand (%1$s).</string>
     <string name="credit_error_unavailable">No balance could be read (%1$s).</string>

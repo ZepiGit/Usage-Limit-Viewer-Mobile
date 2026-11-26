@@ -260,6 +260,86 @@ final class RegionalProvidersTests: XCTestCase {
         XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer ock")
     }
 
+    // MARK: - Ollama Cloud
+
+    static let ollama = #"""
+    {"included":{"balance_usd":72.5,"allowance_usd":100,
+     "period":{"from":"2026-09-15T09:30:00Z","until":"2026-10-15T09:30:00Z"}},
+     "purchased":{"balance_usd":25}}
+    """#
+
+    func testOllamaIncludedAllowance() {
+        let windows = OllamaUsageParser.parse(payload(Self.ollama))
+        XCTAssertEqual(windows.map(\.id), ["included"])
+        XCTAssertEqual(windows.map(\.label), ["Included allowance"])
+        XCTAssertEqual(windows.map(\.category), [.other])
+        XCTAssertEqual(windows[0].usedPercent ?? -1, 27.5, accuracy: 1e-9)
+        XCTAssertEqual(windows[0].resetAt, JSONSupport.date("2026-10-15T09:30:00Z"))
+        XCTAssertNil(windows[0].periodSeconds, "the doc states no duration for the included period")
+        XCTAssertFalse(windows[0].exhausted)
+    }
+
+    func testOllamaLegacyLimitsReadRemainingPercentAsUsed() {
+        let windows = OllamaUsageParser.parse(payload(#"""
+        {"included":{"session":{"remaining_percent":75,"resets_at":"2026-10-01T07:00:00Z"},
+         "weekly":{"remaining_percent":40,"resets_at":"2026-10-05T00:00:00Z"}}}
+        """#))
+        XCTAssertEqual(windows.map(\.id), ["session", "weekly"])
+        XCTAssertEqual(windows.map(\.label), ["Session", "Weekly"])
+        XCTAssertEqual(windows.map(\.category), [.other, .weekly])
+        XCTAssertEqual(windows.map { $0.usedPercent ?? -1 }, [25, 60])
+        XCTAssertEqual(windows.map(\.periodSeconds), [nil, 7 * 86_400 as Int64])
+    }
+
+    func testOllamaOmittedBlocksInventNothing() {
+        XCTAssertTrue(OllamaUsageParser.parse(payload(#"{"purchased":{"balance_usd":12.5}}"#)).isEmpty)
+        XCTAssertTrue(
+            OllamaUsageParser.parse(payload(#"{"included":{"balance_usd":0,"allowance_usd":0}}"#)).isEmpty)
+        let noPeriod = OllamaUsageParser.parse(
+            payload(#"{"included":{"balance_usd":90,"allowance_usd":100,"period":null}}"#))
+        XCTAssertEqual(noPeriod.count, 1)
+        XCTAssertEqual(noPeriod[0].usedPercent ?? -1, 10, accuracy: 1e-9)
+        XCTAssertNil(noPeriod[0].resetAt)
+        let unknown = OllamaUsageParser.parse(payload(#"{"included":{"session":{"remaining_percent":120}}}"#))
+        XCTAssertEqual(unknown.count, 1)
+        XCTAssertNil(unknown[0].usedPercent)
+        XCTAssertFalse(unknown[0].exhausted)
+    }
+
+    func testOllamaClientSendsBearerKeyToTheBalanceRoute() async throws {
+        let (http, transport) = client([(200, Self.ollama)])
+        let result = try await OllamaClient(httpClient: http)
+            .fetchUsage(credentials: OAuthCredentials(accessToken: "ollk"), attributes: [:])
+        XCTAssertEqual(result.windows.count, 1)
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.url?.absoluteString, "https://ollama.com/api/balance")
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer ollk")
+
+        // A body with neither block is not this endpoint's answer.
+        let (empty, _) = client([(200, "{}")])
+        do {
+            _ = try await OllamaClient(httpClient: empty)
+                .fetchUsage(credentials: OAuthCredentials(accessToken: "ollk"), attributes: [:])
+            XCTFail("expected a malformed payload")
+        } catch {
+            guard case ProviderError.malformedPayload = error else {
+                return XCTFail("expected malformedPayload, got \(error)")
+            }
+        }
+
+        // A rejected key is unauthorised, never an account without limits.
+        let (rejected, _) = client([(401, #"{"error":"invalid credentials"}"#)])
+        do {
+            _ = try await OllamaClient(httpClient: rejected)
+                .fetchUsage(credentials: OAuthCredentials(accessToken: "bad"), attributes: [:])
+            XCTFail("expected unauthorised")
+        } catch {
+            guard case ProviderError.unauthorised = error else {
+                return XCTFail("expected unauthorised, got \(error)")
+            }
+        }
+    }
+
     // MARK: - Adding accounts
 
     private var directory: URL!

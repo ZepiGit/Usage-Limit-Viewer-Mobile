@@ -214,14 +214,19 @@ enum DisplayText {
         selected ? String(localized: "Selected") : String(localized: "Not selected")
     }
 
-    /// The three horizons the app itself names. A model-scoped window ("Weekly (Opus)") and any
-    /// other label is the provider's and stays as it is, as on Android.
+    /// The horizons the app itself names. A model-scoped window ("Weekly (Opus)") and any
+    /// other label is the provider's and stays as it is, as on Android. Ollama adds two labels of
+    /// its own whose duration the vendor does not state — "Session" (a legacy limit) and
+    /// "Included allowance" (the plan's own reset period) — and those are translated for the same
+    /// reason.
     static func windowLabel(_ label: String, category: WindowCategory, scope: UsageScope = .global) -> String {
         guard scope == .global else { return label }
         switch (category, label) {
         case (.fiveHour, "5h limit"): return String(localized: "5h limit")
         case (.weekly, "Weekly"): return String(localized: "Weekly")
         case (.monthly, "Monthly"): return String(localized: "Monthly")
+        case (.other, "Session"): return String(localized: "Session")
+        case (.other, "Included allowance"): return String(localized: "Included allowance")
         default: return label
         }
     }
@@ -237,6 +242,7 @@ enum DisplayText {
         case "Unavailable": return String(localized: "Unavailable")
         case "Token Pass": return String(localized: "Token Pass")
         case "Prepaid balance": return String(localized: "Prepaid balance")
+        case "Purchased": return String(localized: "Purchased")
         default: return label
         }
     }

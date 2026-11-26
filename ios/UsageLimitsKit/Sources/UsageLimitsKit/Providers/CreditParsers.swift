@@ -285,6 +285,23 @@ public enum TokenRouterCreditParser {
     }
 }
 
+public enum OllamaCreditParser {
+
+    /// The purchased balance from `GET /api/balance`: unexpired prepaid credits in USD, which the
+    /// doc states as a JSON number. No cap is documented, so the row draws no bar. A payload
+    /// without the `purchased` block is a failed read, never a zero balance — a plan that has no
+    /// prepaid credit says so with `balance_usd: 0`, which is a different answer.
+    public static func parse(_ payload: [String: Any]) throws -> [CreditBalance] {
+        guard let purchased = JSONSupport.object(payload, "purchased") else {
+            throw CreditError.malformed("ollama balance has no purchased block")
+        }
+        guard let balance = CreditJSON.decimal(purchased, "balance_usd") else {
+            throw CreditError.malformed("ollama purchased has no balance_usd")
+        }
+        return [CreditBalance(currency: "USD", amount: balance, label: "Purchased")]
+    }
+}
+
 public enum VercelCreditParser {
 
     /// Takes the body **text**, not the normalised object: `CreditJSON.object` quotes every JSON

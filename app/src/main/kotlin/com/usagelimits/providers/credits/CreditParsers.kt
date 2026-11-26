@@ -245,6 +245,23 @@ object TokenRouterCreditParser {
     }
 }
 
+object OllamaCreditParser {
+
+    /**
+     * The purchased balance from `GET /api/balance`: unexpired prepaid credits in USD, which the
+     * doc states as a JSON number. No cap is documented, so the row draws no bar. A payload
+     * without the `purchased` block is a failed read, never a zero balance — a plan that has no
+     * prepaid credit says so with `balance_usd: 0`, which is a different answer.
+     */
+    fun parse(payload: JsonObject): List<CreditBalance> {
+        val purchased = JsonSupport.obj(payload, "purchased")
+            ?: throw CreditError.Malformed("ollama balance has no purchased block")
+        val balance = CreditJson.decimal(purchased, "balance_usd")
+            ?: throw CreditError.Malformed("ollama purchased has no balance_usd")
+        return listOf(CreditBalance("USD", balance, label = "Purchased"))
+    }
+}
+
 object VercelCreditParser {
 
     /**

@@ -214,11 +214,37 @@ class CreditClientsTest {
         }
     }
 
+    @Test fun `ollama sends the bearer key to the documented balance route`() = runBlocking {
+        val seen = mutableListOf<RecordedRequest>()
+        val client = OllamaCreditClient(
+            scriptedHttp(200 to """{"purchased":{"balance_usd":25}}""", seen = seen),
+        )
+        assertAmount("25", client.fetchBalances("ollama-test", emptyMap())[0].amount)
+        assertEquals(listOf("https://ollama.com/api/balance"), seen.map { it.request.url.toString() })
+        assertEquals("Bearer ollama-test", seen[0].request.header("Authorization"))
+    }
+
+    @Test fun `ollama reports a rejected key on 401 and a suspended account on 403 and never retries`() {
+        for (status in listOf(401, 403)) {
+            val seen = mutableListOf<RecordedRequest>()
+            val rejected = failure<CreditError.Rejected> {
+                runBlocking {
+                    OllamaCreditClient(
+                        scriptedHttp(status to """{"error":"invalid credentials"}""", seen = seen),
+                    ).fetchBalances("ollama", emptyMap())
+                }
+            }
+            assertEquals(status, rejected.status)
+            assertEquals("one attempt for HTTP $status", 1, seen.size)
+        }
+    }
+
     @Test fun `endpoints are the documented ones`() {
         assertEquals("https://api.novita.ai/openapi/v1/billing/balance/detail", Credits.NOVITA_BALANCE)
         assertEquals("https://api.deepseek.com/user/balance", Credits.DEEPSEEK_BALANCE)
         assertEquals("https://ai-gateway.vercel.sh/v1/credits", Credits.VERCEL_CREDITS)
         assertEquals("https://api.deepinfra.com/v1/me?checklist=true", Credits.DEEPINFRA_ME)
         assertEquals("https://api.tokenrouter.com/api/management/self/wallet", Credits.TOKENROUTER_WALLET)
+        assertEquals("https://ollama.com/api/balance", Credits.OLLAMA_BALANCE)
     }
 }

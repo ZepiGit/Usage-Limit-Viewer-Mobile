@@ -65,6 +65,7 @@ public actor UsageLimitsContainer {
             ProviderID.meta.rawValue: MetaClient(httpClient: http, now: now),
             ProviderID.zai.rawValue: ZaiClient(httpClient: http),
             ProviderID.opencode.rawValue: OpenCodeClient(httpClient: http),
+            ProviderID.ollama.rawValue: OllamaClient(httpClient: http),
         ]
         self.providers = providers
 
@@ -92,6 +93,7 @@ public actor UsageLimitsContainer {
             .vercelAiGateway: VercelCreditClient(httpClient: http),
             .deepinfra: DeepInfraCreditClient(httpClient: http),
             .tokenrouter: TokenRouterCreditClient(httpClient: http),
+            .ollama: OllamaCreditClient(httpClient: http),
         ]
         self.creditRepository = creditRepository
         self.creditProviders = creditProviders

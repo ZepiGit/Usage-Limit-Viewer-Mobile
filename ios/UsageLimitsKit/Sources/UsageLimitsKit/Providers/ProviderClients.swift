@@ -808,6 +808,44 @@ public struct ZaiClient: SyncProvider, Sendable {
     public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
 }
 
+/// Ollama Cloud, reached with an API key the user pasted. The response names no user, so the
+/// account is filed under a digest of the key. The same call is the Credit Viewer's Ollama
+/// source: `purchased.balance_usd` is money and `included` is what this client reports.
+/// See docs.ollama.com/api/balance.
+public struct OllamaClient: SyncProvider, Sendable {
+    public let providerID = "ollama"
+
+    let httpClient: UsageHTTPClient
+
+    public init(httpClient: UsageHTTPClient) {
+        self.httpClient = httpClient
+    }
+
+    public func fetchUsage(
+        credentials: OAuthCredentials,
+        attributes: [String: String]
+    ) async throws -> UsageResult {
+        let response = try await ProviderHTTP.request(
+            httpClient,
+            url: ProviderEndpoints.Ollama.balanceEndpoint,
+            headers: [
+                "Authorization": "Bearer \(credentials.accessToken)",
+                "Accept": "application/json",
+            ],
+            endpoint: "ollama balance")
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "ollama balance")
+        // The documented response states both blocks; a body with neither is not this
+        // endpoint's answer and must not read as "this plan has no limits".
+        guard payload["included"] is [String: Any] || payload["purchased"] is [String: Any] else {
+            throw ProviderError.malformedPayload("ollama balance has neither included nor purchased")
+        }
+        return UsageResult(windows: OllamaUsageParser.parse(payload))
+    }
+
+    /// A key has no refresh grant.
+    public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
+}
+
 /// OpenCode Go, reached with an API key the user pasted. The response names no user, so the
 /// account is filed under a digest of the key. See docs/providers/opencode.md.
 public struct OpenCodeClient: SyncProvider, Sendable {

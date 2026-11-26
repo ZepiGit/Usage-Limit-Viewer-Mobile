@@ -99,6 +99,7 @@ fun creditBalanceLabelRes(label: String): Int? = when (label) {
     "Unavailable" -> R.string.credit_balance_unavailable
     "Token Pass" -> R.string.credit_balance_token_pass
     "Prepaid balance" -> R.string.credit_balance_prepaid
+    "Purchased" -> R.string.credit_balance_purchased
     else -> null
 }
 
@@ -201,9 +202,11 @@ fun storedMessageText(resources: Resources, message: String): String {
  * The string for a window label the app itself chose, or null when the label is the provider's.
  *
  * The parsers name the three horizons "5h limit", "Weekly" and "Monthly"; for a global window those
- * exact words are the app's and are translated. A model-scoped window ("Weekly (Opus)") and any
- * other label is data and is shown as stored. Deliberately matches nothing but those words, so the
- * English text of a widget is exactly the label the row carries.
+ * exact words are the app's and are translated. Ollama adds two labels of its own whose duration
+ * the vendor does not state — "Session" (a legacy limit) and "Included allowance" (the plan's own
+ * reset period) — and those are translated for the same reason. A model-scoped window
+ * ("Weekly (Opus)") and any other label is data and is shown as stored. Deliberately matches
+ * nothing but those words, so the English text of a widget is exactly the label the row carries.
  */
 @StringRes
 fun windowLabelRes(label: String, category: WindowCategory, scope: UsageScope): Int? {
@@ -212,6 +215,9 @@ fun windowLabelRes(label: String, category: WindowCategory, scope: UsageScope): 
         category == WindowCategory.FIVE_HOUR && label == "5h limit" -> R.string.window_label_five_hour
         category == WindowCategory.WEEKLY && label == "Weekly" -> R.string.window_label_weekly
         category == WindowCategory.MONTHLY && label == "Monthly" -> R.string.window_label_monthly
+        category == WindowCategory.OTHER && label == "Session" -> R.string.window_label_session
+        category == WindowCategory.OTHER && label == "Included allowance" ->
+            R.string.window_label_included_allowance
         else -> null
     }
 }

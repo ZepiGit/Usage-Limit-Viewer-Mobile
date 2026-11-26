@@ -30,7 +30,7 @@ class CreditRegistry(http: HttpClient) {
     private val clients: Map<CreditProviderId, CreditProvider> = listOf(
         OpenRouterCreditClient(http), DeepSeekCreditClient(http), MoonshotCreditClient(http),
         xai, FalCreditClient(http), NovitaCreditClient(http), VercelCreditClient(http),
-        DeepInfraCreditClient(http), TokenRouterCreditClient(http),
+        DeepInfraCreditClient(http), TokenRouterCreditClient(http), OllamaCreditClient(http),
     ).associateBy { it.providerId }
 
     fun forId(id: CreditProviderId): CreditProvider? = clients[id]
@@ -217,5 +217,19 @@ class TokenRouterCreditClient(private val http: HttpClient) : CreditProvider {
     override suspend fun fetchBalances(key: String, attributes: Map<String, String>): List<CreditBalance> =
         TokenRouterCreditParser.parse(
             CreditHttp.getJson(http, Credits.TOKENROUTER_WALLET, CreditHttp.bearer(key), "tokenrouter wallet"),
+        )
+}
+
+class OllamaCreditClient(private val http: HttpClient) : CreditProvider {
+    override val providerId = CreditProviderId.OLLAMA
+
+    /**
+     * The same call the usage account reads. A 401 is a bad key and a 403 is a suspended account
+     * (the doc's own word for it); both are the shared rejection, since no other key and no retry
+     * changes either. Nothing is retried.
+     */
+    override suspend fun fetchBalances(key: String, attributes: Map<String, String>): List<CreditBalance> =
+        OllamaCreditParser.parse(
+            CreditHttp.getJson(http, Credits.OLLAMA_BALANCE, CreditHttp.bearer(key), "ollama balance"),
         )
 }

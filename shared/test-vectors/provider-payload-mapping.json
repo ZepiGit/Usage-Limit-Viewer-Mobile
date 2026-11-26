@@ -213,6 +213,79 @@
       "expect": {"error": "invalidKey"}
     }
   ],
-  "ollama": [],
+  "ollama": [
+    {
+      "name": "the documented payload is one included-allowance window at (100-72.5)/100 used, and the purchased balance is the money row",
+      "status": 200,
+      "body": {"included": {"balance_usd": 72.5, "allowance_usd": 100, "period": {"from": "2026-09-15T09:30:00Z", "until": "2026-10-15T09:30:00Z"}}, "purchased": {"balance_usd": 25}},
+      "expect": {
+        "windows": [{"id": "included", "usedPercent": 27.5, "resetAt": "2026-10-15T09:30:00Z"}],
+        "balances": [{"currency": "USD", "amount": "25", "total": null}]
+      }
+    },
+    {
+      "name": "a legacy plan states remaining percentages, so session keeps 100-75 and weekly 100-40 used",
+      "status": 200,
+      "body": {"included": {"session": {"remaining_percent": 75, "resets_at": "2026-10-01T07:00:00Z"}, "weekly": {"remaining_percent": 40, "resets_at": "2026-10-05T00:00:00Z"}}, "purchased": {"balance_usd": 25}},
+      "expect": {
+        "windows": [
+          {"id": "session", "usedPercent": 25, "resetAt": "2026-10-01T07:00:00Z"},
+          {"id": "weekly", "usedPercent": 60, "resetAt": "2026-10-05T00:00:00Z"}
+        ],
+        "balances": [{"currency": "USD", "amount": "25", "total": null}]
+      }
+    },
+    {
+      "name": "a payload with no included block reads as the purchased balance alone, with no window invented",
+      "status": 200,
+      "body": {"purchased": {"balance_usd": 12.5}},
+      "expect": {
+        "windows": [],
+        "balances": [{"currency": "USD", "amount": "12.5", "total": null}]
+      }
+    },
+    {
+      "name": "a null period keeps the included window at (100-90)/100 used and invents no reset",
+      "status": 200,
+      "body": {"included": {"balance_usd": 90, "allowance_usd": 100, "period": null}, "purchased": {"balance_usd": 5}},
+      "expect": {
+        "windows": [{"id": "included", "usedPercent": 10, "resetAt": null}],
+        "balances": [{"currency": "USD", "amount": "5", "total": null}]
+      }
+    },
+    {
+      "name": "a remaining percent of 120 leaves the session window unknown while the weekly window still reads 100-10",
+      "status": 200,
+      "body": {"included": {"session": {"remaining_percent": 120, "resets_at": "2026-10-01T07:00:00Z"}, "weekly": {"remaining_percent": 10, "resets_at": "2026-10-05T00:00:00Z"}}, "purchased": {"balance_usd": 25}},
+      "expect": {
+        "windows": [
+          {"id": "session", "usedPercent": null, "resetAt": "2026-10-01T07:00:00Z"},
+          {"id": "weekly", "usedPercent": 90, "resetAt": "2026-10-05T00:00:00Z"}
+        ],
+        "balances": [{"currency": "USD", "amount": "25", "total": null}]
+      }
+    },
+    {
+      "name": "a zero allowance omits the included window instead of reading 0 % used, and the purchased zero still shows",
+      "status": 200,
+      "body": {"included": {"balance_usd": 0, "allowance_usd": 0, "period": {"from": "2026-09-15T09:30:00Z", "until": "2026-10-15T09:30:00Z"}}, "purchased": {"balance_usd": 0}},
+      "expect": {
+        "windows": [],
+        "balances": [{"currency": "USD", "amount": "0", "total": null}]
+      }
+    },
+    {
+      "name": "a response with neither block is unknown on both accounts, never a zero balance or a zero percent",
+      "status": 200,
+      "body": {},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a rejected key is invalid on both the usage and the credit account",
+      "status": 401,
+      "body": {"error": "invalid credentials"},
+      "expect": {"error": "invalidKey"}
+    }
+  ],
   "minimax": []
 }

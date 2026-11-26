@@ -1,11 +1,17 @@
 package com.usagelimits.providers
 
+import com.usagelimits.core.auth.OAuthCredentials
+import com.usagelimits.core.model.ProviderAccount
+import com.usagelimits.core.model.ProviderId
 import com.usagelimits.core.model.SharedVectors
+import com.usagelimits.core.network.ProviderException
 import com.usagelimits.providers.credits.CreditError
 import com.usagelimits.providers.credits.DeepInfraCreditClient
+import com.usagelimits.providers.credits.OllamaCreditClient
 import com.usagelimits.providers.credits.OpenRouterCreditParser
 import com.usagelimits.providers.credits.TokenRouterCreditClient
 import com.usagelimits.providers.credits.VercelCreditClient
+import com.usagelimits.providers.ollama.OllamaProvider
 import com.usagelimits.providers.scriptedHttp
 import java.math.BigDecimal
 import java.time.Instant
@@ -308,6 +314,95 @@ class ProviderPayloadMappingVectorsTest {
             }
         }
     }
+
+    /**
+     * Ollama Cloud serves two accounts from one call: the `included` credits as usage windows and
+     * the `purchased` balance as money. A current plan's allowance is one window whose used share
+     * is what it has spent; a legacy plan states session and weekly limits as remaining
+     * percentages. A missing block is omitted, never zero, and a rejected key is invalid on both
+     * accounts.
+     */
+    @Test
+    fun `ollama reads the included allowance beside the legacy limits and the purchased balance`() {
+        for ((index, case) in cases("ollama").withIndex()) {
+            val where = "ollama[$index]"
+            val status = (case["status"] as JsonPrimitive).content.toInt()
+            val http = scriptedHttp(status to (case["body"] as JsonObject).toString())
+            val expect = case["expect"] as JsonObject
+            val windows = runCatching {
+                runBlocking { OllamaProvider(http).fetchUsage(ollamaAccount(), ollamaCredentials).windows }
+            }
+            val balances = runCatching {
+                runBlocking { OllamaCreditClient(http).fetchBalances("ollama-test", emptyMap()) }
+            }
+
+            if (expect.containsKey("error")) {
+                val kind = string("$where.expect.error", expect["error"])
+                assertEquals("$where: usage windows", kind, usageErrorKind(windows.exceptionOrNull()))
+                assertEquals("$where: purchased balance", kind, creditErrorKind(balances.exceptionOrNull()))
+                continue
+            }
+            val read = windows.getOrElse { throw AssertionError("$where: the windows did not read: $it") }
+            val rows = balances.getOrElse { throw AssertionError("$where: the balance did not read: $it") }
+
+            val expectedWindows = expect["windows"] as JsonArray
+            assertEquals("$where: window count", expectedWindows.size, read.size)
+            for ((row, element) in expectedWindows.withIndex()) {
+                val at = "$where.expect.windows[$row]"
+                val expected = element as JsonObject
+                val window = read[row]
+                assertEquals("$at: id", string("$at.id", expected["id"]), window.id)
+                val used = expected["usedPercent"]?.takeUnless { it is JsonNull }
+                    ?.let { (it as JsonPrimitive).content.toDouble() }
+                val actual = window.usedPercent
+                if (used == null) {
+                    assertNull("$at: an unreadable share stays unknown", actual)
+                } else {
+                    assertTrue("$at: expected $used but was null", actual != null)
+                    assertEquals("$at: usedPercent", used, actual!!, 1e-9)
+                }
+                val reset = expected["resetAt"]?.takeUnless { it is JsonNull }
+                    ?.let { Instant.parse(string("$at.resetAt", it)).toEpochMilli() }
+                assertEquals("$at: resetAt", reset, window.resetAt)
+            }
+
+            val expectedBalances = expect["balances"] as? JsonArray ?: JsonArray(emptyList())
+            assertEquals("$where: balance row count", expectedBalances.size, rows.size)
+            for ((row, element) in expectedBalances.withIndex()) {
+                val at = "$where.expect.balances[$row]"
+                val expected = element as JsonObject
+                val balance = rows[row]
+                assertEquals("$at: currency", string("$at.currency", expected["currency"]), balance.currency)
+                assertDecimal("$at: amount", decimalTextOrNull("$at.amount", expected["amount"]), balance.amount)
+                assertDecimal("$at: total", decimalTextOrNull("$at.total", expected["total"]), balance.total)
+                assertNull("$at: the purchased balance states no cap, so the row draws no bar", balance.remainingPercent)
+            }
+        }
+    }
+
+    /** The usage account's key; the fixtures are synthetic and nothing leaves the process. */
+    private val ollamaCredentials = OAuthCredentials("ollama-test", null, null, null)
+
+    private fun ollamaAccount() = ProviderAccount(
+        localId = "ollama-test",
+        provider = ProviderId.OLLAMA,
+        externalAccountId = "key-ollama-test",
+        email = null,
+        displayName = null,
+        plan = null,
+        credentialReference = "ollama-test",
+        createdAt = 0L,
+        lastSuccessfulSync = null,
+    )
+
+    /** A usage read that fails is unknown unless the endpoint named the key as rejected. */
+    private fun usageErrorKind(error: Throwable?): String = when (error) {
+        is ProviderException.Unauthorized -> "invalidKey"
+        is ProviderException.Forbidden -> "forbidden"
+        else -> "unknown"
+    }
+
+    private fun creditErrorKind(error: Throwable?): String = (error as? CreditError)?.let(::errorKind) ?: "unknown"
 
     private fun decimalTextOrNull(where: String, element: JsonElement?): BigDecimal? =
         element?.takeUnless { it is JsonNull }?.let { BigDecimal(string(where, it)) }

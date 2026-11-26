@@ -626,6 +626,60 @@ final class CreditsTests: XCTestCase {
         }
     }
 
+    // MARK: - Ollama
+
+    func testOllamaReadsThePurchasedBalanceAndDrawsNoBar() throws {
+        let rows = try OllamaCreditParser.parse(json(
+            #"{"included":{"balance_usd":72.5,"allowance_usd":100,"period":null},"purchased":{"balance_usd":25}}"#))
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].currency, "USD")
+        XCTAssertEqual(rows[0].amount, dec("25"))
+        XCTAssertNil(rows[0].total, "no cap is documented, so the row draws no bar")
+        XCTAssertEqual(rows[0].label, "Purchased")
+        // A figure sent as a string is the same figure; the digits are read, never a float.
+        XCTAssertEqual(
+            try OllamaCreditParser.parse(json(#"{"purchased":{"balance_usd":"42.50"}}"#))[0].amount,
+            dec("42.5"))
+    }
+
+    func testOllamaRefusesToReadAMissingPurchasedBlockAsZero() throws {
+        for body in [
+            #"{"included":{"balance_usd":10,"allowance_usd":100}}"#,
+            #"{"purchased":{}}"#,
+            #"{"purchased":{"balance_usd":"lots"}}"#,
+            #"{"purchased":null}"#,
+        ] {
+            XCTAssertThrowsError(try OllamaCreditParser.parse(json(body)), body)
+        }
+        // A stated zero is a reading: the plan has no prepaid credit left.
+        XCTAssertEqual(
+            try OllamaCreditParser.parse(json(#"{"purchased":{"balance_usd":0}}"#))[0].amount, dec("0"))
+    }
+
+    func testOllamaSendsTheBearerKeyToTheBalanceRouteAndNeverRetries() async throws {
+        let transport = Transport([("ollama.com", [(200, #"{"purchased":{"balance_usd":25}}"#)])])
+        let rows = try await OllamaCreditClient(httpClient: http(transport))
+            .fetchBalances(key: "ollama-test", attributes: [:])
+        XCTAssertEqual(rows.first?.amount, dec("25"))
+        let urls = await transport.urls
+        XCTAssertEqual(urls, ["https://ollama.com/api/balance"])
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer ollama-test")
+
+        for status in [401, 403] {
+            let rejected = Transport([("ollama.com", [(status, #"{"error":"invalid credentials"}"#)])])
+            do {
+                _ = try await OllamaCreditClient(httpClient: http(rejected))
+                    .fetchBalances(key: "ollama", attributes: [:])
+                XCTFail("expected rejected(\(status))")
+            } catch {
+                XCTAssertEqual(error as? CreditError, .rejected(status))
+            }
+            let attempts = await rejected.urls.count
+            XCTAssertEqual(attempts, 1, "one attempt for HTTP \(status)")
+        }
+    }
+
     // MARK: - Severity and formatting
 
     private func account(_ attributes: [String: String] = [:]) -> CreditAccount {

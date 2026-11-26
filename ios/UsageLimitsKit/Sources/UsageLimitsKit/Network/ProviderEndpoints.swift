@@ -264,6 +264,14 @@ public enum ProviderEndpoints {
         public static let consoleURL = "https://opencode.ai/auth"
     }
 
+    /// Ollama Cloud. Documented at docs.ollama.com/api/balance, API key only. One call serves both
+    /// the included-allowance usage windows and the purchased balance. The endpoint allows ten
+    /// requests a minute per user, shared across keys and devices, and answers 429 with Retry-After.
+    public enum Ollama {
+        public static let balanceEndpoint = "https://ollama.com/api/balance"
+        public static let consoleURL = "https://ollama.com/settings/keys"
+    }
+
     /// Devin / Cognition.
     ///
     /// Devin's CLI uses a PKCE authorization-code flow with a loopback callback. The callback
@@ -353,6 +361,9 @@ public enum ProviderEndpoints {
 
         /// The billing checklist is opt-in, so the balance is only there when it is asked for.
         public static let deepInfraMe = "https://api.deepinfra.com/v1/me?checklist=true"
+
+        /// The same call the Ollama Cloud usage account reads; `purchased` is the money.
+        public static let ollamaBalance = Ollama.balanceEndpoint
     }
 
     /// Where the user creates the key or signs in for a provider, or nil if it has no console.
@@ -361,6 +372,7 @@ public enum ProviderEndpoints {
         case .kimi: return Kimi.urls(region).consoleURL
         case .zai: return Zai.consoleURL(region)
         case .opencode: return OpenCode.consoleURL
+        case .ollama: return Ollama.consoleURL
         default: return nil
         }
     }

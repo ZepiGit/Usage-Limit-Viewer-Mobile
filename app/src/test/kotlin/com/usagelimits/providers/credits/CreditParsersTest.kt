@@ -405,6 +405,42 @@ class CreditParsersTest {
         }
     }
 
+    // MARK: Ollama
+
+    @Test fun `ollama reads the purchased balance and draws no bar`() {
+        val rows = OllamaCreditParser.parse(
+            json(
+                """{"included":{"balance_usd":72.5,"allowance_usd":100,"period":null},
+                   "purchased":{"balance_usd":25}}""",
+            ),
+        )
+        assertEquals(1, rows.size)
+        assertEquals("USD", rows[0].currency)
+        assertAmount("25", rows[0].amount)
+        assertNull("no cap is documented, so the row draws no bar", rows[0].total)
+        assertEquals("Purchased", rows[0].label)
+        // A figure sent as a string is the same figure; the digits are read, never a float.
+        assertAmount(
+            "42.5",
+            OllamaCreditParser.parse(json("""{"purchased":{"balance_usd":"42.50"}}"""))[0].amount,
+        )
+    }
+
+    @Test fun `ollama refuses to read a missing purchased block as zero`() {
+        for (body in listOf(
+            """{"included":{"balance_usd":10,"allowance_usd":100}}""",
+            """{"purchased":{}}""",
+            """{"purchased":{"balance_usd":"lots"}}""",
+            """{"purchased":null}""",
+        )) {
+            assertThrows("$body must not read as a balance", CreditError::class.java) {
+                OllamaCreditParser.parse(json(body))
+            }
+        }
+        // A stated zero is a reading: the plan has no prepaid credit left.
+        assertAmount("0", OllamaCreditParser.parse(json("""{"purchased":{"balance_usd":0}}"""))[0].amount)
+    }
+
     @Test fun `errors never carry a payload`() {
         // Built from endpoint names and statuses only.
         assertTrue(CreditError.Rejected(401).message!!.contains("HTTP 401"))

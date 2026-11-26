@@ -1678,6 +1678,17 @@
         }
       }
     },
+    "Included allowance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inklusivkontingent"
+          }
+        }
+      }
+    },
     "International (kimi.ai)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2620,6 +2631,17 @@
         }
       }
     },
+    "Purchased" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gekauft"
+          }
+        }
+      }
+    },
     "Preview" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2978,6 +3000,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ausgewählt"
+          }
+        }
+      }
+    },
+    "Session" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sitzung"
           }
         }
       }

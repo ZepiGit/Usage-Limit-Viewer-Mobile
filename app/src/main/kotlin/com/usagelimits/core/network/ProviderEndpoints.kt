@@ -299,6 +299,16 @@ object ProviderEndpoints {
     }
 
     /**
+     * Ollama Cloud. Documented at docs.ollama.com/api/balance, API key only. One call serves both
+     * the included-allowance usage windows and the purchased balance. The endpoint allows ten
+     * requests a minute per user, shared across keys and devices, and answers 429 with Retry-After.
+     */
+    object Ollama {
+        const val BALANCE_ENDPOINT = "https://ollama.com/api/balance"
+        const val CONSOLE_URL = "https://ollama.com/settings/keys"
+    }
+
+    /**
      * Devin / Cognition.
      *
      * Devin's CLI login is a PKCE authorization-code flow with an ephemeral loopback
@@ -393,5 +403,8 @@ object ProviderEndpoints {
 
         /** The billing checklist is opt-in, so the balance is only there when it is asked for. */
         const val DEEPINFRA_ME = "https://api.deepinfra.com/v1/me?checklist=true"
+
+        /** The same call the Ollama Cloud usage account reads; `purchased` is the money. */
+        const val OLLAMA_BALANCE = ProviderEndpoints.Ollama.BALANCE_ENDPOINT
     }
 }

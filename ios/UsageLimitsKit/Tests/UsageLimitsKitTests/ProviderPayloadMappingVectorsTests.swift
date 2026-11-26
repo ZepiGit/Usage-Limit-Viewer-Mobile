@@ -311,6 +311,85 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
         }
     }
 
+    /// Ollama Cloud serves two accounts from one call: the `included` credits as usage windows and
+    /// the `purchased` balance as money. A current plan's allowance is one window whose used share
+    /// is what it has spent; a legacy plan states session and weekly limits as remaining
+    /// percentages. A missing block is omitted, never zero, and a rejected key is invalid on both
+    /// accounts.
+    func testOllamaReadsTheIncludedAllowanceBesideTheLegacyLimitsAndThePurchasedBalance() async throws {
+        for (index, vector) in try cases("ollama").enumerated() {
+            let where_ = "ollama[\(index)]"
+            let status = try XCTUnwrap(Int(try XCTUnwrap(jsonText(vector["status"] as Any))),
+                                       "\(where_).status must be a JSON integer")
+            let body = try XCTUnwrap(jsonText(vector["body"] as Any), "\(where_).body must be JSON")
+            let expect = try XCTUnwrap(vector["expect"] as? [String: Any])
+
+            var windows: [UsageWindow] = []
+            var windowError: String?
+            do {
+                let client = OllamaClient(httpClient: UsageHTTPClient(
+                    transport: StatusTransport(status: status, body: body), maxRetries: 0))
+                windows = try await client.fetchUsage(
+                    credentials: OAuthCredentials(accessToken: "ollama-test"), attributes: [:]).windows
+            } catch {
+                windowError = Self.usageErrorKind(error)
+            }
+
+            var balances: [CreditBalance] = []
+            var balanceError: String?
+            do {
+                let client = OllamaCreditClient(httpClient: UsageHTTPClient(
+                    transport: StatusTransport(status: status, body: body), maxRetries: 0))
+                balances = try await client.fetchBalances(key: "ollama-test", attributes: [:])
+            } catch {
+                balanceError = Self.creditErrorKind(error)
+            }
+
+            if let expected = expect["error"] as? String {
+                XCTAssertEqual(windowError, expected, "\(where_): usage windows")
+                XCTAssertEqual(balanceError, expected, "\(where_): purchased balance")
+                continue
+            }
+            XCTAssertNil(windowError, "\(where_): the windows did not read")
+            XCTAssertNil(balanceError, "\(where_): the balance did not read")
+
+            let expectedWindows = try XCTUnwrap(expect["windows"] as? [Any], "\(where_).expect.windows")
+            XCTAssertEqual(expectedWindows.count, windows.count, "\(where_): window count")
+            for (row, element) in expectedWindows.enumerated() {
+                let at = "\(where_).expect.windows[\(row)]"
+                let expected = try XCTUnwrap(element as? [String: Any], "\(at) must be a JSON object")
+                let window = windows[row]
+                XCTAssertEqual(window.id, try string("\(at).id", expected["id"]), at)
+                if let used = expected["usedPercent"], !(used is NSNull) {
+                    let text = try XCTUnwrap(jsonText(used), "\(at).usedPercent must be a JSON number")
+                    let expectedUsed = try XCTUnwrap(Double(text))
+                    let actual = try XCTUnwrap(window.usedPercent, "\(at) has no used share")
+                    XCTAssertEqual(actual, expectedUsed, accuracy: 1e-9, at)
+                } else {
+                    XCTAssertNil(window.usedPercent, "\(at): an unreadable share stays unknown")
+                }
+                if let reset = expected["resetAt"], !(reset is NSNull) {
+                    XCTAssertEqual(window.resetAt,
+                                   Self.instantFormatter.date(from: try string("\(at).resetAt", reset)), at)
+                } else {
+                    XCTAssertNil(window.resetAt, at)
+                }
+            }
+
+            let expectedBalances = (expect["balances"] as? [Any]) ?? []
+            XCTAssertEqual(expectedBalances.count, balances.count, "\(where_): balance row count")
+            for (row, element) in expectedBalances.enumerated() {
+                let at = "\(where_).expect.balances[\(row)]"
+                let expected = try XCTUnwrap(element as? [String: Any], "\(at) must be a JSON object")
+                let balance = balances[row]
+                XCTAssertEqual(balance.currency, try string("\(at).currency", expected["currency"]), at)
+                XCTAssertEqual(balance.amount, Self.decimal(try string("\(at).amount", expected["amount"])), at)
+                XCTAssertNil(balance.total, "\(at): the purchased balance states no cap")
+                XCTAssertNil(balance.remainingPercent, "\(at): a row without a cap draws no bar")
+            }
+        }
+    }
+
     /// One scripted reply, so a vector can pin a status as well as a body.
     private actor StatusTransport: HTTPTransport {
         let status: Int
@@ -327,6 +406,18 @@ final class ProviderPayloadMappingVectorsTests: XCTestCase {
                 statusCode: status, httpVersion: "HTTP/1.1", headerFields: [:])!
             return (Data(body.utf8), response)
         }
+    }
+
+    /// A usage read that fails is unknown unless the endpoint named the credential as rejected.
+    private static func usageErrorKind(_ error: Error) -> String {
+        guard let providerError = error as? ProviderError else { return "unknown" }
+        if case .unauthorised = providerError { return "invalidKey" }
+        return "unknown"
+    }
+
+    private static func creditErrorKind(_ error: Error) -> String {
+        guard let creditError = error as? CreditError else { return "unknown" }
+        return errorKind(creditError)
     }
 
     /// The failure kinds the vectors name; a malformed payload is unknown, never zero.
