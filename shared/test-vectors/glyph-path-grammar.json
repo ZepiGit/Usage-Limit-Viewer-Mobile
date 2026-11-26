@@ -9,7 +9,9 @@
     "devin",
     "meta",
     "zai",
-    "opencode"
+    "opencode",
+    "ollama",
+    "minimax"
   ],
   "accept": [
     {
@@ -105,7 +107,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
       }
@@ -123,7 +127,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
       }
@@ -143,7 +149,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
       }
@@ -161,7 +169,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
       }
@@ -179,7 +189,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
       }
@@ -196,7 +208,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
       }
@@ -214,7 +228,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         }
       }
     },
@@ -231,7 +247,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z",
         "version": 1
@@ -249,7 +267,9 @@
           "kimi": "M0 0H1Z",
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
-          "zai": "M0 0H1Z"
+          "zai": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
       }
@@ -268,6 +288,8 @@
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
           "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z",
           "mistral": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
@@ -286,7 +308,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
       }
@@ -304,7 +328,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
       }
@@ -322,7 +348,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": 12
       }
@@ -350,7 +378,9 @@
           "devin": "M0 0H1Z",
           "meta": "M0 0H1Z",
           "zai": "M0 0H1Z",
-          "opencode": "M0 0H1Z"
+          "opencode": "M0 0H1Z",
+          "ollama": "M0 0H1Z",
+          "minimax": "M0 0H1Z"
         },
         "fallback": "M0 0H1Z"
       }
@@ -369,7 +399,9 @@
             "devin": "M0 0H1Z",
             "meta": "M0 0H1Z",
             "zai": "M0 0H1Z",
-            "opencode": "M0 0H1Z"
+            "opencode": "M0 0H1Z",
+            "ollama": "M0 0H1Z",
+            "minimax": "M0 0H1Z"
           },
           "fallback": "M0 0H1Z"
         }

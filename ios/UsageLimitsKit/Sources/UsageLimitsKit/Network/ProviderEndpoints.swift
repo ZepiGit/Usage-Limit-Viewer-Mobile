@@ -264,6 +264,36 @@ public enum ProviderEndpoints {
         public static let consoleURL = "https://opencode.ai/auth"
     }
 
+    /// Ollama Cloud. Documented at docs.ollama.com/api/balance, API key only. One call serves both
+    /// the included-allowance usage windows and the purchased balance. The endpoint allows ten
+    /// requests a minute per user, shared across keys and devices, and answers 429 with Retry-After.
+    public enum Ollama {
+        public static let balanceEndpoint = "https://ollama.com/api/balance"
+        public static let consoleURL = "https://ollama.com/settings/keys"
+    }
+
+    /// MiniMax Token Plan. The route MiniMax's own CLI reads — `GET {host}/v1/token_plan/remains`
+    /// with `Authorization: Bearer <plan key>` and nothing else (MiniMax-AI/cli, commit
+    /// ae29aae57b05c2140c7ea6aba0a852763ffe7859: `src/config/schema.ts`, `src/client/endpoints.ts`,
+    /// `src/utils/quota.ts`). MiniMax publishes no API-reference page for it.
+    ///
+    /// The CLI's hosts, from `REGIONS`, are https://api.minimax.io (global) and
+    /// https://api.minimax.cn (cn). An unauthenticated research probe on 2026-11-25, sending no
+    /// key, got 404 from api.minimax.io for this path while www.minimax.io, www.minimaxi.com and
+    /// api.minimaxi.com answered HTTP 200 with `base_resp` 1004, so the hosts below are the ones
+    /// the route answers on. No live account was checked. A plan key is region-bound, like Kimi's
+    /// and Z.ai's.
+    public enum MiniMax {
+        public static func usageEndpoint(_ region: ProviderRegion) -> String {
+            (region == .cn ? "https://www.minimaxi.com" : "https://www.minimax.io") + "/v1/token_plan/remains"
+        }
+
+        /// The platform host; the research evidence named no key page beneath it.
+        public static func consoleURL(_ region: ProviderRegion) -> String {
+            region == .cn ? "https://platform.minimaxi.com" : "https://platform.minimax.io"
+        }
+    }
+
     /// Devin / Cognition.
     ///
     /// Devin's CLI uses a PKCE authorization-code flow with a loopback callback. The callback
@@ -334,6 +364,28 @@ public enum ProviderEndpoints {
         }
         public static let falBilling = "https://api.fal.ai/v1/account/billing?expand=credits"
         public static let novitaBalance = "https://api.novita.ai/openapi/v1/billing/balance/detail"
+        /// A management key, not an inference key; the wallet is what one account holds.
+        public static let tokenRouterWallet = "https://api.tokenrouter.com/api/management/self/wallet"
+        public static let vercelCredits = "https://ai-gateway.vercel.sh/v1/credits"
+
+        /// The gateway's credits call names no team in its documentation: the key is the team, and
+        /// `teamId` is documented only for the API-key management calls on api.vercel.com. A team id
+        /// the account stores is still sent, as the spec asks, and only when one is stored.
+        public static func vercelCredits(teamID: String?) -> String {
+            let base = "https://ai-gateway.vercel.sh/v1/credits"
+            guard let teamID, !teamID.isEmpty else { return base }
+            // Typed by the user, so it cannot be trusted to be a query value.
+            var allowed = CharacterSet.alphanumerics
+            allowed.insert(charactersIn: "-_.~")
+            let query = teamID.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+            return "\(base)?teamId=\(query)"
+        }
+
+        /// The billing checklist is opt-in, so the balance is only there when it is asked for.
+        public static let deepInfraMe = "https://api.deepinfra.com/v1/me?checklist=true"
+
+        /// The same call the Ollama Cloud usage account reads; `purchased` is the money.
+        public static let ollamaBalance = Ollama.balanceEndpoint
     }
 
     /// Where the user creates the key or signs in for a provider, or nil if it has no console.
@@ -342,6 +394,8 @@ public enum ProviderEndpoints {
         case .kimi: return Kimi.urls(region).consoleURL
         case .zai: return Zai.consoleURL(region)
         case .opencode: return OpenCode.consoleURL
+        case .ollama: return Ollama.consoleURL
+        case .minimax: return MiniMax.consoleURL(region)
         default: return nil
         }
     }

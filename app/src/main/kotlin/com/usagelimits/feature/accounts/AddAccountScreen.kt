@@ -417,6 +417,8 @@ private fun loginHintRes(provider: ProviderId): Int = when (provider) {
     ProviderId.META -> R.string.add_hint_device_code
     ProviderId.ZAI -> R.string.add_hint_api_key
     ProviderId.OPENCODE -> R.string.add_hint_api_key
+    ProviderId.OLLAMA -> R.string.add_hint_api_key
+    ProviderId.MINIMAX -> R.string.add_hint_api_key
 }
 
 @Composable

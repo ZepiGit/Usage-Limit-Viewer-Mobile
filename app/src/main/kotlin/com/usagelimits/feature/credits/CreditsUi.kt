@@ -39,6 +39,8 @@ import com.usagelimits.ui.components.StatusMark
 import com.usagelimits.ui.components.UsageBar
 import com.usagelimits.ui.components.UsageCard
 import com.usagelimits.ui.text.creditBalanceLabelRes
+import com.usagelimits.ui.text.creditBalanceSpentAmounts
+import com.usagelimits.ui.text.creditBalanceUsedAmount
 import com.usagelimits.ui.text.rememberCountdownTexts
 import com.usagelimits.ui.text.storedMessageText
 import com.usagelimits.ui.theme.UsageColors
@@ -53,6 +55,10 @@ internal fun creditIcon(id: CreditProviderId): Int = when (id) {
     CreditProviderId.XAI -> R.drawable.icon_credit_xai
     CreditProviderId.FAL -> R.drawable.icon_credit_fal
     CreditProviderId.NOVITA -> R.drawable.icon_credit_novita
+    CreditProviderId.VERCEL_AI_GATEWAY -> R.drawable.icon_credit_vercel
+    CreditProviderId.DEEPINFRA -> R.drawable.icon_credit_deepinfra
+    CreditProviderId.TOKENROUTER -> R.drawable.icon_credit_tokenrouter
+    CreditProviderId.OLLAMA -> R.drawable.icon_credit_ollama
 }
 
 @Composable
@@ -122,7 +128,7 @@ fun CreditCard(
             }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 12.dp)) {
-                balances.forEach { balance -> BalanceRow(balance, severity, compact) }
+                balances.forEach { balance -> BalanceRow(balance, severity, compact, nowMs) }
             }
             if (snapshot?.error != null) {
                 ErrorBlock(
@@ -142,11 +148,27 @@ private fun CreditFreshness(text: String) {
 
 /** The amount in ink (never severity-coloured, a real zero included), its cap, and a data bar. */
 @Composable
-private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity, compact: Boolean) {
+private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity, compact: Boolean, nowMs: Long) {
     val locale = LocalConfiguration.current.locales[0]
     val resources = LocalContext.current.resources
+    val countdownTexts = rememberCountdownTexts()
     // The parsers' own labels are stored in English and translated here; any other label is shown as stored.
-    val balanceLabel = balance.label?.let { stored -> creditBalanceLabelRes(stored)?.let { stringResource(it) } ?: stored }
+    val usedAmount = balance.label?.let(::creditBalanceUsedAmount)
+    val spentAmounts = balance.label?.let(::creditBalanceSpentAmounts)
+    val balanceLabel = when {
+        // A lifetime spend travels as a plain figure, so the money format is the reader's own.
+        usedAmount != null -> stringResource(
+            R.string.credit_balance_used,
+            CreditFormat.string(usedAmount, balance.currency, locale),
+        )
+        // Two spend figures travel the same way, so both read in the reader's own money format.
+        spentAmounts != null -> stringResource(
+            R.string.credit_balance_spent,
+            CreditFormat.string(spentAmounts.first, balance.currency, locale),
+            CreditFormat.string(spentAmounts.second, balance.currency, locale),
+        )
+        else -> balance.label?.let { stored -> creditBalanceLabelRes(stored)?.let { stringResource(it) } ?: stored }
+    }
     // A stale or failed account keeps the grey of its age in the bar.
     val barSeverity = if (accountSeverity == Severity.STALE || accountSeverity == Severity.ERROR) Severity.STALE else Severity.HEALTHY
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -171,6 +193,12 @@ private fun BalanceRow(balance: CreditBalance, accountSeverity: Severity, compac
         balance.remainingPercent?.let { percent ->
             // Money, not a quota window: the percent display mode does not apply.
             UsageBar(percent, barSeverity, Modifier.fillMaxWidth(), height = if (compact) 3.dp else 6.dp)
+        }
+        // A capped key limit refills on a period; the app's existing absolute stamp says when.
+        balance.resetsAt?.let { resetAt ->
+            Countdown.absoluteResetLabel(resetAt, nowMs, texts = countdownTexts)?.let { stamp ->
+                Text(stamp, style = MaterialTheme.typography.bodySmall, color = UsageColors.Faint)
+            }
         }
         // An uncapped key has no bar: its existing label says so instead.
         if (balance.unlimited) balanceLabel?.let {

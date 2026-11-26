@@ -75,6 +75,28 @@ class CreditRepositoryTest {
         assertTrue(dao.snapshots["a"]!!.balancesJson.contains("\"49.58894\""))
     }
 
+    @Test fun `a reset instant round-trips and an older row stays readable`() = runBlocking {
+        repository.upsert(account())
+        val resetAt = 1_796_000_000_000L
+        repository.record(
+            "a",
+            listOf(CreditBalance("USD", BigDecimal("2.5"), BigDecimal("10"), "Daily key limit", resetsAt = resetAt)),
+            null, now,
+        )
+        val stored = repository.snapshot("a")!!.balances[0]
+        assertEquals(resetAt, stored.resetsAt)
+        assertEquals("Daily key limit", stored.label)
+
+        // A row written by an earlier build has no `resetsAt` key at all: it reads as no reset.
+        dao.snapshots["a"] = dao.snapshots["a"]!!.copy(
+            balancesJson = """[{"currency":"USD","amount":"5","total":"10","label":"Key limit"}]""",
+        )
+        val old = repository.snapshot("a")!!.balances[0]
+        assertNull(old.resetsAt)
+        assertEquals("Key limit", old.label)
+        assertEquals(0, BigDecimal("5").compareTo(old.amount))
+    }
+
     @Test fun `nothing is written for an account that was removed mid fetch`() = runBlocking {
         repository.upsert(account())
         repository.remove("a")

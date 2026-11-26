@@ -7,7 +7,8 @@ import java.util.Locale
 
 /*
  * Prepaid / API balances ("credits"), kept apart from the usage-limit accounts: a credit account
- * has no windows and no reset, only an amount of money left.
+ * has no quota windows, only an amount of money left and, when the provider caps it, when that cap
+ * refills.
  *
  * Raw values, field names and the severity rules are the shared Android/iOS contract written down
  * in docs/credits.md; change them on both platforms or neither. Money is BigDecimal end to end:
@@ -35,13 +36,28 @@ enum class CreditProviderId(val id: String, val displayName: String, val keyHint
         "fal", "fal.ai", "fal key with the billing:usage:read scope (the BILLING preset), not an inference key.",
         "https://fal.ai/dashboard/keys",
     ),
-    NOVITA("novita", "Novita AI", "Novita API key.", "https://novita.ai/settings/key-management");
+    NOVITA("novita", "Novita AI", "Novita API key.", "https://novita.ai/settings/key-management"),
+    VERCEL_AI_GATEWAY(
+        "vercel", "Vercel AI Gateway",
+        "AI Gateway API key (vck_…) or a Vercel access token.",
+        "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys",
+    ),
+    DEEPINFRA("deepinfra", "DeepInfra", "DeepInfra API key.", "https://deepinfra.com/dash/keys"),
+    TOKENROUTER("tokenrouter", "TokenRouter", "Management key, not an inference key.", "https://tokenrouter.com"),
+    OLLAMA(
+        "ollama", "Ollama Cloud", "Ollama API key (ollama.com/settings/keys).",
+        "https://ollama.com/settings/keys",
+    );
 
     /** Only Moonshot runs two hosts (and two currencies) that keys do not cross. */
     val hasRegion: Boolean get() = this == MOONSHOT
 
-    /** xAI needs a team id when the management key is not scoped to one team. */
-    val acceptsTeamId: Boolean get() = this == XAI
+    /**
+     * A provider whose call can take a team id. xAI needs one when the management key is not
+     * scoped to a single team; Vercel's gateway key names its team already, so the id is
+     * optional there and is only sent when the user enters one.
+     */
+    val acceptsTeamId: Boolean get() = this == XAI || this == VERCEL_AI_GATEWAY
 
     companion object {
         fun fromId(id: String?): CreditProviderId? = entries.firstOrNull { it.id == id }
@@ -75,6 +91,11 @@ data class CreditBalance(
      * key spent this month and [label] is "No limit".
      */
     val unlimited: Boolean = false,
+    /**
+     * When the cap refills, epoch millis (a key limit's period boundary). Null when the provider
+     * states no reset, which is the lifetime cap of an OpenRouter key without `limit_reset`.
+     */
+    val resetsAt: Long? = null,
 ) {
     /** Remaining share of [total], 0..100, or null without a positive total. */
     val remainingPercent: Double?
@@ -110,7 +131,7 @@ data class CreditAccount(
     val provider: CreditProviderId,
     val label: String,
     val credentialReference: String,
-    /** Non-secret extras: `region` (Moonshot), `teamId` (xAI), `lowThreshold` (decimal string). */
+    /** Non-secret extras: `region` (Moonshot), `teamId` (xAI and Vercel AI Gateway), `lowThreshold`. */
     val attributes: Map<String, String> = emptyMap(),
     val sortOrder: Int = 0,
     val createdAt: Long = 0L,

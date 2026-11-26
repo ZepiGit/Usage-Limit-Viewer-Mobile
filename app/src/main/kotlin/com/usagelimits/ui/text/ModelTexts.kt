@@ -11,6 +11,7 @@ import com.usagelimits.core.model.UsageScope
 import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.network.RATE_LIMITED_REQUEST_MESSAGE
 import com.usagelimits.core.sync.RATE_LIMITED_PAUSE_MESSAGE
+import java.math.BigDecimal
 
 /*
  * Resource ids for the user-facing sentences that live in the model and provider layers.
@@ -30,12 +31,24 @@ fun creditKeyHintRes(provider: CreditProviderId): Int = when (provider) {
     CreditProviderId.XAI -> R.string.credit_key_hint_xai
     CreditProviderId.FAL -> R.string.credit_key_hint_fal
     CreditProviderId.NOVITA -> R.string.credit_key_hint_novita
+    CreditProviderId.VERCEL_AI_GATEWAY -> R.string.credit_key_hint_vercel
+    CreditProviderId.DEEPINFRA -> R.string.credit_key_hint_deepinfra
+    CreditProviderId.TOKENROUTER -> R.string.credit_key_hint_tokenrouter
+    CreditProviderId.OLLAMA -> R.string.credit_key_hint_ollama
 }
 
 /** The segment label of a Moonshot region; the model's [CreditProviderId.regionLabel] in English. */
 @StringRes
 fun creditRegionLabelRes(region: ProviderRegion): Int =
     if (region == ProviderRegion.CN) R.string.credit_region_china else R.string.credit_region_international
+
+/**
+ * When a provider's team id has to be filled in. xAI needs one for a key that names no team;
+ * Vercel's is optional and only narrows a key or token that covers several teams.
+ */
+@StringRes
+fun creditTeamHintRes(provider: CreditProviderId): Int =
+    if (provider == CreditProviderId.XAI) R.string.credit_team_hint_xai else R.string.credit_team_hint_vercel
 
 /** Why a provider cannot be tracked; null for a reason this mapping does not know. */
 @StringRes
@@ -54,6 +67,8 @@ fun providerRegionLabelRes(provider: ProviderId, region: ProviderRegion): Int? =
     ProviderId.KIMI to ProviderRegion.INTL -> R.string.region_kimi_international
     ProviderId.ZAI to ProviderRegion.CN -> R.string.region_zai_china
     ProviderId.ZAI to ProviderRegion.INTL -> R.string.region_zai_international
+    ProviderId.MINIMAX to ProviderRegion.CN -> R.string.region_minimax_china
+    ProviderId.MINIMAX to ProviderRegion.INTL -> R.string.region_minimax_international
     else -> null
 }
 
@@ -66,21 +81,56 @@ fun apiKeyHintRes(provider: ProviderId): Int? = when (provider) {
     ProviderId.ZAI -> R.string.add_api_key_hint_zai
     ProviderId.KIMI -> R.string.add_api_key_hint_kimi
     ProviderId.OPENCODE -> R.string.add_api_key_hint_opencode
+    ProviderId.OLLAMA -> R.string.add_api_key_hint_ollama
+    ProviderId.MINIMAX -> R.string.add_api_key_hint_minimax
     else -> null
 }
 
 /**
- * A balance label as the credit cards show it. The parsers write three of them and they are stored
+ * A balance label as the credit cards show it. The parsers write these and they are stored
  * with the balance, so the English text is data to match and these are what the screen prints;
  * anything else is shown as stored.
  */
 @StringRes
 fun creditBalanceLabelRes(label: String): Int? = when (label) {
     "Key limit" -> R.string.credit_balance_key_limit
+    "Daily key limit" -> R.string.credit_balance_daily_key_limit
+    "Weekly key limit" -> R.string.credit_balance_weekly_key_limit
+    "Monthly key limit" -> R.string.credit_balance_monthly_key_limit
     "No limit" -> R.string.credit_balance_no_limit
     "Unavailable" -> R.string.credit_balance_unavailable
+    "Token Pass" -> R.string.credit_balance_token_pass
+    "Prepaid balance" -> R.string.credit_balance_prepaid
+    "Purchased" -> R.string.credit_balance_purchased
     else -> null
 }
+
+/**
+ * The lifetime spend a "Used: 4.50" label carries — the figure the parsers write, as a plain
+ * decimal with no currency symbol, so the screen can print it in the user's own money format.
+ * Null for every other label, which [creditBalanceLabelRes] then handles.
+ */
+fun creditBalanceUsedAmount(label: String): BigDecimal? {
+    val figure = USED_LABEL.matchEntire(label)?.groupValues?.get(1) ?: return null
+    return runCatching { BigDecimal(figure) }.getOrNull()
+}
+
+private val USED_LABEL = Regex("^Used: ([+-]?[0-9]+(?:\\.[0-9]+)?)$")
+
+/**
+ * The top-up and voucher spend a "Spent: 80.25 top-up, 10.00 vouchers" label carries — plain
+ * decimals, so the screen prints them in the user's own money format — or null for any other
+ * label. Never a share: the wallet documents no cap to measure them against.
+ */
+fun creditBalanceSpentAmounts(label: String): Pair<BigDecimal, BigDecimal>? {
+    val match = SPENT_LABEL.matchEntire(label) ?: return null
+    val topUp = runCatching { BigDecimal(match.groupValues[1]) }.getOrNull() ?: return null
+    val vouchers = runCatching { BigDecimal(match.groupValues[2]) }.getOrNull() ?: return null
+    return topUp to vouchers
+}
+
+private val SPENT_LABEL =
+    Regex("^Spent: ([+-]?[0-9]+(?:\\.[0-9]+)?) top-up, ([+-]?[0-9]+(?:\\.[0-9]+)?) vouchers$")
 
 private class StoredMessage(val pattern: Regex, @StringRes val res: Int)
 
@@ -127,6 +177,11 @@ private val STORED_MESSAGES = listOf(
         R.string.credit_error_xai_no_prepaid,
     ),
     StoredMessage(Regex("This xAI key is not tied to one team\\. Enter the team id from console\\.x\\.ai\\."), R.string.credit_error_team_required),
+    StoredMessage(
+        Regex("Vercel refused this key \\(HTTP 403\\)\\. Enter the team id the key belongs to\\."),
+        R.string.credit_error_vercel_team,
+    ),
+    StoredMessage(Regex(Regex.escape("This key lacks the account:read scope.")), R.string.credit_error_missing_scope),
     StoredMessage(Regex("No key was entered\\."), R.string.credit_error_no_key),
     StoredMessage(Regex("The key could not be read from the device\\."), R.string.stored_credit_unreadable),
 )
@@ -149,9 +204,11 @@ fun storedMessageText(resources: Resources, message: String): String {
  * The string for a window label the app itself chose, or null when the label is the provider's.
  *
  * The parsers name the three horizons "5h limit", "Weekly" and "Monthly"; for a global window those
- * exact words are the app's and are translated. A model-scoped window ("Weekly (Opus)") and any
- * other label is data and is shown as stored. Deliberately matches nothing but those words, so the
- * English text of a widget is exactly the label the row carries.
+ * exact words are the app's and are translated. Ollama adds two labels of its own whose duration
+ * the vendor does not state — "Session" (a legacy limit) and "Included allowance" (the plan's own
+ * reset period) — and those are translated for the same reason. A model-scoped window
+ * ("Weekly (Opus)") and any other label is data and is shown as stored. Deliberately matches
+ * nothing but those words, so the English text of a widget is exactly the label the row carries.
  */
 @StringRes
 fun windowLabelRes(label: String, category: WindowCategory, scope: UsageScope): Int? {
@@ -160,6 +217,9 @@ fun windowLabelRes(label: String, category: WindowCategory, scope: UsageScope): 
         category == WindowCategory.FIVE_HOUR && label == "5h limit" -> R.string.window_label_five_hour
         category == WindowCategory.WEEKLY && label == "Weekly" -> R.string.window_label_weekly
         category == WindowCategory.MONTHLY && label == "Monthly" -> R.string.window_label_monthly
+        category == WindowCategory.OTHER && label == "Session" -> R.string.window_label_session
+        category == WindowCategory.OTHER && label == "Included allowance" ->
+            R.string.window_label_included_allowance
         else -> null
     }
 }

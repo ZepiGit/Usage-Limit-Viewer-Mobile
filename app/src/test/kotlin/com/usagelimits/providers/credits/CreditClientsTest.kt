@@ -126,8 +126,125 @@ class CreditClientsTest {
         for (e in listOf(rejected, other, notJson)) assertTrue(!e.message!!.contains(key))
     }
 
+    @Test fun `vercel sends the bearer key and no team id unless one is stored`() = runBlocking {
+        val seen = mutableListOf<RecordedRequest>()
+        val client = VercelCreditClient(scriptedHttp(200 to """{"balance":"95.50","total_used":"4.50"}""", seen = seen))
+        client.fetchBalances("vck-abc", emptyMap())
+        client.fetchBalances("vck-abc", mapOf("teamId" to "team/1"))
+        assertEquals(
+            listOf(
+                "https://ai-gateway.vercel.sh/v1/credits",
+                "https://ai-gateway.vercel.sh/v1/credits?teamId=team%2F1",
+            ),
+            seen.map { it.request.url.toString() },
+        )
+        assertEquals("Bearer vck-abc", seen[0].request.header("Authorization"))
+    }
+
+    @Test fun `vercel asks for a team id on 403 and never retries it`() {
+        val forbidden = mutableListOf<RecordedRequest>()
+        val denied = failure<CreditError.TeamDenied> {
+            runBlocking { VercelCreditClient(scriptedHttp(403 to "{}", seen = forbidden)).fetchBalances("vck", emptyMap()) }
+        }
+        assertEquals("Vercel refused this key (HTTP 403). Enter the team id the key belongs to.", denied.message)
+        assertEquals(1, forbidden.size)
+
+        val unauthorized = mutableListOf<RecordedRequest>()
+        val rejected = failure<CreditError.Rejected> {
+            runBlocking { VercelCreditClient(scriptedHttp(401 to "{}", seen = unauthorized)).fetchBalances("vck", emptyMap()) }
+        }
+        assertEquals(401, rejected.status)
+        assertEquals(1, unauthorized.size)
+    }
+
+    @Test fun `deepinfra sends the bearer key to the documented checklist url`() = runBlocking {
+        val seen = mutableListOf<RecordedRequest>()
+        val client = DeepInfraCreditClient(
+            scriptedHttp(
+                200 to """{"checklist":{"stripe_balance":-1234,"recent":0,"limit":null,"suspend_reason":null}}""",
+                seen = seen,
+            ),
+        )
+        assertAmount("12.34", client.fetchBalances("di-test", emptyMap())[0].amount)
+        assertEquals(listOf(Credits.DEEPINFRA_ME), seen.map { it.request.url.toString() })
+        assertEquals("Bearer di-test", seen[0].request.header("Authorization"))
+    }
+
+    @Test fun `deepinfra names the missing scope on 403 and never retries it`() {
+        val forbidden = mutableListOf<RecordedRequest>()
+        val missing = failure<CreditError.MissingScope> {
+            runBlocking { DeepInfraCreditClient(scriptedHttp(403 to "{}", seen = forbidden)).fetchBalances("di", emptyMap()) }
+        }
+        assertEquals("This key lacks the account:read scope.", missing.message)
+        assertEquals(1, forbidden.size)
+
+        val unauthorized = mutableListOf<RecordedRequest>()
+        val rejected = failure<CreditError.Rejected> {
+            runBlocking { DeepInfraCreditClient(scriptedHttp(401 to "{}", seen = unauthorized)).fetchBalances("di", emptyMap()) }
+        }
+        assertEquals(401, rejected.status)
+        assertEquals(1, unauthorized.size)
+    }
+
+    @Test fun `tokenrouter sends the bearer management key to the wallet`() = runBlocking {
+        val seen = mutableListOf<RecordedRequest>()
+        val client = TokenRouterCreditClient(
+            scriptedHttp(
+                200 to """{"success":true,"data":{"topUpBalance":120.50,"voucherEfficientAmount":30.00,"toppedUpSpent":80.25,"voucherSpent":10.00}}""",
+                seen = seen,
+            ),
+        )
+        assertAmount("150.50", client.fetchBalances("tr-test", emptyMap())[0].amount)
+        assertEquals(listOf(Credits.TOKENROUTER_WALLET), seen.map { it.request.url.toString() })
+        assertEquals("Bearer tr-test", seen[0].request.header("Authorization"))
+    }
+
+    @Test fun `tokenrouter reports a rejected key on 401 and 403 and never retries`() {
+        for (status in listOf(401, 403)) {
+            val seen = mutableListOf<RecordedRequest>()
+            val rejected = failure<CreditError.Rejected> {
+                runBlocking {
+                    TokenRouterCreditClient(
+                        scriptedHttp(status to """{"message":"management key is invalid","success":false}""", seen = seen),
+                    ).fetchBalances("tr", emptyMap())
+                }
+            }
+            assertEquals(status, rejected.status)
+            assertEquals("one attempt for HTTP $status", 1, seen.size)
+        }
+    }
+
+    @Test fun `ollama sends the bearer key to the documented balance route`() = runBlocking {
+        val seen = mutableListOf<RecordedRequest>()
+        val client = OllamaCreditClient(
+            scriptedHttp(200 to """{"purchased":{"balance_usd":25}}""", seen = seen),
+        )
+        assertAmount("25", client.fetchBalances("ollama-test", emptyMap())[0].amount)
+        assertEquals(listOf("https://ollama.com/api/balance"), seen.map { it.request.url.toString() })
+        assertEquals("Bearer ollama-test", seen[0].request.header("Authorization"))
+    }
+
+    @Test fun `ollama reports a rejected key on 401 and a suspended account on 403 and never retries`() {
+        for (status in listOf(401, 403)) {
+            val seen = mutableListOf<RecordedRequest>()
+            val rejected = failure<CreditError.Rejected> {
+                runBlocking {
+                    OllamaCreditClient(
+                        scriptedHttp(status to """{"error":"invalid credentials"}""", seen = seen),
+                    ).fetchBalances("ollama", emptyMap())
+                }
+            }
+            assertEquals(status, rejected.status)
+            assertEquals("one attempt for HTTP $status", 1, seen.size)
+        }
+    }
+
     @Test fun `endpoints are the documented ones`() {
         assertEquals("https://api.novita.ai/openapi/v1/billing/balance/detail", Credits.NOVITA_BALANCE)
         assertEquals("https://api.deepseek.com/user/balance", Credits.DEEPSEEK_BALANCE)
+        assertEquals("https://ai-gateway.vercel.sh/v1/credits", Credits.VERCEL_CREDITS)
+        assertEquals("https://api.deepinfra.com/v1/me?checklist=true", Credits.DEEPINFRA_ME)
+        assertEquals("https://api.tokenrouter.com/api/management/self/wallet", Credits.TOKENROUTER_WALLET)
+        assertEquals("https://ollama.com/api/balance", Credits.OLLAMA_BALANCE)
     }
 }

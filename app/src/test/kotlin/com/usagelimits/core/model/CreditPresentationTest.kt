@@ -106,7 +106,7 @@ class CreditPresentationTest {
 
     @Test fun `ids and raw values are the shared contract`() {
         assertEquals(
-            listOf("openrouter", "deepseek", "moonshot", "xai", "fal", "novita"),
+            listOf("openrouter", "deepseek", "moonshot", "xai", "fal", "novita", "vercel", "deepinfra", "tokenrouter", "ollama"),
             CreditProviderId.entries.map { it.id },
         )
         assertEquals(listOf("anthropic", "openai"), CreditProviderId.notPossible.map { it.id })

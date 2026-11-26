@@ -29,6 +29,13 @@ final class CreditsTests: XCTestCase {
 
     private func dec(_ text: String) -> Decimal { Decimal(string: text, locale: Locale(identifier: "en_US_POSIX"))! }
 
+    /// An ISO-8601 UTC instant, for the payloads that place a period boundary.
+    private func utc(_ text: String) -> Date {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)!
+    }
+
     /// Answers by URL fragment, in order per route, repeating the last. Records every request.
     private actor Transport: HTTPTransport {
         private var routes: [(match: String, replies: [(status: Int, body: String)])]
@@ -114,10 +121,10 @@ final class CreditsTests: XCTestCase {
             #"{"data":{"limit":null}}"#,       // unlimited, but no spend to show
             #"{"data":{"limit":null,"usage_monthly":"abc"}}"#,
         ] {
-            assertMalformed(try OpenRouterCreditParser.parseKey(json(body)), body)
+            assertMalformed(try OpenRouterCreditParser.parseKey(json(body), now: now), body)
         }
         // An explicit null limit with a spend is the genuine unlimited key, even at $0.
-        let balance = try OpenRouterCreditParser.parseKey(json(#"{"data":{"limit":null,"usage_monthly":0}}"#))[0]
+        let balance = try OpenRouterCreditParser.parseKey(json(#"{"data":{"limit":null,"usage_monthly":0}}"#), now: now)[0]
         XCTAssertTrue(balance.unlimited)
         XCTAssertEqual(balance.amount, 0)
     }
@@ -142,22 +149,89 @@ final class CreditsTests: XCTestCase {
         {"data":{"label":"k","limit":50,"limit_remaining":40,"usage_monthly":3,
          "effective_budget":{"limit_usd":20,"spend_usd":5,"remaining_usd":15,"reset_interval":"monthly"}}}
         """#
-        let balance = try OpenRouterCreditParser.parseKey(json(body))[0]
+        let balance = try OpenRouterCreditParser.parseKey(json(body), now: now)[0]
         XCTAssertEqual(balance.amount, 15)
         XCTAssertEqual(balance.total, 20)
         XCTAssertFalse(balance.unlimited)
+        // A budget row names no key period, so it keeps the plain label and no reset.
+        XCTAssertEqual(balance.label, "Key limit")
+        XCTAssertNil(balance.resetsAt)
     }
 
     func testOpenRouterKeyFallsBackToLimitRemaining() throws {
         let balance = try OpenRouterCreditParser.parseKey(
-            json(#"{"data":{"limit":50,"limit_remaining":40.25,"effective_budget":null}}"#))[0]
+            json(#"{"data":{"limit":50,"limit_remaining":40.25,"effective_budget":null}}"#), now: now)[0]
         XCTAssertEqual(balance.amount, dec("40.25"))
         XCTAssertEqual(balance.total, 50)
+        XCTAssertEqual(balance.label, "Key limit")
+        XCTAssertNil(balance.resetsAt)
+    }
+
+    /// The period label and the next UTC boundary, by hand.
+    func testOpenRouterKeyLimitNamesItsPeriodAndNextReset() throws {
+        let daily = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":10,"limit_remaining":2.5,"limit_reset":"daily","effective_budget":null}}"#),
+            now: utc("2026-11-25T13:45:00Z"))[0]
+        XCTAssertEqual(daily.label, "Daily key limit")
+        XCTAssertEqual(daily.resetsAt, utc("2026-11-26T00:00:00Z"))
+        let dailyPercent = try XCTUnwrap(daily.remainingPercent)
+        XCTAssertEqual(100 - dailyPercent, 75, accuracy: 1e-9)
+
+        // Sunday 23:59: the week boundary is the next Monday, not the end of the UTC day.
+        let weekly = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":40,"limit_remaining":10,"limit_reset":"weekly","effective_budget":null}}"#),
+            now: utc("2026-11-22T23:59:00Z"))[0]
+        XCTAssertEqual(weekly.label, "Weekly key limit")
+        XCTAssertEqual(weekly.resetsAt, utc("2026-11-23T00:00:00Z"))
+
+        // A Monday is the start of its own week, so the next boundary is seven days out.
+        let monday = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":40,"limit_remaining":10,"limit_reset":"weekly","effective_budget":null}}"#),
+            now: utc("2026-11-30T00:00:00Z"))[0]
+        XCTAssertEqual(monday.resetsAt, utc("2026-12-07T00:00:00Z"))
+
+        let monthly = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":200,"limit_remaining":50,"limit_reset":"monthly","effective_budget":null}}"#),
+            now: utc("2026-12-31T10:00:00Z"))[0]
+        XCTAssertEqual(monthly.label, "Monthly key limit")
+        XCTAssertEqual(monthly.resetsAt, utc("2027-01-01T00:00:00Z"))
+    }
+
+    func testOpenRouterKeyLimitWithoutAKnownResetAddsNone() throws {
+        for body in [
+            #"{"data":{"limit":10,"limit_remaining":5,"limit_reset":null,"effective_budget":null}}"#,
+            #"{"data":{"limit":10,"limit_remaining":5,"effective_budget":null}}"#,
+            #"{"data":{"limit":10,"limit_remaining":5,"limit_reset":"yearly","effective_budget":null}}"#,
+        ] {
+            let balance = try OpenRouterCreditParser.parseKey(json(body), now: now)[0]
+            XCTAssertEqual(balance.label, "Key limit", body)
+            XCTAssertNil(balance.resetsAt, body)
+        }
+    }
+
+    func testOpenRouterKeyUsedShareClampsAndAZeroLimitDrawsNoBar() throws {
+        let over = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":10,"limit_remaining":12.5,"limit_reset":"daily","effective_budget":null}}"#),
+            now: now)[0]
+        let overPercent = try XCTUnwrap(over.remainingPercent)
+        XCTAssertEqual(100 - overPercent, 0, accuracy: 1e-9)
+        let under = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":10,"limit_remaining":-2.5,"limit_reset":"daily","effective_budget":null}}"#),
+            now: now)[0]
+        let underPercent = try XCTUnwrap(under.remainingPercent)
+        XCTAssertEqual(100 - underPercent, 100, accuracy: 1e-9)
+        let zero = try OpenRouterCreditParser.parseKey(
+            json(#"{"data":{"limit":0,"limit_remaining":5,"limit_reset":"daily","effective_budget":null}}"#),
+            now: now)[0]
+        XCTAssertEqual(zero.label, "Key limit")
+        XCTAssertNil(zero.remainingPercent)
+        XCTAssertNil(zero.resetsAt)
     }
 
     func testOpenRouterKeyWithNoLimitIsUnlimitedNotZero() throws {
         let balance = try OpenRouterCreditParser.parseKey(
-            json(#"{"data":{"limit":null,"limit_remaining":null,"usage_monthly":12.5,"effective_budget":null}}"#))[0]
+            json(#"{"data":{"limit":null,"limit_remaining":null,"usage_monthly":12.5,"effective_budget":null}}"#),
+            now: now)[0]
         XCTAssertTrue(balance.unlimited)
         XCTAssertEqual(balance.label, "No limit")
         XCTAssertEqual(balance.amount, dec("12.5"))
@@ -308,6 +382,302 @@ final class CreditsTests: XCTestCase {
         XCTAssertEqual(try NovitaCreditParser.parse(json(#"{"availableBalance":"-25000"}"#))[0].amount, dec("-2.5"))
         XCTAssertThrowsError(try NovitaCreditParser.parse(json(#"{"availableBalance":"lots"}"#)))
         XCTAssertThrowsError(try NovitaCreditParser.parse(json(#"{}"#)))
+    }
+
+    // MARK: - Vercel AI Gateway
+
+    func testVercelReadsDecimalStringsAndAnOptionalTokenPass() throws {
+        let rows = try VercelCreditParser.parse(
+            #"{"balance":"95.50","total_used":"4.50","token_pass":{"remaining":"12.34","resets_at":"2026-12-01T00:00:00.000Z"}}"#)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].currency, "USD")
+        XCTAssertEqual(rows[0].amount, dec("95.50"))
+        XCTAssertNil(rows[0].total, "the balance draws no bar, the gateway states no cap")
+        XCTAssertNil(rows[0].resetsAt)
+        XCTAssertEqual(rows[0].label, "Used: 4.5")
+        XCTAssertEqual(rows[1].amount, dec("12.34"))
+        XCTAssertNil(rows[1].total)
+        XCTAssertEqual(rows[1].label, "Token Pass")
+        XCTAssertEqual(rows[1].resetsAt, utc("2026-12-01T00:00:00Z"))
+    }
+
+    func testVercelWithoutATokenPassKeepsOneRowAndNeverInventsAZero() throws {
+        let nullPass = try VercelCreditParser.parse(
+            #"{"balance":"95.50","total_used":"4.50","token_pass":null}"#)
+        XCTAssertEqual(nullPass.count, 1)
+        // The docs let `remaining` be null while the pass cannot be read: no row, not a zero.
+        let unreadable = try VercelCreditParser.parse(
+            #"{"balance":"95.50","total_used":"4.50","token_pass":{"remaining":null,"resets_at":"2026-12-01T00:00:00Z"}}"#)
+        XCTAssertEqual(unreadable.count, 1)
+        // An exhausted balance is a real zero, and a missing total_used only drops the used figure.
+        let exhausted = try VercelCreditParser.parse(#"{"balance":"0.00"}"#)
+        XCTAssertEqual(exhausted[0].amount, 0)
+        XCTAssertNil(exhausted[0].label)
+    }
+
+    func testVercelRefusesAFigureThatIsNotADecimalString() throws {
+        // A JSON number would have to go through a float, which loses the digits it was sent with.
+        for body in [
+            #"{"balance":95.5,"total_used":"4.50"}"#,
+            #"{"balance":"1.00","total_used":4.5,"token_pass":null}"#,
+            #"{"balance":"1.00","token_pass":{"remaining":12.34,"resets_at":"2026-12-01T00:00:00Z"}}"#,
+            "{}",
+            #"{"balance":"12abc"}"#,
+        ] {
+            assertMalformed(try VercelCreditParser.parse(body), body)
+        }
+    }
+
+    func testVercelKeepsARowWhenThePassNamesNoReadableReset() throws {
+        let rows = try VercelCreditParser.parse(
+            #"{"balance":"1.00","token_pass":{"remaining":"2.00","resets_at":"soon"}}"#)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[1].amount, dec("2.00"))
+        XCTAssertNil(rows[1].resetsAt)
+    }
+
+    func testVercelSendsTheBearerKeyAndOnlyAStoredTeamID() async throws {
+        let transport = Transport([("/v1/credits", [(200, #"{"balance":"95.50","total_used":"4.50"}"#)])])
+        let client = VercelCreditClient(httpClient: http(transport))
+        let plain = try await client.fetchBalances(key: "vck-abc", attributes: [:])
+        XCTAssertEqual(plain.first?.amount, dec("95.50"))
+        _ = try await client.fetchBalances(
+            key: "vck-abc", attributes: [CreditAccount.teamIDKey: "team/1"])
+        let urls = await transport.urls
+        XCTAssertEqual(urls, [
+            "https://ai-gateway.vercel.sh/v1/credits",
+            "https://ai-gateway.vercel.sh/v1/credits?teamId=team%2F1",
+        ])
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer vck-abc")
+    }
+
+    func testVercelAsksForATeamIDOn403AndNeverRetries() async throws {
+        let forbidden = Transport([("/v1/credits", [(403, "{}")])])
+        do {
+            _ = try await VercelCreditClient(httpClient: http(forbidden))
+                .fetchBalances(key: "vck", attributes: [:])
+            XCTFail("expected teamDenied")
+        } catch {
+            XCTAssertEqual(error as? CreditError, .teamDenied)
+            XCTAssertEqual(
+                (error as? CreditError)?.errorDescription,
+                "Vercel refused this key (HTTP 403). Enter the team id the key belongs to.")
+        }
+        let forbiddenRequests = await forbidden.urls.count
+        XCTAssertEqual(forbiddenRequests, 1)
+
+        let unauthorized = Transport([("/v1/credits", [(401, "{}")])])
+        do {
+            _ = try await VercelCreditClient(httpClient: http(unauthorized))
+                .fetchBalances(key: "vck", attributes: [:])
+            XCTFail("expected rejected(401)")
+        } catch {
+            XCTAssertEqual(error as? CreditError, .rejected(401))
+        }
+        let unauthorizedRequests = await unauthorized.urls.count
+        XCTAssertEqual(unauthorizedRequests, 1)
+    }
+
+    // MARK: - DeepInfra
+
+    func testDeepinfraNegatesASignedStripeBalanceAndKeepsEachLiveScopedCredit() throws {
+        let rows = try DeepInfraCreditParser.parse(json(
+            #"{"uid":"u-1","checklist":{"stripe_balance":-1234,"recent":0,"limit":25,"suspend_reason":null,"scoped_credits":[{"name":"H100 grant","granted_cents":1000,"remaining_cents":500,"granted_ts":1,"expires_ts":2,"expired":false},{"name":"Expired grant","granted_cents":300,"remaining_cents":300,"granted_ts":1,"expires_ts":2,"expired":true}]}}"#))
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].currency, "USD")
+        // Negative cents are money left to spend, and the spending limit is never a balance.
+        XCTAssertEqual(rows[0].amount, dec("12.34"))
+        XCTAssertNil(rows[0].total, "a spending limit is never a balance")
+        XCTAssertEqual(rows[0].label, "Prepaid balance")
+        XCTAssertEqual(rows[1].amount, dec("5"))
+        XCTAssertEqual(rows[1].label, "H100 grant")
+        XCTAssertNil(rows[1].total)
+    }
+
+    func testDeepinfraKeepsAnOwedBalanceNegativeAndRefusesToReadNothingAsZero() throws {
+        let owed = try DeepInfraCreditParser.parse(json(
+            #"{"checklist":{"stripe_balance":500,"recent":4.5,"limit":null,"suspend_reason":null}}"#))
+        XCTAssertEqual(owed.count, 1)
+        // Positive cents are money owed, and the row says so instead of reading as healthy.
+        XCTAssertEqual(owed[0].amount, dec("-5"))
+        XCTAssertEqual(
+            try DeepInfraCreditParser.parse(json(
+                #"{"checklist":{"stripe_balance":0,"recent":0,"limit":null,"suspend_reason":null}}"#))[0].amount,
+            dec("0"))
+        // A credit whose `expired` is absent is live, as the schema's default says.
+        XCTAssertEqual(
+            try DeepInfraCreditParser.parse(json(
+                #"{"checklist":{"stripe_balance":0,"scoped_credits":[{"name":"Live","remaining_cents":250}]}}"#)).count,
+            2)
+        for body in [
+            #"{"uid":"u-1"}"#,
+            #"{"checklist":null}"#,
+            #"{"checklist":{"recent":0,"limit":null,"suspend_reason":null}}"#,
+            #"{"checklist":{"stripe_balance":"lots"}}"#,
+        ] {
+            XCTAssertThrowsError(try DeepInfraCreditParser.parse(json(body)), body)
+        }
+        XCTAssertThrowsError(try DeepInfraCreditParser.parse(json(
+            #"{"checklist":{"stripe_balance":0,"scoped_credits":[{"name":"No figure"}]}}"#)))
+    }
+
+    func testDeepinfraSendsTheBearerKeyToTheDocumentedChecklistURL() async throws {
+        let transport = Transport([
+            ("api.deepinfra.com", [(200, #"{"checklist":{"stripe_balance":-1234,"recent":0,"limit":null,"suspend_reason":null}}"#)]),
+        ])
+        let rows = try await DeepInfraCreditClient(httpClient: http(transport))
+            .fetchBalances(key: "di-test", attributes: [:])
+        XCTAssertEqual(rows.first?.amount, dec("12.34"))
+        let urls = await transport.urls
+        XCTAssertEqual(urls, ["https://api.deepinfra.com/v1/me?checklist=true"])
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer di-test")
+    }
+
+    func testDeepinfraNamesTheMissingScopeOn403AndNeverRetries() async throws {
+        let forbidden = Transport([("api.deepinfra.com", [(403, "{}")])])
+        do {
+            _ = try await DeepInfraCreditClient(httpClient: http(forbidden))
+                .fetchBalances(key: "di", attributes: [:])
+            XCTFail("expected missingScope")
+        } catch {
+            XCTAssertEqual(error as? CreditError, .missingScope)
+            XCTAssertEqual((error as? CreditError)?.errorDescription, "This key lacks the account:read scope.")
+        }
+        let forbiddenRequests = await forbidden.urls.count
+        XCTAssertEqual(forbiddenRequests, 1)
+
+        let unauthorized = Transport([("api.deepinfra.com", [(401, "{}")])])
+        do {
+            _ = try await DeepInfraCreditClient(httpClient: http(unauthorized))
+                .fetchBalances(key: "di", attributes: [:])
+            XCTFail("expected rejected(401)")
+        } catch {
+            XCTAssertEqual(error as? CreditError, .rejected(401))
+        }
+        let unauthorizedRequests = await unauthorized.urls.count
+        XCTAssertEqual(unauthorizedRequests, 1)
+    }
+
+    // MARK: - TokenRouter
+
+    func testTokenrouterAddsValidVouchersToTheToppedUpBalanceAndLabelsTheSpend() throws {
+        let rows = try TokenRouterCreditParser.parse(json(
+            #"{"success":true,"message":"","data":{"topUpBalance":120.50,"voucherEfficientAmount":30.00,"toppedUpSpent":80.25,"voucherSpent":10.00}}"#))
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].currency, "USD")
+        XCTAssertEqual(rows[0].amount, dec("150.50"))
+        XCTAssertNil(rows[0].total, "the wallet states no cap, so there is no bar")
+        XCTAssertEqual(rows[0].label, "Spent: 80.25 top-up, 10 vouchers")
+        // A figure sent as a string is the same figure; the digits are read, never a float.
+        XCTAssertEqual(
+            try TokenRouterCreditParser.parse(json(
+                #"{"data":{"topUpBalance":"42.50","voucherEfficientAmount":0}}"#))[0].amount,
+            dec("42.5"))
+    }
+
+    func testTokenrouterKeepsANegativeTopUpAndRefusesToReadNothingAsZero() throws {
+        let negative = try TokenRouterCreditParser.parse(json(
+            #"{"data":{"topUpBalance":-5.25,"voucherEfficientAmount":10.00,"toppedUpSpent":0,"voucherSpent":0}}"#))
+        XCTAssertEqual(negative[0].amount, dec("4.75"))
+        // Without both spend figures there is no sentence to show, and the balance still reads.
+        XCTAssertNil(try TokenRouterCreditParser.parse(json(
+            #"{"data":{"topUpBalance":42.50,"voucherEfficientAmount":0}}"#))[0].label)
+        XCTAssertNil(try TokenRouterCreditParser.parse(json(
+            #"{"data":{"topUpBalance":1,"voucherEfficientAmount":0,"toppedUpSpent":5}}"#))[0].label)
+        for body in [
+            #"{"success":true}"#,
+            #"{"data":null}"#,
+            #"{"data":{"voucherEfficientAmount":30.00}}"#,
+            #"{"data":{"topUpBalance":120.50}}"#,
+            #"{"data":{"topUpBalance":"lots","voucherEfficientAmount":0}}"#,
+        ] {
+            XCTAssertThrowsError(try TokenRouterCreditParser.parse(json(body)), body)
+        }
+    }
+
+    func testTokenrouterSendsTheBearerKeyToTheWalletAndNeverRetries() async throws {
+        let transport = Transport([
+            ("api.tokenrouter.com", [(200,
+                #"{"success":true,"data":{"topUpBalance":120.50,"voucherEfficientAmount":30.00,"toppedUpSpent":80.25,"voucherSpent":10.00}}"#)]),
+        ])
+        let rows = try await TokenRouterCreditClient(httpClient: http(transport))
+            .fetchBalances(key: "tr-test", attributes: [:])
+        XCTAssertEqual(rows.first?.amount, dec("150.50"))
+        let urls = await transport.urls
+        XCTAssertEqual(urls, ["https://api.tokenrouter.com/api/management/self/wallet"])
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer tr-test")
+
+        for status in [401, 403] {
+            let rejected = Transport([
+                ("api.tokenrouter.com", [(status, #"{"message":"management key is invalid","success":false}"#)]),
+            ])
+            do {
+                _ = try await TokenRouterCreditClient(httpClient: http(rejected))
+                    .fetchBalances(key: "tr", attributes: [:])
+                XCTFail("expected rejected(\(status))")
+            } catch {
+                XCTAssertEqual(error as? CreditError, .rejected(status))
+            }
+            let attempts = await rejected.urls.count
+            XCTAssertEqual(attempts, 1, "one attempt for HTTP \(status)")
+        }
+    }
+
+    // MARK: - Ollama
+
+    func testOllamaReadsThePurchasedBalanceAndDrawsNoBar() throws {
+        let rows = try OllamaCreditParser.parse(json(
+            #"{"included":{"balance_usd":72.5,"allowance_usd":100,"period":null},"purchased":{"balance_usd":25}}"#))
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].currency, "USD")
+        XCTAssertEqual(rows[0].amount, dec("25"))
+        XCTAssertNil(rows[0].total, "no cap is documented, so the row draws no bar")
+        XCTAssertEqual(rows[0].label, "Purchased")
+        // A figure sent as a string is the same figure; the digits are read, never a float.
+        XCTAssertEqual(
+            try OllamaCreditParser.parse(json(#"{"purchased":{"balance_usd":"42.50"}}"#))[0].amount,
+            dec("42.5"))
+    }
+
+    func testOllamaRefusesToReadAMissingPurchasedBlockAsZero() throws {
+        for body in [
+            #"{"included":{"balance_usd":10,"allowance_usd":100}}"#,
+            #"{"purchased":{}}"#,
+            #"{"purchased":{"balance_usd":"lots"}}"#,
+            #"{"purchased":null}"#,
+        ] {
+            XCTAssertThrowsError(try OllamaCreditParser.parse(json(body)), body)
+        }
+        // A stated zero is a reading: the plan has no prepaid credit left.
+        XCTAssertEqual(
+            try OllamaCreditParser.parse(json(#"{"purchased":{"balance_usd":0}}"#))[0].amount, dec("0"))
+    }
+
+    func testOllamaSendsTheBearerKeyToTheBalanceRouteAndNeverRetries() async throws {
+        let transport = Transport([("ollama.com", [(200, #"{"purchased":{"balance_usd":25}}"#)])])
+        let rows = try await OllamaCreditClient(httpClient: http(transport))
+            .fetchBalances(key: "ollama-test", attributes: [:])
+        XCTAssertEqual(rows.first?.amount, dec("25"))
+        let urls = await transport.urls
+        XCTAssertEqual(urls, ["https://ollama.com/api/balance"])
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer ollama-test")
+
+        for status in [401, 403] {
+            let rejected = Transport([("ollama.com", [(status, #"{"error":"invalid credentials"}"#)])])
+            do {
+                _ = try await OllamaCreditClient(httpClient: http(rejected))
+                    .fetchBalances(key: "ollama", attributes: [:])
+                XCTFail("expected rejected(\(status))")
+            } catch {
+                XCTAssertEqual(error as? CreditError, .rejected(status))
+            }
+            let attempts = await rejected.urls.count
+            XCTAssertEqual(attempts, 1, "one attempt for HTTP \(status)")
+        }
     }
 
     // MARK: - Severity and formatting
@@ -529,6 +899,30 @@ final class CreditsTests: XCTestCase {
         } catch { XCTAssertEqual(error as? CreditError, .teamIDRequired) }
     }
 
+    func testAVercelAccountWithoutATeamIDAsksNoOtherHostAndStoresNone() async throws {
+        let (subject, _, transport) = container([
+            ("ai-gateway.vercel.sh", [(200, #"{"balance":"95.50","total_used":"4.50"}"#)]),
+        ], clock: { [now] in now })
+
+        let added = try await subject.addCreditAccount(provider: .vercelAiGateway, key: "vck-abc")
+        XCTAssertNil(added.teamID)
+        // The key itself names the team: no validation call, and certainly not one to x.ai.
+        let urls = await transport.urls
+        XCTAssertEqual(urls, ["https://ai-gateway.vercel.sh/v1/credits"])
+    }
+
+    func testATypedVercelTeamIDIsStoredAndSentAsAQueryParameter() async throws {
+        let (subject, _, transport) = container([
+            ("ai-gateway.vercel.sh", [(200, #"{"balance":"95.50","total_used":"4.50"}"#)]),
+        ], clock: { [now] in now })
+
+        let added = try await subject.addCreditAccount(
+            provider: .vercelAiGateway, key: "vck-abc", teamID: " team/1 ")
+        XCTAssertEqual(added.teamID, "team/1")
+        let urls = await transport.urls
+        XCTAssertEqual(urls, ["https://ai-gateway.vercel.sh/v1/credits?teamId=team%2F1"])
+    }
+
     func testRefreshUpdatesCreditsAndAFailureKeepsTheLastBalance() async throws {
         let transport = Transport([
             ("api.novita.ai", [
@@ -621,7 +1015,12 @@ final class CreditsTests: XCTestCase {
     func testEndpointsAreTheDocumentedOnes() {
         XCTAssertEqual(ProviderEndpoints.Credits.moonshotBalance(.intl), "https://api.moonshot.ai/v1/users/me/balance")
         XCTAssertEqual(ProviderEndpoints.Credits.novitaBalance, "https://api.novita.ai/openapi/v1/billing/balance/detail")
-        XCTAssertEqual(CreditProviderID.allCases.map(\.rawValue), ["openrouter", "deepseek", "moonshot", "xai", "fal", "novita"])
+        XCTAssertEqual(
+            ProviderEndpoints.Credits.tokenRouterWallet,
+            "https://api.tokenrouter.com/api/management/self/wallet")
+        XCTAssertEqual(
+            CreditProviderID.allCases.map(\.rawValue),
+            ["openrouter", "deepseek", "moonshot", "xai", "fal", "novita", "vercel", "deepinfra", "tokenrouter", "ollama"])
         XCTAssertEqual(CreditProviderID.notPossible.map(\.id), ["anthropic", "openai"])
         XCTAssertEqual(CreditProviderID.xai.consoleURL, "https://console.x.ai/team/default/api-keys")
     }
@@ -630,7 +1029,7 @@ final class CreditsTests: XCTestCase {
         let assets = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("UsageLimits/Sources/Assets.xcassets")
-        XCTAssertEqual(Set(CreditProviderID.allCases.map(\.iconAssetName)).count, 6)
+        XCTAssertEqual(Set(CreditProviderID.allCases.map(\.iconAssetName)).count, 10)
         for provider in CreditProviderID.allCases {
             XCTAssertFalse(provider.iconAssetName.isEmpty)
             let directory = assets.appendingPathComponent("\(provider.iconAssetName).imageset")

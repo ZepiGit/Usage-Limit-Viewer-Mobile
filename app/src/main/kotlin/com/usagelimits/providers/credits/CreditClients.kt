@@ -29,7 +29,8 @@ class CreditRegistry(http: HttpClient) {
 
     private val clients: Map<CreditProviderId, CreditProvider> = listOf(
         OpenRouterCreditClient(http), DeepSeekCreditClient(http), MoonshotCreditClient(http),
-        xai, FalCreditClient(http), NovitaCreditClient(http),
+        xai, FalCreditClient(http), NovitaCreditClient(http), VercelCreditClient(http),
+        DeepInfraCreditClient(http), TokenRouterCreditClient(http), OllamaCreditClient(http),
     ).associateBy { it.providerId }
 
     fun forId(id: CreditProviderId): CreditProvider? = clients[id]
@@ -72,7 +73,11 @@ internal object CreditHttp {
         mapOf("Authorization" to "Bearer $key", "Accept" to "application/json")
 }
 
-class OpenRouterCreditClient(private val http: HttpClient) : CreditProvider {
+class OpenRouterCreditClient(
+    private val http: HttpClient,
+    /** The clock the key limit's period boundary is placed from. */
+    private val nowMs: () -> Long = System::currentTimeMillis,
+) : CreditProvider {
     override val providerId = CreditProviderId.OPENROUTER
 
     /**
@@ -88,6 +93,7 @@ class OpenRouterCreditClient(private val http: HttpClient) : CreditProvider {
             if (e.status != 403) throw e
             OpenRouterCreditParser.parseKey(
                 CreditHttp.getJson(http, Credits.OPENROUTER_KEY, CreditHttp.bearer(key), "openrouter key"),
+                nowMs(),
             )
         }
 }
@@ -160,5 +166,70 @@ class NovitaCreditClient(private val http: HttpClient) : CreditProvider {
     override suspend fun fetchBalances(key: String, attributes: Map<String, String>): List<CreditBalance> =
         NovitaCreditParser.parse(
             CreditHttp.getJson(http, Credits.NOVITA_BALANCE, CreditHttp.bearer(key), "novita balance"),
+        )
+}
+
+class VercelCreditClient(private val http: HttpClient) : CreditProvider {
+    override val providerId = CreditProviderId.VERCEL_AI_GATEWAY
+
+    /**
+     * The key names its team, so no extra lookup is needed. A 403 means the key belongs to another
+     * team; it is translated once here, and a 401 stays a rejected key. Nothing is retried.
+     */
+    override suspend fun fetchBalances(key: String, attributes: Map<String, String>): List<CreditBalance> =
+        try {
+            VercelCreditParser.parse(
+                CreditHttp.getJson(
+                    http,
+                    Credits.vercelCredits(attributes[CreditAccount.TEAM_ID_KEY]),
+                    CreditHttp.bearer(key),
+                    "vercel credits",
+                ),
+            )
+        } catch (e: CreditError.Rejected) {
+            if (e.status != 403) throw e
+            throw CreditError.TeamDenied()
+        }
+}
+
+class DeepInfraCreditClient(private val http: HttpClient) : CreditProvider {
+    override val providerId = CreditProviderId.DEEPINFRA
+
+    /**
+     * A 403 means the key lacks `account:read`, which no retry fixes; it is translated once here.
+     * A 401 stays a rejected key. Nothing is retried.
+     */
+    override suspend fun fetchBalances(key: String, attributes: Map<String, String>): List<CreditBalance> =
+        try {
+            DeepInfraCreditParser.parse(
+                CreditHttp.getJson(http, Credits.DEEPINFRA_ME, CreditHttp.bearer(key), "deepinfra me"),
+            )
+        } catch (e: CreditError.Rejected) {
+            if (e.status != 403) throw e
+            throw CreditError.MissingScope()
+        }
+}
+
+class TokenRouterCreditClient(private val http: HttpClient) : CreditProvider {
+    override val providerId = CreditProviderId.TOKENROUTER
+
+    /** A 401 is a bad key and a 403 a disabled or expired one; both are the shared rejection. */
+    override suspend fun fetchBalances(key: String, attributes: Map<String, String>): List<CreditBalance> =
+        TokenRouterCreditParser.parse(
+            CreditHttp.getJson(http, Credits.TOKENROUTER_WALLET, CreditHttp.bearer(key), "tokenrouter wallet"),
+        )
+}
+
+class OllamaCreditClient(private val http: HttpClient) : CreditProvider {
+    override val providerId = CreditProviderId.OLLAMA
+
+    /**
+     * The same call the usage account reads. A 401 is a bad key and a 403 is a suspended account
+     * (the doc's own word for it); both are the shared rejection, since no other key and no retry
+     * changes either. Nothing is retried.
+     */
+    override suspend fun fetchBalances(key: String, attributes: Map<String, String>): List<CreditBalance> =
+        OllamaCreditParser.parse(
+            CreditHttp.getJson(http, Credits.OLLAMA_BALANCE, CreditHttp.bearer(key), "ollama balance"),
         )
 }

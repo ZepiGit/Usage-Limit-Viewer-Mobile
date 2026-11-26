@@ -188,6 +188,10 @@ enum DisplayText {
             return String(localized: "xAI has no prepaid balance for this team (HTTP 404). Check the team id, and that the team prepays.")
         case .xaiTeamRequired:
             return String(localized: "This xAI key is not tied to one team. Enter the team id from console.x.ai.")
+        case .vercelTeamRequired:
+            return String(localized: "Vercel refused this key (HTTP 403). Enter the team id the key belongs to.")
+        case .keyLacksAccountScope:
+            return String(localized: "This key lacks the account:read scope.")
         case .providerUnreachable:
             return String(localized: "The provider could not be reached.")
         case .keyUnreadable:
@@ -210,26 +214,71 @@ enum DisplayText {
         selected ? String(localized: "Selected") : String(localized: "Not selected")
     }
 
-    /// The three horizons the app itself names. A model-scoped window ("Weekly (Opus)") and any
-    /// other label is the provider's and stays as it is, as on Android.
+    /// The horizons the app itself names. A model-scoped window ("Weekly (Opus)") and any
+    /// other label is the provider's and stays as it is, as on Android. Ollama adds two labels of
+    /// its own whose duration the vendor does not state — "Session" (a legacy limit) and
+    /// "Included allowance" (the plan's own reset period) — and those are translated for the same
+    /// reason.
     static func windowLabel(_ label: String, category: WindowCategory, scope: UsageScope = .global) -> String {
         guard scope == .global else { return label }
         switch (category, label) {
         case (.fiveHour, "5h limit"): return String(localized: "5h limit")
         case (.weekly, "Weekly"): return String(localized: "Weekly")
         case (.monthly, "Monthly"): return String(localized: "Monthly")
+        case (.other, "Session"): return String(localized: "Session")
+        case (.other, "Included allowance"): return String(localized: "Included allowance")
         default: return label
         }
     }
 
-    /// The three balance labels the credit parsers write.
+    /// The balance labels the credit parsers write.
     static func creditBalanceLabel(_ label: String) -> String {
         switch label {
         case "Key limit": return String(localized: "Key limit")
+        case "Daily key limit": return String(localized: "Daily key limit")
+        case "Weekly key limit": return String(localized: "Weekly key limit")
+        case "Monthly key limit": return String(localized: "Monthly key limit")
         case "No limit": return String(localized: "No limit")
         case "Unavailable": return String(localized: "Unavailable")
+        case "Token Pass": return String(localized: "Token Pass")
+        case "Prepaid balance": return String(localized: "Prepaid balance")
+        case "Purchased": return String(localized: "Purchased")
         default: return label
         }
+    }
+
+    /// The lifetime spend a "Used: 4.50" label carries — the figure the parsers write, as a plain
+    /// decimal with no currency symbol, so the row can print it in the reader's own money format.
+    /// Nil for every other label, which `creditBalanceLabel` then handles.
+    static func creditUsedBalanceLabel(_ label: String, currency: String, locale: Locale) -> String? {
+        let prefix = "Used: "
+        guard label.hasPrefix(prefix) else { return nil }
+        let figure = String(label.dropFirst(prefix.count))
+        guard figure.range(of: #"^[+-]?[0-9]+(\.[0-9]+)?$"#, options: .regularExpression) != nil,
+              let amount = Decimal(string: figure, locale: Locale(identifier: "en_US_POSIX"))
+        else { return nil }
+        return String(localized: "Used: \(CreditFormat.string(amount, currency: currency, locale: locale))")
+    }
+
+    /// The top-up and voucher spend a "Spent: 80.25 top-up, 10 vouchers" label carries — plain
+    /// decimals, so the row prints them in the reader's own money format — or nil for any other
+    /// label. Never a share: the wallet documents no cap to measure them against.
+    static func creditSpentBalanceLabel(_ label: String, currency: String, locale: Locale) -> String? {
+        let prefix = "Spent: "
+        let suffix = " vouchers"
+        guard label.hasPrefix(prefix), label.hasSuffix(suffix), label.count > prefix.count + suffix.count
+        else { return nil }
+        let figures = label.dropFirst(prefix.count).dropLast(suffix.count)
+            .components(separatedBy: " top-up, ")
+        guard figures.count == 2 else { return nil }
+        let amounts = figures.map { figure -> Decimal? in
+            guard figure.range(of: #"^[+-]?[0-9]+(\.[0-9]+)?$"#, options: .regularExpression) != nil
+            else { return nil }
+            return Decimal(string: figure, locale: Locale(identifier: "en_US_POSIX"))
+        }
+        guard let topUp = amounts[0], let vouchers = amounts[1] else { return nil }
+        return String(localized:
+            "Spent: \(CreditFormat.string(topUp, currency: currency, locale: locale)) top-up, \(CreditFormat.string(vouchers, currency: currency, locale: locale)) vouchers")
     }
 
     /// "Claude · Color": the brand is data and stays, the style word is translated.
@@ -253,6 +302,8 @@ enum DisplayText {
         case (.kimi, .intl): return String(localized: "International (kimi.ai)")
         case (.zai, .cn): return String(localized: "China (bigmodel.cn)")
         case (.zai, .intl): return String(localized: "International (z.ai)")
+        case (.minimax, .cn): return String(localized: "China (minimaxi.com)")
+        case (.minimax, .intl): return String(localized: "International (minimax.io)")
         default: return region.label(for: provider)
         }
     }
@@ -274,7 +325,20 @@ enum DisplayText {
         case .fal:
             return String(localized: "fal key with the billing:usage:read scope (the BILLING preset), not an inference key.")
         case .novita: return String(localized: "Novita API key.")
+        case .vercelAiGateway:
+            return String(localized: "AI Gateway API key (vck_…) or a Vercel access token.")
+        case .deepinfra: return String(localized: "DeepInfra API key.")
+        case .tokenrouter: return String(localized: "Management key, not an inference key.")
+        case .ollama: return String(localized: "Ollama API key (ollama.com/settings/keys).")
         }
+    }
+
+    /// When a provider's team id has to be filled in. xAI needs one for a key that names no
+    /// team; Vercel's is optional and only narrows a key or token that covers several teams.
+    static func creditTeamIDHint(_ provider: CreditProviderID) -> String {
+        provider == .xai
+            ? String(localized: "Only needed when the key is not tied to one team.")
+            : String(localized: "Optional. Your Vercel team ID, needed when the key or token covers several teams.")
     }
 
     /// Why a credit provider cannot be added.

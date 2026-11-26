@@ -14,6 +14,8 @@ public enum ProviderID: String, CaseIterable, Sendable, Codable {
     case meta
     case zai
     case opencode
+    case ollama
+    case minimax
 
     public var displayName: String {
         switch self {
@@ -26,6 +28,8 @@ public enum ProviderID: String, CaseIterable, Sendable, Codable {
         case .meta: return "Meta Muse"
         case .zai: return "Z.ai GLM"
         case .opencode: return "OpenCode Go"
+        case .ollama: return "Ollama Cloud"
+        case .minimax: return "MiniMax Token Plan"
         }
     }
 }

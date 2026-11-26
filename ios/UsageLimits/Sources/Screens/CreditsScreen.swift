@@ -132,7 +132,9 @@ struct CreditCard: View {
                     .foregroundStyle(colors.muted)
             }
             ForEach(Array(glance.balances.enumerated()), id: \.offset) { _, balance in
-                BalanceRow(balance: balance, severity: severity, preview: preview)
+                BalanceRow(
+                    balance: balance, severity: severity, now: now,
+                    calendar: store.presentationCalendar, preview: preview)
             }
 
             if let error = entry.snapshot?.error {
@@ -152,6 +154,8 @@ private struct BalanceRow: View {
     let balance: CreditBalance
     /// The account's aged severity: stale data must not keep its last colour.
     let severity: Severity
+    let now: Date
+    let calendar: Calendar
     let preview: Bool
 
     private var amount: String { money(balance.amount) }
@@ -182,6 +186,14 @@ private struct BalanceRow: View {
                     UsageBar(remainingPercent: percent, severity: severity)
                         .accessibilityLabel("\(amount) of \(money(total)) left")
                 }
+                // A capped key limit refills on a period; the app's existing absolute stamp says when.
+                if let stamp = Countdown.resetLine(
+                    resetAt: balance.resetsAt, now: now, calendar: calendar,
+                    texts: LocalizedCountdownTexts()) {
+                    Text(verbatim: stamp)
+                        .usageFont(.small)
+                        .foregroundStyle(colors.faint)
+                }
             }
         }
     }
@@ -194,7 +206,11 @@ private struct BalanceRow: View {
             Text("of \(money(total))").usageFont(.body).foregroundStyle(colors.muted)
         }
         if let label = balance.label {
-            Text(verbatim: DisplayText.creditBalanceLabel(label))
+            Text(verbatim: DisplayText.creditUsedBalanceLabel(
+                label, currency: balance.currency, locale: locale)
+                ?? DisplayText.creditSpentBalanceLabel(
+                    label, currency: balance.currency, locale: locale)
+                ?? DisplayText.creditBalanceLabel(label))
                 .usageFont(.small).foregroundStyle(colors.muted)
         }
     }
@@ -309,10 +325,15 @@ struct AddCreditSheet: View {
                 })
             }
             if provider.acceptsTeamID {
-                TextField("Team id (only if the key is not team-scoped)", text: $teamID)
-                    .ledgerField()
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField("Team id", text: $teamID)
+                        .ledgerField()
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    Text(verbatim: DisplayText.creditTeamIDHint(provider))
+                        .usageFont(.small)
+                        .foregroundStyle(colors.muted)
+                }
             }
             TextField("Low balance below (optional)", text: $threshold)
                 .ledgerField()

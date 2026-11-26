@@ -5,11 +5,17 @@ import com.usagelimits.core.model.CreditNumbers
 import com.usagelimits.core.model.ProviderRegion
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.network.RATE_LIMITED_REQUEST_MESSAGE
+import com.usagelimits.core.time.Instants
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import java.math.BigDecimal
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.temporal.TemporalAdjusters
 
 /**
  * Why a balance could not be read. Messages are built from endpoint names and status codes only,
@@ -28,6 +34,20 @@ sealed class CreditError(message: String) : Exception(message) {
         CreditError(RATE_LIMITED_REQUEST_MESSAGE)
     class TeamIdRequired :
         CreditError("This xAI key is not tied to one team. Enter the team id from console.x.ai.")
+
+    /**
+     * Vercel answers 403 when the key belongs to another team. It is not a broken key and a retry
+     * cannot help, so it says what to change instead.
+     */
+    class TeamDenied :
+        CreditError("Vercel refused this key (HTTP 403). Enter the team id the key belongs to.")
+
+    /**
+     * DeepInfra answers 403 to a key without the `account:read` scope. The balance is closed to
+     * this key until the scope is granted, so the sentence names the scope.
+     */
+    class MissingScope : CreditError("This key lacks the account:read scope.")
+
     class NoKey : CreditError("No key was entered.")
 }
 
@@ -65,8 +85,12 @@ object OpenRouterCreditParser {
     /**
      * `/key` (any key): the key's own budget. `effective_budget` wins when it states a
      * remainder; `limit` null means no cap, so there is no balance and the month's spend shows.
+     *
+     * [nowMs] only places the next period boundary of a capped key: the payload names the period
+     * (`limit_reset`) but never its instant. The budget row is left alone, because a budget's
+     * scope can be a member or a workspace rather than this key.
      */
-    fun parseKey(payload: JsonObject): List<CreditBalance> {
+    fun parseKey(payload: JsonObject, nowMs: Long): List<CreditBalance> {
         val data = JsonSupport.obj(payload, "data") ?: throw CreditError.Malformed("openrouter key has no data")
         val budget = JsonSupport.obj(data, "effective_budget")
         CreditJson.decimal(budget, "remaining_usd")?.let { remaining ->
@@ -82,8 +106,38 @@ object OpenRouterCreditParser {
         }
         val remaining = CreditJson.decimal(data, "limit_remaining")
             ?: throw CreditError.Malformed("openrouter key has a limit but no remainder")
-        return listOf(CreditBalance("USD", remaining, CreditJson.decimal(data, "limit"), "Key limit"))
+        val cap = CreditJson.decimal(data, "limit")
+        val window = cap?.takeIf { it.signum() > 0 }?.let { keyLimitWindow(JsonSupport.string(data, "limit_reset"), nowMs) }
+        return listOf(
+            CreditBalance(
+                currency = "USD",
+                amount = remaining,
+                total = cap,
+                label = window?.first ?: "Key limit",
+                resetsAt = window?.second,
+            ),
+        )
     }
+
+    /**
+     * A key limit's period label and the next boundary strictly after [nowMs], or null for
+     * `limit_reset == null` (a lifetime cap) and for a value this app does not know — no reset is
+     * invented. The boundaries are OpenRouter's: daily 00:00 UTC, weekly Monday 00:00 UTC,
+     * monthly on the first at 00:00 UTC.
+     */
+    private fun keyLimitWindow(limitReset: String?, nowMs: Long): Pair<String, Long>? = when (limitReset) {
+        "daily" -> "Daily key limit" to nextUtcBoundary(nowMs) { it.plusDays(1) }
+        "weekly" -> "Weekly key limit" to
+            nextUtcBoundary(nowMs) { it.with(TemporalAdjusters.next(DayOfWeek.MONDAY)) }
+        "monthly" -> "Monthly key limit" to nextUtcBoundary(nowMs) { it.withDayOfMonth(1).plusMonths(1) }
+        else -> null
+    }
+
+    private fun nextUtcBoundary(nowMs: Long, next: (LocalDate) -> LocalDate): Long =
+        next(Instant.ofEpochMilli(nowMs).atZone(ZoneOffset.UTC).toLocalDate())
+            .atStartOfDay(ZoneOffset.UTC)
+            .toInstant()
+            .toEpochMilli()
 }
 
 object DeepSeekCreditParser {
@@ -161,5 +215,124 @@ object NovitaCreditParser {
         val units = CreditJson.decimal(payload, "availableBalance")
             ?: throw CreditError.Malformed("novita balance has no availableBalance")
         return listOf(CreditBalance("USD", units.movePointLeft(4)))
+    }
+}
+
+object TokenRouterCreditParser {
+
+    /**
+     * The management wallet. Available is the remaining topped-up balance plus the vouchers that
+     * are still valid; no cap is documented, so the row draws no bar. The two spent figures ride
+     * on the label only and never derive a share. Currency is USD, assumed: the docs name none.
+     * A spend figure the wallet omits drops the label rather than the balance, and a missing
+     * topped-up balance or voucher figure is a failed read, never a zero.
+     */
+    fun parse(payload: JsonObject): List<CreditBalance> {
+        val data = JsonSupport.obj(payload, "data")
+            ?: throw CreditError.Unavailable("tokenrouter wallet has no data")
+        val topUp = CreditJson.decimal(data, "topUpBalance")
+            ?: throw CreditError.Malformed("tokenrouter wallet has no topUpBalance")
+        val vouchers = CreditJson.decimal(data, "voucherEfficientAmount")
+            ?: throw CreditError.Malformed("tokenrouter wallet has no voucherEfficientAmount")
+        val spentTopUp = CreditJson.decimal(data, "toppedUpSpent")
+        val spentVouchers = CreditJson.decimal(data, "voucherSpent")
+        val label = if (spentTopUp != null && spentVouchers != null) {
+            "Spent: ${spentTopUp.toPlainString()} top-up, ${spentVouchers.toPlainString()} vouchers"
+        } else {
+            null
+        }
+        return listOf(CreditBalance("USD", topUp + vouchers, label = label))
+    }
+}
+
+object OllamaCreditParser {
+
+    /**
+     * The purchased balance from `GET /api/balance`: unexpired prepaid credits in USD, which the
+     * doc states as a JSON number. No cap is documented, so the row draws no bar. A payload
+     * without the `purchased` block is a failed read, never a zero balance — a plan that has no
+     * prepaid credit says so with `balance_usd: 0`, which is a different answer.
+     */
+    fun parse(payload: JsonObject): List<CreditBalance> {
+        val purchased = JsonSupport.obj(payload, "purchased")
+            ?: throw CreditError.Malformed("ollama balance has no purchased block")
+        val balance = CreditJson.decimal(purchased, "balance_usd")
+            ?: throw CreditError.Malformed("ollama purchased has no balance_usd")
+        return listOf(CreditBalance("USD", balance, label = "Purchased"))
+    }
+}
+
+object VercelCreditParser {
+
+    /**
+     * The gateway states every figure as a decimal **string**, so a JSON number is refused rather
+     * than rounded through a binary float. `balance` is what is left and excludes the Token Pass;
+     * `total_used` is lifetime spend and rides on the row's label. An active Token Pass becomes a
+     * second row with its reset and no bar, and one whose remainder is null adds no row at all —
+     * never a second zero.
+     */
+    fun parse(payload: JsonObject): List<CreditBalance> {
+        val balance = stringDecimal(payload, "balance")
+            ?: throw CreditError.Malformed("vercel credits has no balance")
+        val rows = mutableListOf(
+            CreditBalance(
+                currency = "USD",
+                amount = balance,
+                label = stringDecimal(payload, "total_used")?.let { "Used: ${it.toPlainString()}" },
+            ),
+        )
+        val pass = JsonSupport.obj(payload, "token_pass")
+        stringDecimal(pass, "remaining")?.let { remaining ->
+            rows += CreditBalance(
+                currency = "USD",
+                amount = remaining,
+                label = "Token Pass",
+                resetsAt = Instants.parse(JsonSupport.string(pass, "resets_at")),
+            )
+        }
+        return rows
+    }
+
+    /**
+     * A figure the provider states as a decimal string, or null when it states none. A JSON number
+     * (or any other type) is a payload this app does not read: returning null would hide it, and
+     * reading it as a float would lose digits.
+     */
+    private fun stringDecimal(source: JsonObject?, name: String): BigDecimal? {
+        val element = JsonSupport.field(source, name) ?: return null
+        val primitive = (element as? JsonPrimitive)?.takeIf { it.isString }
+            ?: throw CreditError.Malformed("vercel credits states $name as something other than a decimal string")
+        return CreditNumbers.parse(primitive.content)
+            ?: throw CreditError.Malformed("vercel credits has no readable $name")
+    }
+}
+
+object DeepInfraCreditParser {
+
+    /**
+     * The billing checklist. `stripe_balance` is signed: NEGATIVE is money left to spend and
+     * positive is money owed, so the amount is its negation. The cents reading is the spec's
+     * inference — the OpenAPI types the field `number` and states no unit — while the scoped
+     * credits name their cents outright. Each live scoped credit is one more row named after it,
+     * an expired one adds none, and `limit` is a spending cap that never becomes a balance. A
+     * checklist that is null or absent is a failed read, never a zero balance.
+     */
+    fun parse(payload: JsonObject): List<CreditBalance> {
+        val checklist = JsonSupport.obj(payload, "checklist")
+            ?: throw CreditError.Unavailable("deepinfra me returned no checklist")
+        val stripe = CreditJson.decimal(checklist, "stripe_balance")
+            ?: throw CreditError.Malformed("deepinfra checklist has no stripe_balance")
+        val rows = mutableListOf(
+            CreditBalance("USD", stripe.negate().movePointLeft(2), label = "Prepaid balance"),
+        )
+        for (element in JsonSupport.array(checklist, "scoped_credits")) {
+            val credit = element as? JsonObject
+                ?: throw CreditError.Malformed("deepinfra scoped_credits holds a non-object")
+            if (JsonSupport.boolean(credit, "expired") == true) continue
+            val remaining = CreditJson.decimal(credit, "remaining_cents")
+                ?: throw CreditError.Malformed("deepinfra scoped credit has no remaining_cents")
+            rows += CreditBalance("USD", remaining.movePointLeft(2), label = JsonSupport.string(credit, "name"))
+        }
+        return rows
     }
 }

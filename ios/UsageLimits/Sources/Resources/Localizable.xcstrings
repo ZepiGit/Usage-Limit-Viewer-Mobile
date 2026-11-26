@@ -1118,6 +1118,17 @@
         }
       }
     },
+    "China (minimaxi.com)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "China (minimaxi.com)"
+          }
+        }
+      }
+    },
     "China (moonshot.cn, CNY)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1417,6 +1428,17 @@
         }
       }
     },
+    "Daily key limit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tägliches Schlüssellimit"
+          }
+        }
+      }
+    },
     "Dark" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1667,6 +1689,17 @@
         }
       }
     },
+    "Included allowance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inklusivkontingent"
+          }
+        }
+      }
+    },
     "International (kimi.ai)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1685,6 +1718,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "International (moonshot.ai, USD)"
+          }
+        }
+      }
+    },
+    "International (minimax.io)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "International (minimax.io)"
           }
         }
       }
@@ -1968,6 +2012,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Monatlich"
+          }
+        }
+      }
+    },
+    "Monthly key limit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Monatliches Schlüssellimit"
           }
         }
       }
@@ -2587,6 +2642,28 @@
         }
       }
     },
+    "Prepaid balance" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prepaid-Guthaben"
+          }
+        }
+      }
+    },
+    "Purchased" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gekauft"
+          }
+        }
+      }
+    },
     "Preview" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2949,6 +3026,17 @@
         }
       }
     },
+    "Session" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sitzung"
+          }
+        }
+      }
+    },
     "Settings" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3148,6 +3236,17 @@
         }
       }
     },
+    "Spent: %@ top-up, %@ vouchers" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgegeben: %@ Aufladung, %@ Gutscheine"
+          }
+        }
+      }
+    },
     "Stale" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3159,13 +3258,35 @@
         }
       }
     },
-    "Team id (only if the key is not team-scoped)" : {
+    "Team id" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Team-ID (nur, wenn der Schlüssel nicht an ein Team gebunden ist)"
+            "value" : "Team-ID"
+          }
+        }
+      }
+    },
+    "Only needed when the key is not tied to one team." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur nötig, wenn der Schlüssel nicht an ein Team gebunden ist."
+          }
+        }
+      }
+    },
+    "Optional. Your Vercel team ID, needed when the key or token covers several teams." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Optional. Deine Vercel-Team-ID, nötig, wenn der Schlüssel oder das Token mehrere Teams umfasst."
           }
         }
       }
@@ -3408,6 +3529,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dieser xAI-Schlüssel gehört nicht zu einem einzelnen Team. Gib die Team-ID aus console.x.ai ein."
+          }
+        }
+      }
+    },
+    "Token Pass" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Token Pass"
+          }
+        }
+      }
+    },
+    "Used: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbraucht: %@"
+          }
+        }
+      }
+    },
+    "Vercel refused this key (HTTP 403). Enter the team id the key belongs to." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vercel hat diesen Schlüssel abgelehnt (HTTP 403). Gib die Team-ID ein, zu der der Schlüssel gehört."
+          }
+        }
+      }
+    },
+    "This key lacks the account:read scope." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesem Schlüssel fehlt die Berechtigung account:read."
           }
         }
       }
@@ -3732,6 +3897,17 @@
         }
       }
     },
+    "Weekly key limit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wöchentliches Schlüssellimit"
+          }
+        }
+      }
+    },
     "One subscription as a ring, with its reset time. Left or used follows Settings › Display." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4035,6 +4211,58 @@
           }
         }
       }
+    },
+    "AI Gateway API key (vck_…) or a Vercel access token." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AI-Gateway-API-Schlüssel (vck_…) oder ein Vercel-Zugriffstoken."
+          }
+        }
+      }
+    },
+    "DeepInfra API key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DeepInfra-API-Schlüssel."
+          }
+        }
+      }
+    },
+    "Management key, not an inference key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Management-Schlüssel, kein Inferenz-Schlüssel."
+          }
+        }
+      }
+    },
+    "MiniMax Token Plan" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
+    },
+    "Ollama API key (ollama.com/settings/keys)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ollama-API-Schlüssel (ollama.com/settings/keys)."
+          }
+        }
+      }
+    },
+    "Ollama Cloud" : {
+      "extractionState" : "manual",
+      "shouldTranslate" : false
     }
   },
   "version" : "1.0"

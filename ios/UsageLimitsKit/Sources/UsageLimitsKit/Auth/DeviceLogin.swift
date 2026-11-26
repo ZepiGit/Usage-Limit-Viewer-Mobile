@@ -746,7 +746,7 @@ public enum DeviceLoginSupport {
     public static func style(for provider: ProviderID) -> LoginStyle {
         switch provider {
         case .xai, .kimi, .meta: return .deviceCode
-        case .zai, .opencode: return .pastedKey
+        case .zai, .opencode, .ollama, .minimax: return .pastedKey
         // Codex runs the CLI's own browser flow on its registered redirect; the device flow
         // is kept as the fallback the app switches to when that port is taken.
         case .codex, .claude, .antigravity, .devin: return .loopbackRedirect

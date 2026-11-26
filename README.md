@@ -53,11 +53,11 @@ Five home-screen styles, each able to show all accounts, one service, one accoun
 
 ## Services
 
-Nine subscriptions and six prepaid credit APIs, on both Android and iOS.
+Eleven subscriptions and ten prepaid credit APIs, on both Android and iOS.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/10-providers-dark.png">
-  <img src="docs/images/readme/10-providers-light.png" width="880" alt="Icons and names of the nine supported subscriptions with what the app reads, and the six prepaid credit APIs.">
+  <img src="docs/images/readme/10-providers-light.png" width="880" alt="Icons and names of the supported subscriptions with what the app reads, and the prepaid credit APIs.">
 </picture>
 
 ## Appearance

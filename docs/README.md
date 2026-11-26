@@ -24,6 +24,8 @@ One guide per provider, with the sign-in flow, the payload shape and the limits 
 [Devin](providers/devin.md) ·
 [Kimi](providers/kimi.md) ·
 [Meta Muse](providers/meta.md) ·
+[MiniMax Token Plan](providers/minimax.md) ·
+[Ollama Cloud](providers/ollama.md) ·
 [OpenCode Go](providers/opencode.md) ·
 [xAI](providers/xai.md) ·
 [Z.ai](providers/zai.md)

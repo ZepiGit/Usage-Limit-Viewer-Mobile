@@ -130,6 +130,30 @@ class CreditAccountServiceTest {
         assertEquals(2, repository.accounts().size)
     }
 
+    @Test fun `a vercel account without a team id asks no other host and stores none`() = runBlocking {
+        val seen = mutableListOf<RecordedRequest>()
+        val added = service(200 to """{"balance":"95.50","total_used":"4.50"}""", seen = seen)
+            .add(CreditProviderId.VERCEL_AI_GATEWAY, "vck-abc")
+
+        assertNull(added.teamId)
+        // The key itself names the team: no validation call, and certainly not one to x.ai.
+        assertEquals(listOf("https://ai-gateway.vercel.sh/v1/credits"), seen.map { it.request.url.toString() })
+        assertEquals("Bearer vck-abc", seen[0].request.header("Authorization"))
+        assertEquals(0, BigDecimal("95.50").compareTo(repository.snapshot(added.id)!!.balances[0].amount))
+    }
+
+    @Test fun `a typed vercel team id is stored and sent as a query parameter`() = runBlocking {
+        val seen = mutableListOf<RecordedRequest>()
+        val added = service(200 to """{"balance":"95.50","total_used":"4.50"}""", seen = seen)
+            .add(CreditProviderId.VERCEL_AI_GATEWAY, "vck-abc", teamId = " team/1 ")
+
+        assertEquals("team/1", added.teamId)
+        assertEquals(
+            listOf("https://ai-gateway.vercel.sh/v1/credits?teamId=team%2F1"),
+            seen.map { it.request.url.toString() },
+        )
+    }
+
     @Test fun `editing the threshold keeps the balance and removing deletes the key first`() = runBlocking {
         val added = service(200 to """{"credits":{"current_balance":8,"currency":"USD"}}""").add(CreditProviderId.FAL, "fk")
         val svc = service()

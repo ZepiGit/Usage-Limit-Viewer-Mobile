@@ -260,6 +260,217 @@ final class RegionalProvidersTests: XCTestCase {
         XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer ock")
     }
 
+    // MARK: - Ollama Cloud
+
+    static let ollama = #"""
+    {"included":{"balance_usd":72.5,"allowance_usd":100,
+     "period":{"from":"2026-09-15T09:30:00Z","until":"2026-10-15T09:30:00Z"}},
+     "purchased":{"balance_usd":25}}
+    """#
+
+    func testOllamaIncludedAllowance() {
+        let windows = OllamaUsageParser.parse(payload(Self.ollama))
+        XCTAssertEqual(windows.map(\.id), ["included"])
+        XCTAssertEqual(windows.map(\.label), ["Included allowance"])
+        XCTAssertEqual(windows.map(\.category), [.other])
+        XCTAssertEqual(windows[0].usedPercent ?? -1, 27.5, accuracy: 1e-9)
+        XCTAssertEqual(windows[0].resetAt, JSONSupport.date("2026-10-15T09:30:00Z"))
+        XCTAssertNil(windows[0].periodSeconds, "the doc states no duration for the included period")
+        XCTAssertFalse(windows[0].exhausted)
+    }
+
+    func testOllamaLegacyLimitsReadRemainingPercentAsUsed() {
+        let windows = OllamaUsageParser.parse(payload(#"""
+        {"included":{"session":{"remaining_percent":75,"resets_at":"2026-10-01T07:00:00Z"},
+         "weekly":{"remaining_percent":40,"resets_at":"2026-10-05T00:00:00Z"}}}
+        """#))
+        XCTAssertEqual(windows.map(\.id), ["session", "weekly"])
+        XCTAssertEqual(windows.map(\.label), ["Session", "Weekly"])
+        XCTAssertEqual(windows.map(\.category), [.other, .weekly])
+        XCTAssertEqual(windows.map { $0.usedPercent ?? -1 }, [25, 60])
+        XCTAssertEqual(windows.map(\.periodSeconds), [nil, 7 * 86_400 as Int64])
+    }
+
+    func testOllamaOmittedBlocksInventNothing() {
+        XCTAssertTrue(OllamaUsageParser.parse(payload(#"{"purchased":{"balance_usd":12.5}}"#)).isEmpty)
+        XCTAssertTrue(
+            OllamaUsageParser.parse(payload(#"{"included":{"balance_usd":0,"allowance_usd":0}}"#)).isEmpty)
+        let noPeriod = OllamaUsageParser.parse(
+            payload(#"{"included":{"balance_usd":90,"allowance_usd":100,"period":null}}"#))
+        XCTAssertEqual(noPeriod.count, 1)
+        XCTAssertEqual(noPeriod[0].usedPercent ?? -1, 10, accuracy: 1e-9)
+        XCTAssertNil(noPeriod[0].resetAt)
+        let unknown = OllamaUsageParser.parse(payload(#"{"included":{"session":{"remaining_percent":120}}}"#))
+        XCTAssertEqual(unknown.count, 1)
+        XCTAssertNil(unknown[0].usedPercent)
+        XCTAssertFalse(unknown[0].exhausted)
+    }
+
+    func testOllamaIncludedShareIsComputedInDecimalsNotBinaryFloats() {
+        // As a Double, 0.3 - 0.1 is 0.19999999999999998, and the share then reads
+        // 66.66666666666667 used. In decimals it is 0.2 over 0.3: 66.666667 at six places with
+        // bankers rounding, the scale and rounding Android's parser uses.
+        let windows = OllamaUsageParser.parse(
+            payload(#"{"included":{"balance_usd":0.1,"allowance_usd":0.3}}"#))
+        XCTAssertEqual(windows.count, 1)
+        XCTAssertEqual(windows[0].usedPercent ?? -1, 66.666667, accuracy: 1e-9)
+    }
+
+    func testOllamaClientSendsBearerKeyToTheBalanceRoute() async throws {
+        let (http, transport) = client([(200, Self.ollama)])
+        let result = try await OllamaClient(httpClient: http)
+            .fetchUsage(credentials: OAuthCredentials(accessToken: "ollk"), attributes: [:])
+        XCTAssertEqual(result.windows.count, 1)
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.url?.absoluteString, "https://ollama.com/api/balance")
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer ollk")
+
+        // A body with neither block is not this endpoint's answer.
+        let (empty, _) = client([(200, "{}")])
+        do {
+            _ = try await OllamaClient(httpClient: empty)
+                .fetchUsage(credentials: OAuthCredentials(accessToken: "ollk"), attributes: [:])
+            XCTFail("expected a malformed payload")
+        } catch {
+            guard case ProviderError.malformedPayload = error else {
+                return XCTFail("expected malformedPayload, got \(error)")
+            }
+        }
+
+        // A rejected key is unauthorised, never an account without limits.
+        let (rejected, _) = client([(401, #"{"error":"invalid credentials"}"#)])
+        do {
+            _ = try await OllamaClient(httpClient: rejected)
+                .fetchUsage(credentials: OAuthCredentials(accessToken: "bad"), attributes: [:])
+            XCTFail("expected unauthorised")
+        } catch {
+            guard case ProviderError.unauthorised = error else {
+                return XCTFail("expected unauthorised, got \(error)")
+            }
+        }
+    }
+
+    // MARK: - MiniMax Token Plan
+
+    static let minimax = #"""
+    {"base_resp":{"status_code":0,"status_msg":"success"},"model_remains":[
+      {"model_name":"general","start_time":1767225600000,"end_time":1767243600000,
+       "current_interval_total_count":100,"current_interval_usage_count":40,
+       "current_interval_status":1,"current_weekly_total_count":1000,
+       "current_weekly_usage_count":250,"current_weekly_status":1,
+       "weekly_start_time":1767225600000,"weekly_end_time":1767830400000}
+    ]}
+    """#
+
+    func testMiniMaxHostsRegionsAndLabels() {
+        XCTAssertEqual(ProviderEndpoints.MiniMax.usageEndpoint(.intl), "https://www.minimax.io/v1/token_plan/remains")
+        XCTAssertEqual(ProviderEndpoints.MiniMax.usageEndpoint(.cn), "https://www.minimaxi.com/v1/token_plan/remains")
+        XCTAssertEqual(ProviderEndpoints.consoleURL(for: .minimax, region: .intl), "https://platform.minimax.io")
+        XCTAssertEqual(ProviderEndpoints.consoleURL(for: .minimax, region: .cn), "https://platform.minimaxi.com")
+        XCTAssertEqual(ProviderRegion.options(for: .minimax), [.intl, .cn])
+        XCTAssertEqual(ProviderRegion.defaultRegion(for: .minimax), .intl)
+        XCTAssertEqual(ProviderRegion.intl.label(for: .minimax), "International (minimax.io)")
+        XCTAssertEqual(ProviderRegion.cn.label(for: .minimax), "China (minimaxi.com)")
+        // A MiniMax credential is region-bound exactly like Kimi's.
+        let bare = OAuthCredentials(accessToken: "k")
+        XCTAssertEqual(ProviderRegion.stored(provider: .minimax, credentials: bare), .intl)
+        XCTAssertEqual(ProviderRegion.stored(provider: .minimax, credentials: bare, attributes: ["region": "cn"]), .cn)
+    }
+
+    func testMiniMaxWindowsPerModel() {
+        let windows = MiniMaxUsageParser.parse(payload(Self.minimax))
+        XCTAssertEqual(windows.map(\.id), ["general:5h", "general:weekly"])
+        XCTAssertEqual(windows.map(\.label), ["general · 5-hour", "general · Weekly"])
+        XCTAssertEqual(windows.map(\.category), [.fiveHour, .weekly])
+        XCTAssertEqual(windows.map(\.periodSeconds), [18_000, 604_800])
+        XCTAssertEqual(windows.map(\.scope), [.model, .model])
+        // Counts are what REMAINS until a percentage says otherwise: 40 of 100 spent 60.
+        XCTAssertEqual(windows[0].usedPercent ?? -1, 60, accuracy: 1e-9)
+        XCTAssertEqual(windows[1].usedPercent ?? -1, 75, accuracy: 1e-9)
+        XCTAssertEqual(windows[0].resetAt, JSONSupport.date(epoch: 1_767_243_600_000))
+        XCTAssertEqual(windows[1].resetAt, JSONSupport.date(epoch: 1_767_830_400_000))
+    }
+
+    func testMiniMaxInvertedCountAndStatuses() {
+        // The percentage says only 10 % remains, so the count is a consumed one: 90 % used.
+        let flipped = MiniMaxUsageParser.parse(payload(
+            #"{"model_remains":[{"model_name":"g","current_interval_total_count":100,"current_interval_usage_count":90,"current_interval_remaining_percent":10}]}"#))
+        XCTAssertEqual(flipped[0].usedPercent ?? -1, 90, accuracy: 1e-9)
+
+        let statuses = MiniMaxUsageParser.parse(payload(#"""
+        {"model_remains":[
+          {"model_name":"spent","current_interval_total_count":100,"current_interval_usage_count":0,"current_interval_status":2,
+           "current_weekly_total_count":0},
+          {"model_name":"unlimited","current_interval_total_count":100,"current_interval_usage_count":100,"current_interval_status":3,
+           "current_weekly_total_count":500,"current_weekly_usage_count":500,"current_weekly_status":3}]}
+        """#))
+        XCTAssertEqual(statuses.map(\.id), ["spent:5h", "unlimited:5h"])
+        XCTAssertEqual(statuses[0].usedPercent ?? -1, 100, accuracy: 1e-9)
+        XCTAssertTrue(statuses[0].exhausted)
+        XCTAssertNil(statuses[1].usedPercent)
+        XCTAssertFalse(statuses[1].exhausted)
+    }
+
+    func testMiniMaxClientFollowsTheRegionAndTheEnvelope() async throws {
+        let (http, transport) = client([(200, Self.minimax)])
+        let minimax = MiniMaxClient(httpClient: http)
+        let result = try await minimax.fetchUsage(
+            credentials: OAuthCredentials(accessToken: "mmk", providerData: ["region": "cn"]), attributes: [:])
+        XCTAssertEqual(result.windows.count, 2)
+        let request = await transport.requests.first
+        XCTAssertEqual(request?.url?.absoluteString, "https://www.minimaxi.com/v1/token_plan/remains")
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Authorization"), "Bearer mmk")
+
+        // No stored region is the international service.
+        let (intlHTTP, intlTransport) = client([(200, Self.minimax)])
+        _ = try await MiniMaxClient(httpClient: intlHTTP)
+            .fetchUsage(credentials: OAuthCredentials(accessToken: "mmk"), attributes: [:])
+        let intlRequest = await intlTransport.requests.first
+        XCTAssertEqual(intlRequest?.url?.absoluteString, "https://www.minimax.io/v1/token_plan/remains")
+
+        // A 200 carrying base_resp 1004 is a rejected key, not a plan without windows.
+        let (rejected, _) = client([(200, #"{"base_resp":{"status_code":1004,"status_msg":"login fail"}}"#)])
+        do {
+            _ = try await MiniMaxClient(httpClient: rejected)
+                .fetchUsage(credentials: OAuthCredentials(accessToken: "bad"), attributes: [:])
+            XCTFail("expected unauthorised")
+        } catch {
+            guard case ProviderError.unauthorised = error else {
+                return XCTFail("expected unauthorised, got \(error)")
+            }
+        }
+
+        // Any other envelope code, or a body without model_remains, is unreadable, never empty.
+        for body in [#"{"base_resp":{"status_code":2013}}"#, #"{"base_resp":{"status_code":0}}"#] {
+            let (broken, _) = client([(200, body)])
+            do {
+                _ = try await MiniMaxClient(httpClient: broken)
+                    .fetchUsage(credentials: OAuthCredentials(accessToken: "mmk"), attributes: [:])
+                XCTFail("expected a malformed payload for \(body)")
+            } catch {
+                guard case ProviderError.malformedPayload = error else {
+                    return XCTFail("expected malformedPayload, got \(error)")
+                }
+            }
+        }
+    }
+
+    func testMiniMaxKeyIsStoredWithItsRegionAndNamespacedInChina() async throws {
+        let (subject, store) = container([(200, Self.minimax)])
+        let abroad = try await subject.completePastedKeyLogin(provider: .minimax, key: " mm-same ")
+        XCTAssertEqual(abroad.attributes["region"], "intl")
+        XCTAssertEqual(abroad.externalAccountID, UsageLimitsContainer.pastedKeyIdentity("mm-same"))
+
+        let china = try await subject.completePastedKeyLogin(provider: .minimax, key: "mm-same", region: .cn)
+        XCTAssertEqual(china.attributes["region"], "cn")
+        XCTAssertEqual(china.externalAccountID,
+                       "cn:" + UsageLimitsContainer.pastedKeyIdentity("mm-same"))
+        let saved = try await store.load(reference: china.credentialReference)
+        XCTAssertEqual(saved?.providerData["region"], "cn")
+        let accounts = await subject.usage()
+        XCTAssertEqual(accounts.count, 2)
+    }
+
     // MARK: - Adding accounts
 
     private var directory: URL!

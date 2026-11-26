@@ -808,6 +808,44 @@ public struct ZaiClient: SyncProvider, Sendable {
     public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
 }
 
+/// Ollama Cloud, reached with an API key the user pasted. The response names no user, so the
+/// account is filed under a digest of the key. The same call is the Credit Viewer's Ollama
+/// source: `purchased.balance_usd` is money and `included` is what this client reports.
+/// See docs.ollama.com/api/balance.
+public struct OllamaClient: SyncProvider, Sendable {
+    public let providerID = "ollama"
+
+    let httpClient: UsageHTTPClient
+
+    public init(httpClient: UsageHTTPClient) {
+        self.httpClient = httpClient
+    }
+
+    public func fetchUsage(
+        credentials: OAuthCredentials,
+        attributes: [String: String]
+    ) async throws -> UsageResult {
+        let response = try await ProviderHTTP.request(
+            httpClient,
+            url: ProviderEndpoints.Ollama.balanceEndpoint,
+            headers: [
+                "Authorization": "Bearer \(credentials.accessToken)",
+                "Accept": "application/json",
+            ],
+            endpoint: "ollama balance")
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "ollama balance")
+        // The documented response states both blocks; a body with neither is not this
+        // endpoint's answer and must not read as "this plan has no limits".
+        guard payload["included"] is [String: Any] || payload["purchased"] is [String: Any] else {
+            throw ProviderError.malformedPayload("ollama balance has neither included nor purchased")
+        }
+        return UsageResult(windows: OllamaUsageParser.parse(payload))
+    }
+
+    /// A key has no refresh grant.
+    public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
+}
+
 /// OpenCode Go, reached with an API key the user pasted. The response names no user, so the
 /// account is filed under a digest of the key. See docs/providers/opencode.md.
 public struct OpenCodeClient: SyncProvider, Sendable {
@@ -840,4 +878,60 @@ public struct OpenCodeClient: SyncProvider, Sendable {
 
     /// A key has no refresh grant.
     public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
+}
+
+/// MiniMax Token Plan, reached with a plan key the user pasted. The response names no user, so the
+/// account is filed under a digest of the key, and the key is region-bound: a key minted on the
+/// international platform answers only on minimax.io, a China key only on minimaxi.com.
+///
+/// A business error arrives as HTTP 200 with `base_resp.status_code != 0`, which is why the
+/// envelope is read here rather than trusting the status code.
+public struct MiniMaxClient: SyncProvider, Sendable {
+    public let providerID = "minimax"
+
+    let httpClient: UsageHTTPClient
+
+    public init(httpClient: UsageHTTPClient) {
+        self.httpClient = httpClient
+    }
+
+    public func fetchUsage(
+        credentials: OAuthCredentials,
+        attributes: [String: String]
+    ) async throws -> UsageResult {
+        let region = ProviderRegion.stored(provider: .minimax, credentials: credentials, attributes: attributes)
+        let response = try await ProviderHTTP.request(
+            httpClient,
+            url: ProviderEndpoints.MiniMax.usageEndpoint(region),
+            // Only the user's own key, under the auth header the CLI uses. No client identity is
+            // sent: the CLI's `User-Agent: mmx-cli/<version>` is deliberately not copied.
+            headers: [
+                "Authorization": "Bearer \(credentials.accessToken)",
+                "Accept": "application/json",
+            ],
+            endpoint: "minimax token plan")
+        let payload = try ProviderHTTP.decodeObject(response.body, endpoint: "minimax token plan")
+        try Self.checkEnvelope(payload)
+        // A body without `model_remains` is not this endpoint's answer and must not read as
+        // "this plan has no limits".
+        guard payload["model_remains"] is [Any] else {
+            throw ProviderError.malformedPayload("minimax token plan has no model_remains")
+        }
+        return UsageResult(windows: MiniMaxUsageParser.parse(payload))
+    }
+
+    /// A key has no refresh grant.
+    public func refresh(credentials: OAuthCredentials) async throws -> OAuthCredentials { credentials }
+
+    /// MiniMax's envelope carries its own status on an HTTP 200.
+    ///
+    /// 1004 is the rejected-key code the unauthenticated probe received; every other non-zero code
+    /// is a failure this parser knows nothing about, so it stays unknown rather than empty.
+    static func checkEnvelope(_ payload: [String: Any]) throws {
+        let envelope = JSONSupport.object(payload, "base_resp")
+        guard let code = JSONSupport.int64(envelope, "status_code"), code != 0 else { return }
+        if code == 1004 { throw ProviderError.unauthorised }
+        let message = JSONSupport.string(envelope, "status_msg") ?? "no message"
+        throw ProviderError.malformedPayload("minimax base_resp \(code): \(message)")
+    }
 }

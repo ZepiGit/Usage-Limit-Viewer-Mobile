@@ -183,6 +183,8 @@
     <string name="window_label_five_hour">5h limit</string>
     <string name="window_label_weekly">Weekly</string>
     <string name="window_label_monthly">Monthly</string>
+    <string name="window_label_session">Session</string>
+    <string name="window_label_included_allowance">Included allowance</string>
     <string name="usage_segment_legend">%1$s usage: %2$s</string>
     <string name="usage_breakdown">Usage breakdown</string>
     <string name="usage_conflicting_availability">Provider reports this limit as blocked despite a positive remaining value.</string>
@@ -346,7 +348,9 @@
     <string name="credit_connect_title">Connect %1$s</string>
     <string name="credit_region_hint">Keys only work on the service they were issued by. Pick the one your account is on.</string>
     <string name="credit_name_label">Name (optional)</string>
-    <string name="credit_team_label">Team id (only if the key is not tied to one team)</string>
+    <string name="credit_team_label">Team id</string>
+    <string name="credit_team_hint_xai">Only needed when the key is not tied to one team.</string>
+    <string name="credit_team_hint_vercel">Optional. Your Vercel team ID, needed when the key or token covers several teams.</string>
     <string name="credit_threshold_label">Low-balance figure (optional)</string>
     <string name="credit_threshold_supporting">Default 5, or 35 for CNY. Below it the balance reads low.</string>
     <string name="credit_checking">Checking…</string>
@@ -500,6 +504,10 @@
     <string name="credit_key_hint_xai">xAI management key (console.x.ai, Settings, Management Keys), not an inference key.</string>
     <string name="credit_key_hint_fal">fal key with the billing:usage:read scope (the BILLING preset), not an inference key.</string>
     <string name="credit_key_hint_novita">Novita API key.</string>
+    <string name="credit_key_hint_vercel">AI Gateway API key (vck_…) or a Vercel access token.</string>
+    <string name="credit_key_hint_deepinfra">DeepInfra API key.</string>
+    <string name="credit_key_hint_tokenrouter">Management key, not an inference key.</string>
+    <string name="credit_key_hint_ollama">Ollama API key (ollama.com/settings/keys).</string>
     <string name="credit_region_china">China (moonshot.cn, CNY)</string>
     <string name="credit_region_international">International (moonshot.ai, USD)</string>
     <string name="credit_unavailable_no_balance_endpoint">No balance endpoint for API keys</string>
@@ -507,17 +515,31 @@
     <string name="region_kimi_international">International (kimi.ai)</string>
     <string name="region_zai_china">China (bigmodel.cn)</string>
     <string name="region_zai_international">International (z.ai)</string>
+    <string name="region_minimax_china">China (minimaxi.com)</string>
+    <string name="region_minimax_international">International (minimax.io)</string>
     <string name="add_api_key_hint_zai">Create a key in your Z.ai console and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
     <string name="add_api_key_hint_kimi">Create a key in your Kimi Code console and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
     <string name="add_api_key_hint_opencode">Create an OpenCode Go key in your OpenCode console and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
+    <string name="add_api_key_hint_ollama">Create a key in your Ollama account (ollama.com/settings/keys) and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
+    <string name="add_api_key_hint_minimax">Create a MiniMax key in your MiniMax console and paste it here. It is stored on this device only, in the same encrypted store as every other account.</string>
     <string name="credit_balance_key_limit">Key limit</string>
+    <string name="credit_balance_daily_key_limit">Daily key limit</string>
+    <string name="credit_balance_weekly_key_limit">Weekly key limit</string>
+    <string name="credit_balance_monthly_key_limit">Monthly key limit</string>
     <string name="credit_balance_no_limit">No limit</string>
     <string name="credit_balance_unavailable">Unavailable</string>
+    <string name="credit_balance_used">Used: %1$s</string>
+    <string name="credit_balance_spent">Spent: %1$s top-up, %2$s vouchers</string>
+    <string name="credit_balance_token_pass">Token Pass</string>
+    <string name="credit_balance_prepaid">Prepaid balance</string>
+    <string name="credit_balance_purchased">Purchased</string>
     <string name="credit_error_rejected">The key was rejected (HTTP %1$d). Check that it is the right kind of key.</string>
     <string name="credit_error_malformed">The provider answered in a shape this app does not understand (%1$s).</string>
     <string name="credit_error_unavailable">No balance could be read (%1$s).</string>
     <string name="credit_error_xai_no_prepaid">xAI has no prepaid balance for this team (HTTP 404). Check the team id, and that the team prepays.</string>
     <string name="credit_error_team_required">This xAI key is not tied to one team. Enter the team id from console.x.ai.</string>
+    <string name="credit_error_vercel_team">Vercel refused this key (HTTP 403). Enter the team id the key belongs to.</string>
+    <string name="credit_error_missing_scope">This key lacks the account:read scope.</string>
     <string name="credit_error_no_key">No key was entered.</string>
 
     <!-- Failure sentences the sync layer and providers store in English; recognised and translated at the display (ui/text/ModelTexts.kt). -->

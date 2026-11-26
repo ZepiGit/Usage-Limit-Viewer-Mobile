@@ -176,6 +176,8 @@
     <string name="window_label_five_hour">5‑Std.-Limit</string>
     <string name="window_label_weekly">Wöchentlich</string>
     <string name="window_label_monthly">Monatlich</string>
+    <string name="window_label_session">Sitzung</string>
+    <string name="window_label_included_allowance">Inklusivkontingent</string>
     <string name="usage_segment_legend">%1$s verbraucht: %2$s</string>
     <string name="usage_breakdown">Verbrauchsaufschlüsselung</string>
     <string name="usage_conflicting_availability">Der Anbieter meldet dieses Limit als gesperrt, obwohl noch ein positiver Restwert vorhanden ist.</string>
@@ -332,7 +334,9 @@
     <string name="credit_connect_title">%1$s verbinden</string>
     <string name="credit_region_hint">Schlüssel funktionieren nur bei dem Dienst, der sie ausgestellt hat. Wähle den, bei dem dein Konto liegt.</string>
     <string name="credit_name_label">Name (optional)</string>
-    <string name="credit_team_label">Team-ID (nur, wenn der Schlüssel nicht an ein Team gebunden ist)</string>
+    <string name="credit_team_label">Team-ID</string>
+    <string name="credit_team_hint_xai">Nur nötig, wenn der Schlüssel nicht an ein Team gebunden ist.</string>
+    <string name="credit_team_hint_vercel">Optional. Deine Vercel-Team-ID, nötig, wenn der Schlüssel oder das Token mehrere Teams umfasst.</string>
     <string name="credit_threshold_label">Warnschwelle für niedriges Guthaben (optional)</string>
     <string name="credit_threshold_supporting">Standard 5, bei CNY 35. Darunter gilt das Guthaben als niedrig.</string>
     <string name="credit_checking">Wird geprüft…</string>
@@ -484,6 +488,10 @@
     <string name="credit_key_hint_xai">xAI-Management-Schlüssel (console.x.ai, Einstellungen, Management Keys), kein Inferenz-Schlüssel.</string>
     <string name="credit_key_hint_fal">fal-Schlüssel mit dem Scope billing:usage:read (Vorlage BILLING), kein Inferenz-Schlüssel.</string>
     <string name="credit_key_hint_novita">Novita-API-Schlüssel.</string>
+    <string name="credit_key_hint_vercel">AI-Gateway-API-Schlüssel (vck_…) oder ein Vercel-Zugriffstoken.</string>
+    <string name="credit_key_hint_deepinfra">DeepInfra-API-Schlüssel.</string>
+    <string name="credit_key_hint_tokenrouter">Management-Schlüssel, kein Inferenz-Schlüssel.</string>
+    <string name="credit_key_hint_ollama">Ollama-API-Schlüssel (ollama.com/settings/keys).</string>
     <string name="credit_region_china">China (moonshot.cn, CNY)</string>
     <string name="credit_region_international">International (moonshot.ai, USD)</string>
     <string name="credit_unavailable_no_balance_endpoint">Kein Guthaben-Endpunkt für API-Schlüssel</string>
@@ -491,17 +499,31 @@
     <string name="region_kimi_international">International (kimi.ai)</string>
     <string name="region_zai_china">China (bigmodel.cn)</string>
     <string name="region_zai_international">International (z.ai)</string>
+    <string name="region_minimax_china">China (minimaxi.com)</string>
+    <string name="region_minimax_international">International (minimax.io)</string>
     <string name="add_api_key_hint_zai">Erstelle in deiner Z.ai-Konsole einen Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
     <string name="add_api_key_hint_kimi">Erstelle in deiner Kimi-Code-Konsole einen Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
     <string name="add_api_key_hint_opencode">Erstelle in deiner OpenCode-Konsole einen OpenCode-Go-Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
+    <string name="add_api_key_hint_ollama">Erstelle in deinem Ollama-Konto (ollama.com/settings/keys) einen Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
+    <string name="add_api_key_hint_minimax">Erstelle in deiner MiniMax-Konsole einen MiniMax-Schlüssel und füge ihn hier ein. Er wird nur auf diesem Gerät gespeichert, im selben verschlüsselten Speicher wie jedes andere Konto.</string>
     <string name="credit_balance_key_limit">Schlüssel-Limit</string>
+    <string name="credit_balance_daily_key_limit">Tägliches Schlüssellimit</string>
+    <string name="credit_balance_weekly_key_limit">Wöchentliches Schlüssellimit</string>
+    <string name="credit_balance_monthly_key_limit">Monatliches Schlüssellimit</string>
     <string name="credit_balance_no_limit">Kein Limit</string>
     <string name="credit_balance_unavailable">Nicht verfügbar</string>
+    <string name="credit_balance_used">Verbraucht: %1$s</string>
+    <string name="credit_balance_spent">Ausgegeben: %1$s Aufladung, %2$s Gutscheine</string>
+    <string name="credit_balance_token_pass">Token Pass</string>
+    <string name="credit_balance_prepaid">Prepaid-Guthaben</string>
+    <string name="credit_balance_purchased">Gekauft</string>
     <string name="credit_error_rejected">Der Schlüssel wurde abgelehnt (HTTP %1$d). Prüfe, ob es die richtige Art von Schlüssel ist.</string>
     <string name="credit_error_malformed">Der Anbieter hat in einem Format geantwortet, das diese App nicht versteht (%1$s).</string>
     <string name="credit_error_unavailable">Es konnte kein Guthaben gelesen werden (%1$s).</string>
     <string name="credit_error_xai_no_prepaid">xAI hat für dieses Team kein Prepaid-Guthaben (HTTP 404). Prüfe die Team-ID und ob das Team im Voraus bezahlt.</string>
     <string name="credit_error_team_required">Dieser xAI-Schlüssel gehört nicht zu einem einzelnen Team. Gib die Team-ID aus console.x.ai ein.</string>
+    <string name="credit_error_vercel_team">Vercel hat diesen Schlüssel abgelehnt (HTTP 403). Gib die Team-ID ein, zu der der Schlüssel gehört.</string>
+    <string name="credit_error_missing_scope">Diesem Schlüssel fehlt die Berechtigung account:read.</string>
     <string name="credit_error_no_key">Es wurde kein Schlüssel eingegeben.</string>
 
     <!-- Failure sentences the sync layer and providers store in English; recognised and translated at the display (ui/text/ModelTexts.kt). -->

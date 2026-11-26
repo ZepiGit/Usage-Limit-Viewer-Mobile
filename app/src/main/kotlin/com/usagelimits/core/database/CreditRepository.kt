@@ -37,6 +37,8 @@ class CreditRepository(
         val total: String? = null,
         val label: String? = null,
         val unlimited: Boolean = false,
+        /** Epoch millis; absent in rows written before it existed, which stay readable. */
+        val resetsAt: Long? = null,
     )
 
     fun observeEntries(): Flow<List<CreditEntry>> =
@@ -143,7 +145,9 @@ class CreditRepository(
         balancesJson = json.encodeToString(
             ListSerializer(StoredBalance.serializer()),
             balances.map {
-                StoredBalance(it.currency, it.amount.toPlainString(), it.total?.toPlainString(), it.label, it.unlimited)
+                StoredBalance(
+                    it.currency, it.amount.toPlainString(), it.total?.toPlainString(), it.label, it.unlimited, it.resetsAt,
+                )
             },
         ),
         fetchedAt = fetchedAt,
@@ -162,6 +166,7 @@ class CreditRepository(
                     total = it.total?.let(CreditNumbers::parse),
                     label = it.label,
                     unlimited = it.unlimited,
+                    resetsAt = it.resetsAt,
                 )
             }
         }.getOrDefault(emptyList()),

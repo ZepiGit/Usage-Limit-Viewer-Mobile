@@ -14,6 +14,10 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
     case xai
     case fal
     case novita
+    case vercelAiGateway = "vercel"
+    case deepinfra
+    case tokenrouter
+    case ollama
 
     public var displayName: String {
         switch self {
@@ -23,6 +27,10 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         case .xai: return "xAI (prepaid)"
         case .fal: return "fal.ai"
         case .novita: return "Novita AI"
+        case .vercelAiGateway: return "Vercel AI Gateway"
+        case .deepinfra: return "DeepInfra"
+        case .tokenrouter: return "TokenRouter"
+        case .ollama: return "Ollama Cloud"
         }
     }
 
@@ -34,6 +42,10 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         case .xai: return "CreditIconXai"
         case .fal: return "CreditIconFal"
         case .novita: return "CreditIconNovita"
+        case .vercelAiGateway: return "CreditIconVercel"
+        case .deepinfra: return "CreditIconDeepinfra"
+        case .tokenrouter: return "CreditIconTokenrouter"
+        case .ollama: return "CreditIconOllama"
         }
     }
 
@@ -46,14 +58,20 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         case .xai: return "xAI management key (console.x.ai, Settings, Management Keys), not an inference key."
         case .fal: return "fal key with the billing:usage:read scope (the BILLING preset), not an inference key."
         case .novita: return "Novita API key."
+        case .vercelAiGateway: return "AI Gateway API key (vck_…) or a Vercel access token."
+        case .deepinfra: return "DeepInfra API key."
+        case .tokenrouter: return "Management key, not an inference key."
+        case .ollama: return "Ollama API key (ollama.com/settings/keys)."
         }
     }
 
     /// Only Moonshot runs two hosts (and two currencies) that keys do not cross.
     public var hasRegion: Bool { self == .moonshot }
 
-    /// xAI needs a team id when the management key is not scoped to one team.
-    public var acceptsTeamID: Bool { self == .xai }
+    /// A provider whose call can take a team id. xAI needs one when the management key is not
+    /// scoped to a single team; Vercel's gateway key names its team already, so the id is
+    /// optional there and is only sent when the user enters one.
+    public var acceptsTeamID: Bool { self == .xai || self == .vercelAiGateway }
 
     public var consoleURL: String {
         switch self {
@@ -63,6 +81,10 @@ public enum CreditProviderID: String, CaseIterable, Sendable, Codable {
         case .xai: return "https://console.x.ai/team/default/api-keys"
         case .fal: return "https://fal.ai/dashboard/keys"
         case .novita: return "https://novita.ai/settings/key-management"
+        case .vercelAiGateway: return "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys"
+        case .deepinfra: return "https://deepinfra.com/dash/keys"
+        case .tokenrouter: return "https://tokenrouter.com"
+        case .ollama: return "https://ollama.com/settings/keys"
         }
     }
 
@@ -105,13 +127,20 @@ public struct CreditBalance: Sendable, Equatable, Codable {
     /// An uncapped OpenRouter key: there is no balance to be low on. `amount` then holds what
     /// the key spent this month and `label` is "No limit".
     public let unlimited: Bool
+    /// When the cap refills (a key limit's period boundary). Nil when the provider states no
+    /// reset, which is the lifetime cap of an OpenRouter key without `limit_reset`.
+    public let resetsAt: Date?
 
-    public init(currency: String, amount: Decimal, total: Decimal? = nil, label: String? = nil, unlimited: Bool = false) {
+    public init(
+        currency: String, amount: Decimal, total: Decimal? = nil, label: String? = nil,
+        unlimited: Bool = false, resetsAt: Date? = nil
+    ) {
         self.currency = currency
         self.amount = amount
         self.total = total
         self.label = label
         self.unlimited = unlimited
+        self.resetsAt = resetsAt
     }
 
     /// Remaining share of `total`, 0...100, or nil without a positive total.
@@ -121,7 +150,7 @@ public struct CreditBalance: Sendable, Equatable, Codable {
         return min(max(NSDecimalNumber(decimal: share).doubleValue, 0), 100)
     }
 
-    private enum CodingKeys: String, CodingKey { case currency, amount, total, label, unlimited }
+    private enum CodingKeys: String, CodingKey { case currency, amount, total, label, unlimited, resetsAt }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -134,6 +163,8 @@ public struct CreditBalance: Sendable, Equatable, Codable {
         total = try Self.decimal(c, .total)
         label = try c.decodeIfPresent(String.self, forKey: .label)
         unlimited = try c.decodeIfPresent(Bool.self, forKey: .unlimited) ?? false
+        // Absent in files written before this existed, which stay readable as "no reset".
+        resetsAt = try c.decodeIfPresent(Date.self, forKey: .resetsAt)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -143,6 +174,7 @@ public struct CreditBalance: Sendable, Equatable, Codable {
         try c.encodeIfPresent(total.map { "\($0)" }, forKey: .total)
         try c.encodeIfPresent(label, forKey: .label)
         if unlimited { try c.encode(true, forKey: .unlimited) }
+        try c.encodeIfPresent(resetsAt, forKey: .resetsAt)
     }
 
     /// A decimal string, or a bare JSON number from a hand-edited file.
@@ -188,7 +220,7 @@ public struct CreditAccount: Sendable, Equatable, Codable, Identifiable {
     public let provider: CreditProviderID
     public let label: String
     public let credentialReference: String
-    /// Non-secret extras: `region` (Moonshot), `teamId` (xAI), `lowThreshold` (decimal string).
+    /// Non-secret extras: `region` (Moonshot), `teamId` (xAI and Vercel AI Gateway), `lowThreshold`.
     public let attributes: [String: String]
     public let sortOrder: Int
     public let createdAt: Date

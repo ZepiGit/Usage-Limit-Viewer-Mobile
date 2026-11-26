@@ -10,6 +10,12 @@ public enum CreditError: Error, LocalizedError, Equatable {
     case unavailable(String)
     case rateLimited(endpoint: String, retryAfter: TimeInterval?)
     case teamIDRequired
+    /// Vercel answers 403 when the key belongs to another team. Not a broken key, and a retry
+    /// cannot help, so the sentence says what to change instead.
+    case teamDenied
+    /// DeepInfra answers 403 to a key without the `account:read` scope. The balance is closed to
+    /// this key until the scope is granted, so the sentence names the scope.
+    case missingScope
     case noKey
 
     public var errorDescription: String? {
@@ -24,6 +30,10 @@ public enum CreditError: Error, LocalizedError, Equatable {
         case .noKey: return "No key was entered."
         case .teamIDRequired:
             return "This xAI key is not tied to one team. Enter the team id from console.x.ai."
+        case .teamDenied:
+            return "Vercel refused this key (HTTP 403). Enter the team id the key belongs to."
+        case .missingScope:
+            return "This key lacks the account:read scope."
         }
     }
 }
@@ -99,7 +109,11 @@ public enum OpenRouterCreditParser {
 
     /// `/key` (any key): the key's own budget. `effective_budget` wins when it states a
     /// remainder; `limit` null means no cap, so there is no balance and the month's spend shows.
-    public static func parseKey(_ payload: [String: Any]) throws -> [CreditBalance] {
+    ///
+    /// `now` only places the next period boundary of a capped key: the payload names the period
+    /// (`limit_reset`) but never its instant. The budget row is left alone, because a budget's
+    /// scope can be a member or a workspace rather than this key.
+    public static func parseKey(_ payload: [String: Any], now: Date) throws -> [CreditBalance] {
         guard let data = JSONSupport.object(payload, "data") else {
             throw CreditError.malformed("openrouter key has no data")
         }
@@ -123,9 +137,49 @@ public enum OpenRouterCreditParser {
         guard let remaining = CreditJSON.decimal(data, "limit_remaining") else {
             throw CreditError.malformed("openrouter key has a limit but no remainder")
         }
+        let cap = CreditJSON.decimal(data, "limit")
+        let window = (cap.map { $0 > 0 } ?? false)
+            ? keyLimitWindow(JSONSupport.string(data, "limit_reset"), now: now) : nil
         return [CreditBalance(
-            currency: "USD", amount: remaining, total: CreditJSON.decimal(data, "limit"), label: "Key limit")]
+            currency: "USD", amount: remaining, total: cap,
+            label: window?.label ?? "Key limit", resetsAt: window?.resetsAt)]
     }
+
+    /// A key limit's period label and the next boundary strictly after `now`, or nil for
+    /// `limit_reset == nil` (a lifetime cap) and for a value this app does not know — no reset is
+    /// invented. The boundaries are OpenRouter's: daily 00:00 UTC, weekly Monday 00:00 UTC,
+    /// monthly on the first at 00:00 UTC.
+    private static func keyLimitWindow(
+        _ limitReset: String?, now: Date
+    ) -> (label: String, resetsAt: Date)? {
+        let calendar = utcCalendar
+        let today = calendar.startOfDay(for: now)
+        switch limitReset {
+        case "daily":
+            guard let at = calendar.date(byAdding: .day, value: 1, to: today) else { return nil }
+            return ("Daily key limit", at)
+        case "weekly":
+            // 1 is Sunday and 2 Monday in Foundation's Gregorian calendar; a Monday today means
+            // the boundary is seven days out, never today.
+            let ahead = (2 - calendar.component(.weekday, from: today) + 7) % 7
+            guard let at = calendar.date(byAdding: .day, value: ahead == 0 ? 7 : ahead, to: today) else { return nil }
+            return ("Weekly key limit", at)
+        case "monthly":
+            var parts = calendar.dateComponents([.year, .month], from: today)
+            parts.day = 1
+            guard let monthStart = calendar.date(from: parts),
+                  let at = calendar.date(byAdding: .month, value: 1, to: monthStart) else { return nil }
+            return ("Monthly key limit", at)
+        default:
+            return nil
+        }
+    }
+
+    private static let utcCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        return calendar
+    }()
 }
 
 public enum DeepSeekCreditParser {
@@ -202,5 +256,124 @@ public enum NovitaCreditParser {
             throw CreditError.malformed("novita balance has no availableBalance")
         }
         return [CreditBalance(currency: "USD", amount: units / 10_000)]
+    }
+}
+
+public enum TokenRouterCreditParser {
+
+    /// The management wallet. Available is the remaining topped-up balance plus the vouchers that
+    /// are still valid; no cap is documented, so the row draws no bar. The two spent figures ride
+    /// on the label only and never derive a share. Currency is USD, assumed: the docs name none.
+    /// A spend figure the wallet omits drops the label rather than the balance, and a missing
+    /// topped-up balance or voucher figure is a failed read, never a zero.
+    public static func parse(_ payload: [String: Any]) throws -> [CreditBalance] {
+        guard let data = JSONSupport.object(payload, "data") else {
+            throw CreditError.unavailable("tokenrouter wallet has no data")
+        }
+        guard let topUp = CreditJSON.decimal(data, "topUpBalance") else {
+            throw CreditError.malformed("tokenrouter wallet has no topUpBalance")
+        }
+        guard let vouchers = CreditJSON.decimal(data, "voucherEfficientAmount") else {
+            throw CreditError.malformed("tokenrouter wallet has no voucherEfficientAmount")
+        }
+        let spentTopUp = CreditJSON.decimal(data, "toppedUpSpent")
+        let spentVouchers = CreditJSON.decimal(data, "voucherSpent")
+        let label: String? = spentTopUp.flatMap { spent in
+            spentVouchers.map { "Spent: \(spent) top-up, \($0) vouchers" }
+        }
+        return [CreditBalance(currency: "USD", amount: topUp + vouchers, label: label)]
+    }
+}
+
+public enum OllamaCreditParser {
+
+    /// The purchased balance from `GET /api/balance`: unexpired prepaid credits in USD, which the
+    /// doc states as a JSON number. No cap is documented, so the row draws no bar. A payload
+    /// without the `purchased` block is a failed read, never a zero balance — a plan that has no
+    /// prepaid credit says so with `balance_usd: 0`, which is a different answer.
+    public static func parse(_ payload: [String: Any]) throws -> [CreditBalance] {
+        guard let purchased = JSONSupport.object(payload, "purchased") else {
+            throw CreditError.malformed("ollama balance has no purchased block")
+        }
+        guard let balance = CreditJSON.decimal(purchased, "balance_usd") else {
+            throw CreditError.malformed("ollama purchased has no balance_usd")
+        }
+        return [CreditBalance(currency: "USD", amount: balance, label: "Purchased")]
+    }
+}
+
+public enum VercelCreditParser {
+
+    /// Takes the body **text**, not the normalised object: `CreditJSON.object` quotes every JSON
+    /// number to keep its digits, which would hide the one thing the gateway's documentation says
+    /// about the figures — they are strings. A number is a payload this app refuses rather than
+    /// rounds, and only a plain `JSONSerialization` pass still knows the difference.
+    ///
+    /// `balance` is what is left and excludes the Token Pass; `total_used` is lifetime spend and
+    /// rides on the row's label. An active Token Pass becomes a second row with its reset and no
+    /// bar, and one whose remainder is null adds no row at all — never a zero.
+    public static func parse(_ body: String) throws -> [CreditBalance] {
+        guard let payload = (try? JSONSerialization.jsonObject(with: Data(body.utf8))) as? [String: Any] else {
+            throw CreditError.malformed("vercel credits did not return a JSON object")
+        }
+        guard let balance = try stringDecimal(payload, "balance") else {
+            throw CreditError.malformed("vercel credits has no balance")
+        }
+        var rows = [CreditBalance(
+            currency: "USD", amount: balance,
+            label: try stringDecimal(payload, "total_used").map { "Used: \($0)" })]
+        let pass = JSONSupport.object(payload, "token_pass")
+        if let remaining = try stringDecimal(pass, "remaining") {
+            rows.append(CreditBalance(
+                currency: "USD", amount: remaining, label: "Token Pass",
+                resetsAt: JSONSupport.date(JSONSupport.string(pass, "resets_at"))))
+        }
+        return rows
+    }
+
+    /// A figure the provider states as a decimal string, or nil when it states none. A JSON number
+    /// (or any other type) is a payload this app does not read: returning nil would hide it, and
+    /// reading it as a float would lose digits.
+    private static func stringDecimal(_ source: [String: Any]?, _ name: String) throws -> Decimal? {
+        guard let raw = JSONSupport.field(source, [name]) else { return nil }
+        guard let text = raw as? String else {
+            throw CreditError.malformed("vercel credits states \(name) as something other than a decimal string")
+        }
+        guard let figure = CreditJSON.decimal(text: text) else {
+            throw CreditError.malformed("vercel credits has no readable \(name)")
+        }
+        return figure
+    }
+}
+
+public enum DeepInfraCreditParser {
+
+    /// The billing checklist. `stripe_balance` is signed: NEGATIVE is money left to spend and
+    /// positive is money owed, so the amount is its negation. The cents reading is the spec's
+    /// inference — the OpenAPI types the field `number` and states no unit — while the scoped
+    /// credits name their cents outright. Each live scoped credit is one more row named after it,
+    /// an expired one adds none, and `limit` is a spending cap that never becomes a balance. A
+    /// checklist that is null or absent is a failed read, never a zero balance.
+    public static func parse(_ payload: [String: Any]) throws -> [CreditBalance] {
+        guard let checklist = JSONSupport.object(payload, "checklist") else {
+            throw CreditError.unavailable("deepinfra me returned no checklist")
+        }
+        guard let stripe = CreditJSON.decimal(checklist, "stripe_balance") else {
+            throw CreditError.malformed("deepinfra checklist has no stripe_balance")
+        }
+        var rows = [CreditBalance(currency: "USD", amount: -stripe / 100, label: "Prepaid balance")]
+        for element in (JSONSupport.field(checklist, ["scoped_credits"]) as? [Any]) ?? [] {
+            guard let credit = element as? [String: Any] else {
+                throw CreditError.malformed("deepinfra scoped_credits holds a non-object")
+            }
+            if JSONSupport.bool(credit, "expired") == true { continue }
+            guard let remaining = CreditJSON.decimal(credit, "remaining_cents") else {
+                throw CreditError.malformed("deepinfra scoped credit has no remaining_cents")
+            }
+            rows.append(CreditBalance(
+                currency: "USD", amount: remaining / 100,
+                label: JSONSupport.string(credit, "name")))
+        }
+        return rows
     }
 }

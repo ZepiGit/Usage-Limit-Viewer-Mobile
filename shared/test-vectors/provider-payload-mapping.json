@@ -1,0 +1,500 @@
+{
+  "description": "How each provider's documented response becomes credit rows or usage windows, and which failures stay unknown rather than zero. Every expected value was worked out by hand from the vendor's documented response, not produced by running either parser. Android (ProviderPayloadMappingVectorsTest) and iOS (ProviderPayloadMappingVectorsTests) read this file directly; one section per provider, added as each parser lands.",
+  "openrouterKeyWindow": [
+    {
+      "name": "a daily key limit reports the remaining share and resets at the next UTC midnight",
+      "status": 200,
+      "body": {"data": {"label": "sk-or-v1-a", "limit": 10, "limit_remaining": 2.5, "limit_reset": "daily", "usage_monthly": 7.5, "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "2.5", "total": "10", "usedPercent": 75, "resetAt": "2026-11-26T00:00:00Z"}]}
+    },
+    {
+      "name": "a weekly key limit resets on Monday 00:00 UTC, not the end of the UTC week on Sunday",
+      "status": 200,
+      "body": {"data": {"limit": 40, "limit_remaining": 10, "limit_reset": "weekly", "effective_budget": null}},
+      "now": "2026-11-22T23:59:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "10", "total": "40", "usedPercent": 75, "resetAt": "2026-11-23T00:00:00Z"}]}
+    },
+    {
+      "name": "a monthly key limit read on 31 December resets on 1 January of the next year",
+      "status": 200,
+      "body": {"data": {"limit": 200, "limit_remaining": 50, "limit_reset": "monthly", "effective_budget": null}},
+      "now": "2026-12-31T10:00:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "50", "total": "200", "usedPercent": 75, "resetAt": "2027-01-01T00:00:00Z"}]}
+    },
+    {
+      "name": "a null limit_reset keeps the plain Key limit row and adds no reset",
+      "status": 200,
+      "body": {"data": {"limit": 50, "limit_remaining": 40.25, "limit_reset": null, "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "40.25", "total": "50", "usedPercent": 19.5, "resetAt": null}]}
+    },
+    {
+      "name": "an unrecognised limit_reset invents no reset",
+      "status": 200,
+      "body": {"data": {"limit": 10, "limit_remaining": 5, "limit_reset": "yearly", "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "5", "total": "10", "usedPercent": 50, "resetAt": null}]}
+    },
+    {
+      "name": "a remainder above the limit clamps the used share to 0",
+      "status": 200,
+      "body": {"data": {"limit": 10, "limit_remaining": 12.5, "limit_reset": "daily", "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "12.5", "total": "10", "usedPercent": 0, "resetAt": "2026-11-26T00:00:00Z"}]}
+    },
+    {
+      "name": "a negative remainder clamps the used share to 100",
+      "status": 200,
+      "body": {"data": {"limit": 10, "limit_remaining": -2.5, "limit_reset": "monthly", "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "-2.5", "total": "10", "usedPercent": 100, "resetAt": "2026-12-01T00:00:00Z"}]}
+    },
+    {
+      "name": "a zero limit stays a plain row with no bar and no reset",
+      "status": 200,
+      "body": {"data": {"limit": 0, "limit_remaining": 5, "limit_reset": "daily", "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "5", "total": "0", "usedPercent": null, "resetAt": null}]}
+    },
+    {
+      "name": "an effective budget row is unchanged and carries no key-limit reset",
+      "status": 200,
+      "body": {"data": {"limit": 50, "limit_remaining": 40, "limit_reset": "monthly", "effective_budget": {"limit_usd": 20, "spend_usd": 5, "remaining_usd": 15, "reset_interval": "monthly", "resets_at": "2026-12-01T00:00:00.000Z"}}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"balances": [{"currency": "USD", "amount": "15", "total": "20", "usedPercent": 25, "resetAt": null}]}
+    },
+    {
+      "name": "a limit whose remainder is missing stays unknown, never a zero balance",
+      "status": 200,
+      "body": {"data": {"label": "sk-or-v1-b", "limit": 10, "limit_reset": "daily", "effective_budget": null}},
+      "now": "2026-11-25T13:45:00Z",
+      "expect": {"error": "unknown"}
+    }
+  ],
+  "vercelAiGateway": [
+    {
+      "name": "a balance and its token pass are decimal strings and become two rows, the pass carrying its reset",
+      "status": 200,
+      "body": {"balance": "95.50", "total_used": "4.50", "token_pass": {"remaining": "12.34", "resets_at": "2026-12-01T00:00:00.000Z"}},
+      "expect": {"balances": [
+        {"currency": "USD", "amount": "95.50", "total": null},
+        {"currency": "USD", "amount": "12.34", "total": null, "resetAt": "2026-12-01T00:00:00Z"}
+      ]}
+    },
+    {
+      "name": "a null token pass leaves the single balance row",
+      "status": 200,
+      "body": {"balance": "95.50", "total_used": "4.50", "token_pass": null},
+      "expect": {"balances": [{"currency": "USD", "amount": "95.50", "total": null}]}
+    },
+    {
+      "name": "a token pass whose remaining is null adds no row and never a zero",
+      "status": 200,
+      "body": {"balance": "95.50", "total_used": "4.50", "token_pass": {"remaining": null, "resets_at": "2026-12-01T00:00:00.000Z"}},
+      "expect": {"balances": [{"currency": "USD", "amount": "95.50", "total": null}]}
+    },
+    {
+      "name": "an exhausted balance is a real zero and a missing total_used only drops the used figure",
+      "status": 200,
+      "body": {"balance": "0.00"},
+      "expect": {"balances": [{"currency": "USD", "amount": "0.00", "total": null}]}
+    },
+    {
+      "name": "a balance sent as a JSON number is refused rather than rounded",
+      "status": 200,
+      "body": {"balance": 95.5, "total_used": "4.50"},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a token pass remaining sent as a JSON number is refused",
+      "status": 200,
+      "body": {"balance": "1.00", "total_used": "0", "token_pass": {"remaining": 12.34, "resets_at": "2026-12-01T00:00:00.000Z"}},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a rejected key is invalid, never unknown",
+      "status": 401,
+      "body": {"error": "unauthorized"},
+      "expect": {"error": "invalidKey"}
+    },
+    {
+      "name": "a forbidden key is forbidden, and asks for the team id rather than a retry",
+      "status": 403,
+      "body": {"error": "forbidden"},
+      "expect": {"error": "forbidden"}
+    }
+  ],
+  "deepinfra": [
+    {
+      "name": "a negative stripe balance is money left to spend, and one live and one expired scoped credit give two rows",
+      "status": 200,
+      "body": {"uid": "u-1", "email": "a@example.com", "checklist": {"stripe_balance": -1234, "recent": 0, "limit": null, "suspend_reason": null, "scoped_credits": [
+        {"name": "H100 grant", "granted_cents": 1000, "remaining_cents": 500, "granted_ts": 1760000000, "expires_ts": 1790000000, "expired": false, "covers_everything": false},
+        {"name": "Expired grant", "granted_cents": 300, "remaining_cents": 300, "granted_ts": 1700000000, "expires_ts": 1710000000, "expired": true, "covers_everything": false}
+      ]}},
+      "expect": {"balances": [
+        {"currency": "USD", "amount": "12.34", "total": null},
+        {"currency": "USD", "amount": "5", "total": null}
+      ]}
+    },
+    {
+      "name": "a checklist without scoped credits is one prepaid row, and an exhausted one is a real zero",
+      "status": 200,
+      "body": {"uid": "u-1", "checklist": {"stripe_balance": 0, "recent": 0, "limit": 25, "suspend_reason": null}},
+      "expect": {"balances": [{"currency": "USD", "amount": "0", "total": null}]}
+    },
+    {
+      "name": "a positive stripe balance is money owed, so the row is a negative amount that stays visible",
+      "status": 200,
+      "body": {"uid": "u-1", "checklist": {"stripe_balance": 500, "recent": 4.5, "limit": null, "suspend_reason": null}},
+      "expect": {"balances": [{"currency": "USD", "amount": "-5", "total": null}]}
+    },
+    {
+      "name": "a null checklist stays unknown, never a zero balance",
+      "status": 200,
+      "body": {"uid": "u-1", "checklist": null},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a reply without a checklist stays unknown, never a zero balance",
+      "status": 200,
+      "body": {"uid": "u-1", "email": "a@example.com"},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a stripe balance that is not a number stays unknown",
+      "status": 200,
+      "body": {"uid": "u-1", "checklist": {"stripe_balance": "lots", "recent": 0, "limit": null, "suspend_reason": null}},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a rejected key is invalid, never unknown",
+      "status": 401,
+      "body": {"detail": "Not authenticated"},
+      "expect": {"error": "invalidKey"}
+    },
+    {
+      "name": "a key without the account:read scope is forbidden, not a bad key",
+      "status": 403,
+      "body": {"detail": "Not enough permissions"},
+      "expect": {"error": "forbidden"}
+    }
+  ],
+  "tokenrouter": [
+    {
+      "name": "the topped-up balance plus the valid voucher balance is the amount, and no cap is documented so there is no bar",
+      "status": 200,
+      "body": {"success": true, "message": "", "data": {"topUpBalance": 120.50, "voucherEfficientAmount": 30.00, "toppedUpSpent": 80.25, "voucherSpent": 10.00}},
+      "expect": {"balances": [{"currency": "USD", "amount": "150.50", "total": null}]}
+    },
+    {
+      "name": "a wallet with no voucher left and no spend figures is just the topped-up balance",
+      "status": 200,
+      "body": {"success": true, "message": "", "data": {"topUpBalance": 42.50, "voucherEfficientAmount": 0}},
+      "expect": {"balances": [{"currency": "USD", "amount": "42.5", "total": null}]}
+    },
+    {
+      "name": "a negative topped-up balance stays negative and the vouchers still add to it",
+      "status": 200,
+      "body": {"success": true, "message": "", "data": {"topUpBalance": -5.25, "voucherEfficientAmount": 10.00, "toppedUpSpent": 0, "voucherSpent": 0}},
+      "expect": {"balances": [{"currency": "USD", "amount": "4.75", "total": null}]}
+    },
+    {
+      "name": "a wallet without a topped-up balance stays unknown, never a voucher-only zero-sized guess",
+      "status": 200,
+      "body": {"success": true, "message": "", "data": {"voucherEfficientAmount": 30.00}},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "an invalid management key is invalid, never unknown",
+      "status": 401,
+      "body": {"message": "management key is invalid", "success": false},
+      "expect": {"error": "invalidKey"}
+    }
+  ],
+  "ollama": [
+    {
+      "name": "the documented payload is one included-allowance window at (100-72.5)/100 used, and the purchased balance is the money row",
+      "status": 200,
+      "body": {"included": {"balance_usd": 72.5, "allowance_usd": 100, "period": {"from": "2026-09-15T09:30:00Z", "until": "2026-10-15T09:30:00Z"}}, "purchased": {"balance_usd": 25}},
+      "expect": {
+        "windows": [{"id": "included", "usedPercent": 27.5, "resetAt": "2026-10-15T09:30:00Z"}],
+        "balances": [{"currency": "USD", "amount": "25", "total": null}]
+      }
+    },
+    {
+      "name": "a legacy plan states remaining percentages, so session keeps 100-75 and weekly 100-40 used",
+      "status": 200,
+      "body": {"included": {"session": {"remaining_percent": 75, "resets_at": "2026-10-01T07:00:00Z"}, "weekly": {"remaining_percent": 40, "resets_at": "2026-10-05T00:00:00Z"}}, "purchased": {"balance_usd": 25}},
+      "expect": {
+        "windows": [
+          {"id": "session", "usedPercent": 25, "resetAt": "2026-10-01T07:00:00Z"},
+          {"id": "weekly", "usedPercent": 60, "resetAt": "2026-10-05T00:00:00Z"}
+        ],
+        "balances": [{"currency": "USD", "amount": "25", "total": null}]
+      }
+    },
+    {
+      "name": "a payload with no included block reads as the purchased balance alone, with no window invented",
+      "status": 200,
+      "body": {"purchased": {"balance_usd": 12.5}},
+      "expect": {
+        "windows": [],
+        "balances": [{"currency": "USD", "amount": "12.5", "total": null}]
+      }
+    },
+    {
+      "name": "a null period keeps the included window at (100-90)/100 used and invents no reset",
+      "status": 200,
+      "body": {"included": {"balance_usd": 90, "allowance_usd": 100, "period": null}, "purchased": {"balance_usd": 5}},
+      "expect": {
+        "windows": [{"id": "included", "usedPercent": 10, "resetAt": null}],
+        "balances": [{"currency": "USD", "amount": "5", "total": null}]
+      }
+    },
+    {
+      "name": "a remaining percent of 120 leaves the session window unknown while the weekly window still reads 100-10",
+      "status": 200,
+      "body": {"included": {"session": {"remaining_percent": 120, "resets_at": "2026-10-01T07:00:00Z"}, "weekly": {"remaining_percent": 10, "resets_at": "2026-10-05T00:00:00Z"}}, "purchased": {"balance_usd": 25}},
+      "expect": {
+        "windows": [
+          {"id": "session", "usedPercent": null, "resetAt": "2026-10-01T07:00:00Z"},
+          {"id": "weekly", "usedPercent": 90, "resetAt": "2026-10-05T00:00:00Z"}
+        ],
+        "balances": [{"currency": "USD", "amount": "25", "total": null}]
+      }
+    },
+    {
+      "name": "a zero allowance omits the included window instead of reading 0 % used, and the purchased zero still shows",
+      "status": 200,
+      "body": {"included": {"balance_usd": 0, "allowance_usd": 0, "period": {"from": "2026-09-15T09:30:00Z", "until": "2026-10-15T09:30:00Z"}}, "purchased": {"balance_usd": 0}},
+      "expect": {
+        "windows": [],
+        "balances": [{"currency": "USD", "amount": "0", "total": null}]
+      }
+    },
+    {
+      "name": "a response with neither block is unknown on both accounts, never a zero balance or a zero percent",
+      "status": 200,
+      "body": {},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a rejected key is invalid on both the usage and the credit account",
+      "status": 401,
+      "body": {"error": "invalid credentials"},
+      "expect": {"error": "invalidKey"}
+    }
+  ],
+  "minimax": [
+    {
+      "name": "two models, both windows, counts read as remaining (the legacy reading the CLI preserves)",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0, "status_msg": "success"},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "start_time": 1767225600000,
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 40,
+            "current_interval_status": 1,
+            "current_weekly_total_count": 1000,
+            "current_weekly_usage_count": 250,
+            "current_weekly_status": 1,
+            "weekly_start_time": 1767225600000,
+            "weekly_end_time": 1767830400000
+          },
+          {
+            "model_name": "MiniMax-M2",
+            "start_time": 1767225600000,
+            "end_time": 1767243600000,
+            "current_interval_total_count": 200,
+            "current_interval_usage_count": 150,
+            "current_weekly_total_count": 400,
+            "current_weekly_usage_count": 400,
+            "weekly_start_time": 1767225600000,
+            "weekly_end_time": 1767830400000
+          }
+        ]
+      },
+      "expect": {
+        "windows": [
+          {"id": "general:5h", "usedPercent": 60, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "general:weekly", "usedPercent": 75, "resetAt": "2026-01-08T00:00:00Z"},
+          {"id": "MiniMax-M2:5h", "usedPercent": 25, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "MiniMax-M2:weekly", "usedPercent": 0, "resetAt": "2026-01-08T00:00:00Z"}
+        ]
+      }
+    },
+    {
+      "name": "an entry without the weekly fields reports one window, not a zero-percent week",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 80,
+            "current_interval_usage_count": 20
+          }
+        ]
+      },
+      "expect": {
+        "windows": [{"id": "general:5h", "usedPercent": 75, "resetAt": "2026-01-01T05:00:00Z"}]
+      }
+    },
+    {
+      "name": "a server percentage that agrees with the consumed reading flips the inverted counts",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 90,
+            "current_interval_remaining_percent": 10,
+            "current_weekly_total_count": 50,
+            "current_weekly_usage_count": 40,
+            "current_weekly_remaining_percent": 20,
+            "weekly_end_time": 1767830400000
+          }
+        ]
+      },
+      "expect": {
+        "windows": [
+          {"id": "general:5h", "usedPercent": 90, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "general:weekly", "usedPercent": 80, "resetAt": "2026-01-08T00:00:00Z"}
+        ]
+      }
+    },
+    {
+      "name": "a zero weekly total states no weekly limit, so only the five-hour window is reported",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 25,
+            "current_interval_status": 1,
+            "current_weekly_total_count": 0,
+            "current_weekly_usage_count": 0,
+            "current_weekly_status": 1
+          }
+        ]
+      },
+      "expect": {
+        "windows": [{"id": "general:5h", "usedPercent": 75, "resetAt": "2026-01-01T05:00:00Z"}]
+      }
+    },
+    {
+      "name": "status 3 is unlimited: one barless five-hour window and no weekly window",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 100,
+            "current_interval_status": 3,
+            "current_weekly_total_count": 500,
+            "current_weekly_usage_count": 500,
+            "current_weekly_status": 3,
+            "weekly_end_time": 1767830400000
+          }
+        ]
+      },
+      "expect": {
+        "windows": [{"id": "general:5h", "usedPercent": null, "resetAt": "2026-01-01T05:00:00Z"}]
+      }
+    },
+    {
+      "name": "status 2 is exhausted at 100 percent whatever the counts say, and the week keeps its own status",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 10,
+            "current_interval_status": 2,
+            "current_weekly_total_count": 1000,
+            "current_weekly_usage_count": 750,
+            "current_weekly_status": 1,
+            "weekly_end_time": 1767830400000
+          }
+        ]
+      },
+      "expect": {
+        "windows": [
+          {"id": "general:5h", "usedPercent": 100, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "general:weekly", "usedPercent": 25, "resetAt": "2026-01-08T00:00:00Z"}
+        ]
+      }
+    },
+    {
+      "name": "base_resp 1004 on HTTP 200 is a rejected key, not a plan without windows",
+      "status": 200,
+      "body": {
+        "base_resp": {
+          "status_code": 1004,
+          "status_msg": "login fail: Please carry the API secret key in the 'Authorization' field of the request header"
+        }
+      },
+      "expect": {"error": "invalidKey"}
+    },
+    {
+      "name": "any other base_resp error keeps the reading unknown, never zero",
+      "status": 200,
+      "body": {"base_resp": {"status_code": 2013, "status_msg": "invalid params"}},
+      "expect": {"error": "unknown"}
+    },
+    {
+      "name": "a zero total, a count above the total and a percentage that matches neither reading all stay unknown",
+      "status": 200,
+      "body": {
+        "base_resp": {"status_code": 0},
+        "model_remains": [
+          {
+            "model_name": "general",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 0,
+            "current_interval_usage_count": 0
+          },
+          {
+            "model_name": "MiniMax-M2",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 150
+          },
+          {
+            "model_name": "video",
+            "end_time": 1767243600000,
+            "current_interval_total_count": 100,
+            "current_interval_usage_count": 40,
+            "current_interval_remaining_percent": 50
+          }
+        ]
+      },
+      "expect": {
+        "windows": [
+          {"id": "general:5h", "usedPercent": null, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "MiniMax-M2:5h", "usedPercent": null, "resetAt": "2026-01-01T05:00:00Z"},
+          {"id": "video:5h", "usedPercent": null, "resetAt": "2026-01-01T05:00:00Z"}
+        ]
+      }
+    }
+  ]
+}

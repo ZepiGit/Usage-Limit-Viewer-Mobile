@@ -10,6 +10,8 @@ import com.usagelimits.providers.codex.CodexProvider
 import com.usagelimits.providers.devin.DevinProvider
 import com.usagelimits.providers.kimi.KimiProvider
 import com.usagelimits.providers.meta.MetaProvider
+import com.usagelimits.providers.minimax.MiniMaxProvider
+import com.usagelimits.providers.ollama.OllamaProvider
 import com.usagelimits.providers.opencode.OpenCodeProvider
 import com.usagelimits.providers.xai.XaiProvider
 import com.usagelimits.providers.zai.ZaiProvider
@@ -34,6 +36,8 @@ class ProviderRegistry(private val providers: Map<ProviderId, UsageProvider>) {
             put(ProviderId.META, MetaProvider(http))
             put(ProviderId.ZAI, ZaiProvider(http))
             put(ProviderId.OPENCODE, OpenCodeProvider(http))
+            put(ProviderId.OLLAMA, OllamaProvider(http))
+            put(ProviderId.MINIMAX, MiniMaxProvider(http))
         },
     )
 

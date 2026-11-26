@@ -299,6 +299,46 @@ object ProviderEndpoints {
     }
 
     /**
+     * Ollama Cloud. Documented at docs.ollama.com/api/balance, API key only. One call serves both
+     * the included-allowance usage windows and the purchased balance. The endpoint allows ten
+     * requests a minute per user, shared across keys and devices, and answers 429 with Retry-After.
+     */
+    object Ollama {
+        const val BALANCE_ENDPOINT = "https://ollama.com/api/balance"
+        const val CONSOLE_URL = "https://ollama.com/settings/keys"
+    }
+
+    /**
+     * MiniMax Token Plan. The route MiniMax's own CLI reads — `GET {host}/v1/token_plan/remains`
+     * with `Authorization: Bearer <plan key>` and nothing else (MiniMax-AI/cli, commit
+     * ae29aae57b05c2140c7ea6aba0a852763ffe7859: src/config/schema.ts `REGIONS`,
+     * src/client/endpoints.ts `quotaEndpoint`, src/commands/quota/show.ts). MiniMax publishes no
+     * API-reference page for it.
+     *
+     * The CLI's hosts, from `REGIONS`, are https://api.minimax.io (global) and
+     * https://api.minimax.cn (cn). An unauthenticated research probe on 2026-11-25, sending no
+     * key, got 404 from api.minimax.io for this path while www.minimax.io, www.minimaxi.com and
+     * api.minimaxi.com answered HTTP 200 with `base_resp` 1004, so the hosts below are the ones
+     * the route answers on. No live account was checked. A plan key is region-bound, like Kimi's
+     * and Z.ai's.
+     */
+    object MiniMax {
+        data class Urls(val usageEndpoint: String, val consoleUrl: String)
+
+        val CHINA = Urls(
+            usageEndpoint = "https://www.minimaxi.com/v1/token_plan/remains",
+            // The research evidence named the platform host, not a key page beneath it.
+            consoleUrl = "https://platform.minimaxi.com",
+        )
+        val INTERNATIONAL = Urls(
+            usageEndpoint = "https://www.minimax.io/v1/token_plan/remains",
+            consoleUrl = "https://platform.minimax.io",
+        )
+
+        fun urls(region: ProviderRegion): Urls = if (region == ProviderRegion.CN) CHINA else INTERNATIONAL
+    }
+
+    /**
      * Devin / Cognition.
      *
      * Devin's CLI login is a PKCE authorization-code flow with an ephemeral loopback
@@ -373,5 +413,28 @@ object ProviderEndpoints {
 
         const val FAL_BILLING = "https://api.fal.ai/v1/account/billing?expand=credits"
         const val NOVITA_BALANCE = "https://api.novita.ai/openapi/v1/billing/balance/detail"
+
+        /** A management key, not an inference key; the wallet is what one account holds. */
+        const val TOKENROUTER_WALLET = "https://api.tokenrouter.com/api/management/self/wallet"
+
+        const val VERCEL_CREDITS = "https://ai-gateway.vercel.sh/v1/credits"
+
+        /**
+         * The gateway's credits call names no team in its documentation: the key is the team, and
+         * `teamId` is documented only for the API-key management calls on api.vercel.com. A team id
+         * the account stores is still sent, as the spec asks, and only when one is stored.
+         */
+        fun vercelCredits(teamId: String?): String {
+            val id = teamId?.takeIf { it.isNotEmpty() } ?: return VERCEL_CREDITS
+            // Typed by the user, so it cannot be trusted to be a query value.
+            val query = java.net.URLEncoder.encode(id, "UTF-8").replace("+", "%20").replace("*", "%2A")
+            return "$VERCEL_CREDITS?teamId=$query"
+        }
+
+        /** The billing checklist is opt-in, so the balance is only there when it is asked for. */
+        const val DEEPINFRA_ME = "https://api.deepinfra.com/v1/me?checklist=true"
+
+        /** The same call the Ollama Cloud usage account reads; `purchased` is the money. */
+        const val OLLAMA_BALANCE = ProviderEndpoints.Ollama.BALANCE_ENDPOINT
     }
 }

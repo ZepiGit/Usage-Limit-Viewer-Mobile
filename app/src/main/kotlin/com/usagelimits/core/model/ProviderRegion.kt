@@ -3,9 +3,9 @@ package com.usagelimits.core.model
 /**
  * Which deployment of a provider an account lives on, for the providers that run two.
  *
- * Kimi Code and Z.ai each operate a China and an international service with separate accounts,
- * so a credential only works against the host that issued it. The region is therefore stored
- * with the credential (`OAuthCredentials.providerData`, which a token refresh can read) and
+ * Kimi Code, Z.ai and MiniMax each operate a China and an international service with separate
+ * accounts, so a credential only works against the host that issued it. The region is therefore
+ * stored with the credential (`OAuthCredentials.providerData`, which a token refresh can read) and
  * mirrored in `ProviderAccount.attributes` for display. [id] is persisted.
  */
 enum class ProviderRegion(val id: String) {
@@ -17,6 +17,8 @@ enum class ProviderRegion(val id: String) {
         ProviderId.KIMI to INTL -> "International (kimi.ai)"
         ProviderId.ZAI to CN -> "China (bigmodel.cn)"
         ProviderId.ZAI to INTL -> "International (z.ai)"
+        ProviderId.MINIMAX to CN -> "China (minimaxi.com)"
+        ProviderId.MINIMAX to INTL -> "International (minimax.io)"
         else -> id
     }
 
@@ -28,11 +30,16 @@ enum class ProviderRegion(val id: String) {
         fun options(provider: ProviderId): List<ProviderRegion> = when (provider) {
             ProviderId.KIMI -> listOf(CN, INTL)
             ProviderId.ZAI -> listOf(INTL, CN)
+            ProviderId.MINIMAX -> listOf(INTL, CN)
             else -> emptyList()
         }
 
-        /** What an account with no stored region means: Kimi predates the choice and was all China. */
-        fun default(provider: ProviderId): ProviderRegion = if (provider == ProviderId.ZAI) INTL else CN
+        /**
+         * What an account with no stored region means: Kimi predates the choice and was all
+         * China; Z.ai and MiniMax lead with their international service.
+         */
+        fun default(provider: ProviderId): ProviderRegion =
+            if (provider == ProviderId.ZAI || provider == ProviderId.MINIMAX) INTL else CN
 
         /**
          * The region a stored credential belongs to: the credential's own record first, because

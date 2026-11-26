@@ -3,16 +3,20 @@ import XCTest
 
 final class ProviderIconsTests: XCTestCase {
     func testDefaultsAndFamilies() {
-        XCTAssertEqual(ProviderID.allCases.count, 9)
+        XCTAssertEqual(ProviderID.allCases.count, 11)
         XCTAssertEqual(ProviderIconCatalog.selected(for: .claude, id: nil).id, "claudecode-color")
         XCTAssertEqual(ProviderIconCatalog.selected(for: .antigravity, id: nil).id, "gemini-color")
         XCTAssertEqual(ProviderIconCatalog.choices(for: .claude).count, 6)
         XCTAssertEqual(ProviderIconCatalog.choices(for: .antigravity).count, 6)
-        XCTAssertEqual(ProviderID.allCases.reduce(0) { $0 + ProviderIconCatalog.choices(for: $1).count }, 28)
+        XCTAssertEqual(ProviderID.allCases.reduce(0) { $0 + ProviderIconCatalog.choices(for: $1).count }, 31)
         XCTAssertEqual(ProviderIconCatalog.choices(for: .devin).map(\.id), ["devin-color", "devin"])
         XCTAssertEqual(ProviderIconCatalog.choices(for: .meta).map(\.id), ["meta-color", "meta"])
         XCTAssertEqual(ProviderIconCatalog.choices(for: .zai).map(\.id), ["zai", "zai-text", "chatglm-color"])
         XCTAssertEqual(ProviderIconCatalog.choices(for: .opencode).map(\.id), ["opencode", "opencode-text"])
+        XCTAssertEqual(ProviderIconCatalog.choices(for: .ollama).map(\.id), ["ollama"])
+        XCTAssertEqual(ProviderIconCatalog.choices(for: .minimax).map(\.id), ["minimax-color", "minimax"])
+        XCTAssertEqual(ProviderIconCatalog.selected(for: .minimax, id: nil).id, "minimax-color")
+        XCTAssertEqual(ProviderIconCatalog.selected(for: .ollama, id: "removed").id, "ollama")
         XCTAssertEqual(ProviderIconCatalog.selected(for: .devin, id: nil).id, "devin-color")
         XCTAssertEqual(ProviderIconCatalog.selected(for: .meta, id: nil).id, "meta-color")
     }
