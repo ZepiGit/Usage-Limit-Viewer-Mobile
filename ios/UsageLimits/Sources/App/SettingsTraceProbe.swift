@@ -140,9 +140,24 @@ struct SettingsTraceProbe: UIViewRepresentable {
                 SettingsTrace.record("native segment sample touchID=\(touchID) frame=\(frames) "
                     + "ms=\(milliseconds) \(marker) \(text)")
             }
-            if previous == nil {
+            let changed = previous != nil && previous! != state
+            if isLast {
+                // This line carries the final frame's own state; a change here spends a change slot.
+                var marker = "last"
+                if changed {
+                    if changes < Self.maximumChanges {
+                        changes += 1
+                        marker += " change=true"
+                    } else {
+                        truncated = true
+                    }
+                }
+                if truncated { marker += " truncated=true" }
+                record(marker)
+                stop()
+            } else if previous == nil {
                 record("first")
-            } else if previous! != state, !isLast {
+            } else if changed {
                 if changes < Self.maximumChanges {
                     changes += 1
                     record("change")
@@ -151,10 +166,6 @@ struct SettingsTraceProbe: UIViewRepresentable {
                 }
             }
             previous = state
-            if isLast {
-                record(truncated ? "last truncated=true" : "last")
-                stop()
-            }
         }
     }
 
@@ -189,6 +200,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
         private var nativeTouchID: Int?
         private var nativeDeliveryTouchID: Int?
         private var nativeTouchPoint: CGPoint?
+        private weak var nativeTouch: UITouch?
         private var nativeValueChangedCount = 0
         private var nativePrimaryActionCount = 0
         private var segmentSampler: SegmentSampler?
@@ -251,6 +263,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
             nativeTouchID = nil
             nativeDeliveryTouchID = nil
             nativeTouchPoint = nil
+            nativeTouch = nil
             nativeValueChangedCount = 0
             nativePrimaryActionCount = 0
             SettingsTrace.nativeControlBoundary = nil
@@ -290,6 +303,7 @@ struct SettingsTraceProbe: UIViewRepresentable {
             nativeView = hit
             nativeIdentifier = identifier
             nativeTouchID = id
+            nativeTouch = touch
             nativeDeliveryTouchID = id
             if let toggle = candidate as? UISwitch {
                 nativeKind = "switch"
@@ -361,32 +375,48 @@ struct SettingsTraceProbe: UIViewRepresentable {
         }
 
         @objc private func segmentTouchDown(_ sender: UISegmentedControl, forEvent event: UIEvent) {
-            recordSegmentEvent("touchDown", sender, event: event)
+            recordSegmentEvent("touchDown", sender, event: event, phase: .began)
         }
         @objc private func segmentTouchUpInside(_ sender: UISegmentedControl, forEvent event: UIEvent) {
-            recordSegmentEvent("touchUpInside", sender, event: event)
+            recordSegmentEvent("touchUpInside", sender, event: event, phase: .ended)
         }
         @objc private func segmentTouchUpOutside(_ sender: UISegmentedControl, forEvent event: UIEvent) {
-            recordSegmentEvent("touchUpOutside", sender, event: event)
+            recordSegmentEvent("touchUpOutside", sender, event: event, phase: .ended)
         }
         @objc private func segmentTouchCancel(_ sender: UISegmentedControl, forEvent event: UIEvent) {
-            recordSegmentEvent("touchCancel", sender, event: event)
+            recordSegmentEvent("touchCancel", sender, event: event, phase: .cancelled)
         }
 
-        private func recordSegmentEvent(_ name: String, _ sender: UISegmentedControl, event: UIEvent) {
+        private func recordSegmentEvent(_ name: String, _ sender: UISegmentedControl,
+                                        event: UIEvent, phase: UITouch.Phase) {
             guard sender === nativeView, let id = nativeTouchID else { return }
-            // The event's own touch is where the control saw it; the stored point is the recognizer's.
-            let point: String
-            if let touch = event.allTouches?.first {
-                point = "point=\(touch.location(in: sender)) pointSource=control-event"
-            } else if let stored = nativeTouchPoint {
-                point = "point=\(stored) pointSource=recognizer"
-            } else {
-                point = "point=unavailable pointSource=none"
-            }
             SettingsTrace.record("native segment control-event touchID=\(id) control=\(ObjectIdentifier(sender)) "
                 + "event=\(name) selectedSegmentIndex=\(sender.selectedSegmentIndex) "
-                + "tracking=\(sender.isTracking) highlighted=\(sender.isHighlighted) \(point)")
+                + "tracking=\(sender.isTracking) highlighted=\(sender.isHighlighted) "
+                + segmentPoint(event, phase: phase, control: sender))
+        }
+
+        /// `allTouches` is unordered, so the point must come from the touch this control owns.
+        private func segmentPoint(_ event: UIEvent, phase: UITouch.Phase,
+                                  control: UISegmentedControl) -> String {
+            let touches = Array(event.allTouches ?? [])
+            let own = touches.filter { touch in
+                guard let view = touch.view else { return false }
+                return view === control || view.isDescendant(of: control)
+            }
+            let phased = own.filter { $0.phase == phase }
+            let pool = phased.isEmpty ? own : phased
+            if pool.count == 1 {
+                return "point=\(pool[0].location(in: control)) pointSource=control-event"
+            }
+            if let stored = nativeTouch, pool.contains(where: { $0 === stored }) {
+                return "point=\(stored.location(in: control)) pointSource=control-event"
+            }
+            if !pool.isEmpty { return "point=unavailable pointSource=ambiguous" }
+            if let stored = nativeTouchPoint {
+                return "point=\(stored) pointSource=recognizer"
+            }
+            return "point=unavailable pointSource=none"
         }
 
         @objc private func switchGestureChanged(_ sender: UIGestureRecognizer) {
