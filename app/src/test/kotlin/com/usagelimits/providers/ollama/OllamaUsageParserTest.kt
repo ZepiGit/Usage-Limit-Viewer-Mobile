@@ -85,6 +85,16 @@ class OllamaUsageParserTest {
     }
 
     @Test
+    fun `the included share is computed in exact decimals, not binary floats`() {
+        // As a Double, 0.3 - 0.1 is 0.19999999999999998, and the share then reads
+        // 66.66666666666667 used. In decimals it is 0.2 over 0.3: 66.666667 at six places with
+        // HALF_EVEN, the scale and rounding Credits.kt's remainingPercent uses.
+        val window = parse("""{"included":{"balance_usd":0.1,"allowance_usd":0.3}}""").single()
+
+        assertEquals(66.666667, window.usedPercent!!, 1e-9)
+    }
+
+    @Test
     fun `the included share is clamped and a fully spent allowance is exhausted`() {
         // A balance above the allowance cannot have spent less than nothing.
         assertEquals(0.0, parse("""{"included":{"balance_usd":150,"allowance_usd":100}}""")[0].usedPercent!!, 1e-9)

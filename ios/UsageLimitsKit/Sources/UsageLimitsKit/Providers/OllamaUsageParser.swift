@@ -47,16 +47,22 @@ public enum OllamaUsageParser {
         return 100 - remaining
     }
 
-    /// The included credits as one window: used is what the allowance has lost. An allowance of
-    /// zero (or a missing figure) has no share to draw and omits the window. The reset is the
-    /// period's `until`; a null period invents none.
+    /// The included credits as one window: used is what the allowance has lost. The two dollar
+    /// figures are money, so they are read and subtracted as `Decimal` — a `Double` turns
+    /// 0.3 − 0.1 into 0.19999999999999998 and the share into 66.66666666666667 instead of
+    /// 66.666667. The division rounds to six places with bankers rounding, the same scale and
+    /// rounding Android's parser uses. An allowance of zero (or a missing figure) has no share to
+    /// draw and omits the window. The reset is the period's `until`; a null period invents none.
     private static func includedAllowance(
         _ included: [String: Any], ids: inout StableWindowIDs
     ) -> UsageWindow? {
-        guard let balance = JSONSupport.double(included, "balance_usd"),
-              let allowance = JSONSupport.double(included, "allowance_usd"),
-              allowance.isFinite, allowance > 0 else { return nil }
-        let used = min(max((allowance - balance) * 100 / allowance, 0), 100)
+        guard let balance = CreditJSON.decimal(included, "balance_usd"),
+              let allowance = CreditJSON.decimal(included, "allowance_usd"),
+              allowance > 0 else { return nil }
+        var share = (allowance - balance) * 100 / allowance
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &share, percentScale, .bankers)
+        let used = NSDecimalNumber(decimal: min(max(rounded, 0), 100)).doubleValue
         return UsageWindow(
             id: ids.next("included"),
             label: "Included allowance",
@@ -67,4 +73,7 @@ public enum OllamaUsageParser {
                 JSONSupport.string(JSONSupport.object(included, "period"), "until")),
             exhausted: used == 100)
     }
+
+    /// Six places, bankers rounding: the scale and rounding Android's parser uses.
+    private static let percentScale = 6
 }

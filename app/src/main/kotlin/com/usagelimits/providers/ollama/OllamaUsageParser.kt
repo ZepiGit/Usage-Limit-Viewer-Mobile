@@ -5,7 +5,10 @@ import com.usagelimits.core.model.WindowCategory
 import com.usagelimits.core.network.JsonSupport
 import com.usagelimits.core.time.Instants
 import com.usagelimits.providers.StableWindowIds
+import com.usagelimits.providers.credits.CreditJson
 import kotlinx.serialization.json.JsonObject
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * Reads Ollama Cloud's `GET /api/balance` as usage windows (docs.ollama.com/api/balance).
@@ -55,14 +58,22 @@ object OllamaUsageParser {
         remaining?.takeIf { it in 0.0..100.0 }?.let { 100.0 - it }
 
     /**
-     * The included credits as one window: used is what the allowance has lost. An allowance of
-     * zero (or a missing figure) has no share to draw and omits the window. The reset is the
-     * period's `until`; a null period invents none.
+     * The included credits as one window: used is what the allowance has lost. The two dollar
+     * figures are money, so they are read and subtracted as decimals — a Double turns
+     * 0.3 − 0.1 into 0.19999999999999998 and the share into 66.66666666666667 instead of
+     * 66.666667. The division rounds to six places HALF_EVEN, the scale Credits.kt's
+     * remainingPercent uses. An allowance of zero (or a missing figure) has no share to draw and
+     * omits the window. The reset is the period's `until`; a null period invents none.
      */
     private fun includedAllowance(included: JsonObject, ids: StableWindowIds): UsageWindow? {
-        val balance = JsonSupport.double(included, "balance_usd") ?: return null
-        val allowance = JsonSupport.double(included, "allowance_usd")?.takeIf { it > 0.0 } ?: return null
-        val used = ((allowance - balance) * 100.0 / allowance).coerceIn(0.0, 100.0)
+        val balance = CreditJson.decimal(included, "balance_usd") ?: return null
+        val allowance = CreditJson.decimal(included, "allowance_usd")
+            ?.takeIf { it.signum() > 0 } ?: return null
+        val used = (allowance - balance).multiply(HUNDRED)
+            .divide(allowance, PERCENT_SCALE, RoundingMode.HALF_EVEN)
+            .max(BigDecimal.ZERO)
+            .min(HUNDRED)
+            .toDouble()
         return UsageWindow(
             id = ids.next("included"),
             label = "Included allowance",
@@ -73,4 +84,7 @@ object OllamaUsageParser {
             exhausted = used == 100.0,
         )
     }
+
+    private const val PERCENT_SCALE = 6
+    private val HUNDRED: BigDecimal = BigDecimal(100)
 }

@@ -306,6 +306,16 @@ final class RegionalProvidersTests: XCTestCase {
         XCTAssertFalse(unknown[0].exhausted)
     }
 
+    func testOllamaIncludedShareIsComputedInDecimalsNotBinaryFloats() {
+        // As a Double, 0.3 - 0.1 is 0.19999999999999998, and the share then reads
+        // 66.66666666666667 used. In decimals it is 0.2 over 0.3: 66.666667 at six places with
+        // bankers rounding, the scale and rounding Android's parser uses.
+        let windows = OllamaUsageParser.parse(
+            payload(#"{"included":{"balance_usd":0.1,"allowance_usd":0.3}}"#))
+        XCTAssertEqual(windows.count, 1)
+        XCTAssertEqual(windows[0].usedPercent ?? -1, 66.666667, accuracy: 1e-9)
+    }
+
     func testOllamaClientSendsBearerKeyToTheBalanceRoute() async throws {
         let (http, transport) = client([(200, Self.ollama)])
         let result = try await OllamaClient(httpClient: http)
