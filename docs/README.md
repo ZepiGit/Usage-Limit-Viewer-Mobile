@@ -2,16 +2,19 @@
 
 Every document in this directory, and what it answers.
 
-[DETAILS.md](DETAILS.md) is the long-form reference the README links to: install, build, features and the capture notes.
+[DETAILS.md](DETAILS.md) is the long-form reference the README links to: install, build and feature notes. Service tables live in [Providers](PROVIDERS.md).
 
 ## Using the app
 
 | Document | Covers |
 | --- | --- |
-| [Widgets](widgets.md) | The home-screen and Lock Screen widgets, their sizes and their settings. |
-| [Status icons](status-icons.md) | Pinned accounts in the Android status bar and on the iOS Lock Screen. |
-| [Credits](credits.md) | Prepaid API balances, their providers and the Credits widget. |
-| [Device compatibility](compatibility.md) | Minimum Android and iOS versions. |
+| [Providers](PROVIDERS.md) | The eleven subscriptions and ten credit APIs: what you see and how you connect. |
+| [Widgets](widgets.md) | Every widget style and size, with light and dark images, plus setup. |
+| [Notifications](notifications.md) | Pinned usage in the status bar / Lock Screen, and alerts. |
+| [Status icons](status-icons.md) | The detailed pinned-account glyphs, forms and evidence. |
+| [Credits](credits.md) | Prepaid API balances and the Credits widget. |
+| [Devices](DEVICES.md) | Android and iOS versions, foldables, tablets and widget sizes (this page also holds the foldable layout). |
+| [Device compatibility](compatibility.md) | Pointer to Devices. |
 | [Security](security.md) | Where credentials live and what leaves the device. |
 
 ## Connecting a service
@@ -44,6 +47,6 @@ One guide per provider, with the sign-in flow, the payload shape and the limits 
 
 ## Media
 
-`media/` holds the images the guides display: the app icon and store badges under `brand/`, the Android captures under `captures/`, and the status icon evidence under `status-icons/`. Nothing else belongs there.
+`media/` holds the images the guides display: the app icon under `brand/`, the Android captures under `captures/`, and the status icon evidence under `status-icons/`. Nothing else belongs there.
 
-`images/readme/` holds the README artwork in light and dark variants, `store-previews/` the full-size store screenshots, and `demo/` the static click-through demo published on GitHub Pages.
+`images/readme/` holds the README artwork and section-heading PNGs in light and dark variants, `images/widgets/` and `images/devices/` the widget catalog and foldable boards, `store-previews/` the full-size store screenshots, and `demo/` the click-through demo.

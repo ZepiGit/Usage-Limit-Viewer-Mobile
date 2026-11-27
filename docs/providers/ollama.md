@@ -18,4 +18,4 @@ A body with no `included` block gives the usage account no windows, and a body w
 
 The response names no user, so a one-way key digest identifies the account. Pasting the same key again updates the account; removal deletes the local key, and revocation belongs in the Ollama account.
 
-Evidence: the shape above is the OpenAPI block published on [docs.ollama.com/api/balance](https://docs.ollama.com/api/balance); the page documents no duration for the legacy session limit. No live Ollama account was checked.
+Evidence: the shape above is the OpenAPI block published on [docs.ollama.com/api/balance](https://docs.ollama.com/api/balance); the page documents no duration for the legacy session limit.

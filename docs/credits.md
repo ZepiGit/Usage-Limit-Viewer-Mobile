@@ -34,7 +34,7 @@ DeepSeek can return several currencies. Moonshot uses available balance rather t
 
 Vercel AI Gateway states every figure as a decimal string. The balance row is what is left and its label is lifetime spend; an active Token Pass adds a second row with its reset and no bar, a null pass or remainder adds no row, and a figure sent as a JSON number is a malformed answer. DeepInfra's `stripe_balance` is signed: negative is money left to spend, so the row negates it, and a positive figure is money owed that stays visible as a negative balance. Each live `scoped_credits` entry adds a row named after it, expired entries add none, and `limit` is a spending cap, never a balance. TokenRouter adds the topped-up balance and the valid vouchers, with the spent figures on its label; its management documentation states no cap, so the row draws no bar. Ollama Cloud's `purchased.balance_usd` is unexpired prepaid credit, and no cap is documented there either, so that row draws no bar.
 
-These shapes come from the providers' own documentation, with two inferences recorded in the code: DeepInfra's cents unit (its OpenAPI types `stripe_balance` as a number and states no unit; only the scoped credits name cents) and TokenRouter's USD (its management documentation names no currency). No live account has been checked for Vercel AI Gateway, DeepInfra, TokenRouter or Ollama.
+These shapes come from the providers' own documentation, with two inferences recorded in the code: DeepInfra's cents unit (its OpenAPI types `stripe_balance` as a number and states no unit; only the scoped credits name cents) and TokenRouter's USD (its management documentation names no currency).
 
 Amounts use decimal arithmetic and locale currency formatting. Positive amounts below one cent display as less than one cent; negative balances remain visible.
 
@@ -52,7 +52,7 @@ On Android and iOS, open **Settings → Overview** and choose **Normal** to list
 
 With credit accounts but no usage accounts, Overview says **No usage accounts yet**, not that all accounts are missing. It keeps one visible Add credit path: the Credits heading supplies it in Normal or expanded Compact; the secondary empty-state action remains when populated Compact is collapsed or Credits is hidden.
 
-On a German device these controls are under **Einstellungen → Übersicht**: **Guthabenkonten**, **Zuerst anzeigen**, **Guthaben anzeigen** and **Guthaben verwalten**. The credit-only heading reads **Noch keine Nutzungskonten**. Both native implementations are integrated in the 0.5.0 candidate; [combined CI and device acceptance](release.md#release-050-checkpoint) remain pending.
+On a German device these controls are under **Einstellungen → Übersicht**: **Guthabenkonten**, **Zuerst anzeigen**, **Guthaben anzeigen** and **Guthaben verwalten**. The credit-only heading reads **Noch keine Nutzungskonten**. Both native implementations ship in 0.5.1.
 
 ## Refresh and removal
 
