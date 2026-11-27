@@ -20,6 +20,9 @@
     .markdown-body { max-width: 880px; margin: 24px auto 80px; padding: 0 16px; }
     .links { margin-left: auto; display: flex; gap: 14px; flex-wrap: wrap; }
     .markdown-body p a img { vertical-align: middle; }
+    /* Keep the two for-the-badge rows tight and on one line each at 390px. */
+    .markdown-body p:has(img[height="28"]) { margin-top: 0.4em; margin-bottom: 0.4em; }
+    .markdown-body p:has(img[height="28"]) img { height: 28px; width: auto; }
     .markdown-body table { border: 0; border-collapse: collapse; }
     .markdown-body table td, .markdown-body table th { border: 0 !important; }
   </style>

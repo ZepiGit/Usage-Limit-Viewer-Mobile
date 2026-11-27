@@ -15,6 +15,11 @@
   &nbsp;
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ZepiGit/Usage-Limit-Viewer-Mobile?style=for-the-badge" height="28" alt="MIT license"></a>
 </p>
+<p align="center">
+  <a href="docs/DEVICES.md"><img src="https://img.shields.io/badge/Android-SDK%2037-3DDC84?style=for-the-badge&logo=android&logoColor=white" height="28" alt="Android, compiles and targets SDK 37"></a>
+  &nbsp;
+  <a href="docs/DEVICES.md"><img src="https://img.shields.io/badge/iOS-16%2B-000000?style=for-the-badge&logo=apple&logoColor=white" height="28" alt="iOS 16 or later"></a>
+</p>
 
 <p align="center">
   <picture>
