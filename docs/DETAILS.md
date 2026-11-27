@@ -49,7 +49,7 @@ Several services don't officially publish the usage pages the app reads, so an u
 
 The README has the build commands. [0.5.1](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.1) carries the signed Android APK and AAB, the R8 mapping and an unsigned iOS archive. A debug APK from an Android run under **Actions** is a separate build; match it to its commit.
 
-The images in this repository are Robolectric captures and renders of the native views in device frames. The full-size 1080×1920 store screenshots are in [store-previews](store-previews/). The [click-through demo](https://raw.githack.com/ZepiGit/Usage-Limit-Viewer-Mobile/readme-preview/docs/demo/index.html) shows the screens in a browser.
+The images in this repository are Robolectric captures and renders of the native views in device frames. The full-size 1080×1920 store screenshots are in [store-previews](store-previews/). The [click-through demo](https://raw.githack.com/ZepiGit/Usage-Limit-Viewer-Mobile/e63f204ab5e8e7b4ea86983734903620715d57ed/docs/demo/index.html) shows the screens in a browser.
 
 ## Documentation
 

@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://rookieenough.github.io/Orion-Data/app/?id=usage-limit-viewer-mobile"><img src="https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png" width="155" height="44" alt="Get it on Orion Store"></a>
   &nbsp;
-  <a href="https://raw.githack.com/ZepiGit/Usage-Limit-Viewer-Mobile/readme-preview/docs/demo/index.html"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/try-the-demo-dark.png"><img src="docs/images/readme/try-the-demo-light.png" width="155" height="44" alt="Try the demo"></picture></a>
+  <a href="https://raw.githack.com/ZepiGit/Usage-Limit-Viewer-Mobile/e63f204ab5e8e7b4ea86983734903620715d57ed/docs/demo/index.html"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/try-the-demo-dark.png"><img src="docs/images/readme/try-the-demo-light.png" width="155" height="44" alt="Try the demo"></picture></a>
 </p>
 
 <p align="center">
@@ -122,6 +122,6 @@ cd ios/UsageLimits && xcodegen generate         # create the Xcode project
 
 Open the generated project in Xcode to sign and run it. 0.5.1 also ships an unsigned iOS archive; this repository has no App Store listing.
 
-A [click-through demo](https://raw.githack.com/ZepiGit/Usage-Limit-Viewer-Mobile/readme-preview/docs/demo/index.html) shows the screens in a browser. Build notes and the rest of the reference are in [Details](docs/DETAILS.md). Found a problem? Open an [issue](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/issues/new/choose).
+A [click-through demo](https://raw.githack.com/ZepiGit/Usage-Limit-Viewer-Mobile/e63f204ab5e8e7b4ea86983734903620715d57ed/docs/demo/index.html) shows the screens in a browser. Build notes and the rest of the reference are in [Details](docs/DETAILS.md). Found a problem? Open an [issue](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/issues/new/choose).
 
 [MIT](LICENSE), copyright (c) 2026 ZepiGit.
