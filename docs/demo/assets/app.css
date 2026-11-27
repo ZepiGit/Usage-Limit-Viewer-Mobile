@@ -2,6 +2,7 @@
    360×800 dp screen and scaled as one layer, so it stays sharp at any pixel density and every
    tappable thing is the element itself. No external fonts, CDNs or network requests. */
 
+:root{--demo-version:"2026112701"}
 @font-face {
   font-family: "Roboto Demo";
   src: url("fonts/roboto.woff2") format("woff2");

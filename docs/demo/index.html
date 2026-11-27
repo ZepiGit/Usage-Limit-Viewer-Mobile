@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-demo-version="2026112701">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -8,7 +8,7 @@
   <title>Usage Limits — interactive preview</title>
   <link rel="preload" href="assets/fonts/roboto.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/roboto-mono.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="assets/app.css">
+  <link rel="stylesheet" href="assets/app.css?v=2026112701">
   <link rel="icon" href="assets/try-the-demo.svg" type="image/svg+xml">
 </head>
 <body>
@@ -88,7 +88,23 @@
 
     <p class="note">Use the phone’s own buttons: ◁ Back, ○ Home, □ Recent apps. Swipe down from the clock for the notification shade, or in from the left edge to go back. Demo data only; accounts and emails are made up.</p>
   </div>
-  <script src="assets/claude-motion.js"></script>
-  <script src="assets/app.js"></script>
+  <script src="assets/claude-motion.js?v=2026112701"></script>
+  <script src="assets/app.js?v=2026112701"></script>
+  <script>
+  /* Guard: if a CDN served a mix of old and new files, say so instead of showing a broken screen. */
+  (function () {
+    var want = document.documentElement.getAttribute("data-demo-version");
+    function ok() {
+      var css = getComputedStyle(document.documentElement).getPropertyValue("--demo-version").replace(/["'\s]/g, "");
+      return window.__ULV_DEMO === want && css === want;
+    }
+    window.addEventListener("load", function () {
+      if (ok()) return;
+      var tried = /[?&]r=/.test(location.search);
+      if (!tried) { location.replace(location.pathname + "?r=" + Date.now() + location.hash); return; }
+      document.body.innerHTML = '<div style="font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;text-align:center"><h1 style="font-size:1.3rem">Usage Limits demo</h1><p>The files for this demo are still updating on the CDN. Please reload in a minute.</p><p><a href="' + location.pathname + '?r=' + Date.now() + '">Reload</a></p></div>';
+    });
+  })();
+  </script>
 </body>
 </html>

@@ -2,6 +2,7 @@
    Every screen is built from the data below and the real app's strings (app/src/main/res/values/
    strings.xml). The phone screen is a 360×800 dp layer scaled to the frame, so hit areas are the
    elements themselves at any width. Navigation keeps a real back stack like the app's NavHost. */
+window.__ULV_DEMO = "2026112701";
 (() => {
   "use strict";
 
