@@ -157,18 +157,47 @@ header.intro p {
   overflow: hidden;
   background: #000;
   touch-action: none;
+  display: flex;
+  flex-direction: column;
 }
 
-.screen img {
+.screen-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Size the 840×1886 capture so 0–97.4% (app + tabs) fills the stage; the gesture pill is clipped. */
+.screen-shot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: calc(100% * 100 / 97.4);
+}
+
+.screen-shot > img,
+.home-layers,
+.home-layers img,
+.claude-layer,
+.hotspots {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: fill;
   display: block;
+}
+
+.screen-shot > img {
+  object-fit: fill;
   pointer-events: none;
   user-select: none;
   -webkit-user-drag: none;
+}
+
+.screen.home-active #screen-image {
+  opacity: 0;
 }
 
 .screen img.is-leaving {
@@ -499,3 +528,200 @@ header.intro p {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+
+/* —— Android 3-button system navigation (inside the phone screen) —— */
+.sys-nav {
+  flex: 0 0 5.8%;
+  height: 5.8%;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
+  background: #000;
+  z-index: 6;
+  padding: 0 8%;
+}
+html[data-theme="light"] .sys-nav,
+.screen[data-theme="light"] .sys-nav {
+  background: #f5f2ea;
+}
+.sys-nav button {
+  flex: 1 1 0;
+  border: 0;
+  background: transparent;
+  color: #f2f2f2;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+html[data-theme="light"] .sys-nav button,
+.screen[data-theme="light"] .sys-nav button {
+  color: #1a1918;
+}
+.sys-nav button svg {
+  width: 38%;
+  height: 54%;
+  max-width: 28px;
+  max-height: 28px;
+  display: block;
+}
+.sys-nav button:focus { outline: none; }
+.sys-nav button:focus-visible,
+.sys-nav button:hover {
+  background: var(--highlight, rgba(255,255,255,0.08));
+}
+.sys-nav button:active {
+  background: var(--highlight, rgba(255,255,255,0.12));
+}
+.sys-nav.is-feedback {
+  animation: nav-flash 280ms ease;
+}
+@keyframes nav-flash {
+  0%, 100% { background: #000; }
+  40% { background: #2a2a2a; }
+}
+html[data-theme="light"] .sys-nav.is-feedback,
+.screen[data-theme="light"] .sys-nav.is-feedback {
+  animation-name: nav-flash-light;
+}
+@keyframes nav-flash-light {
+  0%, 100% { background: #f5f2ea; }
+  40% { background: #e0ddd4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sys-nav.is-feedback { animation: none; }
+}
+
+/* —— Home layers + Mini Rings opacity —— */
+.home-layers { z-index: 1; pointer-events: none; }
+.home-layers[hidden] { display: none; }
+.home-base, .home-mini-content { object-fit: fill; }
+.mini-plate {
+  position: absolute;
+  left: 6.1905%;
+  top: 60.7635%;
+  width: 31.9048%;
+  height: 14.21%;
+  border-radius: 18%;
+  background: #0F0F0E;
+  opacity: 0.7;
+  pointer-events: none;
+}
+.opacity-ctrl {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: min(100%, 280px);
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--raised, rgba(255,255,255,0.04));
+}
+.opacity-ctrl[hidden] { display: none; }
+.opacity-ctrl label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.opacity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.opacity-ctrl input[type="range"] {
+  flex: 1 1 auto;
+  accent-color: #d97757;
+}
+.opacity-ctrl output {
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 7.5em;
+}
+
+/* —— Claude Code figure overlay —— */
+.claude-layer { z-index: 2; pointer-events: none; overflow: visible; }
+.claude-fig {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.claude-fig svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  display: block;
+}
+
+/* —— In-app dialogs (reset credit / remove) —— */
+.dialog {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.54);
+  padding: 10%;
+}
+.dialog[hidden] { display: none; }
+.dialog-card {
+  background: #1d1d1d;
+  color: #f2f2f2;
+  border-radius: 18px;
+  padding: 22px 20px 12px;
+  width: 100%;
+  max-width: 100%;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+html[data-theme="light"] .dialog-card,
+.screen[data-theme="light"] .dialog-card {
+  background: #e8e5dc;
+  color: #1a1918;
+}
+.dialog-card h2 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.dialog-card p {
+  margin: 0 0 16px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: #b3b3b3;
+}
+html[data-theme="light"] .dialog-card p,
+.screen[data-theme="light"] .dialog-card p { color: #5c5a53; }
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.dialog-actions button {
+  border: 0;
+  background: transparent;
+  color: #f2f2f2;
+  font-weight: 600;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+html[data-theme="light"] .dialog-actions button,
+.screen[data-theme="light"] .dialog-actions button { color: #1a1918; }
+.dialog-actions button.danger { color: #e8756b; }
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 14%;
+  transform: translateX(-50%);
+  z-index: 9;
+  background: rgba(30,30,30,0.92);
+  color: #f2f2f2;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.toast[hidden] { display: none; }

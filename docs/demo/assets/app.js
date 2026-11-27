@@ -27,6 +27,7 @@
     "overview-credits": "overview/credits",
     "account-claude-max": "account/claude-max",
     "account-claude-pro": "account/claude-pro",
+    "account-codex-plus": "account/codex-plus",
     "credit-openrouter": "credit/openrouter",
     resets: "resets",
     "settings-appearance": "settings",
@@ -65,7 +66,8 @@
       hotspots: [
         ...COMMON_NAV,
         { id: "card-max", l: L, t: 19.1, r: R, b: 35.27, go: "account-claude-max", kind: "card", hint: true, label: "Claude Max 5x" },
-        { id: "card-pro", l: L, t: 48.93, r: R, b: 62.58, go: "account-claude-pro", kind: "card", label: "Claude Pro" },
+        { id: "card-codex", l: L, t: 35.26, r: R, b: 48.89, go: "account-codex-plus", kind: "card", label: "OpenAI Codex Plus" },
+        { id: "card-pro", l: L, t: 62.58, r: R, b: 76.23, go: "account-claude-pro", kind: "card", label: "Claude Pro" },
         { id: "scroll-credits", l: 20, t: 85.2, r: 80, b: 88.7, go: "overview-credits", kind: "card", label: "Show credits" },
       ],
     },
@@ -76,7 +78,8 @@
       hotspots: [
         ...COMMON_NAV,
         { id: "dial-max", l: COL_L[0], t: 13.45, r: COL_L[1], b: 35.02, go: "account-claude-max", kind: "dial", label: "Claude Max 5x" },
-        { id: "dial-pro", l: COL_L[0], t: 36.1, r: COL_L[1], b: 57.67, go: "account-claude-pro", kind: "dial", label: "Claude Pro" },
+        { id: "dial-codex", l: COL_R[0], t: 13.45, r: COL_R[1], b: 35.02, go: "account-codex-plus", kind: "dial", label: "OpenAI Codex Plus" },
+        { id: "dial-pro", l: COL_R[0], t: 36.1, r: COL_R[1], b: 57.67, go: "account-claude-pro", kind: "dial", label: "Claude Pro" },
         { id: "add-account", l: COL_R[0], t: 79.41, r: COL_R[1], b: 88.7, go: "sheet-account", kind: "dial", label: "Add account" },
       ],
     },
@@ -100,6 +103,17 @@
       tab: false,
       hotspots: [...BACK, { id: "status-bar", l: 0, t: 0, r: 100, b: 3.4, go: "shade", kind: "status", label: "Notification shade" }],
     },
+    "account-codex-plus": {
+      image: "account-codex-plus",
+      tab: false,
+      hotspots: [
+        ...BACK,
+        { id: "status-bar", l: 0, t: 0, r: 100, b: 3.4, go: "shade", kind: "status", label: "Notification shade" },
+        { id: "codex-reset-limit", l: 6.19, t: 36.48, r: 93.81, b: 39.24, go: "codex-reset", kind: "card", label: "Reset limit" },
+        { id: "codex-refresh", l: 3.33, t: 53.55, r: 96.67, b: 56.52, go: "codex-refresh", kind: "card", label: "Refresh now" },
+        { id: "codex-remove", l: 3.33, t: 60.98, r: 96.67, b: 63.94, go: "codex-remove", kind: "card", label: "Remove account" },
+      ],
+    },
     "credit-openrouter": {
       image: "credit-detail",
       tab: false,
@@ -112,6 +126,8 @@
         ...COMMON_NAV,
         { id: "reset-personal", l: L, t: 28.84, r: R, b: 34.86, go: "account-claude-pro", kind: "card", label: "Personal, 5h limit" },
         { id: "reset-work", l: L, t: 35.02, r: R, b: 41.05, go: "account-claude-max", kind: "card", label: "Work, 5h limit" },
+        { id: "reset-home", l: L, t: 47.4, r: R, b: 53.5, go: "account-codex-plus", kind: "card", label: "Home, 5h limit" },
+        { id: "reset-home-weekly", l: L, t: 57.5, r: R, b: 63.6, go: "account-codex-plus", kind: "card", label: "Home, weekly" },
         { id: "reset-work-weekly", l: L, t: 74.38, r: R, b: 86.63, go: "account-claude-max", kind: "card", label: "Work, weekly limits" },
       ],
     },
@@ -168,8 +184,8 @@
         { id: "status-bar", l: 0, t: 0, r: 100, b: 3.4, go: "shade", kind: "status", label: "Notification shade" },
         { id: "widget-summary", l: 5, t: 13.4, r: 95, b: 25.3, go: "account-claude-pro", kind: "card", label: "Usage summary widget" },
         { id: "widget-rings", l: 5, t: 26.5, r: 95, b: 58, go: "overview-dials", kind: "card", label: "Account rings widget" },
-        { id: "widget-mini", l: 5, t: 59.0, r: 48.5, b: 76.8, go: "overview-list", kind: "card", label: "Mini rings widget" },
-        { id: "widget-credits", l: 51, t: 59.0, r: 95, b: 76.8, go: "overview-credits", kind: "card", label: "Credits widget" },
+        { id: "widget-mini", l: 6.19, t: 60.76, r: 38.10, b: 74.97, go: "overview-list", kind: "card", label: "Mini rings widget" },
+        { id: "widget-credits", l: 40.48, t: 61.29, r: 93.57, b: 74.44, go: "overview-credits", kind: "card", label: "Credits widget" },
         { id: "dock-app", l: 43.2, t: 83.8, r: 56.8, b: 89.9, go: "overview", kind: "round", label: "Open Usage Limits" },
       ],
     },
@@ -192,12 +208,12 @@
   const GUIDE = {
     "overview-list": {
       title: "Overview, as a list",
-      body: "Each subscription shows its usage windows, how much is left and the next reset. Expired sign-ins come first, then the lowest headline. Filters: All, Needs attention, Resets today.",
+      body: "Each subscription shows its usage windows, how much is left and the next reset. Expired sign-ins come first, then the lowest headline — Claude Max 5x and OpenAI Codex Plus are both exhausted, so they lead. Filters: All, Needs attention, Resets today.",
       hint: "Tap an account to open its detail. Swipe up, or use the area above the tab bar, to reach prepaid credits.",
     },
     "overview-dials": {
       title: "Overview, as dials",
-      body: "The same accounts as rings: each dial shows the account’s headline. Switch between list and dials, and between % left and % used, in Settings.",
+      body: "The same accounts as rings: each dial shows the account’s headline. OpenAI Codex Plus sits next to Claude Max because both headlines are exhausted (weekly 0% left). Switch between list and dials, and between % left and % used, in Settings.",
       hint: "Tap a dial for that account’s windows. The empty tile opens Add account — the same sign-in flow the app uses.",
     },
     "overview-credits": {
@@ -208,22 +224,27 @@
     "account-claude-max": {
       title: "Claude Max 5x, in detail",
       body: "Every window of one account: 5-hour, weekly and per-model limits, how much is left and when each resets.",
-      hint: "Swipe in from the left edge, or tap the bar at the bottom, to go back.",
+      hint: "Use Back in the bar at the bottom of the phone, or swipe in from the left edge, to go back.",
     },
     "account-claude-pro": {
       title: "Claude Pro, in detail",
       body: "The same detail layout for Claude Pro: 5-hour and weekly windows with % left and reset times.",
-      hint: "Swipe in from the left edge, or tap the bar at the bottom, to go back.",
+      hint: "Use Back in the bar at the bottom of the phone, or swipe in from the left edge, to go back.",
+    },
+    "account-codex-plus": {
+      title: "OpenAI Codex Plus, in detail",
+      body: "5-hour limit at 100% left, weekly at 0% left (Exhausted). A reset credit is available — 1 available, expires in 28d 18h — with a Reset limit button. Using it asks “Use a reset credit?” and then resets the weekly window immediately.",
+      hint: "Tap Reset limit to try a credit, or use Back in the bar at the bottom of the phone to return.",
     },
     "credit-openrouter": {
       title: "A credit account, in detail",
       body: "A prepaid API balance with the remaining amount and, where the provider has one, its reset. The key is stored encrypted on the device (Android Keystore / iOS Keychain).",
-      hint: "Swipe in from the left edge, or tap the bar at the bottom, to go back.",
+      hint: "Use Back in the bar at the bottom of the phone, or swipe in from the left edge, to go back.",
     },
     resets: {
       title: "When limits reset",
       body: "Upcoming 5-hour and weekly resets, grouped by day, with a live countdown to the next one.",
-      hint: "Tap a row to open that account. The Overview, Resets and Settings tabs at the bottom move around the app.",
+      hint: "Tap a row to open that account — Home is OpenAI Codex Plus. The Overview, Resets and Settings tabs at the bottom move around the app.",
     },
     "settings-appearance": {
       title: "Appearance",
@@ -252,8 +273,8 @@
     },
     home: {
       title: "Home screen and widgets",
-      body: "Widgets come as Usage Bars, Usage Summary (Android), Account Rings, Mini Rings and Credits. The usage styles can show all accounts, one service, one account or a custom selection. They only read cached numbers.",
-      hint: "Tap a widget to jump into the matching screen, or the app icon in the dock. Swipe down from the clock for the shade.",
+      body: "Widgets come as Usage Bars, Usage Summary (Android), Account Rings, Mini Rings and Credits. Mini Rings uses a per-widget background opacity (the app default is 100%; this preview starts at 70%) so the wallpaper shows through. The Credits widget shows several balances — fal.ai, OpenRouter team, xAI API and more.",
+      hint: "Use the Background opacity slider under the phone to change the Mini Rings plate. Tap a widget to jump into the matching screen, or the app icon in the dock.",
     },
   };
 
@@ -278,6 +299,9 @@
     behindShade: null,
     sheet: null,
     hinted: false,
+    dialog: null,
+    codexReset: false,
+    widgetOpacity: 70,
   };
 
   const els = {};
@@ -299,7 +323,9 @@
   function imagePath(id) {
     const cfg = SCREENS[id];
     if (cfg.sharedImage) return "assets/screens/home.webp";
-    return `assets/screens/${state.theme}/${cfg.image}.webp`;
+    let image = cfg.image;
+    if (id === "account-codex-plus" && state.codexReset) image = "account-codex-plus-reset";
+    return `assets/screens/${state.theme}/${image}.webp`;
   }
 
   function setTheme(theme, { fromUser } = {}) {
@@ -318,7 +344,8 @@
 
   function canGoBack() {
     return Boolean(
-      state.sheet ||
+      state.dialog ||
+        state.sheet ||
         state.behindShade ||
         state.stack.length ||
         (SCREENS[state.screen] && !SCREENS[state.screen].tab && state.screen !== "home") ||
@@ -328,6 +355,10 @@
   }
 
   function goBack() {
+    if (state.dialog) {
+      closeDialog();
+      return;
+    }
     if (state.sheet) {
       state.sheet = null;
       render();
@@ -372,6 +403,9 @@
       setTheme(target === "theme-dark" ? "dark" : "light", { fromUser: true });
       return;
     }
+    if (target === "codex-reset") { confirmResetCredit(); return; }
+    if (target === "codex-remove") { confirmRemoveAccount(); return; }
+    if (target === "codex-refresh") { flashToast("Refreshing…"); return; }
     if (target.startsWith("sheet-")) {
       state.sheet = target;
       render();
@@ -454,7 +488,12 @@
     const cfg = SCREENS[id];
     const layer = els.hotspots;
     layer.replaceChildren();
-    for (const hs of cfg.hotspots) {
+    const spent = id === "account-codex-plus" && state.codexReset;
+    for (const raw of cfg.hotspots) {
+      if (spent && raw.id === "codex-reset-limit") continue;
+      let hs = raw;
+      if (spent && raw.id === "codex-refresh") hs = { ...raw, t: 50.05, b: 53.02 };
+      if (spent && raw.id === "codex-remove") hs = { ...raw, t: 57.48, b: 60.45 };
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = `hotspot${hs.kind ? " " + hs.kind : ""}`;
@@ -519,6 +558,8 @@
       );
     }
     els.homeBtn.setAttribute("aria-pressed", String(id === "home"));
+    if (els.opacityCtrl) els.opacityCtrl.hidden = id !== "home";
+    els.screen.classList.toggle("home-active", id === "home");
     updateThemeButtons();
   }
 
@@ -565,6 +606,168 @@
     window.setTimeout(apply, 160);
   }
 
+
+  function closeDialog() {
+    state.dialog = null;
+    if (els.dialog) {
+      els.dialog.hidden = true;
+      els.dialog.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function showDialog({ title, body, confirm, danger, onConfirm }) {
+    state.dialog = { onConfirm };
+    els.dialogTitle.textContent = title;
+    els.dialogBody.textContent = body;
+    els.dialogConfirm.textContent = confirm;
+    els.dialogConfirm.classList.toggle("danger", Boolean(danger));
+    els.dialog.hidden = false;
+    els.dialog.setAttribute("aria-hidden", "false");
+    els.dialogConfirm.focus();
+  }
+
+  function confirmResetCredit() {
+    if (state.codexReset) return;
+    showDialog({
+      title: "Use a reset credit?",
+      body: "This consumes 1 reset credit and cannot be undone. Your rate limit will be reset immediately.",
+      confirm: "Use credit",
+      onConfirm: () => {
+        state.codexReset = true;
+        closeDialog();
+        render();
+        flashToast("Weekly limit reset");
+      },
+    });
+  }
+
+  function confirmRemoveAccount() {
+    showDialog({
+      title: "Remove account?",
+      body: "Its stored credentials are deleted from this device. Nothing changes on the provider side, and you can add the account again at any time.",
+      confirm: "Remove",
+      danger: true,
+      onConfirm: () => {
+        closeDialog();
+        state.codexReset = false;
+        visit("overview", { push: false });
+        flashToast("Account removed");
+      },
+    });
+  }
+
+  let toastTimer = 0;
+  function flashToast(text) {
+    if (!els.toast) return;
+    els.toast.textContent = text;
+    els.toast.hidden = false;
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => { els.toast.hidden = true; }, 1600);
+  }
+
+  function setWidgetOpacity(value) {
+    const n = Math.max(0, Math.min(100, Number(value)));
+    state.widgetOpacity = n;
+    if (els.miniPlate) els.miniPlate.style.opacity = String(n / 100);
+    if (els.opacityValue) {
+      els.opacityValue.textContent = n === 0 ? "Opacity · transparent" : `Opacity · ${n} %`;
+    }
+    if (els.opacitySlider && Number(els.opacitySlider.value) !== n) els.opacitySlider.value = String(n);
+  }
+
+  function renderHomeLayers() {
+    const on = visibleScreen() === "home";
+    if (!els.homeLayers) return;
+    els.homeLayers.hidden = !on;
+  }
+
+  function recents() {
+    const id = visibleScreen();
+    if (id === "overview-list" || id === "overview-dials") {
+      if (els.sysNav) {
+        els.sysNav.classList.remove("is-feedback");
+        void els.sysNav.offsetWidth;
+        els.sysNav.classList.add("is-feedback");
+      }
+      return;
+    }
+    visit("overview", { push: false });
+  }
+
+  // Claude Code figure: moods follow remaining % (asleep ≤0 or exhausted, tired ≤20,
+  // working ≤50, idle ≤90, dancing above). Resets always plays Hooray. Widgets stay still.
+  const CLAUDE = {
+    "overview-list": [
+      // origin of the 24-unit figure, size is the figure's box (840×1886 screen)
+      { id: "list-max", l: 6.75, t: 20.49, size: 8.88, mood: "asleep" },
+      { id: "list-pro", l: 6.75, t: 63.92, size: 8.88, mood: "working" },
+    ],
+    "overview-dials": [
+      { id: "dial-max", l: 20.89, t: 16.96, size: 10.95, mood: "asleep" },
+      { id: "dial-pro", l: 68.20, t: 39.60, size: 10.95, mood: "working" },
+    ],
+    "account-claude-max": [
+      { id: "detail-max", l: 2.24, t: 7.14, size: 11.60, mood: "asleep" },
+    ],
+    "account-claude-pro": [
+      { id: "detail-pro", l: 2.24, t: 7.14, size: 11.60, mood: "working" },
+    ],
+    resets: [
+      { id: "reset-personal", l: 24.85, t: 24.04, size: 8.88, mood: "hooray" },
+      { id: "reset-work", l: 24.85, t: 30.19, size: 8.88, mood: "hooray" },
+      { id: "reset-work-weekly", l: 24.85, t: 75.74, size: 8.88, mood: "hooray" },
+      { id: "reset-work-opus", l: 24.85, t: 81.94, size: 8.88, mood: "hooray" },
+    ],
+  };
+
+  let claudeClock = 0;
+  let claudeLast = 0;
+  let claudeRaf = 0;
+
+  function reducedMotion() {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function renderClaude() {
+    const layer = els.claude;
+    if (!layer || !window.ClaudeMotion) return;
+    const id = visibleScreen();
+    const items = CLAUDE[id] || [];
+    const still = reducedMotion();
+    // Recreate nodes when the set of figures changes.
+    const sig = items.map((it) => it.id + it.mood).join("|") + (still ? "|still" : "");
+    if (layer.dataset.sig !== sig) {
+      layer.replaceChildren();
+      layer.dataset.sig = sig;
+      for (const it of items) {
+        const el = document.createElement("div");
+        el.className = "claude-fig";
+        el.dataset.mood = it.mood;
+        el.style.left = it.l + "%";
+        el.style.top = it.t + "%";
+        el.style.width = it.size + "%";
+        el.style.height = (it.size * 840 / 1886) + "%";
+        el.innerHTML = window.ClaudeMotion.svgFor(it.mood, it.id);
+        layer.appendChild(el);
+      }
+      claudeClock = 0;
+      claudeLast = 0;
+    }
+    const tick = (now) => {
+      if (layer.dataset.sig !== sig) return;
+      if (!claudeLast) claudeLast = now;
+      const dt = Math.min(0.05, (now - claudeLast) / 1000);
+      claudeLast = now;
+      if (!still) claudeClock += dt;
+      layer.querySelectorAll(".claude-fig").forEach((el) => {
+        window.ClaudeMotion.applyPose(el, el.dataset.mood, claudeClock, still);
+      });
+      if (!still && items.length) claudeRaf = requestAnimationFrame(tick);
+    };
+    if (claudeRaf) cancelAnimationFrame(claudeRaf);
+    claudeRaf = requestAnimationFrame(tick);
+  }
+
   function render({ skipHash } = {}) {
     const id = visibleScreen();
     const src = imagePath(id);
@@ -578,6 +781,8 @@
     renderSheet();
     renderGuide();
     updateChrome();
+    renderHomeLayers();
+    renderClaude();
     if (!skipHash) syncHash();
   }
 
@@ -588,6 +793,7 @@
       "overview-credits": "Overview, prepaid API credits",
       "account-claude-max": "Claude Max 5x account detail",
       "account-claude-pro": "Claude Pro account detail",
+      "account-codex-plus": "OpenAI Codex Plus account detail",
       "credit-openrouter": "OpenRouter credit account detail",
       resets: "Upcoming resets",
       "settings-appearance": "Settings, appearance and theme",
@@ -670,6 +876,22 @@
     els.layout = document.getElementById("layout-toggle");
     els.theme = document.getElementById("theme-toggle");
     els.homeBtn = document.getElementById("home-btn");
+    els.homeLayers = document.getElementById("home-layers");
+    els.miniPlate = document.getElementById("mini-plate");
+    els.opacityCtrl = document.getElementById("opacity-ctrl");
+    els.opacitySlider = document.getElementById("opacity-slider");
+    els.opacityValue = document.getElementById("opacity-value");
+    els.claude = document.getElementById("claude-layer");
+    els.dialog = document.getElementById("dialog");
+    els.dialogTitle = document.getElementById("dialog-title");
+    els.dialogBody = document.getElementById("dialog-body");
+    els.dialogConfirm = document.getElementById("dialog-confirm");
+    els.dialogCancel = document.getElementById("dialog-cancel");
+    els.toast = document.getElementById("toast");
+    els.sysNav = document.querySelector(".sys-nav");
+    els.sysBack = document.getElementById("sys-back");
+    els.sysHome = document.getElementById("sys-home");
+    els.sysRecents = document.getElementById("sys-recents");
 
     const fromHash = screenFromHash();
     setTheme(preferredTheme());
@@ -702,6 +924,23 @@
     });
 
     els.homeBtn.addEventListener("click", () => visit("home", { push: false }));
+
+    if (els.opacitySlider) {
+      setWidgetOpacity(state.widgetOpacity);
+      els.opacitySlider.addEventListener("input", (ev) => setWidgetOpacity(ev.target.value));
+    }
+    if (els.sysBack) els.sysBack.addEventListener("click", () => goBack());
+    if (els.sysHome) els.sysHome.addEventListener("click", () => visit("home", { push: false }));
+    if (els.sysRecents) els.sysRecents.addEventListener("click", () => recents());
+    if (els.dialogCancel) els.dialogCancel.addEventListener("click", () => closeDialog());
+    if (els.dialogConfirm) els.dialogConfirm.addEventListener("click", () => {
+      const fn = state.dialog && state.dialog.onConfirm;
+      if (fn) fn();
+    });
+    if (els.dialog) els.dialog.addEventListener("click", (ev) => {
+      if (ev.target === els.dialog) closeDialog();
+    });
+    window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", () => renderClaude());
 
     document.getElementById("sheet-close").addEventListener("click", () => {
       state.sheet = null;

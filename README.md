@@ -45,7 +45,7 @@ Each widget style and size has its own board in [Widgets](docs/widgets.md). Aler
 <p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/06-notifications-dark.png">
-  <img src="docs/images/readme/06-notifications-light.png" width="820" alt="Status bar icon settings and the notification shade, with pinned usage accounts next to the clock.">
+  <img src="docs/images/readme/06-notifications-light.png" width="820" alt="Status bar icon settings and the notification shade, with a close-up of the pinned status-bar icons: clock 4:20, Codex at 99% left, Claude exhausted, Grok at 76% left.">
 </picture>
 </p>
 

@@ -22,16 +22,48 @@
       <div class="side-btn pwr"></div>
       <div class="device">
         <div class="screen" id="screen" data-screen="overview-list">
-          <img id="screen-image" alt="Overview, list of accounts" width="840" height="1886" src="assets/screens/dark/overview-list.webp">
-          <div class="hotspots" id="hotspots"></div>
-          <div class="punch" aria-hidden="true"></div>
-          <div class="sheet" id="sheet" hidden aria-hidden="true" role="dialog" aria-labelledby="sheet-title">
-            <div class="sheet-card">
-              <h2 id="sheet-title">Add account</h2>
-              <p id="sheet-body"></p>
-              <button type="button" id="sheet-close">Close</button>
+          <div class="screen-stage">
+            <div class="screen-shot" id="screen-shot">
+              <div class="home-layers" id="home-layers" hidden>
+                <img class="home-base" src="assets/screens/layers/home-base.webp" width="840" height="1886" alt="">
+                <div class="mini-plate" id="mini-plate"></div>
+                <img class="home-mini-content" src="assets/screens/layers/home-mini-content.webp" width="840" height="1886" alt="">
+              </div>
+              <img id="screen-image" alt="Overview, list of accounts" width="840" height="1886" src="assets/screens/dark/overview-list.webp">
+              <div class="claude-layer" id="claude-layer" aria-hidden="true"></div>
+              <div class="hotspots" id="hotspots"></div>
+              <div class="punch" aria-hidden="true"></div>
+              <div class="sheet" id="sheet" hidden aria-hidden="true" role="dialog" aria-labelledby="sheet-title">
+                <div class="sheet-card">
+                  <h2 id="sheet-title">Add account</h2>
+                  <p id="sheet-body"></p>
+                  <button type="button" id="sheet-close">Close</button>
+                </div>
+              </div>
+              <div class="dialog" id="dialog" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+                <div class="dialog-card">
+                  <h2 id="dialog-title"></h2>
+                  <p id="dialog-body"></p>
+                  <div class="dialog-actions">
+                    <button type="button" id="dialog-cancel">Cancel</button>
+                    <button type="button" id="dialog-confirm"></button>
+                  </div>
+                </div>
+              </div>
+              <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
             </div>
           </div>
+          <nav class="sys-nav" aria-label="Android system navigation">
+            <button type="button" id="sys-back" aria-label="Back">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.2 5.6 8.1 12l6.1 6.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button type="button" id="sys-home" aria-label="Home">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+            </button>
+            <button type="button" id="sys-recents" aria-label="Recent apps">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7.2" y="7.2" width="9.6" height="9.6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+            </button>
+          </nav>
         </div>
       </div>
     </div>
@@ -50,6 +82,13 @@
       <div class="ctrl">
         <button type="button" id="home-btn" aria-pressed="false">Home screen</button>
       </div>
+      <div class="opacity-ctrl" id="opacity-ctrl" hidden>
+        <label for="opacity-slider">Background opacity</label>
+        <div class="opacity-row">
+          <input type="range" id="opacity-slider" min="0" max="100" value="70" step="1">
+          <output id="opacity-value" for="opacity-slider">Opacity · 70%</output>
+        </div>
+      </div>
       <div class="seg" id="layout-toggle" role="group" aria-label="Overview layout">
         <button type="button" data-layout="list" aria-pressed="true">List</button>
         <button type="button" data-layout="dials" aria-pressed="false">Dials</button>
@@ -60,8 +99,9 @@
       </div>
     </div>
 
-    <p class="note">Swipe down from the clock for the notification shade. On a detail screen, swipe in from the left edge or tap the bar at the bottom to go back.</p>
+    <p class="note">Swipe down from the clock for the notification shade. On a detail screen, use the Back button in the bar at the bottom of the phone, or swipe in from the left edge.</p>
   </div>
+  <script src="assets/claude-motion.js"></script>
   <script src="assets/app.js"></script>
 </body>
 </html>
