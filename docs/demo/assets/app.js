@@ -186,6 +186,90 @@
     },
   };
 
+
+  // Short copy for the live context panel. Only describes behaviour that
+  // exists in the app (overview, credits, resets, pinned status icons, widgets).
+  const GUIDE = {
+    "overview-list": {
+      title: "Overview, as a list",
+      body: "Each connected subscription shows its usage windows, how much is left, and the next reset. The list is sorted with the lowest headline first. Filters at the top are All, Needs attention (expired sign-ins only), and Resets today.",
+      hint: "Tap an account to open its detail. Swipe up, or use the area above the tab bar, to reach prepaid credits.",
+    },
+    "overview-dials": {
+      title: "Overview, as dials",
+      body: "The same accounts as rings: the figure in each dial is the headline still left. You can switch between list and dials, and between % left and % used, in the app.",
+      hint: "Tap a dial for that account’s windows. The empty tile opens Add account — the same sign-in flow the app uses.",
+    },
+    "overview-credits": {
+      title: "Prepaid API credits",
+      body: "Credit accounts sit next to your subscription limits. Each row is a prepaid balance the app reads with your own key — there is no server or proxy in the middle.",
+      hint: "Tap a row for that key’s limit and reset. Add credit balance is where you paste a provider key.",
+    },
+    "account-claude-max": {
+      title: "Claude Max 5x, in detail",
+      body: "One account’s usage windows in full: the 5-hour, weekly and per-model limits, how much is left, and when each window resets. Sample figures match the other screens in this preview.",
+      hint: "Swipe in from the left edge, or tap the bar at the bottom, to go back.",
+    },
+    "account-claude-pro": {
+      title: "Claude Pro, in detail",
+      body: "The same detail layout for Claude Pro: 5-hour and weekly windows, % left, and reset times. In the app, the Claude Code figure on this screen follows the account’s headline.",
+      hint: "Swipe in from the left edge, or tap the bar at the bottom, to go back.",
+    },
+    "credit-openrouter": {
+      title: "A credit account, in detail",
+      body: "A prepaid API balance with the remaining amount and, where the provider has one, its reset. Keys stay in the Android Keystore or the iOS Keychain.",
+      hint: "Swipe in from the left edge, or tap the bar at the bottom, to go back.",
+    },
+    resets: {
+      title: "When limits reset",
+      body: "Upcoming 5-hour and weekly resets, grouped by day, with a live countdown. Times here are 24-hour, as in the English sample data. The same times appear on widgets and in alerts.",
+      hint: "Tap a row to open that account. The Overview, Resets and Settings tabs at the bottom move around the app.",
+    },
+    "settings-appearance": {
+      title: "Appearance",
+      body: "Four themes — Warm dark, Pure black, Cool graphite and Light paper — plus the bundled fonts. Pure black is the default. This preview can follow Light paper or Pure black.",
+      hint: "Tap Pure black or Light paper to switch the preview theme. Swipe up for provider icon settings.",
+    },
+    "settings-providers": {
+      title: "Provider icons",
+      body: "Choose how each service’s icon is drawn in the app, so the list, widgets and status icons stay consistent with how you recognise the provider.",
+      hint: "Swipe down to return to Appearance, or swipe up for notification settings.",
+    },
+    "settings-notifications": {
+      title: "Alerts",
+      body: "The app can warn you when an account drops below 20% or 10% left, when a limit is exhausted, before a reset, when credits are low, or when a sign-in expires. Each type can be switched off. Status notifications stay quiet.",
+      hint: "Open Status bar icons at the bottom of this screen, or swipe up.",
+    },
+    "settings-status-icons": {
+      title: "Status bar icons",
+      body: "Pin up to three usage accounts. On Android each shows its glyph and headline as a status-bar notification; on iPhone the same selection is the Pinned accounts Lock Screen widget (iOS has no app status bar). Off until you turn it on. Credit balances cannot be pinned.",
+      hint: "Swipe down to return to Alerts. Swipe down from the clock on any screen for the notification shade.",
+    },
+    shade: {
+      title: "Notification shade",
+      body: "Pinned accounts appear here as status notifications: the glyph, how much is left, and the next reset. In the sample, Codex is at 99% left, Claude is exhausted, and Grok is at 76% left.",
+      hint: "Tap the Claude row to open that account, or tap the empty area below (or swipe up) to close the shade.",
+    },
+    home: {
+      title: "Home screen and widgets",
+      body: "Five widget styles — Usage Bars, Usage Summary, Account Rings, Mini Rings and Credits — can show all accounts, one service, one account, or a Custom selection. Widgets only see cached numbers.",
+      hint: "Tap a widget to jump into the matching screen, or the app icon in the dock. Swipe down from the clock for the shade.",
+    },
+  };
+
+  const GUIDE_SHEETS = {
+    "sheet-account": {
+      title: "Add account",
+      body: "In the app this opens the list of supported services and that provider’s own sign-in — in the browser, with a device code, or with an API key, depending on the service.",
+      hint: "Close the sheet to return to the overview.",
+    },
+    "sheet-credit": {
+      title: "Add credit balance",
+      body: "In the app this is where you add a prepaid API key for a credit provider. The key never leaves the device; the app talks to the provider directly.",
+      hint: "Close the sheet to return to the credits list.",
+    },
+  };
+
   const state = {
     screen: "overview-list",
     theme: "dark",
@@ -436,6 +520,42 @@
     }
   }
 
+
+  function guideContent() {
+    if (state.sheet && GUIDE_SHEETS[state.sheet]) return GUIDE_SHEETS[state.sheet];
+    return GUIDE[visibleScreen()] || {
+      title: "Usage Limits",
+      body: "Tap through the Android app.",
+      hint: "",
+    };
+  }
+
+  function renderGuide() {
+    const info = guideContent();
+    const title = document.getElementById("guide-title");
+    const body = document.getElementById("guide-body");
+    const hint = document.getElementById("guide-hint");
+    const box = document.getElementById("guide");
+    if (!title || !body || !hint || !box) return;
+    const next = info.title + "\n" + info.body + "\n" + (info.hint || "");
+    if (box.dataset.sig === next) return;
+    const apply = () => {
+      title.textContent = info.title;
+      body.textContent = info.body;
+      hint.textContent = info.hint || "";
+      hint.hidden = !info.hint;
+      box.dataset.sig = next;
+      box.classList.remove("is-updating");
+    };
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce || !box.dataset.sig) {
+      apply();
+      return;
+    }
+    box.classList.add("is-updating");
+    window.setTimeout(apply, 160);
+  }
+
   function render({ skipHash } = {}) {
     const id = visibleScreen();
     const src = imagePath(id);
@@ -447,6 +567,7 @@
     els.screen.dataset.theme = state.theme;
     renderHotspots();
     renderSheet();
+    renderGuide();
     updateChrome();
     if (!skipHash) syncHash();
   }

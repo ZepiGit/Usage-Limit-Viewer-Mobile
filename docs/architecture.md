@@ -4,7 +4,7 @@ Provider adapters turn responses into shared account, quota and balance models. 
 
 ## Redesign scope
 
-This describes the integrated Android and iOS software on `release/0.5.0`, not released or `main` behavior. Both native apps have Overview, Resets and Settings. List shows every usage window; Dials uses the same headline and automatic account order without List filters. Full combined-candidate CI, native SDK/render/font-package checks and physical-device approval remain pending; [release evidence](release.md#release-050-checkpoint) separates those gates from historical results.
+This describes the integrated Android and iOS software as shipped in 0.5.1 on `main`. Both native apps have Overview, Resets and Settings. List shows every usage window; Dials uses the same headline and automatic account order without List filters. Historical candidate evidence and remaining device gates are recorded in the [0.5.0 release checkpoint](release.md#release-050-checkpoint); that checkpoint is not a substitute for the 0.5.1 tag.
 
 [ADR 0001](adr/0001-one-presentation-per-usage-window.md) and [ADR 0002](adr/0002-one-account-headline-per-platform.md) define shared window presentation and account headlines. [ADR 0004](adr/0004-automatic-overview-order-and-stored-order.md) separates automatic Overview/All accounts ranking from stored pin and other selection order. [ADR 0003](adr/0003-status-icons-and-lock-screen-substitute.md#consequences) retains SystemUI's ordering limits, and [ADR 0005](adr/0005-app-and-widget-appearance.md) separates app appearance from widget styling. Retained branch histories include obsolete prototypes for provenance, not as enabled experiments.
 

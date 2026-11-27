@@ -1,6 +1,57 @@
 # Widgets
 
-Widgets show the app's cached readings. They do not hold credentials or contact providers directly. Add accounts in the app before choosing what to display.
+Widgets in [Usage Limits Mobile](../README.md) 0.5.1 show the app's cached readings. They do not hold credentials or contact providers directly. Add accounts in the app before choosing what to display.
+
+[Back to the README](../README.md) · Phones, foldables, tablets and families: [Devices](DEVICES.md).
+
+The boards below use the real widget renders from the screenshot set (light and dark panels). Every type and size in that set is shown. iOS Lock Screen forms are documented under [Status icons](status-icons.md); the only iOS widget photograph in this repository is the Pinned accounts sheet.
+
+## Catalog
+
+### Account Rings
+
+A ring per account, with the provider mark, name and reset.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/widgets/account-rings-dark.png">
+  <img src="images/widgets/account-rings-light.png" width="880" alt="Account Rings widget in 4×3, 4×2 and 2×2.">
+</picture>
+
+### Mini Rings
+
+A compact grid of rings and icons. Capacity depends on the placement size.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/widgets/mini-rings-dark.png">
+  <img src="images/widgets/mini-rings-light.png" width="880" alt="Mini Rings widget in 4×1, 2×2 and 1×2.">
+</picture>
+
+### Usage Bars
+
+Scrollable account cards with limit rows and reset times.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/widgets/usage-bars-dark.png">
+  <img src="images/widgets/usage-bars-light.png" width="880" alt="Usage Bars widget in 4×4, 4×2 and 2×2.">
+</picture>
+
+### Usage Summary
+
+One leading account’s limits and next reset.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/widgets/usage-summary-dark.png">
+  <img src="images/widgets/usage-summary-light.png" width="880" alt="Usage Summary widget in 4×2, 4×1 and 2×2.">
+</picture>
+
+### Credits
+
+Prepaid balances, worst status first. Up to one, three or six accounts depending on size. The tiles below are the dark-panel renders from the source set; a light-panel Credits capture was not included there. Android’s smallest tile has a 110 × 110 dp minimum.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/widgets/credits-dark.png">
+  <img src="images/widgets/credits-light.png" width="880" alt="Credits widget in 4×4, 4×2 and 2×2, from the dark-panel source renders.">
+</picture>
 
 ## Android setup
 
@@ -19,9 +70,9 @@ Each usage widget has its own background color, opacity and text tone. Automatic
 
 Account Rings and Mini Rings omit the visible Left/Used caption, while their accessibility descriptions retain the side, headline window, reset and applicable reading state. Summary labels and Bars figures still name the side. A widget tap naming an account opens its detail through Overview; a whole-widget tap opens Overview. Cold/warm delivery through a real launcher remains a [device check](release.md#device-checklist).
 
-In the 0.5.0 Android candidate, placed Usage Bars, Account Rings and Mini Rings show a steady mood still when **Claude Code · Color** or **Claude Code · Monochrome** is selected. Each account uses its own headline's raw percentage left; provider-declared exhaustion shows Asleep even with a positive or missing figure. Used mode, reading age and the app's animation switch do not change the mood rule or create a reset celebration. Existing reading publications and scheduled presentation repaints rebuild the headline and still. Color retains the figure's artwork; the monochrome body uses the widget's primary text ink, the sleeping glyph uses secondary ink, and the eyes are transparent cut-outs.
+On Android, placed Usage Bars, Account Rings and Mini Rings show a steady mood still when **Claude Code · Color** or **Claude Code · Monochrome** is selected. Each account uses its own headline's raw percentage left; provider-declared exhaustion shows Asleep even with a positive or missing figure. Used mode, reading age and the app's animation switch do not change the mood rule or create a reset celebration. Existing reading publications and scheduled presentation repaints rebuild the headline and still. Color retains the figure's artwork; the monochrome body uses the widget's primary text ink, the sleeping glyph uses secondary ink, and the eyes are transparent cut-outs.
 
-Placed widgets never animate or play Hooray. Configuration keeps fixed catalog artwork; other icon choices remain static. Usage Summary and Credits have no provider logo. [Candidate evidence](release.md#release-050-checkpoint) separates historical native host-applied tests from pending combined-candidate CI. Populated launcher behavior, tint, resize and taps still need device checks ([#124](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/issues/124)).
+Placed widgets never animate or play Hooray. Configuration keeps fixed catalog artwork; other icon choices remain static. Usage Summary and Credits have no provider logo. Historical host-applied tests are recorded in the [0.5.0 release checkpoint](release.md#release-050-checkpoint). Populated launcher behaviour, tint, resize and taps still need device checks ([#124](https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/issues/124)).
 
 The configuration preview and every usage widget follow the app's display mode. See [Percentages: left or used](#percentages-left-or-used).
 
@@ -29,7 +80,7 @@ All accounts ordering is not pin ordering. Android status icons retain the store
 
 ## iOS setup
 
-The 0.5.0 candidate integrates the native WidgetKit changes below. Real-SDK builds, new family renderings and installed-host/device acceptance remain pending; no new iPhone/iPad capture or physical-device approval is claimed.
+The native WidgetKit changes below ship in 0.5.1. Real-SDK family renderings and installed-host/device acceptance remain open; this page does not claim a new iPhone or iPad photograph or physical-device approval.
 
 Add Usage Limits from the Home Screen widget gallery. On iOS 17 and later, configurable Usage Bars, Account Rings and Mini Rings support account selection, provider selection and saved custom layouts. Edit a custom layout's accounts and order in app Settings; widgets using that layout share those choices. Content, transparency and text-tone choices belong to each widget. App palettes and text/figure fonts do not restyle widgets or their in-app configuration previews: those retain the widget palette, `WidgetInk` and system fonts. The bundled app fonts do not enter the extension.
 

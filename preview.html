@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Usage Limits Mobile — README preview</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.8.1/github-markdown-light.min.css" id="md-css-light">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.8.1/github-markdown-dark.min.css" id="md-css-dark" disabled>
+  <style>
+    :root { color-scheme: light; }
+    html[data-theme="dark"] { color-scheme: dark; }
+    body { margin: 0; background: #fff; }
+    html[data-theme="dark"] body { background: #0d1117; }
+    .bar { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center;
+      padding: 10px 16px; font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: color-mix(in srgb, Canvas 92%, transparent); backdrop-filter: blur(8px);
+      border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); }
+    .bar a { color: inherit; }
+    .bar button { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); background: Canvas; color: CanvasText; cursor: pointer; }
+    .markdown-body { max-width: 880px; margin: 24px auto 80px; padding: 0 16px; }
+    .links { margin-left: auto; display: flex; gap: 14px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <strong>README preview</strong>
+    <button type="button" id="theme">Dark</button>
+    <div class="links">
+      <a href="docs/PROVIDERS.md">Providers</a>
+      <a href="docs/widgets.md">Widgets</a>
+      <a href="docs/DEVICES.md">Devices</a>
+      <a href="docs/notifications.md">Notifications</a>
+      <a href="docs/demo/index.html">Demo</a>
+    </div>
+  </div>
+  <article class="markdown-body" id="md">Loading…</article>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    const md = document.getElementById("md");
+    const btn = document.getElementById("theme");
+    const lightCss = document.getElementById("md-css-light");
+    const darkCss = document.getElementById("md-css-dark");
+    function setTheme(dark) {
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      lightCss.disabled = dark;
+      darkCss.disabled = !dark;
+      btn.textContent = dark ? "Light" : "Dark";
+    }
+    btn.addEventListener("click", () => setTheme(document.documentElement.dataset.theme !== "dark"));
+    if (matchMedia("(prefers-color-scheme: dark)").matches) setTheme(true);
+    fetch("README.md").then(r => r.text()).then(src => {
+      md.innerHTML = marked.parse(src, { gfm: true, breaks: false });
+    }).catch(err => { md.textContent = "Could not load README.md: " + err; });
+  </script>
+</body>
+</html>

@@ -397,3 +397,98 @@ header.intro p {
   white-space: nowrap;
   border: 0;
 }
+
+
+/* Stage: phone + live context panel */
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.guide {
+  width: 100%;
+  max-width: 420px;
+  background: var(--chip);
+  border: 1px solid var(--chip-border);
+  border-radius: 16px;
+  padding: 12px 16px 14px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow) 55%, transparent);
+}
+
+.guide-kicker {
+  margin: 0 0 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.guide h2 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--fg);
+}
+
+.guide-body {
+  margin: 0;
+  color: var(--fg);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.guide-hint {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.guide-copy {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.guide.is-updating .guide-copy {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-copy { transition: none; }
+}
+
+@media (min-width: 860px) {
+  .page { max-width: 920px; }
+  .stage {
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 28px;
+  }
+  .phone-scale { order: 0; }
+  .guide {
+    order: 0;
+    flex: 0 0 280px;
+    width: 280px;
+    max-width: 280px;
+    padding: 18px 18px 20px;
+  }
+  .guide h2 { font-size: 1.2rem; }
+  .phone-scale {
+    --frame-w: min(420px, calc(100vw - 360px), calc((100dvh - 180px) / 2.1206));
+  }
+}
+
+@media (max-width: 859px) {
+  .guide {
+    padding: 10px 14px 12px;
+  }
+  .guide h2 { font-size: 0.98rem; }
+  .guide-body { font-size: 0.86rem; }
+}
