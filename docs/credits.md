@@ -52,7 +52,7 @@ On Android and iOS, open **Settings → Overview** and choose **Normal** to list
 
 With credit accounts but no usage accounts, Overview says **No usage accounts yet**, not that all accounts are missing. It keeps one visible Add credit path: the Credits heading supplies it in Normal or expanded Compact; the secondary empty-state action remains when populated Compact is collapsed or Credits is hidden.
 
-On a German device these controls are under **Einstellungen → Übersicht**: **Guthabenkonten**, **Zuerst anzeigen**, **Guthaben anzeigen** and **Guthaben verwalten**. The credit-only heading reads **Noch keine Nutzungskonten**. Both native implementations ship in 0.5.1. Combined CI and physical-device acceptance notes remain in the [release checkpoint](release.md#release-050-checkpoint).
+On a German device these controls are under **Einstellungen → Übersicht**: **Guthabenkonten**, **Zuerst anzeigen**, **Guthaben anzeigen** and **Guthaben verwalten**. The credit-only heading reads **Noch keine Nutzungskonten**. Both native implementations ship in 0.5.1.
 
 ## Refresh and removal
 

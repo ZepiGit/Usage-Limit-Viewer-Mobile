@@ -487,8 +487,15 @@ header.intro p {
 
 @media (max-width: 859px) {
   .guide {
+    min-height: 168px;
     padding: 10px 14px 12px;
   }
   .guide h2 { font-size: 0.98rem; }
   .guide-body { font-size: 0.86rem; }
+}
+
+.seg button:focus-visible,
+.ctrl button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

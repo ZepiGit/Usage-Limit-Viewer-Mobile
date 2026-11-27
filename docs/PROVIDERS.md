@@ -4,15 +4,9 @@ Supported services in [Usage Limits Mobile](../README.md) 0.5.1: eleven subscrip
 
 [Back to the README](../README.md) · Per-provider setup notes are linked from each name where a dedicated guide exists.
 
-<h2 id="services">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="images/readme/headings/services-dark.png">
-    <img src="images/readme/headings/services-light.png" alt="Services" height="48">
-  </picture>
-</h2>
+## Subscriptions
 
-
-For Claude, Codex, Antigravity and Devin you sign in on the service’s own web page, in your normal browser. The app never sees your password; it only receives the sign-in result. A **Sign-in** notification keeps the app awake so it can catch that result (Android 14 and later can pause background apps while the browser is open). If signing in takes longer than three minutes, the notification asks you to come back to the app.
+For Claude, Codex, Antigravity and Devin you sign in on the service’s own web page, in your normal browser. The app never sees your password; it only receives the sign-in result. On Android, a **Sign-in** notification keeps the app awake so it can catch that result (Android 14 and later can pause background apps while the browser is open). If signing in takes longer than three minutes, the notification asks you to come back to the app.
 
 A pasted key from the Kimi console reads usage either way. Kimi may need to approve the app’s name before device-code sign-in can read usage.
 
@@ -34,7 +28,7 @@ A pasted key from the Kimi console reads usage either way. Kimi may need to appr
 
 ## Prepaid credit APIs
 
-The **Credits** section shows how much money is left on each account, in that account’s currency, and can warn you when it gets low. Keys stay on the device; the app talks to the provider directly. See [Credit balances](credits.md).
+The **Credits** section shows how much money is left on each account, in that account’s currency, and marks a balance as low when it falls under a threshold you set. Keys stay on the device; the app talks to the provider directly. See [Credit balances](credits.md).
 
 | Service | Which key it needs |
 | :--- | :--- |
@@ -51,4 +45,4 @@ The **Credits** section shows how much money is left on each account, in that ac
 
 The same Ollama key can be a usage account and a credit account. **Anthropic and OpenAI API balances cannot be shown:** neither offers a way to read the remaining balance with an API key, so the app says so instead of guessing.
 
-Set a low-balance threshold per account, and choose Normal or Compact under **Settings → Overview**.
+Set the low-balance threshold per account (it colours and orders the balance in the app; it is not a push alert), and choose Normal or Compact under **Settings → Overview**.

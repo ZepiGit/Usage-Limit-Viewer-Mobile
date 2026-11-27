@@ -86,7 +86,7 @@
       swipe: { down: "overview" },
       hotspots: [
         ...COMMON_NAV,
-        { id: "add-credit", l: 28, t: 15.2, r: 72, b: 18.4, go: "sheet-credit", kind: "chip", label: "Add credit balance" },
+        { id: "add-credit", l: 18.5, t: 14.8, r: 49, b: 17.8, go: "sheet-credit", kind: "chip", label: "Add credit balance" },
         { id: "credit-openrouter", l: L, t: 19.51, r: R, b: 33.25, go: "credit-openrouter", kind: "card", label: "OpenRouter team" },
       ],
     },
@@ -138,7 +138,7 @@
       swipe: { down: "settings-providers", up: "settings-status-icons" },
       hotspots: [
         ...COMMON_NAV,
-        { id: "open-status-icons", l: L, t: 80.0, r: R, b: 88.7, go: "settings-status-icons", kind: "card", label: "Status bar icons" },
+        { id: "open-status-icons", l: L, t: 75.3, r: R, b: 88.7, go: "settings-status-icons", kind: "card", label: "Status bar icons" },
       ],
     },
     "settings-status-icons": {
@@ -153,8 +153,8 @@
       overlay: true,
       swipe: { up: "back" },
       hotspots: [
-        { id: "shade-claude", l: 4, t: 17.8, r: 96, b: 26.2, go: "account-claude-max", kind: "card", label: "Claude, exhausted" },
-        { id: "shade-dismiss", l: 0, t: 38, r: 100, b: 100, go: "back", kind: "card", label: "Close notification shade" },
+        { id: "shade-claude", l: 4, t: 24.4, r: 96, b: 32.1, go: "account-claude-max", kind: "card", label: "Claude, exhausted" },
+        { id: "shade-dismiss", l: 0, t: 40.5, r: 100, b: 100, go: "back", kind: "card", label: "Close notification shade" },
         { id: "back-edge", l: 0, t: 0, r: 4.5, b: 100, go: "back", kind: "edge", label: "Back" },
         { id: "back-gesture", l: 28, t: 97.4, r: 72, b: 100, go: "back", kind: "gesture", label: "Back" },
       ],
@@ -166,11 +166,11 @@
       swipe: {},
       hotspots: [
         { id: "status-bar", l: 0, t: 0, r: 100, b: 3.4, go: "shade", kind: "status", label: "Notification shade" },
-        { id: "widget-summary", l: 5, t: 11.5, r: 95, b: 27.2, go: "account-claude-pro", kind: "card", label: "Usage summary widget" },
-        { id: "widget-rings", l: 5, t: 28.2, r: 95, b: 57.6, go: "overview-dials", kind: "card", label: "Account rings widget" },
+        { id: "widget-summary", l: 5, t: 13.4, r: 95, b: 25.3, go: "account-claude-pro", kind: "card", label: "Usage summary widget" },
+        { id: "widget-rings", l: 5, t: 26.5, r: 95, b: 58, go: "overview-dials", kind: "card", label: "Account rings widget" },
         { id: "widget-mini", l: 5, t: 59.0, r: 48.5, b: 76.8, go: "overview-list", kind: "card", label: "Mini rings widget" },
         { id: "widget-credits", l: 51, t: 59.0, r: 95, b: 76.8, go: "overview-credits", kind: "card", label: "Credits widget" },
-        { id: "dock-app", l: 41, t: 79.2, r: 59, b: 88.6, go: "overview", kind: "round", label: "Open Usage Limits" },
+        { id: "dock-app", l: 43.2, t: 83.8, r: 56.8, b: 89.9, go: "overview", kind: "round", label: "Open Usage Limits" },
       ],
     },
   };
@@ -192,67 +192,67 @@
   const GUIDE = {
     "overview-list": {
       title: "Overview, as a list",
-      body: "Each connected subscription shows its usage windows, how much is left, and the next reset. The list is sorted with the lowest headline first. Filters at the top are All, Needs attention (expired sign-ins only), and Resets today.",
+      body: "Each subscription shows its usage windows, how much is left and the next reset. Expired sign-ins come first, then the lowest headline. Filters: All, Needs attention, Resets today.",
       hint: "Tap an account to open its detail. Swipe up, or use the area above the tab bar, to reach prepaid credits.",
     },
     "overview-dials": {
       title: "Overview, as dials",
-      body: "The same accounts as rings: the figure in each dial is the headline still left. You can switch between list and dials, and between % left and % used, in the app.",
+      body: "The same accounts as rings: each dial shows the account’s headline. Switch between list and dials, and between % left and % used, in Settings.",
       hint: "Tap a dial for that account’s windows. The empty tile opens Add account — the same sign-in flow the app uses.",
     },
     "overview-credits": {
       title: "Prepaid API credits",
-      body: "Credit accounts sit next to your subscription limits. Each row is a prepaid balance the app reads with your own key — there is no server or proxy in the middle.",
+      body: "Prepaid API balances sit below your subscription limits. The app reads each one with your own key; there is no server in between.",
       hint: "Tap a row for that key’s limit and reset. Add credit balance is where you paste a provider key.",
     },
     "account-claude-max": {
       title: "Claude Max 5x, in detail",
-      body: "One account’s usage windows in full: the 5-hour, weekly and per-model limits, how much is left, and when each window resets. Sample figures match the other screens in this preview.",
+      body: "Every window of one account: 5-hour, weekly and per-model limits, how much is left and when each resets.",
       hint: "Swipe in from the left edge, or tap the bar at the bottom, to go back.",
     },
     "account-claude-pro": {
       title: "Claude Pro, in detail",
-      body: "The same detail layout for Claude Pro: 5-hour and weekly windows, % left, and reset times. In the app, the Claude Code figure on this screen follows the account’s headline.",
+      body: "The same detail layout for Claude Pro: 5-hour and weekly windows with % left and reset times.",
       hint: "Swipe in from the left edge, or tap the bar at the bottom, to go back.",
     },
     "credit-openrouter": {
       title: "A credit account, in detail",
-      body: "A prepaid API balance with the remaining amount and, where the provider has one, its reset. Keys stay in the Android Keystore or the iOS Keychain.",
+      body: "A prepaid API balance with the remaining amount and, where the provider has one, its reset. The key is stored encrypted on the device (Android Keystore / iOS Keychain).",
       hint: "Swipe in from the left edge, or tap the bar at the bottom, to go back.",
     },
     resets: {
       title: "When limits reset",
-      body: "Upcoming 5-hour and weekly resets, grouped by day, with a live countdown. Times here are 24-hour, as in the English sample data. The same times appear on widgets and in alerts.",
+      body: "Upcoming 5-hour and weekly resets, grouped by day, with a live countdown to the next one.",
       hint: "Tap a row to open that account. The Overview, Resets and Settings tabs at the bottom move around the app.",
     },
     "settings-appearance": {
       title: "Appearance",
-      body: "Four themes — Warm dark, Pure black, Cool graphite and Light paper — plus the bundled fonts. Pure black is the default. This preview can follow Light paper or Pure black.",
+      body: "Four themes (Warm dark, Pure black, Cool graphite, Light paper) plus bundled fonts. Pure black is the default; this preview offers Pure black and Light paper.",
       hint: "Tap Pure black or Light paper to switch the preview theme. Swipe up for provider icon settings.",
     },
     "settings-providers": {
       title: "Provider icons",
-      body: "Choose how each service’s icon is drawn in the app, so the list, widgets and status icons stay consistent with how you recognise the provider.",
+      body: "Choose how each service’s icon is drawn in the app: Color, Monochrome or Wordmark, plus the Claude Code figure for Claude.",
       hint: "Swipe down to return to Appearance, or swipe up for notification settings.",
     },
     "settings-notifications": {
       title: "Alerts",
-      body: "The app can warn you when an account drops below 20% or 10% left, when a limit is exhausted, before a reset, when credits are low, or when a sign-in expires. Each type can be switched off. Status notifications stay quiet.",
+      body: "Alerts for below 20% or 10% left, an exhausted limit, an approaching reset, Codex reset credits and an expired sign-in. Each type can be switched off.",
       hint: "Open Status bar icons at the bottom of this screen, or swipe up.",
     },
     "settings-status-icons": {
       title: "Status bar icons",
-      body: "Pin up to three usage accounts. On Android each shows its glyph and headline as a status-bar notification; on iPhone the same selection is the Pinned accounts Lock Screen widget (iOS has no app status bar). Off until you turn it on. Credit balances cannot be pinned.",
+      body: "Pin up to three usage accounts: each shows its glyph and headline next to the clock on Android, or on the Lock Screen on iPhone. Off until you turn it on. Credits cannot be pinned.",
       hint: "Swipe down to return to Alerts. Swipe down from the clock on any screen for the notification shade.",
     },
     shade: {
       title: "Notification shade",
-      body: "Pinned accounts appear here as status notifications: the glyph, how much is left, and the next reset. In the sample, Codex is at 99% left, Claude is exhausted, and Grok is at 76% left.",
+      body: "Pinned accounts appear here: glyph, how much is left and the next reset. Codex is at 99% left, Claude is exhausted, Grok is at 76% left.",
       hint: "Tap the Claude row to open that account, or tap the empty area below (or swipe up) to close the shade.",
     },
     home: {
       title: "Home screen and widgets",
-      body: "Five widget styles — Usage Bars, Usage Summary, Account Rings, Mini Rings and Credits — can show all accounts, one service, one account, or a Custom selection. Widgets only see cached numbers.",
+      body: "Widgets come as Usage Bars, Usage Summary (Android), Account Rings, Mini Rings and Credits. The usage styles can show all accounts, one service, one account or a custom selection. They only read cached numbers.",
       hint: "Tap a widget to jump into the matching screen, or the app icon in the dock. Swipe down from the clock for the shade.",
     },
   };
@@ -260,12 +260,12 @@
   const GUIDE_SHEETS = {
     "sheet-account": {
       title: "Add account",
-      body: "In the app this opens the list of supported services and that provider’s own sign-in — in the browser, with a device code, or with an API key, depending on the service.",
+      body: "Opens the supported services and that provider’s own sign-in: in the browser, with a device code or with an API key.",
       hint: "Close the sheet to return to the overview.",
     },
     "sheet-credit": {
       title: "Add credit balance",
-      body: "In the app this is where you add a prepaid API key for a credit provider. The key never leaves the device; the app talks to the provider directly.",
+      body: "Add a prepaid API key for a credit provider. The app talks to the provider directly.",
       hint: "Close the sheet to return to the credits list.",
     },
   };
@@ -321,6 +321,7 @@
       state.sheet ||
         state.behindShade ||
         state.stack.length ||
+        (SCREENS[state.screen] && !SCREENS[state.screen].tab && state.screen !== "home") ||
         state.screen === "overview-credits" ||
         (SETTINGS.includes(state.screen) && state.screen !== "settings-appearance")
     );
@@ -350,6 +351,13 @@
     if (SETTINGS.includes(state.screen) && state.screen !== "settings-appearance") {
       const i = SETTINGS.indexOf(state.screen);
       state.screen = SETTINGS[Math.max(0, i - 1)];
+      render();
+      return;
+    }
+    const cfg = SCREENS[state.screen];
+    if (cfg && !cfg.tab && state.screen !== "home") {
+      // A detail screen opened without history (deep link, widget, shade) goes back to Overview.
+      state.screen = overviewScreen();
       render();
     }
   }
@@ -462,6 +470,7 @@
       btn.addEventListener("click", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
+        if (state.swipedAt && Date.now() - state.swipedAt < 400) return;
         onHotspot(hs);
       });
       layer.appendChild(btn);
@@ -600,7 +609,8 @@
       (ev) => {
         if (ev.button && ev.button !== 0) return;
         // Let buttons and the sheet keep the pointer so their click handlers fire.
-        if (ev.target.closest(".hotspot, .sheet, button")) {
+        // The edge, clock and gesture strips are taps and swipe starts at once.
+        if (ev.target.closest(".sheet, button") && !ev.target.closest(".hotspot.edge, .hotspot.status, .hotspot.gesture")) {
           armed = false;
           return;
         }
@@ -625,6 +635,7 @@
       const min = Math.max(36, sw * 0.12);
       const cfg = SCREENS[visibleScreen()];
       if (absX < min && absY < min) return;
+      state.swipedAt = Date.now(); // the click that follows a swipe must not fire again
 
       if (dx > min && absX > absY && sx < sw * 0.12) {
         if (canGoBack()) goBack();

@@ -10,11 +10,11 @@ Every document in this directory, and what it answers.
 | --- | --- |
 | [Providers](PROVIDERS.md) | The eleven subscriptions and ten credit APIs: what you see and how you connect. |
 | [Widgets](widgets.md) | Every widget style and size, with light and dark images, plus setup. |
-| [Notifications](notifications.md) | Alerts and pinned usage in the status bar / Lock Screen. |
+| [Notifications](notifications.md) | Pinned usage in the status bar / Lock Screen, and alerts. |
 | [Status icons](status-icons.md) | The detailed pinned-account glyphs, forms and evidence. |
 | [Credits](credits.md) | Prepaid API balances and the Credits widget. |
-| [Devices](DEVICES.md) | Android and iOS versions, foldables, tablets and widget sizes. |
-| [Device compatibility](compatibility.md) | The short minimum-version list. |
+| [Devices](DEVICES.md) | Android and iOS versions, foldables, tablets and widget sizes (this page also holds the foldable layout). |
+| [Device compatibility](compatibility.md) | Pointer to Devices. |
 | [Security](security.md) | Where credentials live and what leaves the device. |
 
 ## Connecting a service
@@ -47,6 +47,6 @@ One guide per provider, with the sign-in flow, the payload shape and the limits 
 
 ## Media
 
-`media/` holds the images the guides display: the app icon and store badges under `brand/`, the Android captures under `captures/`, and the status icon evidence under `status-icons/`. Nothing else belongs there.
+`media/` holds the images the guides display: the app icon under `brand/`, the Android captures under `captures/`, and the status icon evidence under `status-icons/`. Nothing else belongs there.
 
-`images/readme/` holds the README artwork and section-heading SVGs in light and dark variants, `images/widgets/` and `images/devices/` the widget catalog and foldable boards, `store-previews/` the full-size store screenshots, and `demo/` the click-through demo.
+`images/readme/` holds the README artwork and section-heading PNGs in light and dark variants, `images/widgets/` and `images/devices/` the widget catalog and foldable boards, `store-previews/` the full-size store screenshots, and `demo/` the click-through demo.

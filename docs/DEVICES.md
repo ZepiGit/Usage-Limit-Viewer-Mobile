@@ -1,16 +1,8 @@
 # Devices
 
-What [Usage Limits Mobile](../README.md) 0.5.1 runs on, and how the layout and widgets adapt. Facts below are taken from [compatibility](compatibility.md), [widgets](widgets.md) and the app’s Gradle/Xcode settings (`minSdk = 26`, `compileSdk`/`targetSdk = 37`, `versionName` 0.5.1).
+What [Usage Limits Mobile](../README.md) 0.5.1 runs on, and how the layout and widgets adapt. Facts below come from the app’s Gradle and Xcode settings and the [widget catalog](widgets.md) (`minSdk = 26`, `compileSdk`/`targetSdk = 37`, `versionName` 0.5.1).
 
 [Back to the README](../README.md)
-
-<h2 id="devices">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="images/readme/headings/devices-dark.png">
-    <img src="images/readme/headings/devices-light.png" alt="Devices" height="48">
-  </picture>
-</h2>
-
 
 ## Android
 
@@ -35,16 +27,16 @@ Configurable usage widgets (Usage Bars, Account Rings, Mini Rings) require **iOS
 
 ## Widget sizes
 
-Widgets follow the launcher or WidgetKit family, not a fixed pixel size. Usage widgets on Android resize to the space the launcher gives them. The screenshot set used in [Widgets](widgets.md) shows these placements:
+Widgets follow the launcher or WidgetKit family, not a fixed pixel size. Usage widgets on Android resize to the space the launcher gives them. [Widgets](widgets.md) shows these placements:
 
-| Style | Sizes in the screenshot set |
+| Style | Sizes shown |
 | :--- | :--- |
 | Account Rings | 4×3, 4×2, 2×2 |
 | Mini Rings | 4×1, 2×2, 1×2 |
 | Usage Bars | 4×4, 4×2, 2×2 |
 | Usage Summary | 4×2, 4×1, 2×2 |
-| Credits | 4×4, 4×2, 2×2 (dark-panel renders; a light-panel Credits capture was not in the source set). Android’s smallest Credits tile has a 110 × 110 dp minimum. |
+| Credits | 4×4, 4×2, 2×2 (always the dark widget panel). Android’s smallest Credits tile has a 110 × 110 dp minimum. |
 
 On iOS, the standard tiles have small, medium, large and rectangular Lock Screen forms. Usage Ring has small and circular Lock Screen forms. Pinned accounts has rectangular, circular and inline Lock Screen forms (see [Status icons](status-icons.md)). Credits widgets list up to one, three or six accounts depending on size, worst first.
 
-Both platforms respect reduced motion. Status uses text and bar length as well as colour. See the [release checklist](release.md#device-checklist) for accessibility and device checks that remain open, including physical-device validation.
+Both platforms respect reduced motion. Status uses text and bar length as well as colour.
