@@ -21,31 +21,7 @@
   </picture>
 </p>
 
-<p align="center"><a href="#features">Features</a> · <a href="#widgets">Widgets</a> · <a href="#services">Services</a> · <a href="#appearance">Appearance</a> · <a href="#your-data">Your data</a> · <a href="#install">Install</a></p>
-
-<h2 id="features">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/headings/features-dark.png">
-    <img src="docs/images/readme/headings/features-light.png" alt="Features" height="56">
-  </picture>
-</h2>
-
-
-<table>
-<tr>
-<td valign="middle">
-
-Connect a supported subscription to read its usage windows and reset times, as a list or as dials. Overview shows expired sign-ins first, then the lowest headline. Open an account for every window with its % left and reset time, and see all upcoming resets by day.
-
-</td>
-<td align="center" width="240">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/03-account-detail-dark.png">
-  <img src="docs/images/readme/03-account-detail-light.png" width="220" alt="Account detail for Claude Max 5x: 5-hour, weekly and weekly Opus windows with % left and time until reset.">
-</picture>
-</td>
-</tr>
-</table>
+<p align="center"><a href="#widgets">Widgets</a> · <a href="#services">Services</a> · <a href="#appearance">Appearance</a> · <a href="#your-data">Your data</a> · <a href="#install">Install</a></p>
 
 <h2 id="widgets">
   <picture>
