@@ -4,7 +4,7 @@ Widgets in [Usage Limits Mobile](../README.md) 0.5.1 show the app's cached readi
 
 ## Catalog
 
-Real widget renders, light and dark, in every type and size.
+Real Android widget renders, light and dark, in every type and size.
 
 ### Account Rings
 

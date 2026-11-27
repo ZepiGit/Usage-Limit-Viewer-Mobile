@@ -111,7 +111,7 @@ Four themes — Warm dark, Pure black, Cool graphite and Light paper — plus bu
 </h2>
 
 
-The app talks straight to each service. There is no server, no proxy and no tracking; keys stay in the Android Keystore or the iOS Keychain. Widgets only see cached numbers. See [Security](docs/security.md). Phones, tablets and widget sizes are in [Devices](docs/DEVICES.md).
+The app talks straight to each service. There is no server, no proxy and no tracking; keys are encrypted with an Android Keystore key, or kept in the iOS Keychain. Widgets only see cached numbers. See [Security](docs/security.md). Phones, tablets and widget sizes are in [Devices](docs/DEVICES.md).
 
 <h2 id="install">
   <picture>
