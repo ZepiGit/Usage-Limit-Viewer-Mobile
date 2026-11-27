@@ -5,13 +5,15 @@
 <p align="center"><strong>Every AI limit. One glance.</strong><br>Usage and reset times for your AI subscriptions and prepaid API balances, in the app, on widgets and next to the clock.</p>
 
 <p align="center">
-  <a href="https://rookieenough.github.io/Orion-Data/app/?id=usage-limit-viewer-mobile"><img src="https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png" height="44" alt="Get it on Orion Store"></a>
+  <a href="https://rookieenough.github.io/Orion-Data/app/?id=usage-limit-viewer-mobile"><img src="https://raw.githubusercontent.com/RookieEnough/Orion-Store/refs/heads/main/assets/orion-badge.png" width="155" height="44" alt="Get it on Orion Store"></a>
   &nbsp;
-  <a href="https://raw.githack.com/ZepiGit/Usage-Limit-Viewer-Mobile/readme-preview/docs/demo/index.html"><img src="docs/demo/assets/try-the-demo.svg" height="44" alt="Try the demo"></a>
+  <a href="https://raw.githack.com/ZepiGit/Usage-Limit-Viewer-Mobile/readme-preview/docs/demo/index.html"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/try-the-demo-dark.png"><img src="docs/images/readme/try-the-demo-light.png" width="155" height="44" alt="Try the demo"></picture></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.1"><img src="https://img.shields.io/github/v/release/ZepiGit/Usage-Limit-Viewer-Mobile?label=GitHub%20Releases&style=for-the-badge" height="28" alt="Download v0.5.1 from GitHub Releases"></a>
   &nbsp;
-  <a href="https://github.com/ZepiGit/Usage-Limit-Viewer-Mobile/releases/tag/v0.5.1"><img src="https://img.shields.io/github/v/release/ZepiGit/Usage-Limit-Viewer-Mobile?label=GitHub%20Releases&style=for-the-badge" height="44" alt="Download v0.5.1 from GitHub Releases"></a>
-  &nbsp;
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/ZepiGit/Usage-Limit-Viewer-Mobile?style=for-the-badge" height="44" alt="MIT license"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ZepiGit/Usage-Limit-Viewer-Mobile?style=for-the-badge" height="28" alt="MIT license"></a>
 </p>
 
 <p align="center">
